@@ -78,6 +78,8 @@ const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 const AGENTS_MD: &str = include_str!("../../../docs/AGENTS.md");
 const WHITEPAPER_MD: &str = include_str!("../../../docs/WHITEPAPER.md");
 const SPEC_MD: &str = include_str!("../../../docs/SPEC.md");
+const PRIVACY_MD: &str = include_str!("../../../PRIVACY.md");
+const TERMS_MD: &str = include_str!("../../../TERMS.md");
 const SITEMAP_XML: &str = include_str!("../../../web/sitemap.xml");
 const FAVICON_SVG: &str = include_str!("../../../web/favicon.svg");
 const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
@@ -114,6 +116,10 @@ pub fn router(state: AppState) -> Router {
         .route("/whitepaper.md", get(serve_whitepaper_md))
         .route("/spec", get(serve_spec_md))
         .route("/spec.md", get(serve_spec_md))
+        .route("/privacy", get(serve_privacy_md))
+        .route("/privacy.md", get(serve_privacy_md))
+        .route("/terms", get(serve_terms_md))
+        .route("/terms.md", get(serve_terms_md))
         .route("/llms.txt", get(serve_llms_txt))
         .route("/llms-full.txt", get(serve_llms_full))
         .route("/robots.txt", get(serve_robots))
@@ -740,6 +746,8 @@ async fn agents_page(headers: HeaderMap) -> Response {
 async fn serve_agents_md() -> Response { text_response("text/markdown; charset=utf-8", AGENTS_MD) }
 async fn serve_whitepaper_md() -> Response { text_response("text/markdown; charset=utf-8", WHITEPAPER_MD) }
 async fn serve_spec_md() -> Response { text_response("text/markdown; charset=utf-8", SPEC_MD) }
+async fn serve_privacy_md() -> Response { text_response("text/markdown; charset=utf-8", PRIVACY_MD) }
+async fn serve_terms_md() -> Response { text_response("text/markdown; charset=utf-8", TERMS_MD) }
 async fn serve_llms_txt() -> Response { text_response("text/plain; charset=utf-8", LLMS_TXT) }
 async fn serve_llms_full() -> Response { text_response("text/plain; charset=utf-8", LLMS_FULL_TXT) }
 async fn serve_agent_walkthroughs() -> Response { text_response("text/markdown; charset=utf-8", AGENT_WALKTHROUGHS_MD) }
@@ -931,6 +939,14 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
         "mcp_url": "/mcp",
         "agent_card_url": "/v1/agent_card",
         "quickstart_url": "/v1/quickstart",
+        // Discovery hooks for connector-directory reviewers + offline
+        // signature-verifying clients. The full text lives at /privacy
+        // and /terms; the canonical contact is the maintainer email.
+        "privacy_url": "/privacy",
+        "terms_url": "/terms",
+        "support_url": "https://github.com/Vortx-AI/emem/issues",
+        "vendor": "Vortx-AI",
+        "contact_email": "avijeet@vortx.ai",
     }))
 }
 
@@ -1792,6 +1808,19 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // auto-materialize contract and assume empty recall = no data.
         "discover_first": ["emem_bands", "emem_materializers", "emem_algorithms", "emem_coverage_matrix", "emem_manifests"],
         "authentication": "none for L0/L1; ed25519 attester for L2 writes",
+        // Required by the Anthropic Software Directory submission flow:
+        // every connector must expose a privacy URL, a terms URL, and a
+        // support contact. These point to the markdown docs served from
+        // /privacy and /terms; vendor + contact email are explicit so the
+        // reviewer can reach the maintainer without scraping the repo.
+        "vendor": "Vortx-AI",
+        "contact_email": "avijeet@vortx.ai",
+        "privacy_url": "https://emem.dev/privacy",
+        "terms_url": "https://emem.dev/terms",
+        "support_url": "https://github.com/Vortx-AI/emem/issues",
+        "documentation_url": "https://github.com/Vortx-AI/emem#readme",
+        "license": "Apache-2.0",
+        "license_url": "https://github.com/Vortx-AI/emem/blob/main/LICENSE",
         "responder": {
             "pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
             "key_epoch": s.identity.epoch.0,
@@ -1811,6 +1840,8 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "agents_md":        "/agents.md",
             "whitepaper_md":    "/whitepaper.md",
             "llms_txt":         "/llms.txt",
+            "privacy":          "/privacy",
+            "terms":            "/terms",
             "fleet":            "/v1/fleet",
             "coverage_matrix":  "/v1/coverage_matrix",
             "materializers":    "/v1/materializers",
@@ -2857,10 +2888,23 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
             // LLM sees when picking a tool, so we fold `when_to_use` into it.
             // Without this, agents miss strong guidance like "ALWAYS call
             // emem_locate first" and end up guessing cell64 strings.
+            //
+            // `annotations` carries the four behavioural hints the Anthropic
+            // Software Directory expects (`title`, `readOnlyHint`,
+            // `destructiveHint`, `idempotentHint`, `openWorldHint`). Hosts
+            // (Claude Desktop, Claude.ai connector picker) use these to
+            // group tools, gate auto-execution, and label them.
             "tools": emem_mcp::TOOLS.iter().map(|t| json!({
                 "name": t.name,
                 "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
                 "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
+                "annotations": {
+                    "title":           t.title,
+                    "readOnlyHint":    t.read_only_hint,
+                    "destructiveHint": t.destructive_hint,
+                    "idempotentHint":  t.idempotent_hint,
+                    "openWorldHint":   t.open_world_hint,
+                },
             })).collect::<Vec<_>>(),
         })),
         "tools/call" => {

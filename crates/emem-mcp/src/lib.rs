@@ -23,11 +23,17 @@ use serde::{Deserialize, Serialize};
 
 /// Rich MCP tool descriptor. Backwards-compatible with the minimal MCP
 /// `Tool` shape (name + description + inputSchema) but adds emem-specific
-/// fields for richer agent guidance.
+/// fields for richer agent guidance plus the four MCP behavioural
+/// annotations the Anthropic Software Directory expects (`title`,
+/// `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
     /// Tool name (e.g. `"emem.recall"`).
     pub name: &'static str,
+    /// Human-readable display name. Surfaced as the MCP `annotations.title`
+    /// so hosts (Claude Desktop, Claude.ai connector picker, …) show a
+    /// friendly label instead of the wire identifier.
+    pub title: &'static str,
     /// One-sentence summary.
     pub description: &'static str,
     /// Natural-language trigger guidance the LLM uses to decide when to call.
@@ -40,6 +46,19 @@ pub struct ToolDescriptor {
     pub level: &'static str,
     /// Tool category for organisation.
     pub category: ToolCategory,
+    /// MCP annotation: tool does not modify server-side state. `true` for
+    /// every Read / Verify / Introspect / Plan primitive.
+    pub read_only_hint: bool,
+    /// MCP annotation: tool may make destructive changes. `true` only for
+    /// L2 writes (`emem_attest`, `emem_challenge`).
+    pub destructive_hint: bool,
+    /// MCP annotation: repeated calls with the same args yield the same
+    /// observable effect on the server side.
+    pub idempotent_hint: bool,
+    /// MCP annotation: tool interacts with an "open world" of external
+    /// entities. `true` when the call may auto-fetch upstream imagery /
+    /// OSM / weather; `false` for purely local introspection.
+    pub open_world_hint: bool,
 }
 
 /// Tool category.
@@ -169,6 +188,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_LOCATE,
         example_args: r#"{"place":"Mount Everest"}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Locate place",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
     ToolDescriptor {
         name: "emem_ask",
@@ -177,6 +198,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_ASK,
         example_args: r#"{"q":"is this neighbourhood flood-prone for a flat purchase","place":"Ashok Nagar, Ranchi"}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Ask about a place",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
     // ── Read primitives ──────────────────────────────────────────────
     ToolDescriptor {
@@ -186,6 +209,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_RECALL,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","bands":["weather.temperature_2m","copdem30m.elevation_mean"]}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Recall facts at a cell",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
     ToolDescriptor {
         name: "emem_recall_polygon",
@@ -194,6 +219,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_RECALL_POLYGON,
         example_args: r#"{"place":"Yellowstone National Park","bands":["copdem30m.elevation_mean"],"max_cells":8}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Recall facts across a polygon",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
     ToolDescriptor {
         name: "emem_query_region",
@@ -202,6 +229,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_QUERY_REGION,
         example_args: r#"{"geometry":"cells:damO.zb000.xUti.zde78,damO.zb000.xUto.sisA","agg":"mean"}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Query a region",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
     ToolDescriptor {
         name: "emem_compare",
@@ -210,6 +239,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_COMPARE,
         example_args: r#"{"a":"damO.zb000.xUti.zde78","b":"damO.zb000.xUto.sisA"}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Compare two cells",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_compare_bands",
@@ -218,6 +249,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_COMPARE_BANDS,
         example_args: r#"{"cell":"damO.zb000.wapu.yAxe","a":"copdem30m.elevation_mean","b":"gmrt.topobathy_mean"}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Compare two bands at a cell",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_find_similar",
@@ -226,6 +259,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_FIND_SIMILAR,
         example_args: r#"{"key":"damO.zb000.xUti.zde78","k":10}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Find similar cells (k-NN)",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_trajectory",
@@ -234,6 +269,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_TRAJECTORY,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[0,12]}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Time series for a cell + band",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_diff",
@@ -242,6 +279,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_DIFF,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Compute a delta between two tslots",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
 
     // ── Verify / write ───────────────────────────────────────────────
@@ -252,6 +291,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_VERIFY,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","claim":{"band":"indices.ndvi","op":"gt","value":0.5,"tslot":0}}"#,
         level: "L1", category: ToolCategory::Verify,
+    title: "Verify a claim",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_attest",
@@ -260,6 +301,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{"_": "see /openapi.json#/components/schemas/Attestation"}"#,
         level: "L2", category: ToolCategory::Write,
+    title: "Submit a signed attestation",
+    read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
     },
     ToolDescriptor {
         name: "emem_challenge",
@@ -268,6 +311,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{"_": "see /openapi.json"}"#,
         level: "L2", category: ToolCategory::Write,
+    title: "Challenge an attestation",
+    read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
     },
 
     // ── Introspection ────────────────────────────────────────────────
@@ -278,6 +323,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List active band ontology",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_functions",
@@ -286,6 +333,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List active function registry",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_sources",
@@ -294,6 +343,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List active source connectors",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_schema",
@@ -302,6 +353,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List active CDDL/JSON schemas",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_errors",
@@ -310,6 +363,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List stable error codes",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_manifests",
@@ -318,6 +373,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List active manifest CIDs",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_grid_info",
@@ -326,6 +383,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_GRID_INFO,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "Show grid encoding info",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_coverage_matrix",
@@ -334,6 +393,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_COVERAGE_MATRIX,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "Per-band coverage status",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_materializers",
@@ -342,6 +403,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List auto-fetch materializers",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_algorithms",
@@ -350,6 +413,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "List composition algorithms",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_coverage_map",
@@ -358,6 +423,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
+    title: "Render live coverage map (SVG)",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
         name: "emem_cell_scene_rgb",
@@ -366,6 +433,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: r#"{"type":"object","properties":{"cell":{"type":"string","description":"cell64 or place name"},"max_cloud":{"type":"number","default":20,"description":"max eo:cloud_cover percent"},"datetime":{"type":"string","description":"RFC 3339 interval; defaults to last 90 days"}},"required":["cell"]}"#,
         example_args: r#"{"cell":"damO.zb000.waro.zcb89","max_cloud":20}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Sentinel-2 RGB thumbnail of a cell",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
     ToolDescriptor {
         name: "emem_cell_geojson",
@@ -374,6 +443,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: r#"{"type":"object","properties":{"cell":{"type":"string","description":"cell64 or place name"}},"required":["cell"]}"#,
         example_args: r#"{"cell":"damO.zb000.waro.zcb89"}"#,
         level: "L0", category: ToolCategory::Read,
+    title: "Cell polygon as GeoJSON",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
 
     // ── Intent-routed planner ────────────────────────────────────────
@@ -384,6 +455,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_INTENT,
         example_args: r#"{"type":"what_is_here","cell":"damO.zb000.xUti.zde78"}"#,
         level: "L0", category: ToolCategory::Plan,
+    title: "Submit a typed intent",
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
 ];
 
