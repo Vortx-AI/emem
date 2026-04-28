@@ -1,0 +1,47 @@
+# Rust build artefacts
+/target/
+**/target/
+
+# Local persisted data + secrets
+/var/
+**/var/emem/
+**/var/demos/
+*.secret.b32
+identity.secret.b32
+.cloudflared/
+acme.cache/
+tls/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node / Vite (legacy assets at repo root)
+node_modules/
+dist/
+dist-server/
+.parcel-cache/
+
+# Python ad-hoc tools
+__pycache__/
+*.pyc
+.venv/
+
+# Local Claude / IDE state
+.claude/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Logs + coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+.nyc_output/

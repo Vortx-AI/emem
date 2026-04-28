@@ -1,0 +1,33 @@
+[package]
+name = "emem-fetch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Source-connector framework: fetch upstream Earth observation data on-demand for lazy fact materialization"
+
+[dependencies]
+emem-core     = { workspace = true }
+emem-codec    = { workspace = true }
+async-trait   = { workspace = true }
+tokio         = { workspace = true }
+reqwest       = { workspace = true }
+bytes         = "1"
+blake3        = { workspace = true }
+data-encoding = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+thiserror     = { workspace = true }
+tracing       = { workspace = true }
+flate2        = { workspace = true }
+# LZW (TIFF compression=5) decoder for JRC Global Surface Water tiles.
+# Pure-Rust, no transitives; same crate `image-rs`/`tiff` ecosystem uses.
+weezl         = "0.1"
+# Overture Maps materializer: anonymous S3 + parquet row-group pruning + WKB decode.
+# parquet's `async` and `object_store` features bring in
+# parquet::arrow::async_reader::ParquetObjectReader which streams row groups
+# over a real `object_store::ObjectStore`, with footer metadata cached so we
+# can prune row groups via `bbox` struct stats before reading geometry.
+parquet       = { workspace = true, features = ["async", "object_store"] }
+arrow         = { workspace = true }
+object_store  = { workspace = true }
+futures-util  = { workspace = true }

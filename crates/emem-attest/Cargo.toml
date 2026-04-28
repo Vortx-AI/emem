@@ -1,0 +1,15 @@
+[package]
+name = "emem-attest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Attestation envelope, Merkle batching, stake state (stubbed v2.0)"
+
+[dependencies]
+emem-core    = { workspace = true }
+emem-fact    = { workspace = true }
+blake3       = { workspace = true }
+ed25519-dalek = { workspace = true }
+serde        = { workspace = true }
+ciborium     = { workspace = true }
+thiserror    = { workspace = true }

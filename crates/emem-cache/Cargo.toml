@@ -1,0 +1,22 @@
+[package]
+name = "emem-cache"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Multi-tier cache for emem facts: hot (sled) + warm (parquet) + cold (IPLD/IPFS)"
+
+[dependencies]
+emem-core = { workspace = true }
+emem-fact = { workspace = true }
+async-trait = { workspace = true }
+sled = { workspace = true }
+serde = { workspace = true }
+ciborium = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+blake3 = { workspace = true }
+data-encoding = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://emem.dev/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://emem.dev/llms.txt</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/llms-full.txt</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/openapi.json</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/.well-known/emem.json</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/.well-known/ai-plugin.json</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/.well-known/agent.json</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/health</loc><changefreq>hourly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://emem.dev/mcp</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+
+  <url><loc>https://emem.dev/v1/discover</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/v1/agent_card</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/v1/quickstart</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/v1/bands</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/v1/materializers</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/v1/fleet</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/v1/coverage_matrix</loc><changefreq>hourly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/v1/coverage</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/v1/coverage_map.svg</loc><changefreq>daily</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/functions</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/sources</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/manifests</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/grid_info</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/v1/temporal_route</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/v1/tools</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/v1/errors</loc><changefreq>weekly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/v1/demos</loc><changefreq>daily</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/contributors</loc><changefreq>daily</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/reviews</loc><changefreq>hourly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/v1/agent_stats</loc><changefreq>hourly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/v1/locate</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+
+  <url><loc>https://emem.dev/agents.md</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/whitepaper.md</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/spec.md</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/agent-trial.md</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/attesting.md</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/global-trial.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/materializers.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/spaces.md</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/temporal.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+
+  <url><loc>https://emem.dev/examples/agent-walkthroughs.md</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/examples/claude-desktop.json</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/examples/claude-code.mcp.json</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/examples/cursor.mcp.json</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/examples/cline.mcp.json</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/examples/openai-gpt-action.json</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/examples/langchain.py</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/examples/llamaindex.py</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+</urlset>

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Vortx-AI/emem",
+  "title": "emem — Earth memory protocol",
+  "description": "Content-addressed, ed25519-signed memory of every place on Earth. Apache-2.0, no keys for reads.",
+  "version": "0.0.2",
+  "websiteUrl": "https://emem.dev",
+  "repository": {
+    "url": "https://github.com/Vortx-AI/emem",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://emem.dev/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/vortx-ai/emem:latest",
+      "runtimeHint": "docker",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:5051/mcp"
+      },
+      "environmentVariables": [
+        {
+          "name": "EMEM_BIND",
+          "description": "Bind address for the HTTP server. Defaults to 0.0.0.0:5051 inside the container.",
+          "isRequired": false,
+          "isSecret": false,
+          "value": "0.0.0.0:5051"
+        },
+        {
+          "name": "EMEM_DATA",
+          "description": "Path to the persistent data directory (sled cache + ed25519 identity). Mount a volume here.",
+          "isRequired": false,
+          "isSecret": false,
+          "value": "/var/emem"
+        },
+        {
+          "name": "EMEM_PUBLIC_URL",
+          "description": "Optional canonical origin for self-referencing URLs in MCP responses (e.g. https://emem.dev). When unset the server falls back to urn:emem.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "EMEM_TLS_DOMAINS",
+          "description": "Comma-separated hostnames for built-in Let's Encrypt ACME (TLS-ALPN-01). When set, the server binds 0.0.0.0:443 instead of EMEM_BIND.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://emem.dev/mcp"
+    }
+  ]
+}

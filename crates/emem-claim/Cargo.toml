@@ -1,0 +1,13 @@
+[package]
+name = "emem-claim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Custom claim algebra (band+op+value+tslot) and evaluator"
+
+[dependencies]
+emem-core  = { workspace = true }
+emem-fact  = { workspace = true }
+serde      = { workspace = true }
+ciborium   = { workspace = true }
+thiserror  = { workspace = true }

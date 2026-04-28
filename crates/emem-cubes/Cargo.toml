@@ -1,0 +1,10 @@
+[package]
+name = "emem-cubes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Loaders for the AgriSynth 1792D cubes (.npz mmap, lance index reader)"
+
+[dependencies]
+emem-core = { workspace = true }
+thiserror = { workspace = true }

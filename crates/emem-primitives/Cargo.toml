@@ -1,0 +1,19 @@
+[package]
+name = "emem-primitives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "emem read primitives: recall, query_region, compare, find_similar, verify, diff, trajectory"
+
+[dependencies]
+emem-core    = { workspace = true }
+emem-fact    = { workspace = true }
+emem-claim   = { workspace = true }
+emem-cache   = { workspace = true }
+emem-storage = { workspace = true }
+emem-codec   = { workspace = true }
+serde        = { workspace = true }
+ciborium     = { workspace = true }
+thiserror    = { workspace = true }
+async-trait  = { workspace = true }
+tokio        = { workspace = true }

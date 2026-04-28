@@ -1,0 +1,174 @@
+{
+  "manifest": "emem-functions",
+  "version": "v0",
+  "_note": "Each function declares (a) which upstream sources it requires by canonical scheme, (b) how to derive the band value, (c) determinism guarantees. Source URL patterns live in source-connector manifests, not here — schemes are abstract.",
+  "functions": [
+    {
+      "key": "nv.l2a@1",
+      "kind": "primary",
+      "out_band": "indices",
+      "out_index": 0,
+      "out_unit": "ratio",
+      "sources": [
+        { "scheme": "sentinel2.l2a", "channels": ["B04", "B08"], "tempo": "fast" }
+      ],
+      "formula": "(b08 - b04) / (b08 + b04)",
+      "deterministic": true
+    },
+    {
+      "key": "ev.l2a@1",
+      "kind": "primary",
+      "out_band": "indices",
+      "out_index": 1,
+      "out_unit": "ratio",
+      "sources": [
+        { "scheme": "sentinel2.l2a", "channels": ["B02", "B04", "B08"], "tempo": "fast" }
+      ],
+      "formula": "2.5 * (b08 - b04) / (b08 + 6*b04 - 7.5*b02 + 1)",
+      "deterministic": true
+    },
+    {
+      "key": "nw.l2a@1",
+      "kind": "primary",
+      "out_band": "indices",
+      "out_index": 2,
+      "out_unit": "ratio",
+      "sources": [
+        { "scheme": "sentinel2.l2a", "channels": ["B03", "B08"], "tempo": "fast" }
+      ],
+      "formula": "(b03 - b08) / (b03 + b08)",
+      "deterministic": true
+    },
+    {
+      "key": "sl.dem@1",
+      "kind": "primary",
+      "out_band": "terrain_derived",
+      "out_index": 0,
+      "out_unit": "degrees",
+      "sources": [{ "scheme": "copernicus.dem.30m", "tempo": "static" }],
+      "formula": "horn_1981_slope(3x3_window)",
+      "deterministic": true
+    },
+    {
+      "key": "as.dem@1",
+      "kind": "primary",
+      "out_band": "terrain_derived",
+      "out_index": 1,
+      "out_unit": "degrees",
+      "sources": [{ "scheme": "copernicus.dem.30m", "tempo": "static" }],
+      "formula": "horn_1981_aspect(3x3_window)",
+      "deterministic": true
+    },
+    {
+      "key": "tp.dem@1",
+      "kind": "primary",
+      "out_band": "terrain_derived",
+      "out_index": 2,
+      "out_unit": "meters",
+      "sources": [{ "scheme": "copernicus.dem.30m", "tempo": "static" }],
+      "formula": "tpi_3x3_mean_diff",
+      "deterministic": true
+    },
+    {
+      "key": "lc.esa@1",
+      "kind": "primary",
+      "out_band": "landcover",
+      "out_unit": "one_hot_8",
+      "sources": [{ "scheme": "esa.worldcover.v200", "tempo": "slow" }],
+      "formula": "esa_class_to_8dim_onehot",
+      "deterministic": true
+    },
+    {
+      "key": "pp.ghsl@1",
+      "kind": "primary",
+      "out_band": "population",
+      "out_unit": "people_per_km2",
+      "sources": [{ "scheme": "ghsl.r2023a.pop", "tempo": "slow" }],
+      "formula": "direct_read_density",
+      "deterministic": true
+    },
+    {
+      "key": "nl.viirs@1",
+      "kind": "primary",
+      "out_band": "nightlights",
+      "out_unit": "nW_per_cm2_per_sr",
+      "sources": [{ "scheme": "viirs.dnb.monthly", "tempo": "medium" }],
+      "formula": "monthly_composite",
+      "deterministic": true
+    },
+    {
+      "key": "kg.koppen@1",
+      "kind": "primary",
+      "out_band": "koppen",
+      "out_unit": "one_hot_32",
+      "sources": [{ "scheme": "beck.koppen.2018", "tempo": "static" }],
+      "formula": "32_class_lookup",
+      "deterministic": true
+    },
+    {
+      "key": "sr.soil@1",
+      "kind": "primary",
+      "out_band": "soilgrids",
+      "out_unit": "vector_20",
+      "sources": [{ "scheme": "soilgrids.v2.0", "tempo": "slow" }],
+      "formula": "bilinear_resample_to_10m",
+      "deterministic": true
+    },
+    {
+      "key": "gt.slice@1",
+      "kind": "primary",
+      "out_band": "geotessera",
+      "out_unit": "embedding_128",
+      "sources": [{ "scheme": "geotessera.v1", "tempo": "slow" }],
+      "formula": "direct_slice",
+      "deterministic": true
+    },
+    {
+      "key": "s2.comp@1",
+      "kind": "primary",
+      "out_band": "sentinel2_raw",
+      "out_unit": "reflectance_10band",
+      "sources": [{ "scheme": "sentinel2.l2a", "channels": ["B02","B03","B04","B05","B06","B07","B08","B8A","B11","B12"], "tempo": "fast" }],
+      "formula": "monthly_median_composite",
+      "deterministic": true
+    },
+    {
+      "key": "s1.comp@1",
+      "kind": "primary",
+      "out_band": "sentinel1_raw",
+      "out_unit": "backscatter_db_vv_vh",
+      "sources": [{ "scheme": "sentinel1.grd.iw", "channels": ["VV", "VH"], "tempo": "fast" }],
+      "formula": "monthly_mean_composite",
+      "deterministic": true
+    },
+    {
+      "key": "nd.delta@1",
+      "kind": "derivative",
+      "out_band": "indices",
+      "out_index": 0,
+      "op": "delta",
+      "parents_required": 2,
+      "formula": "value_b - value_a",
+      "deterministic": true
+    },
+    {
+      "key": "nd.trend@1",
+      "kind": "derivative",
+      "out_band": "indices",
+      "out_index": 0,
+      "op": "trend",
+      "parents_min": 3,
+      "formula": "ols_slope_per_month",
+      "deterministic": true
+    },
+    {
+      "key": "abs.s1.water@1",
+      "kind": "negative",
+      "out_band": "surface_water",
+      "sources": [{ "scheme": "sentinel1.grd.iw", "channels": ["VV"], "tempo": "fast" }],
+      "formula": "vv_max_below_threshold(-17_db)_implies_absence",
+      "deterministic": true,
+      "reason_template": "absence.confirmed_by:s1_scene_cid:{scene_cid}"
+    }
+  ]
+}

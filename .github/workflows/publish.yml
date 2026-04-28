@@ -1,0 +1,119 @@
+name: publish
+
+# Build and publish the emem MCP server container to GitHub Container
+# Registry on every push to main and on every release tag, plus mirror
+# the same image to Docker Hub when DOCKERHUB_TOKEN is configured.
+#
+# Image tags:
+#   ghcr.io/vortx-ai/emem:latest        — head of main
+#   ghcr.io/vortx-ai/emem:<short-sha>   — every push to main
+#   ghcr.io/vortx-ai/emem:<semver>      — every git tag matching v*
+#   docker.io/vortxai/emem:<same>       — only when secrets are present
+#
+# The image runs the same emem-server binary served at https://emem.dev,
+# bound to :5051 by default.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  REGISTRY_GHCR: ghcr.io
+  REGISTRY_DH:   docker.io
+  IMAGE_NAME:    vortx-ai/emem
+  DH_IMAGE_NAME: vortxai/emem
+
+jobs:
+  container:
+    name: build & push container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: set up qemu
+        uses: docker/setup-qemu-action@v3
+
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: log in to docker hub (optional)
+        if: ${{ vars.PUBLISH_DOCKERHUB == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_DH }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}
+            ${{ vars.PUBLISH_DOCKERHUB == 'true' && format('{0}/{1}', env.REGISTRY_DH, env.DH_IMAGE_NAME) || '' }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=emem
+            org.opencontainers.image.description=Earth memory protocol — content-addressed, ed25519-signed memory of every place on Earth
+            org.opencontainers.image.url=https://emem.dev
+            org.opencontainers.image.source=https://github.com/Vortx-AI/emem
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.vendor=Vortx-AI
+
+      - name: build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags:   ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          provenance: true
+          sbom:       true
+
+  hf-space:
+    name: sync huggingface space
+    runs-on: ubuntu-latest
+    if: ${{ vars.PUBLISH_HF_SPACE == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install huggingface-cli
+        run: pip install --quiet "huggingface_hub[cli]>=0.24"
+
+      - name: push huggingface-space/ to hf hub
+        env:
+          HF_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE_REPO_ID }}
+        run: |
+          if [ -z "$HF_SPACE" ]; then
+            echo "HF_SPACE_REPO_ID variable not set — skipping"; exit 0
+          fi
+          huggingface-cli upload \
+            "$HF_SPACE" \
+            huggingface-space/ \
+            . \
+            --repo-type=space \
+            --token "$HF_TOKEN" \
+            --commit-message "sync from ${GITHUB_SHA::7}"

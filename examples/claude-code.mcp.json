@@ -1,0 +1,14 @@
+{
+  "_doc": "Save this as `.mcp.json` at your project root. Claude Code will discover it on next launch. Either the http transport (preferred, Claude Code recent) or the stdio bridge below works.",
+  "mcpServers": {
+    "emem": {
+      "type": "http",
+      "url": "https://emem.dev/mcp"
+    },
+    "emem_via_remote": {
+      "_doc": "Fallback for environments that need a stdio bridge — install `mcp-remote` first: `npm install -g mcp-remote`",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://emem.dev/mcp"]
+    }
+  }
+}

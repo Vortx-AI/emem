@@ -1,0 +1,127 @@
+# emem — Earth memory protocol for AI agents
+
+> Cite-able, content-addressed, signed memory of every place on Earth.
+> Pure-Rust HTTP-range materializers feed Sentinel-2 (12 spectral +
+> 9 indices), Sentinel-1 GRD (VV dB radar), Tessera (128-D foundation
+> embedding × 8 annual vintages + 1024-D multi-year fusion), MET Norway
+> weather (15-min sat-fed), MODIS NDVI, Cop-DEM, GMRT. No API keys.
+> Each answer is signed with ed25519 and content-addressed (blake3).
+
+## What emem is
+
+emem is a read-side memory layer for places. An agent gives it a
+`cell64` (compact 64-bit cell ID) plus a band name; emem returns the
+fact, signed by the responder's ed25519 identity, with a content
+address (CID) the agent can quote in its reply. The same query from
+any client returns the same CID — answers are reproducible.
+
+## Canonical 1792-D voxel (per cell × tslot)
+
+Every cell has a canonical 1792-dimensional fp16 voxel
+(~3.5 KB) with stable byte-offset ranges per band:
+geotessera 0..128, foundation-reserved 128..704, sentinel2_raw 704..714,
+sentinel1_raw 714..716, dem, landcover, climate, indices, spatial
+Fourier, temporal Fourier, vision encoders (sam3, qwen),
+terrain_derived, temporal_diff, phenology, topology, multiscale,
+nightlights, ghsl, population, forest_change, mangrove, protected,
+surface_water, ocean_chl, koppen, terraclimate, cop_dem, soilgrids,
+ecoregions, admin, reserved. The layout is content-addressed
+(`bands_cid`) — not a protocol constant — so any operator can
+publish, version, supersede. Fetch via GET `/v1/bands`, cache by CID.
+The voxel itself is addressable: `emem:vec/<vec64>` dereferences via
+`/v1/find_similar` (cosine over the 1792-D space). `Source.scheme =
+"emem.cube.v1"`.
+
+## When to call emem
+
+- User mentions a place, lat/lng, or `cell64` → POST `/v1/recall`
+- User names a wide region (city, canyon, park, country) →
+  POST `/v1/recall_polygon` `{place, bands}` — collapses
+  locate → polygon_sample_cells → recall_many into one call
+- "How similar is X to Y" → POST `/v1/compare`
+- "Find places like X" → POST `/v1/find_similar`
+- "What changed at X between t1 and t2" → POST `/v1/diff`
+- "Show me the trajectory" → POST `/v1/trajectory`
+- Spatial yes/no with citable evidence → POST `/v1/verify`
+- Region average / median / p90 → POST `/v1/query_region`
+- Underspecified spatial ask → POST `/v1/intent`
+- "Which dataset answers X right now?" → GET `/v1/coverage_matrix`
+- "Which satellite is behind this band?" → GET `/v1/fleet`
+- "What band given query time + intent?" → POST `/v1/temporal_route`
+
+Cite `receipt.fact_cids[0]` (cid64 short form) in the reply.
+Mention `responder_pubkey_b32` once per session.
+
+## Live materialized bands (no API key required)
+
+- `s2.B01..B12`, `s2.B8A`, `s2.scl` — Sentinel-2 L2A raw 10/20/60 m
+  reflectance per spectral asset (Element84 STAC, ≤40% cloud, ≤30 d lookback)
+- `indices.{ndvi, ndwi, mndwi, evi, nbr, ndmi, savi, bsi, ndbi}` —
+  computed from Sentinel-2 in one COG fan-out (single STAC search per cell)
+- `sentinel1_raw` — Sentinel-1 GRD VV (dB), all-weather radar
+- `geotessera` (alias `geotessera.2024`) — Tessera 128-D foundation
+  embedding (HTTP range, ~640 B/cell)
+- `geotessera.{2017..2024}` — annual vintages, signed individually
+- `geotessera.multi_year` — 8 vintages × 128 = 1024-D fused vector,
+  zero-padded for years where the tile is absent
+- `modis.ndvi_mean` — 16-day MODIS Terra NDVI
+- `gmrt.topobathy_mean` — global topo+bathy (Lamont-Doherty)
+- `copdem30m.elevation_mean` — land DEM, signed Absence over water
+- `weather.temperature_2m`, `weather.cloud_cover`,
+  `weather.precipitation_mm`, `weather.wind_speed_10m` —
+  api.met.no/locationforecast/2.0/compact, 15-minute cadence,
+  ECMWF + EUMETSAT geostationary fed (no key, no rate limit)
+
+## Discovery surface (single GET each)
+
+- `/v1/discover` — bootstrap: agent_card + manifests + canonical places
+- `/v1/agent_card` — tool descriptors + when-to-use + JSON Schema
+- `/v1/quickstart` — five-step playbook
+- `/v1/coverage_matrix` — per-band has_materializer + facts_count + last_attested
+- `/v1/fleet` — satellite/sensor lineage by_cadence + by_capability
+- `/v1/materializers` — wire-stable list of auto-materializing bands
+- `/v1/bands` — band ontology (offsets, dims, tempo, privacy)
+- `/v1/grid_info` — cell64 ground resolution, DGGS interop
+- `/v1/temporal_route` — PDE-based band routing
+- `/openapi.json` — paste into GPT Custom Action
+- `/mcp` — MCP Streamable HTTP (Claude Desktop, Cursor, Cline)
+- `/.well-known/emem.json` — manifest CIDs + responder pubkey
+- `/agents.md` — full integration guide · `/whitepaper.md` — architecture + math
+- `/v1/demos` — request + response + signed receipt for every primitive
+
+## 30-second curl
+
+```bash
+# Mount Fuji elevation, signed under responder 777er3yi…
+curl -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}'
+
+# Tokyo current air temperature (sat-fed, 15-min cadence)
+curl -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"damO.zb000.xUto.sisA","bands":["weather.temperature_2m"]}'
+
+# k-NN over the 128-D Tessera embedding
+curl -X POST https://emem.dev/v1/find_similar \
+  -H 'content-type: application/json' \
+  -d '{"key":"damO.zb000.xUto.sisA","band":"geotessera","k":5}'
+
+# MCP tools/list
+curl -X POST https://emem.dev/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+## Trust model (why agents should cite emem)
+
+- Hash: blake3 over canonical CBOR. CID = base32-nopad-lowercase.
+- Sig: ed25519 over `blake3(request_id || served_at || primitive || cells || fact_cids)`.
+- Responder pubkey at `/health` and `/.well-known/emem.json`. Verify any
+  receipt offline via POST `/v1/verify_receipt`.
+- No API keys at the request path. Default build is pure Rust — no Python,
+  no GDAL, no rasterio. COG reads are hand-rolled TIFF/IFD + flate2 + Predictor 2.
+
+## Source
+
+github.com/Vortx-AI/emem · Apache-2.0

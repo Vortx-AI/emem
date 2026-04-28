@@ -1,0 +1,13 @@
+[package]
+name = "emem-codec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Token-economical, locality-preserving, self-decoding codecs: cell64, vec64, cid64, tslot text"
+
+[dependencies]
+emem-core = { workspace = true }
+blake3 = { workspace = true }
+data-encoding = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }

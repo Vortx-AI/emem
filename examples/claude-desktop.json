@@ -1,0 +1,10 @@
+{
+  "_doc": "Add this to your Claude Desktop config file. Locations: macOS ~/Library/Application Support/Claude/claude_desktop_config.json | Linux ~/.config/Claude/claude_desktop_config.json | Windows %APPDATA%\\Claude\\claude_desktop_config.json. Restart Claude Desktop after saving. The HTTP transport is supported on Claude Desktop 0.9+ — for older versions, install `mcp-remote` via npm and replace the entry with a stdio-style command (see /examples/claude-code.mcp.json for that form).",
+  "mcpServers": {
+    "emem": {
+      "transport": "http",
+      "url": "https://emem.dev/mcp",
+      "description": "Earth memory protocol — recall, compare, find_similar, diff, trajectory, verify over signed receipts."
+    }
+  }
+}

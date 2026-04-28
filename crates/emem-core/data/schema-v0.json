@@ -1,0 +1,18 @@
+{
+  "manifest": "emem-schema",
+  "version": "v0",
+  "_note": "Active CDDL/JSON schema bundle for emem v0.0.2. Fragments are referenced by stable name and a per-fragment blake3 CID over their canonical CBOR. Two implementations parsing the same fragment MUST agree on the CID; that is the protocol's primary soundness guarantee.",
+  "fragments": [
+    { "name": "Cell",          "cid_alg": "blake3-32", "encoding": "canonical-cbor" },
+    { "name": "Tslot",         "cid_alg": "blake3-32", "encoding": "canonical-cbor" },
+    { "name": "PrimaryFact",   "cid_alg": "blake3-32", "encoding": "canonical-cbor" },
+    { "name": "DerivativeFact","cid_alg": "blake3-32", "encoding": "canonical-cbor" },
+    { "name": "NegativeFact",  "cid_alg": "blake3-32", "encoding": "canonical-cbor" },
+    { "name": "Attestation",   "cid_alg": "blake3-32", "encoding": "canonical-cbor" },
+    { "name": "Receipt",       "cid_alg": "blake3-32", "encoding": "canonical-cbor" },
+    { "name": "Claim",         "cid_alg": "blake3-32", "encoding": "canonical-cbor" }
+  ],
+  "hash": "blake3",
+  "signature": "ed25519",
+  "cid_encoding": "base32-nopad-lowercase"
+}

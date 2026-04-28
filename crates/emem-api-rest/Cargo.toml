@@ -1,0 +1,36 @@
+[package]
+name = "emem-api-rest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HTTP surface for emem agents and humans (REST + MCP JSON-RPC + OpenAPI)"
+
+[dependencies]
+emem-core       = { workspace = true }
+emem-fact       = { workspace = true }
+emem-attest     = { workspace = true }
+emem-claim      = { workspace = true }
+emem-cache      = { workspace = true }
+emem-storage    = { workspace = true }
+emem-primitives = { workspace = true }
+emem-intent     = { workspace = true }
+emem-mcp        = { workspace = true }
+emem-fetch      = { workspace = true }
+axum            = { workspace = true }
+tower           = { workspace = true }
+tower-http      = { workspace = true }
+tokio           = { workspace = true }
+reqwest         = { workspace = true }
+emem-codec      = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+thiserror       = { workspace = true }
+data-encoding   = { workspace = true }
+ciborium        = { workspace = true }
+ed25519-dalek   = { workspace = true }
+blake3          = { workspace = true }
+tracing         = { workspace = true }
+sled            = { workspace = true }
+# PNG encoder for the multimodal RGB-scene tool
+# (/v1/cells/{cell64}/scene.png + emem_cell_scene_rgb MCP).
+png             = "0.17"

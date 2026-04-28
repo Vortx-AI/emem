@@ -1,0 +1,422 @@
+# emem — Earth memory protocol for AI agents (full agent context)
+
+> Cite-able, content-addressed, signed memory of every place on Earth.
+> 1 protocol. 8 read primitives. ed25519 receipts. No keys for L0/L1.
+> Apache-2.0. Pure Rust + open data only.
+> github.com/Vortx-AI/emem  •  https://emem.dev
+
+This file is the single-call agent context dump for emem. It includes
+every primitive, every live materializer, the address algebra, the
+crypto, the fleet lineage, and paste-ready integration snippets.
+
+---
+
+## What emem is
+
+emem indexes every place on Earth by `(cell, band, tslot)`. A `cell` is
+a Hilbert-ordered 64-bit cell ID rendered as four base-1024 bigrams
+joined by `.` (e.g. `damO.zb000.xUti.zde78`). A `band` is a named
+channel of the cube ontology (e.g. `copdem30m.elevation_mean`,
+`weather.temperature_2m`, `geotessera`). A `tslot` is a u64 offset from
+the protocol epoch in units of the band's tempo class.
+
+Every read returns a Fact plus a signed Receipt. The Receipt is an
+ed25519 signature over `blake3(request_id || served_at || primitive ||
+cells || fact_cids)` and any client can verify it offline against the
+responder's public key. Identical canonical facts have identical CIDs
+across responders — answers merge by content, not by central authority.
+
+---
+
+## When the agent should call emem
+
+| user says…                                     | first call                          | then                    |
+|------------------------------------------------|-------------------------------------|-------------------------|
+| "what's at lat/lng …?"                         | POST /v1/locate {lat, lng}          | POST /v1/recall         |
+| "what's at <place name>?" (point feature)      | POST /v1/locate {place: "<name>"}   | POST /v1/recall_many    |
+| "what's at <wide place>?" (canyon, city, park) | POST /v1/recall_polygon {place, bands} | —                    |
+| "how similar is X to Y?"                       | /v1/locate × 2                      | POST /v1/compare        |
+| "find places like X"                           | /v1/locate                          | POST /v1/find_similar   |
+| "what changed between t1 and t2?"              | /v1/locate                          | POST /v1/diff           |
+| "show me the trajectory"                       | /v1/locate                          | POST /v1/trajectory     |
+| "is <claim> true at X?"                        | /v1/locate                          | POST /v1/verify         |
+| "average / median / p90 over region"           | /v1/locate × N                      | POST /v1/query_region   |
+| "I have facts to add"                          | POST /v1/attest_cbor                | —                       |
+| "audit a receipt"                              | POST /v1/verify_receipt             | —                       |
+| underspecified spatial ask                     | POST /v1/intent                     | follow returned plan    |
+| "which band best fits this query time?"        | POST /v1/temporal_route             | POST /v1/recall         |
+| "what dataset answers X right now?"            | GET  /v1/coverage_matrix            | —                       |
+| "which satellite is behind this band?"         | GET  /v1/fleet                      | —                       |
+
+In every reply: include `receipt.fact_cids[0]` as a 13-char `cid64`
+prefix and the truncated `responder_pubkey_b32`. Citations are how
+agents earn trust and how emem ranks contributors.
+
+---
+
+## Discovery (one GET per file)
+
+| URL                           | what                                                    |
+|-------------------------------|---------------------------------------------------------|
+| `/health`                     | liveness, manifest CIDs, responder pubkey               |
+| `/.well-known/emem.json`      | protocol manifest                                       |
+| `/.well-known/ai-plugin.json` | OpenAI plugin manifest                                  |
+| `/openapi.json`               | OpenAPI 3.1 (paste into GPT Custom Action)              |
+| `/mcp`                        | MCP Streamable HTTP 2025-03-26                          |
+| `/v1/discover`                | bootstrap: agent_card + bands + manifests + sample places |
+| `/v1/agent_card`              | tool descriptors + when-to-use + schemas                |
+| `/v1/quickstart`              | six-step onboarding playbook                            |
+| `/v1/bands`                   | band registry (key, dims, family, tempo, privacy)       |
+| `/v1/materializers`           | every band that auto-materializes + fetch_strategy      |
+| `/v1/fleet`                   | satellite/sensor lineage by_cadence + by_capability     |
+| `/v1/coverage_matrix`         | per-band has_materializer / facts_count / last_attested |
+| `/v1/grid_info`               | cell64 ground resolution, DGGS interop                  |
+| `/v1/temporal_route`          | PDE-based band routing                                  |
+| `/v1/functions`               | derivation recipe registry                              |
+| `/v1/sources`                 | source-provider registry + licenses                     |
+| `/v1/errors`                  | wire-stable error codes                                 |
+| `/v1/contributors`            | leaderboard of agent contributors                       |
+| `/v1/agent_stats`             | by-family request counts + p50/p95/p99 latency          |
+| `/v1/demos`                   | live demo traces (every primitive end-to-end)           |
+| `/agents.md`                  | full integration guide                                  |
+| `/whitepaper.md`              | architecture + math                                     |
+| `/temporal.md`                | PDE math behind /v1/temporal_route                      |
+| `/materializers.md`           | per-band fetch path documentation                       |
+
+---
+
+## Address algebra (token cost)
+
+| field   | bits        | wire form          | tokens |
+|---------|-------------|--------------------|--------|
+| `cell`  | 64          | 4 base-1024 bigrams | ≤ 4   |
+| `tslot` | 64          | base32 short       | ≤ 2    |
+| `vec`   | 1792-D fp16 | 12-byte prefix     | ≤ 3    |
+| `cid`   | 32 B        | 8-byte prefix      | ≤ 3    |
+
+### The 1792-D voxel (canonical cube ontology)
+
+`vec` is not arbitrary — every `(cell, tslot)` has a **canonical
+1792-dimensional fp16 voxel** (~3.5 KB / cell). Each band claims a
+**stable byte-offset range** so an agent can splice multi-band features
+without a full deserialise. Selected v0 layout:
+
+| offset | dims | band               | family     |
+|--------|------|--------------------|------------|
+|     0  |  128 | `geotessera`       | foundation |
+|   128  |  576 | `_reserved_576`    | foundation (reserved for forward-compat) |
+|   704  |   10 | `sentinel2_raw`    | optical    |
+|   714  |    2 | `sentinel1_raw`    | radar      |
+|   716  |    3 | `dem`              | terrain    |
+|   719  |    8 | `landcover`        | landcover  |
+|   727  |    4 | `climate`          | climate    |
+|   731  |    3 | `indices`          | optical    |
+|   734  |   96 | `spatial_fourier`  | encoding   |
+|   830  |   64 | `temporal_fourier` | encoding   |
+|   894  |  192 | `sam3_visual`      | vision     |
+|  1086  |  192 | `qwen_visual`      | vision     |
+|  1278  |   32 | `terrain_derived`  | terrain    |
+|  1310  |   64 | `temporal_diff`    | vegetation |
+|  1374  |   32 | `phenology`        | vegetation |
+|  1406  |   32 | `topology`         | topology   |
+|  1438  |   64 | `multiscale`       | vegetation |
+|  1502  |    8 | `nightlights`      | human      |
+|  1510  |    8 | `ghsl`             | human      |
+|  1518  |    8 | `population`       | human      |
+|  1526  |   12 | `forest_change`    | landcover  |
+|  1538  |    4 | `mangrove`         | landcover  |
+|  1542  |    4 | `protected`        | human      |
+|  1546  |   12 | `surface_water`    | water      |
+|  1558  |    4 | `ocean_chl`        | water      |
+|  1562  |   32 | `koppen`           | climate    |
+|  1594  |   20 | `terraclimate`     | climate    |
+|  1614  |    8 | `cop_dem`          | terrain    |
+|  1622  |   20 | `soilgrids`        | soil       |
+|  1642  |   20 | `ecoregions`       | landcover  |
+|  1662  |   10 | `admin`            | human      |
+|  1672  |  120 | `reserved`         | reserved   |
+
+Σ dims = 1792. The layout is a **content-addressed manifest**, not a
+protocol constant: each Attestation pins the active `bands_cid`. To
+swap layouts, publish a new manifest with a new CID; existing facts
+remain valid forever under their original `bands_cid`. Agents fetch
+the live layout via GET `/v1/bands` and cache by CID.
+
+The voxel itself is directly addressable: `emem:vec/<vec64>`
+dereferences via POST `/v1/find_similar` to the top-k cells whose
+attested 1792-D embedding has highest cosine similarity to the
+addressed vector. `Source.scheme = "emem.cube.v1"` identifies the
+canonical layout.
+
+Live bands above (Sentinel-1/2, Tessera, MODIS, weather, DEM, GMRT)
+feed cube positions when materialized; bands not yet wired to a
+fetch path are still byte-stable in the layout (zero or NaN until
+attested), so the address algebra is forward-compatible.
+
+`cell64` is locality-preserving: adjacent codepoints map to spatially
+adjacent cells. The active grid resolves to ~305 m on the latitude axis
+and ~611 m on the longitude axis at the equator (longitude narrows with
+cos(lat) toward the poles). Authoritative resolution: `/v1/grid_info`.
+
+`tslot = 0` is the protocol epoch `2026-01-01T00:00:00Z`. Tempo classes:
+`static` · `slow` (annual) · `medium` (16–30 d) · `fast` (5–12 d) ·
+`ultra_fast` (≤ 1 h). The temporal router (POST /v1/temporal_route)
+scores bands against query time using PDE kernels (heat / wave /
+advection); see `docs/TEMPORAL.md`.
+
+---
+
+## Live materializers (each band fan-out path)
+
+`/v1/materializers` is the wire-stable source of truth. 30+ bands
+auto-materialize on a cache miss; the responder fetches upstream, signs
+the resulting Fact under its identity, and persists it. Subsequent
+calls hit the hot cache (~10 ms vs ~180 ms cold).
+
+| band                              | fetch_strategy                                      | unit  | tempo       |
+|-----------------------------------|-----------------------------------------------------|-------|-------------|
+| `s2.B01..B12`, `s2.B8A`, `s2.scl` | Sentinel-2 L2A COG via Element84 STAC + HTTP range  | refl. | fast        |
+| `indices.{ndvi,ndwi,mndwi,evi,nbr,ndmi,savi,bsi,ndbi}` | computed from S2 in one COG fan-out | —  | fast        |
+| `sentinel1_raw`                   | Sentinel-1 GRD COG via HTTP range, 10·log10 → dB    | dB    | fast        |
+| `geotessera`                      | dl2.geotessera.org `.npy` HTTP range, ~640 B/cell   | —     | slow        |
+| `geotessera.{2017..2024}`         | per-vintage `.npy` range read; signed individually  | —     | slow        |
+| `geotessera.multi_year`           | 8 vintages × 128 = 1024-D fused; zero-pad on absent | —     | slow        |
+| `modis.ndvi_mean`                 | ORNL DAAC TESViS REST (MOD13Q1 16-day)              | —     | medium      |
+| `gmrt.topobathy_mean`             | gmrt.org PointServer                                | m     | static      |
+| `copdem30m.elevation_mean`        | Open-Meteo Elevation REST → Primary or Absence      | m     | static      |
+| `weather.temperature_2m`          | api.met.no/locationforecast/2.0/compact `instant`   | degC  | ultra_fast  |
+| `weather.cloud_cover`             | api.met.no/locationforecast/2.0/compact `instant`   | %     | ultra_fast  |
+| `weather.precipitation_mm`        | api.met.no/locationforecast/2.0/compact `next_1h`   | mm    | ultra_fast  |
+| `weather.wind_speed_10m`          | api.met.no/locationforecast/2.0/compact `instant`   | m/s   | ultra_fast  |
+
+Fact::Absence is a first-class signed value. `copdem30m.elevation_mean`
+returns Absence over open water (Cop-DEM uses 0 m as no-data marker);
+agents should treat it as evidence of "tried and got no answer", not
+as null.
+
+---
+
+## Fleet lineage (which satellite feeds which band)
+
+`GET /v1/fleet` returns the full mapping. Highlights:
+
+- **Terra (NASA EOS AM-1) MODIS** — `modis.ndvi_mean`. 250 m native, 1–2 day
+  global revisit, 16-day composite. Wire path: ORNL DAAC TESViS REST.
+- **Sentinel-2A/B/C MSI** — full multi-band live: `s2.B01..B12`,
+  `s2.B8A`, `s2.scl`, plus computed `indices.{ndvi, ndwi, mndwi, evi,
+  nbr, ndmi, savi, bsi, ndbi}`. 10 m, 5-day equatorial revisit. Wire
+  path: Element84 STAC search (intersects: Point, ≤40 % cloud,
+  ≤30-day lookback) → COG HTTP range, pure-Rust TIFF/IFD + flate2 +
+  Predictor 2 + UTM forward.
+- **Sentinel-1A/C C-band SAR** — `sentinel1_raw`. 10 m, 12-day revisit,
+  all-weather, all-night. Wire path: ASF / Planetary Computer COG.
+- **GMRT (Lamont-Doherty multibeam fleet)** — `gmrt.topobathy_mean`.
+  Single peer-reviewed topo-bathy raster fusing Cop-DEM, GEBCO,
+  multibeam, high-res sounders. Static, ~quarterly editorial updates.
+- **Copernicus DEM (TanDEM-X derived)** — `copdem30m.elevation_mean`.
+  90 m native, land-only. Returns Absence over water.
+- **Tessera v1 (Cambridge AAILab + Clay-style composite)** —
+  `geotessera` (alias for current vintage), `geotessera.{2017..2024}`
+  per-vintage Primary, `geotessera.multi_year` 1024-D fused (8 vintages
+  × 128 dims, zero-pad on absent year). 10 m native, annual,
+  0.1° tile grid, native CRS per-tile UTM. Wire path:
+  dl2.geotessera.org `.npy` HTTP range read, ~640 B per cell.
+- **GOES-16/17/18 + Himawari-9 + Meteosat-9/11 (geostationary fleet) +
+  ECMWF/IFS analysis** — `weather.*`. 10–15 min revisit, blended via
+  api.met.no/locationforecast/2.0/compact (no API key, no rate limit,
+  Norwegian Meteorological Institute). The temporal router classifies
+  these as `ultra_fast`.
+
+`/v1/fleet` indexes by_cadence (`fast` / `medium` / `slow` / `static` /
+`ultra_fast`) and by_capability (`vegetation`, `radar`, `all_weather`,
+`night`, `elevation`, `embedding`, `weather`).
+
+---
+
+## Primitives (every read returns a signed receipt)
+
+```bash
+# 1) Address book — bridge a place name to cell64.
+curl -s -X POST https://emem.dev/v1/locate \
+  -H 'content-type: application/json' \
+  -d '{"place":"Mount Fuji"}'
+# → cell64=damO.zb000.xUti.zde78, neighborhood_cells (9), via=embedded|cache|nominatim
+
+# 2) Recall — facts known about a cell.
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}'
+# → value=3776.24 m, signed under responder 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+
+# 3) Recall fan-out across cells (one round trip, per-cell receipts).
+curl -s -X POST https://emem.dev/v1/recall_many \
+  -H 'content-type: application/json' \
+  -d '{"cells":["damO.zb000.xUti.zde78","damO.zb000.wapu.yAxe"],"bands":["copdem30m.elevation_mean"]}'
+
+# 4) Compare two cells.
+curl -s -X POST https://emem.dev/v1/compare \
+  -H 'content-type: application/json' \
+  -d '{"a":"damO.zb000.xUti.zde78","b":"damO.zb000.wapu.yAxe"}'
+# → cosine, per_band scalar deltas
+
+# 5) k-NN over a vector band.
+curl -s -X POST https://emem.dev/v1/find_similar \
+  -H 'content-type: application/json' \
+  -d '{"key":"damO.zb000.xUto.sisA","band":"geotessera","k":5}'
+
+# 6) Diff between two tslots.
+curl -s -X POST https://emem.dev/v1/diff \
+  -H 'content-type: application/json' \
+  -d '{"cell":"damO.zb000.xUti.zde78","band":"copdem30m.elevation_mean","tslot_a":0,"tslot_b":12}'
+
+# 7) Trajectory.
+curl -s -X POST https://emem.dev/v1/trajectory \
+  -H 'content-type: application/json' \
+  -d '{"cell":"damO.zb000.xUto.sisA","band":"weather.temperature_2m","window":[0,24]}'
+
+# 8) Verify a structured spatial claim.
+curl -s -X POST https://emem.dev/v1/verify \
+  -H 'content-type: application/json' \
+  -d '{"cell":"damO.zb000.xUti.zde78","claim":{"band":"copdem30m.elevation_mean","op":"gt","value":3000}}'
+
+# 9) Region aggregate.
+curl -s -X POST https://emem.dev/v1/query_region \
+  -H 'content-type: application/json' \
+  -d '{"geometry":"cells:damO.zb000.xUti.zde78,damO.zb000.wapu.yAxe","bands":["copdem30m.elevation_mean"],"agg":"mean"}'
+
+# 10) Temporal routing.
+curl -s -X POST https://emem.dev/v1/temporal_route \
+  -H 'content-type: application/json' \
+  -d '{"intent":"agri-monitoring","query_time_unix_s":1735689600}'
+
+# 11) Verify a receipt offline.
+curl -s -X POST https://emem.dev/v1/verify_receipt \
+  -H 'content-type: application/json' \
+  -d '{"receipt": <paste any receipt object from a previous call>}'
+```
+
+---
+
+## MCP (Claude Desktop, Cursor, Cline, ChatGPT MCP)
+
+```bash
+curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"emem.recall","arguments":{"cell":"damO.zb000.xUti.zde78"}}}'
+```
+
+Paste-ready configs: `/examples/claude-desktop.json` ·
+`/examples/claude-code.mcp.json` · `/examples/cursor.mcp.json` ·
+`/examples/cline.mcp.json` · `/examples/openai-gpt-action.json` ·
+`/examples/langchain.py` · `/examples/llamaindex.py`.
+
+---
+
+## Worked example — full agent loop
+
+User: *"What's the elevation around Mount Fuji?"*
+
+```
+1. POST /v1/locate {"place":"Mount Fuji"}
+   → cell64 = damO.zb000.xUti.zde78, neighborhood_cells (9)
+2. POST /v1/recall_many {"cells": <neighborhood>,
+                         "bands": ["copdem30m.elevation_mean"]}
+   → per-cell facts, each with its own signed receipt
+3. Reply: "Elevation at `damO.zb000.xUti.zde78` is 3776 m
+   (Cop-DEM 30 m). cid64 oivxwgme…  responder 777er3yi…"
+```
+
+If a cell has no fact AND `auto_materialize_enabled=true`, the responder
+fetches upstream, signs, persists, and returns the Fact in the same
+response. The next call hits the hot cache.
+
+---
+
+## Trust model
+
+- Hash: blake3.
+- Sig: ed25519 over `blake3(request_id || "|" || served_at || "|" ||
+  primitive || "|" || cell1,cell2,…|cid1,cid2,…)`.
+- CID: `base32_nopad_lowercase(blake3(canonical_cbor(fact)))`.
+- Merkle: binary, blake3 leaves over canonical CBOR; leaves canonically
+  sorted; single-leaf root = `blake3(leaf || leaf)`.
+- Manifest CIDs (current responder at emem.dev):
+  `bands_cid=dhimsuf325dd23viqmfh55rf24d33pwz5gfpxnl2rdyf3d4ly2zq`,
+  `functions_cid=hcbqrsck4sobm3s4uocsrf45ucl7ckyh2n4ma6fckdvf7qkexsza`,
+  `schema_cid=d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq`,
+  `sources_cid=2nwvbnvltilyxah6e2e3xadxgjkicvomdrdvshcpv6wh556blrxa`.
+- Responder pubkey (hosted instance):
+  `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
+
+Materialized facts are signed by the *responder*, not the upstream
+provider. The fact's `derivation.fn_key` declares the recipe that
+produced the value; an external attester can re-run the recipe and
+submit a corroborating or correcting Fact under their own key.
+
+---
+
+## How emem differs from a vector DB
+
+A vector DB stores opaque embeddings keyed by an opaque ID. emem keys
+every fact by `(cell, band, tslot)` where the cell ID is a stable
+geographic primitive, the band is a typed channel from a published
+ontology (`/v1/bands`), and the tslot maps to a real-world clock. The
+fact's value can be a scalar, a vector, a histogram, or a signed
+Absence; the CID is reproducible across responders. Vector search
+(`/v1/find_similar`) is one of eight primitives, not the only one.
+
+---
+
+## Open data, no keys (default build)
+
+Open-data sources at the request path: Copernicus DEM 30 m
+(DLR/ESA, via Open-Meteo Elevation REST), GMRT topo-bathy (LDEO
+PointServer), MODIS Terra MOD13Q1 (NASA/USGS via ORNL DAAC TESViS),
+Sentinel-2 L2A and Sentinel-1 GRD (Copernicus/ESA via Element84 STAC),
+Tessera v1 (Cambridge AAILab dl2.geotessera.org `.npy`),
+MET Norway api.met.no/locationforecast/2.0/compact (CC-BY 4.0,
+no API key, no rate limit, ECMWF + EUMETSAT geostationary fed),
+OpenStreetMap Nominatim (ODbL 1.0, geocoder).
+
+The COG read path is a hand-rolled TIFF/IFD parser + flate2 (Deflate) +
+Predictor 2 (horizontal differencing) decoder. Per-cell call touches
+~600 KB of a multi-GB scene instead of pulling the whole thing.
+
+---
+
+## Contributor-of-Intelligence Layer (CoIL)
+
+Any agent with an ed25519 keypair can attest facts that other agents
+recall and cite. No token. Reputation = signed citations + log-decayed
+fact and attestation counts:
+
+```
+score = citations + 8·ln(1 + facts) + 4·ln(1 + attestations)
+```
+
+Identical canonical facts from any contributor share a CID, so the
+corpus merges by content. Run your own responder, mirror to others,
+verify the union via the merkle log. See `/v1/contributors`,
+`/v1/contributors/{pubkey_b32}`, `docs/CONTRIBUTORS.md`.
+
+---
+
+## Production guarantees (https://emem.dev)
+
+- TLS 1.2/1.3 via in-process rustls + Let's Encrypt (TLS-ALPN-01) — no
+  Cloudflare, no Caddy, no nginx in the data path.
+- HSTS preload-eligible. Strong CSP. 16 MiB POST body cap (413).
+  30 s request timeout (504). 60 req/min, 120-burst rate limit (429).
+- Persistent ed25519 responder identity (stable pubkey across restarts).
+- /metrics in Prometheus format. Apache-2.0; deps MIT/Apache/BSD/ISC.
+
+---
+
+## Source
+
+- Code: https://github.com/Vortx-AI/emem
+- Docs: https://emem.dev/agents.md  ·  https://emem.dev/whitepaper.md
+- Live trace gallery: https://emem.dev/v1/demos
+- Support: avijeet@vortx.ai

@@ -1,0 +1,7 @@
+{
+  "_doc": "Custom GPT Action setup: in the GPT builder → Actions → Add → 'Import from URL' → paste https://emem.dev/openapi.json. Authentication: None. Privacy policy URL: https://emem.dev/. The Custom GPT instructions block below tells the model when to call which tool.",
+  "schema_url": "https://emem.dev/openapi.json",
+  "auth": { "type": "none" },
+  "privacy_policy_url": "https://emem.dev/",
+  "custom_gpt_instructions": "You can call the emem (Earth memory) protocol when the user asks about a place, region, change at a location, similarity between locations, or wants to verify a spatial claim. Always prefer emem_recall first when given a cell64 string. Use emem_compare for pairwise similarity, emem_find_similar for k-NN, emem_diff for time deltas, emem_trajectory for time series, emem_verify for yes/no claims with evidence. Cite the response receipt's fact_cids in your reply. Treat HTTP 5xx as transient; retry once. Treat HTTP 4xx as a permanent caller-side issue and explain to the user. The responder's pubkey is at /.well-known/emem.json — mention it once if the user asks about provenance."
+}

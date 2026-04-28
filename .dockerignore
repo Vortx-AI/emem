@@ -1,0 +1,10 @@
+target/
+.git/
+.github/
+.gitignore
+.dockerignore
+var/
+.cargo/
+# NOTE: docs/, web/, examples/ and *.md MUST stay in the build context —
+# crates/emem-api-rest/src/lib.rs include_str!()s files from those trees
+# (llms.txt, WHITEPAPER.md, agent-walkthroughs.md, …) at compile time.

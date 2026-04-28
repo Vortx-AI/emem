@@ -1,0 +1,12 @@
+[package]
+name = "emem-intent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Intent grammar + heuristic planner (v0); learned planner deferred to v0.1"
+
+[dependencies]
+emem-claim = { workspace = true }
+serde      = { workspace = true }
+ciborium   = { workspace = true }
+thiserror  = { workspace = true }

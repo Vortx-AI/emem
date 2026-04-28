@@ -1,0 +1,28 @@
+[package]
+name = "emem-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Composite storage: cache + fetch + materializer + attestation log. Implements lazy fact materialization for global coverage."
+
+[dependencies]
+emem-core     = { workspace = true }
+emem-fact     = { workspace = true }
+emem-cache    = { workspace = true }
+emem-fetch    = { workspace = true }
+sled          = { workspace = true }
+emem-attest   = { workspace = true }
+async-trait   = { workspace = true }
+serde         = { workspace = true }
+ciborium      = { workspace = true }
+thiserror     = { workspace = true }
+blake3        = { workspace = true }
+ed25519-dalek = { workspace = true }
+tokio         = { workspace = true }
+tracing       = { workspace = true }
+data-encoding = { workspace = true }
+rand          = { workspace = true }
+ulid          = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

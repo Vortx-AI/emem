@@ -1,0 +1,45 @@
+{
+  "name": "emem",
+  "version": "0.0.2",
+  "protocol": "emem-earth-memory",
+  "description": "Agent-native, content-addressed, signed Earth memory protocol.",
+  "homepage": "https://emem.dev",
+  "code": "https://github.com/Vortx-AI/emem",
+  "license": "Apache-2.0",
+  "surfaces": {
+    "rest": "/openapi.json",
+    "mcp": "/mcp",
+    "well_known": "/.well-known/emem.json",
+    "agent_card": "/v1/agent_card",
+    "quickstart": "/v1/quickstart",
+    "tools": "/v1/tools",
+    "llms_txt": "/llms.txt",
+    "llms_full_txt": "/llms-full.txt"
+  },
+  "primitives": [
+    "emem.recall", "emem.query_region", "emem.compare", "emem.find_similar",
+    "emem.trajectory", "emem.diff", "emem.verify",
+    "emem.attest", "emem.challenge",
+    "emem.bands", "emem.functions", "emem.sources",
+    "emem.schema", "emem.errors", "emem.manifests",
+    "emem.intent"
+  ],
+  "address_algebra": {
+    "cell": "64-bit packed icosahedral aperture-7 hex (H3-equivalent geometry, wire-encoded as cell64: 4 BPE bigrams)",
+    "tslot": "u64 offset from emem epoch 2026-01-01T00:00:00Z, units = band tempo class slot duration",
+    "band": "logical channel within a 1792D embedding contract; loaded from content-addressed band manifest"
+  },
+  "crypto": {
+    "hash": "blake3",
+    "signature": "ed25519",
+    "cid_encoding": "base32-nopad-lowercase",
+    "merkle_tree": "binary, blake3 leaves over canonical CBOR, leaves canonically-sorted"
+  },
+  "agent_first_design": {
+    "token_economical": true,
+    "self_describing": true,
+    "signed_receipts": true,
+    "open_data_default": true,
+    "no_keys_required": true
+  }
+}

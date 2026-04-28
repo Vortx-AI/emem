@@ -1,0 +1,69 @@
+[package]
+name = "emem-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "emem CLI + HTTP server binaries"
+
+[[bin]]
+name = "emem"
+path = "src/main.rs"
+
+[[bin]]
+name = "emem-server"
+path = "src/bin/emem-server.rs"
+
+[[bin]]
+name = "emem-demo"
+path = "src/bin/emem-demo.rs"
+
+[[bin]]
+name = "emem-livedemo"
+path = "src/bin/emem-livedemo.rs"
+
+[[bin]]
+name = "emem-realdemo"
+path = "src/bin/emem-realdemo.rs"
+
+[[bin]]
+name = "emem-purge-fnkey"
+path = "src/bin/emem-purge-fnkey.rs"
+
+[[bin]]
+name = "emem-ask-eval"
+path = "src/bin/emem-ask-eval.rs"
+
+[dependencies]
+emem-core       = { workspace = true }
+emem-codec      = { workspace = true }
+emem-fact       = { workspace = true }
+emem-claim      = { workspace = true }
+emem-cache      = { workspace = true }
+emem-fetch      = { workspace = true }
+emem-storage    = { workspace = true }
+emem-cubes      = { workspace = true }
+emem-primitives = { workspace = true }
+emem-attest     = { workspace = true }
+emem-intent     = { workspace = true }
+emem-mcp        = { workspace = true }
+emem-api-rest   = { workspace = true }
+clap            = { workspace = true }
+tokio           = { workspace = true }
+tokio-stream    = { workspace = true }
+futures-util    = { workspace = true }
+axum            = { workspace = true }
+axum-server     = { workspace = true }
+rustls          = { workspace = true }
+rustls-acme     = { workspace = true }
+tracing         = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde_json      = { workspace = true }
+anyhow          = { workspace = true }
+data-encoding   = { workspace = true }
+ed25519-dalek   = { workspace = true }
+rand            = { workspace = true }
+reqwest         = { workspace = true }
+ciborium        = { workspace = true }
+blake3          = { workspace = true }
+serde           = { workspace = true }
+sled            = { workspace = true }

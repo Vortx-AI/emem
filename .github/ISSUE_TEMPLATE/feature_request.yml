@@ -1,0 +1,31 @@
+name: Feature request
+description: A new primitive, band, recipe, or agent-experience improvement
+labels: ["feature"]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What user/agent question would this unlock?
+    validations: { required: true }
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: Proposed shape
+      description: Wire format, request/response schema, MCP tool name, expected receipt fields.
+      render: markdown
+    validations: { required: true }
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - new primitive
+        - new band
+        - new recipe / function
+        - new source connector
+        - agent UX (locate / discover / etc.)
+        - other
+    validations: { required: true }

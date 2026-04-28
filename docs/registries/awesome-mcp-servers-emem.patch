@@ -1,0 +1,20 @@
+--- README.md.orig	2026-04-27 20:07:18.279395587 +0000
++++ README.md	2026-04-27 20:12:43.402784462 +0000
+@@ -1175,6 +1175,8 @@
+ 
+ - [aliafsahnoudeh/wildfire-mcp-server](https://github.com/aliafsahnoudeh/wildfire-mcp-server) 🐍 ☁️ 🍎 🪟 🐧 - MCP server for detecting, monitoring, and analyzing potential wildfires globally using multiple data sources including NASA FIRMS, OpenWeatherMap, and Google Earth Engine.
+ - [nalediym/touch-grass](https://github.com/nalediym/touch-grass) [![nalediym/touch-grass MCP server](https://glama.ai/mcp/servers/nalediym/touch-grass/badges/score.svg)](https://glama.ai/mcp/servers/nalediym/touch-grass) 📇 🏠 🍎 🪟 🐧 - Claude Code plugin and MCP server that nudges you to take outdoor breaks based on local weather, sunset timing, and session streaks. Tools: `check_grass_conditions`, `suggest_activity`, `log_touch_grass`, `get_stats`. Fully local, no API keys, no cloud storage.
++- [Vortx-AI/emem](https://github.com/Vortx-AI/emem) 🦀 ☁️ 🏠 🍎 🪟 🐧 - 🎖️ Earth memory protocol — content-addressed, ed25519-signed memory of every place on Earth. 26 MCP tools / 47 read primitives / 68 published-formula algorithms (NWS heat-index, Fosberg FFWI, FAO-56 VPD, Imhoff UHI, GHSL population, Haurwitz GHI). Multimodal: Sentinel-2 RGB scenes, GeoJSON cells, live coverage SVG. No API keys for L0/L1 reads. Hosted at [emem.dev/mcp](https://emem.dev/mcp).
++
+ 
+ ### 📂 <a name="file-systems"></a>File Systems
+ 
+@@ -1731,6 +1733,8 @@
+ - [TimLukaHorstmann/mcp-weather](https://github.com/TimLukaHorstmann/mcp-weather) 📇 ☁️  - Accurate weather forecasts via the AccuWeather API (free tier available).
+ - [trackmage/trackmage-mcp-server](https://github.com/trackmage/trackmage-mcp-server) 📇 - Shipment tracking api and logistics management capabilities through the [TrackMage API] (https://trackmage.com/)
+ - [webcoderz/MCP-Geo](https://github.com/webcoderz/MCP-Geo) 🐍 🏠 - Geocoding MCP server for nominatim, ArcGIS, Bing
++- [Vortx-AI/emem](https://github.com/Vortx-AI/emem) 🦀 ☁️ 🏠 🍎 🪟 🐧 - Geocode any place name to a content-addressed, ed25519-signed cell64 (~305 m Hilbert) and recall attested facts (NDVI, surface water, DEM elevation, weather, OSM/Overture buildings) with offline-verifiable receipts. Hosted at [emem.dev/mcp](https://emem.dev/mcp).
++
+ 
+ ### 🎯 <a name="marketing"></a>Marketing
+ 

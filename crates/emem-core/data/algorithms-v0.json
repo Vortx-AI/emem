@@ -1,0 +1,1133 @@
+{
+  "manifest": "emem-algorithms",
+  "version": "v0",
+  "_note": "Algorithm registry — content-addressed recipes that compose attested band facts (and embeddings) into derived scores or classifications. Distinct from `functions` (single-band derivation from raw upstream sources) and from `bands` (the data slot itself). Receipts can cite an algorithm_cid alongside fact_cids so a downstream verifier replays the same composition deterministically. Every entry declares the input bands, the formula in plain math, the output kind, and editorial 'when to use' guidance for agent routing. Operators may publish their own algorithms manifest CID with extra entries — keys are stable across manifests, exact thresholds and weights are not.",
+  "_layout": {
+    "kinds": {
+      "solo":      "Single-band → derived classification or scalar (hides hand-tuned thresholds behind a stable name).",
+      "combined":  "Multi-band weighted composite — most flagship answers (flood_risk, urban_density, heat_health_risk).",
+      "embedding": "Operations on the geotessera vector (cosine, novelty, change, region similarity)."
+    },
+    "domains": ["climate", "vegetation", "water", "fire", "soil", "snow", "human", "topography", "biomass", "embedding", "anomaly"]
+  },
+  "algorithms": [
+
+    {
+      "key": "flood_history_class@1",
+      "kind": "solo",
+      "domain": "water",
+      "inputs": [
+        { "band": "surface_water.recurrence", "role": "scalar_in", "unit": "percent" }
+      ],
+      "formula": "let r = surface_water.recurrence; if r is Absence -> 'none'; else if r >= 75 -> 'perennial'; else if r >= 25 -> 'seasonal'; else if r >= 1 -> 'occasional'; else -> 'never'",
+      "output": { "kind": "classification", "values": ["never", "occasional", "seasonal", "perennial", "none"], "explanation": "Five-class summary of JRC GSW v1.4 recurrence. 'none' is a signed Absence (permanent non-water / unmapped); 'never' is recurrence==0 over the 1984–2021 record." },
+      "when_to_use": "Single-cell answer to 'has it flooded historically?'. Agents should prefer this over inventing thresholds in their own reasoning so receipts are reproducible.",
+      "primitive": "POST /v1/recall {bands:['surface_water.recurrence']} → apply formula in-process",
+      "deterministic": true,
+      "citation": "Pekel, J.-F. et al. 2016. High-resolution mapping of global surface water and its long-term changes. Nature 540:418–422."
+    },
+    {
+      "key": "flood_risk@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "surface_water.recurrence", "role": "history",   "weight": 0.55, "transform": "x / 100" },
+        { "band": "copdem30m.elevation_mean", "role": "elevation", "weight": 0.25, "transform": "relu(50 - x) / 50",
+          "explanation": "Penalty grows linearly below 50 m absolute elevation; saturates at 0 above 50 m. Simple proxy for low-lying terrain — replace with HAND (Height Above Nearest Drainage) when an attestation lands." },
+        { "band": "sentinel1_raw",            "role": "current_radar", "weight": 0.20, "transform": "sigmoid((-15 - x) / 2)" }
+      ],
+      "formula": "0.55*(surface_water.recurrence/100) + 0.25*(relu(50 - copdem30m.elevation_mean)/50) + 0.20*sigmoid((-15 - sentinel1_raw)/2)",
+      "output": { "kind": "scalar", "unit": "risk_index", "range": [0, 1], "explanation": "Composite flood-risk index. Historical recurrence dominates (long-term truth); low elevation and current-radar water signal pull the score up. Thresholds: 0–0.2 low, 0.2–0.5 moderate, >0.5 high." },
+      "when_to_use": "Canonical 'should I worry about flooding at this site?' answer. Cite algorithm_cid alongside the three input fact_cids in the receipt so the score is reproducible.",
+      "primitive": "POST /v1/recall {bands:['surface_water.recurrence','copdem30m.elevation_mean','sentinel1_raw']}",
+      "deterministic": true,
+      "citation": "Composite of Pekel 2016 (recurrence), GLO-30 Cop-DEM (elevation), Manfreda et al. 2014 (low-elevation hydro proxy). Weights are editorial v0; updates bump @2."
+    },
+    {
+      "key": "water_consensus@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "indices.ndwi",   "role": "optical_water",      "weight": 0.30, "transform": "sigmoid(8*x)" },
+        { "band": "indices.mndwi",  "role": "optical_water_swir", "weight": 0.40, "transform": "sigmoid(8*x)" },
+        { "band": "sentinel1_raw",  "role": "radar_water",        "weight": 0.30, "transform": "sigmoid((-15 - x)/2)" }
+      ],
+      "formula": "0.30*sigmoid(8*indices.ndwi) + 0.40*sigmoid(8*indices.mndwi) + 0.30*sigmoid((-15 - sentinel1_raw)/2)",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1], "explanation": "Weighted consensus across three independent water-detection physics: green/NIR (NDWI), SWIR (MNDWI — robust to thin cloud / urban), and C-band radar. Disagreement between optical and radar is itself signal — surface a confidence note." },
+      "when_to_use": "'Is there water here right now?'. Prefer this over a single-band readout so the answer hedges across cloud/illumination conditions.",
+      "primitive": "POST /v1/recall {bands:['indices.ndwi','indices.mndwi','sentinel1_raw']}",
+      "deterministic": true,
+      "citation": "McFeeters 1996 (NDWI); Xu 2006 (MNDWI); Bioresita et al. 2018 (SAR water). Weights chosen so SWIR optical dominates when available."
+    },
+    {
+      "key": "water_likelihood_from_vv@1",
+      "kind": "solo",
+      "domain": "water",
+      "inputs": [{ "band": "sentinel1_raw", "role": "scalar_in", "unit": "dB" }],
+      "formula": "sigmoid((-15.0 - sentinel1_raw) / 2.0)",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1], "explanation": "Logistic in dB space. P(water)≈0.5 at -15 dB; P→1 below -20 dB; P→0 above -10 dB." },
+      "when_to_use": "All-weather water detection at any single Sentinel-1 RTC observation. Pair with `flood_history_class@1` for the historical baseline.",
+      "primitive": "POST /v1/recall {bands:['sentinel1_raw']}",
+      "deterministic": true,
+      "citation": "Chini et al. 2017. A hierarchical split-based approach for parametric thresholding of SAR images. IEEE TGRS 55(12)."
+    },
+
+    {
+      "key": "vegetation_class_from_ndvi@1",
+      "kind": "solo",
+      "domain": "vegetation",
+      "inputs": [{ "band": "indices.ndvi", "role": "scalar_in", "unit": "ratio" }],
+      "formula": "let n = indices.ndvi; if n < 0 -> 'water_or_snow'; else if n < 0.1 -> 'bare'; else if n < 0.3 -> 'sparse'; else if n < 0.5 -> 'moderate'; else -> 'dense'",
+      "output": { "kind": "classification", "values": ["water_or_snow", "bare", "sparse", "moderate", "dense"] },
+      "when_to_use": "Quick categorical from a single NDVI sample. Use for 'is this farmland / forest / desert?' style questions.",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi']}",
+      "deterministic": true,
+      "citation": "Tucker 1979. Class thresholds agree with USGS NDVI cookbook ranges."
+    },
+    {
+      "key": "crop_stress_score@1",
+      "kind": "combined",
+      "domain": "vegetation",
+      "inputs": [
+        { "band": "indices.ndvi",             "role": "greenness", "weight": 0.40, "transform": "1 - clamp01(x)",
+          "explanation": "Lower NDVI = more stress over crop cover." },
+        { "band": "indices.ndmi",             "role": "moisture",  "weight": 0.35, "transform": "1 - clamp01((x+1)/2)" },
+        { "band": "weather.temperature_2m",   "role": "temp_c",    "weight": 0.15, "transform": "sigmoid((x - 30)/5)" },
+        { "band": "weather.precipitation_mm", "role": "precip_mm", "weight": 0.10, "transform": "sigmoid((1.0 - x)*4)" }
+      ],
+      "formula": "0.40*(1-clamp01(indices.ndvi)) + 0.35*(1-clamp01((indices.ndmi+1)/2)) + 0.15*sigmoid((weather.temperature_2m-30)/5) + 0.10*sigmoid((1.0-weather.precipitation_mm)*4)",
+      "output": { "kind": "scalar", "unit": "stress_index", "range": [0, 1] },
+      "when_to_use": "'Is this field stressed?'. Apply only on cells classified as agriculture by `vegetation_class_from_ndvi@1` ≥ 'sparse'.",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi','indices.ndmi','weather.temperature_2m','weather.precipitation_mm']}",
+      "deterministic": true,
+      "citation": "Tucker 1979 (NDVI); Gao 1996 (NDMI/NDII); Sandholt et al. 2002 (temp-vegetation triangle)."
+    },
+    {
+      "key": "agb_ndvi_powerlaw@1",
+      "kind": "combined",
+      "domain": "biomass",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "ndvi", "unit": "ratio",
+          "explanation": "Sentinel-2 NDVI. Saturates above ~0.8 in dense canopies; the reported AGB caps accordingly." }
+      ],
+      "formula": "let n = clamp(indices.ndvi, 0.05, 0.85); AGB_Mg_ha = 232.7 * pow(n, 1.79)",
+      "output": { "kind": "scalar", "unit": "Mg_ha", "range": [0, 220], "explanation": "Above-ground biomass density in Mg dry-matter per hectare via the Anaya et al. 2009 NDVI–AGB power law for tropical-savanna mosaics, AGB = 232.7·NDVI^1.79 (R²=0.74, n=85 plots, calibrated against tropical forest inventory). Saturates near NDVI = 0.85 (~165 Mg/ha) — beyond that NDVI no longer separates biomass densities. For >150 Mg/ha use a SAR (Sentinel-1 cross-pol) or LiDAR (GEDI L4A) attestation; for ESA CCI Biomass v5 wire the dedicated band." },
+      "when_to_use": "Carbon-stock estimation, REDD+ baselines, agroforestry MRV at moderate-to-low biomass densities. ALWAYS print the saturation caveat in the receipt above ~150 Mg/ha.",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi']}",
+      "deterministic": true,
+      "citation": "Anaya, J.A., Chuvieco, E., Palacios-Orueta, A. 2009. Above-ground biomass assessment in Colombia: a remote-sensing approach. Forest Ecology and Management 257(4):1237–1246. Cross-validated by Lu, D. 2006. The potential and challenge of remote sensing-based biomass estimation. International Journal of Remote Sensing 27(7):1297–1328."
+    },
+
+    {
+      "key": "snow_likelihood_from_ndsi@1",
+      "kind": "solo",
+      "domain": "snow",
+      "inputs": [
+        { "band": "indices.ndsi", "role": "scalar_in", "unit": "ratio",
+          "explanation": "NDSI = (B03 - B11) / (B03 + B11). Wired via the same Sentinel-2 L2A path as other indices." }
+      ],
+      "formula": "let s = indices.ndsi; if s < 0.0 -> 'no_snow'; else if s < 0.4 -> 'maybe_snow_or_cloud'; else -> 'snow'",
+      "output": { "kind": "classification", "values": ["no_snow", "maybe_snow_or_cloud", "snow"], "explanation": "Conventional Salomonson-Appel threshold at NDSI=0.4. Below 0.4 → ambiguous (could be thin cloud, ice fragments, or melt)." },
+      "when_to_use": "'Is there snow on the ground?'. NDSI is more robust than NDVI<0 because it leverages SWIR's snow-vs-cloud separability.",
+      "primitive": "POST /v1/recall {bands:['indices.ndsi']}",
+      "deterministic": true,
+      "citation": "Salomonson, V.V. & Appel, I. 2004. Estimating fractional snow cover from MODIS using the normalized difference snow index. Remote Sensing of Environment 89(3):351–360."
+    },
+
+    {
+      "key": "burn_severity_from_dnbr@1",
+      "kind": "combined",
+      "domain": "fire",
+      "inputs": [
+        { "band": "indices.nbr", "role": "nbr_pre",  "explanation": "NBR sampled at the pre-fire tslot (typically the latest cloud-free observation before the event)." },
+        { "band": "indices.nbr", "role": "nbr_post", "explanation": "NBR at the post-fire tslot." }
+      ],
+      "formula": "dnbr = indices.nbr.pre - indices.nbr.post; class = if dnbr < 0.10 -> 'unburned'; else if dnbr < 0.27 -> 'low'; else if dnbr < 0.44 -> 'moderate_low'; else if dnbr < 0.66 -> 'moderate_high'; else -> 'high'",
+      "output": { "kind": "classification", "values": ["unburned", "low", "moderate_low", "moderate_high", "high"], "explanation": "USGS / Key & Benson burn-severity classes from ΔNBR. Apply only after pairing two cloud-free Sentinel-2 acquisitions bracketing the fire event." },
+      "when_to_use": "Post-fire damage assessment. Requires the agent to know the fire date so it can select pre/post tslots from `emem_trajectory`.",
+      "primitive": "POST /v1/trajectory {cell, band:'indices.nbr', window:[pre_tslot, post_tslot]} → ΔNBR in-process",
+      "deterministic": true,
+      "citation": "Key, C.H. & Benson, N.C. 2006. Landscape Assessment (LA) sampling and analysis methods. USGS RMRS-GTR-164-CD."
+    },
+    {
+      "key": "burn_likelihood_from_nbr@1",
+      "kind": "solo",
+      "domain": "fire",
+      "inputs": [{ "band": "indices.nbr", "role": "scalar_in", "unit": "ratio" }],
+      "formula": "sigmoid((0.0 - indices.nbr) * 4)",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1], "explanation": "Single-snapshot proxy: P(recently_burned) rises as NBR drops below 0. Less reliable than ΔNBR but works without a pre-fire baseline." },
+      "when_to_use": "Quick scan when only a current observation is available. For severity classes, prefer `burn_severity_from_dnbr@1`.",
+      "primitive": "POST /v1/recall {bands:['indices.nbr']}",
+      "deterministic": true,
+      "citation": "Key & Benson 2006; logistic shaping editorial."
+    },
+
+    {
+      "key": "bare_soil_class@1",
+      "kind": "solo",
+      "domain": "soil",
+      "inputs": [{ "band": "indices.bsi", "role": "scalar_in", "unit": "ratio" }],
+      "formula": "let b = indices.bsi; if b < -0.05 -> 'vegetated_or_water'; else if b < 0.05 -> 'mixed'; else -> 'bare_soil'",
+      "output": { "kind": "classification", "values": ["vegetated_or_water", "mixed", "bare_soil"] },
+      "when_to_use": "Detect exposed bare soil — useful for tillage tracking, erosion hot-spot screens, or filtering crop_stress_score@1 down to fields not under cover.",
+      "primitive": "POST /v1/recall {bands:['indices.bsi']}",
+      "deterministic": true,
+      "citation": "Rikimaru, A., Roy, P.S. & Miyatake, S. 2002. Tropical forest cover density mapping. Tropical Ecology 43(1):39–47."
+    },
+
+    {
+      "key": "built_up_from_ndbi@1",
+      "kind": "solo",
+      "domain": "human",
+      "inputs": [{ "band": "indices.ndbi", "role": "scalar_in", "unit": "ratio" }],
+      "formula": "let b = indices.ndbi; if b < -0.05 -> 'non_built'; else if b < 0.1 -> 'mixed'; else -> 'built'",
+      "output": { "kind": "classification", "values": ["non_built", "mixed", "built"] },
+      "when_to_use": "Built-up vs natural classification from a single NDBI sample. Cross-check with `overture.buildings.count` for vector truth.",
+      "primitive": "POST /v1/recall {bands:['indices.ndbi']}",
+      "deterministic": true,
+      "citation": "Zha, Y. et al. 2003. Use of normalized difference built-up index in automatically mapping urban areas from TM imagery. International Journal of Remote Sensing 24(3):583–594."
+    },
+    {
+      "key": "urban_density_score@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "overture.buildings.count",              "role": "buildings", "weight": 0.50, "transform": "tanh(x/200)" },
+        { "band": "overture.transportation.road_length_m", "role": "roads",     "weight": 0.30, "transform": "tanh(x/1000)" },
+        { "band": "indices.ndbi",                          "role": "ndbi",      "weight": 0.20, "transform": "sigmoid(10*x)" }
+      ],
+      "formula": "0.50*tanh(overture.buildings.count/200) + 0.30*tanh(overture.transportation.road_length_m/1000) + 0.20*sigmoid(10*indices.ndbi)",
+      "output": { "kind": "scalar", "unit": "density_index", "range": [0, 1], "explanation": "Vector truth (buildings + roads) dominates; NDBI as small-area tiebreaker for canopy-suppressed cells." },
+      "when_to_use": "'Is this urban / suburban / rural?'. Spatial prior for any building-count question.",
+      "primitive": "POST /v1/recall {bands:['overture.buildings.count','overture.transportation.road_length_m','indices.ndbi']}",
+      "deterministic": true,
+      "citation": "Overture Maps Foundation 2026-04-15 release; Zha et al. 2003 (NDBI). Saturation constants editorial."
+    },
+    {
+      "key": "population_ghsl_dasymetric@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "overture.buildings.count",      "role": "n_buildings",
+          "explanation": "Number of building footprints in the cell (Overture)." },
+        { "band": "overture.buildings.area_m2",    "role": "footprint_area_m2",
+          "explanation": "Total building footprint area (Overture; preferred input). When unavailable, the algorithm falls back to n_buildings × A_typical with A_typical = 100 m² (GHSL-S documented global mean footprint area)." },
+        { "band": "overture.buildings.height_mean","role": "mean_height_m",
+          "explanation": "Cell-average building height (Overture). Fallback 7.5 m (≈ 2.5 storeys × 3 m), the GHSL-defaults global residential mean." },
+        { "band": "indices.ndbi",                  "role": "residential_share_modifier",
+          "explanation": "Built-up index used to estimate residential share R: high NDBI in mixed-use areas → R ≈ 0.7; low NDBI (parks, industrial fringe) → R ≈ 0.85 (residential-dominant); we use R = 0.85 - 0.15·sigmoid(10·NDBI) as a soft estimator. Wire a dedicated GHSL-Land-Use band to replace this." }
+      ],
+      "formula": "let A = if has(overture.buildings.area_m2) { overture.buildings.area_m2 } else { 100 * overture.buildings.count }; let H = overture.buildings.height_mean orelse 7.5; let storeys = max(1, H / 3.0); let R = 0.85 - 0.15 * sigmoid(10 * indices.ndbi); let floor_area = A * storeys * R; people = floor_area / 67",
+      "output": { "kind": "scalar", "unit": "people_per_cell", "range": [0, "+inf"], "explanation": "GHSL-style dasymetric population estimate: floor_area = footprint × storeys × residential_share, then divided by 67 m² of residential floor space per person (GHSL-Pop default). Storeys = max(1, height/3 m). Returns persons per cell (cell64 ≈ 305 m × 305 m = 9.3 ha). Multiply by 1/0.093 for people/km². For national-census-anchored gridded population use a WorldPop or GHSL-POP attestation when wired." },
+      "when_to_use": "Comparative population estimates anywhere on Earth where Overture has building coverage; calibrated against GHSL methodology. Report cell area in the receipt so density conversion is unambiguous.",
+      "primitive": "POST /v1/recall {bands:['overture.buildings.count','overture.buildings.area_m2','overture.buildings.height_mean','indices.ndbi']}",
+      "deterministic": true,
+      "citation": "Schiavina, M., Freire, S., MacManus, K. 2023. GHS-POP R2023A — GHS population grid multitemporal (1975-2030). European Commission JRC Publications JRC133292 (67 m²/person residential floor-space convention, Table 1). Florczyk, A.J. et al. 2019. GHSL Data Package 2019. JRC117104. Eurostat 2017 Housing Statistics: average European dwelling 87 m² ÷ 2.3 persons/household ≈ 37–67 m²/person."
+    },
+
+    {
+      "key": "heat_index@2",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.temperature_2m",       "role": "temp_c", "unit": "degC",
+          "explanation": "Dry-bulb air temperature at 2 m." },
+        { "band": "weather.relative_humidity_2m", "role": "rh_pct", "unit": "percent",
+          "explanation": "Relative humidity at 2 m, MET Norway instant.details.relative_humidity. Required input — the formula degenerates to dry-bulb if RH is unavailable." }
+      ],
+      "formula": "let T_F = weather.temperature_2m * 9/5 + 32; let R = weather.relative_humidity_2m; if T_F < 80 || R < 40 { HI_F = 0.5*(T_F + 61.0 + (T_F-68.0)*1.2 + R*0.094) } else { HI_F = -42.379 + 2.04901523*T_F + 10.14333127*R - 0.22475541*T_F*R - 0.00683783*T_F*T_F - 0.05481717*R*R + 0.00122874*T_F*T_F*R + 0.00085282*T_F*R*R - 0.00000199*T_F*T_F*R*R; if R < 13 && T_F >= 80 && T_F <= 112 { HI_F -= ((13-R)/4) * sqrt((17 - abs(T_F-95))/17) } else if R > 85 && T_F >= 80 && T_F <= 87 { HI_F += ((R-85)/10) * ((87-T_F)/5) } }; HI_C = (HI_F - 32) * 5/9",
+      "output": { "kind": "scalar", "unit": "degC_apparent", "range": [-50, 70], "explanation": "NOAA NWS Heat Index (Rothfusz 1990 regression of Steadman 1979 apparent-temperature tables) with the official low-RH and high-RH adjustment terms. Below T_F<80°F or RH<40% the simpler Steadman 1979 averaging formula applies." },
+      "when_to_use": "'Will it feel hot here?'. Exact NWS heat-index value as displayed by the US National Weather Service. Pair with `heat_health_risk@2` for a categorical answer.",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.relative_humidity_2m']}",
+      "deterministic": true,
+      "citation": "Rothfusz, L.P. 1990. The heat index equation. NWS Southern Region Technical Attachment SR/SSD 90-23. Steadman, R.G. 1979. The assessment of sultriness. Part I. Journal of Applied Meteorology 18(7):861–873. NWS heat-index implementation https://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml."
+    },
+    {
+      "key": "heat_health_risk@2",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.temperature_2m",       "role": "temp_c" },
+        { "band": "weather.relative_humidity_2m", "role": "rh_pct" }
+      ],
+      "formula": "HI = heat_index@2; class = if HI < 27 -> 'safe'; else if HI < 32 -> 'caution'; else if HI < 41 -> 'extreme_caution'; else if HI < 54 -> 'danger'; else -> 'extreme_danger'",
+      "output": { "kind": "classification", "values": ["safe", "caution", "extreme_caution", "danger", "extreme_danger"], "explanation": "NOAA NWS heat-index thresholds in °C (converted from °F bins: 80, 90, 105, 130). Backed by the calibrated Rothfusz heat_index@2." },
+      "when_to_use": "'Is it safe to be outside?'. Outdoor-event safety; outdoor-worker advisories. NWS-aligned categorical.",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.relative_humidity_2m']} → apply heat_index@2 → classify",
+      "deterministic": true,
+      "citation": "NOAA NWS Heat Index — National Weather Service threshold bins (caution / extreme caution / danger / extreme danger). https://www.weather.gov/safety/heat-index."
+    },
+    {
+      "key": "wind_chill@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.temperature_2m", "role": "temp_c", "unit": "degC" },
+        { "band": "weather.wind_speed_10m", "role": "wind_mps", "unit": "m/s" }
+      ],
+      "formula": "let T = weather.temperature_2m; let V = max(weather.wind_speed_10m * 3.6, 4.8); WC = 13.12 + 0.6215*T - 11.37*pow(V, 0.16) + 0.3965*T*pow(V, 0.16)",
+      "output": { "kind": "scalar", "unit": "degC_apparent", "range": [-80, 10], "explanation": "Environment Canada / NWS wind chill index. Valid for T ≤ 10 °C and V ≥ 4.8 km/h; outside this regime the formula reports the dry-bulb temperature." },
+      "when_to_use": "Cold-weather apparent temperature. Useful for outdoor-safety reports and frost-risk assessments below freezing.",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.wind_speed_10m']}",
+      "deterministic": true,
+      "citation": "Osczevski, R. & Bluestein, M. 2005. The new wind chill equivalent temperature chart. BAMS 86(10):1453–1458."
+    },
+    {
+      "key": "fosberg_fire_weather_index@1",
+      "kind": "combined",
+      "domain": "fire",
+      "inputs": [
+        { "band": "weather.temperature_2m",       "role": "temp_c",  "unit": "degC" },
+        { "band": "weather.relative_humidity_2m", "role": "rh_pct",  "unit": "percent" },
+        { "band": "weather.wind_speed_10m",       "role": "wind_mps","unit": "m/s" }
+      ],
+      "formula": "let T_F = weather.temperature_2m * 9/5 + 32; let H = weather.relative_humidity_2m; let U_mph = weather.wind_speed_10m * 2.23694; let m = if H < 10 { 0.03229 + 0.281073*H - 0.000578*H*T_F } else if H <= 50 { 2.22749 + 0.160107*H - 0.014784*T_F } else { 21.0606 + 0.005565*H*H - 0.00035*H*T_F - 0.483199*H }; let m_eq = m / 30; let eta = 1 - 2*m_eq + 1.5*m_eq*m_eq - 0.5*m_eq*m_eq*m_eq; FFWI = clamp(eta * sqrt(1 + U_mph*U_mph) / 0.3002, 0, 100)",
+      "output": { "kind": "scalar", "unit": "ffwi", "range": [0, 100], "explanation": "Fosberg Fire Weather Index (Fosberg 1978). Three-stage equilibrium-moisture-content fit (Simard 1968) → moisture damping coefficient η → wind-amplification 0.3002·sqrt(1+U²). Truncated at 100. FFWI ≥ 50 historically corresponds to red-flag fire-weather conditions in the western US." },
+      "when_to_use": "Same-day fire-weather scan. Real published index; valid worldwide. Pair with `vegetation_class_from_ndvi@1` ≥ 'sparse' to filter to fuel-bearing cells. For Canadian-FWI replacement use a multi-day DC/DMC/FFMC product when wired.",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.relative_humidity_2m','weather.wind_speed_10m']}",
+      "deterministic": true,
+      "citation": "Fosberg, M.A. 1978. Weather in wildland fire management: the fire weather index. In: Proceedings of the Conference on Sierra Nevada Meteorology, AMS, Lake Tahoe, pp. 1–4. Simard, A.J. 1968. The moisture content of forest fuels. Forestry Technical Report 35, CFFDRS."
+    },
+    {
+      "key": "precip_intensity_class@1",
+      "kind": "solo",
+      "domain": "climate",
+      "inputs": [{ "band": "weather.precipitation_mm", "role": "precip_mm_per_hour", "unit": "mm/h" }],
+      "formula": "let p = weather.precipitation_mm; if p == 0 -> 'none'; else if p < 0.5 -> 'trace'; else if p < 2.5 -> 'light'; else if p < 7.6 -> 'moderate'; else if p < 50 -> 'heavy'; else -> 'violent'",
+      "output": { "kind": "classification", "values": ["none", "trace", "light", "moderate", "heavy", "violent"], "explanation": "WMO / AMS precipitation-intensity bins (mm/h)." },
+      "when_to_use": "Translate a numeric precipitation rate into the user-facing words people actually use.",
+      "primitive": "POST /v1/recall {bands:['weather.precipitation_mm']}",
+      "deterministic": true,
+      "citation": "American Meteorological Society Glossary of Meteorology, 'rain' entry. WMO Manual on the Observation of Clouds and Other Meteors (WMO-No. 407)."
+    },
+    {
+      "key": "vapor_pressure_deficit@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.temperature_2m",       "role": "temp_c", "unit": "degC" },
+        { "band": "weather.relative_humidity_2m", "role": "rh_pct", "unit": "percent" }
+      ],
+      "formula": "let T = weather.temperature_2m; let RH = weather.relative_humidity_2m / 100; let es = 0.6108 * exp(17.27*T / (T + 237.3)); VPD_kPa = es * (1 - RH)",
+      "output": { "kind": "scalar", "unit": "kPa", "range": [0, 12], "explanation": "Saturation vapour-pressure deficit (FAO-56 Allen et al. 1998). es follows the Tetens-Magnus form recommended by FAO; VPD = es·(1−RH). VPD is the physiologically correct atmospheric drying force — drives plant water stress, evapotranspiration and fire-fuel desiccation. Typical regimes: humid tropics 0.3–1.0 kPa; arid summer 3–6 kPa; high-VPD wildfire conditions ≥ 4 kPa." },
+      "when_to_use": "Aridity / drought-stress / wildfire fuel-dryness assessments at sub-hour resolution. For multi-month standardised drought indices (SPI, SPEI, PDSI) wire the corresponding climatology; VPD is the snapshot atmospheric driver underneath.",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.relative_humidity_2m']}",
+      "deterministic": true,
+      "citation": "Allen, R.G., Pereira, L.S., Raes, D., Smith, M. 1998. Crop evapotranspiration — guidelines for computing crop water requirements. FAO Irrigation and Drainage Paper 56, Equation 11. Tetens, O. 1930. Über einige meteorologische Begriffe. Z. Geophys. 6:297–309."
+    },
+
+    {
+      "key": "slope_from_dem_neighborhood@1",
+      "kind": "combined",
+      "domain": "topography",
+      "inputs": [
+        { "band": "copdem30m.elevation_mean", "role": "centre",     "explanation": "Elevation at the query cell." },
+        { "band": "copdem30m.elevation_mean", "role": "neighbours", "explanation": "Elevation at the 8 immediate cell64 neighbours from /v1/locate.neighborhood_cells." }
+      ],
+      "formula": "Horn 8-direction slope: dz/dx = ((Z_E + 2*Z_NE + Z_SE) - (Z_W + 2*Z_NW + Z_SW)) / (8 * cell_w_m); dz/dy = ((Z_N + 2*Z_NE + Z_NW) - (Z_S + 2*Z_SE + Z_SW)) / (8 * cell_h_m); slope_deg = atan(sqrt(dz/dx^2 + dz/dy^2)) * 180/pi",
+      "output": { "kind": "scalar", "unit": "deg", "range": [0, 90], "explanation": "Horn (1981) finite-difference slope on the 3×3 cell neighbourhood." },
+      "when_to_use": "'How steep is this site?'. Use cell_w_m / cell_h_m from /v1/grid_info to get true ground distances. For very precise slope, sample DEM at sub-cell resolution rather than relying on cell-mean elevation.",
+      "primitive": "POST /v1/locate {q} → neighborhood_cells; POST /v1/recall_many {cells:[centre,...8], bands:['copdem30m.elevation_mean']} → apply Horn",
+      "deterministic": true,
+      "citation": "Horn, B.K.P. 1981. Hill shading and the reflectance map. Proceedings of the IEEE 69(1):14–47."
+    },
+    {
+      "key": "ruggedness_index@1",
+      "kind": "combined",
+      "domain": "topography",
+      "inputs": [
+        { "band": "copdem30m.elevation_mean", "role": "centre"    },
+        { "band": "copdem30m.elevation_mean", "role": "neighbours", "explanation": "8 immediate neighbours." }
+      ],
+      "formula": "TRI = sqrt( sum_{i=1..8} (Z_centre - Z_i)^2 )",
+      "output": { "kind": "scalar", "unit": "m", "range": [0, "+inf"], "explanation": "Riley terrain ruggedness index (Riley 1999): root-sum-square of elevation differences to the 8 neighbours. Higher = more rugged terrain." },
+      "when_to_use": "Categorise terrain as flat / rolling / rugged / mountainous. Useful for accessibility, ecology, and military-style mobility analyses.",
+      "primitive": "POST /v1/recall_many {cells:[centre,...8 neighbours], bands:['copdem30m.elevation_mean']}",
+      "deterministic": true,
+      "citation": "Riley, S.J., DeGloria, S.D. & Elliot, R. 1999. A Terrain Ruggedness Index that quantifies topographic heterogeneity. Intermountain Journal of Sciences 5(1–4):23–27."
+    },
+    {
+      "key": "topo_position_index@1",
+      "kind": "combined",
+      "domain": "topography",
+      "inputs": [
+        { "band": "copdem30m.elevation_mean", "role": "centre"    },
+        { "band": "copdem30m.elevation_mean", "role": "neighbours", "explanation": "8 immediate neighbours." }
+      ],
+      "formula": "TPI = Z_centre - mean(Z_neighbours_8)",
+      "output": { "kind": "scalar", "unit": "m", "range": ["-inf", "+inf"], "explanation": "Weiss (2001) topographic position index. Strongly positive → ridge / peak; strongly negative → valley / depression; near-zero → flat or mid-slope." },
+      "when_to_use": "Classify a cell as ridge / valley / mid-slope without separately fetching slope and curvature. Pair with `slope_from_dem_neighborhood@1` to disambiguate flat-summit from mid-slope.",
+      "primitive": "POST /v1/recall_many {cells:[centre,...8 neighbours], bands:['copdem30m.elevation_mean']}",
+      "deterministic": true,
+      "citation": "Weiss, A. 2001. Topographic Position and Landforms Analysis. ESRI User Conference Poster, San Diego."
+    },
+    {
+      "key": "coastal_proximity@1",
+      "kind": "combined",
+      "domain": "topography",
+      "inputs": [
+        { "band": "gmrt.topobathy_mean", "role": "centre",     "explanation": "GMRT topo-bathy elevation (positive = land, negative = sea)." },
+        { "band": "gmrt.topobathy_mean", "role": "neighbours", "explanation": "9-cell neighbourhood; sign-changes flag a coastline." }
+      ],
+      "formula": "is_coast = exists i,j in neighbourhood: sign(Z_i) != sign(Z_j); proximity_idx = if is_coast -> 1.0; else if min_neighbour_below_zero_in_K_ring(K=3) -> 0.6; else 0.0",
+      "output": { "kind": "scalar", "unit": "coastal_proximity", "range": [0, 1], "explanation": "1.0 = cell sits on the coastline (topo-bathy crosses zero); 0.6 = within 3 cells of the coast; 0.0 = inland or open ocean." },
+      "when_to_use": "Coast-vs-inland gate before computing flood_risk@1, applying salt-spray rules, or filtering for shoreline-adjacent ecology.",
+      "primitive": "POST /v1/recall_many {cells:[centre, ...K-ring(3)], bands:['gmrt.topobathy_mean']}",
+      "deterministic": true,
+      "citation": "GMRT Synthesis (Lamont-Doherty); Goff, J.A. et al. 2009. Sources of error in deep-sea bathymetric sonar measurements. Marine Geophysical Research 30:281–293."
+    },
+
+    {
+      "key": "anomaly_zscore@1",
+      "kind": "solo",
+      "domain": "anomaly",
+      "inputs": [
+        { "band": "<any scalar band>", "role": "value", "explanation": "The band whose anomaly is being computed; the agent supplies the band name at call time." }
+      ],
+      "formula": "z = (value - mean_band_at_responder) / sd_band_at_responder; class = if abs(z) < 1 -> 'normal'; else if abs(z) < 2 -> 'unusual'; else -> 'outlier'",
+      "output": { "kind": "scalar", "unit": "stddev", "range": ["-inf", "+inf"], "explanation": "Standard z-score against the responder's running mean/sd for the named band. NOT a global truth — the population is whatever the responder has attested." },
+      "when_to_use": "'Is this value unusual for this band?'. Best used after the responder has > a few thousand cells worth of attested data; small populations give noisy z-scores.",
+      "primitive": "GET /v1/agent_stats → per-band mean/sd; POST /v1/recall {bands:[<band>]} → compute z locally",
+      "deterministic": false,
+      "_deterministic_note": "Depends on the responder's corpus state at request time.",
+      "citation": "Standard statistical z-score. Population caveat per Tukey, J.W. 1977. Exploratory Data Analysis."
+    },
+
+    {
+      "key": "embedding_cosine@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "vec_a" },
+        { "band": "geotessera", "role": "vec_b" }
+      ],
+      "formula": "cos = (a · b) / (||a||₂ · ||b||₂)",
+      "output": { "kind": "scalar", "unit": "cosine_similarity", "range": [-1, 1], "explanation": "Tessera vectors are L2-normalised by the upstream model, so cosine ≈ inner product; we still divide for safety." },
+      "when_to_use": "Pairwise place similarity. Prefer `emem_find_similar` (which already returns top-k by this score) unless you actually need the raw similarity number.",
+      "primitive": "POST /v1/find_similar {key:<cell>, band:'geotessera', k:N} (for a single pair: k=2 and read off-diagonal)",
+      "deterministic": true,
+      "citation": "Salton & McGill 1983. Introduction to Modern Information Retrieval. McGraw-Hill."
+    },
+    {
+      "key": "embedding_l2_distance@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "vec_a" },
+        { "band": "geotessera", "role": "vec_b" }
+      ],
+      "formula": "d = ||a - b||₂ = sqrt(sum_i (a_i - b_i)^2)",
+      "output": { "kind": "scalar", "unit": "euclidean_distance", "range": [0, "+inf"], "explanation": "For L2-normalised vectors, d² = 2(1 - cosine) — monotone with `embedding_cosine@1` but obeys triangle inequality." },
+      "when_to_use": "Threshold-based clustering, k-d tree indexing, or anywhere you need a true metric (not a similarity).",
+      "primitive": "POST /v1/recall {bands:['geotessera']} for each cell → compute locally",
+      "deterministic": true,
+      "citation": "Standard Euclidean metric; relation d²=2(1-cos) holds for L2-normalised vectors."
+    },
+    {
+      "key": "embedding_change_score@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera",            "role": "vec_t",       "explanation": "Single-vintage vector at the year-of-interest tslot." },
+        { "band": "geotessera.multi_year", "role": "vec_history", "explanation": "Multi-year fused vector (8-vintage 1024-D)." }
+      ],
+      "formula": "change_score = 1 - cosine(vec_t, project_128(vec_history))",
+      "output": { "kind": "scalar", "unit": "change_index", "range": [0, 2], "explanation": "Distance between this year's appearance and the multi-year baseline; values >0.4 are typically meaningful land-cover change events." },
+      "when_to_use": "Year-over-year change at a cell. 'Has this place changed since 2020?'.",
+      "primitive": "POST /v1/diff {cell, band:'geotessera', tslot_a:T0, tslot_b:T1}",
+      "deterministic": true,
+      "citation": "Geotessera v1 model card §multi-year-fusion; Tucker & Pinzon 2017."
+    },
+    {
+      "key": "embedding_novelty@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "query" },
+        { "_corpus": true,        "role": "k-NN over the responder's geotessera index" }
+      ],
+      "formula": "novelty = 1 - max_{c in topK} cosine(query, c)",
+      "output": { "kind": "scalar", "unit": "novelty_index", "range": [0, 2], "explanation": "How far the query sits from its nearest known neighbour. ≥0.3 → genuinely out-of-distribution for this responder." },
+      "when_to_use": "Active-learning loops: low novelty → cite existing facts; high novelty → commission a fresh attestation.",
+      "primitive": "POST /v1/find_similar {key:<cell>, band:'geotessera', k:5} → 1 - max(score)",
+      "deterministic": false,
+      "_deterministic_note": "Dependent on corpus state at request time.",
+      "citation": "Lewis & Catlett 1994. Heterogeneous uncertainty sampling for supervised learning. ICML."
+    },
+    {
+      "key": "embedding_neighborhood_consistency@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "centre" },
+        { "band": "geotessera", "role": "neighbours" }
+      ],
+      "formula": "consistency = (1/8) * sum_{n in 8 neighbours} cosine(centre, n)",
+      "output": { "kind": "scalar", "unit": "consistency", "range": [-1, 1], "explanation": "High (>0.85) = locally homogeneous (forest interior, open ocean). Low (<0.5) = boundary cell (coastline, urban-rural edge)." },
+      "when_to_use": "Detect feature-boundary cells. Boundary cells are the most common 'wrong answer' pitfall — fan out to neighbours rather than trust the single-cell value.",
+      "primitive": "POST /v1/locate {q} → neighborhood_cells; POST /v1/recall_many {cells:[centre,...neighbours], bands:['geotessera']}",
+      "deterministic": true,
+      "citation": "Tobler, W.R. 1970. A computer movie simulating urban growth. Economic Geography 46(sup1):234–240. (First Law of Geography.)"
+    },
+    {
+      "key": "embedding_centroid@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "vectors_in_polygon", "explanation": "Embedding samples from a place — typically the polygon-sample cells returned by /v1/locate for a wide place name (canyon, basin, country)." }
+      ],
+      "formula": "centroid = (1/N) * sum_{i=1..N} v_i; centroid_norm = centroid / ||centroid||₂",
+      "output": { "kind": "vector", "unit": "geotessera_128d", "explanation": "L2-normalised mean of the embedding samples in the region. Approximates a 'place-fingerprint' you can search for." },
+      "when_to_use": "Region-level similarity ('find places that look like the Sundarbans') without needing per-cell pairwise comparison. Cite the polygon sampling as part of the receipt.",
+      "primitive": "POST /v1/locate {q:<wide place>} → polygon_sample_cells; POST /v1/recall_many → mean and renormalize",
+      "deterministic": true,
+      "citation": "Mean-pooled embedding is a standard set-encoder baseline; cf. Zaheer et al. 2017. Deep Sets. NeurIPS."
+    },
+    {
+      "key": "region_similarity@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "region_a", "explanation": "Centroid via embedding_centroid@1." },
+        { "band": "geotessera", "role": "region_b" }
+      ],
+      "formula": "sim = cosine(centroid(region_a), centroid(region_b))",
+      "output": { "kind": "scalar", "unit": "cosine_similarity", "range": [-1, 1], "explanation": "Place-to-place similarity. Higher = more similar physical character (climate × cover × topography mixed)." },
+      "when_to_use": "'Are X and Y similar places?'. Useful for site-selection, ecological analogue search, and diaspora geography.",
+      "primitive": "embedding_centroid@1 on each region → cosine in-process",
+      "deterministic": true,
+      "citation": "Composition of `embedding_centroid@1` and `embedding_cosine@1`."
+    },
+
+    {
+      "key": "place_archetype_match@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "query",     "explanation": "Embedding at the cell the user asked about." },
+        { "band": "geotessera", "role": "archetype", "explanation": "Embedding at a *named reference cell* the agent picks as the archetype: e.g. cell64 for a Manhattan block ('dense_urban'), the Sahara interior ('hyperarid_desert'), Amazon old-growth ('tropical_rainforest'), Uluru ('exposed_inselberg'). The agent maintains a small dictionary of {label: cell64} archetypes and can surface the best-matching label by computing this score against each." }
+      ],
+      "formula": "match = cosine(query, archetype); rank an archetype dictionary by descending match",
+      "output": { "kind": "scalar", "unit": "cosine_similarity", "range": [-1, 1], "explanation": "Highest-match archetype names what kind of place this is — a 'visual / physical fingerprint' classifier without a trained head. The agent picks a tier of N archetype cells once; subsequent calls are cheap recalls." },
+      "when_to_use": "User asks 'what KIND of place is this?' or 'is this more like Manhattan or like the Cotswolds?'. Faster + more interpretable than k-NN against the whole corpus when the agent has a small curated archetype list.",
+      "primitive": "POST /v1/recall_many {cells:[query, archetype_1, …, archetype_N], bands:['geotessera']} → cosine of query against each archetype",
+      "deterministic": true,
+      "citation": "Conceptual analogue of nearest-prototype classifiers (Tibshirani et al. 2002. Diagnosis of multiple cancer types by shrunken centroids. PNAS 99(10):6567–6572). Archetype dictionary is editorial — declare in receipts."
+    },
+    {
+      "key": "region_outlier_score@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "query",          "explanation": "Embedding at the cell of interest." },
+        { "band": "geotessera", "role": "polygon_sample", "explanation": "Embeddings sampled from /v1/locate.polygon_sample_cells of the enclosing region (city, basin, country)." }
+      ],
+      "formula": "outlier = 1 - cosine(query, embedding_centroid@1(polygon_sample))",
+      "output": { "kind": "scalar", "unit": "outlier_index", "range": [0, 2], "explanation": "How unlike this cell is compared to the rest of the region it sits in. Useful for finding 'odd one out' parcels: the one industrial site in a residential neighbourhood, the one wetland inside a desert basin." },
+      "when_to_use": "Agent asks 'is this cell unusual for its neighborhood?'. Pair with `embedding_neighborhood_consistency@1` for a tight-vs-loose distinction.",
+      "primitive": "POST /v1/locate {q:<region>} → polygon_sample_cells; POST /v1/recall_many → mean → cosine vs query",
+      "deterministic": true,
+      "citation": "Mahalanobis-style outlier reasoning in latent space; cf. Lee et al. 2018. A simple unified framework for detecting OOD samples. NeurIPS."
+    },
+    {
+      "key": "embedding_corridor_consistency@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "route_cells", "explanation": "Ordered list of cell64s along a route (commute, hike, river course)." }
+      ],
+      "formula": "consistency = mean_{i=1..N-1} cosine(v_i, v_{i+1}); roughness = 1 - consistency; transitions = count_{i} { cosine(v_i, v_{i+1}) < tau }",
+      "output": { "kind": "scalar", "unit": "consistency", "range": [-1, 1], "explanation": "Mean adjacent-cell cosine along the route. High = route stays in one biome / urban texture; low = route crosses many transitions (urban-rural, forest-field, coast-inland). The transition count flags discrete boundary crossings." },
+      "when_to_use": "Route characterisation: 'is this commute scenic / monotonous / mixed?'. Pre-compute once before applying scalar route summaries (route_flood_exposure@1, route_heat_exposure@1).",
+      "primitive": "POST /v1/recall_many {cells:[r1,…,rN], bands:['geotessera']} → adjacent cosines",
+      "deterministic": true,
+      "citation": "First-order Markov consistency over the embedding sequence; analogous to Tobler's First Law along a path (Tobler 1970)."
+    },
+    {
+      "key": "embedding_weighted_blend@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera",                            "role": "embedding"      },
+        { "band": "indices.ndvi",                          "role": "scalar_features", "explanation": "Any concrete scalar bands the agent wants to upweight at search time (ndvi, elevation, recurrence, …)." },
+        { "band": "copdem30m.elevation_mean",              "role": "scalar_features" }
+      ],
+      "formula": "blended = concat(alpha * normalize(embedding), (1-alpha) * standardize(scalar_features)); search via cosine in the concatenated space",
+      "output": { "kind": "vector", "unit": "blended_features", "explanation": "Concatenated feature vector that lets the agent shift the similarity metric between 'physical appearance' (embedding) and 'specific scalar attributes' (named bands). Pick alpha=1 for pure visual similarity, alpha=0 for pure scalar match, alpha=0.5 for balanced." },
+      "when_to_use": "When pure-embedding similarity returns visually-similar but functionally-wrong matches (e.g. a paved parking lot looks like bare desert in C-band radar but agent cares that it's URBAN). Boost the discriminator scalars by lowering alpha.",
+      "primitive": "POST /v1/recall {bands:['geotessera', <scalar bands>]} → standardize + concat; pass to a custom k-NN over /v1/find_similar (or compute locally).",
+      "deterministic": true,
+      "citation": "Standard hybrid retrieval: Faghri et al. 2018. VSE++: Improving visual-semantic embeddings with hard negatives. BMVC. (alpha-blend is editorial; pin alpha in receipts.)"
+    },
+
+    {
+      "key": "walkability_score@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "overture.transportation.road_length_m", "role": "street_density", "weight": 0.30, "transform": "tanh(x/1500)",
+          "explanation": "Connectivity proxy — denser pedestrian networks correlate with the walk-network connectivity term in Walk Score / Frank et al." },
+        { "band": "overture.places.count",                 "role": "destination_density", "weight": 0.25, "transform": "tanh(x/15)",
+          "explanation": "POI density: shops, cafes, services within reach. Matches Walk Score's destination diversity logic." },
+        { "band": "overture.buildings.count",              "role": "residential_density", "weight": 0.15, "transform": "tanh(x/300)" },
+        { "band": "indices.ndvi",                          "role": "tree_canopy_uplift", "weight": 0.10, "transform": "clamp01((x - 0.2) / 0.4)",
+          "explanation": "Shade and street-trees; saturates above NDVI 0.6." },
+        { "band": "copdem30m.elevation_mean",              "role": "flatness",  "weight": 0.10, "transform": "_use slope_from_dem_neighborhood@1; transform: 1 - clamp01(slope_deg/15)" },
+        { "band": "surface_water.recurrence",              "role": "flood_safety","weight": 0.10, "transform": "1 - clamp01(x/100)" }
+      ],
+      "formula": "0.30*tanh(road_length_m/1500) + 0.25*tanh(places.count/15) + 0.15*tanh(buildings.count/300) + 0.10*clamp01((ndvi-0.2)/0.4) + 0.10*(1 - clamp01(slope_deg/15)) + 0.10*(1 - clamp01(recurrence/100))",
+      "output": { "kind": "scalar", "unit": "walkability_index", "range": [0, 1], "explanation": "Walk Score-style index. Frank's '3D' (density + diversity + design) collapses into our buildings + places + roads; we add canopy / slope / flood as comfort and safety modifiers. NOT a Walk Score replacement — directional only." },
+      "when_to_use": "'Is this neighbourhood walkable?'. The agent should also surface a one-sentence reason naming the dominant driver (e.g. 'low places.count is the limiting factor here').",
+      "primitive": "POST /v1/recall_many over the K-ring (so canopy and slope reflect surroundings, not just one cell)",
+      "deterministic": true,
+      "citation": "Frank, L.D. et al. 2010. The development of a walkability index: application to the neighborhood quality of life study. British Journal of Sports Medicine 44(13):924–933. Walk Score methodology https://www.walkscore.com/methodology.shtml."
+    },
+    {
+      "key": "bikeability_score@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "overture.transportation.road_length_m", "role": "network",  "weight": 0.40, "transform": "tanh(x/1500)" },
+        { "band": "copdem30m.elevation_mean",              "role": "flatness", "weight": 0.30, "transform": "_use slope_from_dem_neighborhood@1; transform: max(0, 1 - slope_deg/8)",
+          "explanation": "Cyclists tap out around 8 % grade for casual commuting; saturate at slope_deg=8." },
+        { "band": "indices.ndvi",                          "role": "comfort",  "weight": 0.10, "transform": "clamp01((x - 0.2) / 0.4)" },
+        { "band": "surface_water.recurrence",              "role": "flood_safety","weight": 0.10, "transform": "1 - clamp01(x/100)" },
+        { "band": "weather.wind_speed_10m",                "role": "wind_penalty","weight": 0.10, "transform": "1 - tanh(x/8)" }
+      ],
+      "formula": "0.40*tanh(road_length_m/1500) + 0.30*max(0, 1 - slope_deg/8) + 0.10*clamp01((ndvi-0.2)/0.4) + 0.10*(1 - clamp01(recurrence/100)) + 0.10*(1 - tanh(wind_speed_10m/8))",
+      "output": { "kind": "scalar", "unit": "bikeability_index", "range": [0, 1], "explanation": "Composite score: gentle slope dominates, network presence anchors, wind / canopy / flood modulate. Winters et al.'s Vancouver Bicycling Spatial Index reaches similar conclusions empirically." },
+      "when_to_use": "Cyclist-specific livability. Slope is the main driver in hilly cities — explicitly call out the slope component when low.",
+      "primitive": "POST /v1/recall_many over the K-ring + slope_from_dem_neighborhood@1",
+      "deterministic": true,
+      "citation": "Winters, M., Brauer, M., Setton, E.M. & Teschke, K. 2013. Mapping bikeability: a spatial tool to support sustainable travel. Environment and Planning B 40(5):865–883."
+    },
+    {
+      "key": "urban_heat_island_imhoff@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "ndvi_cell",
+          "explanation": "Cell-mean Sentinel-2 NDVI." },
+        { "band": "indices.ndvi", "role": "ndvi_ring",
+          "explanation": "K-ring mean NDVI; K=3 (≈0.9 km radius) for fine UHI, K=10 (≈3 km) for the metropolitan-vs-rural contrast Imhoff used. Agent picks K and pins it in the receipt." },
+        { "band": "indices.ndbi", "role": "ndbi_cell",
+          "explanation": "Cell-mean NDBI used as a built-up modifier — Imhoff's original analysis was conditioned on ISA (impervious surface area)." }
+      ],
+      "formula": "let dNDVI = clamp01(indices.ndvi(ring) - indices.ndvi(cell)); let isa_mod = clamp01((indices.ndbi + 0.1) / 0.4); dLST_summer_K = 41.0 * dNDVI * isa_mod; dLST_summer_F = dLST_summer_K * 9/5",
+      "output": { "kind": "scalar", "unit": "K", "range": [0, 12], "explanation": "Estimated urban-rural land-surface-temperature anomaly ΔLST in Kelvin (= °C delta). Coefficient 41 K per unit-NDVI deficit is the Imhoff et al. 2010 multi-city continental-US summer linear fit (slope ~ 4.1 K per 0.1-unit NDVI deficit). ISA modifier applies only when there is meaningful built-up (NDBI ≥ −0.1). Use as the day-time summer ΔLST; the night-time signal is roughly half. For absolute LST wire a MODIS LST or Landsat thermal band." },
+      "when_to_use": "'How much hotter is this neighbourhood than its rural ring?' Real published regression coefficient. Pair with `heat_health_risk@2` to translate into health bins.",
+      "primitive": "POST /v1/recall_many {cells:[centre, K3 or K10 ring], bands:['indices.ndvi','indices.ndbi']}",
+      "deterministic": true,
+      "citation": "Imhoff, M.L., Zhang, P., Wolfe, R.E., Bounoua, L. 2010. Remote sensing of the urban heat island effect across biomes in the continental USA. Remote Sensing of Environment 114(3):504–513 (Figure 6: −41 K per unit-NDVI summer slope)."
+    },
+    {
+      "key": "green_space_access@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "ring_vegetation_fraction", "explanation": "K-ring (radius 3 cells, ~1.6 km) NDVI sample. Fraction of cells with NDVI ≥ 0.4 = parks/woodland threshold." }
+      ],
+      "formula": "fraction_green = (1/N_ring) * count_{c in K3_ring} { indices.ndvi(c) >= 0.4 }; access_score = clamp01(fraction_green / 0.20)",
+      "output": { "kind": "scalar", "unit": "access_index", "range": [0, 1], "explanation": "Score saturates at 20 % canopy/park share within ~1.6 km — the WHO recommendation that residents have green space within 300 m. We use a coarser ring because cell64 ~305 m." },
+      "when_to_use": "Property and livability assessments; environmental-justice screens. Note in the receipt that this is an NDVI-fraction proxy, not a parks-database lookup.",
+      "primitive": "POST /v1/locate → neighborhood_cells + polygon_sample_cells; POST /v1/recall_many {bands:['indices.ndvi']}",
+      "deterministic": true,
+      "citation": "World Health Organization. 2017. Urban green spaces: a brief for action. Larondelle, N. & Haase, D. 2013. Urban ecosystem services assessment along a rural-urban gradient. Ecological Indicators 29:179–190."
+    },
+    {
+      "key": "ghi_clearsky_haurwitz@1",
+      "kind": "combined",
+      "domain": "energy",
+      "inputs": [
+        { "band": "weather.cloud_cover", "role": "cloud_pct", "unit": "percent",
+          "explanation": "Total cloud-area fraction at observation time. Real-time MET Norway value." },
+        { "band": "<lat_from_cell64>",   "role": "lat_deg",
+          "explanation": "Latitude of the cell centre, decoded from cell64 (also returned by /v1/locate.centre.lat_deg). Solar declination is computed from day-of-year." },
+        { "band": "<doy_from_tslot>",    "role": "day_of_year",
+          "explanation": "Day-of-year, 1..365. From the request timestamp." },
+        { "band": "<hour_from_tslot>",   "role": "solar_hour",
+          "explanation": "Apparent solar hour, 0..24. Local solar time = UTC + lng_deg/15° (no equation-of-time correction; ±15 min). For mean-day estimates use 12 (solar noon)." }
+      ],
+      "formula": "let phi = lat * pi/180; let delta = 23.45 * pi/180 * sin(2*pi*(284 + day_of_year)/365); let h = (solar_hour - 12) * 15 * pi/180; let cos_z = sin(phi)*sin(delta) + cos(phi)*cos(delta)*cos(h); let cos_z_eff = max(cos_z, 0.0001); let GHI_clear = 1098 * cos_z_eff * exp(-0.057 / cos_z_eff); let cf = clamp01(weather.cloud_cover/100); GHI_actual = max(0, GHI_clear) * (1 - 0.75 * pow(cf, 3.4))",
+      "output": { "kind": "scalar", "unit": "W/m^2", "range": [0, 1200], "explanation": "Global Horizontal Irradiance, W/m². Haurwitz 1945 clear-sky formula attenuated by Kasten-Czeplak 1980 cloud transmittance ((1−0.75·cf^3.4)). Solar zenith from the standard astronomical formula (Cooper 1969 declination, hour-angle in apparent solar time). Returns 0 when the sun is below the horizon (cos_z < 0)." },
+      "when_to_use": "Snapshot global irradiance estimate at any latitude on Earth. Suitable for PV pre-screening, irradiance-dependent algorithms (ET, photosynthesis), and order-of-magnitude energy yield. For TMY-quality multi-year statistics use PVGIS or NSRDB.",
+      "primitive": "POST /v1/recall {bands:['weather.cloud_cover']} + /v1/locate (lat) + request timestamp",
+      "deterministic": true,
+      "citation": "Haurwitz, B. 1945. Insolation in relation to cloudiness and cloud density. J. Meteorology 2:154–166. Kasten, F. & Czeplak, G. 1980. Solar and terrestrial radiation dependent on the amount and type of cloud. Solar Energy 24(2):177–189. Cooper, P.I. 1969. The absorption of solar radiation in solar stills. Solar Energy 12(3):333–346 (declination)."
+    },
+    {
+      "key": "noise_exposure_proxy@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "overture.transportation.road_length_m", "role": "road_emitter",   "weight": 0.70, "transform": "sigmoid((x - 800)/400)",
+          "explanation": "Traffic-noise scales with road length within the cell; our 305 m cell holds ~800 m of street as a 'busy threshold'." },
+        { "band": "overture.buildings.count",              "role": "reverberation",   "weight": 0.20, "transform": "tanh(x/300)",
+          "explanation": "Dense buildings amplify (urban canyon) — the modifier is small but real." },
+        { "band": "indices.ndvi",                          "role": "canopy_attenuation","weight": 0.10, "transform": "1 - clamp01((x - 0.2)/0.4)",
+          "explanation": "Tree canopy attenuates traffic noise by 3–7 dB; we subtract a soft canopy uplift." }
+      ],
+      "formula": "0.70*sigmoid((road_length_m - 800)/400) + 0.20*tanh(buildings.count/300) - 0.10*clamp01((ndvi - 0.2)/0.4)",
+      "output": { "kind": "scalar", "unit": "noise_proxy", "range": [-0.1, 1], "explanation": "Directional traffic-noise exposure proxy. Calibrated noise data (LDEN) requires a city noise-map attestation; this is a screening tool only." },
+      "when_to_use": "Quiet-flat / loud-flat screening. Always frame as 'traffic-noise proxy', not measured dB(A).",
+      "primitive": "POST /v1/recall {bands:['overture.transportation.road_length_m','overture.buildings.count','indices.ndvi']}",
+      "deterministic": true,
+      "citation": "Steele, C. 2001. A critical review of some traffic noise prediction models. Applied Acoustics 62(3):271–287. Fang, C.F. & Ling, D.L. 2003. Investigation of the noise reduction provided by tree belts. Landscape and Urban Planning 63(4):187–195."
+    },
+    {
+      "key": "outdoor_comfort_score@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.temperature_2m", "role": "temp_c"  },
+        { "band": "weather.cloud_cover",    "role": "cloud_pct"},
+        { "band": "weather.wind_speed_10m", "role": "wind_mps" },
+        { "band": "indices.ndvi",           "role": "shade_uplift", "explanation": "Cell-mean canopy as shade proxy." }
+      ],
+      "formula": "HI = heat_index@2; thermal_comfort = exp(-((HI - 22)^2)/200); wind_comfort = 1 - tanh(max(0, wind_mps - 6)/4); shade_uplift = 0.10 * clamp01((ndvi - 0.2)/0.4); score = clamp01(0.55*thermal_comfort + 0.30*wind_comfort + 0.15 + shade_uplift) ",
+      "output": { "kind": "scalar", "unit": "comfort_index", "range": [0, 1], "explanation": "Gaussian around 22 °C apparent temperature, penalty for high winds, shade uplift in vegetated cells. Maps directly to the user's question 'is it pleasant outside right now?'." },
+      "when_to_use": "Outdoor-event scheduling, tourism advisories, café-terrace seating. Pair with a same-cell precip check to flag 'comfortable but raining'.",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.wind_speed_10m','indices.ndvi']}",
+      "deterministic": true,
+      "citation": "Höppe, P. 1999. The physiological equivalent temperature — a universal index for the biometeorological assessment of the thermal environment. International Journal of Biometeorology 43(2):71–75. (Gaussian shape editorial; calibrated thermal-comfort indices like UTCI need humidity + radiation.)"
+    },
+    {
+      "key": "construction_site_exposure@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "surface_water.recurrence", "role": "flood_history",   "weight": 0.40, "transform": "x / 100" },
+        { "band": "copdem30m.elevation_mean", "role": "slope_risk",       "weight": 0.25, "transform": "_use slope_from_dem_neighborhood@1; transform: clamp01(slope_deg/30)" },
+        { "band": "indices.bsi",              "role": "soil_instability", "weight": 0.15, "transform": "clamp01((x + 0.05)/0.20)" },
+        { "band": "weather.temperature_2m",   "role": "heat_stress_workers","weight": 0.10, "transform": "sigmoid((x - 30)/4)" },
+        { "band": "weather.wind_speed_10m",   "role": "crane_wind_risk",   "weight": 0.10, "transform": "tanh(x/12)" }
+      ],
+      "formula": "0.40*(recurrence/100) + 0.25*clamp01(slope_deg/30) + 0.15*clamp01((bsi+0.05)/0.20) + 0.10*sigmoid((temp_c-30)/4) + 0.10*tanh(wind_mps/12)",
+      "output": { "kind": "scalar", "unit": "exposure_index", "range": [0, 1], "explanation": "Composite site-condition risk for construction planning. Higher = more hazards to design-around (drainage, retaining walls, heat protocols, crane-wind shutdown)." },
+      "when_to_use": "Pre-construction site assessment. Should NOT replace a geotechnical survey — a directional pre-screen only.",
+      "primitive": "POST /v1/recall_many for K-ring + same-cell weather",
+      "deterministic": true,
+      "citation": "Construction industry standard exposure-checklists (e.g. UK CDM 2015 risk register categories): flood, slope, soils, heat, wind. Weights editorial."
+    },
+    {
+      "key": "route_flood_exposure@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "surface_water.recurrence", "role": "route_cells", "explanation": "List of cell64s along the route." },
+        { "band": "copdem30m.elevation_mean", "role": "route_cells" },
+        { "band": "sentinel1_raw",            "role": "route_cells" }
+      ],
+      "formula": "for each cell c in route: r_c = flood_risk@1(c); route_max = max_c(r_c); route_mean = mean_c(r_c); flagged_cells = { c | r_c >= 0.5 }",
+      "output": { "kind": "scalar", "unit": "max_flood_risk_along_route", "range": [0, 1], "explanation": "Max-pool of `flood_risk@1` along the route; the agent surfaces both the peak value and the cell64 where it occurs so the user can see WHERE the bottleneck is." },
+      "when_to_use": "Commute, hike, evacuation, or freight-route planning. Combine with route_heat_exposure@1 and embedding_corridor_consistency@1 for a full route-character report.",
+      "primitive": "POST /v1/recall_many over the route cells; apply flood_risk@1 per cell; max-pool",
+      "deterministic": true,
+      "citation": "Standard transportation-resilience scoring approach; cf. Mattsson, L.G. & Jenelius, E. 2015. Vulnerability and resilience of transport systems. Transportation Research A 81:16–34."
+    },
+    {
+      "key": "route_heat_exposure@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.temperature_2m", "role": "route_cells" },
+        { "band": "weather.cloud_cover",    "role": "route_cells" },
+        { "band": "indices.ndvi",           "role": "route_cells" }
+      ],
+      "formula": "for each cell c: HI_c = heat_index@2(c); shade_c = clamp01((ndvi_c - 0.2)/0.4); exposure_c = HI_c - 3*shade_c; route_max_exposure = max_c(exposure_c)",
+      "output": { "kind": "scalar", "unit": "max_apparent_temp_along_route", "range": [-50, 60], "explanation": "Max apparent temperature along the route, with a 3 °C shade discount for vegetated segments." },
+      "when_to_use": "Walking / cycling / running route planning on hot days. Pair with `outdoor_comfort_score@1` per cell for richer per-segment colouring.",
+      "primitive": "POST /v1/recall_many over route cells",
+      "deterministic": true,
+      "citation": "Steadman 1979 (heat index); Akbari, H. et al. 2001. Cool surfaces and shade trees to reduce energy use and improve air quality in urban areas. Solar Energy 70(3):295–310. (3 °C shade discount approximates measured tree-shade reductions.)"
+    },
+    {
+      "key": "livability_index@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "<composite>", "role": "walkability",           "weight": 0.20, "explanation": "walkability_score@1" },
+        { "band": "<composite>", "role": "green_space_access",    "weight": 0.15, "explanation": "green_space_access@1" },
+        { "band": "<composite>", "role": "outdoor_comfort",       "weight": 0.10, "explanation": "outdoor_comfort_score@1 (today's value; agent should average a forecast window if available)" },
+        { "band": "<composite>", "role": "low_flood_risk",        "weight": 0.20, "explanation": "1 - flood_risk@1" },
+        { "band": "<composite>", "role": "low_uhi",               "weight": 0.10, "explanation": "1 - urban_heat_island_imhoff@1" },
+        { "band": "<composite>", "role": "low_noise",             "weight": 0.15, "explanation": "1 - noise_exposure_proxy@1" },
+        { "band": "<composite>", "role": "place_archetype_match", "weight": 0.10, "explanation": "Optional: cosine to a 'pleasant residential' archetype cell. Agent picks the archetype." }
+      ],
+      "formula": "0.20*walkability + 0.15*green_access + 0.10*comfort + 0.20*(1-flood_risk) + 0.10*(1-uhi) + 0.15*(1-noise) + 0.10*archetype_match",
+      "output": { "kind": "scalar", "unit": "livability_index", "range": [0, 1], "explanation": "Top-level place-quality score. Each weight is editorial — agent should print the weights used in the receipt and let the user re-weight if they disagree." },
+      "when_to_use": "Residential site selection, relocation analysis, comparative city briefings. ALWAYS surface the per-component breakdown alongside the headline number — composite scores are easy to mistrust without the inputs.",
+      "primitive": "Run each sub-recipe → weighted sum",
+      "deterministic": true,
+      "citation": "Composition recipe; weights informed by Maslow-style hierarchy of urban needs (Glaeser 2011. Triumph of the City.). Pin weights in the receipt."
+    },
+
+    {
+      "key": "property_climate_risk_score@1",
+      "kind": "combined",
+      "domain": "real_estate",
+      "_disclaimer": "Directional risk indicator only. NOT insurance, mortgage, or investment advice. Do not use as the sole input to a property purchase or underwriting decision.",
+      "inputs": [
+        { "band": "<composite>", "role": "flood",      "weight": 0.30, "explanation": "flood_risk@1" },
+        { "band": "<composite>", "role": "heat",       "weight": 0.20, "explanation": "heat_health_risk@2 → score in [0,1] (safe=0, extreme_danger=1)" },
+        { "band": "<composite>", "role": "wildfire",   "weight": 0.20, "explanation": "fosberg_fire_weather_index@1 weighted by `vegetation_class_from_ndvi@1 ≥ moderate` (no fuel → no risk)" },
+        { "band": "<composite>", "role": "drought",    "weight": 0.10, "explanation": "vapor_pressure_deficit@1 averaged over a forecast window if available" },
+        { "band": "<composite>", "role": "subsidence", "weight": 0.10, "explanation": "1 if `coastal_proximity@1` flags coastal AND `slope_from_dem_neighborhood@1` < 2°, else proportional to bare-soil fraction" },
+        { "band": "<composite>", "role": "windstorm",  "weight": 0.10, "explanation": "tanh(weather.wind_speed_10m / 12) — directional same-day proxy until a multi-year wind-gust climatology lands" }
+      ],
+      "formula": "0.30*flood + 0.20*heat + 0.20*wildfire_weighted + 0.10*drought + 0.10*subsidence + 0.10*windstorm",
+      "output": { "kind": "scalar", "unit": "climate_risk_index", "range": [0, 1], "explanation": "TCFD-style physical-climate exposure for a single property. Categorical mapping: 0–0.2 low; 0.2–0.4 moderate; 0.4–0.6 elevated; >0.6 high. ALWAYS surface the per-peril breakdown — a single number hides which hazards drive the score." },
+      "when_to_use": "Real-estate due diligence dashboards, property-listing climate badges, REIT portfolio screening. Print the disclaimer in the agent's reply.",
+      "primitive": "Run each sub-recipe → weighted sum",
+      "deterministic": true,
+      "citation": "Task Force on Climate-Related Financial Disclosures (TCFD) 2017 recommendations. Hsu et al. 2021. Climate exposure assessment frameworks. Hauer, M.E. et al. 2020. Sea-level rise and human migration. Nature Reviews Earth & Environment 1:28–39."
+    },
+    {
+      "key": "insurance_premium_proxy@1",
+      "kind": "combined",
+      "domain": "real_estate",
+      "_disclaimer": "Directional ranking only — not an actuarial premium and not insurance advice.",
+      "inputs": [
+        { "band": "<composite>", "role": "physical_climate_risk", "weight": 0.65, "explanation": "property_climate_risk_score@1" },
+        { "band": "<composite>", "role": "secondary_perils",      "weight": 0.20, "explanation": "max(hail_proxy, urban_density × low_drainage) — hail proxy is editorial; replace with NOAA SPC hail climatology when wired" },
+        { "band": "<composite>", "role": "claims_density_proxy",  "weight": 0.15, "explanation": "Use `population_ghsl_dasymetric@1` × `urban_density_score@1` as a stand-in for nearby claims frequency until a real loss-history attestation lands." }
+      ],
+      "formula": "premium_idx = 0.65*property_climate_risk + 0.20*secondary_perils + 0.15*claims_density_proxy",
+      "output": { "kind": "scalar", "unit": "premium_relative_index", "range": [0, 1], "explanation": "Relative ranking — high score = expect higher home / commercial-property premiums RELATIVE to a baseline cell in the same market. Not a dollar figure." },
+      "when_to_use": "Real-estate dashboards that want a 'higher / lower than average insurance' badge. Cite the algorithm_cid + per-component breakdown in the receipt; never present as a quote.",
+      "primitive": "Compose property_climate_risk_score@1 + secondary perils + density",
+      "deterministic": true,
+      "citation": "Bevere, L. et al. 2020. Sigma 1/2020: Natural catastrophes in 2019 — secondary perils in the spotlight. Swiss Re Institute. Aon 2024 Global Catastrophe Recap. (Weights editorial; methodology is industry-standard composite ranking.)"
+    },
+    {
+      "key": "coastal_erosion_proxy@1",
+      "kind": "combined",
+      "domain": "real_estate",
+      "inputs": [
+        { "band": "<composite>",                          "role": "coast_flag", "weight": 0.40, "explanation": "coastal_proximity@1" },
+        { "band": "copdem30m.elevation_mean",             "role": "low_elev",   "weight": 0.30, "transform": "relu(20 - x) / 20" },
+        { "band": "copdem30m.elevation_mean",             "role": "low_slope",  "weight": 0.15, "transform": "_use slope_from_dem_neighborhood@1; 1 - clamp01(slope_deg/8)" },
+        { "band": "weather.wind_speed_10m",               "role": "wind_now",   "weight": 0.15, "transform": "tanh(x/12)" }
+      ],
+      "formula": "0.40*coastal + 0.30*relu(20 - elevation)/20 + 0.15*(1 - clamp01(slope_deg/8)) + 0.15*tanh(wind_mps/12)",
+      "output": { "kind": "scalar", "unit": "erosion_proxy", "range": [0, 1], "explanation": "Coastal + low + flat + windy → high erosion exposure. Directional only — for shoreline retreat in m/yr, use a CoastSat or USGS NCSL attestation." },
+      "when_to_use": "Coastal property and infrastructure screens. Pair with `flood_risk@1` for storm-surge interaction.",
+      "primitive": "Compose coastal_proximity@1 + slope + wind",
+      "deterministic": true,
+      "citation": "Vousdoukas, M.I. et al. 2020. Sandy coastlines under threat of erosion. Nature Climate Change 10:260–263."
+    },
+
+    {
+      "key": "wildfire_exposure_score@1",
+      "kind": "combined",
+      "domain": "fire",
+      "inputs": [
+        { "band": "<composite>", "role": "fire_weather", "weight": 0.40, "explanation": "fosberg_fire_weather_index@1" },
+        { "band": "<composite>", "role": "fuel_load",    "weight": 0.30, "explanation": "agb_ndvi_powerlaw@1 — high biomass = more fuel" },
+        { "band": "copdem30m.elevation_mean", "role": "slope_uphill", "weight": 0.20, "transform": "_use slope_from_dem_neighborhood@1; clamp01(slope_deg / 30)",
+          "explanation": "Steep uphill slopes accelerate flame spread (Rothermel 1972)." },
+        { "band": "weather.precipitation_mm", "role": "precip_inverse", "weight": 0.10, "transform": "1 - sigmoid(x*4)" }
+      ],
+      "formula": "0.40*fire_weather + 0.30*fuel_load + 0.20*clamp01(slope_deg/30) + 0.10*(1 - sigmoid(precip*4))",
+      "output": { "kind": "scalar", "unit": "wildfire_exposure", "range": [0, 1], "explanation": "Composite same-day wildfire-likelihood proxy. NOT a Canadian-FWI replacement. Apply only on cells classified as `vegetation_class_from_ndvi@1 ≥ sparse`." },
+      "when_to_use": "Insurance and infrastructure screens during fire season. Pair with `burn_severity_from_dnbr@1` for post-event damage assessment.",
+      "primitive": "Compose fosberg_fire_weather_index@1 + agb_ndvi_powerlaw@1 + slope + precip",
+      "deterministic": true,
+      "citation": "Rothermel, R.C. 1972. A mathematical model for predicting fire spread in wildland fuels. USDA INT-115. Van Wagner 1987 (FWI)."
+    },
+    {
+      "key": "multi_peril_score@1",
+      "kind": "combined",
+      "domain": "real_estate",
+      "_disclaimer": "Directional ranking only. Not catastrophe-modeling output and not actuarial.",
+      "inputs": [
+        { "band": "<composite>", "role": "flood",     "weight": 0.30, "explanation": "flood_risk@1" },
+        { "band": "<composite>", "role": "wildfire",  "weight": 0.25, "explanation": "wildfire_exposure_score@1" },
+        { "band": "<composite>", "role": "heat",      "weight": 0.20, "explanation": "heat_health_risk@2 mapped to [0,1]" },
+        { "band": "<composite>", "role": "wind",      "weight": 0.15, "explanation": "tanh(weather.wind_speed_10m/12)" },
+        { "band": "<composite>", "role": "subsidence","weight": 0.10, "explanation": "1 if coastal+flat else 0.3*bsi_class_score" }
+      ],
+      "formula": "max-pool: peak = max(flood, wildfire, heat, wind, subsidence); composite = 0.30*flood + 0.25*wildfire + 0.20*heat + 0.15*wind + 0.10*subsidence",
+      "output": { "kind": "scalar", "unit": "multi_peril_index", "range": [0, 1], "explanation": "Both 'composite' and 'peak' returned; agent surfaces both because peak peril matters even if composite looks moderate." },
+      "when_to_use": "Insurance dashboards needing one number that hedges across catastrophic perils. Always print the per-peril breakdown.",
+      "primitive": "Run each sub-recipe → weighted sum + max",
+      "deterministic": true,
+      "citation": "Munich Re 2024 NatCatSERVICE; Bevere et al. 2020 (Swiss Re sigma 1/2020 secondary perils)."
+    },
+
+    {
+      "key": "carbon_sink_score@1",
+      "kind": "combined",
+      "domain": "esg",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "current_greenness", "weight": 0.40, "transform": "clamp01(x)" },
+        { "band": "<composite>",  "role": "biomass_proxy",    "weight": 0.35, "explanation": "agb_ndvi_powerlaw@1" },
+        { "band": "indices.ndvi", "role": "ring_canopy",      "weight": 0.25, "transform": "_K_ring_mean_3; clamp01(mean)" }
+      ],
+      "formula": "0.40*clamp01(indices.ndvi) + 0.35*biomass_proxy + 0.25*clamp01(mean_K3(ndvi))",
+      "output": { "kind": "scalar", "unit": "sink_index", "range": [0, 1], "explanation": "Directional ranking of carbon-sink capacity (NOT tonnes CO₂/year — for that, use a GEDI L4A or ESA CCI Biomass attestation). Useful for ESG scoring of land parcels and conservation prioritisation." },
+      "when_to_use": "ESG dashboards comparing parcels for carbon-credit eligibility, land-trust acquisition, or biodiversity-credit baselines. Note that current-year NDVI is a snapshot; pair with `embedding_change_score@1` to detect deforestation.",
+      "primitive": "POST /v1/recall_many for K-ring + agb_ndvi_powerlaw@1",
+      "deterministic": true,
+      "citation": "Pan, Y. et al. 2011. A large and persistent carbon sink in the world's forests. Science 333(6045):988–993. Saatchi, S.S. et al. 2011. Benchmark map of forest carbon stocks. PNAS 108(24):9899–9904."
+    },
+    {
+      "key": "biodiversity_proxy@1",
+      "kind": "combined",
+      "domain": "esg",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "ndvi_heterogeneity", "weight": 0.40, "explanation": "Standard deviation of NDVI within K-ring — heterogeneous canopy = more habitat niches." },
+        { "band": "<composite>",  "role": "ruggedness",         "weight": 0.20, "explanation": "ruggedness_index@1 (normalised)" },
+        { "band": "<composite>",  "role": "coastal_or_water",   "weight": 0.20, "explanation": "Either coastal_proximity@1 or surface_water.recurrence > 5 % adds wetland/coast biodiversity uplift." },
+        { "band": "<composite>",  "role": "low_human_pressure", "weight": 0.20, "explanation": "1 - urban_density_score@1" }
+      ],
+      "formula": "0.40*sd_K_ring(ndvi)/0.25 + 0.20*tanh(ruggedness/120) + 0.20*coastal_or_wet + 0.20*(1 - urban_density)",
+      "output": { "kind": "scalar", "unit": "biodiversity_proxy", "range": [0, 1], "explanation": "Heterogeneous canopy + rugged terrain + water/coast access + low human pressure → high biodiversity potential. Directional only." },
+      "when_to_use": "Conservation screening, biodiversity-credit projects, ESG due diligence on land assets.",
+      "primitive": "POST /v1/recall_many over K-ring + sub-recipes",
+      "deterministic": true,
+      "citation": "Stein, A. et al. 2014. Environmental heterogeneity as a universal driver of species richness. Nature Communications 5:5697. Tuanmu, M.N. & Jetz, W. 2015. A global, remote sensing-based characterization of terrestrial habitat heterogeneity. Global Ecology and Biogeography 24(11):1329–1339."
+    },
+    {
+      "key": "esg_environmental_pressure@1",
+      "kind": "combined",
+      "domain": "esg",
+      "inputs": [
+        { "band": "<composite>", "role": "deforestation_signal",   "weight": 0.30, "explanation": "embedding_change_score@1 over a 5-year tslot pair, masked to forested cells (vegetation_class_from_ndvi@1 ≥ moderate)" },
+        { "band": "<composite>", "role": "flood_pressure",          "weight": 0.20, "explanation": "flood_risk@1" },
+        { "band": "<composite>", "role": "drought_pressure",        "weight": 0.20, "explanation": "vapor_pressure_deficit@1 (rolling-window if available)" },
+        { "band": "<composite>", "role": "bare_soil_increase",      "weight": 0.15, "explanation": "Δ bare_soil_class@1 over a multi-year window" },
+        { "band": "<composite>", "role": "wildfire_exposure",       "weight": 0.15, "explanation": "wildfire_exposure_score@1" }
+      ],
+      "formula": "0.30*deforestation + 0.20*flood + 0.20*drought + 0.15*bare_soil_delta + 0.15*wildfire",
+      "output": { "kind": "scalar", "unit": "pressure_index", "range": [0, 1], "explanation": "Higher = more environmental pressure on the land asset. Composite of TCFD physical risk + biodiversity / land-degradation indicators." },
+      "when_to_use": "ESG analyst dashboards, sovereign-bond ESG scoring, supply-chain land-risk screens.",
+      "primitive": "Run each sub-recipe over the cell + history",
+      "deterministic": true,
+      "citation": "TCFD 2017; Science Based Targets Network (SBTN) Initial Guidance for Land 2023; Climate Bonds Initiative 2024 Standards."
+    },
+    {
+      "key": "physical_climate_risk_index@1",
+      "kind": "combined",
+      "domain": "esg",
+      "_disclaimer": "Directional climate-risk indicator. Not a substitute for catastrophe modelling or audited TCFD disclosure.",
+      "inputs": [
+        { "band": "<composite>", "role": "acute_perils",   "weight": 0.55, "explanation": "multi_peril_score@1.peak — flood / fire / wind / heat" },
+        { "band": "<composite>", "role": "chronic_stress", "weight": 0.30, "explanation": "0.5*vapor_pressure_deficit@1 + 0.5*urban_heat_island_imhoff@1 — long-tail aridity / heat" },
+        { "band": "<composite>", "role": "ecosystem_loss", "weight": 0.15, "explanation": "1 - carbon_sink_score@1 — proxy for land-system degradation" }
+      ],
+      "formula": "0.55*peak_acute + 0.30*chronic + 0.15*(1 - sink)",
+      "output": { "kind": "scalar", "unit": "tcfd_physical_risk_index", "range": [0, 1], "explanation": "TCFD-aligned physical-climate exposure index per asset. Quote with the per-component breakdown so the analyst sees acute vs chronic vs ecosystem decomposition." },
+      "when_to_use": "Listed-issuer climate disclosures, REIT portfolio aggregation, infrastructure-fund site reviews.",
+      "primitive": "Compose multi_peril_score@1 + dryness + UHI + carbon_sink",
+      "deterministic": true,
+      "citation": "TCFD 2017 Final Recommendations. ISSB IFRS S2 (2023) Climate-related Disclosures."
+    },
+    {
+      "key": "transition_risk_proxy@1",
+      "kind": "combined",
+      "domain": "esg",
+      "inputs": [
+        { "band": "indices.ndbi",                          "role": "built_emitter_density",  "weight": 0.40, "transform": "sigmoid(10*x)" },
+        { "band": "overture.transportation.road_length_m", "role": "transport_intensity",    "weight": 0.30, "transform": "tanh(x/1000)" },
+        { "band": "indices.ndvi",                          "role": "vegetation_deficit",     "weight": 0.20, "transform": "1 - clamp01(x)" },
+        { "band": "<composite>",                          "role": "industrial_archetype",    "weight": 0.10, "explanation": "place_archetype_match@1 against an 'industrial' reference cell" }
+      ],
+      "formula": "0.40*sigmoid(10*ndbi) + 0.30*tanh(road_m/1000) + 0.20*(1-clamp01(ndvi)) + 0.10*archetype_match",
+      "output": { "kind": "scalar", "unit": "transition_risk_proxy", "range": [0, 1], "explanation": "High score → location characteristics typical of high-emission land use (industrial, transport-dense, vegetation-poor). Directional proxy until a true emissions-intensity attestation (Climate TRACE, IEA-grid) lands." },
+      "when_to_use": "Investor screening for transition-risk-exposed locations (carbon-tax sensitivity, stranded-asset analysis). Pair with `physical_climate_risk_index@1` for full TCFD coverage.",
+      "primitive": "POST /v1/recall {bands:['indices.ndbi','overture.transportation.road_length_m','indices.ndvi','geotessera']} + archetype",
+      "deterministic": true,
+      "citation": "NGFS 2021 Climate Scenarios; PCAF 2022 Global GHG Accounting Standard; Climate TRACE 2024 emissions inventory methodology."
+    },
+
+    {
+      "key": "crop_yield_proxy@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "indices.ndvi",                "role": "ndvi_peak",       "explanation": "Maximum NDVI over the agent-supplied growing season window — pulled via /v1/trajectory if history is seeded; otherwise current-snapshot NDVI." },
+        { "band": "indices.ndmi",                "role": "moisture_avg",    "explanation": "Mean NDMI over the season — proxy for water-stress avoidance." },
+        { "band": "weather.temperature_2m",      "role": "gdd_proxy",       "explanation": "Growing-degree-day proxy = sum_t max(0, T_t - T_base). T_base=10 °C for maize, varies by crop; agent passes T_base." },
+        { "band": "weather.precipitation_mm",    "role": "season_precip",   "explanation": "Cumulative precipitation over the season." }
+      ],
+      "formula": "yield_idx = 0.40*ndvi_peak + 0.25*clamp01((ndmi_avg+1)/2) + 0.20*sigmoid((gdd - gdd_target)/gdd_sd) + 0.15*sigmoid((precip - precip_optimum)/precip_sd)",
+      "output": { "kind": "scalar", "unit": "yield_index", "range": [0, 1], "explanation": "Relative ranking of expected yield across cells in the same crop-zone. NOT bushels/acre. For absolute tons, use a USDA NASS / FAOSTAT attestation joined to the cell." },
+      "when_to_use": "Commodity-trading dashboards, crop-insurance pre-screening, parametric-payout triggers in input form (with a fixed alg + manifests cid for auditability).",
+      "primitive": "POST /v1/trajectory for NDVI / NDMI history; POST /v1/recall for current weather; compose",
+      "deterministic": true,
+      "citation": "Bolton, D.K. & Friedl, M.A. 2013. Forecasting crop yield using remotely sensed vegetation indices and crop phenology metrics. Agricultural and Forest Meteorology 173:74–84. Lobell, D.B. 2013. The use of satellite data for crop yield gap analysis. Field Crops Research 143:56–64."
+    },
+    {
+      "key": "vineyard_terroir_score@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "copdem30m.elevation_mean", "role": "elevation_band",    "weight": 0.20, "transform": "exp(-((x - 300)^2) / (2*200^2))",
+          "explanation": "Gaussian centred on 300 m — typical sweet-spot for European cool-climate varietals (Shiraz, Pinot, Chardonnay). Replace with regional centring for New World." },
+        { "band": "copdem30m.elevation_mean", "role": "south_aspect",      "weight": 0.30, "transform": "_aspect_score; south=1, north=0" },
+        { "band": "copdem30m.elevation_mean", "role": "moderate_slope",    "weight": 0.20, "transform": "_slope; max(0, 1 - abs(slope_deg - 5)/15)" },
+        { "band": "<composite>",              "role": "ruggedness",        "weight": 0.15, "explanation": "ruggedness_index@1 — moderate ruggedness creates microclimates" },
+        { "band": "weather.temperature_2m",   "role": "growing_temp",      "weight": 0.15, "transform": "exp(-((x - 18)^2)/40)",
+          "explanation": "Gaussian centred on 18 °C mean growing-season temperature." }
+      ],
+      "formula": "0.20*elev_band + 0.30*south_aspect + 0.20*moderate_slope + 0.15*tanh(ruggedness/80) + 0.15*temp_band",
+      "output": { "kind": "scalar", "unit": "terroir_index", "range": [0, 1], "explanation": "Directional 'good vineyard site' score. Adjusted for hemisphere (north_aspect in southern hemisphere)." },
+      "when_to_use": "Wine-business site selection dashboards; agritourism planning. Always frame as 'directional terroir proxy' — actual site quality requires geological survey + microclimate study.",
+      "primitive": "POST /v1/recall_many for K-ring DEM + same-cell weather",
+      "deterministic": true,
+      "citation": "van Leeuwen, C. & Seguin, G. 2006. The concept of terroir in viticulture. Journal of Wine Research 17(1):1–10."
+    },
+
+    {
+      "key": "wind_power_density@1",
+      "kind": "combined",
+      "domain": "energy",
+      "inputs": [
+        { "band": "weather.wind_speed_10m",  "role": "wind_mps", "unit": "m/s",
+          "explanation": "Hub-height-equivalent wind. Wind speeds at 10 m can be extrapolated to the hub height H via the wind-shear power law U(H) = U(10)·(H/10)^α, with α ≈ 1/7 (0.143) over open terrain (Hellmann 1915). Hub-height extrapolation is the agent's responsibility; this recipe expresses density at the input height." },
+        { "band": "weather.air_pressure_msl","role": "p_hPa", "unit": "hPa",
+          "explanation": "Mean-sea-level pressure used to compute the actual air density via the ideal-gas law. Falls back to ρ = 1.225 kg/m³ if missing." },
+        { "band": "weather.temperature_2m",  "role": "temp_c", "unit": "degC",
+          "explanation": "Ambient temperature for the ideal-gas correction." }
+      ],
+      "formula": "let p_Pa = (weather.air_pressure_msl orelse 1013.25) * 100; let T_K = weather.temperature_2m + 273.15; let R_d = 287.058; let rho = p_Pa / (R_d * T_K); WPD = 0.5 * rho * pow(weather.wind_speed_10m, 3)",
+      "output": { "kind": "scalar", "unit": "W/m^2", "range": [0, 5000], "explanation": "Wind power density (energy flux through a unit area perpendicular to flow) per IEC 61400-12-1 Annex G: WPD = ½·ρ·U³. ρ from ideal gas law (R_d = 287.058 J·kg⁻¹·K⁻¹). At 10 m a snapshot value; extrapolate via Hellmann power law for hub height. For long-term annual average use the same formula on a multi-year wind-distribution mean (Weibull k,A) — which still reduces to ½·ρ·E[U³]." },
+      "when_to_use": "Wind-resource siting and turbine pre-design. Real published formula valid worldwide. For Weibull-based annual energy production multiply WPD by mean wind-density utilisation and turbine power-curve area (capacity factor).",
+      "primitive": "POST /v1/recall {bands:['weather.wind_speed_10m','weather.air_pressure_msl','weather.temperature_2m']}",
+      "deterministic": true,
+      "citation": "International Electrotechnical Commission. 2017. IEC 61400-12-1:2017 Wind energy generation systems — Part 12-1: Power performance measurements of electricity producing wind turbines, Annex G. Hellmann, G. 1915. Über die Bewegung der Luft in den untersten Schichten der Atmosphäre. Meteorologische Zeitschrift."
+    },
+    {
+      "key": "hydro_theoretical_power@1",
+      "kind": "combined",
+      "domain": "energy",
+      "inputs": [
+        { "band": "copdem30m.elevation_mean", "role": "head_m", "unit": "m",
+          "explanation": "Hydraulic head H, computed as max(elev_K3) − min(elev_K3) over the requested K-ring (km-scale watershed sample) or as a user-supplied between-points elevation difference. K=3 (~0.9 km) is appropriate for micro-hydro; widen the ring for medium / large hydro." },
+        { "band": "<flow>",                   "role": "discharge_m3s", "unit": "m^3/s",
+          "explanation": "Volumetric river / penstock discharge Q. Not yet wired in emem; the user supplies it (HydroSHEDS, GRDC station, USGS NWIS, or measured). If omitted the algorithm returns power per unit flow (W per m³/s)." }
+      ],
+      "formula": "let rho = 1000; let g = 9.80665; let eta = 0.85; let H = max(elev_K3) - min(elev_K3); P_W = rho * g * eta * Q * H",
+      "output": { "kind": "scalar", "unit": "W", "range": [0, 1e10], "explanation": "Theoretical hydraulic power P = ρ·g·η·Q·H, with ρ = 1000 kg/m³ (fresh water), g = 9.80665 m/s², overall turbine-generator efficiency η = 0.85 (typical Francis/Kaplan; pin a different η in the receipt for Pelton or pumped-storage). Returns Watts; divide by 1000 for kW, by 1e6 for MW. Without Q, the algorithm returns 8334·H (W per m³/s), the theoretical power per unit flow." },
+      "when_to_use": "Run-of-river, micro-hydro, and pumped-storage siting. Real published formula universally valid. For energy yield use P × hours × capacity-factor (typically 0.4–0.6 for run-of-river, 0.25–0.35 for pumped-storage).",
+      "primitive": "POST /v1/recall_many over the K-ring for copdem30m.elevation_mean; user supplies Q",
+      "deterministic": true,
+      "citation": "Krumdieck, S. (Ed.). 2020. Transition Engineering. CRC Press, Ch. 8 (small hydro). Hadjerioua, B. et al. 2013. An assessment of energy potential at non-powered dams in the United States. ORNL/TM-2012/298. Standard hydraulic-power formula universal across IEC 60041 (turbine performance)."
+    },
+
+    {
+      "key": "air_stagnation_wang_angell@1",
+      "kind": "combined",
+      "domain": "public_health",
+      "_disclaimer": "Air stagnation flag — high stagnation correlates with PM and ozone build-up. NOT a measured PM₂.₅ or AQI value.",
+      "inputs": [
+        { "band": "weather.wind_speed_10m",   "role": "u10_mps",  "unit": "m/s",
+          "explanation": "Surface wind. Wang & Angell threshold: U_surf ≤ 3.2 m/s (originally 8 mph)." },
+        { "band": "weather.precipitation_mm", "role": "precip_mm","unit": "mm",
+          "explanation": "Hourly accumulation. Wang & Angell require zero precipitation in the past 24h; we apply a soft per-hour test." }
+      ],
+      "formula": "let surf_calm = if weather.wind_speed_10m <= 3.2 { 1.0 } else { 0.0 }; let dry = if weather.precipitation_mm == 0.0 { 1.0 } else { 0.0 }; ASI = surf_calm * dry",
+      "output": { "kind": "scalar", "unit": "stagnation_flag", "range": [0, 1], "explanation": "Wang & Angell 1999 Air Stagnation Index, surface-only variant: 1 if all of (surface wind ≤ 3.2 m/s) AND (precipitation = 0) hold; 0 otherwise. Original Wang & Angell adds a 500-mb wind ≤ 13 m/s criterion (upper-level transport) — this band is not yet wired; the surface-only variant slightly over-counts stagnation events at exposed altitudes. Stagnation days correlate with PM₂.₅ and ozone exceedances (Horton et al. 2014). Implemented per NOAA NCEI methodology." },
+      "when_to_use": "Public-health dashboards lacking direct AQ feeds; site screens for sensitive uses (schools, clinics, gyms). When `dust_or_smoke_present == true` upstream, ASI=1 days predict PM exceedances.",
+      "primitive": "POST /v1/recall {bands:['weather.wind_speed_10m','weather.precipitation_mm']}",
+      "deterministic": true,
+      "citation": "Wang, J.X.L. & Angell, J.K. 1999. Air stagnation climatology for the United States (1948–1998). NOAA/Air Resources Laboratory ATLAS No. 1. Horton, D.E. et al. 2014. Occurrence and persistence of future atmospheric stagnation events. Nature Climate Change 4:698–703."
+    },
+    {
+      "key": "aedes_thermal_suitability_mordecai@1",
+      "kind": "combined",
+      "domain": "public_health",
+      "_disclaimer": "Thermal-niche habitat-suitability indicator. NOT a clinical or epidemiological prediction; agent must combine with WHO/local surveillance for actual incidence.",
+      "inputs": [
+        { "band": "weather.temperature_2m",       "role": "temp_c", "unit": "degC",
+          "explanation": "Mosquito-vector cycle is highly nonlinear in temperature. Mordecai 2017 fits a Brière thermal-performance curve from controlled-experiment vector-competence data." },
+        { "band": "weather.relative_humidity_2m", "role": "rh_pct", "unit": "percent",
+          "explanation": "Adult Aedes survival drops below ~60% RH; we apply a sigmoid modifier." },
+        { "band": "<composite>",                  "role": "standing_water",
+          "explanation": "max(surface_water.recurrence/100, sigmoid(8·(indices.ndwi − 0.05))) — larval-habitat presence." }
+      ],
+      "formula": "let T = weather.temperature_2m; let T_min = 17.05; let T_max = 35.83; let c = 0.000202; let TPC = if T <= T_min || T >= T_max { 0 } else { c * T * (T - T_min) * sqrt(T_max - T) }; let TPC_norm = clamp01(TPC / 0.6); let rh_mod = clamp01((weather.relative_humidity_2m - 40) / 40); suitability = TPC_norm * rh_mod * standing_water",
+      "output": { "kind": "scalar", "unit": "thermal_suitability", "range": [0, 1], "explanation": "Aedes-aegypti dengue / Zika / chikungunya transmission suitability. Brière function TPC(T) = c·T·(T−Tmin)·sqrt(Tmax−T) calibrated to R₀, with c=0.000202, Tmin=17.05°C, Tmax=35.83°C, peak at ~29°C (Mordecai et al. 2017 Table 1). Modulated by an RH ramp (40–80%) and standing-water proxy. Output peaks at ~1 in tropical wet conditions." },
+      "when_to_use": "Public-health planning dashboards, travel-advisory toolchains, urban-mosquito control prioritisation. For Anopheles malaria suitability swap in Mordecai 2019 An. gambiae parameters (Tmin=17.0, Tmax=33.0, c≈3.2e-4).",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.relative_humidity_2m','surface_water.recurrence','indices.ndwi']}",
+      "deterministic": true,
+      "citation": "Mordecai, E.A., Cohen, J.M., Evans, M.V., Gudapati, P., Johnson, L.R., Lippi, C.A., Miazgowicz, K., Murdock, C.C., Rohr, J.R., Ryan, S.J., Savage, V., Shocket, M.S., Stewart Ibarra, A., Thomas, M.B., Weikel, D.P. 2017. Detecting the impact of temperature on transmission of Zika, dengue, and chikungunya using mechanistic models. PLoS Neglected Tropical Diseases 11(4):e0005568, Table 1 (R₀(T) parameters)."
+    },
+    {
+      "key": "heat_vulnerability_index@1",
+      "kind": "combined",
+      "domain": "public_health",
+      "inputs": [
+        { "band": "<composite>", "role": "heat_health",       "weight": 0.40, "explanation": "heat_health_risk@2 mapped to [0,1]" },
+        { "band": "<composite>", "role": "uhi",               "weight": 0.20, "explanation": "urban_heat_island_imhoff@1" },
+        { "band": "<composite>", "role": "population_density","weight": 0.20, "explanation": "tanh(population_ghsl_dasymetric@1/100)" },
+        { "band": "<composite>", "role": "low_green_access",  "weight": 0.20, "explanation": "1 - green_space_access@1" }
+      ],
+      "formula": "0.40*heat + 0.20*uhi + 0.20*tanh(pop/100) + 0.20*(1 - green_access)",
+      "output": { "kind": "scalar", "unit": "vulnerability_index", "range": [0, 1], "explanation": "Combines acute heat hazard with urban exposure modifiers and lack-of-relief (no green space). Standard CDC heat-vulnerability framing without socioeconomic data — surface that caveat in receipts." },
+      "when_to_use": "Municipal heat-action planning, cooling-centre siting, health-equity dashboards.",
+      "primitive": "Compose heat_health_risk@2 + UHI + density + green-access",
+      "deterministic": true,
+      "citation": "Reid, C.E. et al. 2009. Mapping community determinants of heat vulnerability. Environmental Health Perspectives 117(11):1730–1736. CDC 2024 Heat-Vulnerability-Index methodology."
+    },
+
+    {
+      "key": "spatial_volatility_index@1",
+      "kind": "combined",
+      "domain": "analytics",
+      "inputs": [
+        { "band": "<any scalar band>", "role": "samples_in_polygon", "explanation": "N polygon-sample cells from /v1/locate of the named region." }
+      ],
+      "formula": "vol = sd_polygon(value) / max(|mean_polygon(value)|, eps)",
+      "output": { "kind": "scalar", "unit": "coefficient_of_variation", "range": [0, "+inf"], "explanation": "Coefficient of variation of a band across the region — high = heterogeneous, low = homogeneous." },
+      "when_to_use": "Dashboard chrome that flags 'this metric is highly variable across the city'. Pair with `region_outlier_score@1` at single cells of interest.",
+      "primitive": "POST /v1/locate {q:<region>} → polygon_sample_cells; POST /v1/recall_many → SD/mean",
+      "deterministic": true,
+      "citation": "Standard coefficient of variation; spatial-statistics convention per Cressie 1993. Statistics for Spatial Data."
+    },
+    {
+      "key": "embedding_diversity_score@1",
+      "kind": "embedding",
+      "domain": "analytics",
+      "inputs": [
+        { "band": "geotessera", "role": "set_in_polygon", "explanation": "Embedding samples from N cells of interest (region samples or curated list)." }
+      ],
+      "formula": "diversity = (1/(N*(N-1))) * sum_{i<j} (1 - cosine(v_i, v_j))",
+      "output": { "kind": "scalar", "unit": "diversity_index", "range": [0, 2], "explanation": "Mean pairwise embedding distance. High = the set spans many physical types (good for tour planning, biodiversity scoring); low = the set is homogeneous." },
+      "when_to_use": "Tour curation ('show me 10 diverse spots in the area'), biodiversity prioritisation, sample-design for ground-truth campaigns.",
+      "primitive": "POST /v1/recall_many {cells:[...], bands:['geotessera']} → mean pairwise (1 - cosine)",
+      "deterministic": true,
+      "citation": "Standard k-medoid / determinantal-point-process diversity reasoning. Kulesza & Taskar 2012. Determinantal Point Processes for Machine Learning. Foundations and Trends in ML."
+    },
+    {
+      "key": "trend_strength@1",
+      "kind": "solo",
+      "domain": "analytics",
+      "inputs": [
+        { "band": "<any scalar band>", "role": "trajectory", "explanation": "Time series of (tslot, value) returned by /v1/trajectory." }
+      ],
+      "formula": "OLS regression: slope = (sum_t (t - t_mean)*(v_t - v_mean)) / sum_t (t - t_mean)^2; r2 = 1 - SSE/SST; trend_class = sign(slope) if r2 > 0.5 else 'no_trend'",
+      "output": { "kind": "classification", "values": ["increasing", "decreasing", "no_trend"], "explanation": "Returns slope sign + R² — agent reports 'increasing/decreasing' only when R² > 0.5 to avoid over-fitting noise. Surface both fields in the receipt." },
+      "when_to_use": "Dashboard chrome ('NDVI trending up since 2020'), early-warning systems, attribution work.",
+      "primitive": "POST /v1/trajectory {cell, band, window:[t0,tN]} → OLS in-process",
+      "deterministic": true,
+      "citation": "Standard linear regression / Mann–Kendall reasoning. Hamed & Rao 1998. A modified Mann–Kendall trend test for autocorrelated data. Journal of Hydrology 204:182–196. (For autocorrelated bands, flag this and recommend MK over OLS.)"
+    },
+    {
+      "key": "visual_search_match@1",
+      "kind": "embedding",
+      "domain": "analytics",
+      "inputs": [
+        { "band": "geotessera", "role": "query_vector",   "explanation": "Either an existing cell's geotessera vector or a user-supplied 128-D vector via the inline:[...] payload." },
+        { "band": "geotessera", "role": "candidate_set",  "explanation": "Up to k cells the agent wants to score against the query." }
+      ],
+      "formula": "scores = sorted([(c, cosine(query, c)) for c in candidates], key=desc(score))",
+      "output": { "kind": "vector", "unit": "ranked_cell_list", "explanation": "Top-k cells ranked by similarity. The protocol-native /v1/find_similar already exposes this; the algorithm entry exists so dashboards have a stable name + algorithm_cid for visual-search receipts." },
+      "when_to_use": "'Show me places that look like X' — gallery / discovery / routing UIs.",
+      "primitive": "POST /v1/find_similar {key:<query>, band:'geotessera', k:K}",
+      "deterministic": true,
+      "citation": "Salton & McGill 1983. Same math as embedding_cosine@1; this entry is the dashboard-facing wrapper."
+    }
+  ]
+}

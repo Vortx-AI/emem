@@ -1,0 +1,10 @@
+{
+  "_doc": "Cline (VS Code extension): open the Cline chat → click the MCP server icon → 'Edit MCP Settings' → paste this. Or save to ~/.cline/mcp.json. Cline supports stdio bridge via mcp-remote for older versions.",
+  "mcpServers": {
+    "emem": {
+      "url": "https://emem.dev/mcp",
+      "disabled": false,
+      "autoApprove": ["emem.recall", "emem.compare", "emem.find_similar", "emem.bands", "emem.manifests", "emem.tools", "emem.agent_card"]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+[package]
+name = "emem-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "emem core types: cells, tslots, taxonomy, manifest loaders (bands/functions/sources), signing keys, error catalog"
+
+[dependencies]
+blake3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+ciborium = { workspace = true }
+thiserror = { workspace = true }
+data-encoding = { workspace = true }

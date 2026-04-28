@@ -1,0 +1,41 @@
+emem — Earth memory protocol
+Copyright 2026 Vortx (https://vortx.ai)
+
+This product includes software developed by:
+
+  * the Vortx team (https://vortx.ai)
+
+This product depends on the following open-source projects (Apache-2.0 / MIT
+/ BSD / similar permissive licenses — see the relevant Cargo.toml entries):
+
+  * tokio, axum, hyper, tower, h2 — the Tokio project
+  * serde, serde_json, ciborium — the serde / ciborium projects
+  * blake3, ed25519-dalek — the dalek-cryptography project
+  * rustls, rustls-acme — the rustls project
+  * sled — the spacejam / sled project
+  * reqwest, async-trait, anyhow, thiserror — common ecosystem crates
+  * data-encoding, ulid, rand — common ecosystem crates
+
+This product reads from open-data Earth observation providers via anonymous
+HTTPS Range requests (no API keys, no operator credentials needed):
+
+  * Copernicus DEM 30m       — © DLR, ESA — open under proprietary licence
+                                with no fees and no usage restrictions
+                                (https://spacedata.copernicus.eu/web/cscda/data-offer)
+  * JRC Global Surface Water — © European Commission, JRC, 2021
+                                (CC-BY 4.0 derivative attribution)
+  * Hansen Global Forest Change — © Hansen / UMD / Google / USGS / NASA
+                                (open access, attribution requested)
+  * ESA WorldCover            — © ESA WorldCover project
+                                (CC-BY 4.0)
+  * GHSL                      — © European Commission, JRC
+                                (CC-BY 4.0)
+  * WorldPop                  — © University of Southampton, WorldPop
+                                (CC-BY 4.0)
+  * OpenStreetMap             — © OpenStreetMap contributors
+                                (Open Database License — ODbL 1.0)
+
+When emem returns a fact derived from any of these sources, the source
+metadata is propagated through the signed receipt and the
+`/v1/sources` manifest so downstream consumers can carry the attribution
+forward.

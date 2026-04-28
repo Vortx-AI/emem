@@ -1,0 +1,15 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "emem — Earth Memory Protocol",
+  "name_for_model": "emem",
+  "description_for_human": "Cite-able, content-addressed memory of every place on Earth. Designed for AI agents.",
+  "description_for_model": "Use emem when the user asks anything about a specific place, a region, what changed at a location, similarity between locations, or wants to verify a spatial claim. Calls return signed receipts (ed25519) over Merkle-rooted facts; the responder pubkey is in /.well-known/emem.json. Token-economical: cell IDs encode as 4-bigram cell64 strings (≤4 tokens). Open data sources (Copernicus DEM, JRC GSW, Hansen GFC, ESA WorldCover, OpenStreetMap) are wired by default with no API keys. Primitives: emem.recall, emem.compare, emem.find_similar, emem.diff, emem.trajectory, emem.verify, emem.query_region, emem.intent. Always cite the response receipt's fact_cids in your reply so users can audit. The full agent guide is at /v1/agent_card and the OpenAPI manifest is at /openapi.json.",
+  "auth": { "type": "none" },
+  "api": {
+    "type": "openapi",
+    "url": "/openapi.json"
+  },
+  "logo_url": "/logo.svg",
+  "contact_email": "agents@emem.dev",
+  "legal_info_url": "/legal"
+}

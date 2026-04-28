@@ -1,0 +1,278 @@
+{
+  "manifest": "emem-sources",
+  "version": "v0",
+  "_note": "Maps function-registry source schemes to fetch templates. Operators may publish their own sources manifest CID with mirrors, auth, rate limits. Schemes are stable across manifests; URLs are not. Template variables resolved by emem-fetch::template: {cell64}, {tslot}, {year}, {month}, {day}, {channel}, {tile_id}, {lat_band}, {lon_band}, {lat_top10}, {lon_left10}, {lat_top1}, {lon_left1}, plus any caller-supplied vars.",
+  "sources": [
+    {
+      "scheme": "sentinel2.l2a",
+      "providers": [
+        {
+          "id": "planetarycomputer.microsoft",
+          "kind": "stac_pc",
+          "url_template": "https://planetarycomputer.microsoft.com/api/stac/v1/search?collections=sentinel-2-l2a&bbox={bbox_csv}&datetime={iso_date}&limit=1",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Copernicus open data"
+        },
+        {
+          "id": "gcs.public",
+          "kind": "gcs_cog",
+          "url_template": "gs://gcp-public-data-sentinel-2/L2/tiles/{utm_zone}/{lat_band}/{tile_id}/{date}_{tile_id}_{channel}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Copernicus open data"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "sentinel1.grd.iw",
+      "providers": [
+        {
+          "id": "planetarycomputer.microsoft",
+          "kind": "stac_pc",
+          "url_template": "https://planetarycomputer.microsoft.com/api/stac/v1/search?collections=sentinel-1-grd&bbox={bbox_csv}&datetime={iso_date}&limit=1",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Copernicus open data"
+        },
+        {
+          "id": "asf.public",
+          "kind": "https_geotiff",
+          "url_template": "https://datapool.asf.alaska.edu/GRD_HD/SA/{scene_id}_{channel}.tif",
+          "auth": "earthdata_login",
+          "rate_limit_qps": 20,
+          "license": "Copernicus open data"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "geotessera.v1",
+      "providers": [
+        {
+          "id": "gcs.public",
+          "kind": "gcs_cog",
+          "url_template": "gs://geotessera/v1/{tile_id}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 50,
+          "license": "Apache-2.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "copernicus.dem.30m",
+      "providers": [
+        {
+          "id": "aws.opendata",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_{lat_band}_00_{lon_band}_00_DEM/Copernicus_DSM_COG_10_{lat_band}_00_{lon_band}_00_DEM.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 200,
+          "license": "ESA standard"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "esa.worldcover.v200",
+      "providers": [
+        {
+          "id": "aws.opendata",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{tile_id}_Map.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 200,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "ghsl.builtup.r2023a",
+      "providers": [
+        {
+          "id": "jrc.ec",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/GHSL/GHS_BUILT_S_GLOBE_R2023A/GHS_BUILT_S_E2020_GLOBE_R2023A_4326_3ss/V1-0/GHS_BUILT_S_E2020_GLOBE_R2023A_4326_3ss_V1_0.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 100
+    },
+    {
+      "scheme": "ghsl.population.r2023a",
+      "providers": [
+        {
+          "id": "jrc.ec",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/GHSL/GHS_POP_GLOBE_R2023A/GHS_POP_E{year}_GLOBE_R2023A_4326_3ss/V1-0/GHS_POP_E{year}_GLOBE_R2023A_4326_3ss_V1_0.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 100
+    },
+    {
+      "scheme": "worldpop.global.1km",
+      "providers": [
+        {
+          "id": "worldpop.org",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://data.worldpop.org/GIS/Population/Global_2000_2020/{year}/0_Mosaicked/ppp_{year}_1km_Aggregated.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 1000
+    },
+    {
+      "scheme": "jrc.gsw.v1_4.occurrence",
+      "providers": [
+        {
+          "id": "gcs.public",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://storage.googleapis.com/global-surface-water/downloads2021/occurrence/occurrence_{lon_left10}_{lat_top10}v1_4_2021.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "JRC open"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "jrc.gsw.v1_4.recurrence",
+      "providers": [
+        {
+          "id": "gcs.public",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://storage.googleapis.com/global-surface-water/downloads2021/recurrence/recurrence_{lon_left10}_{lat_top10}v1_4_2021.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "JRC open"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "hansen.gfc.v1_12.treecover2000",
+      "providers": [
+        {
+          "id": "gcs.public",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_treecover2000_{hansen_lat_band}_{hansen_lon_band}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Public (Hansen et al.)"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "hansen.gfc.v1_12.loss",
+      "providers": [
+        {
+          "id": "gcs.public",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_loss_{hansen_lat_band}_{hansen_lon_band}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Public (Hansen et al.)"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "hansen.gfc.v1_12.lossyear",
+      "providers": [
+        {
+          "id": "gcs.public",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_lossyear_{hansen_lat_band}_{hansen_lon_band}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Public (Hansen et al.)"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "viirs.dnb.monthly",
+      "providers": [
+        {
+          "id": "eog.colorado",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://eogdata.mines.edu/nighttime_light/monthly/v10/{year}/{month}/vcmcfg/SVDNB_npp_{year}{month}01-{year}{month}{last_day}_global_vcmcfg_v10_c{compile_date}.avg_rade9h.tif",
+          "auth": "earthdata_login",
+          "rate_limit_qps": 50,
+          "license": "Public domain"
+        }
+      ],
+      "tempo": "medium",
+      "native_resolution_m": 463
+    },
+    {
+      "scheme": "soilgrids.v2.phh2o",
+      "providers": [
+        {
+          "id": "isric.public",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://files.isric.org/soilgrids/latest/data/phh2o/phh2o_{depth}_mean.vrt",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 250
+    },
+    {
+      "scheme": "soilgrids.v2.soc",
+      "providers": [
+        {
+          "id": "isric.public",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://files.isric.org/soilgrids/latest/data/soc/soc_{depth}_mean.vrt",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 250
+    },
+    {
+      "scheme": "beck.koppen.v2",
+      "providers": [
+        {
+          "id": "figshare",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://figshare.com/ndownloader/files/45735944",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 1000
+    }
+  ]
+}

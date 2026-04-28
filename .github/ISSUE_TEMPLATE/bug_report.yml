@@ -1,0 +1,34 @@
+name: Bug report
+description: Something is broken in emem (responder, protocol, or docs)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing! For sensitive security issues, email
+        avijeet@vortx.ai instead — see SECURITY.md.
+
+  - type: input
+    id: responder
+    attributes:
+      label: Responder pubkey (b32)
+      description: From `GET /health` `responder_pubkey_b32`. Only needed if hitting a hosted responder.
+      placeholder: 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+    validations: { required: false }
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A `curl` command + body, or the exact MCP call.
+      render: bash
+    validations: { required: true }
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      description: |
+        Paste the receipt or error envelope verbatim. We'll recompute the
+        preimage and verify offline.
+    validations: { required: true }

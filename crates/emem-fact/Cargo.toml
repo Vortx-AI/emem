@@ -1,0 +1,20 @@
+[package]
+name = "emem-fact"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "emem fact types: Primary / Derivative / Negative + canonical CBOR + content addressing"
+
+[dependencies]
+emem-core  = { workspace = true }
+emem-codec = { workspace = true }
+blake3     = { workspace = true }
+ed25519-dalek = { workspace = true }
+ciborium   = { workspace = true }
+serde      = { workspace = true }
+data-encoding = { workspace = true }
+thiserror  = { workspace = true }
+
+[dev-dependencies]
+rand          = { workspace = true }
+serde_json    = { workspace = true }

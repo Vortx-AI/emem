@@ -1,0 +1,19 @@
+[package]
+name = "emem-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MCP transport adapter — primary surface per spec §11"
+
+[dependencies]
+emem-core       = { workspace = true }
+emem-fact       = { workspace = true }
+emem-claim      = { workspace = true }
+emem-primitives = { workspace = true }
+emem-intent     = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+ciborium        = { workspace = true }
+tokio           = { workspace = true }
+thiserror       = { workspace = true }
+# rmcp = { workspace = true }   # enable once primitives land
