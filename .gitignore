@@ -25,6 +25,10 @@ dist/
 dist-server/
 .parcel-cache/
 
+# Artifacts (screenshots, generated images) — keep folder, ignore contents
+artifacts/*
+!artifacts/.gitkeep
+
 # Python ad-hoc tools
 __pycache__/
 *.pyc
