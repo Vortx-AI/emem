@@ -7556,6 +7556,255 @@ async fn materialize_overture_road_length_m(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+// ---------------- ESA WorldCover 2021 materializer ----------------
+//
+// 11-class global landcover at 10 m, 3°×3° tile grid named by the SW
+// corner. Anonymous AWS S3 (CC BY 4.0). Tiles only exist over land +
+// coastal strips; ocean cells return Absence.
+//
+// Class values per ESA WorldCover product user manual v2.0 (2022):
+//   10  Tree cover            20  Shrubland           30  Grassland
+//   40  Cropland              50  Built-up            60  Bare/sparse
+//   70  Snow/ice              80  Permanent water     90  Herbaceous wet
+//   95  Mangroves            100  Moss & lichen
+async fn materialize_esa_worldcover_2021(
+    cell64: &str,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    // SW-corner naming on a 3° grid; lat is N/S, lng is E/W.
+    let lat_floor = (lat / 3.0).floor() as i32 * 3;
+    let lng_floor = (lng / 3.0).floor() as i32 * 3;
+    let lat_tag = if lat_floor >= 0 {
+        format!("N{:02}", lat_floor)
+    } else {
+        format!("S{:02}", lat_floor.abs())
+    };
+    let lng_tag = if lng_floor >= 0 {
+        format!("E{:03}", lng_floor)
+    } else {
+        format!("W{:03}", lng_floor.abs())
+    };
+    let url = format!(
+        "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{lat_tag}{lng_tag}_Map.tif",
+    );
+
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+
+    let prof = match emem_fetch::cog::open_profile(&cli, &url).await {
+        Ok(p) => p,
+        Err(e) => {
+            // 404 over open ocean is the documented gap in coverage; sign
+            // Absence rather than a transport error so subsequent recalls
+            // short-circuit.
+            let es = e.to_string();
+            if es.contains("404") || es.contains("Not Found") {
+                let reason = format!(
+                    "esa_worldcover_no_tile: ESA WorldCover 2021 v200 publishes no tile {lat_tag}{lng_tag} ({}). \
+                     This is the documented behaviour over open ocean and unmapped polar interiors. \
+                     Cell ({lat:.6},{lng:.6}) lies outside the land+coastal mask.",
+                    url
+                );
+                let reason_cid = reason_cid_for(&reason);
+                let fact = Fact::Absence(NegativeFact {
+                    cell: cell64.to_string(),
+                    band: "esa_worldcover.lc_2021".into(),
+                    tslot: 0,
+                    reason_cid,
+                    confidence: 1.0,
+                    sources: vec![Source {
+                        scheme: "esa.worldcover.v200.2021".into(),
+                        id: url.clone(),
+                        cid: None,
+                        hash: None,
+                        captured_at: Some(signed_at.clone()),
+                        url: None,
+                    }],
+                    schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                    signer: s.identity.pubkey,
+                    signed_at: signed_at.clone(),
+                });
+                return sign_and_persist(s, fact, &signed_at).await;
+            }
+            return Err(format!("open esa_worldcover cog {url}: {e}"));
+        }
+    };
+    let raw = emem_fetch::cog::sample_pixel(&cli, &url, &prof, lng, lat)
+        .await
+        .map_err(|e| format!("sample esa_worldcover {url}: {e}"))?;
+
+    if !raw.is_finite() || raw == 0.0 {
+        let reason = format!(
+            "esa_worldcover_no_class: ESA WorldCover pixel at ({lat:.6},{lng:.6}) returned 0/non-finite. \
+             0 is the WorldCover no-data marker (mostly over the open-ocean tile borders that v200 still ships)."
+        );
+        let reason_cid = reason_cid_for(&reason);
+        let fact = Fact::Absence(NegativeFact {
+            cell: cell64.to_string(),
+            band: "esa_worldcover.lc_2021".into(),
+            tslot: 0,
+            reason_cid,
+            confidence: 1.0,
+            sources: vec![Source {
+                scheme: "esa.worldcover.v200.2021".into(),
+                id: url.clone(),
+                cid: None,
+                hash: None,
+                captured_at: Some(signed_at.clone()),
+                url: None,
+            }],
+            schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.clone(),
+        });
+        return sign_and_persist(s, fact, &signed_at).await;
+    }
+    let class_int = raw.round() as i64;
+    if !matches!(
+        class_int,
+        10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 95 | 100
+    ) {
+        return Err(format!(
+            "esa_worldcover unexpected class {class_int} at ({lat:.6},{lng:.6}); \
+             documented values are {{10,20,30,40,50,60,70,80,90,95,100}}"
+        ));
+    }
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: "esa_worldcover.lc_2021".into(),
+        tslot: 0,
+        value: ciborium::Value::Integer(class_int.into()),
+        unit: Some("lccs_class".into()),
+        confidence: 0.92,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "esa.worldcover.v200.2021".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(signed_at.clone()),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: "esa_worldcover_2021_pixel@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(format!("{lat_tag}{lng_tag}")),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+// ---------------- Hansen Global Forest Change materializer ----------------
+//
+// Three layers from the GFC v1.11 (2023) release:
+//   - hansen.tree_cover_2000  (byte 0..100, % canopy cover at 30 m)
+//   - hansen.loss_year        (byte 0..23, year of forest loss; 0 = no loss,
+//                              1 = 2001, ..., 23 = 2023)
+//   - hansen.gain             (byte 0/1, 2000–2012 gain mask)
+//
+// 10°×10° tiles on storage.googleapis.com (public-fetch HTTPS), named by
+// the NW corner: Hansen_GFC-2023-v1.11_<layer>_<lat_top>_<lng_left>.tif.
+async fn materialize_hansen_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let layer = match band {
+        "hansen.tree_cover_2000" => "treecover2000",
+        "hansen.loss_year" => "lossyear",
+        "hansen.gain" => "gain",
+        _ => return Err(format!("hansen band {band} not registered")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    // NW-corner naming on a 10° grid.
+    let lat_top = (lat / 10.0).ceil() as i32 * 10;
+    let lng_left = (lng / 10.0).floor() as i32 * 10;
+    let lat_tag = if lat_top >= 0 {
+        format!("{:02}N", lat_top)
+    } else {
+        format!("{:02}S", lat_top.abs())
+    };
+    let lng_tag = if lng_left >= 0 {
+        format!("{:03}E", lng_left)
+    } else {
+        format!("{:03}W", lng_left.abs())
+    };
+    let url = format!(
+        "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2023-v1.11/Hansen_GFC-2023-v1.11_{layer}_{lat_tag}_{lng_tag}.tif"
+    );
+
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+
+    let prof = emem_fetch::cog::open_profile(&cli, &url)
+        .await
+        .map_err(|e| format!("open hansen cog {url}: {e}"))?;
+    let raw = emem_fetch::cog::sample_pixel(&cli, &url, &prof, lng, lat)
+        .await
+        .map_err(|e| format!("sample hansen {url}: {e}"))?;
+
+    if !raw.is_finite() {
+        return Err(format!(
+            "hansen pixel non-finite at ({lat:.6},{lng:.6}) {url}"
+        ));
+    }
+    let v = raw.round() as i64;
+    let (unit, lo, hi) = match band {
+        "hansen.tree_cover_2000" => ("percent_canopy_cover", 0i64, 100i64),
+        "hansen.loss_year" => ("year_offset_from_2000", 0i64, 23i64),
+        "hansen.gain" => ("binary", 0i64, 1i64),
+        _ => unreachable!(),
+    };
+    if v < lo || v > hi {
+        return Err(format!(
+            "hansen {band} pixel out of range: raw={raw} (rounded={v}), expected [{lo},{hi}] at ({lat:.6},{lng:.6}) tile {lat_tag}_{lng_tag}"
+        ));
+    }
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot: 0,
+        value: ciborium::Value::Integer(v.into()),
+        unit: Some(unit.into()),
+        confidence: 0.93,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "hansen.gfc.v1_11.2023".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(signed_at.clone()),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: "hansen_gfc_v1_11_pixel@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(format!("{lat_tag}_{lng_tag}")),
+                ciborium::Value::Text(layer.into()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 /// Build the merkle-rooted Attestation around one fact, sign it under the
 /// responder's identity, persist it, and return the fact CID. Centralises
 /// the boilerplate that all materializers share.
@@ -8075,6 +8324,27 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: None,
             wire_path: "ORNL DAAC MCD64A1 monthly 500 m burned-area subset",
         },
+        // ESA WorldCover 2021 v200 — 11-class global landcover at 10 m, one
+        // signed fact per cell (single 2021 release).
+        "esa_worldcover.lc_2021" => MaterializerMeta {
+            tempo: Tempo::Slow,
+            kind: BandKind::PerRelease,
+            history_from_unix: Some(days_from_civil(2021, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2022, 1, 1) * 86_400 - 1),
+            wire_path: "esa-worldcover s3 (anonymous): v200 2021 10 m LCCS map",
+        },
+        // Hansen Global Forest Change v1.11 (2023 release). Three layers:
+        // tree_cover_2000 (static climatology of 2000), loss_year (cumulative
+        // 2001..=2023), gain (single 2000–2012 mask). All three are signed
+        // as static-per-release facts (the 2023 release is the canonical
+        // serving snapshot until the next annual update).
+        "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain" => MaterializerMeta {
+            tempo: Tempo::Slow,
+            kind: BandKind::PerRelease,
+            history_from_unix: Some(days_from_civil(2000, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2024, 1, 1) * 86_400 - 1),
+            wire_path: "storage.googleapis.com/earthenginepartners-hansen GFC-2023-v1.11 30 m tiles",
+        },
         _ => return None,
     };
     Some(m)
@@ -8200,6 +8470,12 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("modis.gpp_8day".into());
     out.push("modis.lai_8day".into());
     out.push("modis.burned_area_monthly".into());
+    // ESA WorldCover 2021 (single release).
+    out.push("esa_worldcover.lc_2021".into());
+    // Hansen Global Forest Change v1.11 (2023 release).
+    out.push("hansen.tree_cover_2000".into());
+    out.push("hansen.loss_year".into());
+    out.push("hansen.gain".into());
     out
 }
 
@@ -8326,6 +8602,19 @@ async fn materialize_band_at(
     // Open-Meteo Marine ECMWF WAM (2022-08-01+, hourly).
     if band.starts_with("marine.") {
         return materialize_marine_band(cell64, s, band, Some(target_unix)).await;
+    }
+
+    // ESA WorldCover 2021 — per-release static fact, ignores target_unix.
+    if band == "esa_worldcover.lc_2021" {
+        return materialize_esa_worldcover_2021(cell64, s).await;
+    }
+
+    // Hansen GFC v1.11 layers — single release, static per cell.
+    if matches!(
+        band,
+        "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain"
+    ) {
+        return materialize_hansen_band(cell64, s, band).await;
     }
 
     // Met.no nowcast — no historical record. Surface this honestly so the
@@ -9069,6 +9358,70 @@ async fn try_materialize_bands(
             // Open-Meteo Marine ECMWF WAM. Recall path: current hour.
             b_name if b_name.starts_with("marine.") => {
                 match materialize_marine_band(cell64, s, b, None).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // ESA WorldCover 2021 (single global release).
+            "esa_worldcover.lc_2021" => {
+                match materialize_esa_worldcover_2021(cell64, s).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary_or_absence",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // Hansen Global Forest Change v1.11.
+            "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain" => {
+                match materialize_hansen_band(cell64, s, b).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",

@@ -101,7 +101,7 @@
       {"@type": "Question", "name": "Is emem free?",
        "acceptedAnswer": {"@type": "Answer", "text": "Yes. The protocol and reference implementation are Apache-2.0. The hosted instance at emem.dev is free for L0/L1 reads, no signup, no API keys, no rate-limit-by-credit-card. Contributors that submit signed attestations build verifiable reputation via the Contributor-of-Intelligence Layer."}},
       {"@type": "Question", "name": "What data does emem read from?",
-       "acceptedAnswer": {"@type": "Answer", "text": "Sentinel-2 L2A (12 raw bands + 19 derived indices including 10 health-relevant ones, NDTI, GNDVI, NDRE, FAI, TSS, NDSI, AFRI1.6, surface dryness, urban-canopy index), Sentinel-1 GRD VV (radar), Tessera annual snapshots 2017–2024 + multi-year 1024-D foundation embedding, MODIS NDVI / LST day+night 8-day / ET / GPP / LAI / burned-area, JRC Global Surface Water v1.4 climatology, GMRT topo-bathy, Copernicus DEM 30 m, NASA POWER daily reanalysis (1981–present, 7 vars), Open-Meteo CAMS air quality (PM2.5/PM10/NO2/O3/SO2/CO/AOD), Open-Meteo ERA5 archive (1940–present, 7 vars), Open-Meteo Marine (waves + SST), MET Norway nowcast, Overture Maps (buildings/places/transportation), and OpenStreetMap (Nominatim geocoder). 90+ bands total. All free, all anonymous, no API keys, no signup, no per-IP rate limits at the request path."}},
+       "acceptedAnswer": {"@type": "Answer", "text": "Sentinel-2 L2A (12 raw bands + 19 derived indices including 10 health-relevant ones, NDTI, GNDVI, NDRE, FAI, TSS, NDSI, AFRI1.6, surface dryness, urban-canopy index), Sentinel-1 GRD VV (radar), Tessera annual snapshots 2017–2024 + multi-year 1024-D foundation embedding, MODIS NDVI / LST day+night 8-day / ET / GPP / LAI / burned-area, JRC Global Surface Water v1.4 climatology, GMRT topo-bathy, Copernicus DEM 30 m, NASA POWER daily reanalysis (1981–present, 7 vars), Open-Meteo CAMS air quality (PM2.5/PM10/NO2/O3/SO2/CO/AOD), Open-Meteo ERA5 archive (1940–present, 7 vars), Open-Meteo Marine (waves + SST), MET Norway nowcast, ESA WorldCover 2021 (11-class 10 m landcover), Hansen Global Forest Change v1.11 (tree cover 2000 + loss year 2001-2023 + gain), Overture Maps (buildings/places/transportation), and OpenStreetMap (Nominatim geocoder). 90+ bands total. All free, all anonymous, no API keys, no signup, no per-IP rate limits at the request path."}},
       {"@type": "Question", "name": "How can I contribute?",
        "acceptedAnswer": {"@type": "Answer", "text": "Generate an ed25519 keypair, build a signed Attestation (CBOR), POST it to /v1/attest_cbor. Your facts become part of the shared corpus, citation count accrues to your pubkey, and you climb the /v1/contributors leaderboard. See docs/CONTRIBUTORS.md."}},
       {"@type": "Question", "name": "What's an ed25519 receipt?",
@@ -226,6 +226,7 @@
   Open-Meteo CAMS air quality (PM2.5, NO2, O3, SO2, CO, AOD),
   Open-Meteo ERA5 archive (1940–present), Open-Meteo Marine (waves + SST),
   JRC Global Surface Water, MET Norway nowcast,
+  ESA WorldCover 2021 (10 m landcover), Hansen Global Forest Change v1.11,
   Copernicus DEM, GMRT topo-bathy, Overture buildings/places/roads.
   Full per-band temporal coverage at <a href="/v1/data_availability"><code>/v1/data_availability</code></a>.
   Receipts signed by the responder pubkey at <a href="/health">/health</a>;

@@ -213,6 +213,13 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     let mut tile_h: Option<u32> = None;
     let mut tile_offsets_ref: Option<(usize, usize)> = None; // (cnt, off)
     let mut tile_byte_counts_ref: Option<(usize, usize)> = None;
+    // TIFF strip tags. Hansen GFC, older USGS DEMs, and some MODIS subsets
+    // ship as stripped TIFFs (no tile tags). Strips are essentially tiles
+    // of width = image_width and height = rows_per_strip; synthesize the
+    // tile_* fields from them so the downstream sampler stays uniform.
+    let mut rows_per_strip: Option<u32> = None;
+    let mut strip_offsets_ref: Option<(usize, usize)> = None;
+    let mut strip_byte_counts_ref: Option<(usize, usize)> = None;
     let mut pixel_scale: Option<(f64, f64)> = None;
     let mut tiepoint: Option<(f64, f64, f64, f64)> = None;
     let mut geokey_ref: Option<(usize, usize)> = None;
@@ -239,6 +246,11 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
             323 => tile_h = Some(val_u32 as u32),
             324 => tile_offsets_ref = Some((cnt, val_u32)),
             325 => tile_byte_counts_ref = Some((cnt, val_u32)),
+            // Strip TIFF tags (273/278/279). When present without tile tags
+            // (322..=325), strips are folded into the tile model below.
+            273 => strip_offsets_ref = Some((cnt, val_u32)),
+            278 => rows_per_strip = Some(val_u32 as u32),
+            279 => strip_byte_counts_ref = Some((cnt, val_u32)),
             339 => sample_format = val_u16_first,
             33550 => {
                 // ModelPixelScale: 3 doubles (sx, sy, sz)
@@ -308,6 +320,25 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
 
     let width = width.ok_or(CogError::MissingTag(256))?;
     let height = height.ok_or(CogError::MissingTag(257))?;
+    // If the IFD ships strips instead of tiles (Hansen GFC, older NOAA/USGS
+    // GeoTIFFs), synthesize tile_w / tile_h / tile_offsets / tile_byte_counts
+    // from the strip tags so the rest of the sampler can stay tile-shaped.
+    let strip_mode = tile_w.is_none()
+        && tile_h.is_none()
+        && tile_offsets_ref.is_none()
+        && tile_byte_counts_ref.is_none()
+        && strip_offsets_ref.is_some()
+        && strip_byte_counts_ref.is_some();
+    if strip_mode {
+        // Default RowsPerStrip is the full image height when the tag is
+        // absent (TIFF 6.0 §10), but every TIFF we've seen in the wild
+        // sets it.
+        let rps = rows_per_strip.unwrap_or(height);
+        tile_w = Some(width);
+        tile_h = Some(rps);
+        tile_offsets_ref = strip_offsets_ref;
+        tile_byte_counts_ref = strip_byte_counts_ref;
+    }
     let tile_w = tile_w.ok_or(CogError::MissingTag(322))?;
     let tile_h = tile_h.ok_or(CogError::MissingTag(323))?;
     let pixel_scale = pixel_scale.ok_or(CogError::MissingTag(33550))?;
