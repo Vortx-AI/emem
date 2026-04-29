@@ -195,6 +195,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/manifests", get(manifests))
         .route("/v1/bands", get(bands))
         .route("/v1/materializers", get(materializers))
+        .route("/v1/data_availability", get(data_availability))
         .route("/v1/fleet", get(fleet))
         .route("/v1/coverage_matrix", get(coverage_matrix))
         .route("/v1/functions", get(functions))
@@ -412,7 +413,8 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
     match path {
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info" | "/v1/agent_card" | "/v1/tools" | "/v1/bands" | "/v1/materializers"
-        | "/v1/functions" | "/v1/sources" | "/v1/manifests" | "/v1/errors" | "/v1/quickstart"
+        | "/v1/data_availability" | "/v1/functions" | "/v1/sources" | "/v1/manifests"
+        | "/v1/errors" | "/v1/quickstart"
         | "/agents.md" | "/whitepaper.md" | "/spec.md" | "/llms.txt" | "/llms-full.txt"
         | "/agent-trial.md" | "/attesting.md" | "/privacy" | "/privacy.md" | "/docs/PRIVACY.md"
         | "/terms" | "/terms.md" | "/docs/TERMS.md" | "/support" | "/support.md"
@@ -1083,6 +1085,27 @@ fn iso8601_utc(secs: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
 }
 
+/// Convert civil (Y, M, D) → days since 1970-01-01 (the inverse of
+/// `civil_from_days`). Same Hinnant reference; works for any year in the
+/// proleptic Gregorian calendar without pulling chrono.
+fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y } as i64;
+    let m = m as i64;
+    let d = d as i64;
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Unix epoch seconds for `YYYY-01-01T00:00:00Z`. Used as the canonical
+/// per-year anchor for annual-snapshot bands like Tessera.
+fn jan1_unix(year: i32) -> i64 {
+    days_from_civil(year, 1, 1) * 86_400
+}
+
 /// Convert days since 1970-01-01 to civil (Y, M, D). Algorithm by Howard
 /// Hinnant — overflow-safe for any plausible epoch second.
 fn civil_from_days(z: i64) -> (i32, u32, u32) {
@@ -1510,6 +1533,8 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                         "tempo_seconds".into(),
                         JsonValue::from(m.tempo.slot_seconds()),
                     );
+                    obj.insert("temporal_kind".into(), JsonValue::from(m.kind.as_str()));
+                    obj.insert("upstream_wire_path".into(), JsonValue::from(m.wire_path));
                 }
                 obj.insert(
                     "responder_pubkey_b32".into(),
@@ -1518,7 +1543,146 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
             }
         }
     }
+    // Backfill every materializable band that the curated payload above
+    // doesn't already mention, using `band_materializer_meta` +
+    // `all_materializable_bands` as the registry. This guarantees the
+    // /v1/materializers endpoint is never a partial view of the responder
+    // — agents that introspect either /v1/materializers or
+    // /v1/data_availability see the same band list. The auto-generated
+    // entries have less editorial text but full machine-readable fields.
+    if let Some(arr) = payload
+        .get_mut("materializers")
+        .and_then(|v| v.as_array_mut())
+    {
+        let curated: std::collections::HashSet<String> = arr
+            .iter()
+            .filter_map(|e| e.get("band").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        for band in all_materializable_bands() {
+            if curated.contains(&band) {
+                continue;
+            }
+            let Some(meta) = band_materializer_meta(&band) else {
+                continue;
+            };
+            let mut obj = serde_json::Map::new();
+            obj.insert("band".into(), JsonValue::from(band.clone()));
+            obj.insert("value_kind".into(), JsonValue::from("primary"));
+            obj.insert(
+                "auto_generated".into(),
+                JsonValue::from(true),
+            );
+            obj.insert(
+                "notes".into(),
+                JsonValue::from("auto-registered from band_materializer_meta — see /v1/data_availability for the full machine-readable catalog and any peer-reviewed citation in source code"),
+            );
+            obj.insert(
+                "history_available_from_unix".into(),
+                meta.history_from_unix
+                    .map(JsonValue::from)
+                    .unwrap_or(JsonValue::Null),
+            );
+            obj.insert(
+                "history_available_to_unix".into(),
+                meta.history_to_unix
+                    .map(JsonValue::from)
+                    .unwrap_or(JsonValue::Null),
+            );
+            obj.insert(
+                "tempo_seconds".into(),
+                JsonValue::from(meta.tempo.slot_seconds()),
+            );
+            obj.insert("temporal_kind".into(), JsonValue::from(meta.kind.as_str()));
+            obj.insert(
+                "upstream_wire_path".into(),
+                JsonValue::from(meta.wire_path),
+            );
+            obj.insert(
+                "responder_pubkey_b32".into(),
+                JsonValue::from(pubkey_b32.clone()),
+            );
+            arr.push(JsonValue::Object(obj));
+        }
+    }
     Json(payload)
+}
+
+/// `GET /v1/data_availability` — temporal catalog: for every band this
+/// responder can materialize, the upstream-of-record window the data
+/// genuinely covers and the temporal shape an agent should expect from
+/// `recall` / `backfill`. Driven entirely by `band_materializer_meta`
+/// (single source of truth) and `all_materializable_bands` (concrete
+/// enumeration including each Tessera vintage). No hardcoded windows
+/// or duplicated lookups.
+///
+/// Shape (per entry):
+/// ```json
+/// {
+///   "band": "geotessera.2020",
+///   "kind": "annual_snapshot",
+///   "tempo": "slow",
+///   "tempo_seconds": 31556952,
+///   "history_available_from_unix": 1577836800,
+///   "history_available_to_unix":   1609459199,
+///   "history_available_from_iso":  "2020-01-01T00:00:00Z",
+///   "history_available_to_iso":    "2020-12-31T23:59:59Z",
+///   "upstream_wire_path": "dl2.geotessera.org per-year .npy HTTPS-Range",
+///   "backfill_supported": true,
+///   "tslot_grid_seconds": 31556952
+/// }
+/// ```
+///
+/// `backfill_supported` is `true` iff the band has a `kind` other than
+/// `now_only` AND `materialize_band_at` will accept a past `target_unix`
+/// for it. Used by /v1/backfill clients to skip nowcast bands without a
+/// trial-and-error 422.
+async fn data_availability(State(s): State<AppState>) -> Json<JsonValue> {
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let mut entries: Vec<JsonValue> = Vec::new();
+    for band in all_materializable_bands() {
+        let Some(meta) = band_materializer_meta(&band) else {
+            continue;
+        };
+        let backfill_supported = !matches!(meta.kind, BandKind::NowOnly);
+        let from_iso = meta
+            .history_from_unix
+            .and_then(|u| u64::try_from(u).ok())
+            .map(iso8601_utc);
+        let to_iso = meta
+            .history_to_unix
+            .and_then(|u| u64::try_from(u).ok())
+            .map(iso8601_utc);
+        entries.push(json!({
+            "band": band,
+            "kind": meta.kind.as_str(),
+            "tempo": format!("{:?}", meta.tempo).to_lowercase(),
+            "tempo_seconds": meta.tempo.slot_seconds(),
+            "tslot_grid_seconds": meta.tempo.slot_seconds(),
+            "history_available_from_unix": meta.history_from_unix,
+            "history_available_to_unix": meta.history_to_unix,
+            "history_available_from_iso": from_iso,
+            "history_available_to_iso": to_iso,
+            "upstream_wire_path": meta.wire_path,
+            "backfill_supported": backfill_supported,
+        }));
+    }
+    Json(json!({
+        "schema": "emem.data_availability.v1",
+        "responder_pubkey_b32": pubkey_b32,
+        "auto_materialize_enabled": auto_materialize_enabled(),
+        "tessera_vintages": TESSERA_YEARS_RANGE_PUBLIC.clone().collect::<Vec<_>>(),
+        "kinds": [
+            {"name": "static",          "meaning": "single signed fact valid for all time (Cop-DEM, GMRT, JRC GSW recurrence)"},
+            {"name": "annual_snapshot", "meaning": "one fact per calendar year on Jan 1 UTC (Tessera per-year)"},
+            {"name": "annual_stack",    "meaning": "stack of multiple annual snapshots fused into one fact (Tessera multi-year 1024-D)"},
+            {"name": "time_series",     "meaning": "per-tslot historical series fetched on demand from a STAC-style archive (Sentinel-2 L2A, Sentinel-1 RTC, MODIS NDVI)"},
+            {"name": "now_only",        "meaning": "provider only exposes current value plus short forecast — no historical record (met.no)"},
+            {"name": "per_release",     "meaning": "versioned global snapshot — each release replaces the previous (Overture Maps)"}
+        ],
+        "entries": entries,
+    }))
 }
 
 /// `GET /v1/fleet` — declare the satellite/sensor lineage that feeds each
@@ -2276,6 +2440,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "fleet":            "/v1/fleet",
             "coverage_matrix":  "/v1/coverage_matrix",
             "materializers":    "/v1/materializers",
+            "data_availability":"/v1/data_availability",
             "algorithms":       "/v1/algorithms",
             "temporal_route":   "/v1/temporal_route",
             "reviews":          "/v1/reviews",
@@ -2551,12 +2716,56 @@ async fn get_cell(
     Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
 }
 
+/// REST-side wrapper for `RecallReq` that accepts a singular `band` field
+/// in addition to `bands`. Agents tend to write `{"band": "modis.ndvi_mean"}`
+/// — the spec defines the field as `bands: [...]` but a singular alias
+/// is the most common first-call shape, so silently rejecting it (recall
+/// then matches against an empty filter) is the worst possible UX. We
+/// normalise to `bands: [band]` here so the auto-materializer downstream
+/// sees the requested band.
+#[derive(Deserialize)]
+struct RecallApiReq {
+    #[serde(alias = "cell64")]
+    cell: String,
+    #[serde(default)]
+    band: Option<String>,
+    #[serde(default)]
+    bands: Option<Vec<String>>,
+    #[serde(default)]
+    tslot: Option<u64>,
+}
+
+impl From<RecallApiReq> for RecallReq {
+    fn from(api: RecallApiReq) -> Self {
+        // If both `band` and `bands` are supplied we merge — the singular
+        // is treated as one more entry on the plural list rather than
+        // silently winning.
+        let bands = match (api.band, api.bands) {
+            (None, None) => None,
+            (Some(b), None) => Some(vec![b]),
+            (None, Some(v)) => Some(v),
+            (Some(b), Some(mut v)) => {
+                if !v.iter().any(|x| x == &b) {
+                    v.insert(0, b);
+                }
+                Some(v)
+            }
+        };
+        RecallReq {
+            cell: api.cell,
+            bands,
+            tslot: api.tslot,
+        }
+    }
+}
+
 async fn post_recall(
     State(s): State<AppState>,
     headers: HeaderMap,
-    Json(mut req): Json<RecallReq>,
+    Json(api_req): Json<RecallApiReq>,
 ) -> Result<Response, ApiError> {
     metrics_inc(&RECALL_TOTAL);
+    let mut req: RecallReq = api_req.into();
     // Accept place names: `recall {"cell":"Mount Everest"}` is just
     // `locate` + `recall` from the agent's POV, no reason to make
     // them do two round-trips.
@@ -3519,9 +3728,19 @@ async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
     }))
 }
 
-async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> Json<JsonValue> {
+async fn mcp_jsonrpc(
+    State(s): State<AppState>,
+    Json(req): Json<JsonRpcReq>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
     metrics_inc(&MCP_TOTAL);
     let started = std::time::Instant::now();
+    // Per JSON-RPC 2.0 §4.1 + MCP Streamable-HTTP spec, a request without
+    // `id` is a Notification: the server MUST NOT reply with a Response
+    // object. The Streamable-HTTP transport recommends HTTP 202 Accepted
+    // with empty body in that case. Detect-and-short-circuit before any
+    // dispatch so notifications never accidentally produce a response.
+    let is_notification = req.id.is_none();
     let id = req.id.clone().unwrap_or(JsonValue::Null);
     let method = req.method.clone();
     // Pre-extract the tool name for tracing — without this, every /mcp POST
@@ -3538,11 +3757,33 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
         String::new()
     };
     let result: Result<JsonValue, (i64, String)> = match method.as_str() {
-        "initialize" => Ok(json!({
-            "protocolVersion": "2025-03-26",
-            "serverInfo": { "name": "emem", "version": env!("CARGO_PKG_VERSION") },
-            "capabilities": { "tools": {} },
-        })),
+        "initialize" => {
+            // Spec-correct version negotiation: if the client requested a
+            // version we support, echo it back; otherwise default to our
+            // highest. We support 2024-11-05 (initial Streamable-HTTP),
+            // 2025-03-26 (annotations, structuredContent), and 2025-06-18
+            // (tool titles + content-block resource refresh) — all three
+            // share the same wire shape for tools/list and tools/call,
+            // and emem's tools haven't required behavioural changes
+            // across them.
+            const SUPPORTED: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
+            let requested = req
+                .params
+                .as_ref()
+                .and_then(|p| p.get("protocolVersion"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let negotiated = if SUPPORTED.contains(&requested) {
+                requested
+            } else {
+                "2025-06-18"
+            };
+            Ok(json!({
+                "protocolVersion": negotiated,
+                "serverInfo": { "name": "emem", "version": env!("CARGO_PKG_VERSION") },
+                "capabilities": { "tools": {} },
+            }))
+        }
         "tools/list" => Ok(json!({
             // MCP `description` is the only natural-language field the host
             // LLM sees when picking a tool, so we fold `when_to_use` into it.
@@ -3638,6 +3879,15 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
                 }
             }
         }
+        // MCP lifecycle: client signals it's done with `initialize` by
+        // sending `notifications/initialized` (JSON-RPC notification — no
+        // id, no response expected). Per spec we MUST accept it; the
+        // empty result here is harmless because the dispatch layer below
+        // suppresses notifications when `id` is null.
+        "notifications/initialized" => Ok(json!({})),
+        // Optional health-ping; MCP spec leaves the response shape free
+        // beyond it being a successful result.
+        "ping" => Ok(json!({})),
         other => Err((-32601, format!("method not found: {other}"))),
     };
     let dur_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -3655,12 +3905,19 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
         mcp_duration_ms = dur_ms,
         "mcp_call"
     );
+    if is_notification {
+        // Spec: 202 Accepted with empty body. We still ran the dispatch
+        // (`notifications/initialized` is a no-op anyway) so nothing
+        // observable changes; only the wire-level response shape does.
+        return (axum::http::StatusCode::ACCEPTED, ()).into_response();
+    }
     match result {
-        Ok(v) => Json(json!({"jsonrpc":"2.0","id":id,"result":v})),
+        Ok(v) => Json(json!({"jsonrpc":"2.0","id":id,"result":v})).into_response(),
         Err((code, msg)) => Json(json!({
             "jsonrpc":"2.0","id":id,
             "error": { "code": code, "message": msg },
-        })),
+        }))
+        .into_response(),
     }
 }
 
@@ -3787,13 +4044,20 @@ async fn mcp_tool_call(
         "emem_grid_info" => Ok(grid_info().await.0),
         "emem_coverage_matrix" => Ok(coverage_matrix(State(s.clone())).await.0),
         "emem_materializers" => Ok(materializers(State(s.clone())).await.0),
+        "emem_data_availability" => Ok(data_availability(State(s.clone())).await.0),
         "emem_recall" => {
             // Route through the auto-materialize wrapper so MCP gets the
             // same on-demand corpus growth as REST. Without this,
             // emem_recall via MCP returns empty for any cell that hasn't
             // been seeded — even though the materializer is registered.
-            let req: RecallReq =
+            // Use the wrapper that accepts singular `band` too — agents
+            // call this both ways, and silently dropping `band` makes the
+            // recall match every band at the cell instead of the asked-for
+            // one (we saw this with `band: "geotessera.2020"` returning a
+            // cached weather fact instead of materialising Tessera 2020).
+            let api_req: RecallApiReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: RecallReq = api_req.into();
             let (resp, materialize_notes) = recall_with_auto_materialize(&req, s)
                 .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))?;
@@ -4052,13 +4316,23 @@ async fn openapi() -> Json<JsonValue> {
             "description": "Agent-native, content-addressed Earth memory protocol. Every read returns a signed receipt. cell × band × tslot.",
             "license": { "name": "Apache-2.0" }
         },
+        // Servers list is REQUIRED for OpenAI Custom GPTs and several
+        // other agent platforms that won't pick up a tool spec without
+        // an absolute base URL. We declare both the hosted instance and
+        // a relative-base form so self-hosted deployments still work.
+        "servers": [
+            {"url": "https://emem.dev",  "description": "Hosted instance (HTTPS-only)"},
+            {"url": "/",                 "description": "Same-origin (self-hosted or local)"}
+        ],
         "paths": {
             "/health":               {"get":{"summary":"liveness","responses":{"200":{"description":"ok"}}}},
             "/.well-known/emem.json":{"get":{"summary":"protocol discovery","responses":{"200":{"description":"ok"}}}},
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","responses":{"200":{"description":"ok"}}}},
-            "/v1/quickstart":        {"get":{"summary":"3-step playbook","responses":{"200":{"description":"ok"}}}},
+            "/v1/quickstart":        {"get":{"summary":"6-step playbook","responses":{"200":{"description":"ok"}}}},
             "/v1/manifests":         {"get":{"summary":"active manifest CIDs","responses":{"200":{"description":"ok"}}}},
             "/v1/bands":             {"get":{"summary":"band ontology","responses":{"200":{"description":"ok"}}}},
+            "/v1/materializers":     {"get":{"summary":"per-band auto-fetch registry (which bands the responder will materialize on a recall miss)","responses":{"200":{"description":"ok"}}}},
+            "/v1/data_availability": {"get":{"summary":"per-band temporal coverage catalog (window + tempo + kind + upstream wire path)","responses":{"200":{"description":"ok"}}}},
             "/v1/functions":         {"get":{"summary":"function registry","responses":{"200":{"description":"ok"}}}},
             "/v1/sources":           {"get":{"summary":"source registry","responses":{"200":{"description":"ok"}}}},
             "/v1/errors":            {"get":{"summary":"error code catalog","responses":{"200":{"description":"ok"}}}},
@@ -4080,7 +4354,34 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON)","operationId":"emem_attest","responses":{"200":{"description":"ok"}}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":{"description":"ok"}}}},
             "/v1/facts/{cid}":       {"get":{"summary":"fact dereference (immutable, ETag-tagged)","operationId":"emem_get_fact","parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"},"304":{"description":"unchanged"},"404":{"description":"not found"}}}},
-            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":{"description":"ok"}}}}
+            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":{"description":"ok"}}}},
+            // High-traffic endpoints that were previously discoverable
+            // only via /v1/discover or the agent_card. OpenAI Custom GPT
+            // and ChatGPT plugin pickers ignore endpoints not in
+            // `paths`, so any tool we want them to route to MUST appear
+            // here.
+            "/v1/locate":            {"post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"query":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}}}}}},"responses":{"200":{"description":"ok"}}}},
+            "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":{"description":"ok"}}}},
+            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon","operationId":"emem_recall_polygon","responses":{"200":{"description":"ok"}}}},
+            "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":{"description":"ok"}}}},
+            "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":{"description":"ok"}}}},
+            "/v1/algorithms/{key}":  {"get":{"summary":"single algorithm detail","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/compare_bands":     {"post":{"summary":"per-band diff between two cells (delta + percent change)","operationId":"emem_compare_bands","responses":{"200":{"description":"ok"}}}},
+            "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":{"description":"ok"}}}},
+            "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","responses":{"200":{"description":"ok"}}}},
+            "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density (image/svg+xml)","responses":{"200":{"description":"ok"}}}},
+            "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","responses":{"200":{"description":"ok"}}}},
+            "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/elevation":         {"post":{"summary":"convenience elevation lookup (uses copdem30m / gmrt fallback)","responses":{"200":{"description":"ok"}}}},
+            "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","responses":{"200":{"description":"ok"}}}},
+            "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject","responses":{"200":{"description":"ok"}}}},
+            "/v1/reviews/{subject_id}":{"get":{"summary":"list reviews for a subject","parameters":[{"name":"subject_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/contributors":      {"get":{"summary":"list of contributing pubkeys + per-band fact counts","responses":{"200":{"description":"ok"}}}},
+            "/v1/contributors/{pubkey_b32}": {"get":{"summary":"contributor profile by pubkey","parameters":[{"name":"pubkey_b32","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/agent_stats":       {"get":{"summary":"per-tool MCP latency + error counts","responses":{"200":{"description":"ok"}}}},
+            "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","responses":{"200":{"description":"ok"}}}}
         },
         "components": {
             "schemas": {
@@ -5586,6 +5887,752 @@ async fn materialize_weather_current(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+/// Convert a Unix epoch second to a `YYYYMMDD` string for upstream APIs that
+/// expect calendar dates. Uses `civil_from_days` (defined elsewhere in this
+/// module) — no chrono dependency.
+fn unix_to_yyyymmdd(unix: i64) -> String {
+    let z = unix.div_euclid(86_400);
+    let (y, m, d) = civil_from_days(z);
+    format!("{y:04}{m:02}{d:02}")
+}
+
+/// Materialize a NASA POWER reanalysis fact at a single lat/lng. Free, no
+/// auth, public-domain (US Gov), global, 0.5° MERRA-2 grid downscaled.
+///
+/// `target_unix = None` materializes the *current* day from the latest
+/// available POWER cycle (~2-day lag); `Some(t)` materializes the daily
+/// value covering that Unix second. Both modes hit the same daily REST
+/// endpoint — POWER returns one row per requested calendar day.
+///
+/// Reference: https://power.larc.nasa.gov/docs/services/api/temporal/daily/
+async fn materialize_power_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    target_unix: Option<i64>,
+) -> Result<emem_fact::FactCid, String> {
+    // Map emem band → POWER `parameters=` field + unit + confidence.
+    let (param, unit, confidence) = match band {
+        "power.t2m" => ("T2M", Some("degC"), 0.85),
+        "power.t2m_min" => ("T2M_MIN", Some("degC"), 0.85),
+        "power.t2m_max" => ("T2M_MAX", Some("degC"), 0.85),
+        "power.precip" => ("PRECTOTCORR", Some("mm/day"), 0.80),
+        "power.rh2m" => ("RH2M", Some("percent"), 0.80),
+        "power.allsky_sw" => ("ALLSKY_SFC_SW_DWN", Some("MJ/m^2/day"), 0.85),
+        "power.ws10m" => ("WS10M", Some("m/s"), 0.80),
+        _ => return Err(format!("power band not wired: {band}")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    // POWER's daily product publishes with ~3-5 day latency depending on
+    // which native source (GEOSIT, MERRA-2) is fronting the request. Pick
+    // 5 days back for the "current" mode so we always land inside the
+    // published window — 422/-999 sentinels make this brittle otherwise.
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let target = target_unix.unwrap_or(now_unix - 5 * 86_400);
+    let date = unix_to_yyyymmdd(target);
+    let url = format!(
+        "https://power.larc.nasa.gov/api/temporal/daily/point?parameters={param}&latitude={lat:.4}&longitude={lng:.4}&start={date}&end={date}&community=ag&format=JSON"
+    );
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let resp = tokio::time::timeout(
+        timeout,
+        reqwest_client()
+            .get(&url)
+            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .send(),
+    )
+    .await
+    .map_err(|_| format!("nasa power timeout after {}s", timeout.as_secs()))?
+    .map_err(|e| format!("nasa power https: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("nasa power status {} for {band}", resp.status()));
+    }
+    let body: JsonValue = resp.json().await.map_err(|e| format!("power json: {e}"))?;
+    // Response shape: properties.parameter.<PARAM>.<YYYYMMDD> = number.
+    let v = body
+        .pointer(&format!("/properties/parameter/{param}/{date}"))
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| format!("nasa power missing properties.parameter.{param}.{date}"))?;
+    if v <= -990.0 {
+        // POWER's nodata sentinel is -999.
+        return Err(format!(
+            "nasa power nodata at lat={lat:.3} lng={lng:.3} on {date} for {param}"
+        ));
+    }
+    let signed_at = chrono_iso8601_utc();
+    let tslot = emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::Fast).0;
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot,
+        value: ciborium::Value::Float(v),
+        unit: unit.map(|u| u.to_string()),
+        confidence,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "nasa_power".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(format!(
+                "{}-{}-{}T00:00:00Z",
+                &date[0..4],
+                &date[4..6],
+                &date[6..8]
+            )),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: "nasa_power_daily_point@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(param.to_string()),
+                ciborium::Value::Text(date.clone()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+/// Materialize an Open-Meteo CAMS air-quality fact at a single lat/lng.
+/// Free, no API key, CC BY 4.0; CAMS surface-level pollutant blend updates
+/// hourly with ~30-minute latency.
+///
+/// `target_unix = None` materializes the *current* hour. `Some(t)` returns
+/// the hour-bucket containing `t`. Open-Meteo's hourly archive runs from
+/// 2013-08-01 forward.
+///
+/// Reference: https://open-meteo.com/en/docs/air-quality-api
+async fn materialize_cams_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    target_unix: Option<i64>,
+) -> Result<emem_fact::FactCid, String> {
+    let (om_field, unit, confidence) = match band {
+        "cams.pm25" => ("pm2_5", Some("ug/m^3"), 0.80),
+        "cams.pm10" => ("pm10", Some("ug/m^3"), 0.80),
+        "cams.no2" => ("nitrogen_dioxide", Some("ug/m^3"), 0.80),
+        "cams.o3" => ("ozone", Some("ug/m^3"), 0.80),
+        "cams.so2" => ("sulphur_dioxide", Some("ug/m^3"), 0.80),
+        "cams.co" => ("carbon_monoxide", Some("ug/m^3"), 0.80),
+        "cams.aod_550" => ("aerosol_optical_depth", None, 0.75),
+        _ => return Err(format!("cams band not wired: {band}")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let target = target_unix.unwrap_or(now_unix);
+    let date = unix_to_yyyymmdd(target);
+    // Air-quality API accepts start_date/end_date as YYYY-MM-DD.
+    let date_iso = format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]);
+    let url = format!(
+        "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={date_iso}&end_date={date_iso}&timezone=UTC"
+    );
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let resp = tokio::time::timeout(
+        timeout,
+        reqwest_client()
+            .get(&url)
+            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .send(),
+    )
+    .await
+    .map_err(|_| format!("cams timeout after {}s", timeout.as_secs()))?
+    .map_err(|e| format!("cams https: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("cams status {} for {band}", resp.status()));
+    }
+    let body: JsonValue = resp.json().await.map_err(|e| format!("cams json: {e}"))?;
+    let times = body
+        .pointer("/hourly/time")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "cams response missing hourly.time".to_string())?;
+    let values = body
+        .pointer(&format!("/hourly/{om_field}"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| format!("cams response missing hourly.{om_field}"))?;
+    // Pick the hour bucket containing `target` (Open-Meteo returns
+    // ISO-format strings like "2024-03-15T07:00").
+    let target_hour_unix = (target / 3600) * 3600;
+    let mut chosen_idx: Option<usize> = None;
+    let mut chosen_iso = String::new();
+    for (i, t) in times.iter().enumerate() {
+        let Some(s) = t.as_str() else { continue };
+        // Append :00Z and parse as Unix via days_from_civil.
+        if let Some(u) = parse_iso_utc_hour(s) {
+            if u == target_hour_unix {
+                chosen_idx = Some(i);
+                chosen_iso = s.to_string();
+                break;
+            }
+        }
+    }
+    let idx = chosen_idx.ok_or_else(|| {
+        format!(
+            "cams response had no hour matching target {target_hour_unix} ({})",
+            unix_to_yyyymmdd(target_hour_unix)
+        )
+    })?;
+    let v = values
+        .get(idx)
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| format!("cams hourly.{om_field}[{idx}] missing or null"))?;
+    let signed_at = chrono_iso8601_utc();
+    let tslot = emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::UltraFast).0;
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot,
+        value: ciborium::Value::Float(v),
+        unit: unit.map(|u| u.to_string()),
+        confidence,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "open_meteo_cams".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(format!("{chosen_iso}:00Z")),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: "open_meteo_cams_hourly@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(om_field.to_string()),
+                ciborium::Value::Text(chosen_iso.clone()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+/// Materialize an Open-Meteo ERA5 reanalysis fact at a single lat/lng.
+/// Free, no API key, CC BY 4.0; ECMWF ERA5 (~9 km downscaled), hourly,
+/// 1940-present.
+///
+/// `target_unix` is required (this is a historical archive — there's no
+/// "current" mode). For backfill, the slot is anchored to the hour
+/// containing `target_unix`.
+///
+/// Reference: https://open-meteo.com/en/docs/historical-weather-api
+async fn materialize_era5_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    target_unix: i64,
+) -> Result<emem_fact::FactCid, String> {
+    let (om_field, unit, confidence) = match band {
+        "era5.t2m" => ("temperature_2m", Some("degC"), 0.90),
+        "era5.precip" => ("precipitation", Some("mm"), 0.85),
+        "era5.rh2m" => ("relative_humidity_2m", Some("percent"), 0.85),
+        "era5.windspeed_10m" => ("wind_speed_10m", Some("km/h"), 0.85),
+        "era5.cloudcover" => ("cloud_cover", Some("percent"), 0.80),
+        "era5.surface_pressure" => ("surface_pressure", Some("hPa"), 0.85),
+        "era5.dewpoint_2m" => ("dew_point_2m", Some("degC"), 0.85),
+        _ => return Err(format!("era5 band not wired: {band}")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let date = unix_to_yyyymmdd(target_unix);
+    let date_iso = format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]);
+    let url = format!(
+        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={date_iso}&end_date={date_iso}&timezone=UTC"
+    );
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let resp = tokio::time::timeout(
+        timeout,
+        reqwest_client()
+            .get(&url)
+            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .send(),
+    )
+    .await
+    .map_err(|_| format!("era5 timeout after {}s", timeout.as_secs()))?
+    .map_err(|e| format!("era5 https: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("era5 status {} for {band}", resp.status()));
+    }
+    let body: JsonValue = resp.json().await.map_err(|e| format!("era5 json: {e}"))?;
+    let times = body
+        .pointer("/hourly/time")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "era5 response missing hourly.time".to_string())?;
+    let values = body
+        .pointer(&format!("/hourly/{om_field}"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| format!("era5 response missing hourly.{om_field}"))?;
+    let target_hour_unix = (target_unix / 3600) * 3600;
+    let mut chosen: Option<(usize, String)> = None;
+    for (i, t) in times.iter().enumerate() {
+        let Some(s) = t.as_str() else { continue };
+        if let Some(u) = parse_iso_utc_hour(s) {
+            if u == target_hour_unix {
+                chosen = Some((i, s.to_string()));
+                break;
+            }
+        }
+    }
+    let (idx, iso) = chosen.ok_or_else(|| {
+        format!(
+            "era5 response had no hour matching target {target_hour_unix}; ERA5 archive starts 1940-01-01"
+        )
+    })?;
+    let v = values
+        .get(idx)
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| format!("era5 hourly.{om_field}[{idx}] missing or null"))?;
+    let signed_at = chrono_iso8601_utc();
+    let tslot = emem_core::tslot::Tslot::from_unix(target_unix, emem_core::tslot::Tempo::UltraFast).0;
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot,
+        value: ciborium::Value::Float(v),
+        unit: unit.map(|u| u.to_string()),
+        confidence,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "open_meteo_era5".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(format!("{iso}:00Z")),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: "open_meteo_era5_archive@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(om_field.to_string()),
+                ciborium::Value::Text(iso.clone()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+/// Materialize an Open-Meteo Marine fact (ECMWF WAM wave model) at a single
+/// lat/lng. Free, no API key, CC BY 4.0. Coverage: global oceans (NaN over
+/// continents), hourly, 2022-08-01 forward.
+///
+/// `target_unix = None` materializes the current hour; `Some(t)` returns
+/// the hour bucket containing t. Use this for coastal hazard / shipping
+/// memory and SST as fallback.
+///
+/// Reference: https://open-meteo.com/en/docs/marine-weather-api
+async fn materialize_marine_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    target_unix: Option<i64>,
+) -> Result<emem_fact::FactCid, String> {
+    let (om_field, unit, confidence) = match band {
+        "marine.wave_height" => ("wave_height", Some("m"), 0.80),
+        "marine.swell_period" => ("swell_wave_period", Some("s"), 0.80),
+        "marine.swell_height" => ("swell_wave_height", Some("m"), 0.80),
+        "marine.sst" => ("sea_surface_temperature", Some("degC"), 0.85),
+        "marine.wave_direction" => ("wave_direction", Some("deg"), 0.75),
+        _ => return Err(format!("marine band not wired: {band}")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let target = target_unix.unwrap_or(now_unix);
+    let date = unix_to_yyyymmdd(target);
+    let date_iso = format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]);
+    let url = format!(
+        "https://marine-api.open-meteo.com/v1/marine?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={date_iso}&end_date={date_iso}&timezone=UTC"
+    );
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let resp = tokio::time::timeout(
+        timeout,
+        reqwest_client()
+            .get(&url)
+            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .send(),
+    )
+    .await
+    .map_err(|_| format!("marine timeout after {}s", timeout.as_secs()))?
+    .map_err(|e| format!("marine https: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "marine status {} for {band} (this is a coastal-only model — inland points always fail)",
+            resp.status()
+        ));
+    }
+    let body: JsonValue = resp.json().await.map_err(|e| format!("marine json: {e}"))?;
+    let times = body
+        .pointer("/hourly/time")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "marine response missing hourly.time".to_string())?;
+    let values = body
+        .pointer(&format!("/hourly/{om_field}"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| format!("marine response missing hourly.{om_field}"))?;
+    let target_hour_unix = (target / 3600) * 3600;
+    let mut chosen: Option<(usize, String)> = None;
+    for (i, t) in times.iter().enumerate() {
+        let Some(s) = t.as_str() else { continue };
+        if let Some(u) = parse_iso_utc_hour(s) {
+            if u == target_hour_unix {
+                chosen = Some((i, s.to_string()));
+                break;
+            }
+        }
+    }
+    let (idx, iso) = chosen.ok_or_else(|| {
+        format!("marine response had no hour matching target {target_hour_unix}")
+    })?;
+    let v = values
+        .get(idx)
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| format!("marine hourly.{om_field}[{idx}] is null (likely inland point)"))?;
+    let signed_at = chrono_iso8601_utc();
+    let tslot = emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::UltraFast).0;
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot,
+        value: ciborium::Value::Float(v),
+        unit: unit.map(|u| u.to_string()),
+        confidence,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "open_meteo_marine".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(format!("{iso}:00Z")),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: "open_meteo_marine_hourly@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(om_field.to_string()),
+                ciborium::Value::Text(iso.clone()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+/// Parse an Open-Meteo `YYYY-MM-DDTHH:MM` (always UTC when timezone=UTC)
+/// timestamp into Unix epoch seconds. Returns `None` for malformed input.
+/// Strict: must match exactly 16 chars, the literal `T`, and `:00` minutes.
+fn parse_iso_utc_hour(s: &str) -> Option<i64> {
+    let bytes = s.as_bytes();
+    if bytes.len() != 16 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T'
+        || bytes[13] != b':'
+    {
+        return None;
+    }
+    let y: i32 = std::str::from_utf8(&bytes[0..4]).ok()?.parse().ok()?;
+    let m: u32 = std::str::from_utf8(&bytes[5..7]).ok()?.parse().ok()?;
+    let d: u32 = std::str::from_utf8(&bytes[8..10]).ok()?.parse().ok()?;
+    let hh: i64 = std::str::from_utf8(&bytes[11..13]).ok()?.parse().ok()?;
+    let mm: i64 = std::str::from_utf8(&bytes[14..16]).ok()?.parse().ok()?;
+    let day = days_from_civil(y, m, d);
+    Some(day * 86_400 + hh * 3600 + mm * 60)
+}
+
+/// Materialize an additional ORNL DAAC MODIS/VIIRS subset product. Same
+/// REST pipeline as `materialize_modis_ndvi_window` (`MOD13Q1`) but with
+/// per-product band names, scale factors, and quality filters.
+///
+/// Products wired (all anonymous, public-domain):
+/// - `modis.lst_day_8day`   → MOD11A2.061 LST_Day_1km    (K, scale 0.02)
+/// - `modis.lst_night_8day` → MOD11A2.061 LST_Night_1km  (K, scale 0.02)
+/// - `modis.et_8day`        → MOD16A2.061 ET             (kg/m^2, scale 0.1)
+/// - `modis.gpp_8day`       → MOD17A2H.061 Gpp           (kg C/m^2, scale 1e-4)
+/// - `modis.lai_8day`       → MOD15A2H.061 Lai_500m      (m^2/m^2, scale 0.1)
+/// - `modis.burned_area`    → MCD64A1.061 Burn_Date      (DOY of burn, no scale)
+///
+/// Reference: https://modis.ornl.gov/data/modis_webservice.html
+async fn materialize_ornl_modis_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    target_unix: Option<i64>,
+) -> Result<emem_fact::FactCid, String> {
+    // Map our band → (MODIS product, MODIS variable, default scale, unit, ±day window).
+    // ORNL DAAC requires the product's actual variable name (e.g. `LST_Day_1km`),
+    // not the emem alias.
+    let (product, variable, default_scale, unit, half_window_days, fn_key) = match band {
+        "modis.lst_day_8day" => (
+            "MOD11A2",
+            "LST_Day_1km",
+            0.02_f64,
+            Some("K"),
+            8_i64,
+            "modis_ornl_mod11a2_lstday@1",
+        ),
+        "modis.lst_night_8day" => (
+            "MOD11A2",
+            "LST_Night_1km",
+            0.02_f64,
+            Some("K"),
+            8_i64,
+            "modis_ornl_mod11a2_lstnight@1",
+        ),
+        "modis.et_8day" => (
+            "MOD16A2",
+            "ET_500m",
+            0.1_f64,
+            Some("kg/m^2"),
+            8_i64,
+            "modis_ornl_mod16a2_et@1",
+        ),
+        "modis.gpp_8day" => (
+            "MOD17A2H",
+            "Gpp_500m",
+            1e-4_f64,
+            Some("kg C/m^2"),
+            8_i64,
+            "modis_ornl_mod17a2h_gpp@1",
+        ),
+        "modis.lai_8day" => (
+            "MOD15A2H",
+            "Lai_500m",
+            0.1_f64,
+            Some("m^2/m^2"),
+            8_i64,
+            "modis_ornl_mod15a2h_lai@1",
+        ),
+        "modis.burned_area_monthly" => (
+            "MCD64A1",
+            "Burn_Date",
+            1.0_f64,
+            Some("doy"),
+            32_i64,
+            "modis_ornl_mcd64a1_burndate@1",
+        ),
+        _ => return Err(format!("ornl modis band not wired: {band}")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // Window selection: ±half_window around an explicit target_unix, OR a
+    // 12·half_window lookback in "current" mode. The wider lookback covers
+    // the publication-latency tail of slow MODIS products (MOD16A2 ET and
+    // MOD17A2H GPP routinely lag 30+ days; MOD15A2H LAI similar).
+    let (start_unix, end_unix) = match target_unix {
+        Some(t) => {
+            let lo = (t - half_window_days * 86_400).max(0);
+            let hi = (t + half_window_days * 86_400).min(now);
+            (lo, hi.max(lo + 86_400))
+        }
+        None => (now - 12 * half_window_days * 86_400, now),
+    };
+    let start_str = unix_to_modis_date(start_unix);
+    let end_str = unix_to_modis_date(end_unix);
+    let url = format!(
+        "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={variable}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
+    );
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let retries = materializer_retries();
+    let mut last_err = String::new();
+    let mut body: Option<JsonValue> = None;
+    for attempt in 1..=retries {
+        let send = reqwest_client()
+            .get(&url)
+            .header("accept", "application/json")
+            .send();
+        match tokio::time::timeout(timeout, send).await {
+            Err(_) => {
+                last_err = format!(
+                    "{product} timeout after {}s on attempt {attempt}/{retries}",
+                    timeout.as_secs()
+                );
+                continue;
+            }
+            Ok(Err(e)) => {
+                last_err = format!("{product} https on attempt {attempt}/{retries}: {e}");
+                continue;
+            }
+            Ok(Ok(resp)) => {
+                let status = resp.status();
+                if !status.is_success() {
+                    // ORNL DAAC returns 400 with a body like "No data
+                    // available for time period A2026087 to A2026119 for
+                    // MOD16A2 19.0767 72.8762 combination." when the
+                    // upstream simply hasn't published data in this
+                    // range yet. Treat this as soft no-data (empty
+                    // subset) rather than a hard transport failure so
+                    // the caller gets a clean "no valid observation"
+                    // message instead of "status 400".
+                    if status == reqwest::StatusCode::BAD_REQUEST {
+                        if let Ok(text) = resp.text().await {
+                            if text.contains("No data available for time period") {
+                                body = Some(json!({"subset": []}));
+                                break;
+                            }
+                        }
+                    }
+                    last_err = format!(
+                        "{product} status {status} on attempt {attempt}/{retries}"
+                    );
+                    if status.is_client_error() {
+                        break;
+                    }
+                    continue;
+                }
+                match tokio::time::timeout(timeout, resp.json::<JsonValue>()).await {
+                    Err(_) => {
+                        last_err = format!("{product} body timeout on attempt {attempt}/{retries}");
+                        continue;
+                    }
+                    Ok(Err(e)) => {
+                        last_err = format!("{product} json on attempt {attempt}/{retries}: {e}");
+                        continue;
+                    }
+                    Ok(Ok(b)) => {
+                        body = Some(b);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let body = body.ok_or(last_err)?;
+    // Scale factor: prefer upstream-reported, fall back to product default.
+    let scale: f64 = body
+        .get("scale")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default_scale);
+    let subset = body
+        .get("subset")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| format!("{product} response missing `subset` array"))?;
+    let mut best: Option<(i64, f64, String)> = None;
+    for entry in subset.iter() {
+        let raw = entry
+            .get("data")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_i64());
+        let cal = entry
+            .get("calendar_date")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let Some(r) = raw else { continue };
+        // Per-product nodata sentinels:
+        //   MOD11A2 LST: 0 (raw uint16; 0 = unfilled QC).
+        //   MOD16A2 ET:  32760+ (fill ranges). >= 32700 → fill.
+        //   MOD17A2H GPP: 32760+ fill, also negative gpp on water.
+        //   MOD15A2H LAI: 249..255 reserved (water/cloud/etc).
+        //   MCD64A1 Burn_Date: 0 = no burn that month, -1 unmapped/water.
+        let is_nodata = match product {
+            "MOD11A2" => r == 0,
+            "MOD16A2" | "MOD17A2H" => r >= 32700,
+            "MOD15A2H" => !(0..=100).contains(&r),
+            "MCD64A1" => r < 1, // 0 = unburned, treat as no event but emit value
+            _ => false,
+        };
+        if product != "MCD64A1" && is_nodata {
+            continue;
+        }
+        let scaled = (r as f64) * scale;
+        let entry_unix = modis_calendar_to_unix(&cal).unwrap_or(0);
+        let priority = match target_unix {
+            Some(t) => (entry_unix - t).abs(),
+            None => i64::MAX - entry_unix,
+        };
+        if best.as_ref().map(|(p, _, _)| priority < *p).unwrap_or(true) {
+            best = Some((priority, scaled, cal));
+        }
+    }
+    let (_, value, cal_date) = best.ok_or_else(|| match target_unix {
+        Some(t) => format!(
+            "no valid {product} {variable} observation in ±{half_window_days}d around {t}"
+        ),
+        None => format!(
+            "no valid {product} {variable} observation in last {} days",
+            4 * half_window_days
+        ),
+    })?;
+    let cal_unix = modis_calendar_to_unix(&cal_date)
+        .or(target_unix)
+        .unwrap_or(now);
+    let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Medium).0;
+    let signed_at = chrono_iso8601_utc();
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot,
+        value: ciborium::Value::Float(value),
+        unit: unit.map(|u| u.to_string()),
+        confidence: 0.85,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "ornl_modis".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(cal_date.clone()),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: fn_key.to_string(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(product.to_string()),
+                ciborium::Value::Text(variable.to_string()),
+                ciborium::Value::Text(cal_date.clone()),
+                ciborium::Value::Float(scale),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 /// Map an emem band key to the set of Sentinel-2 STAC asset names it depends on.
 /// Returns (asset_aliases_per_input, kind, formula_note). The asset aliases use
 /// Element84's STAC naming (`red`, `nir`, …) with B-number fallbacks; the COG
@@ -5678,6 +6725,59 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
             "index_ndbi",
             "NDBI = (B11 − B08) / (B11 + B08). Built-up index.",
         )),
+        // Health-relevant indices. Each formula is from a peer-reviewed paper
+        // or recognized public-health authority — see the kind dispatcher in
+        // `materialize_sentinel2_band` for the full citation per index.
+        "indices.ndti" => Some((
+            vec![B04, B03],
+            "index_ndti",
+            "NDTI (Lacaux 2007) = (B04 − B03) / (B04 + B03). Water turbidity proxy; higher → diarrheal-disease risk and mosquito breeding.",
+        )),
+        "indices.gndvi" => Some((
+            vec![B08, B03],
+            "index_gndvi",
+            "GNDVI (Gitelson 1996) = (B08 − B03) / (B08 + B03). Pasture/crop chlorophyll proxy; higher → better local nutrition.",
+        )),
+        "indices.ndre" => Some((
+            vec![B8A, B05],
+            "index_ndre",
+            "NDRE (Gitelson 1996) = (B8A − B05) / (B8A + B05). Red-edge chlorophyll; crop nitrogen → dietary protein supply.",
+        )),
+        "indices.fai" => Some((
+            vec![B08, B04, B11],
+            "index_fai",
+            "FAI (Hu 2009) = B08 − [B04 + (842−665)/(1610−665)·(B11 − B04)]. Floating algae / scum surface signature; harmful algal bloom risk.",
+        )),
+        "indices.tss" => Some((
+            vec![B04, B02],
+            "index_tss",
+            "TSS (Ouma 2020) = 14.464·(B04/B02) + 16.336 mg/L. Total suspended solids; pathogen-laden runoff after storms.",
+        )),
+        "indices.ndsi" => Some((
+            vec![B03, B11],
+            "index_ndsi",
+            "NDSI (Hall 1995) = (B03 − B11) / (B03 + B11). Snow cover; high values → tick-season delay, snow-reflected UV burn at altitude.",
+        )),
+        "indices.afri1600" => Some((
+            vec![B08, B11],
+            "index_afri1600",
+            "AFRI1.6 (Karnieli 2001) = (B08 − 0.66·B11) / (B08 + 0.66·B11). Aerosol-resistant veg index — usable through smoke/dust where NDVI is biased.",
+        )),
+        "indices.savi_l1" => Some((
+            vec![B08, B04],
+            "index_savi_l1",
+            "SAVI L=1 (Huete 1988) = 2·(B08 − B04) / (B08 + B04 + 1). Soil-adjusted veg in arid pastures — feeds drought-nutrition signal.",
+        )),
+        "indices.surface_dryness" => Some((
+            vec![B08, B11],
+            "index_surface_dryness",
+            "SDI = 1 − NDMI = 1 − (B08 − B11)/(B08 + B11), clamped to [0,1]. Compound heat-stress signal; no evaporative cooling when high.",
+        )),
+        "indices.urban_canopy_index" => Some((
+            vec![B08, B04, B11],
+            "index_urban_canopy",
+            "UCI = NDVI · (1 − NDBI) where NDBI = (B11 − B08)/(B11 + B08). Tree-canopy density in urban grid; ↑ = mental-health and mortality benefit (3-30-300 rule).",
+        )),
         _ => None,
     }
 }
@@ -5701,6 +6801,7 @@ async fn materialize_sentinel2_band(
     cell64: &str,
     s: &AppState,
     band: &str,
+    target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
     let plan = s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
     let (asset_lists, kind, formula_note) = plan;
@@ -5712,11 +6813,20 @@ async fn materialize_sentinel2_band(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let start_unix = now_unix - 30 * 86400;
+    // Backfill window: ±30d around target_unix (covers ≥4 revisits at most
+    // latitudes); current-mode is "last 30d up to now".
+    let (lo_unix, hi_unix) = match target_unix {
+        Some(t) => {
+            let lo = (t - 30 * 86400).max(0);
+            let hi = (t + 30 * 86400).min(now_unix);
+            (lo, hi.max(lo + 86400))
+        }
+        None => (now_unix - 30 * 86400, now_unix),
+    };
     let datetime = format!(
         "{}/{}",
-        iso8601_utc(start_unix as u64),
-        iso8601_utc(now_unix as u64)
+        iso8601_utc(lo_unix as u64),
+        iso8601_utc(hi_unix as u64)
     );
 
     let cli = s2_http_client();
@@ -5724,7 +6834,12 @@ async fn materialize_sentinel2_band(
         emem_fetch::stac::search_one(&cli, "sentinel-2-l2a", lng, lat, &datetime, Some(40.0))
             .await
             .map_err(|e| format!("stac: {e}"))?
-            .ok_or_else(|| "no Sentinel-2 L2A scene under 40% cloud in last 30 days".to_string())?;
+            .ok_or_else(|| match target_unix {
+                Some(t) => format!(
+                    "no Sentinel-2 L2A scene under 40% cloud within ±30d of {t}"
+                ),
+                None => "no Sentinel-2 L2A scene under 40% cloud in last 30 days".to_string(),
+            })?;
     let epsg = item
         .epsg
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
@@ -5853,6 +6968,132 @@ async fn materialize_sentinel2_band(
             }
             ((swir1 - nir) / (swir1 + nir), None)
         }
+        "index_ndti" => {
+            // NDTI (Lacaux et al. 2007, RSE 109:66-77): turbidity proxy used
+            // for waterborne-disease vector mapping in the Senegal Valley.
+            let red = samples[0] * 1e-4;
+            let green = samples[1] * 1e-4;
+            if red + green < 1e-6 {
+                return Err("ndti denom ≈ 0".to_string());
+            }
+            ((red - green) / (red + green), None)
+        }
+        "index_gndvi" => {
+            // GNDVI (Gitelson, Kaufman & Merzlyak 1996, RSE 58:289-298):
+            // chlorophyll-sensitive vegetation index — saturates later than
+            // NDVI over dense canopies, useful for crop nitrogen + pasture.
+            let nir = samples[0] * 1e-4;
+            let green = samples[1] * 1e-4;
+            if nir + green < 1e-6 {
+                return Err("gndvi denom ≈ 0".to_string());
+            }
+            ((nir - green) / (nir + green), None)
+        }
+        "index_ndre" => {
+            // NDRE (Gitelson & Merzlyak 1996, J Plant Physiol 148:494-500):
+            // red-edge chlorophyll. Sentinel-2's red-edge band B05 (704 nm)
+            // is uniquely mid-range and saturates much later than NIR,
+            // exposing nitrogen status during peak biomass.
+            let nirn = samples[0] * 1e-4;
+            let re1 = samples[1] * 1e-4;
+            if nirn + re1 < 1e-6 {
+                return Err("ndre denom ≈ 0".to_string());
+            }
+            ((nirn - re1) / (nirn + re1), None)
+        }
+        "index_fai" => {
+            // FAI (Hu 2009, RSE 113:2118-2129): floating algae index.
+            // Linear baseline drawn between red (665 nm) and SWIR1 (1610 nm),
+            // measured at NIR (842 nm). Surface scum reflects strongly in
+            // NIR but not in SWIR (water absorbs SWIR), so positive FAI
+            // identifies HAB scums, sargassum, oil sheens, plastics.
+            let nir = samples[0] * 1e-4;
+            let red = samples[1] * 1e-4;
+            let swir1 = samples[2] * 1e-4;
+            // S2 band centers (nm): B04=665, B08=842, B11=1610.
+            let lambda_baseline =
+                red + (842.0 - 665.0) / (1610.0 - 665.0) * (swir1 - red);
+            (nir - lambda_baseline, None)
+        }
+        "index_tss" => {
+            // TSS (Ouma et al. 2020, J Sensors): empirical regression on
+            // East African reservoirs. Formula: TSS [mg/L] = 14.464·(R/B)
+            // + 16.336. Valid for moderately turbid inland water; clip
+            // to 0 at clearest pixels. Pre-storm vs post-storm Δ is the
+            // pathogen-runoff signal.
+            let red = samples[0] * 1e-4;
+            let blue = samples[1] * 1e-4;
+            if blue.abs() < 1e-6 {
+                return Err("tss denom (blue) ≈ 0".to_string());
+            }
+            let tss = 14.464_f64 * (red / blue) + 16.336;
+            (tss.max(0.0), Some("mg/L".to_string()))
+        }
+        "index_ndsi" => {
+            // NDSI (Hall, Riggs & Salomonson 1995, RSE 54:127-140): the
+            // canonical snow-cover index. Snow is bright in green and dark
+            // in SWIR. Threshold ~0.4 separates snow from cloud over land.
+            let green = samples[0] * 1e-4;
+            let swir1 = samples[1] * 1e-4;
+            if green + swir1 < 1e-6 {
+                return Err("ndsi denom ≈ 0".to_string());
+            }
+            ((green - swir1) / (green + swir1), None)
+        }
+        "index_afri1600" => {
+            // AFRI1.6 (Karnieli et al. 2001, RSE 77:10-21): aerosol-free
+            // vegetation index for use under smoke/dust/haze. Uses SWIR
+            // (which is largely transparent to aerosol) instead of red.
+            let nir = samples[0] * 1e-4;
+            let swir1 = samples[1] * 1e-4;
+            let denom = nir + 0.66 * swir1;
+            if denom.abs() < 1e-6 {
+                return Err("afri1600 denom ≈ 0".to_string());
+            }
+            ((nir - 0.66 * swir1) / denom, None)
+        }
+        "index_savi_l1" => {
+            // SAVI with L=1 (Huete 1988, RSE 25:295-309). Heavier soil
+            // correction than the canonical L=0.5 version — useful for
+            // pasture/desert conditions where bare-soil background is
+            // dominant.
+            let nir = samples[0] * 1e-4;
+            let red = samples[1] * 1e-4;
+            let l = 1.0;
+            if nir + red + l < 1e-6 {
+                return Err("savi_l1 denom ≈ 0".to_string());
+            }
+            ((1.0 + l) * (nir - red) / (nir + red + l), None)
+        }
+        "index_surface_dryness" => {
+            // SDI = 1 − NDMI, clamped to [0,1]. NDMI > 0 over wet canopy
+            // means SDI < 1; bare/dry surfaces produce SDI ≈ 1. Used as
+            // the multiplicative compound term in heat-stress: high LST ×
+            // high SDI = no evaporative cooling = ER-visit risk.
+            let nir = samples[0] * 1e-4;
+            let swir1 = samples[1] * 1e-4;
+            if nir + swir1 < 1e-6 {
+                return Err("sdi denom ≈ 0".to_string());
+            }
+            let ndmi = (nir - swir1) / (nir + swir1);
+            (1.0 - ndmi.clamp(0.0, 1.0), None)
+        }
+        "index_urban_canopy" => {
+            // UCI = NDVI · (1 − NDBI). NDVI captures vegetation; (1−NDBI)
+            // dampens the score on built-up pixels so it specifically
+            // surfaces TREE canopy in urban grids — supports the WHO
+            // "3-30-300" rule (3 trees from every window, 30% canopy
+            // cover per neighborhood, 300 m to nearest green space).
+            let nir = samples[0] * 1e-4;
+            let red = samples[1] * 1e-4;
+            let swir1 = samples[2] * 1e-4;
+            if nir + red < 1e-6 || swir1 + nir < 1e-6 {
+                return Err("uci denom ≈ 0".to_string());
+            }
+            let ndvi = (nir - red) / (nir + red);
+            let ndbi = (swir1 - nir) / (swir1 + nir);
+            (ndvi * (1.0 - ndbi), None)
+        }
         other => return Err(format!("s2 band kind {other} not implemented")),
     };
 
@@ -5909,6 +7150,7 @@ async fn materialize_sentinel2_band(
 async fn materialize_sentinel1_vv(
     cell64: &str,
     s: &AppState,
+    target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
@@ -5918,11 +7160,20 @@ async fn materialize_sentinel1_vv(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let start_unix = now_unix - 30 * 86400;
+    // Backfill window: ±15d around target_unix (S1A+B revisit ~6d at most
+    // latitudes); current-mode is "last 30d up to now".
+    let (lo_unix, hi_unix) = match target_unix {
+        Some(t) => {
+            let lo = (t - 15 * 86400).max(0);
+            let hi = (t + 15 * 86400).min(now_unix);
+            (lo, hi.max(lo + 86400))
+        }
+        None => (now_unix - 30 * 86400, now_unix),
+    };
     let datetime = format!(
         "{}/{}",
-        iso8601_utc(start_unix as u64),
-        iso8601_utc(now_unix as u64)
+        iso8601_utc(lo_unix as u64),
+        iso8601_utc(hi_unix as u64)
     );
 
     let cli = s2_http_client();
@@ -5937,7 +7188,10 @@ async fn materialize_sentinel1_vv(
     )
     .await
     .map_err(|e| format!("stac: {e}"))?
-    .ok_or_else(|| "no Sentinel-1 RTC scene in last 30 days".to_string())?;
+    .ok_or_else(|| match target_unix {
+        Some(t) => format!("no Sentinel-1 RTC scene within ±15d of {t}"),
+        None => "no Sentinel-1 RTC scene in last 30 days".to_string(),
+    })?;
     let vv_url_raw = item
         .assets
         .get("vv")
@@ -6550,14 +7804,62 @@ fn tempo_for_band(band: &str) -> Option<emem_core::tslot::Tempo> {
 /// Per-band metadata for materializer-only bands (the ones not in the
 /// 1792-D cube layout). The tempo + history window come from the upstream
 /// provider's actual coverage, not editorial guesses.
+#[derive(Clone)]
 struct MaterializerMeta {
     tempo: emem_core::tslot::Tempo,
+    /// Shape of the data — what an agent should expect when calling
+    /// recall/backfill on this band.
+    kind: BandKind,
     /// Earliest Unix epoch the upstream provider can serve. `None` for
     /// bands whose provider is now-only (e.g. met.no nowcast).
     history_from_unix: Option<i64>,
     /// Latest Unix epoch the upstream can serve. `None` defaults to
     /// "now" at request time (most providers).
     history_to_unix: Option<i64>,
+    /// Short upstream identifier — wire path / provider key. Surfaced in
+    /// `/v1/data_availability` so a reviewer can tell at a glance which
+    /// dataset a band actually fetches from.
+    wire_path: &'static str,
+}
+
+/// Editorial classification of a materializable band's temporal shape.
+/// The agent uses this to decide whether `emem_backfill` is meaningful
+/// (`time_series` / `annual_snapshot`) or whether one recall is the only
+/// answer (`static`, `now_only`, `per_release`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BandKind {
+    /// Single content-addressed fact valid for all time (Cop-DEM, GMRT,
+    /// JRC GSW recurrence climatology).
+    Static,
+    /// One fact per calendar year on Jan 1 UTC (Tessera per-year).
+    AnnualSnapshot,
+    /// Stack of multiple annual snapshots fused into one fact (Tessera
+    /// multi-year 1024-D).
+    AnnualStack,
+    /// Per-tslot historical series fetched on demand from a STAC-style
+    /// archive (Sentinel-2 L2A, Sentinel-1 RTC, MODIS NDVI).
+    TimeSeries,
+    /// Provider only exposes the current value plus a short forecast
+    /// window — no historical record. Backfill on past tslots returns
+    /// `present_only`.
+    NowOnly,
+    /// Provider ships a versioned global snapshot. Each release replaces
+    /// the previous; not a per-tslot series (Overture Maps, ESA
+    /// WorldCover, future global landcover products).
+    PerRelease,
+}
+
+impl BandKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            BandKind::Static => "static",
+            BandKind::AnnualSnapshot => "annual_snapshot",
+            BandKind::AnnualStack => "annual_stack",
+            BandKind::TimeSeries => "time_series",
+            BandKind::NowOnly => "now_only",
+            BandKind::PerRelease => "per_release",
+        }
+    }
 }
 
 /// Authoritative per-band history bounds. The Unix epoch values come from
@@ -6571,77 +7873,352 @@ struct MaterializerMeta {
 /// - Tessera v1 vintages: 2017–2024 (one fact per year on Jan 1 UTC).
 /// - JRC GSW recurrence: 1984-03-01 to 2021-12-31 climatology, but the
 ///   product itself is a single static fact (no per-tslot backfill).
-/// - Cop-DEM / GMRT / WorldCover / weather nowcasts: static or now-only.
+/// - Cop-DEM / GMRT / weather nowcasts: static or now-only.
+///
+/// `geotessera.YYYY` is parsed structurally: any year in the supported
+/// range gets a single-year window `[YYYY-01-01, YYYY-12-31T23:59:59]`.
+/// Adding a new vintage is a one-line edit to `TESSERA_YEARS_RANGE`.
 fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
     use emem_core::tslot::Tempo;
-    let modis_start: i64 = 951_177_600; // 2000-02-18T00:00:00Z
-    let s2_l2a_start: i64 = 1_543_881_600; // 2018-12-04T00:00:00Z
-    let s1_start: i64 = 1_412_294_400; // 2014-10-03T00:00:00Z
-    let tessera_start: i64 = 1_483_228_800; // 2017-01-01T00:00:00Z
-    let tessera_end: i64 = 1_704_067_200; // 2024-01-01T00:00:00Z
+    // Provider-of-record start dates, computed via Hinnant civil → days
+    // so the constants stay self-checking (no magic-number drift).
+    // - MOD13Q1 first granule "A2000049" = day-of-year 49 of 2000 = 2000-02-18.
+    // - Sentinel-2 L2A: Microsoft Planetary Computer coverage begins 2018-12-04.
+    // - Sentinel-1 RTC: S1A operational + RTC reprocessing from 2014-10-03.
+    let modis_start: i64 = days_from_civil(2000, 2, 18) * 86_400;
+    let s2_l2a_start: i64 = days_from_civil(2018, 12, 4) * 86_400;
+    let s1_start: i64 = days_from_civil(2014, 10, 3) * 86_400;
+
+    // Single source of truth for which Tessera vintages exist. Recall +
+    // materialize + catalog all read from this range.
+    const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2024;
+    let tessera_window_start = jan1_unix(*TESSERA_YEARS_RANGE.start());
+    let tessera_window_end = jan1_unix(*TESSERA_YEARS_RANGE.end() + 1) - 1;
+
     let m = match band {
         "modis.ndvi_mean" => MaterializerMeta {
             tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
             history_from_unix: Some(modis_start),
             history_to_unix: None,
+            wire_path: "ORNL DAAC MOD13Q1 16-day 250 m NDVI subset",
         },
-        "indices.ndvi" | "indices.ndwi" | "indices.mndwi" | "indices.evi" | "indices.nbr"
-        | "indices.ndmi" | "indices.savi" | "indices.bsi" | "indices.ndbi" => MaterializerMeta {
+        // Every Sentinel-2 reflectance band and every derived spectral
+        // index — `s2_band_plan` is the single source of truth for which
+        // bands are wired here, so the registry can't drift away from
+        // what `materialize_sentinel2_band` actually computes.
+        b if s2_band_plan(b).is_some() => MaterializerMeta {
             tempo: Tempo::Fast,
+            kind: BandKind::TimeSeries,
             history_from_unix: Some(s2_l2a_start),
             history_to_unix: None,
-        },
-        "s2.B01" | "s2.B02" | "s2.B03" | "s2.B04" | "s2.B05" | "s2.B06" | "s2.B07" | "s2.B08"
-        | "s2.B8A" | "s2.B09" | "s2.B11" | "s2.B12" | "s2.scl" => MaterializerMeta {
-            tempo: Tempo::Fast,
-            history_from_unix: Some(s2_l2a_start),
-            history_to_unix: None,
+            wire_path: "Element84/MPC Sentinel-2 L2A STAC + COG HTTPS-Range",
         },
         "sentinel1_raw" => MaterializerMeta {
             tempo: Tempo::Fast,
+            kind: BandKind::TimeSeries,
             history_from_unix: Some(s1_start),
             history_to_unix: None,
+            wire_path: "Microsoft Planetary Computer Sentinel-1 RTC STAC + SAS-signed COG",
         },
-        "geotessera"
-        | "geotessera.multi_year"
-        | "geotessera.2017"
-        | "geotessera.2018"
-        | "geotessera.2019"
-        | "geotessera.2020"
-        | "geotessera.2021"
-        | "geotessera.2022"
-        | "geotessera.2023"
-        | "geotessera.2024" => MaterializerMeta {
+        "geotessera" => MaterializerMeta {
+            // The bare `geotessera` band is an alias for the latest
+            // available vintage; tempo is `Slow` (annual cadence) and
+            // history bounds match the latest year only.
             tempo: Tempo::Slow,
-            history_from_unix: Some(tessera_start),
-            history_to_unix: Some(tessera_end),
+            kind: BandKind::AnnualSnapshot,
+            history_from_unix: Some(jan1_unix(*TESSERA_YEARS_RANGE.end())),
+            history_to_unix: Some(tessera_window_end),
+            wire_path: "dl2.geotessera.org per-year .npy HTTPS-Range",
         },
-        // Static climatologies / single-snapshot products — no per-tslot
-        // history; one fact answers for all time.
-        "copdem30m.elevation_mean" | "gmrt.topobathy_mean" | "surface_water.recurrence" => {
+        "geotessera.multi_year" => MaterializerMeta {
+            tempo: Tempo::Slow,
+            kind: BandKind::AnnualStack,
+            history_from_unix: Some(tessera_window_start),
+            history_to_unix: Some(tessera_window_end),
+            wire_path: "dl2.geotessera.org × 8 vintages, fused 1024-D",
+        },
+        b if parse_geotessera_year(b)
+            .map(|y| TESSERA_YEARS_RANGE.contains(&y))
+            .unwrap_or(false) =>
+        {
+            // SAFETY: just verified it parses + is in range above.
+            let y = parse_geotessera_year(b).unwrap();
             MaterializerMeta {
-                tempo: Tempo::Static,
-                history_from_unix: None,
-                history_to_unix: None,
+                tempo: Tempo::Slow,
+                kind: BandKind::AnnualSnapshot,
+                history_from_unix: Some(jan1_unix(y)),
+                history_to_unix: Some(jan1_unix(y + 1) - 1),
+                wire_path: "dl2.geotessera.org per-year .npy HTTPS-Range",
             }
         }
+        // Static climatologies / single-snapshot products — no per-tslot
+        // history; one fact answers for all time.
+        "copdem30m.elevation_mean" => MaterializerMeta {
+            tempo: Tempo::Static,
+            kind: BandKind::Static,
+            history_from_unix: None,
+            history_to_unix: None,
+            wire_path: "Open-Meteo Elevation REST (Cop-DEM 90 m derived)",
+        },
+        "gmrt.topobathy_mean" => MaterializerMeta {
+            tempo: Tempo::Static,
+            kind: BandKind::Static,
+            history_from_unix: None,
+            history_to_unix: None,
+            wire_path: "GMRT PointServer (multibeam-fused topobathy)",
+        },
+        "surface_water.recurrence" => MaterializerMeta {
+            tempo: Tempo::Static,
+            kind: BandKind::Static,
+            // JRC GSW v1.4 climatology: 1984-03-16 to 2021-12-31. The
+            // product itself is a single signed value per cell (no
+            // per-tslot series), but the underlying observation window is
+            // surfaced so an agent can cite "decades of Landsat record".
+            history_from_unix: Some(days_from_civil(1984, 3, 16) * 86_400),
+            history_to_unix: Some(days_from_civil(2022, 1, 1) * 86_400 - 1),
+            wire_path: "JRC Global Surface Water v1.4 (Landsat 1984-2021)",
+        },
         // Met.no's locationforecast is a nowcast + 9-day forecast — no
         // historical record. Backfill is honest about this.
         b if b.starts_with("weather.") => MaterializerMeta {
             tempo: Tempo::UltraFast,
+            kind: BandKind::NowOnly,
             history_from_unix: None,
             history_to_unix: None,
+            wire_path: "api.met.no locationforecast/2.0/compact (now + 9-day forecast)",
         },
         // Overture Maps releases are versioned snapshots, not per-tslot
         // historical series — treat as slow + present-only.
         b if b.starts_with("overture.") => MaterializerMeta {
             tempo: Tempo::Slow,
+            kind: BandKind::PerRelease,
             history_from_unix: None,
             history_to_unix: None,
+            wire_path: "Overture Maps S3 (anonymous), latest release only",
+        },
+        // NASA POWER: MERRA-2 + GEOS daily reanalysis. Public-domain (US
+        // Gov), no auth, ~2-day publication latency. Record begins 1981.
+        b if b.starts_with("power.") => MaterializerMeta {
+            tempo: Tempo::Fast,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(days_from_civil(1981, 1, 1) * 86_400),
+            history_to_unix: None,
+            wire_path: "NASA POWER daily/point REST (MERRA-2 + GEOS)",
+        },
+        // Open-Meteo CAMS: surface-level air pollutants from CAMS reanalysis.
+        // Hourly cadence, archive runs from 2013-08-01.
+        b if b.starts_with("cams.") => MaterializerMeta {
+            tempo: Tempo::UltraFast,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(days_from_civil(2013, 8, 1) * 86_400),
+            history_to_unix: None,
+            wire_path: "Open-Meteo CAMS air-quality REST (ECMWF CAMS reanalysis)",
+        },
+        // Open-Meteo Archive: ECMWF ERA5 retrospective 1940-present, hourly.
+        b if b.starts_with("era5.") => MaterializerMeta {
+            tempo: Tempo::UltraFast,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(days_from_civil(1940, 1, 1) * 86_400),
+            history_to_unix: None,
+            wire_path: "Open-Meteo Archive REST (ECMWF ERA5)",
+        },
+        // Open-Meteo Marine: ECMWF WAM wave model. Coastal/oceanic only,
+        // hourly, 2022-08-01 onward.
+        b if b.starts_with("marine.") => MaterializerMeta {
+            tempo: Tempo::UltraFast,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(days_from_civil(2022, 8, 1) * 86_400),
+            history_to_unix: None,
+            wire_path: "Open-Meteo Marine REST (ECMWF WAM wave model)",
+        },
+        // ORNL DAAC additional MODIS subset products. Per-product start of
+        // record below; all 8-day or 16-day or 30-day composites depending
+        // on the upstream product's natural cadence.
+        "modis.lst_day_8day" | "modis.lst_night_8day" => MaterializerMeta {
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            // MOD11A2 first granule: 2000-03-05.
+            history_from_unix: Some(days_from_civil(2000, 3, 5) * 86_400),
+            history_to_unix: None,
+            wire_path: "ORNL DAAC MOD11A2 8-day 1 km LST subset",
+        },
+        "modis.et_8day" => MaterializerMeta {
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            // MOD16A2 first valid granule: 2001-01-01.
+            history_from_unix: Some(days_from_civil(2001, 1, 1) * 86_400),
+            history_to_unix: None,
+            wire_path: "ORNL DAAC MOD16A2 8-day 500 m ET subset",
+        },
+        "modis.gpp_8day" => MaterializerMeta {
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            // MOD17A2H first granule: 2000-02-18.
+            history_from_unix: Some(days_from_civil(2000, 2, 18) * 86_400),
+            history_to_unix: None,
+            wire_path: "ORNL DAAC MOD17A2H 8-day 500 m GPP subset",
+        },
+        "modis.lai_8day" => MaterializerMeta {
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            // MOD15A2H first granule: 2002-07-04.
+            history_from_unix: Some(days_from_civil(2002, 7, 4) * 86_400),
+            history_to_unix: None,
+            wire_path: "ORNL DAAC MOD15A2H 8-day 500 m LAI subset",
+        },
+        "modis.burned_area_monthly" => MaterializerMeta {
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            // MCD64A1 first granule: 2000-11-01.
+            history_from_unix: Some(days_from_civil(2000, 11, 1) * 86_400),
+            history_to_unix: None,
+            wire_path: "ORNL DAAC MCD64A1 monthly 500 m burned-area subset",
         },
         _ => return None,
     };
     Some(m)
+}
+
+/// Parse `geotessera.YYYY` → `Some(YYYY)`, anything else → `None`. Pulled
+/// out of `band_materializer_meta` so the materializer dispatch can reuse
+/// it without duplicating the suffix-strip logic.
+fn parse_geotessera_year(band: &str) -> Option<i32> {
+    let suffix = band.strip_prefix("geotessera.")?;
+    suffix.parse::<i32>().ok()
+}
+
+/// Authoritative range of Tessera v1 vintages this responder ships. Mirror
+/// of the constant in `band_materializer_meta` and `materialize_band_at`;
+/// kept here so `/v1/data_availability` can enumerate per-year entries
+/// programmatically rather than hardcoding a list.
+const TESSERA_YEARS_RANGE_PUBLIC: std::ops::RangeInclusive<i32> = 2017..=2024;
+
+/// Concrete enumeration of every band this responder will materialize on
+/// demand — used to drive `/v1/data_availability`. Includes the bare
+/// `geotessera` alias, the multi-year stack, and one entry per supported
+/// vintage. The order is the order the catalog will be reported in.
+fn all_materializable_bands() -> Vec<String> {
+    let mut out: Vec<String> = vec![
+        // Static climatologies.
+        "copdem30m.elevation_mean".into(),
+        "gmrt.topobathy_mean".into(),
+        "surface_water.recurrence".into(),
+        // Per-tslot historical archives.
+        "modis.ndvi_mean".into(),
+        // Sentinel-2 reflectance bands.
+        "s2.B01".into(),
+        "s2.B02".into(),
+        "s2.B03".into(),
+        "s2.B04".into(),
+        "s2.B05".into(),
+        "s2.B06".into(),
+        "s2.B07".into(),
+        "s2.B08".into(),
+        "s2.B8A".into(),
+        "s2.B09".into(),
+        "s2.B11".into(),
+        "s2.B12".into(),
+        "s2.scl".into(),
+        // Sentinel-2 derived spectral indices.
+        "indices.ndvi".into(),
+        "indices.ndwi".into(),
+        "indices.mndwi".into(),
+        "indices.evi".into(),
+        "indices.nbr".into(),
+        "indices.ndmi".into(),
+        "indices.savi".into(),
+        "indices.bsi".into(),
+        "indices.ndbi".into(),
+        // Sentinel-2 derived health indices.
+        "indices.ndti".into(),
+        "indices.gndvi".into(),
+        "indices.ndre".into(),
+        "indices.fai".into(),
+        "indices.tss".into(),
+        "indices.ndsi".into(),
+        "indices.afri1600".into(),
+        "indices.savi_l1".into(),
+        "indices.surface_dryness".into(),
+        "indices.urban_canopy_index".into(),
+        // Sentinel-1 RTC.
+        "sentinel1_raw".into(),
+        // Tessera vintages.
+        "geotessera".into(),
+        "geotessera.multi_year".into(),
+    ];
+    for y in TESSERA_YEARS_RANGE_PUBLIC.clone() {
+        out.push(format!("geotessera.{y}"));
+    }
+    // Overture Maps.
+    out.push("overture.buildings.count".into());
+    out.push("overture.places.count".into());
+    out.push("overture.transportation.road_length_m".into());
+    // Met.no nowcast bands.
+    out.push("weather.temperature_2m".into());
+    out.push("weather.cloud_cover".into());
+    out.push("weather.precipitation_mm".into());
+    out.push("weather.wind_speed_10m".into());
+    out.push("weather.relative_humidity_2m".into());
+    out.push("weather.dew_point_2m".into());
+    out.push("weather.air_pressure_msl".into());
+    out.push("weather.wind_direction_10m".into());
+    // NASA POWER reanalysis (daily, 1981-present).
+    out.push("power.t2m".into());
+    out.push("power.t2m_min".into());
+    out.push("power.t2m_max".into());
+    out.push("power.precip".into());
+    out.push("power.rh2m".into());
+    out.push("power.allsky_sw".into());
+    out.push("power.ws10m".into());
+    // Open-Meteo CAMS air-quality (hourly, 2013-08-01 onward).
+    out.push("cams.pm25".into());
+    out.push("cams.pm10".into());
+    out.push("cams.no2".into());
+    out.push("cams.o3".into());
+    out.push("cams.so2".into());
+    out.push("cams.co".into());
+    out.push("cams.aod_550".into());
+    // Open-Meteo Archive ERA5 (hourly, 1940-present).
+    out.push("era5.t2m".into());
+    out.push("era5.precip".into());
+    out.push("era5.rh2m".into());
+    out.push("era5.windspeed_10m".into());
+    out.push("era5.cloudcover".into());
+    out.push("era5.surface_pressure".into());
+    out.push("era5.dewpoint_2m".into());
+    // Open-Meteo Marine (hourly, 2022-08-01 onward, ocean only).
+    out.push("marine.wave_height".into());
+    out.push("marine.swell_period".into());
+    out.push("marine.swell_height".into());
+    out.push("marine.sst".into());
+    out.push("marine.wave_direction".into());
+    // ORNL DAAC additional MODIS subsets.
+    out.push("modis.lst_day_8day".into());
+    out.push("modis.lst_night_8day".into());
+    out.push("modis.et_8day".into());
+    out.push("modis.gpp_8day".into());
+    out.push("modis.lai_8day".into());
+    out.push("modis.burned_area_monthly".into());
+    out
+}
+
+/// Tslot Unix range covered by the calendar year `y` (inclusive lo, exclusive hi).
+fn year_unix_range(y: i32) -> (i64, i64) {
+    (jan1_unix(y), jan1_unix(y + 1))
+}
+
+/// Map a target Unix epoch to the Tessera vintage that "owns" it: the year
+/// `y` such that `jan1_unix(y) <= t < jan1_unix(y+1)`. Returns `None` when
+/// the target falls outside the supported Tessera year range.
+fn tessera_year_for_unix(t: i64, range: std::ops::RangeInclusive<i32>) -> Option<i32> {
+    for y in range {
+        let (lo, hi) = year_unix_range(y);
+        if t >= lo && t < hi {
+            return Some(y);
+        }
+    }
+    None
 }
 
 /// Per-band materialization for a target Unix epoch. Returns Ok(cid) on
@@ -6655,20 +8232,114 @@ async fn materialize_band_at(
     target_unix: i64,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
+    // Static products: tslot is meaningless, the canonical fact lives at
+    // tslot=0 regardless of target.
     match band {
-        "modis.ndvi_mean" => materialize_modis_ndvi_window(cell64, Some(target_unix), s).await,
-        // Static products: tslot is meaningless, the regular materializer
-        // produces the canonical fact at tslot=0 regardless of target.
-        "copdem30m.elevation_mean" => match materialize_elevation_mean(cell64, s).await {
-            Ok(ElevationMaterialization::Primary(c))
-            | Ok(ElevationMaterialization::Absence(c)) => Ok(c),
-            Err(e) => Err(e),
-        },
-        "gmrt.topobathy_mean" => materialize_gmrt_topobathy(cell64, s).await,
-        b => Err(format!(
-            "present_only: '{b}' has no historical materializer at this responder; only the current value is auto-materializable"
-        )),
+        "modis.ndvi_mean" => return materialize_modis_ndvi_window(cell64, Some(target_unix), s).await,
+        "copdem30m.elevation_mean" => {
+            return match materialize_elevation_mean(cell64, s).await {
+                Ok(ElevationMaterialization::Primary(c))
+                | Ok(ElevationMaterialization::Absence(c)) => Ok(c),
+                Err(e) => Err(e),
+            };
+        }
+        "gmrt.topobathy_mean" => return materialize_gmrt_topobathy(cell64, s).await,
+        "surface_water.recurrence" => return materialize_jrc_gsw_recurrence(cell64, s).await,
+        "geotessera" => {
+            // Bare `geotessera` resolves to the Tessera vintage that
+            // contains target_unix; agents asking for backfill across
+            // years should use `geotessera.YYYY` directly.
+            const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2024;
+            let y = tessera_year_for_unix(target_unix, TESSERA_YEARS_RANGE.clone()).ok_or_else(
+                || {
+                    format!(
+                        "no Tessera vintage covers target_unix={target_unix}; supported range is {}..={} (Jan 1 UTC)",
+                        TESSERA_YEARS_RANGE.start(),
+                        TESSERA_YEARS_RANGE.end()
+                    )
+                },
+            )?;
+            return materialize_geotessera_for_year(cell64, s, y, "geotessera").await;
+        }
+        "geotessera.multi_year" => return materialize_geotessera_multi_year(cell64, s).await,
+        "sentinel1_raw" => return materialize_sentinel1_vv(cell64, s, Some(target_unix)).await,
+        // Overture is a versioned global snapshot, not a per-tslot series;
+        // the canonical fact is "latest release" — backfill on a past
+        // target_unix surfaces the same fact (signed at request time).
+        "overture.buildings.count" => {
+            return materialize_overture_buildings_count(cell64, s).await
+        }
+        "overture.places.count" => return materialize_overture_places_count(cell64, s).await,
+        "overture.transportation.road_length_m" => {
+            return materialize_overture_road_length_m(cell64, s).await
+        }
+        _ => {}
     }
+
+    // Sentinel-2 reflectance bands and derived spectral indices.
+    if s2_band_plan(band).is_some() {
+        return materialize_sentinel2_band(cell64, s, band, Some(target_unix)).await;
+    }
+
+    // Per-year Tessera vintages: `geotessera.YYYY` → fixed year, ignoring
+    // target_unix (the year IS the target).
+    if let Some(y) = parse_geotessera_year(band) {
+        const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2024;
+        if !TESSERA_YEARS_RANGE.contains(&y) {
+            return Err(format!(
+                "Tessera vintage {y} not in supported range {}..={}",
+                TESSERA_YEARS_RANGE.start(),
+                TESSERA_YEARS_RANGE.end()
+            ));
+        }
+        return materialize_geotessera_for_year(cell64, s, y, band).await;
+    }
+
+    // ORNL DAAC additional MODIS subset products.
+    if matches!(
+        band,
+        "modis.lst_day_8day"
+            | "modis.lst_night_8day"
+            | "modis.et_8day"
+            | "modis.gpp_8day"
+            | "modis.lai_8day"
+            | "modis.burned_area_monthly"
+    ) {
+        return materialize_ornl_modis_band(cell64, s, band, Some(target_unix)).await;
+    }
+
+    // NASA POWER reanalysis (1981-present, daily).
+    if band.starts_with("power.") {
+        return materialize_power_band(cell64, s, band, Some(target_unix)).await;
+    }
+
+    // Open-Meteo CAMS air-quality (2013-08-01+, hourly).
+    if band.starts_with("cams.") {
+        return materialize_cams_band(cell64, s, band, Some(target_unix)).await;
+    }
+
+    // Open-Meteo Archive ERA5 (1940-present, hourly).
+    if band.starts_with("era5.") {
+        return materialize_era5_band(cell64, s, band, target_unix).await;
+    }
+
+    // Open-Meteo Marine ECMWF WAM (2022-08-01+, hourly).
+    if band.starts_with("marine.") {
+        return materialize_marine_band(cell64, s, band, Some(target_unix)).await;
+    }
+
+    // Met.no nowcast — no historical record. Surface this honestly so the
+    // backfill response can distinguish "upstream down" from "this band is
+    // now-only at this responder".
+    if band.starts_with("weather.") {
+        return Err(format!(
+            "present_only: '{band}' is a met.no nowcast — backfill only meaningful for the current tslot; recall without a tslot to fetch the latest value"
+        ));
+    }
+
+    Err(format!(
+        "no historical materializer registered for band '{band}'; call /v1/data_availability for the catalog of materializable bands"
+    ))
 }
 
 /// Result of a `POST /v1/backfill` call. Symmetrical with the MCP
@@ -7074,11 +8745,8 @@ async fn try_materialize_bands(
                     }
                 }
             }
-            "indices.ndvi" | "indices.ndwi" | "indices.mndwi" | "indices.evi" | "indices.nbr"
-            | "indices.ndmi" | "indices.savi" | "indices.bsi" | "indices.ndbi" | "s2.B01"
-            | "s2.B02" | "s2.B03" | "s2.B04" | "s2.B05" | "s2.B06" | "s2.B07" | "s2.B08"
-            | "s2.B8A" | "s2.B09" | "s2.B11" | "s2.B12" | "s2.scl" => {
-                match materialize_sentinel2_band(cell64, s, b).await {
+            b_name if s2_band_plan(b_name).is_some() => {
+                match materialize_sentinel2_band(cell64, s, b, None).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
@@ -7199,7 +8867,7 @@ async fn try_materialize_bands(
                     }
                 }
             }
-            "sentinel1_raw" => match materialize_sentinel1_vv(cell64, s).await {
+            "sentinel1_raw" => match materialize_sentinel1_vv(cell64, s, None).await {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
@@ -7257,6 +8925,179 @@ async fn try_materialize_bands(
                     });
                 }
             },
+            // ORNL DAAC additional MODIS subset products (LST/ET/GPP/LAI/burn).
+            // Recall path: target_unix=None → "latest valid composite within
+            // last 4·half_window" — same heuristic as MOD13Q1 NDVI.
+            "modis.lst_day_8day"
+            | "modis.lst_night_8day"
+            | "modis.et_8day"
+            | "modis.gpp_8day"
+            | "modis.lai_8day"
+            | "modis.burned_area_monthly" => {
+                match materialize_ornl_modis_band(cell64, s, b, None).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // NASA POWER reanalysis. Recall path: latest available daily
+            // value (target_unix=None → 2-day-ago).
+            b_name if b_name.starts_with("power.") => {
+                match materialize_power_band(cell64, s, b, None).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // Open-Meteo CAMS air-quality. Recall path: current hour.
+            b_name if b_name.starts_with("cams.") => {
+                match materialize_cams_band(cell64, s, b, None).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // Open-Meteo Archive ERA5. Recall path: 5 days ago (ERA5 publishes
+            // with 5-day lag; "current" mode cannot return a value newer than that).
+            b_name if b_name.starts_with("era5.") => {
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                match materialize_era5_band(cell64, s, b, now_unix - 5 * 86_400).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // Open-Meteo Marine ECMWF WAM. Recall path: current hour.
+            b_name if b_name.starts_with("marine.") => {
+                match materialize_marine_band(cell64, s, b, None).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
             _ => {
                 let e = format!("no_auto_materializer_registered: no upstream connector wired for band={b}; submit a signed Attestation via /v1/attest_cbor to seed it");
                 out.push(MaterializeOutcome {

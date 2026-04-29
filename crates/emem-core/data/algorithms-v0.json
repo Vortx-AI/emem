@@ -8,7 +8,7 @@
       "combined":  "Multi-band weighted composite — most flagship answers (flood_risk, urban_density, heat_health_risk).",
       "embedding": "Operations on the geotessera vector (cosine, novelty, change, region similarity)."
     },
-    "domains": ["climate", "vegetation", "water", "fire", "soil", "snow", "human", "topography", "biomass", "embedding", "anomaly"]
+    "domains": ["climate", "vegetation", "water", "fire", "soil", "snow", "human", "topography", "biomass", "embedding", "anomaly", "carbon", "sdg"]
   },
   "algorithms": [
 
@@ -1128,6 +1128,255 @@
       "primitive": "POST /v1/find_similar {key:<query>, band:'geotessera', k:K}",
       "deterministic": true,
       "citation": "Salton & McGill 1983. Same math as embedding_cosine@1; this entry is the dashboard-facing wrapper."
+    },
+
+    {
+      "key": "carbon.npp_8day@1",
+      "kind": "solo",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "modis.gpp_8day", "role": "gpp_8day", "unit": "kg_C_m2_per_8day" }
+      ],
+      "formula": "npp_8day = modis.gpp_8day * (1 - Ra_fraction); Ra_fraction = 0.50 default (biome-mean autotrophic respiration); flag biome-specific overrides at the receipt level (forest 0.45, grassland 0.55, cropland 0.50)",
+      "output": { "kind": "scalar", "unit": "kg_C_m2_per_8day", "range": [0, "+inf"], "explanation": "8-day net primary productivity proxy derived from MOD17A2H GPP minus autotrophic respiration. Default Ra fraction is the global biome mean per Zhao & Running 2010; agents reporting per-biome should apply the override and cite it." },
+      "when_to_use": "Sub-annual carbon-uptake monitoring at the 500 m / 8-day grain. Aggregate to annual NPP for VCS / ART-TREES baseline-and-credit pipelines.",
+      "primitive": "POST /v1/recall {bands:['modis.gpp_8day']}",
+      "deterministic": true,
+      "citation": "Running, S.W. et al. 2004. A continuous satellite-derived measure of global terrestrial primary production. BioScience 54(6):547–560. Zhao, M. & Running, S.W. 2010. Drought-induced reduction in global terrestrial NPP from 2000 through 2009. Science 329:940–943."
+    },
+    {
+      "key": "carbon.gpp_anomaly_zscore@1",
+      "kind": "solo",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "modis.gpp_8day", "role": "trajectory", "explanation": "Multi-year same-DOY GPP samples returned by /v1/trajectory, then current 8-day GPP." }
+      ],
+      "formula": "z = (gpp_now - mean(gpp_history_same_doy)) / max(sd(gpp_history_same_doy), eps)",
+      "output": { "kind": "scalar", "unit": "z_score", "range": ["-inf", "+inf"], "explanation": "Standardised GPP anomaly relative to the same 8-day-of-year baseline across prior years. |z| > 2 = significant; sign indicates direction (negative = below baseline, positive = above)." },
+      "when_to_use": "Drought / heatwave carbon-uptake monitoring; trigger early-warning when z < -1.5 sustains across two windows.",
+      "primitive": "POST /v1/trajectory {cell, band:'modis.gpp_8day', window:[t-5y, t]} → group by DOY → z-score current",
+      "deterministic": true,
+      "citation": "Anomaly methodology per Knorr et al. 2007 (carbon-cycle anomaly detection); standardisation per Vicente-Serrano et al. 2010. A multiscalar drought index: SPEI. Journal of Climate 23(7)."
+    },
+    {
+      "key": "carbon.fire_emissions_co2_proxy@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "modis.burned_area_monthly", "role": "burn_date_doy", "explanation": "Day-of-year burn flag from MCD64A1; nonzero = burned in the month." },
+        { "band": "indices.nbr",               "role": "burn_severity", "transform": "clamp01((dnbr - 0.10) / 0.50)", "explanation": "dNBR = NBR_pre - NBR_post; severity 0–1; thresholds per Key & Benson 2006." }
+      ],
+      "formula": "emissions_tCO2_per_ha = biomass_burned_Mg_per_ha * combustion_completeness * (44/12); biomass_burned ≈ AGB_density * severity_fraction; biome-default AGB densities per IPCC 2019 Refinement Tier-1: tropical_forest 280, temperate_forest 130, boreal_forest 80, savanna 30, grassland 5, cropland 10 (Mg dry biomass / ha); combustion_completeness defaults: forest 0.30, savanna 0.85, grassland 0.95",
+      "output": { "kind": "scalar", "unit": "tCO2_per_ha", "range": [0, "+inf"], "explanation": "Per-hectare CO2 emissions proxy from a burned cell, conditioned on biome AGB density and combustion completeness. CH4 and N2O can be added with EF_CH4 = 6.8 g/kg, EF_N2O = 0.20 g/kg dry matter (Andreae 2019)." },
+      "when_to_use": "Wildfire MRV / GHG inventory backfill; SDG 13 ghg-proxy reporting; insurance / reinsurance fire claims triage. For full GFED4s parity attach prior AGB and post-fire GPP loss; this is the per-cell first-pass.",
+      "primitive": "POST /v1/recall {bands:['modis.burned_area_monthly','indices.nbr']}",
+      "deterministic": true,
+      "citation": "Andreae, M.O. 2019. Emission of trace gases and aerosols from biomass burning – an updated assessment. Atmos. Chem. Phys. 19:8523–8546. IPCC 2019 Refinement to the 2006 Guidelines for National GHG Inventories, Vol 4 Ch 2. Key, C.H. & Benson, N.C. 2006. Landscape Assessment (LA) Sampling and Analysis Methods. USDA RMRS-GTR-164-CD."
+    },
+    {
+      "key": "carbon.surface_albedo_broadband@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "s2.B02", "role": "blue",   "unit": "reflectance" },
+        { "band": "s2.B04", "role": "red",    "unit": "reflectance" },
+        { "band": "s2.B08", "role": "nir",    "unit": "reflectance" },
+        { "band": "s2.B11", "role": "swir1",  "unit": "reflectance" },
+        { "band": "s2.B12", "role": "swir2",  "unit": "reflectance" }
+      ],
+      "formula": "albedo = 0.356*B02 + 0.130*B04 + 0.373*B08 + 0.085*B11 + 0.072*B12 - 0.0018",
+      "output": { "kind": "scalar", "unit": "broadband_albedo", "range": [0, 1], "explanation": "Bonafoni & Sekertekin 2020 / Liang 2003 narrow-to-broadband shortwave albedo (0.3–3.0 µm) from Sentinel-2 surface reflectance. Used downstream for surface energy balance and radiative-forcing accounting." },
+      "when_to_use": "Per-cell shortwave albedo for radiative-forcing / cool-roofs / snow-cover-loss MRV. Pair with `carbon.albedo_radiative_forcing@1` for the W/m² answer.",
+      "primitive": "POST /v1/recall {bands:['s2.B02','s2.B04','s2.B08','s2.B11','s2.B12']}",
+      "deterministic": true,
+      "citation": "Liang, S. 2003. Quantitative Remote Sensing of Land Surfaces. Wiley. Bonafoni, S. & Sekertekin, A. 2020. Albedo Retrieval From Sentinel-2 by New Narrow-to-Broadband Conversion Coefficients. IEEE GRSL 17(9):1618–1622."
+    },
+    {
+      "key": "carbon.albedo_radiative_forcing@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "s2.B02", "role": "albedo_input_t1", "explanation": "Reference and perturbed albedo are computed via `carbon.surface_albedo_broadband@1` at two epochs (e.g., pre/post intervention)." }
+      ],
+      "formula": "dRF = - S_TOA * T_atm^2 * (alpha_t2 - alpha_t1); S_TOA = 1361 W/m^2; T_atm = 0.854 (clear-sky two-way atmospheric transmittance, Bright 2015)",
+      "output": { "kind": "scalar", "unit": "W_m2", "range": ["-inf", "+inf"], "explanation": "Local instantaneous shortwave radiative forcing from an albedo change. Positive = surface darkened (warming); negative = brightened (cooling). Convert to CO2-equivalent via Bright 2015 Eq. 7 with global-mean parameters when comparing to carbon credits." },
+      "when_to_use": "Cool-roofs / urban-heat / reforestation co-benefit accounting; surface-albedo carbon offset programmes (VCS VM0042 reforestation albedo footnote).",
+      "primitive": "POST /v1/diff {cell, band:'s2.B02', t1, t2} → carbon.surface_albedo_broadband at each epoch → dRF",
+      "deterministic": true,
+      "citation": "Bright, R.M. 2015. Metrics for biogeophysical climate forcings from land use and land cover changes and their inclusion in life cycle assessment: a critical review. Environmental Science & Technology 49(6):3291–3303. Akbari, H. et al. 2009. Global cooling: increasing world-wide urban albedos to offset CO2. Climatic Change 94:275–286."
+    },
+    {
+      "key": "carbon.surface_water_extent_anomaly@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "surface_water.recurrence", "role": "history_recurrence_pct", "unit": "percent",      "explanation": "Long-term JRC GSW v1.4 baseline (1984–2021)." },
+        { "band": "indices.mndwi",            "role": "current_water_score",    "transform": "sigmoid(8*x)" },
+        { "band": "sentinel1_raw",            "role": "current_radar_water",    "transform": "sigmoid((-15 - x)/2)" }
+      ],
+      "formula": "p_now = 0.5 * sigmoid(8*indices.mndwi) + 0.5 * sigmoid((-15 - sentinel1_raw)/2); p_hist = surface_water.recurrence / 100; anomaly = p_now - p_hist",
+      "output": { "kind": "scalar", "unit": "delta_probability", "range": [-1, 1], "explanation": "Current water-presence probability minus long-term recurrence baseline. Positive = wetter than typical (flood / inundation); negative = drier than typical (drought / drawdown / drainage). Flagged for SDG 6.6.1 reporting." },
+      "when_to_use": "Wetland MRV (Plan Vivo wetland methodology, VM0033 tidal wetlands); drought monitoring of permanent water bodies; SDG 6.6.1 water-related ecosystems indicator.",
+      "primitive": "POST /v1/recall {bands:['surface_water.recurrence','indices.mndwi','sentinel1_raw']}",
+      "deterministic": true,
+      "citation": "Pekel, J.-F. et al. 2016. High-resolution mapping of global surface water and its long-term changes. Nature 540:418–422. McFeeters 1996; Xu 2006 (MNDWI). UNCCD/UN-Water 2020 SDG 6.6.1 Step-by-Step Methodology."
+    },
+    {
+      "key": "carbon.urban_canopy_cooling_potential@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "indices.urban_canopy_index", "role": "canopy_fraction", "unit": "ratio" },
+        { "band": "modis.lst_day_8day",         "role": "lst_day_c",       "unit": "celsius" },
+        { "band": "modis.lst_night_8day",       "role": "lst_night_c",     "unit": "celsius" }
+      ],
+      "formula": "diurnal_amplitude = lst_day_c - lst_night_c; cooling_potential = diurnal_amplitude * (1 - canopy_fraction); higher = more residual heat that additional canopy could sink",
+      "output": { "kind": "scalar", "unit": "celsius_proxy", "range": [0, "+inf"], "explanation": "Heat residue above what current canopy is removing — proxy for nature-based-cooling investment headroom. Calibrate to °C avoided per ha planted using local empirical work." },
+      "when_to_use": "Urban-cooling carbon credit programmes (Cool City, Trees-for-the-Future urban variants); SDG 11.7 green public spaces siting; municipal heat-action-plan prioritisation.",
+      "primitive": "POST /v1/recall {bands:['indices.urban_canopy_index','modis.lst_day_8day','modis.lst_night_8day']}",
+      "deterministic": true,
+      "citation": "Bowler, D.E. et al. 2010. Urban greening to cool towns and cities: A systematic review of the empirical evidence. Landscape and Urban Planning 97(3):147–155. Akbari, H. & Kolokotsa, D. 2016. Three decades of urban heat islands and mitigation technologies research. Energy and Buildings 133:834–842."
+    },
+    {
+      "key": "carbon.deforestation_alert_proxy@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "indices.ndvi",          "role": "ndvi_now",           "explanation": "Current NDVI sample (S2-derived)." },
+        { "band": "modis.ndvi_mean",       "role": "ndvi_modis_baseline","explanation": "16-day MODIS Terra NDVI as a same-cell prior baseline." },
+        { "band": "geotessera.multi_year", "role": "multi_year_embedding","explanation": "8-vintage 1024-D embedding; trailing-year drop signals structural land-cover change." }
+      ],
+      "formula": "ndvi_drop = max(0, ndvi_modis_baseline - ndvi_now); embedding_change = 1 - cosine(geotessera.multi_year[year_idx-1], geotessera.multi_year[year_idx]); alert_score = 0.5*clamp01(ndvi_drop / 0.30) + 0.5*clamp01(embedding_change / 0.20)",
+      "output": { "kind": "scalar", "unit": "alert_score", "range": [0, 1], "explanation": "Composite deforestation/structural-change alert. >0.6 = strong; 0.3–0.6 = candidate (manual review); <0.3 = stable. Calibrate against Hansen GFC v1.10 ground-truth when available; current build is signal-only, not legally binding." },
+      "when_to_use": "Pre-screening for ART-TREES / VCS REDD+ deforestation risk monitoring; plantation guardrails. Confirm with Hansen GFC or Sentinel-2 RGB scene before issuing crediting decisions.",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi','modis.ndvi_mean','geotessera.multi_year']} → composite",
+      "deterministic": true,
+      "citation": "Hansen, M.C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850–853. Verra VT0007 (Unplanned Deforestation Allocation Tool, 2023). Reiche, J. et al. 2018. Combining satellite data for better tropical forest monitoring. Nature Climate Change 8:1119–1124."
+    },
+    {
+      "key": "carbon.evi_npp_proxy@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "indices.evi",            "role": "fpar_proxy",   "transform": "clamp01(1.16 * (x - 0.10))", "explanation": "EVI→FPAR linear, Sims 2006 + Xiao 2004; intercept 0.10, slope 1.16, clamped to [0,1]." },
+        { "band": "power.allsky_sw",        "role": "par_proxy",    "transform": "x * 0.45",                   "explanation": "Photosynthetically active radiation ≈ 45% of shortwave (Britton & Dodd 1976)." },
+        { "band": "weather.temperature_2m", "role": "lue_temp_scalar","transform": "clamp01((x - 0)/30)",      "explanation": "Light-use-efficiency temperature scalar; 0–30°C optimum (CASA model)." }
+      ],
+      "formula": "npp_proxy = LUE_max * fpar_proxy * par_proxy * lue_temp_scalar; LUE_max = 0.55 g_C / MJ (biome-mean default; biome-specific overrides per Potter 1993)",
+      "output": { "kind": "scalar", "unit": "g_C_m2_per_day", "range": [0, "+inf"], "explanation": "CASA-style light-use-efficiency NPP at 10 m S2 grain — useful where MODIS 500 m is too coarse (smallholder agroforestry, urban canopy, mangroves). Calibrate LUE against MOD17 over the same cell to remove bias." },
+      "when_to_use": "High-resolution (10 m) NPP for smallholder, urban, or coastal carbon programmes where MOD17 misses sub-pixel structure. Pair with `carbon.npp_8day@1` for cross-check.",
+      "primitive": "POST /v1/recall {bands:['indices.evi','power.allsky_sw','weather.temperature_2m']}",
+      "deterministic": true,
+      "citation": "Potter, C.S. et al. 1993. Terrestrial ecosystem production: a process model based on global satellite and surface data. Global Biogeochemical Cycles 7(4):811–841. Sims, D.A. et al. 2006. On the use of MODIS EVI to assess gross primary productivity of North American ecosystems. JGR 111:G04015. Xiao, X. et al. 2004. Modeling gross primary production of temperate deciduous broadleaf forest using satellite images. Remote Sensing of Environment 91:256–270."
+    },
+    {
+      "key": "carbon.drought_carbon_stress@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "indices.ndmi",           "role": "moisture",       "transform": "clamp01((1 - (x+1)/2))" },
+        { "band": "modis.lst_day_8day",     "role": "thermal_stress", "transform": "sigmoid((x - 35)/3)" },
+        { "band": "modis.gpp_8day",         "role": "uptake_now",     "explanation": "Current 8-day GPP for context." },
+        { "band": "era5.precip",            "role": "precip_30d",     "transform": "1 - clamp01(x/3.0)",        "explanation": "30-day cumulative precipitation deficit (mm/day mean); clamp at 3 mm/day saturation." }
+      ],
+      "formula": "stress = 0.40*moisture + 0.30*thermal_stress + 0.30*precip_30d; carbon_loss_proxy = stress * modis.gpp_8day",
+      "output": { "kind": "scalar", "unit": "kg_C_m2_per_8day_at_risk", "range": [0, "+inf"], "explanation": "Stress-weighted GPP-at-risk. High = drought is actively suppressing carbon uptake; agents reporting credits should disclose stress > 0.6 windows as material to baseline integrity." },
+      "when_to_use": "REDD+ / ARR project integrity monitoring during drought; insurance parametric trigger design. Surface stress component breakdown in the receipt — moisture vs thermal vs precipitation deficit drives different management responses.",
+      "primitive": "POST /v1/recall {bands:['indices.ndmi','modis.lst_day_8day','modis.gpp_8day','era5.precip']}",
+      "deterministic": true,
+      "citation": "Vicente-Serrano, S.M. et al. 2010. A multiscalar drought index sensitive to global warming: the SPEI. Journal of Climate 23(7):1696–1718. Ciais, P. et al. 2005. Europe-wide reduction in primary productivity caused by the heat and drought in 2003. Nature 437:529–533."
+    },
+
+    {
+      "key": "sdg.6_6_1.water_extent_anomaly@1",
+      "kind": "combined",
+      "domain": "sdg",
+      "inputs": [
+        { "band": "surface_water.recurrence", "role": "baseline_recurrence_pct", "unit": "percent" },
+        { "band": "indices.mndwi",            "role": "current_water",           "transform": "sigmoid(8*x)" },
+        { "band": "sentinel1_raw",            "role": "current_radar",           "transform": "sigmoid((-15 - x)/2)" }
+      ],
+      "formula": "p_now = 0.5*sigmoid(8*indices.mndwi) + 0.5*sigmoid((-15 - sentinel1_raw)/2); p_hist = surface_water.recurrence/100; beta = (p_now - p_hist) / max(p_hist, 0.05); class = if beta > 0.10 -> 'increase' else if beta < -0.10 -> 'decrease' else 'stable'",
+      "output": { "kind": "classification", "values": ["increase", "decrease", "stable"], "explanation": "SDG 6.6.1 indicator (change in extent of water-related ecosystems over time). beta is the relative change against the 1984–2021 JRC baseline; ±10% threshold per UN-Water 2020 step-by-step methodology." },
+      "when_to_use": "National voluntary review reporting against SDG 6.6.1; basin-scale water-ecosystem change. Aggregate over the basin polygon for the headline indicator.",
+      "primitive": "POST /v1/recall_polygon {place:<basin>, bands:['surface_water.recurrence','indices.mndwi','sentinel1_raw']}",
+      "deterministic": true,
+      "citation": "UN-Water 2020. SDG 6.6.1 Step-by-Step Methodology. Pekel, J.-F. et al. 2016. Nature 540:418–422."
+    },
+    {
+      "key": "sdg.15_3_1.land_productivity_class@1",
+      "kind": "solo",
+      "domain": "sdg",
+      "inputs": [
+        { "band": "modis.ndvi_mean", "role": "trajectory", "explanation": "16-day MODIS NDVI series across the reporting window (default 2015→present per Trends.Earth)." }
+      ],
+      "formula": "fit OLS slope on annual NDVI sums; mann_kendall_p = MK test; class = if slope > 0 and p < 0.05 -> 'increase' else if slope < 0 and p < 0.05 -> 'decrease' else if slope < 0 and p >= 0.05 -> 'early_signs_of_decline' else if abs(slope) < 0.001 -> 'stable_not_stressed' else 'stable_but_stressed'",
+      "output": { "kind": "classification", "values": ["increase", "early_signs_of_decline", "stable_not_stressed", "stable_but_stressed", "decrease"], "explanation": "Sub-indicator 1 of SDG 15.3.1 (Trends.Earth land productivity dynamics). Combines OLS slope significance with stress flag (NDVI sum < threshold)." },
+      "when_to_use": "Land-degradation-neutrality (LDN) reporting against UNCCD SDG 15.3.1. Pair with land-cover-change and SOC sub-indicators for the full proportion-of-degraded-land headline.",
+      "primitive": "POST /v1/trajectory {cell, band:'modis.ndvi_mean', window:[2015-01-01, t]} → MK + OLS",
+      "deterministic": true,
+      "citation": "UNCCD 2017. Default Methodology for Sub-Indicator 15.3.1. Conservation International 2018. Trends.Earth: Productivity. Hamed & Rao 1998. Modified MK test. Journal of Hydrology 204:182–196."
+    },
+    {
+      "key": "sdg.15_4_2.mountain_green_cover_index@1",
+      "kind": "combined",
+      "domain": "sdg",
+      "inputs": [
+        { "band": "copdem30m.elevation_mean", "role": "elevation_m" },
+        { "band": "indices.ndvi",             "role": "vegetation_score" }
+      ],
+      "formula": "is_mountain = (elevation >= 2500) OR (elevation >= 1500 AND local_slope >= 2 deg) OR (elevation >= 1000 AND local_slope >= 5 deg) OR (elevation >= 300 AND local_relief_7km > 300); kapos_class follows; is_green = indices.ndvi >= 0.30; MGCI = (sum_polygon(is_mountain AND is_green) / sum_polygon(is_mountain)) * 100",
+      "output": { "kind": "scalar", "unit": "percent", "range": [0, 100], "explanation": "FAO SDG 15.4.2 Mountain Green Cover Index — share of mountain area with NDVI ≥ 0.30 vegetation cover. Higher = healthier mountain ecosystem. Slope and relief computed from copdem30m using a 7-km neighbourhood (FAO 2020 methodology)." },
+      "when_to_use": "National voluntary review reporting on SDG 15.4.2; mountain-region restoration prioritisation.",
+      "primitive": "POST /v1/recall_polygon {place:<mountain_region>, bands:['copdem30m.elevation_mean','indices.ndvi']} → Kapos classification + threshold + ratio",
+      "deterministic": true,
+      "citation": "FAO 2020. Mountain Green Cover Index — SDG indicator 15.4.2 metadata. Kapos, V. et al. 2000. Developing a map of the world's mountain forests. In Forests in Sustainable Mountain Development."
+    },
+    {
+      "key": "sdg.11_6_2.annual_pm25_mean@1",
+      "kind": "solo",
+      "domain": "sdg",
+      "inputs": [
+        { "band": "cams.pm25", "role": "trajectory", "explanation": "Hourly PM2.5 across the reporting calendar year." }
+      ],
+      "formula": "annual_mean = mean(pm25 over 8760 hourly samples in calendar year); flag = if annual_mean <= 5.0 -> 'meets_WHO_2021_AQG' else if <= 10 -> 'WHO_IT-4' else if <= 15 -> 'WHO_IT-3' else if <= 25 -> 'WHO_IT-2' else if <= 35 -> 'WHO_IT-1' else 'exceeds_WHO_IT-1'",
+      "output": { "kind": "scalar", "unit": "ug_m3", "range": [0, "+inf"], "explanation": "SDG 11.6.2 annual mean PM2.5 with WHO 2021 Air Quality Guideline / Interim Target classification (5/10/15/25/35 µg/m³ ladder). Aggregate over city polygon for the headline." },
+      "when_to_use": "City SDG 11.6.2 reporting and air-quality scorecards. Backfill via /v1/backfill on cams.pm25 then aggregate.",
+      "primitive": "POST /v1/backfill {cell, band:'cams.pm25', from, to} → mean → classify",
+      "deterministic": true,
+      "citation": "WHO 2021. WHO global air quality guidelines: PM2.5/PM10/O3/NO2/SO2/CO. UNEP 2022 SDG 11.6.2 metadata. van Donkelaar, A. et al. 2021. Monthly Global Estimates of Fine Particulate Matter. Environ. Sci. Technol. 55:15287–15300."
+    },
+    {
+      "key": "sdg.14_1_1a.coastal_eutrophication_index@1",
+      "kind": "combined",
+      "domain": "sdg",
+      "inputs": [
+        { "band": "indices.fai",   "role": "floating_algae",     "explanation": "FAI > 0.02 indicates floating algal aggregations (Hu 2009)." },
+        { "band": "indices.gndvi", "role": "chl_proxy_canopy",   "explanation": "Surrogate for surface chlorophyll under bloom conditions (Mishra & Mishra 2012)." },
+        { "band": "indices.tss",   "role": "turbidity_score" },
+        { "band": "marine.sst",   "role": "sst_c" }
+      ],
+      "formula": "bloom_signal = clamp01(indices.fai / 0.05) * 0.50 + clamp01((indices.gndvi - 0.10) / 0.40) * 0.30 + clamp01(indices.tss) * 0.20; sst_modifier = sigmoid((marine.sst - 24)/2); cei = bloom_signal * sst_modifier",
+      "output": { "kind": "scalar", "unit": "eutrophication_index", "range": [0, 1], "explanation": "SDG 14.1.1a coastal eutrophication proxy. > 0.6 = anomalous bloom signal warranting confirmation; SST modifier suppresses spurious cool-water alerts." },
+      "when_to_use": "Coastal water-quality screening; SDG 14.1.1a national reporting first-pass. Confirm with in-situ chlorophyll-a or Sentinel-3 OLCI Chl-a (when materialised) before declaring an indicator-grade bloom.",
+      "primitive": "POST /v1/recall {bands:['indices.fai','indices.gndvi','indices.tss','marine.sst']}",
+      "deterministic": true,
+      "citation": "Hu, C. 2009. A novel ocean color index to detect floating algae in the global oceans. Remote Sensing of Environment 113(10):2118–2129. Mishra, S. & Mishra, D.R. 2012. Normalized difference chlorophyll index: A novel model for remote estimation of chlorophyll-a concentration in turbid productive waters. RSE 117:394–406. UNEP 2018. SDG 14.1.1a metadata."
+    },
+    {
+      "key": "sdg.13_2_2.ghg_proxy_burned_area@1",
+      "kind": "combined",
+      "domain": "sdg",
+      "inputs": [
+        { "band": "modis.burned_area_monthly", "role": "burn_flag" },
+        { "band": "indices.nbr",               "role": "severity",   "transform": "clamp01((dnbr - 0.10)/0.50)" }
+      ],
+      "formula": "see carbon.fire_emissions_co2_proxy@1; aggregate per-cell tCO2_per_ha to national totals; report as Gg CO2-eq (multiply by 1e-3) for SDG 13.2.2 'total greenhouse gas emissions per year' biomass-burning sub-component",
+      "output": { "kind": "scalar", "unit": "tCO2_per_ha", "range": [0, "+inf"], "explanation": "SDG 13.2.2 biomass-burning sub-component proxy. Sum over national polygon and convert to Gg CO2-eq." },
+      "when_to_use": "National greenhouse-gas inventory backfill where ground-truth fire activity data is incomplete; complements UNFCCC Biennial Update Reports.",
+      "primitive": "POST /v1/recall_polygon {place:<country>, bands:['modis.burned_area_monthly','indices.nbr']} → carbon.fire_emissions_co2_proxy@1 → sum",
+      "deterministic": true,
+      "citation": "UNFCCC SDG 13.2.2 metadata. IPCC 2019 Refinement Vol 4 Ch 2. GFED4s methodology, van der Werf et al. 2017. Earth System Science Data 9:697–720."
     }
   ]
 }

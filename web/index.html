@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>emem — Earth memory for AI agents</title>
-<meta name="description" content="Cite-able, content-addressed, signed memory of every place on Earth. Live materializers (Sentinel-2, Sentinel-1, Tessera, MODIS, Cop-DEM, GMRT, MET Norway) feed every recall with no API keys. Built for AI agents.">
+<title>emem, Earth memory for AI agents</title>
+<meta name="description" content="Cite-able, content-addressed, signed memory of every place on Earth. 90+ bands across Sentinel-2, Sentinel-1, MODIS LST/ET/GPP/LAI, NASA POWER reanalysis, CAMS air quality (PM2.5/NO2/O3), ERA5, Tessera embeddings, JRC water, all anonymous, all signed. Built for AI agents.">
 <link rel="canonical" href="https://emem.dev/">
 
 <meta name="ai-plugin" content="/.well-known/ai-plugin.json">
@@ -18,7 +18,7 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="emem">
-<meta property="og:title" content="emem — Earth memory for AI agents">
+<meta property="og:title" content="emem, Earth memory for AI agents">
 <meta property="og:description" content="Cite-able, content-addressed, signed memory of every place on Earth. 1 protocol. 8 primitives. ed25519 receipts.">
 <meta property="og:url" content="https://emem.dev/">
 <meta property="og:locale" content="en_US">
@@ -26,9 +26,9 @@
 <meta property="og:image:type" content="image/svg+xml">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="emem — Earth memory protocol for AI agents">
+<meta property="og:image:alt" content="emem, Earth memory protocol for AI agents">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="emem — Earth memory for AI agents">
+<meta name="twitter:title" content="emem, Earth memory for AI agents">
 <meta name="twitter:description" content="Cite-able, content-addressed, signed memory of every place on Earth.">
 <meta name="twitter:image" content="https://emem.dev/og-image.svg">
 
@@ -99,9 +99,9 @@
       {"@type": "Question", "name": "How does an AI agent use emem?",
        "acceptedAnswer": {"@type": "Answer", "text": "When the user mentions a place, the agent calls /v1/locate to map it to a cell64, then /v1/recall to read facts at that cell. The agent cites receipt.fact_cids[0] in its reply so users can audit. Full integration via MCP, OpenAPI 3.1, or REST."}},
       {"@type": "Question", "name": "Is emem free?",
-       "acceptedAnswer": {"@type": "Answer", "text": "Yes. The protocol and reference implementation are Apache-2.0. The hosted instance at emem.dev is free for L0/L1 reads — no signup, no API keys, no rate-limit-by-credit-card. Contributors that submit signed attestations build verifiable reputation via the Contributor-of-Intelligence Layer."}},
+       "acceptedAnswer": {"@type": "Answer", "text": "Yes. The protocol and reference implementation are Apache-2.0. The hosted instance at emem.dev is free for L0/L1 reads, no signup, no API keys, no rate-limit-by-credit-card. Contributors that submit signed attestations build verifiable reputation via the Contributor-of-Intelligence Layer."}},
       {"@type": "Question", "name": "What data does emem read from?",
-       "acceptedAnswer": {"@type": "Answer", "text": "Sentinel-2 L2A (12 raw bands + 9 indices), Sentinel-1 GRD VV (radar), Tessera (128-D + multi-year 1024-D foundation embedding), MODIS Terra NDVI, GMRT topo-bathy (Lamont-Doherty), Copernicus DEM 30 m, MET Norway api.met.no (15-min weather, ECMWF + EUMETSAT-fed), Overture Maps Foundation (buildings/places/transportation aggregates), and OpenStreetMap (Nominatim geocoder). All free, all anonymous — no API keys, no signup, no per-IP rate limits at the request path."}},
+       "acceptedAnswer": {"@type": "Answer", "text": "Sentinel-2 L2A (12 raw bands + 19 derived indices including 10 health-relevant ones, NDTI, GNDVI, NDRE, FAI, TSS, NDSI, AFRI1.6, surface dryness, urban-canopy index), Sentinel-1 GRD VV (radar), Tessera annual snapshots 2017–2024 + multi-year 1024-D foundation embedding, MODIS NDVI / LST day+night 8-day / ET / GPP / LAI / burned-area, JRC Global Surface Water v1.4 climatology, GMRT topo-bathy, Copernicus DEM 30 m, NASA POWER daily reanalysis (1981–present, 7 vars), Open-Meteo CAMS air quality (PM2.5/PM10/NO2/O3/SO2/CO/AOD), Open-Meteo ERA5 archive (1940–present, 7 vars), Open-Meteo Marine (waves + SST), MET Norway nowcast, Overture Maps (buildings/places/transportation), and OpenStreetMap (Nominatim geocoder). 90+ bands total. All free, all anonymous, no API keys, no signup, no per-IP rate limits at the request path."}},
       {"@type": "Question", "name": "How can I contribute?",
        "acceptedAnswer": {"@type": "Answer", "text": "Generate an ed25519 keypair, build a signed Attestation (CBOR), POST it to /v1/attest_cbor. Your facts become part of the shared corpus, citation count accrues to your pubkey, and you climb the /v1/contributors leaderboard. See docs/CONTRIBUTORS.md."}},
       {"@type": "Question", "name": "What's an ed25519 receipt?",
@@ -124,7 +124,7 @@
     "@context": "https://schema.org",
     "@type": "WebAPI",
     "name": "emem REST + MCP",
-    "description": "Agent-native Earth memory protocol — content-addressed facts, signed receipts, MCP tools, OpenAPI 3.1.",
+    "description": "Agent-native Earth memory protocol, content-addressed facts, signed receipts, MCP tools, OpenAPI 3.1.",
     "documentation": "https://emem.dev/openapi.json",
     "termsOfService": "https://emem.dev/agents.md",
     "provider": {"@type": "Organization", "name": "Vortx", "url": "https://vortx.ai"},
@@ -162,7 +162,7 @@
 ]
 </script>
 
-<!-- Google Analytics 4 (humans only — agents fetch /llms.txt and skip the script) -->
+<!-- Google Analytics 4 (humans only, agents fetch /llms.txt and skip the script) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-RBLXX5LR9L"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
@@ -209,21 +209,27 @@
 <h1>emem</h1>
 <p style="color:var(--mut); margin: .25rem 0 0">
   Cite-able, content-addressed, signed memory of every place on Earth.
-  When the user asks a place-question — <em>has this site flooded? what's
-  the elevation? is this farmland?</em> — your agent calls
-  <code>emem_locate</code> then <code>emem_recall</code>, gets a signed
-  fact + receipt, and quotes the receipt. No keys, no signup, no
-  rate limits.
+  When the user asks a place-question, <em>is the air bad here? has this
+  site flooded? is this neighbourhood hot? are the lakes safe to swim in?
+  is there a pollen-season jump? what's the elevation? is this farmland?</em>,
+  your agent calls <code>emem_locate</code> then <code>emem_recall</code>,
+  gets a signed fact + receipt, and quotes the receipt. No keys, no
+  signup, no rate limits.
 </p>
 <p style="margin-top:.6rem; padding:.5rem .75rem; border:1px dashed var(--accent); border-radius:6px; font-size:.85rem">
-  <strong>Live data right now:</strong> Sentinel-2 (12 spectral bands + 9 indices),
-  Sentinel-1 RTC radar (γ⁰ VV, all-weather), JRC Global Surface Water
-  (1984–2021 flood-recurrence climatology), MET Norway weather (15-min
-  cadence), Tessera 128-D foundation embedding, Copernicus DEM,
-  GMRT topo-bathy, MODIS NDVI, Overture buildings/places/roads.
-  Receipts signed by <code>777er3yi…</code> at
-  <a href="/health">/health</a>; verify offline at
-  <a href="#offline-verify"><code>POST /v1/verify_receipt</code></a>.
+  <strong>Live data right now (90+ bands, all anonymous):</strong>
+  Sentinel-2 L2A (12 raw bands + 19 indices including 10 consumer-health ones:
+  turbidity, chlorophyll, floating algae, surface dryness, urban canopy),
+  Sentinel-1 RTC radar, MODIS (NDVI / LST day+night / ET / GPP / LAI / burned area),
+  Tessera 2017–2024 + multi-year embedding,
+  NASA POWER daily reanalysis (1981–present),
+  Open-Meteo CAMS air quality (PM2.5, NO2, O3, SO2, CO, AOD),
+  Open-Meteo ERA5 archive (1940–present), Open-Meteo Marine (waves + SST),
+  JRC Global Surface Water, MET Norway nowcast,
+  Copernicus DEM, GMRT topo-bathy, Overture buildings/places/roads.
+  Full per-band temporal coverage at <a href="/v1/data_availability"><code>/v1/data_availability</code></a>.
+  Receipts signed by the responder pubkey at <a href="/health">/health</a>;
+  verify offline at <a href="#offline-verify"><code>POST /v1/verify_receipt</code></a>.
 </p>
 <p style="margin-top: .5rem">
   <span class="pill">v0.0.2</span>
@@ -235,16 +241,16 @@
 <blockquote>
   Three-call agent loop: <code>locate</code> → <code>recall</code> →
   cite <code>receipt.fact_cids[0]</code>. Anyone can verify the
-  receipt offline with the responder pubkey alone — no callback.
+  receipt offline with the responder pubkey alone, no callback.
 </blockquote>
 
 <h2>Wire it into your agent (60 seconds)</h2>
 <p style="font-size:.88rem; color:var(--mut); margin-top:.25rem">
   Streamable-HTTP MCP transport (spec id 2025-03-26) at <a href="/mcp"><code>/mcp</code></a> over HTTPS.
-  No auth — paste the block for your runtime, restart, done.
+  No auth, paste the block for your runtime, restart, done.
 </p>
 
-<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Claude Code</strong> — <code>~/.config/claude-code/mcp.json</code> (or <code>claude mcp add</code>):</p>
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Claude Code</strong>, <code>~/.config/claude-code/mcp.json</code> (or <code>claude mcp add</code>):</p>
 <pre><code>{
   "mcpServers": {
     "emem": {
@@ -252,15 +258,15 @@
     }
   }
 }</code></pre>
-<p style="font-size:.78rem; color:var(--mut); margin:.25rem 0 0"><em>Streamable-HTTP transport is inferred from the <code>https://</code> URL — no explicit <code>transport</code> field needed on Claude Code, Claude Desktop ≥ 0.10, Cursor, or Cline.</em></p>
+<p style="font-size:.78rem; color:var(--mut); margin:.25rem 0 0"><em>Streamable-HTTP transport is inferred from the <code>https://</code> URL, no explicit <code>transport</code> field needed on Claude Code, Claude Desktop ≥ 0.10, Cursor, or Cline.</em></p>
 
-<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Claude Desktop / Cursor</strong> — same format, in their respective MCP config files.</p>
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Claude Desktop / Cursor</strong>, same format, in their respective MCP config files.</p>
 
-<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>OpenAI / GPT Custom Action</strong> — paste <a href="/openapi.json"><code>https://emem.dev/openapi.json</code></a> as the schema URL. No auth required.</p>
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>OpenAI / GPT Custom Action</strong>, paste <a href="/openapi.json"><code>https://emem.dev/openapi.json</code></a> as the schema URL. No auth required.</p>
 
-<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Anthropic API</strong> — pass <code>{"type":"url","url":"https://emem.dev/mcp","name":"emem"}</code> in the <code>mcp_servers</code> array on a Messages call.</p>
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Anthropic API</strong>, pass <code>{"type":"url","url":"https://emem.dev/mcp","name":"emem"}</code> in the <code>mcp_servers</code> array on a Messages call.</p>
 
-<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Plain REST</strong> — every MCP tool is also an HTTPS REST endpoint at <code>/v1/&lt;tool&gt;</code>. Discover with <a href="/v1/discover"><code>GET /v1/discover</code></a> (one call: card + manifests + tools + canonical places). The hosted instance at <code>emem.dev</code> is HTTPS-only; plain HTTP is available only on self-hosted deployments.</p>
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Plain REST</strong>, every MCP tool is also an HTTPS REST endpoint at <code>/v1/&lt;tool&gt;</code>. Discover with <a href="/v1/discover"><code>GET /v1/discover</code></a> (one call: card + manifests + tools + canonical places). The hosted instance at <code>emem.dev</code> is HTTPS-only; plain HTTP is available only on self-hosted deployments.</p>
 
 <h2>Topic → band routing</h2>
 <p style="font-size:.88rem; color:var(--mut)">
@@ -271,19 +277,28 @@
   <code>data_at_this_cell.live_bands_by_topic</code>.
 </p>
 <div class="when">
-  <code>flood history (1984–2021)</code><span style="color:var(--mut)"><code>surface_water.recurrence</code> — JRC GSW v1.4, 30 m, signed Primary or Absence</span>
-  <code>flood now / water surface</code><span style="color:var(--mut)"><code>indices.ndwi</code>, <code>indices.mndwi</code>, <code>sentinel1_raw</code> (radar — sees through cloud)</span>
-  <code>vegetation health</code><span style="color:var(--mut)"><code>indices.ndvi</code>, <code>indices.evi</code>, <code>indices.savi</code>, <code>indices.ndmi</code>, <code>modis.ndvi_mean</code></span>
-  <code>fire / burn severity</code><span style="color:var(--mut)"><code>indices.nbr</code></span>
+  <code>flood history (1984–2021)</code><span style="color:var(--mut)"><code>surface_water.recurrence</code>, JRC GSW v1.4, 30 m, signed Primary or Absence</span>
+  <code>flood now / water surface</code><span style="color:var(--mut)"><code>indices.ndwi</code>, <code>indices.mndwi</code>, <code>sentinel1_raw</code> (radar, sees through cloud)</span>
+  <code>vegetation health</code><span style="color:var(--mut)"><code>indices.ndvi</code>, <code>indices.evi</code>, <code>indices.savi</code>, <code>indices.ndmi</code>, <code>indices.gndvi</code>, <code>indices.ndre</code>, <code>modis.ndvi_mean</code>, <code>modis.lai_8day</code></span>
+  <code>air quality (consumer)</code><span style="color:var(--mut)"><code>cams.pm25</code>, <code>cams.pm10</code>, <code>cams.no2</code>, <code>cams.o3</code>, <code>cams.so2</code>, <code>cams.co</code>, <code>cams.aod_550</code>, CAMS hourly</span>
+  <code>heat &amp; thermal stress</code><span style="color:var(--mut)"><code>modis.lst_day_8day</code>, <code>modis.lst_night_8day</code>, <code>indices.surface_dryness</code>, <code>weather.temperature_2m</code>, <code>era5.t2m</code></span>
+  <code>water quality / HAB</code><span style="color:var(--mut)"><code>indices.ndti</code> (turbidity), <code>indices.fai</code> (floating algae), <code>indices.tss</code> (suspended solids)</span>
+  <code>urban green / mental health</code><span style="color:var(--mut)"><code>indices.urban_canopy_index</code>, <code>indices.ndvi</code>, WHO 3-30-300 canopy rule</span>
+  <code>fire / burn severity / smoke</code><span style="color:var(--mut)"><code>indices.nbr</code>, <code>modis.burned_area_monthly</code>, <code>cams.aod_550</code></span>
+  <code>snow &amp; cryosphere</code><span style="color:var(--mut)"><code>indices.ndsi</code> (snow cover), <code>indices.afri1600</code> (works through smoke/dust)</span>
+  <code>climate reanalysis (1940–present)</code><span style="color:var(--mut)"><code>era5.t2m</code>, <code>era5.precip</code>, <code>era5.rh2m</code>, <code>era5.windspeed_10m</code>, <code>era5.cloudcover</code>, <code>era5.surface_pressure</code>, <code>era5.dewpoint_2m</code></span>
+  <code>climate reanalysis (1981–present)</code><span style="color:var(--mut)"><code>power.t2m</code>, <code>power.t2m_min</code>, <code>power.t2m_max</code>, <code>power.precip</code>, <code>power.rh2m</code>, <code>power.allsky_sw</code>, <code>power.ws10m</code>, NASA POWER (MERRA-2/GEOS)</span>
+  <code>vegetation productivity / drought</code><span style="color:var(--mut)"><code>modis.gpp_8day</code>, <code>modis.et_8day</code>, <code>modis.lai_8day</code></span>
   <code>built-up / human geography</code><span style="color:var(--mut)"><code>indices.ndbi</code>, <code>overture.buildings.count</code>, <code>overture.places.count</code>, <code>overture.transportation.road_length_m</code></span>
-  <code>weather (now)</code><span style="color:var(--mut)"><code>weather.temperature_2m</code>, <code>weather.cloud_cover</code>, <code>weather.precipitation_mm</code>, <code>weather.wind_speed_10m</code></span>
+  <code>weather (now / nowcast)</code><span style="color:var(--mut)"><code>weather.temperature_2m</code>, <code>weather.cloud_cover</code>, <code>weather.precipitation_mm</code>, <code>weather.wind_speed_10m</code></span>
+  <code>marine / coastal hazard</code><span style="color:var(--mut)"><code>marine.wave_height</code>, <code>marine.swell_period</code>, <code>marine.sst</code></span>
   <code>elevation (land)</code><span style="color:var(--mut)"><code>copdem30m.elevation_mean</code></span>
   <code>topo-bathymetry (incl. ocean)</code><span style="color:var(--mut)"><code>gmrt.topobathy_mean</code></span>
-  <code>foundation embedding (k-NN)</code><span style="color:var(--mut)"><code>geotessera</code>, <code>geotessera.multi_year</code></span>
-  <code>radar (night, cloudy)</code><span style="color:var(--mut)"><code>sentinel1_raw</code> — γ⁰ VV in dB</span>
+  <code>foundation embedding (k-NN)</code><span style="color:var(--mut)"><code>geotessera</code>, <code>geotessera.multi_year</code>, <code>geotessera.{2017..2024}</code></span>
+  <code>radar (night, cloudy)</code><span style="color:var(--mut)"><code>sentinel1_raw</code>, γ⁰ VV in dB</span>
 </div>
 
-<h2>Worked example — "Has this place flooded?"</h2>
+<h2>Worked example, "Has this place flooded?"</h2>
 <pre><code># 1. Place → cell64
 curl -sX POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
@@ -291,7 +306,7 @@ curl -sX POST https://emem.dev/v1/locate \
 # → "damO.zb000.waro.zcb89"
 # → ["surface_water.recurrence"]
 
-# 2. Recall the flood-history band — auto-materializes from JRC GSW.
+# 2. Recall the flood-history band, auto-materializes from JRC GSW.
 curl -sX POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"damO.zb000.waro.zcb89","bands":["surface_water.recurrence"]}' \
@@ -307,7 +322,7 @@ curl -sX POST https://emem.dev/v1/recall \
 <h2>Protocol model</h2>
 <p style="font-size:.9rem">
   Every fact about every place is keyed by
-  <code>(cell, band, tslot)</code> — a 64-bit cell ID over a Hilbert-packed
+  <code>(cell, band, tslot)</code>, a 64-bit cell ID over a Hilbert-packed
   global grid (<a href="/v1/grid_info">grid_info</a>), a band name from the
   content-addressed registry (<a href="/v1/bands">bands</a>), and a
   fixed-cadence tslot. Each <strong>Fact</strong> is one of three kinds:
@@ -315,7 +330,7 @@ curl -sX POST https://emem.dev/v1/recall \
   upstream Primaries with the derivation chain attached), or
   <em>Absence</em> (signed assertion that no data exists at this address,
   with a reason). Every fact is content-addressed via
-  <code>cid = blake3(canonical_cbor(fact))</code> — same bytes anywhere
+  <code>cid = blake3(canonical_cbor(fact))</code>, same bytes anywhere
   on the network resolve to the same CID.
 </p>
 <p style="font-size:.9rem">
@@ -323,7 +338,7 @@ curl -sX POST https://emem.dev/v1/recall \
   <code>blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖ fact_cids)</code>.
   The responder pubkey is published at <a href="/health">/health</a> and
   <a href="/.well-known/emem.json">/.well-known/emem.json</a>; any client
-  can verify a receipt offline with the public key alone — no callback
+  can verify a receipt offline with the public key alone, no callback
   to emem.dev. Two clients issuing the same request get the same fact
   CIDs; receipts are reproducible across operators and time.
 </p>
@@ -333,9 +348,9 @@ curl -sX POST https://emem.dev/v1/recall \
   <code>receipt.fact_cids[0]</code> in the reply. The protocol is
   federated: any operator may publish a node, manifests are CID-pinned,
   and a fact attested under an old <code>bands_cid</code> remains valid
-  forever — supersedes propagate forward, never invalidate the past.
+  forever, supersedes propagate forward, never invalidate the past.
   No API keys, no signup, no rate-limit-by-credit-card at the request
-  path. Default build is pure Rust — open data fetched via HTTPS
+  path. Default build is pure Rust, open data fetched via HTTPS
   <code>Range</code> reads, not Python or GDAL.
 </p>
 
@@ -352,7 +367,7 @@ curl -sX POST https://emem.dev/v1/recall \
   <a href="/v1/locate">/v1/locate</a><span style="color:var(--mut)">place / lat-lng → cell64 + neighborhood + bbox + 64-cell polygon sample</span>
   <a href="/v1/recall">/v1/recall</a><span style="color:var(--mut)">read facts at a cell; auto-materializes on miss</span>
   <a href="/v1/recall_many">/v1/recall_many</a><span style="color:var(--mut)">batch read across cells (max 256)</span>
-  <a href="/v1/recall_polygon">/v1/recall_polygon</a><span style="color:var(--mut)">place name / bbox → fan-out — closes the place-name-drift gap in one call</span>
+  <a href="/v1/recall_polygon">/v1/recall_polygon</a><span style="color:var(--mut)">place name / bbox → fan-out, closes the place-name-drift gap in one call</span>
   <a href="/v1/query_region">/v1/query_region</a><span style="color:var(--mut)">region average / median / p90 / vector_centroid</span>
   <a href="/v1/compare">/v1/compare</a><span style="color:var(--mut)">cosine + per-band scalar deltas between two cells</span>
   <a href="/v1/find_similar">/v1/find_similar</a><span style="color:var(--mut)">k-NN over a vector band (default geotessera)</span>
@@ -368,7 +383,7 @@ curl -sX POST https://emem.dev/v1/recall \
   <a href="/v1/coverage_matrix">/v1/coverage_matrix</a><span style="color:var(--mut)">per-band has_materializer + facts_count + last_attested</span>
   <a href="/v1/fleet">/v1/fleet</a><span style="color:var(--mut)">satellite/sensor lineage by_cadence + by_capability</span>
   <a href="/v1/materializers">/v1/materializers</a><span style="color:var(--mut)">wire-stable list of every band that auto-materializes</span>
-  <a href="/v1/algorithms">/v1/algorithms</a><span style="color:var(--mut)">composition recipes — flood_risk, walkability, urban heat island, embedding novelty (47 entries, content-addressed)</span>
+  <a href="/v1/algorithms">/v1/algorithms</a><span style="color:var(--mut)">composition recipes, flood_risk, walkability, urban heat island, embedding novelty (47 entries, content-addressed)</span>
   <a href="/v1/temporal_route">/v1/temporal_route</a><span style="color:var(--mut)">PDE-based band routing for (cell, query_time, intent)</span>
   <a href="/v1/bands">/v1/bands</a><span style="color:var(--mut)">band registry (key, dims, family, tempo, privacy)</span>
 </div>
@@ -397,7 +412,7 @@ curl -sX POST https://emem.dev/v1/recall \
 <h2>Operational surface</h2>
 <div class="grid">
   <a href="/v1/coverage">/v1/coverage</a><span style="color:var(--mut)">where data lives (JSON, paginated)</span>
-  <a href="/v1/coverage_map.svg">/v1/coverage_map.svg</a><span style="color:var(--mut)">visual gym — multimodal agents ingest the image</span>
+  <a href="/v1/coverage_map.svg">/v1/coverage_map.svg</a><span style="color:var(--mut)">visual gym, multimodal agents ingest the image</span>
   <a href="/v1/contributors">/v1/contributors</a><span style="color:var(--mut)">CoIL leaderboard (citation-driven score)</span>
   <a href="/v1/agent_stats">/v1/agent_stats</a><span style="color:var(--mut)">by-family request counts, latency p50/p95/p99</span>
   <a href="/v1/demos">/v1/demos</a><span style="color:var(--mut)">live demo traces (req + resp + signed receipts)</span>
@@ -407,7 +422,7 @@ curl -sX POST https://emem.dev/v1/recall \
 <h2>Contribute back (CoIL)</h2>
 <div class="grid">
   <a href="/attesting.md">/attesting.md</a><span style="color:var(--mut)">how to sign + post a fact in any language</span>
-  <a href="/v1/contributors">/v1/contributors</a><span style="color:var(--mut)">leaderboard — your score climbs as facts get cited</span>
+  <a href="/v1/contributors">/v1/contributors</a><span style="color:var(--mut)">leaderboard, your score climbs as facts get cited</span>
   <a href="https://github.com/Vortx-AI/emem">crates/emem-cli/.../emem-realdemo.rs</a><span style="color:var(--mut)">working Rust reference implementation</span>
 </div>
 
@@ -422,7 +437,7 @@ curl -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"damO.zb000.xUto.sisA","bands":["weather.temperature_2m"]}'
 
-# Sentinel-1 RTC radar — works at night, through cloud
+# Sentinel-1 RTC radar, works at night, through cloud
 curl -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"damO.zb000.waro.zcb89","bands":["sentinel1_raw"]}'
@@ -454,7 +469,7 @@ echo "$RESP" | jq '{receipt}' | curl -s -X POST https://emem.dev/v1/verify_recei
 #
 # The signer is reproducible from /health (or /.well-known/emem.json):
 # 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka. Anyone with the
-# receipt and the pubkey can verify offline using ed25519 — no network call
+# receipt and the pubkey can verify offline using ed25519, no network call
 # back to emem.dev is required.</code></pre>
 
 <h2>Per-cell GeoJSON (multimodal-lite)</h2>
@@ -475,7 +490,7 @@ curl https://emem.dev/v1/cells/damO.zb000.xUti.zde78.geojson</code></pre>
   <li><code>cid</code> 32-byte → <code>cid64</code> 8-byte prefix · ≤ 3 tokens</li>
 </ul>
 
-<h2>Voxel layout — 1792-D fp16 per cell</h2>
+<h2>Voxel layout, 1792-D fp16 per cell</h2>
 <p style="color:var(--mut); font-size:.86rem; margin-top:.3rem">
   Every cell × tslot has a canonical 1792-dimensional fp16 voxel
   (~3.5 KB / cell). Each band claims a stable byte-offset range so
@@ -489,8 +504,8 @@ curl https://emem.dev/v1/cells/damO.zb000.xUti.zde78.geojson</code></pre>
   <code>terrain_derived</code>, <code>phenology</code>,
   <code>nightlights</code>, <code>population</code>,
   <code>surface_water</code>, <code>koppen</code>, <code>cop_dem</code>,
-  <code>soilgrids</code>, etc. The full layout is content-addressed —
-  not hardcoded — and pinned per Attestation as
+  <code>soilgrids</code>, etc. The full layout is content-addressed,
+  not hardcoded, and pinned per Attestation as
   <code>bands_cid</code>; fetch it once via
   <a href="/v1/bands">/v1/bands</a> and cache by CID. The 1792-D voxel
   is also directly addressable: <code>emem:vec/&lt;vec64&gt;</code>
@@ -503,7 +518,7 @@ curl https://emem.dev/v1/cells/damO.zb000.xUti.zde78.geojson</code></pre>
 <h2>Storage + transport</h2>
 <ul>
   <li>Merkle log: append-only, 1 GiB segments, replay-verifiable.</li>
-  <li>COG reads: hand-rolled TIFF/IFD parser + flate2 (Deflate) + weezl (LZW) + predictors 1/2/3 (the f32 byte-plane shuffle MPC's Sentinel-1 RTC ships) over HTTPS <code>Range</code> — ~300–700 KB per cell from a multi-GB scene, no GDAL.</li>
+  <li>COG reads: hand-rolled TIFF/IFD parser + flate2 (Deflate) + weezl (LZW) + predictors 1/2/3 (the f32 byte-plane shuffle MPC's Sentinel-1 RTC ships) over HTTPS <code>Range</code>, ~300–700 KB per cell from a multi-GB scene, no GDAL.</li>
   <li>Source list (per band, per request) at <a href="/v1/coverage_matrix">/v1/coverage_matrix</a>; satellite/sensor lineage at <a href="/v1/fleet">/v1/fleet</a>.</li>
 </ul>
 

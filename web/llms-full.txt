@@ -1,4 +1,4 @@
-# emem — Earth memory protocol for AI agents (full agent context)
+# emem, Earth memory protocol for AI agents (full agent context)
 
 > Cite-able, content-addressed, signed memory of every place on Earth.
 > 1 protocol. 8 read primitives. ed25519 receipts. No keys for L0/L1.
@@ -24,7 +24,7 @@ Every read returns a Fact plus a signed Receipt. The Receipt is an
 ed25519 signature over `blake3(request_id || served_at || primitive ||
 cells || fact_cids)` and any client can verify it offline against the
 responder's public key. Identical canonical facts have identical CIDs
-across responders — answers merge by content, not by central authority.
+across responders, answers merge by content, not by central authority.
 
 ---
 
@@ -34,19 +34,19 @@ across responders — answers merge by content, not by central authority.
 |------------------------------------------------|-------------------------------------|-------------------------|
 | "what's at lat/lng …?"                         | POST /v1/locate {lat, lng}          | POST /v1/recall         |
 | "what's at <place name>?" (point feature)      | POST /v1/locate {place: "<name>"}   | POST /v1/recall_many    |
-| "what's at <wide place>?" (canyon, city, park) | POST /v1/recall_polygon {place, bands} | —                    |
+| "what's at <wide place>?" (canyon, city, park) | POST /v1/recall_polygon {place, bands} |,                    |
 | "how similar is X to Y?"                       | /v1/locate × 2                      | POST /v1/compare        |
 | "find places like X"                           | /v1/locate                          | POST /v1/find_similar   |
 | "what changed between t1 and t2?"              | /v1/locate                          | POST /v1/diff           |
 | "show me the trajectory"                       | /v1/locate                          | POST /v1/trajectory     |
 | "is <claim> true at X?"                        | /v1/locate                          | POST /v1/verify         |
 | "average / median / p90 over region"           | /v1/locate × N                      | POST /v1/query_region   |
-| "I have facts to add"                          | POST /v1/attest_cbor                | —                       |
-| "audit a receipt"                              | POST /v1/verify_receipt             | —                       |
+| "I have facts to add"                          | POST /v1/attest_cbor                |,                       |
+| "audit a receipt"                              | POST /v1/verify_receipt             |,                       |
 | underspecified spatial ask                     | POST /v1/intent                     | follow returned plan    |
 | "which band best fits this query time?"        | POST /v1/temporal_route             | POST /v1/recall         |
-| "what dataset answers X right now?"            | GET  /v1/coverage_matrix            | —                       |
-| "which satellite is behind this band?"         | GET  /v1/fleet                      | —                       |
+| "what dataset answers X right now?"            | GET  /v1/coverage_matrix            |,                       |
+| "which satellite is behind this band?"         | GET  /v1/fleet                      |,                       |
 
 In every reply: include `receipt.fact_cids[0]` as a 13-char `cid64`
 prefix and the truncated `responder_pubkey_b32`. Citations are how
@@ -96,7 +96,7 @@ agents earn trust and how emem ranks contributors.
 
 ### The 1792-D voxel (canonical cube ontology)
 
-`vec` is not arbitrary — every `(cell, tslot)` has a **canonical
+`vec` is not arbitrary, every `(cell, tslot)` has a **canonical
 1792-dimensional fp16 voxel** (~3.5 KB / cell). Each band claims a
 **stable byte-offset range** so an agent can splice multi-band features
 without a full deserialise. Selected v0 layout:
@@ -168,26 +168,38 @@ advection); see `docs/TEMPORAL.md`.
 
 ## Live materializers (each band fan-out path)
 
-`/v1/materializers` is the wire-stable source of truth. 30+ bands
+`/v1/materializers` is the wire-stable source of truth. 90+ bands
 auto-materialize on a cache miss; the responder fetches upstream, signs
 the resulting Fact under its identity, and persists it. Subsequent
-calls hit the hot cache (~10 ms vs ~180 ms cold).
+calls hit the hot cache (~10 ms vs ~180 ms cold). `/v1/data_availability`
+is the temporal-coverage twin: same band list, plus `kind`,
+`history_available_from_unix`/`to_unix`, and `backfill_supported`.
 
 | band                              | fetch_strategy                                      | unit  | tempo       |
 |-----------------------------------|-----------------------------------------------------|-------|-------------|
 | `s2.B01..B12`, `s2.B8A`, `s2.scl` | Sentinel-2 L2A COG via Element84 STAC + HTTPS range | refl. | fast        |
-| `indices.{ndvi,ndwi,mndwi,evi,nbr,ndmi,savi,bsi,ndbi}` | computed from S2 in one COG fan-out | —  | fast        |
+| `indices.{ndvi,ndwi,mndwi,evi,nbr,ndmi,savi,bsi,ndbi}` | classic 9 spectral indices from S2  |, | fast      |
+| `indices.{ndti,gndvi,ndre,fai,tss,ndsi,afri1600,savi_l1,surface_dryness,urban_canopy_index}` | 10 consumer-health-relevant indices from S2 |, | fast |
 | `sentinel1_raw`                   | Sentinel-1 GRD COG via HTTPS range, 10·log10 → dB   | dB    | fast        |
-| `geotessera`                      | dl2.geotessera.org `.npy` HTTPS range, ~640 B/cell  | —     | slow        |
-| `geotessera.{2017..2024}`         | per-vintage `.npy` range read; signed individually  | —     | slow        |
-| `geotessera.multi_year`           | 8 vintages × 128 = 1024-D fused; zero-pad on absent | —     | slow        |
-| `modis.ndvi_mean`                 | ORNL DAAC TESViS REST (MOD13Q1 16-day)              | —     | medium      |
+| `geotessera`                      | dl2.geotessera.org `.npy` HTTPS range, ~640 B/cell  |,     | slow        |
+| `geotessera.{2017..2024}`         | per-vintage `.npy` range read; signed individually  |,     | slow        |
+| `geotessera.multi_year`           | 8 vintages × 128 = 1024-D fused; zero-pad on absent |,     | slow        |
+| `modis.ndvi_mean`                 | ORNL DAAC TESViS REST (MOD13Q1 16-day)              |,     | medium      |
+| `modis.lst_day_8day`              | ORNL DAAC MOD11A2 8-day LST day (1 km)              | K     | medium      |
+| `modis.lst_night_8day`            | ORNL DAAC MOD11A2 8-day LST night (1 km)            | K     | medium      |
+| `modis.et_8day`                   | ORNL DAAC MOD16A2 8-day evapotranspiration          | kg/m² | medium      |
+| `modis.gpp_8day`                  | ORNL DAAC MOD17A2H 8-day gross primary production   | kgC/m²| medium      |
+| `modis.lai_8day`                  | ORNL DAAC MOD15A2H 8-day leaf-area index            | m²/m² | medium      |
+| `modis.burned_area_monthly`       | ORNL DAAC MCD64A1 monthly burned-area date          | doy   | medium      |
+| `surface_water.recurrence`        | JRC GSW v1.4 (Landsat 1984–2021) COG HTTPS range    | %     | static      |
 | `gmrt.topobathy_mean`             | gmrt.org PointServer                                | m     | static      |
 | `copdem30m.elevation_mean`        | Open-Meteo Elevation REST → Primary or Absence      | m     | static      |
-| `weather.temperature_2m`          | api.met.no/locationforecast/2.0/compact `instant`   | degC  | ultra_fast  |
-| `weather.cloud_cover`             | api.met.no/locationforecast/2.0/compact `instant`   | %     | ultra_fast  |
-| `weather.precipitation_mm`        | api.met.no/locationforecast/2.0/compact `next_1h`   | mm    | ultra_fast  |
-| `weather.wind_speed_10m`          | api.met.no/locationforecast/2.0/compact `instant`   | m/s   | ultra_fast  |
+| `weather.{temperature_2m,…,wind_direction_10m}` | api.met.no/locationforecast/2.0/compact (8 vars)| varies | ultra_fast |
+| `power.{t2m,t2m_min,t2m_max,precip,rh2m,allsky_sw,ws10m}` | NASA POWER daily/point REST (MERRA-2 + GEOS), 1981+ | varies | fast |
+| `cams.{pm25,pm10,no2,o3,so2,co,aod_550}` | Open-Meteo CAMS air-quality (ECMWF CAMS), hourly, 2013-08+ | µg/m³ | ultra_fast |
+| `era5.{t2m,precip,rh2m,windspeed_10m,cloudcover,surface_pressure,dewpoint_2m}` | Open-Meteo Archive ERA5 reanalysis, hourly, 1940+ | varies | ultra_fast |
+| `marine.{wave_height,swell_period,swell_height,sst,wave_direction}` | Open-Meteo Marine (ECMWF WAM), hourly, 2022-08+, ocean-only | varies | ultra_fast |
+| `overture.{buildings.count,places.count,transportation.road_length_m}` | Overture Maps S3 anonymous (per-cell aggregates) | counts | slow |
 
 Fact::Absence is a first-class signed value. `copdem30m.elevation_mean`
 returns Absence over open water (Cop-DEM uses 0 m as no-data marker);
@@ -200,29 +212,29 @@ as null.
 
 `GET /v1/fleet` returns the full mapping. Highlights:
 
-- **Terra (NASA EOS AM-1) MODIS** — `modis.ndvi_mean`. 250 m native, 1–2 day
+- **Terra (NASA EOS AM-1) MODIS**, `modis.ndvi_mean`. 250 m native, 1–2 day
   global revisit, 16-day composite. Wire path: ORNL DAAC TESViS REST.
-- **Sentinel-2A/B/C MSI** — full multi-band live: `s2.B01..B12`,
+- **Sentinel-2A/B/C MSI**, full multi-band live: `s2.B01..B12`,
   `s2.B8A`, `s2.scl`, plus computed `indices.{ndvi, ndwi, mndwi, evi,
   nbr, ndmi, savi, bsi, ndbi}`. 10 m, 5-day equatorial revisit. Wire
   path: Element84 STAC search (intersects: Point, ≤40 % cloud,
   ≤30-day lookback) → COG HTTPS range, pure-Rust TIFF/IFD + flate2 +
   Predictor 2 + UTM forward.
-- **Sentinel-1A/C C-band SAR** — `sentinel1_raw`. 10 m, 12-day revisit,
+- **Sentinel-1A/C C-band SAR**, `sentinel1_raw`. 10 m, 12-day revisit,
   all-weather, all-night. Wire path: ASF / Planetary Computer COG.
-- **GMRT (Lamont-Doherty multibeam fleet)** — `gmrt.topobathy_mean`.
+- **GMRT (Lamont-Doherty multibeam fleet)**, `gmrt.topobathy_mean`.
   Single peer-reviewed topo-bathy raster fusing Cop-DEM, GEBCO,
   multibeam, high-res sounders. Static, ~quarterly editorial updates.
-- **Copernicus DEM (TanDEM-X derived)** — `copdem30m.elevation_mean`.
+- **Copernicus DEM (TanDEM-X derived)**, `copdem30m.elevation_mean`.
   90 m native, land-only. Returns Absence over water.
-- **Tessera v1 (Cambridge AAILab + Clay-style composite)** —
+- **Tessera v1 (Cambridge AAILab + Clay-style composite)**:
   `geotessera` (alias for current vintage), `geotessera.{2017..2024}`
   per-vintage Primary, `geotessera.multi_year` 1024-D fused (8 vintages
   × 128 dims, zero-pad on absent year). 10 m native, annual,
   0.1° tile grid, native CRS per-tile UTM. Wire path:
   dl2.geotessera.org `.npy` HTTPS range read, ~640 B per cell.
 - **GOES-16/17/18 + Himawari-9 + Meteosat-9/11 (geostationary fleet) +
-  ECMWF/IFS analysis** — `weather.*`. 10–15 min revisit, blended via
+  ECMWF/IFS analysis**, `weather.*`. 10–15 min revisit, blended via
   api.met.no/locationforecast/2.0/compact (no API key, no rate limit,
   Norwegian Meteorological Institute). The temporal router classifies
   these as `ultra_fast`.
@@ -236,13 +248,13 @@ as null.
 ## Primitives (every read returns a signed receipt)
 
 ```bash
-# 1) Address book — bridge a place name to cell64.
+# 1) Address book, bridge a place name to cell64.
 curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
   -d '{"place":"Mount Fuji"}'
 # → cell64=damO.zb000.xUti.zde78, neighborhood_cells (9), via=embedded|cache|nominatim
 
-# 2) Recall — facts known about a cell.
+# 2) Recall, facts known about a cell.
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}'
@@ -314,7 +326,7 @@ Paste-ready configs: `/examples/claude-desktop.json` ·
 
 ---
 
-## Worked example — full agent loop
+## Worked example, full agent loop
 
 User: *"What's the elevation around Mount Fuji?"*
 
@@ -405,7 +417,7 @@ verify the union via the merkle log. See `/v1/contributors`,
 
 ## Production guarantees (https://emem.dev)
 
-- TLS 1.2/1.3 via in-process rustls + Let's Encrypt (TLS-ALPN-01) — no
+- TLS 1.2/1.3 via in-process rustls + Let's Encrypt (TLS-ALPN-01), no
   Cloudflare, no Caddy, no nginx in the data path.
 - HSTS preload-eligible. Strong CSP. 16 MiB POST body cap (413).
   30 s request timeout (504). 60 req/min, 120-burst rate limit (429).

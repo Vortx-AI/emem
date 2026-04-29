@@ -100,6 +100,7 @@ impl ToolCategory {
 
 const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 string, e.g. 'damO.zb000.xUti.zde78'"},
+"band":{"type":"string","description":"optional single band key — convenience alias for bands:[band]. Use when you want exactly one band (e.g. 'geotessera.2020', 'modis.ndvi_mean') and would otherwise have to wrap it in an array. Both `band` and `bands` are accepted; if both are given they are merged."},
 "bands":{"type":"array","items":{"type":"string"},"description":"optional band keys to filter, e.g. ['indices.ndvi','geotessera']"},
 "tslot":{"type":"integer","description":"optional time slot (band-tempo-relative integer offset from emem epoch)"}
 }}"#;
@@ -454,6 +455,16 @@ pub const TOOLS: &[ToolDescriptor] = &[
         title: "Auto-fetch registry (per-band materializers)",
         description: "Auto-fetch registry: which bands the responder will materialize on a recall miss, the upstream provider, license, value shape, and history bounds.",
         when_to_use: "Call once at session start (alongside `emem_bands` and `emem_coverage_matrix`) to learn which bands answer for ANY cell on Earth without seeding. Each entry declares `upstream_scheme`, `upstream_endpoint`, `derivation_fn_key`, `value_kind` (primary | absence | primary_or_absence), `coverage` (where the upstream has data), `unit`, `tempo`, `confidence`, and `history_available_from` / `history_available_to` (when the upstream supports historical fetch via `emem_backfill`). Use this when the user asks 'do you have flood data here', 'what providers feed this', or you need license attribution. The response also carries an `agent_hint` block explaining the trust model (responder signs, not upstream) and the absence-fact contract.",
+        input_schema: SCHEMA_NONE,
+        example_args: r#"{}"#,
+        level: "L0", category: ToolCategory::Introspect,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+    ToolDescriptor {
+        name: "emem_data_availability",
+        title: "Per-band temporal coverage catalog",
+        description: "Temporal catalog: for every materializable band the upstream-of-record window the data genuinely covers, the temporal `kind` (static | annual_snapshot | annual_stack | time_series | now_only | per_release), tempo seconds, upstream wire path, and whether `emem_backfill` is meaningful.",
+        when_to_use: "Call before `emem_backfill` or any historical recall to check whether a band has a meaningful past at the requested time. Each entry includes `history_available_from_unix` / `history_available_to_unix` (and ISO strings) plus `backfill_supported`. Use this to avoid trial-and-error 422s on now-only bands (`weather.*`) and to enumerate the per-year `geotessera.YYYY` vintages the responder ships. The catalog is driven by the same registry the recall path consults — so what it lists is exactly what materializes.",
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,

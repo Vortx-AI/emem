@@ -760,7 +760,7 @@ Validation invariants: schemes unique; each scheme has ≥1 provider; provider d
 
 ## §17 Lazy materialization
 
-emem is a **global memory**, not a precomputed dataset. Coverage is the whole Earth (~10¹⁴ res-13 cells × 32 bands × tslots — the universe of addressable facts is far larger than any storage budget). The protocol fetches the canonical upstream sources, computes facts, and caches them — only on demand, only what's needed, forever.
+emem is a **global memory**, not a precomputed dataset. Coverage is the whole Earth (~10¹⁴ res-13 cells × 90+ bands × tslots; the universe of addressable facts is far larger than any storage budget). The protocol fetches the canonical upstream sources, computes facts, and caches them: only on demand, only what's needed, forever.
 
 The materialization pipeline (run from any primitive that touches a fact):
 
