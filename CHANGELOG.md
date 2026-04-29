@@ -8,6 +8,9 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 ## [Unreleased]
 
 ### Added
+- `PRIVACY.md` "Your rights" section enumerating GDPR / CCPA / CPRA data-
+  subject rights (access, erasure, rectification, objection, opt-out of
+  sale/sharing, non-discrimination) and how to exercise them.
 - Native HTTPS via in-process rustls + Let's Encrypt (TLS-ALPN-01).
 - `/v1/locate` (lat/lng or place name → cell64; OSM Nominatim under the
   hood for place-name lookup).
