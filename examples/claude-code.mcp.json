@@ -1,5 +1,5 @@
 {
-  "_doc": "Save this as `.mcp.json` at your project root. Claude Code will discover it on next launch. The hosted instance at https://emem.dev/mcp is HTTPS-only. Either the Streamable-HTTP MCP transport (preferred, Claude Code recent — the `type: \"http\"` field below names the MCP transport per spec; the URL itself is HTTPS) or the stdio bridge below works.",
+  "_doc": "Save this as `.mcp.json` at your project root. Claude Code will discover it on next launch. The hosted instance at https://emem.dev/mcp is HTTPS-only. Claude Code's schema requires the `type` field to disambiguate the MCP transport (http vs sse vs stdio); `\"type\": \"http\"` is the literal identifier MCP defines for the Streamable-HTTP transport family — it does NOT mean the URL is plain HTTP. The actual URL below is HTTPS. The stdio bridge entry is a fallback for older runtimes that don't speak Streamable-HTTP MCP yet.",
   "mcpServers": {
     "emem": {
       "type": "http",

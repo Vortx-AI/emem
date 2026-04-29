@@ -4,7 +4,7 @@
 > Privacy: /privacy · Terms: /terms · Support: /support · Code: github.com/Vortx-AI/emem
 >
 > Cite-able, content-addressed, signed memory of every place on Earth.
-> Pure-Rust HTTP-range materializers feed Sentinel-2 (12 spectral +
+> Pure-Rust HTTPS-range materializers feed Sentinel-2 (12 spectral +
 > 9 indices), Sentinel-1 GRD (VV dB radar), Tessera (128-D foundation
 > embedding × 8 annual vintages + 1024-D multi-year fusion), MET Norway
 > weather (15-min sat-fed), MODIS NDVI, Cop-DEM, GMRT. No API keys.
@@ -66,7 +66,7 @@ Mention `responder_pubkey_b32` once per session.
   computed from Sentinel-2 in one COG fan-out (single STAC search per cell)
 - `sentinel1_raw` — Sentinel-1 GRD VV (dB), all-weather radar
 - `geotessera` (alias `geotessera.2024`) — Tessera 128-D foundation
-  embedding (HTTP range, ~640 B/cell)
+  embedding (HTTPS range, ~640 B/cell)
 - `geotessera.{2017..2024}` — annual vintages, signed individually
 - `geotessera.multi_year` — 8 vintages × 128 = 1024-D fused vector,
   zero-padded for years where the tile is absent

@@ -248,11 +248,11 @@
 <pre><code>{
   "mcpServers": {
     "emem": {
-      "transport": "http",
       "url": "https://emem.dev/mcp"
     }
   }
 }</code></pre>
+<p style="font-size:.78rem; color:var(--mut); margin:.25rem 0 0"><em>Streamable-HTTP transport is inferred from the <code>https://</code> URL — no explicit <code>transport</code> field needed on Claude Code, Claude Desktop ≥ 0.10, Cursor, or Cline.</em></p>
 
 <p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Claude Desktop / Cursor</strong> — same format, in their respective MCP config files.</p>
 
@@ -335,7 +335,7 @@ curl -sX POST https://emem.dev/v1/recall \
   and a fact attested under an old <code>bands_cid</code> remains valid
   forever — supersedes propagate forward, never invalidate the past.
   No API keys, no signup, no rate-limit-by-credit-card at the request
-  path. Default build is pure Rust — open data fetched via HTTP
+  path. Default build is pure Rust — open data fetched via HTTPS
   <code>Range</code> reads, not Python or GDAL.
 </p>
 
@@ -503,7 +503,7 @@ curl https://emem.dev/v1/cells/damO.zb000.xUti.zde78.geojson</code></pre>
 <h2>Storage + transport</h2>
 <ul>
   <li>Merkle log: append-only, 1 GiB segments, replay-verifiable.</li>
-  <li>COG reads: hand-rolled TIFF/IFD parser + flate2 (Deflate) + weezl (LZW) + predictors 1/2/3 (the f32 byte-plane shuffle MPC's Sentinel-1 RTC ships) over HTTP <code>Range</code> — ~300–700 KB per cell from a multi-GB scene, no GDAL.</li>
+  <li>COG reads: hand-rolled TIFF/IFD parser + flate2 (Deflate) + weezl (LZW) + predictors 1/2/3 (the f32 byte-plane shuffle MPC's Sentinel-1 RTC ships) over HTTPS <code>Range</code> — ~300–700 KB per cell from a multi-GB scene, no GDAL.</li>
   <li>Source list (per band, per request) at <a href="/v1/coverage_matrix">/v1/coverage_matrix</a>; satellite/sensor lineage at <a href="/v1/fleet">/v1/fleet</a>.</li>
 </ul>
 

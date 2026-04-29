@@ -250,8 +250,9 @@ Every host that speaks MCP Streamable HTTP points at the same URL
 ```json
 // Claude Desktop (~/Library/Application Support/Claude/claude_desktop_config.json
 // on macOS, ~/.config/Claude/ on Linux, %APPDATA%\Claude\ on Windows)
-// Claude Code: write the same JSON as .mcp.json at the project root.
-{ "mcpServers": { "emem": { "transport": "http", "url": "https://emem.dev/mcp" } } }
+// Claude Desktop ≥ 0.10 and Claude Code recent infer the transport
+// from the https:// URL — no explicit transport field required.
+{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }
 ```
 
 - **Cursor**: Settings → MCP → add Streamable-HTTP MCP server at

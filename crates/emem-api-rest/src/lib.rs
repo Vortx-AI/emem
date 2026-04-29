@@ -1304,9 +1304,9 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "confidence":        0.85,
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
-                "fetch_strategy":    "http_range",
+                "fetch_strategy":    "https_range",
                 "fetch_bytes_per_cell": 640,
-                "notes":             "Tessera 128-D foundation embedding (Cambridge/Clay-style; quantized int8 + float32 scales). Per-cell HTTP range reads against the public bucket — ~640 B downloaded per recall instead of the full 91 MB tile. Native CRS is per-tile UTM; we sample by linear (lat,lng)→(row,col) within the 0.1° tile so corner samples have ~1–2 px UTM-vs-EPSG:4326 skew that's recorded in derivation.args. Default vintage 2024; use geotessera.YYYY for an explicit year, or geotessera.multi_year for the 8-year stack."
+                "notes":             "Tessera 128-D foundation embedding (Cambridge/Clay-style; quantized int8 + float32 scales). Per-cell HTTPS range reads against the public bucket — ~640 B downloaded per recall instead of the full 91 MB tile. Native CRS is per-tile UTM; we sample by linear (lat,lng)→(row,col) within the 0.1° tile so corner samples have ~1–2 px UTM-vs-EPSG:4326 skew that's recorded in derivation.args. Default vintage 2024; use geotessera.YYYY for an explicit year, or geotessera.multi_year for the 8-year stack."
             },
             {
                 "band":              "geotessera.multi_year",
@@ -1320,7 +1320,7 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "confidence":        0.85,
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
-                "fetch_strategy":    "8x http_range (one per year)",
+                "fetch_strategy":    "8x https_range (one per year)",
                 "fetch_bytes_per_cell": 5120,
                 "notes":             "1024-D = 128 × 8 years (2017,2018,2019,2020,2021,2022,2023,2024). Years with no tile coverage at this cell get zero-padded slices; derivation.args.years_covered records which slices are real. Use this for time-aware similarity search — the temporal trajectory of a place across the Tessera vintage."
             },
@@ -1387,7 +1387,7 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "confidence":        0.92,
                 "tempo":             "fast",
                 "kernel_for_router": "wave_seasonal",
-                "fetch_strategy":    "stac_search + http_range_cog",
+                "fetch_strategy":    "stac_search + https_range_cog",
                 "fetch_bytes_per_cell": "~600 KB (IFD + 1 tile per band × 2 bands)",
                 "notes":             "Pure-Rust COG range read against AWS Open Data sentinel-cogs bucket. STAC search picks the latest scene <40% cloud that *contains* the point (intersects: Point); reflectance scale = 1e-4. NDVI = (B08 − B04) / (B08 + B04). No API key. Range read uses Predictor 2 (horizontal differencing) + Deflate decompression."
             },
@@ -1402,7 +1402,7 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "confidence":        0.85,
                 "tempo":             "fast",
                 "kernel_for_router": "wave_seasonal",
-                "fetch_strategy":    "stac_search + http_range_cog (Azure SAS-signed)",
+                "fetch_strategy":    "stac_search + https_range_cog (Azure SAS-signed)",
                 "fetch_bytes_per_cell": "~700 KB (IFD + 1 tile)",
                 "notes":             "VV polarisation gamma-naught backscatter in dB (10·log₁₀ of linear power). Radar — works at night and through cloud, complements indices.ndvi for all-weather monitoring. Source: Microsoft Planetary Computer's `sentinel-1-rtc` collection — proper UTM-projected COG (the upstream Element84 `sentinel-1-grd` mirror ships SAFE-format scenes with GCP-based georeferencing the pure-Rust COG sampler can't decode). Asset URLs are anonymous Azure Blobs signed with a free SAS token cached process-wide."
             },
@@ -1418,7 +1418,7 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "confidence":        0.95,
                 "tempo":             "static",
                 "kernel_for_router": "linear_ar1",
-                "fetch_strategy":    "http_range_cog",
+                "fetch_strategy":    "https_range_cog",
                 "fetch_bytes_per_cell": "~320 KB (IFD head + 1 tile)",
                 "notes":             "Inter-annual water recurrence in percent: 0 = never water, 100 = water every year of the 1984-2021 record, intermediate = flood-prone or seasonal water. The canonical signed answer to 'has this place been wet historically?' Pure-Rust COG range read against the public GCS bucket; tiles are EPSG:4326 so no UTM projection step. License: JRC open."
             },
@@ -1949,8 +1949,8 @@ async fn fleet() -> Json<JsonValue> {
                 "native_res_m":  10,
                 "tempo":         "slow",
                 "bands":         ["geotessera"],
-                "wire_path":     "dl2.geotessera.org HTTP range → Primary fact",
-                "notes":         "128-D foundation embedding ingested via HTTP range reads against the public bucket; ~640 B per cell instead of 91 MiB per tile. Native CRS is per-tile UTM."
+                "wire_path":     "dl2.geotessera.org HTTPS range → Primary fact",
+                "notes":         "128-D foundation embedding ingested via HTTPS range reads against the public bucket; ~640 B per cell instead of 91 MiB per tile. Native CRS is per-tile UTM."
             },
             {
                 "platform":      "GOES-16/17/18 + Himawari-9 + Meteosat-9/11 (geostationary fleet)",
@@ -2311,7 +2311,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                     "wired_via": "REST + MCP",
                     "mcp_tool": "emem_cell_scene_rgb",
                     "mcp_content_block": "ImageContent (base64 PNG, mimeType image/png) + a text summary block with the STAC item id / capture time / stretch values",
-                    "agent_use":  "True-colour Sentinel-2 L2A thumbnail centred on the cell, 256×256 px (~2.56 km × ~2.56 km at S2's 10 m native). Auto-picks the latest scene with `eo:cloud_cover < max_cloud` (default 20 %, override via query/arg). Pure-Rust pipeline — STAC search + HTTP-Range COG reads + 2-98 percentile stretch + PNG encode. The STAC item id is emitted in `x-emem-scene-item-id` header (REST) and structuredContent (MCP) so the receipt is reproducible."
+                    "agent_use":  "True-colour Sentinel-2 L2A thumbnail centred on the cell, 256×256 px (~2.56 km × ~2.56 km at S2's 10 m native). Auto-picks the latest scene with `eo:cloud_cover < max_cloud` (default 20 %, override via query/arg). Pure-Rust pipeline — STAC search + HTTPS-Range COG reads + 2-98 percentile stretch + PNG encode. The STAC item id is emitted in `x-emem-scene-item-id` header (REST) and structuredContent (MCP) so the receipt is reproducible."
                 },
                 "cell_recall_geojson": {
                     "url_template": "/v1/cells/{cell64}/recall.geojson?bands={bands}",
@@ -2375,7 +2375,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "runtime": {
             "language":       "Rust",
             "no_python_at_request_path": true,
-            "cog_reader":     "pure-Rust HTTP-range TIFF/IFD parser + Deflate + Predictor 2 (no GDAL, no rasterio)",
+            "cog_reader":     "pure-Rust HTTPS-range TIFF/IFD parser + Deflate + Predictor 2 (no GDAL, no rasterio)",
             "weather_source": "MET Norway api.met.no (no API key, no per-IP rate limit)",
             "stac_search":    "Element84 earth-search (anonymous; AWS Open Data backed)",
         },
@@ -4551,7 +4551,7 @@ async fn post_elevation(Json(req): Json<ElevationReq>) -> Result<Json<JsonValue>
             StatusCode::BAD_GATEWAY,
             ErrorBody {
                 code: ErrorCode::SourceFetchFailed,
-                message: format!("open-meteo http: {e}"),
+                message: format!("open-meteo https: {e}"),
             },
         )
     })?;
@@ -4708,7 +4708,7 @@ async fn materialize_elevation_mean(
         Err(e) => {
             // Network error — DON'T persist an absence (we don't know
             // if the cell genuinely has no coverage; might be transient).
-            return Err(format!("open-meteo http: {e}"));
+            return Err(format!("open-meteo https: {e}"));
         }
     };
 
@@ -4827,7 +4827,7 @@ async fn materialize_gmrt_topobathy(
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("gmrt http: {e}"))?;
+        .map_err(|e| format!("gmrt https: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("gmrt status {}", resp.status()));
     }
@@ -4989,7 +4989,7 @@ async fn materialize_modis_ndvi_window(
                 continue;
             }
             Ok(Err(e)) => {
-                last_err = format!("modis http on attempt {attempt}/{retries}: {e}");
+                last_err = format!("modis https on attempt {attempt}/{retries}: {e}");
                 continue;
             }
             Ok(Ok(resp)) => {
@@ -5289,7 +5289,7 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
         .header("range", "bytes=0-511")
         .send()
         .await
-        .map_err(|e| format!("emb head http: {e}"))?;
+        .map_err(|e| format!("emb head https: {e}"))?;
     if !(emb_hdr.status() == reqwest::StatusCode::PARTIAL_CONTENT
         || emb_hdr.status() == reqwest::StatusCode::OK)
     {
@@ -5317,7 +5317,7 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
         .header("range", "bytes=0-511")
         .send()
         .await
-        .map_err(|e| format!("scales head http: {e}"))?;
+        .map_err(|e| format!("scales head https: {e}"))?;
     if !(sc_hdr.status() == reqwest::StatusCode::PARTIAL_CONTENT
         || sc_hdr.status() == reqwest::StatusCode::OK)
     {
@@ -5359,7 +5359,7 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
         .header("range", format!("bytes={}-{}", emb_off, emb_off + 127))
         .send()
         .await
-        .map_err(|e| format!("emb pixel http: {e}"))?;
+        .map_err(|e| format!("emb pixel https: {e}"))?;
     let emb_pixel = emb_resp
         .bytes()
         .await
@@ -5378,7 +5378,7 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
         )
         .send()
         .await
-        .map_err(|e| format!("scale pixel http: {e}"))?;
+        .map_err(|e| format!("scale pixel https: {e}"))?;
     let sc_bytes = sc_resp
         .bytes()
         .await
@@ -5528,7 +5528,7 @@ async fn materialize_weather_current(
         .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
         .send()
         .await
-        .map_err(|e| format!("met.no http: {e}"))?;
+        .map_err(|e| format!("met.no https: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("met.no status {} for {band}", resp.status()));
     }
@@ -9186,7 +9186,7 @@ async fn nominatim_get(url: &str) -> Result<String, String> {
         .header("accept-language", "*")
         .send()
         .await
-        .map_err(|e| format!("nominatim http: {e}"))?;
+        .map_err(|e| format!("nominatim https: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("nominatim status {}", resp.status()));
     }

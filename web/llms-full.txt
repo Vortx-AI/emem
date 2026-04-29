@@ -62,7 +62,7 @@ agents earn trust and how emem ranks contributors.
 | `/.well-known/emem.json`      | protocol manifest                                       |
 | `/.well-known/ai-plugin.json` | OpenAI plugin manifest                                  |
 | `/openapi.json`               | OpenAPI 3.1 (paste into GPT Custom Action)              |
-| `/mcp`                        | MCP Streamable HTTP 2025-03-26                          |
+| `/mcp`                        | MCP Streamable HTTP transport over HTTPS (2025-03-26)   |
 | `/v1/discover`                | bootstrap: agent_card + bands + manifests + sample places |
 | `/v1/agent_card`              | tool descriptors + when-to-use + schemas                |
 | `/v1/quickstart`              | six-step onboarding playbook                            |
@@ -175,10 +175,10 @@ calls hit the hot cache (~10 ms vs ~180 ms cold).
 
 | band                              | fetch_strategy                                      | unit  | tempo       |
 |-----------------------------------|-----------------------------------------------------|-------|-------------|
-| `s2.B01..B12`, `s2.B8A`, `s2.scl` | Sentinel-2 L2A COG via Element84 STAC + HTTP range  | refl. | fast        |
+| `s2.B01..B12`, `s2.B8A`, `s2.scl` | Sentinel-2 L2A COG via Element84 STAC + HTTPS range | refl. | fast        |
 | `indices.{ndvi,ndwi,mndwi,evi,nbr,ndmi,savi,bsi,ndbi}` | computed from S2 in one COG fan-out | —  | fast        |
-| `sentinel1_raw`                   | Sentinel-1 GRD COG via HTTP range, 10·log10 → dB    | dB    | fast        |
-| `geotessera`                      | dl2.geotessera.org `.npy` HTTP range, ~640 B/cell   | —     | slow        |
+| `sentinel1_raw`                   | Sentinel-1 GRD COG via HTTPS range, 10·log10 → dB   | dB    | fast        |
+| `geotessera`                      | dl2.geotessera.org `.npy` HTTPS range, ~640 B/cell  | —     | slow        |
 | `geotessera.{2017..2024}`         | per-vintage `.npy` range read; signed individually  | —     | slow        |
 | `geotessera.multi_year`           | 8 vintages × 128 = 1024-D fused; zero-pad on absent | —     | slow        |
 | `modis.ndvi_mean`                 | ORNL DAAC TESViS REST (MOD13Q1 16-day)              | —     | medium      |
@@ -206,7 +206,7 @@ as null.
   `s2.B8A`, `s2.scl`, plus computed `indices.{ndvi, ndwi, mndwi, evi,
   nbr, ndmi, savi, bsi, ndbi}`. 10 m, 5-day equatorial revisit. Wire
   path: Element84 STAC search (intersects: Point, ≤40 % cloud,
-  ≤30-day lookback) → COG HTTP range, pure-Rust TIFF/IFD + flate2 +
+  ≤30-day lookback) → COG HTTPS range, pure-Rust TIFF/IFD + flate2 +
   Predictor 2 + UTM forward.
 - **Sentinel-1A/C C-band SAR** — `sentinel1_raw`. 10 m, 12-day revisit,
   all-weather, all-night. Wire path: ASF / Planetary Computer COG.
@@ -220,7 +220,7 @@ as null.
   per-vintage Primary, `geotessera.multi_year` 1024-D fused (8 vintages
   × 128 dims, zero-pad on absent year). 10 m native, annual,
   0.1° tile grid, native CRS per-tile UTM. Wire path:
-  dl2.geotessera.org `.npy` HTTP range read, ~640 B per cell.
+  dl2.geotessera.org `.npy` HTTPS range read, ~640 B per cell.
 - **GOES-16/17/18 + Himawari-9 + Meteosat-9/11 (geostationary fleet) +
   ECMWF/IFS analysis** — `weather.*`. 10–15 min revisit, blended via
   api.met.no/locationforecast/2.0/compact (no API key, no rate limit,
