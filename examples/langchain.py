@@ -1,8 +1,9 @@
 """LangChain tools for emem — Earth memory protocol.
 
-Drop this file next to your agent code. The tools wrap the live emem HTTP
-surface with type-checked LangChain Tool decorators so any LangGraph /
-LangChain agent can call them directly. No keys required.
+Drop this file next to your agent code. The tools wrap the live emem
+HTTPS REST surface with type-checked LangChain Tool decorators so any
+LangGraph / LangChain agent can call them directly. The hosted
+responder at https://emem.dev is HTTPS-only; no keys required.
 
 Install:
     pip install langchain langchain-core requests

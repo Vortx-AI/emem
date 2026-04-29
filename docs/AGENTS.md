@@ -254,11 +254,11 @@ Every host that speaks MCP Streamable HTTP points at the same URL
 { "mcpServers": { "emem": { "transport": "http", "url": "https://emem.dev/mcp" } } }
 ```
 
-- **Cursor**: Settings → MCP → add HTTP server at `https://emem.dev/mcp`,
-  or write `.cursor/mcp.json` at the project root. See
-  `/examples/cursor.mcp.json`.
-- **Cline (VS Code)**: Cline → MCP Servers → add HTTP server at the
-  same URL. See `/examples/cline.mcp.json`.
+- **Cursor**: Settings → MCP → add Streamable-HTTP MCP server at
+  `https://emem.dev/mcp` (HTTPS-only), or write `.cursor/mcp.json` at
+  the project root. See `/examples/cursor.mcp.json`.
+- **Cline (VS Code)**: Cline → MCP Servers → add Streamable-HTTP MCP
+  server at the same HTTPS URL. See `/examples/cline.mcp.json`.
 - **OpenAI GPT (Custom Action)**: in the GPT builder, paste
   `https://emem.dev/openapi.json` as the Action schema URL.
   Authentication: none. See `/examples/openai-gpt-action.json`.

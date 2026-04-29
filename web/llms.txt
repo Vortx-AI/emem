@@ -90,7 +90,7 @@ Mention `responder_pubkey_b32` once per session.
 - `/v1/grid_info` — cell64 ground resolution, DGGS interop
 - `/v1/temporal_route` — PDE-based band routing
 - `/openapi.json` — paste into GPT Custom Action
-- `/mcp` — MCP Streamable HTTP (Claude Desktop, Cursor, Cline)
+- `/mcp` — MCP Streamable HTTP transport over HTTPS (Claude Desktop, Cursor, Cline)
 - `/.well-known/emem.json` — manifest CIDs + responder pubkey
 - `/agents.md` — full integration guide · `/whitepaper.md` — architecture + math
 - `/v1/demos` — request + response + signed receipt for every primitive

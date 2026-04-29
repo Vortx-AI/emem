@@ -3477,7 +3477,7 @@ async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
     );
     Json(json!({
         "schema": "emem.mcp.discover.v1",
-        "transport": "MCP Streamable HTTP (2025-03-26): single endpoint, POST for client→server JSON-RPC, GET for this discovery doc",
+        "transport": "MCP Streamable HTTP (2025-03-26) over HTTPS on the hosted instance: single endpoint, POST for client→server JSON-RPC, GET for this discovery doc",
         "endpoint": "/mcp",
         "method": "POST",
         "content_type": "application/json",

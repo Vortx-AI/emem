@@ -1,5 +1,5 @@
 {
-  "_doc": "Save this as `.cursor/mcp.json` at your project root, OR open Cursor → Settings → MCP and add an HTTP server pointing at https://emem.dev/mcp. Cursor 0.42+ supports HTTP MCP transport directly; older versions need mcp-remote.",
+  "_doc": "Save this as `.cursor/mcp.json` at your project root, OR open Cursor → Settings → MCP and add a Streamable-HTTP MCP server pointing at https://emem.dev/mcp (HTTPS-only on the hosted instance). Cursor 0.42+ supports the Streamable-HTTP MCP transport directly; older versions need mcp-remote.",
   "mcpServers": {
     "emem": {
       "url": "https://emem.dev/mcp"

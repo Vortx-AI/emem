@@ -240,7 +240,7 @@
 
 <h2>Wire it into your agent (60 seconds)</h2>
 <p style="font-size:.88rem; color:var(--mut); margin-top:.25rem">
-  Streamable-HTTP MCP at <a href="/mcp"><code>/mcp</code></a> (spec id 2025-03-26).
+  Streamable-HTTP MCP transport (spec id 2025-03-26) at <a href="/mcp"><code>/mcp</code></a> over HTTPS.
   No auth — paste the block for your runtime, restart, done.
 </p>
 
@@ -260,7 +260,7 @@
 
 <p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Anthropic API</strong> — pass <code>{"type":"url","url":"https://emem.dev/mcp","name":"emem"}</code> in the <code>mcp_servers</code> array on a Messages call.</p>
 
-<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Plain HTTP</strong> — every MCP tool is also a REST endpoint at <code>/v1/&lt;tool&gt;</code>. Discover with <a href="/v1/discover"><code>GET /v1/discover</code></a> (one call: card + manifests + tools + canonical places).</p>
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Plain REST</strong> — every MCP tool is also an HTTPS REST endpoint at <code>/v1/&lt;tool&gt;</code>. Discover with <a href="/v1/discover"><code>GET /v1/discover</code></a> (one call: card + manifests + tools + canonical places). The hosted instance at <code>emem.dev</code> is HTTPS-only; plain HTTP is available only on self-hosted deployments.</p>
 
 <h2>Topic → band routing</h2>
 <p style="font-size:.88rem; color:var(--mut)">
@@ -383,7 +383,7 @@ curl -sX POST https://emem.dev/v1/recall \
 <div class="grid">
   <a href="/v1/agent_card">/v1/agent_card</a><span style="color:var(--mut)">tools + schemas + examples</span>
   <a href="/openapi.json">/openapi.json</a><span style="color:var(--mut)">OpenAPI 3.1 (paste into GPT Action)</span>
-  <a href="/mcp">/mcp</a><span style="color:var(--mut)">MCP Streamable HTTP (spec id 2025-03-26)</span>
+  <a href="/mcp">/mcp</a><span style="color:var(--mut)">MCP Streamable HTTP transport over HTTPS (spec id 2025-03-26)</span>
   <a href="/.well-known/emem.json">/.well-known/emem.json</a><span style="color:var(--mut)">manifest CIDs + responder pubkey</span>
   <a href="/.well-known/ai-plugin.json">/.well-known/ai-plugin.json</a><span style="color:var(--mut)">OpenAI plugin manifest</span>
   <a href="/agents.md">/agents.md</a><span style="color:var(--mut)">integration guide for agent loops</span>
