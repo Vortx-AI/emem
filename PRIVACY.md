@@ -61,10 +61,39 @@ the request canonicalisation hash, and the fact CIDs. The receipt does **not**
 contain user identifiers. You can verify any receipt offline using the public
 key at `/.well-known/emem.json`.
 
+## Your rights
+
+Because L0/L1 reads are anonymous and the responder stores no account or
+identifier, there is generally no per-user record to act on. That said, to
+the extent applicable privacy laws (including the EU/UK GDPR and the
+California CCPA/CPRA) grant you rights, we honour them:
+
+- **Access / portability** — request a copy of any operational log line
+  that can be tied to an IP you control.
+- **Erasure** — request deletion of any such log line ahead of the 30-day
+  rotation. Note: signed attestations submitted to `/v1/attest` cannot be
+  retracted (see TERMS.md §4); content addressing is by design.
+- **Rectification** — request correction of any inaccurate record we hold
+  about you.
+- **Object / restrict** — ask us to stop processing operational metadata
+  associated with your IP for anything beyond fulfilling the request.
+- **Withdraw consent / opt out of "sale" or "sharing"** — emem does not
+  sell or share personal data with third parties for advertising or
+  cross-context behavioural purposes; there is nothing to opt out of.
+- **Non-discrimination** — exercising any of the above will not change the
+  service you receive.
+
+To exercise a right, email **avijeet@vortx.ai** with enough context (e.g.
+the IP and approximate UTC timestamp) for us to locate the record. We aim
+to respond within 30 days. If you believe we have not addressed your
+request, you may complain to your local supervisory authority (in the EU)
+or the California Privacy Protection Agency.
+
 ## Children
 
 emem returns geographic facts; it has no concept of user accounts and is not
-directed at children under 13.
+directed at children under 13. We do not knowingly collect personal data
+from children.
 
 ## Changes
 
