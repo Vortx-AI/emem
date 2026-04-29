@@ -19,8 +19,8 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-const CONS: &[u8] = b"bcdfghjklmnpqrstvwxyz";  // 21
-const VOWS: &[u8] = b"aeiouAEIOU";              // 10
+const CONS: &[u8] = b"bcdfghjklmnpqrstvwxyz"; // 21
+const VOWS: &[u8] = b"aeiouAEIOU"; // 10
 
 /// Deterministically synthesize the canonical 65,536-entry alphabet of CVCV
 /// bigrams. 21 × 10 × 21 × 10 = 44,100; we pad to 65,536 with synthetic
@@ -50,5 +50,9 @@ pub static ALPHABET: LazyLock<Vec<&'static str>> = LazyLock::new(build_alphabet_
 
 /// Reverse index: bigram → digit value. Built once at first access.
 pub static ALPHABET_INDEX: LazyLock<HashMap<&'static str, u16>> = LazyLock::new(|| {
-    ALPHABET.iter().enumerate().map(|(i, &s)| (s, i as u16)).collect()
+    ALPHABET
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| (s, i as u16))
+        .collect()
 });

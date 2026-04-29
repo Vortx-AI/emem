@@ -14,16 +14,16 @@
 
 #![forbid(unsafe_code)]
 
+pub mod alphabet;
 pub mod cell64;
+pub mod cid64;
+pub mod geo;
+pub mod hilbert;
 pub mod tslot_text;
 pub mod vec64;
-pub mod cid64;
-pub mod alphabet;
-pub mod hilbert;
-pub mod geo;
 
-pub use cell64::{to_cell64, from_cell64, is_cell64_shape};
-pub use tslot_text::{to_tslot_text, from_tslot_text};
+pub use cell64::{from_cell64, is_cell64_shape, to_cell64};
+pub use cid64::{from_cid64, to_cid64};
+pub use geo::{cell64_from_latlng, cell_from_latlng, latlng_from_cell64, BboxDeg, LatLng};
+pub use tslot_text::{from_tslot_text, to_tslot_text};
 pub use vec64::{to_vec64, vec64_to_cid};
-pub use cid64::{to_cid64, from_cid64};
-pub use geo::{cell_from_latlng, cell64_from_latlng, latlng_from_cell64, LatLng, BboxDeg};

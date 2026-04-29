@@ -47,7 +47,8 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     let [s, e] = req.window;
 
     let pairs = storage.scan_cell(&req.cell, None).await?;
-    let mut filtered: Vec<(u64, FactCid)> = pairs.into_iter()
+    let mut filtered: Vec<(u64, FactCid)> = pairs
+        .into_iter()
         .filter(|(k, _)| k.band == req.band && k.tslot >= s && k.tslot <= e)
         .map(|(k, c)| (k.tslot, c))
         .collect();
@@ -59,7 +60,10 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     let mut series = Vec::with_capacity(filtered.len());
     for (idx, (tslot, _)) in filtered.iter().enumerate() {
         if let Some(Some(Fact::Primary(p))) = facts.get(idx) {
-            series.push(Point { tslot: *tslot, value: p.value.clone() });
+            series.push(Point {
+                tslot: *tslot,
+                value: p.value.clone(),
+            });
         }
     }
 

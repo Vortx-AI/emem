@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use emem_core::{AttesterKey, KeyEpoch, Signature};
 use crate::cid::{FactCid, RegistryCid, SchemaCid};
+use emem_core::{AttesterKey, KeyEpoch, Signature};
 
 /// Returned with every read response. Cryptographically rebindable evidence
 /// that a particular set of facts was served.

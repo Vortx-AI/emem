@@ -27,10 +27,15 @@ pub fn expand(template: &str, req: &FetchRequest) -> Result<String, FetchError> 
     let mut out = String::with_capacity(template.len() + 32);
     let mut chars = template.chars().peekable();
     while let Some(c) = chars.next() {
-        if c != '{' { out.push(c); continue; }
+        if c != '{' {
+            out.push(c);
+            continue;
+        }
         let mut name = String::new();
         for nc in chars.by_ref() {
-            if nc == '}' { break; }
+            if nc == '}' {
+                break;
+            }
             name.push(nc);
         }
         let value = resolve(&name, req)?;
@@ -45,22 +50,22 @@ fn resolve(name: &str, req: &FetchRequest) -> Result<String, FetchError> {
         return Ok(v.clone());
     }
     Ok(match name {
-        "tslot"   => req.tslot.0.to_string(),
+        "tslot" => req.tslot.0.to_string(),
         "channel" => req.channels.first().cloned().unwrap_or_default(),
         // Time fields use simplified epoch math — emem-core::tslot owns
         // the canonical seconds-per-slot constants.
-        "year"  => derive_year(req.tslot).to_string(),
+        "year" => derive_year(req.tslot).to_string(),
         "month" => format!("{:02}", derive_month_in_year(req.tslot)),
-        "day"   => format!("{:02}", derive_day(req.tslot)),
+        "day" => format!("{:02}", derive_day(req.tslot)),
         // bbox-derived tile-naming vars
-        "lat_band"   => bbox(req, name)?.lat_band_1deg(),
-        "lon_band"   => bbox(req, name)?.lon_band_1deg(),
-        "lat_top10"  => bbox(req, name)?.lat_top_10deg(),
+        "lat_band" => bbox(req, name)?.lat_band_1deg(),
+        "lon_band" => bbox(req, name)?.lon_band_1deg(),
+        "lat_top10" => bbox(req, name)?.lat_top_10deg(),
         "lon_left10" => bbox(req, name)?.lon_left_10deg(),
         "hansen_lat_band" => bbox(req, name)?.hansen_lat_band(),
         "hansen_lon_band" => bbox(req, name)?.hansen_lon_band(),
-        "tile_id"    => bbox(req, name)?.worldcover_tile_id(),
-        "bbox_csv"   => bbox(req, name)?.to_csv(),
+        "tile_id" => bbox(req, name)?.worldcover_tile_id(),
+        "bbox_csv" => bbox(req, name)?.to_csv(),
         "lat_center" => format!("{:.6}", bbox(req, name)?.center().0),
         "lon_center" => format!("{:.6}", bbox(req, name)?.center().1),
         "cell64" => emem_codec::to_cell64(req.cell),
@@ -70,9 +75,7 @@ fn resolve(name: &str, req: &FetchRequest) -> Result<String, FetchError> {
 
 /// Pull the bbox or fail with a clear missing-variable error naming the
 /// var that triggered the lookup.
-fn bbox<'a>(req: &'a FetchRequest, requested_var: &str)
-    -> Result<&'a emem_core::Bbox, FetchError>
-{
+fn bbox<'a>(req: &'a FetchRequest, requested_var: &str) -> Result<&'a emem_core::Bbox, FetchError> {
     req.bbox.as_ref().ok_or_else(|| FetchError::MissingVariable(
         format!("{requested_var} (template referenced a bbox-derived variable but FetchRequest.bbox is None)")
     ))

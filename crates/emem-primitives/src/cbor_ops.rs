@@ -55,7 +55,9 @@ pub fn lt(a: &ciborium::Value, b: &ciborium::Value) -> Option<bool> {
 /// callers can compare slices of different lengths safely.
 pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
     let n = a.len().min(b.len());
-    if n == 0 { return 0.0; }
+    if n == 0 {
+        return 0.0;
+    }
     let mut dot: f64 = 0.0;
     let mut na: f64 = 0.0;
     let mut nb: f64 = 0.0;
@@ -66,12 +68,16 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
         na += x * x;
         nb += y * y;
     }
-    if na == 0.0 || nb == 0.0 { return 0.0; }
+    if na == 0.0 || nb == 0.0 {
+        return 0.0;
+    }
     (dot / (na.sqrt() * nb.sqrt())) as f32
 }
 
 /// Wrap an f32 into a CBOR Float for response values.
-pub fn f32_to_cbor(x: f32) -> ciborium::Value { ciborium::Value::Float(x as f64) }
+pub fn f32_to_cbor(x: f32) -> ciborium::Value {
+    ciborium::Value::Float(x as f64)
+}
 
 #[cfg(test)]
 mod tests {

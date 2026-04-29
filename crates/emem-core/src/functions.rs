@@ -93,29 +93,39 @@ impl Manifest for FunctionRegistry {
     fn validate(&self) -> Result<(), ManifestError> {
         if self.manifest != Self::KIND {
             return Err(ManifestError::WrongKind {
-                expected: Self::KIND, actual: self.manifest.clone(),
+                expected: Self::KIND,
+                actual: self.manifest.clone(),
             });
         }
         let mut seen: std::collections::HashSet<&str> = Default::default();
         for f in &self.functions {
             if !seen.insert(&f.key) {
-                return Err(ManifestError::Invalid(format!("duplicate function key: {}", f.key)));
+                return Err(ManifestError::Invalid(format!(
+                    "duplicate function key: {}",
+                    f.key
+                )));
             }
             if !f.deterministic {
                 return Err(ManifestError::Invalid(format!(
-                    "non-deterministic function {} not allowed in canonical channel", f.key)));
+                    "non-deterministic function {} not allowed in canonical channel",
+                    f.key
+                )));
             }
             match f.kind {
                 FnKind::Primary | FnKind::Negative => {
                     if f.sources.is_empty() {
                         return Err(ManifestError::Invalid(format!(
-                            "{} kind requires at least one source", f.key)));
+                            "{} kind requires at least one source",
+                            f.key
+                        )));
                     }
                 }
                 FnKind::Derivative => {
                     if f.parents_required.is_none() && f.parents_min.is_none() {
                         return Err(ManifestError::Invalid(format!(
-                            "derivative {} requires parents_required or parents_min", f.key)));
+                            "derivative {} requires parents_required or parents_min",
+                            f.key
+                        )));
                     }
                 }
             }

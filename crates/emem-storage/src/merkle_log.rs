@@ -47,7 +47,10 @@ impl AttestationLog {
         let root = root.into();
         std::fs::create_dir_all(&root)?;
         let state = scan_existing(&root)?;
-        Ok(Self { root, state: Mutex::new(state) })
+        Ok(Self {
+            root,
+            state: Mutex::new(state),
+        })
     }
 
     /// Append an attestation. Bytes are flushed and fsynced before this
@@ -101,14 +104,22 @@ impl AttestationLog {
         let mut bad: Vec<(u64, String)> = Vec::new();
         for entry in std::fs::read_dir(&self.root)? {
             let entry = entry?;
-            let name = match entry.file_name().to_str() { Some(s) => s.to_string(), None => continue };
-            let n = match name.strip_prefix("merkle.log.").and_then(|s| s.parse::<u64>().ok()) {
+            let name = match entry.file_name().to_str() {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let n = match name
+                .strip_prefix("merkle.log.")
+                .and_then(|s| s.parse::<u64>().ok())
+            {
                 Some(n) => n,
                 None => continue,
             };
             let mut bytes = Vec::new();
             std::fs::File::open(entry.path())?.read_to_end(&mut bytes)?;
-            if bytes.len() < 32 { continue; }
+            if bytes.len() < 32 {
+                continue;
+            }
             let (body, trailer) = bytes.split_at(bytes.len() - 32);
             let mut h = Hasher::new();
             h.update(body);
@@ -118,7 +129,10 @@ impl AttestationLog {
                 bad.push((n, "trailing hash mismatch".into()));
             }
         }
-        Ok(VerifyReport { sealed_ok: sealed, bad })
+        Ok(VerifyReport {
+            sealed_ok: sealed,
+            bad,
+        })
     }
 }
 
@@ -161,7 +175,10 @@ fn scan_existing(root: &std::path::Path) -> std::io::Result<LogState> {
     let mut total_records: u64 = 0;
     for entry in std::fs::read_dir(root)? {
         let entry = entry?;
-        let name = match entry.file_name().to_str() { Some(s) => s.to_string(), None => continue };
+        let name = match entry.file_name().to_str() {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
         if let Some(rest) = name.strip_prefix("merkle.log.") {
             if let Ok(n) = rest.parse::<u64>() {
                 max = Some(max.map(|m| m.max(n)).unwrap_or(n));
@@ -187,9 +204,11 @@ fn count_records_in(path: &std::path::Path) -> std::io::Result<u64> {
     let mut count = 0u64;
     let mut i = 0usize;
     while i + 4 <= bytes.len() {
-        let len = u32::from_le_bytes([bytes[i], bytes[i+1], bytes[i+2], bytes[i+3]]) as usize;
+        let len = u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
         let needed = 4 + len + 32;
-        if i + needed > bytes.len() { break; }
+        if i + needed > bytes.len() {
+            break;
+        }
         i += needed;
         count += 1;
     }

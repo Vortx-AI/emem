@@ -53,15 +53,21 @@ impl Manifest for SchemaRegistry {
             });
         }
         if self.fragments.is_empty() {
-            return Err(ManifestError::Invalid("schema bundle must list at least one fragment".into()));
+            return Err(ManifestError::Invalid(
+                "schema bundle must list at least one fragment".into(),
+            ));
         }
         if self.hash != "blake3" {
             return Err(ManifestError::Invalid(format!(
-                "v0 supports hash=blake3; got '{}'", self.hash)));
+                "v0 supports hash=blake3; got '{}'",
+                self.hash
+            )));
         }
         if self.signature != "ed25519" {
             return Err(ManifestError::Invalid(format!(
-                "v0 supports signature=ed25519; got '{}'", self.signature)));
+                "v0 supports signature=ed25519; got '{}'",
+                self.signature
+            )));
         }
         Ok(())
     }
@@ -69,8 +75,7 @@ impl Manifest for SchemaRegistry {
 
 /// Default v0 schema bundle, parsed once.
 pub static DEFAULT: LazyLock<SchemaRegistry> = LazyLock::new(|| {
-    SchemaRegistry::parse_json(SCHEMA_V0_JSON.as_bytes())
-        .expect("default schema bundle parses")
+    SchemaRegistry::parse_json(SCHEMA_V0_JSON.as_bytes()).expect("default schema bundle parses")
 });
 
 #[cfg(test)]

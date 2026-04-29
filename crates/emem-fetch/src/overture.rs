@@ -33,15 +33,15 @@
 
 use std::sync::Arc;
 
-use arrow::array::{
-    Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, StructArray,
-};
+use arrow::array::{Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, StructArray};
 use arrow::datatypes::DataType;
 use futures_util::{StreamExt, TryStreamExt};
-use object_store::{aws::AmazonS3Builder, ObjectStore, path::Path as ObjectPath};
-use parquet::arrow::ProjectionMask;
+use object_store::{aws::AmazonS3Builder, path::Path as ObjectPath, ObjectStore};
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
-use parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader, ParquetRecordBatchStreamBuilder};
+use parquet::arrow::async_reader::{
+    AsyncFileReader, ParquetObjectReader, ParquetRecordBatchStreamBuilder,
+};
+use parquet::arrow::ProjectionMask;
 use parquet::file::metadata::ParquetMetaData;
 use parquet::file::statistics::Statistics;
 use std::sync::OnceLock;
@@ -85,9 +85,18 @@ struct ThemeType {
     typ: &'static str,
 }
 
-const PLACES: ThemeType = ThemeType { theme: "places", typ: "place" };
-const BUILDINGS: ThemeType = ThemeType { theme: "buildings", typ: "building" };
-const SEGMENTS: ThemeType = ThemeType { theme: "transportation", typ: "segment" };
+const PLACES: ThemeType = ThemeType {
+    theme: "places",
+    typ: "place",
+};
+const BUILDINGS: ThemeType = ThemeType {
+    theme: "buildings",
+    typ: "building",
+};
+const SEGMENTS: ThemeType = ThemeType {
+    theme: "transportation",
+    typ: "segment",
+};
 
 /// Anonymous S3 reader for one Overture release.
 pub struct OvertureClient {
@@ -104,8 +113,8 @@ pub struct OvertureClient {
 impl OvertureClient {
     /// Build an anonymous S3 reader for the configured release.
     pub fn new() -> Result<Self, OvertureError> {
-        let release = std::env::var("EMEM_OVERTURE_RELEASE")
-            .unwrap_or_else(|_| DEFAULT_RELEASE.to_string());
+        let release =
+            std::env::var("EMEM_OVERTURE_RELEASE").unwrap_or_else(|_| DEFAULT_RELEASE.to_string());
         let store = AmazonS3Builder::new()
             .with_region(REGION)
             .with_bucket_name(BUCKET)
@@ -128,13 +137,14 @@ impl OvertureClient {
     pub fn shared() -> &'static OvertureClient {
         static C: OnceLock<OvertureClient> = OnceLock::new();
         C.get_or_init(|| {
-            OvertureClient::new()
-                .expect("OvertureClient::new (anonymous S3) must not fail")
+            OvertureClient::new().expect("OvertureClient::new (anonymous S3) must not fail")
         })
     }
 
     /// Public release tag the client is reading from.
-    pub fn release(&self) -> &str { &self.release }
+    pub fn release(&self) -> &str {
+        &self.release
+    }
 
     /// List parquet files under `release/<theme>/<typ>/`, caching the result.
     async fn list_files(&self, tt: ThemeType) -> Result<Vec<String>, OvertureError> {
@@ -151,7 +161,9 @@ impl OvertureClient {
         let prefix_path = ObjectPath::from(prefix.clone());
         let mut out = Vec::new();
         let mut stream = self.store.list(Some(&prefix_path));
-        while let Some(meta) = stream.try_next().await
+        while let Some(meta) = stream
+            .try_next()
+            .await
             .map_err(|e| OvertureError::S3List(format!("{prefix}: {e}")))?
         {
             let key = meta.location.to_string();
@@ -173,15 +185,28 @@ impl OvertureClient {
     async fn footer(&self, key: &str) -> Result<Arc<ParquetMetaData>, OvertureError> {
         {
             let g = self.footers.lock().await;
-            if let Some(m) = g.get(key) { return Ok(m.clone()); }
+            if let Some(m) = g.get(key) {
+                return Ok(m.clone());
+            }
         }
         let path = ObjectPath::from(key.to_string());
-        let head = self.store.head(&path).await
-            .map_err(|e| OvertureError::S3Get { key: key.to_string(), detail: format!("head: {e}") })?;
-        let mut reader = ParquetObjectReader::new(self.store.clone(), path)
-            .with_file_size(head.size as u64);
-        let meta = reader.get_metadata(None).await
-            .map_err(|e| OvertureError::Parquet { key: key.to_string(), detail: format!("get_metadata: {e}") })?;
+        let head = self
+            .store
+            .head(&path)
+            .await
+            .map_err(|e| OvertureError::S3Get {
+                key: key.to_string(),
+                detail: format!("head: {e}"),
+            })?;
+        let mut reader =
+            ParquetObjectReader::new(self.store.clone(), path).with_file_size(head.size as u64);
+        let meta = reader
+            .get_metadata(None)
+            .await
+            .map_err(|e| OvertureError::Parquet {
+                key: key.to_string(),
+                detail: format!("get_metadata: {e}"),
+            })?;
         let mut g = self.footers.lock().await;
         g.insert(key.to_string(), meta.clone());
         Ok(meta)
@@ -193,17 +218,29 @@ impl OvertureClient {
         &self,
         key: &str,
         row_groups: Vec<usize>,
-    ) -> Result<parquet::arrow::async_reader::ParquetRecordBatchStream<ParquetObjectReader>, OvertureError>
-    {
+    ) -> Result<
+        parquet::arrow::async_reader::ParquetRecordBatchStream<ParquetObjectReader>,
+        OvertureError,
+    > {
         let path = ObjectPath::from(key.to_string());
-        let head = self.store.head(&path).await
-            .map_err(|e| OvertureError::S3Get { key: key.to_string(), detail: format!("head: {e}") })?;
-        let reader = ParquetObjectReader::new(self.store.clone(), path)
-            .with_file_size(head.size as u64);
+        let head = self
+            .store
+            .head(&path)
+            .await
+            .map_err(|e| OvertureError::S3Get {
+                key: key.to_string(),
+                detail: format!("head: {e}"),
+            })?;
+        let reader =
+            ParquetObjectReader::new(self.store.clone(), path).with_file_size(head.size as u64);
 
         let opts = ArrowReaderOptions::new();
-        let builder = ParquetRecordBatchStreamBuilder::new_with_options(reader, opts).await
-            .map_err(|e| OvertureError::Parquet { key: key.to_string(), detail: format!("stream_builder: {e}") })?;
+        let builder = ParquetRecordBatchStreamBuilder::new_with_options(reader, opts)
+            .await
+            .map_err(|e| OvertureError::Parquet {
+                key: key.to_string(),
+                detail: format!("stream_builder: {e}"),
+            })?;
 
         // Project only the columns we need by leaf-column index. The schema
         // descr's `columns()` returns leaf descriptors in order — we match
@@ -213,7 +250,9 @@ impl OvertureClient {
             let parquet_schema = builder.parquet_schema();
             for (i, col) in parquet_schema.columns().iter().enumerate() {
                 let parts = col.path().parts();
-                if parts.is_empty() { continue; }
+                if parts.is_empty() {
+                    continue;
+                }
                 match parts[0].as_str() {
                     "bbox" | "geometry" => leaf_idx.push(i),
                     _ => {}
@@ -239,7 +278,10 @@ impl OvertureClient {
     fn pick_row_groups(
         &self,
         meta: &Arc<ParquetMetaData>,
-        s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
     ) -> Vec<usize> {
         // Find the leaf indices for bbox.xmin / xmax / ymin / ymax.
         let schema = meta.file_metadata().schema_descr();
@@ -256,8 +298,7 @@ impl OvertureClient {
                 }
             }
         }
-        let (Some(ix0), Some(ix1), Some(iy0), Some(iy1)) =
-            (idx.xmin, idx.xmax, idx.ymin, idx.ymax)
+        let (Some(ix0), Some(ix1), Some(iy0), Some(iy1)) = (idx.xmin, idx.xmax, idx.ymin, idx.ymax)
         else {
             // No stats present — fall back to scanning every row group.
             return (0..meta.num_row_groups()).collect();
@@ -277,7 +318,9 @@ impl OvertureClient {
                 }
                 _ => true,
             };
-            if overlaps { keep.push(rg_i); }
+            if overlaps {
+                keep.push(rg_i);
+            }
         }
         keep
     }
@@ -285,23 +328,41 @@ impl OvertureClient {
     /// Count places (POIs, points) whose geometry falls inside the bbox.
     pub async fn places_count_in_bbox(
         &self,
-        s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
     ) -> Result<u64, OvertureError> {
-        self.scan_count(PLACES, s_lat, n_lat, w_lng, e_lng, GeomKind::Point).await
+        self.scan_count(PLACES, s_lat, n_lat, w_lng, e_lng, GeomKind::Point)
+            .await
     }
 
     /// Count buildings whose centroid (from the polygon WKB) falls inside the bbox.
     pub async fn buildings_count_in_bbox(
         &self,
-        s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
     ) -> Result<u64, OvertureError> {
-        self.scan_count(BUILDINGS, s_lat, n_lat, w_lng, e_lng, GeomKind::PolygonCentroid).await
+        self.scan_count(
+            BUILDINGS,
+            s_lat,
+            n_lat,
+            w_lng,
+            e_lng,
+            GeomKind::PolygonCentroid,
+        )
+        .await
     }
 
     /// Sum of road-segment length (metres) intersecting the bbox.
     pub async fn road_length_m_in_bbox(
         &self,
-        s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
     ) -> Result<f64, OvertureError> {
         let files = self.list_files(SEGMENTS).await?;
         let lat0 = (s_lat + n_lat) / 2.0;
@@ -310,48 +371,94 @@ impl OvertureClient {
         let m_per_deg_lat = 111_320.0_f64;
         let m_per_deg_lng = 111_320.0_f64 * lat0.to_radians().cos();
         let parallel = scan_parallelism();
-        let total = futures_util::stream::iter(files.into_iter())
+        let total = futures_util::stream::iter(files)
             .map(|key| async move {
-                self.scan_one_file_road(&key, s_lat, n_lat, w_lng, e_lng, m_per_deg_lat, m_per_deg_lng).await
+                self.scan_one_file_road(
+                    &key,
+                    s_lat,
+                    n_lat,
+                    w_lng,
+                    e_lng,
+                    m_per_deg_lat,
+                    m_per_deg_lng,
+                )
+                .await
             })
             .buffer_unordered(parallel)
-            .try_fold(0.0_f64, |acc, x| async move { Ok::<_, OvertureError>(acc + x) })
+            .try_fold(
+                0.0_f64,
+                |acc, x| async move { Ok::<_, OvertureError>(acc + x) },
+            )
             .await?;
         Ok(total)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn scan_one_file_road(
         &self,
         key: &str,
-        s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
-        m_per_deg_lat: f64, m_per_deg_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
+        m_per_deg_lat: f64,
+        m_per_deg_lng: f64,
     ) -> Result<f64, OvertureError> {
         let meta = self.footer(key).await?;
         let rgs = self.pick_row_groups(&meta, s_lat, n_lat, w_lng, e_lng);
-        if rgs.is_empty() { return Ok(0.0); }
+        if rgs.is_empty() {
+            return Ok(0.0);
+        }
         let mut stream = self.open_stream(key, rgs).await?;
         let mut total = 0.0f64;
-        while let Some(batch) = stream.try_next().await
-            .map_err(|e| OvertureError::Parquet { key: key.to_string(), detail: format!("next batch: {e}") })?
+        while let Some(batch) = stream
+            .try_next()
+            .await
+            .map_err(|e| OvertureError::Parquet {
+                key: key.to_string(),
+                detail: format!("next batch: {e}"),
+            })?
         {
-            let bbox_col = batch.column_by_name("bbox").ok_or_else(|| OvertureError::Schema {
-                key: key.to_string(), detail: "no bbox column in batch".into(),
-            })?;
-            let geom_col = batch.column_by_name("geometry").ok_or_else(|| OvertureError::Schema {
-                key: key.to_string(), detail: "no geometry column in batch".into(),
-            })?;
+            let bbox_col = batch
+                .column_by_name("bbox")
+                .ok_or_else(|| OvertureError::Schema {
+                    key: key.to_string(),
+                    detail: "no bbox column in batch".into(),
+                })?;
+            let geom_col =
+                batch
+                    .column_by_name("geometry")
+                    .ok_or_else(|| OvertureError::Schema {
+                        key: key.to_string(),
+                        detail: "no geometry column in batch".into(),
+                    })?;
             let bb = BBoxAccess::new(bbox_col.as_ref()).map_err(|e| OvertureError::Schema {
-                key: key.to_string(), detail: e,
+                key: key.to_string(),
+                detail: e,
             })?;
             let geoms = WkbAccess::new(geom_col.as_ref()).map_err(|e| OvertureError::Schema {
-                key: key.to_string(), detail: e,
+                key: key.to_string(),
+                detail: e,
             })?;
             for i in 0..batch.num_rows() {
-                if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) { continue; }
-                let Some(wkb) = geoms.get(i) else { continue; };
-                let Some(line_pts) = wkb_linestring_or_multi(wkb) else { continue; };
-                total += polyline_clipped_length(&line_pts,
-                    s_lat, n_lat, w_lng, e_lng, m_per_deg_lat, m_per_deg_lng);
+                if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
+                    continue;
+                }
+                let Some(wkb) = geoms.get(i) else {
+                    continue;
+                };
+                let Some(line_pts) = wkb_linestring_or_multi(wkb) else {
+                    continue;
+                };
+                total += polyline_clipped_length(
+                    &line_pts,
+                    s_lat,
+                    n_lat,
+                    w_lng,
+                    e_lng,
+                    m_per_deg_lat,
+                    m_per_deg_lng,
+                );
             }
         }
         Ok(total)
@@ -360,17 +467,24 @@ impl OvertureClient {
     async fn scan_count(
         &self,
         tt: ThemeType,
-        s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
         kind: GeomKind,
     ) -> Result<u64, OvertureError> {
         let files = self.list_files(tt).await?;
         let parallel = scan_parallelism();
-        let total = futures_util::stream::iter(files.into_iter())
+        let total = futures_util::stream::iter(files)
             .map(|key| async move {
-                self.scan_one_file_count(&key, s_lat, n_lat, w_lng, e_lng, kind).await
+                self.scan_one_file_count(&key, s_lat, n_lat, w_lng, e_lng, kind)
+                    .await
             })
             .buffer_unordered(parallel)
-            .try_fold(0u64, |acc, x| async move { Ok::<_, OvertureError>(acc + x) })
+            .try_fold(
+                0u64,
+                |acc, x| async move { Ok::<_, OvertureError>(acc + x) },
+            )
             .await?;
         Ok(total)
     }
@@ -378,37 +492,64 @@ impl OvertureClient {
     async fn scan_one_file_count(
         &self,
         key: &str,
-        s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
         kind: GeomKind,
     ) -> Result<u64, OvertureError> {
         let meta = self.footer(key).await?;
         let rgs = self.pick_row_groups(&meta, s_lat, n_lat, w_lng, e_lng);
-        if rgs.is_empty() { return Ok(0); }
+        if rgs.is_empty() {
+            return Ok(0);
+        }
         let mut stream = self.open_stream(key, rgs).await?;
         let mut count = 0u64;
-        while let Some(batch) = stream.try_next().await
-            .map_err(|e| OvertureError::Parquet { key: key.to_string(), detail: format!("next batch: {e}") })?
+        while let Some(batch) = stream
+            .try_next()
+            .await
+            .map_err(|e| OvertureError::Parquet {
+                key: key.to_string(),
+                detail: format!("next batch: {e}"),
+            })?
         {
-            let bbox_col = batch.column_by_name("bbox").ok_or_else(|| OvertureError::Schema {
-                key: key.to_string(), detail: "no bbox column in batch".into(),
-            })?;
-            let geom_col = batch.column_by_name("geometry").ok_or_else(|| OvertureError::Schema {
-                key: key.to_string(), detail: "no geometry column in batch".into(),
-            })?;
+            let bbox_col = batch
+                .column_by_name("bbox")
+                .ok_or_else(|| OvertureError::Schema {
+                    key: key.to_string(),
+                    detail: "no bbox column in batch".into(),
+                })?;
+            let geom_col =
+                batch
+                    .column_by_name("geometry")
+                    .ok_or_else(|| OvertureError::Schema {
+                        key: key.to_string(),
+                        detail: "no geometry column in batch".into(),
+                    })?;
             let bb = BBoxAccess::new(bbox_col.as_ref()).map_err(|e| OvertureError::Schema {
-                key: key.to_string(), detail: e,
+                key: key.to_string(),
+                detail: e,
             })?;
             let geoms = WkbAccess::new(geom_col.as_ref()).map_err(|e| OvertureError::Schema {
-                key: key.to_string(), detail: e,
+                key: key.to_string(),
+                detail: e,
             })?;
             for i in 0..batch.num_rows() {
-                if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) { continue; }
-                let Some(wkb) = geoms.get(i) else { continue; };
+                if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
+                    continue;
+                }
+                let Some(wkb) = geoms.get(i) else {
+                    continue;
+                };
                 let inside = match kind {
                     GeomKind::Point => wkb_point_inside(wkb, s_lat, n_lat, w_lng, e_lng),
-                    GeomKind::PolygonCentroid => wkb_polygon_centroid_inside(wkb, s_lat, n_lat, w_lng, e_lng),
+                    GeomKind::PolygonCentroid => {
+                        wkb_polygon_centroid_inside(wkb, s_lat, n_lat, w_lng, e_lng)
+                    }
                 };
-                if inside { count += 1; }
+                if inside {
+                    count += 1;
+                }
             }
         }
         Ok(count)
@@ -418,7 +559,8 @@ impl OvertureClient {
 /// File-scan parallelism: high enough to overlap S3 RTT, low enough not to
 /// thrash. Override with `EMEM_OVERTURE_PARALLEL`.
 fn scan_parallelism() -> usize {
-    std::env::var("EMEM_OVERTURE_PARALLEL").ok()
+    std::env::var("EMEM_OVERTURE_PARALLEL")
+        .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(32)
         .clamp(1, 256)
@@ -426,12 +568,17 @@ fn scan_parallelism() -> usize {
 
 #[derive(Default)]
 struct BboxLeafIndex {
-    xmin: Option<usize>, xmax: Option<usize>,
-    ymin: Option<usize>, ymax: Option<usize>,
+    xmin: Option<usize>,
+    xmax: Option<usize>,
+    ymin: Option<usize>,
+    ymax: Option<usize>,
 }
 
 #[derive(Clone, Copy)]
-enum GeomKind { Point, PolygonCentroid }
+enum GeomKind {
+    Point,
+    PolygonCentroid,
+}
 
 /// Per-row bbox accessor — tolerates both f32 and f64 underlying storage,
 /// which Overture has used in different vintages.
@@ -458,14 +605,21 @@ impl<'a> F32OrF64<'a> {
 
 impl<'a> BBoxAccess<'a> {
     fn new(col: &'a dyn Array) -> Result<Self, String> {
-        let s = col.as_any().downcast_ref::<StructArray>()
+        let s = col
+            .as_any()
+            .downcast_ref::<StructArray>()
             .ok_or_else(|| format!("bbox not a struct (dtype={:?})", col.data_type()))?;
         let pick = |name: &str| -> Result<F32OrF64<'a>, String> {
-            let f = s.column_by_name(name)
+            let f = s
+                .column_by_name(name)
                 .ok_or_else(|| format!("bbox.{name} missing"))?;
             match f.data_type() {
-                DataType::Float32 => Ok(F32OrF64::F32(f.as_any().downcast_ref::<Float32Array>().unwrap())),
-                DataType::Float64 => Ok(F32OrF64::F64(f.as_any().downcast_ref::<Float64Array>().unwrap())),
+                DataType::Float32 => Ok(F32OrF64::F32(
+                    f.as_any().downcast_ref::<Float32Array>().unwrap(),
+                )),
+                DataType::Float64 => Ok(F32OrF64::F64(
+                    f.as_any().downcast_ref::<Float64Array>().unwrap(),
+                )),
                 d => Err(format!("bbox.{name} unexpected dtype {d:?}")),
             }
         };
@@ -498,17 +652,33 @@ enum WkbInner<'a> {
 impl<'a> WkbAccess<'a> {
     fn new(col: &'a dyn Array) -> Result<Self, String> {
         if let Some(b) = col.as_any().downcast_ref::<BinaryArray>() {
-            Ok(WkbAccess { inner: WkbInner::Bin(b) })
+            Ok(WkbAccess {
+                inner: WkbInner::Bin(b),
+            })
         } else if let Some(b) = col.as_any().downcast_ref::<LargeBinaryArray>() {
-            Ok(WkbAccess { inner: WkbInner::Large(b) })
+            Ok(WkbAccess {
+                inner: WkbInner::Large(b),
+            })
         } else {
             Err(format!("geometry unexpected dtype {:?}", col.data_type()))
         }
     }
     fn get(&self, i: usize) -> Option<&[u8]> {
         match &self.inner {
-            WkbInner::Bin(b) => if b.is_null(i) { None } else { Some(b.value(i)) },
-            WkbInner::Large(b) => if b.is_null(i) { None } else { Some(b.value(i)) },
+            WkbInner::Bin(b) => {
+                if b.is_null(i) {
+                    None
+                } else {
+                    Some(b.value(i))
+                }
+            }
+            WkbInner::Large(b) => {
+                if b.is_null(i) {
+                    None
+                } else {
+                    Some(b.value(i))
+                }
+            }
         }
     }
 }
@@ -544,16 +714,28 @@ const WKB_POLYGON: u32 = 3;
 const WKB_MULTI_LINESTRING: u32 = 5;
 const WKB_MULTI_POLYGON: u32 = 6;
 
-struct WkbCursor<'a> { buf: &'a [u8], pos: usize, le: bool }
+struct WkbCursor<'a> {
+    buf: &'a [u8],
+    pos: usize,
+    le: bool,
+}
 impl<'a> WkbCursor<'a> {
     fn new(buf: &'a [u8]) -> Option<Self> {
-        if buf.is_empty() { return None; }
-        let le = match buf[0] { 1 => true, 0 => false, _ => return None };
+        if buf.is_empty() {
+            return None;
+        }
+        let le = match buf[0] {
+            1 => true,
+            0 => false,
+            _ => return None,
+        };
         Some(WkbCursor { buf, pos: 1, le })
     }
     fn read_u32(&mut self) -> Option<u32> {
-        if self.pos + 4 > self.buf.len() { return None; }
-        let s = &self.buf[self.pos..self.pos+4];
+        if self.pos + 4 > self.buf.len() {
+            return None;
+        }
+        let s = &self.buf[self.pos..self.pos + 4];
         self.pos += 4;
         Some(if self.le {
             u32::from_le_bytes([s[0], s[1], s[2], s[3]])
@@ -562,22 +744,30 @@ impl<'a> WkbCursor<'a> {
         })
     }
     fn read_f64(&mut self) -> Option<f64> {
-        if self.pos + 8 > self.buf.len() { return None; }
-        let s = &self.buf[self.pos..self.pos+8];
+        if self.pos + 8 > self.buf.len() {
+            return None;
+        }
+        let s = &self.buf[self.pos..self.pos + 8];
         self.pos += 8;
         Some(if self.le {
-            f64::from_le_bytes([s[0],s[1],s[2],s[3],s[4],s[5],s[6],s[7]])
+            f64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]])
         } else {
-            f64::from_be_bytes([s[0],s[1],s[2],s[3],s[4],s[5],s[6],s[7]])
+            f64::from_be_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]])
         })
     }
     /// Read the next nested geometry's byte order + type. Each sub-geometry
     /// in a multi-geometry has its own byte-order byte and type tag.
     fn read_sub_header(&mut self) -> Option<u32> {
-        if self.pos + 5 > self.buf.len() { return None; }
+        if self.pos + 5 > self.buf.len() {
+            return None;
+        }
         let bo = self.buf[self.pos];
         self.pos += 1;
-        self.le = match bo { 1 => true, 0 => false, _ => return None };
+        self.le = match bo {
+            1 => true,
+            0 => false,
+            _ => return None,
+        };
         self.read_u32().map(|t| t & 0x0FFFFFFF) // mask off SRID/M/Z bits
     }
 }
@@ -590,9 +780,15 @@ fn wkb_type(buf: &[u8]) -> Option<(WkbCursor<'_>, u32)> {
 
 /// Test if a WKB Point falls inside the bbox.
 pub fn wkb_point_inside(buf: &[u8], s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64) -> bool {
-    let Some((mut cur, t)) = wkb_type(buf) else { return false; };
-    if t != WKB_POINT { return false; }
-    let (Some(x), Some(y)) = (cur.read_f64(), cur.read_f64()) else { return false; };
+    let Some((mut cur, t)) = wkb_type(buf) else {
+        return false;
+    };
+    if t != WKB_POINT {
+        return false;
+    }
+    let (Some(x), Some(y)) = (cur.read_f64(), cur.read_f64()) else {
+        return false;
+    };
     x >= w_lng && x <= e_lng && y >= s_lat && y <= n_lat
 }
 
@@ -600,33 +796,57 @@ pub fn wkb_point_inside(buf: &[u8], s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f
 /// (Average of outer-ring vertices — adequate for a ~305 m cell; the
 /// buildings.count band is documented as "centroid inside bbox", so the
 /// approximation is part of the contract.)
-pub fn wkb_polygon_centroid_inside(buf: &[u8], s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64) -> bool {
-    let Some((mut cur, t)) = wkb_type(buf) else { return false; };
+pub fn wkb_polygon_centroid_inside(
+    buf: &[u8],
+    s_lat: f64,
+    n_lat: f64,
+    w_lng: f64,
+    e_lng: f64,
+) -> bool {
+    let Some((mut cur, t)) = wkb_type(buf) else {
+        return false;
+    };
     let (cx, cy) = match t {
-        WKB_POLYGON => match polygon_centroid(&mut cur) { Some(c) => c, None => return false },
+        WKB_POLYGON => match polygon_centroid(&mut cur) {
+            Some(c) => c,
+            None => return false,
+        },
         WKB_MULTI_POLYGON => {
             // Centroid of the largest sub-polygon by ring vertex count.
-            let Some(np) = cur.read_u32() else { return false; };
-            let mut best: Option<((f64,f64), u32)> = None;
+            let Some(np) = cur.read_u32() else {
+                return false;
+            };
+            let mut best: Option<((f64, f64), u32)> = None;
             for _ in 0..np {
-                if cur.read_sub_header() != Some(WKB_POLYGON) { return false; }
-                let Some(c) = polygon_centroid_with_count(&mut cur) else { return false; };
-                if best.map(|(_, n)| n < c.1).unwrap_or(true) { best = Some(((c.0.0, c.0.1), c.1)); }
+                if cur.read_sub_header() != Some(WKB_POLYGON) {
+                    return false;
+                }
+                let Some(c) = polygon_centroid_with_count(&mut cur) else {
+                    return false;
+                };
+                if best.map(|(_, n)| n < c.1).unwrap_or(true) {
+                    best = Some(((c.0 .0, c.0 .1), c.1));
+                }
             }
-            match best { Some((c, _)) => c, None => return false }
+            match best {
+                Some((c, _)) => c,
+                None => return false,
+            }
         }
         _ => return false,
     };
     cx >= w_lng && cx <= e_lng && cy >= s_lat && cy <= n_lat
 }
 
-fn polygon_centroid(cur: &mut WkbCursor<'_>) -> Option<(f64,f64)> {
+fn polygon_centroid(cur: &mut WkbCursor<'_>) -> Option<(f64, f64)> {
     polygon_centroid_with_count(cur).map(|(c, _)| c)
 }
 
-fn polygon_centroid_with_count(cur: &mut WkbCursor<'_>) -> Option<((f64,f64), u32)> {
+fn polygon_centroid_with_count(cur: &mut WkbCursor<'_>) -> Option<((f64, f64), u32)> {
     let nrings = cur.read_u32()?;
-    if nrings == 0 { return None; }
+    if nrings == 0 {
+        return None;
+    }
     let mut cx = 0.0f64;
     let mut cy = 0.0f64;
     let mut total = 0u32;
@@ -636,17 +856,21 @@ fn polygon_centroid_with_count(cur: &mut WkbCursor<'_>) -> Option<((f64,f64), u3
             let x = cur.read_f64()?;
             let y = cur.read_f64()?;
             if r == 0 {
-                cx += x; cy += y; total += 1;
+                cx += x;
+                cy += y;
+                total += 1;
             }
         }
     }
-    if total == 0 { return None; }
+    if total == 0 {
+        return None;
+    }
     Some(((cx / total as f64, cy / total as f64), total))
 }
 
 /// Decode a LineString or MultiLineString into a vector of polylines.
 /// Each inner Vec is one polyline of (x, y) pairs.
-fn wkb_linestring_or_multi(buf: &[u8]) -> Option<Vec<Vec<(f64,f64)>>> {
+fn wkb_linestring_or_multi(buf: &[u8]) -> Option<Vec<Vec<(f64, f64)>>> {
     let mut cur = WkbCursor::new(buf)?;
     let t = cur.read_u32()? & 0x0FFFFFFF;
     match t {
@@ -658,7 +882,9 @@ fn wkb_linestring_or_multi(buf: &[u8]) -> Option<Vec<Vec<(f64,f64)>>> {
             let n = cur.read_u32()?;
             let mut out = Vec::with_capacity(n as usize);
             for _ in 0..n {
-                if cur.read_sub_header() != Some(WKB_LINESTRING) { return None; }
+                if cur.read_sub_header() != Some(WKB_LINESTRING) {
+                    return None;
+                }
                 let line = read_linestring(&mut cur)?;
                 out.push(line);
             }
@@ -668,13 +894,13 @@ fn wkb_linestring_or_multi(buf: &[u8]) -> Option<Vec<Vec<(f64,f64)>>> {
     }
 }
 
-fn read_linestring(cur: &mut WkbCursor<'_>) -> Option<Vec<(f64,f64)>> {
+fn read_linestring(cur: &mut WkbCursor<'_>) -> Option<Vec<(f64, f64)>> {
     let np = cur.read_u32()?;
     let mut v = Vec::with_capacity(np as usize);
     for _ in 0..np {
         let x = cur.read_f64()?;
         let y = cur.read_f64()?;
-        v.push((x,y));
+        v.push((x, y));
     }
     Some(v)
 }
@@ -683,19 +909,27 @@ fn read_linestring(cur: &mut WkbCursor<'_>) -> Option<Vec<(f64,f64)>> {
 /// inside the bbox. Uses Liang-Barsky-style segment clipping; a tiny cell
 /// (~305 m) makes the planar approximation indistinguishable from haversine.
 fn polyline_clipped_length(
-    polylines: &[Vec<(f64,f64)>],
-    s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f64,
-    m_per_deg_lat: f64, m_per_deg_lng: f64,
+    polylines: &[Vec<(f64, f64)>],
+    s_lat: f64,
+    n_lat: f64,
+    w_lng: f64,
+    e_lng: f64,
+    m_per_deg_lat: f64,
+    m_per_deg_lng: f64,
 ) -> f64 {
     let mut total = 0.0f64;
     for line in polylines {
-        if line.len() < 2 { continue; }
+        if line.len() < 2 {
+            continue;
+        }
         for w in line.windows(2) {
             let (a, b) = (w[0], w[1]);
-            if let Some(((x0,y0),(x1,y1))) = clip_segment_to_bbox(a.0,a.1,b.0,b.1, w_lng,e_lng,s_lat,n_lat) {
+            if let Some(((x0, y0), (x1, y1))) =
+                clip_segment_to_bbox(a.0, a.1, b.0, b.1, w_lng, e_lng, s_lat, n_lat)
+            {
                 let dx = (x1 - x0) * m_per_deg_lng;
                 let dy = (y1 - y0) * m_per_deg_lat;
-                total += (dx*dx + dy*dy).sqrt();
+                total += (dx * dx + dy * dy).sqrt();
             }
         }
     }
@@ -703,26 +937,48 @@ fn polyline_clipped_length(
 }
 
 /// Liang-Barsky segment-vs-AABB clipping.
+#[allow(clippy::too_many_arguments)]
 fn clip_segment_to_bbox(
-    mut x0: f64, mut y0: f64, mut x1: f64, mut y1: f64,
-    xmin: f64, xmax: f64, ymin: f64, ymax: f64,
-) -> Option<((f64,f64),(f64,f64))> {
+    mut x0: f64,
+    mut y0: f64,
+    mut x1: f64,
+    mut y1: f64,
+    xmin: f64,
+    xmax: f64,
+    ymin: f64,
+    ymax: f64,
+) -> Option<((f64, f64), (f64, f64))> {
     let dx = x1 - x0;
     let dy = y1 - y0;
     let mut t0 = 0.0f64;
     let mut t1 = 1.0f64;
-    let edges = [(-dx, x0 - xmin), (dx, xmax - x0), (-dy, y0 - ymin), (dy, ymax - y0)];
+    let edges = [
+        (-dx, x0 - xmin),
+        (dx, xmax - x0),
+        (-dy, y0 - ymin),
+        (dy, ymax - y0),
+    ];
     for (p, q) in edges {
         if p == 0.0 {
-            if q < 0.0 { return None; }
+            if q < 0.0 {
+                return None;
+            }
         } else {
             let r = q / p;
             if p < 0.0 {
-                if r > t1 { return None; }
-                if r > t0 { t0 = r; }
+                if r > t1 {
+                    return None;
+                }
+                if r > t0 {
+                    t0 = r;
+                }
             } else {
-                if r < t0 { return None; }
-                if r < t1 { t1 = r; }
+                if r < t0 {
+                    return None;
+                }
+                if r < t1 {
+                    t1 = r;
+                }
             }
         }
     }
@@ -733,7 +989,6 @@ fn clip_segment_to_bbox(
     let _ = (&mut x0, &mut y0, &mut x1, &mut y1);
     Some(((nx0, ny0), (nx1, ny1)))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -748,26 +1003,26 @@ mod tests {
         v
     }
 
-    fn linestring_le(pts: &[(f64,f64)]) -> Vec<u8> {
+    fn linestring_le(pts: &[(f64, f64)]) -> Vec<u8> {
         let mut v = Vec::new();
         v.push(1);
         v.extend_from_slice(&2u32.to_le_bytes()); // LineString
         v.extend_from_slice(&(pts.len() as u32).to_le_bytes());
-        for (x,y) in pts {
+        for (x, y) in pts {
             v.extend_from_slice(&x.to_le_bytes());
             v.extend_from_slice(&y.to_le_bytes());
         }
         v
     }
 
-    fn polygon_le(rings: &[Vec<(f64,f64)>]) -> Vec<u8> {
+    fn polygon_le(rings: &[Vec<(f64, f64)>]) -> Vec<u8> {
         let mut v = Vec::new();
         v.push(1);
         v.extend_from_slice(&3u32.to_le_bytes());
         v.extend_from_slice(&(rings.len() as u32).to_le_bytes());
         for r in rings {
             v.extend_from_slice(&(r.len() as u32).to_le_bytes());
-            for (x,y) in r {
+            for (x, y) in r {
                 v.extend_from_slice(&x.to_le_bytes());
                 v.extend_from_slice(&y.to_le_bytes());
             }
@@ -785,7 +1040,13 @@ mod tests {
     #[test]
     fn polygon_centroid_basic() {
         // Square 0..1 x 0..1 → centroid 0.5,0.5.
-        let poly = polygon_le(&[vec![(0.0,0.0),(1.0,0.0),(1.0,1.0),(0.0,1.0),(0.0,0.0)]]);
+        let poly = polygon_le(&[vec![
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 1.0),
+            (0.0, 0.0),
+        ]]);
         assert!(wkb_polygon_centroid_inside(&poly, 0.4, 0.6, 0.4, 0.6));
         assert!(!wkb_polygon_centroid_inside(&poly, 2.0, 3.0, 2.0, 3.0));
     }

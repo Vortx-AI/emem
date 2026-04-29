@@ -100,7 +100,8 @@ fn fact_cid_prefix_is_collision_resistant_and_lowercased() {
 
     assert_eq!(cid.len(), 26, "16 bytes → 26 base32-nopad chars");
     assert!(
-        cid.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+        cid.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
         "base32-nopad must be lowercase ASCII; got {cid}"
     );
 }
@@ -118,7 +119,10 @@ fn signature_serde_json_round_trip() {
     let wire = Signature(sig.to_bytes());
     let json = serde_json::to_string(&wire).expect("serialize Signature");
     let back: Signature = serde_json::from_str(&json).expect("deserialize Signature");
-    assert_eq!(wire.0, back.0, "Signature bytes must survive JSON round-trip");
+    assert_eq!(
+        wire.0, back.0,
+        "Signature bytes must survive JSON round-trip"
+    );
 
     let recovered = ed25519_dalek::Signature::from_bytes(&back.0);
     vk.verify(preimage, &recovered)
@@ -162,5 +166,8 @@ fn signing_key_from_bytes_round_trip() {
     OsRng.fill_bytes(&mut bytes);
     let sk = SigningKey::from_bytes(&bytes);
     let sk2 = SigningKey::from_bytes(&bytes);
-    assert_eq!(sk.verifying_key().to_bytes(), sk2.verifying_key().to_bytes());
+    assert_eq!(
+        sk.verifying_key().to_bytes(),
+        sk2.verifying_key().to_bytes()
+    );
 }

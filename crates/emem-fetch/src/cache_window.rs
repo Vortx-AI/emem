@@ -29,7 +29,9 @@ struct Slot {
 impl CoalesceWindow {
     /// Build a fresh empty window.
     pub fn new() -> Self {
-        Self { inner: Mutex::new(HashMap::new()) }
+        Self {
+            inner: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Register interest in `key`. If a fetch is already in-flight the
@@ -41,11 +43,23 @@ impl CoalesceWindow {
         let mut g = self.inner.lock().await;
         if let Some(slot) = g.get(key) {
             let notify = slot.notify.clone();
-            return Coalesced::Waiter { key: key.to_string(), notify };
+            return Coalesced::Waiter {
+                key: key.to_string(),
+                notify,
+            };
         }
         let notify = Arc::new(Notify::new());
-        g.insert(key.to_string(), Slot { notify: notify.clone(), result: None });
-        Coalesced::Owner { key: key.to_string(), notify }
+        g.insert(
+            key.to_string(),
+            Slot {
+                notify: notify.clone(),
+                result: None,
+            },
+        );
+        Coalesced::Owner {
+            key: key.to_string(),
+            notify,
+        }
     }
 
     /// Publish the fetch result, wake all waiters, and clear the slot.
@@ -76,7 +90,9 @@ impl CoalesceWindow {
 }
 
 impl Default for CoalesceWindow {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Outcome of [`CoalesceWindow::enter`].

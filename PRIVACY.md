@@ -1,12 +1,13 @@
 # emem Privacy Policy
 
-_Last updated: 2026-04-28_
+_Last updated: 2026-04-29_
 
 emem is an open, content-addressed protocol that returns signed facts about
 geographic cells. This document describes the data the **canonical responder**
-operated by Vortx-AI at `https://emem.dev` (and mirrored at
-`https://vortx-ai-emem.hf.space`) collects, processes, and retains. Self-hosted
-emem deployments are governed by their own operators and are out of scope.
+operated by **Vortx AI Private Limited** (India) at `https://emem.dev` (and
+mirrored at `https://vortx-ai-emem.hf.space`) collects, processes, and
+retains. Self-hosted emem deployments are governed by their own operators
+and are out of scope.
 
 ## Tl;dr
 
@@ -22,10 +23,11 @@ emem deployments are governed by their own operators and are out of scope.
 |---|---|---|---|
 | `GET /…`, `POST /v1/*`, `POST /mcp` | Request method, path, status, duration, response size, originating IP, user-agent header | Server health, abuse mitigation, capacity planning | 30 days, then deleted |
 | `POST /v1/attest`, `POST /v1/attest_cbor` | The signed attestation payload itself: ed25519 attester pubkey, fact CIDs, Merkle root, attestation timestamp | Persisted to the public, content-addressed corpus by design — that is the whole protocol | Indefinite (the corpus is a public ledger) |
-| `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate` | Request body (cell, place name, bands) | Used in-memory only to compute the response; not associated with the requesting IP | Not persisted beyond the request |
-| Auto-materialized facts | Upstream provider response (Copernicus DEM, JRC GSW, Hansen, ESA WorldCover, OSM/Overture, Open-Meteo, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
+| `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate`, `POST /v1/backfill` | Request body (cell, place name, bands, time window) | Used in-memory only to compute the response; not associated with the requesting IP | Not persisted beyond the request |
+| Auto-materialized facts (incl. `emem_backfill`) | Upstream provider response (Copernicus DEM, JRC GSW, Hansen, ESA WorldCover, OSM/Overture, Open-Meteo, MODIS / ORNL DAAC, Sentinel-1/2 via Microsoft Planetary Computer, Tessera, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
 
 **We never log:**
+
 - Free-text questions sent to `emem_ask` or `emem_intent`
 - Per-user query histories
 - Cookies, fingerprints, or device identifiers (we set none)
@@ -37,11 +39,20 @@ emem deployments are governed by their own operators and are out of scope.
 - No location data beyond what you explicitly include in a request
 - No payment information (the public responder is free for L0/L1)
 
+## Geocoder cache
+
+Free-text place queries submitted to `/v1/locate` (the `place` field) are
+cached locally on the responder against the upstream Nominatim response.
+Cache key is the normalized query string; cache TTL is 30 days; cache
+contents are local to this responder and never shared upstream. If you
+prefer your place queries not be cached, use the `lat` + `lng` form of
+`/v1/locate` instead — coordinate lookups are not cached.
+
 ## Third parties
 
-When a request triggers auto-materialization, the responder fetches data from
-public open-data providers — these requests are made _by the emem responder_,
-not by you, and your IP is not forwarded:
+When a request triggers auto-materialization, the responder fetches data
+from public open-data providers — these requests are made *by the emem
+responder*, not by you, and your IP is not forwarded:
 
 - Copernicus Data Space Ecosystem (Sentinel-1, Sentinel-2, Cop-DEM)
 - JRC Global Surface Water (`storage.googleapis.com/global-surface-water`)
@@ -50,6 +61,10 @@ not by you, and your IP is not forwarded:
 - Overture Maps (`overturemaps-us-west-2.s3.amazonaws.com`)
 - OpenStreetMap (`overpass-api.de`, `nominatim.openstreetmap.org`)
 - Open-Meteo (`api.open-meteo.com`)
+- MET Norway (`api.met.no`)
+- ORNL DAAC (`modis.ornl.gov`) for MODIS NDVI
+- Microsoft Planetary Computer (`planetarycomputer.microsoft.com`) for Sentinel-1 RTC and Sentinel-2 STAC
+- Tessera (`dl2.geotessera.org`)
 
 Each provider has its own privacy policy; their licences are surfaced via
 `GET /v1/sources`.
@@ -57,16 +72,17 @@ Each provider has its own privacy policy; their licences are surfaced via
 ## Receipts and signatures
 
 Every response includes a signed receipt: the responder's ed25519 public key,
-the request canonicalisation hash, and the fact CIDs. The receipt does **not**
-contain user identifiers. You can verify any receipt offline using the public
-key at `/.well-known/emem.json`.
+the request canonicalisation hash, and the fact CIDs. The receipt does
+**not** contain user identifiers. You can verify any receipt offline using
+the public key at `/.well-known/emem.json`.
 
 ## Your rights
 
 Because L0/L1 reads are anonymous and the responder stores no account or
 identifier, there is generally no per-user record to act on. That said, to
-the extent applicable privacy laws (including the EU/UK GDPR and the
-California CCPA/CPRA) grant you rights, we honour them:
+the extent applicable privacy laws (including the EU/UK GDPR, the
+California CCPA/CPRA, and India's Digital Personal Data Protection Act 2023)
+grant you rights, we honour them:
 
 - **Access / portability** — request a copy of any operational log line
   that can be tied to an IP you control.
@@ -86,22 +102,27 @@ California CCPA/CPRA) grant you rights, we honour them:
 To exercise a right, email **avijeet@vortx.ai** with enough context (e.g.
 the IP and approximate UTC timestamp) for us to locate the record. We aim
 to respond within 30 days. If you believe we have not addressed your
-request, you may complain to your local supervisory authority (in the EU)
-or the California Privacy Protection Agency.
+request, you may complain to your local supervisory authority (in the EU,
+UK, or California) or, in India, to the Data Protection Board once it is
+operational.
 
 ## Children
 
-emem returns geographic facts; it has no concept of user accounts and is not
-directed at children under 13. We do not knowingly collect personal data
-from children.
+emem returns geographic facts; it has no concept of user accounts and is
+not directed at children under 13. We do not knowingly collect personal
+data from children.
 
 ## Changes
 
-We may revise this policy as the protocol evolves. The canonical version is
-the file `PRIVACY.md` in [github.com/Vortx-AI/emem](https://github.com/Vortx-AI/emem);
-the live HTTPS rendering is at `https://emem.dev/privacy`.
+We may revise this policy as the protocol evolves. The canonical version
+is the file `PRIVACY.md` in
+[github.com/Vortx-AI/emem](https://github.com/Vortx-AI/emem); the live
+HTTPS rendering is at `https://emem.dev/privacy`. Material changes are
+summarised in `CHANGELOG.md`.
 
 ## Contact
 
 - Issues, bugs, security: <https://github.com/Vortx-AI/emem/issues>
-- Privacy enquiries: **avijeet@vortx.ai**
+- Privacy / data-subject-rights enquiries: **avijeet@vortx.ai**
+
+The hosted responder is operated by **Vortx AI Private Limited** (India).

@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
 # Build stage — Rust 1.88+ required by transitive deps (time 0.3.47,
-# icu_* 2.2.0). Pinned to 1.91 for headroom on Bookworm slim.
-FROM rust:1.91-slim-bookworm AS build
+# icu_* 2.2.0). Pinned to 1.88 (workspace MSRV).
+FROM rust:1.88-slim-bookworm AS build
+ARG TARGETARCH
 WORKDIR /usr/src/emem
 
 # OpenSSL is *not* needed (we use rustls-acme), but build tools and a
@@ -23,8 +24,15 @@ COPY crates/ crates/
 COPY web/ web/
 COPY docs/ docs/
 COPY examples/ examples/
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/src/emem/target \
+# Root-level markdown is include_str!'d directly by emem-api-rest.
+# Without these the build fails with `couldn't read PRIVACY.md`.
+COPY PRIVACY.md TERMS.md SUPPORT.md ./
+# BuildKit cache-mount IDs are scoped by ${TARGETARCH} so the parallel
+# linux/amd64 + linux/arm64 build jobs don't race each other unpacking
+# the same crate into a shared cache (`File exists (os error 17)` on
+# `.cargo-ok`). Each arch keeps its own warm cache across runs.
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=emem-target-${TARGETARCH},target=/usr/src/emem/target,sharing=locked \
     cargo build --release --bin emem-server && \
     cp target/release/emem-server /usr/local/bin/emem-server
 

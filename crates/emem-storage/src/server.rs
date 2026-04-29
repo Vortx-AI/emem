@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use blake3::Hasher;
 use ed25519_dalek::{Signer, SigningKey};
-use rand::RngCore;
 use rand::rngs::OsRng;
+use rand::RngCore;
 
 use emem_core::{AttesterKey, KeyEpoch, Signature};
 use emem_fact::{Cost, FactCid, Receipt, RegistryCid, SchemaCid};
@@ -59,7 +59,11 @@ impl ResponderIdentity {
         let vk = signing.verifying_key();
         let mut pk = [0u8; 32];
         pk.copy_from_slice(vk.as_bytes());
-        Self { signing, pubkey: AttesterKey(pk), epoch: KeyEpoch(epoch) }
+        Self {
+            signing,
+            pubkey: AttesterKey(pk),
+            epoch: KeyEpoch(epoch),
+        }
     }
 
     /// 64-byte signing key (secret || pub) — base32-rendered for export.
@@ -103,7 +107,6 @@ fn now_unix_s() -> i64 {
 }
 
 impl Server {
-
     /// Borrow the per-attester reputation registry if storage tracks it.
     pub fn storage_attesters(&self) -> Option<&crate::AttesterRegistry> {
         self.storage.attesters()
@@ -127,12 +130,21 @@ impl Server {
         let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
 
         let mut h = Hasher::new();
-        h.update(request_id.as_bytes()); h.update(b"|");
-        h.update(served_at.as_bytes()); h.update(b"|");
-        h.update(primitive.as_bytes()); h.update(b"|");
-        for c in &cells { h.update(c.as_bytes()); h.update(b","); }
+        h.update(request_id.as_bytes());
         h.update(b"|");
-        for c in &fact_cids { h.update(c.as_str().as_bytes()); h.update(b","); }
+        h.update(served_at.as_bytes());
+        h.update(b"|");
+        h.update(primitive.as_bytes());
+        h.update(b"|");
+        for c in &cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
         let msg = h.finalize();
 
         let dalek_sig = self.identity.signing.sign(msg.as_bytes());
@@ -168,7 +180,10 @@ impl Server {
 /// chrono dependency using the Howard Hinnant civil-from-days algorithm.
 pub fn iso8601_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
     iso8601_from_unix(secs)
 }
 
@@ -210,10 +225,12 @@ mod tests {
         // One full year on must roll the year forward.
         assert_eq!(
             iso8601_from_unix(1_767_225_600 + 365 * 86_400),
-            "2027-01-01T00:00:00Z");
+            "2027-01-01T00:00:00Z"
+        );
         // Hours/minutes/seconds round-trip.
         assert_eq!(
             iso8601_from_unix(1_767_225_600 + 13 * 3600 + 55 * 60 + 7),
-            "2026-01-01T13:55:07Z");
+            "2026-01-01T13:55:07Z"
+        );
     }
 }

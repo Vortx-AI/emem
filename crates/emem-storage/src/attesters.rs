@@ -35,13 +35,20 @@ use emem_fact::Fact;
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AttesterStats {
     pub pubkey_b32: String,
-    #[serde(default)] pub attestations: u64,
-    #[serde(default)] pub facts: u64,
-    #[serde(default)] pub citations: u64,
-    #[serde(default)] pub unique_cells: u64,
-    #[serde(default)] pub first_seen_unix_s: u64,
-    #[serde(default)] pub last_seen_unix_s: u64,
-    #[serde(default)] pub last_cited_unix_s: u64,
+    #[serde(default)]
+    pub attestations: u64,
+    #[serde(default)]
+    pub facts: u64,
+    #[serde(default)]
+    pub citations: u64,
+    #[serde(default)]
+    pub unique_cells: u64,
+    #[serde(default)]
+    pub first_seen_unix_s: u64,
+    #[serde(default)]
+    pub last_seen_unix_s: u64,
+    #[serde(default)]
+    pub last_cited_unix_s: u64,
 }
 
 impl AttesterStats {
@@ -66,7 +73,9 @@ impl AttesterRegistry {
     /// Open the `attesters` tree on the given sled DB. Creates if missing.
     pub fn open(db: &sled::Db) -> sled::Result<Self> {
         let tree = db.open_tree("emem.attesters")?;
-        Ok(Self { tree: Arc::new(tree) })
+        Ok(Self {
+            tree: Arc::new(tree),
+        })
     }
 
     /// Update stats after a successful attestation. Counts:
@@ -82,20 +91,26 @@ impl AttesterRegistry {
 
         // Count distinct cells contributed in this batch — useful for
         // unique_cells.
-        let mut cells_for_attester: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        let mut cells_for_attester: std::collections::BTreeSet<&str> =
+            std::collections::BTreeSet::new();
 
         // Per-signer rollup; the attester key may differ from per-fact
         // signer (e.g. when an aggregator submits on behalf of others).
-        let mut per_signer: std::collections::BTreeMap<String, (u64, std::collections::BTreeSet<String>)> = std::collections::BTreeMap::new();
+        let mut per_signer: std::collections::BTreeMap<
+            String,
+            (u64, std::collections::BTreeSet<String>),
+        > = std::collections::BTreeMap::new();
 
         for f in facts {
             let (signer, cell) = match f {
-                Fact::Primary(p)    => (&p.signer.0, p.cell.clone()),
+                Fact::Primary(p) => (&p.signer.0, p.cell.clone()),
                 Fact::Derivative(d) => (&d.signer.0, d.cell.clone()),
-                Fact::Absence(a)    => (&a.signer.0, a.cell.clone()),
+                Fact::Absence(a) => (&a.signer.0, a.cell.clone()),
             };
             let s_b32 = b32(signer);
-            let entry = per_signer.entry(s_b32).or_insert((0, std::collections::BTreeSet::new()));
+            let entry = per_signer
+                .entry(s_b32)
+                .or_insert((0, std::collections::BTreeSet::new()));
             entry.0 += 1;
             entry.1.insert(cell.clone());
             if signer == attester_pubkey {
@@ -105,8 +120,10 @@ impl AttesterRegistry {
         }
 
         // Attester batch increment (one attestation per call).
-        let _ = self.update(&attester_b32, |s| {
-            if s.first_seen_unix_s == 0 { s.first_seen_unix_s = now; }
+        self.update(&attester_b32, |s| {
+            if s.first_seen_unix_s == 0 {
+                s.first_seen_unix_s = now;
+            }
             s.last_seen_unix_s = now;
             s.attestations += 1;
         })?;
@@ -114,7 +131,9 @@ impl AttesterRegistry {
         // Per-signer fact increments + unique cell tracking.
         for (signer_b32, (n_facts, cells)) in per_signer {
             self.update(&signer_b32, |s| {
-                if s.first_seen_unix_s == 0 { s.first_seen_unix_s = now; }
+                if s.first_seen_unix_s == 0 {
+                    s.first_seen_unix_s = now;
+                }
                 s.last_seen_unix_s = now;
                 s.facts += n_facts;
                 // unique_cells is monotonic over the lifetime of the row
@@ -131,12 +150,13 @@ impl AttesterRegistry {
     /// Called from read paths after a fact is served to a client.
     pub fn record_citations(&self, facts: &[Fact]) -> sled::Result<()> {
         let now = unix_secs();
-        let mut per_signer: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+        let mut per_signer: std::collections::BTreeMap<String, u64> =
+            std::collections::BTreeMap::new();
         for f in facts {
             let signer = match f {
-                Fact::Primary(p)    => &p.signer.0,
+                Fact::Primary(p) => &p.signer.0,
                 Fact::Derivative(d) => &d.signer.0,
-                Fact::Absence(a)    => &a.signer.0,
+                Fact::Absence(a) => &a.signer.0,
             };
             *per_signer.entry(b32(signer)).or_insert(0) += 1;
         }
@@ -164,7 +184,11 @@ impl AttesterRegistry {
                 all.push(s);
             }
         }
-        all.sort_by(|a, b| b.score().partial_cmp(&a.score()).unwrap_or(std::cmp::Ordering::Equal));
+        all.sort_by(|a, b| {
+            b.score()
+                .partial_cmp(&a.score())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         all.truncate(limit);
         Ok(all)
     }
@@ -174,21 +198,24 @@ impl AttesterRegistry {
         Ok(self.tree.len() as u64)
     }
 
-    fn update<F: FnMut(&mut AttesterStats)>(
-        &self,
-        pubkey_b32: &str,
-        mut f: F,
-    ) -> sled::Result<()> {
+    fn update<F: FnMut(&mut AttesterStats)>(&self, pubkey_b32: &str, mut f: F) -> sled::Result<()> {
         loop {
             let cur = self.tree.get(pubkey_b32)?;
-            let mut stats = cur.as_ref()
-                .and_then(|iv| decode(iv))
-                .unwrap_or_else(|| AttesterStats { pubkey_b32: pubkey_b32.to_string(), ..Default::default() });
+            let mut stats =
+                cur.as_ref()
+                    .and_then(|iv| decode(iv))
+                    .unwrap_or_else(|| AttesterStats {
+                        pubkey_b32: pubkey_b32.to_string(),
+                        ..Default::default()
+                    });
             f(&mut stats);
             let new = encode(&stats);
             // Atomic compare-and-set so concurrent updates don't lose
             // counter increments.
-            match self.tree.compare_and_swap(pubkey_b32, cur.as_deref(), Some(new))? {
+            match self
+                .tree
+                .compare_and_swap(pubkey_b32, cur.as_deref(), Some(new))?
+            {
                 Ok(_) => return Ok(()),
                 Err(_) => continue, // retry on contention
             }
@@ -201,7 +228,10 @@ fn b32(b: &[u8; 32]) -> String {
 }
 
 fn unix_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn encode(s: &AttesterStats) -> Vec<u8> {
@@ -212,19 +242,45 @@ fn encode(s: &AttesterStats) -> Vec<u8> {
 }
 
 fn decode(b: &[u8]) -> Option<AttesterStats> {
-    ciborium::de::from_reader::<CborValue, _>(b).ok().and_then(|v| from_cbor_value(&v))
+    ciborium::de::from_reader::<CborValue, _>(b)
+        .ok()
+        .and_then(|v| from_cbor_value(&v))
 }
 
 fn serde_cbor_value(s: &AttesterStats) -> CborValue {
     CborValue::Map(vec![
-        (CborValue::Text("pubkey_b32".into()), CborValue::Text(s.pubkey_b32.clone())),
-        (CborValue::Text("attestations".into()), CborValue::Integer(s.attestations.into())),
-        (CborValue::Text("facts".into()), CborValue::Integer(s.facts.into())),
-        (CborValue::Text("citations".into()), CborValue::Integer(s.citations.into())),
-        (CborValue::Text("unique_cells".into()), CborValue::Integer(s.unique_cells.into())),
-        (CborValue::Text("first_seen_unix_s".into()), CborValue::Integer(s.first_seen_unix_s.into())),
-        (CborValue::Text("last_seen_unix_s".into()), CborValue::Integer(s.last_seen_unix_s.into())),
-        (CborValue::Text("last_cited_unix_s".into()), CborValue::Integer(s.last_cited_unix_s.into())),
+        (
+            CborValue::Text("pubkey_b32".into()),
+            CborValue::Text(s.pubkey_b32.clone()),
+        ),
+        (
+            CborValue::Text("attestations".into()),
+            CborValue::Integer(s.attestations.into()),
+        ),
+        (
+            CborValue::Text("facts".into()),
+            CborValue::Integer(s.facts.into()),
+        ),
+        (
+            CborValue::Text("citations".into()),
+            CborValue::Integer(s.citations.into()),
+        ),
+        (
+            CborValue::Text("unique_cells".into()),
+            CborValue::Integer(s.unique_cells.into()),
+        ),
+        (
+            CborValue::Text("first_seen_unix_s".into()),
+            CborValue::Integer(s.first_seen_unix_s.into()),
+        ),
+        (
+            CborValue::Text("last_seen_unix_s".into()),
+            CborValue::Integer(s.last_seen_unix_s.into()),
+        ),
+        (
+            CborValue::Text("last_cited_unix_s".into()),
+            CborValue::Integer(s.last_cited_unix_s.into()),
+        ),
     ])
 }
 
@@ -235,16 +291,29 @@ fn from_cbor_value(v: &CborValue) -> Option<AttesterStats> {
     };
     let mut s = AttesterStats::default();
     for (k, v) in m {
-        let key = match k { CborValue::Text(t) => t.as_str(), _ => continue };
+        let key = match k {
+            CborValue::Text(t) => t.as_str(),
+            _ => continue,
+        };
         match (key, v) {
-            ("pubkey_b32",        CborValue::Text(t))    => s.pubkey_b32 = t.clone(),
-            ("attestations",      CborValue::Integer(i)) => s.attestations      = (<i128>::from(*i)).max(0) as u64,
-            ("facts",             CborValue::Integer(i)) => s.facts             = (<i128>::from(*i)).max(0) as u64,
-            ("citations",         CborValue::Integer(i)) => s.citations         = (<i128>::from(*i)).max(0) as u64,
-            ("unique_cells",      CborValue::Integer(i)) => s.unique_cells      = (<i128>::from(*i)).max(0) as u64,
-            ("first_seen_unix_s", CborValue::Integer(i)) => s.first_seen_unix_s = (<i128>::from(*i)).max(0) as u64,
-            ("last_seen_unix_s",  CborValue::Integer(i)) => s.last_seen_unix_s  = (<i128>::from(*i)).max(0) as u64,
-            ("last_cited_unix_s", CborValue::Integer(i)) => s.last_cited_unix_s = (<i128>::from(*i)).max(0) as u64,
+            ("pubkey_b32", CborValue::Text(t)) => s.pubkey_b32 = t.clone(),
+            ("attestations", CborValue::Integer(i)) => {
+                s.attestations = (<i128>::from(*i)).max(0) as u64
+            }
+            ("facts", CborValue::Integer(i)) => s.facts = (<i128>::from(*i)).max(0) as u64,
+            ("citations", CborValue::Integer(i)) => s.citations = (<i128>::from(*i)).max(0) as u64,
+            ("unique_cells", CborValue::Integer(i)) => {
+                s.unique_cells = (<i128>::from(*i)).max(0) as u64
+            }
+            ("first_seen_unix_s", CborValue::Integer(i)) => {
+                s.first_seen_unix_s = (<i128>::from(*i)).max(0) as u64
+            }
+            ("last_seen_unix_s", CborValue::Integer(i)) => {
+                s.last_seen_unix_s = (<i128>::from(*i)).max(0) as u64
+            }
+            ("last_cited_unix_s", CborValue::Integer(i)) => {
+                s.last_cited_unix_s = (<i128>::from(*i)).max(0) as u64
+            }
             _ => {}
         }
     }

@@ -34,6 +34,7 @@
 //!    emits identity bytes so byte-exact merkle agreement is preserved.
 
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
 
 use std::sync::{Arc, LazyLock};
 
@@ -47,10 +48,13 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 
-use emem_core::{manifest::manifest_cid, ErrorCode};
-use emem_fact::{Attestation, Fact, NegativeFact, PrimaryFact, ReasonCid, Source, Derivation, RegistryCid, SchemaCid};
-use emem_core::{KeyEpoch, Signature as EmCoreSignature};
 use ed25519_dalek::Signer;
+use emem_core::{manifest::manifest_cid, ErrorCode};
+use emem_core::{KeyEpoch, Signature as EmCoreSignature};
+use emem_fact::{
+    Attestation, Derivation, Fact, NegativeFact, PrimaryFact, ReasonCid, RegistryCid, SchemaCid,
+    Source,
+};
 use emem_intent::{plan, Intent};
 use emem_primitives::{
     compare, compare_bands, diff, find_similar, query_region, recall, trajectory, verify,
@@ -65,12 +69,12 @@ pub type AppState = Arc<Server>;
 const LLMS_TXT: &str = include_str!("../../../web/llms.txt");
 const LLMS_FULL_TXT: &str = include_str!("../../../web/llms-full.txt");
 const AGENT_WALKTHROUGHS_MD: &str = include_str!("../../../examples/agent-walkthroughs.md");
-const AGENT_TRIAL_MD:        &str = include_str!("../../../docs/AGENT_TRIAL.md");
-const ATTESTING_MD:          &str = include_str!("../../../docs/ATTESTING.md");
-const GLOBAL_TRIAL_MD:       &str = include_str!("../../../docs/GLOBAL_TRIAL.md");
-const MATERIALIZERS_MD:      &str = include_str!("../../../docs/MATERIALIZERS.md");
-const SPACES_MD:             &str = include_str!("../../../docs/SPACES.md");
-const TEMPORAL_MD:           &str = include_str!("../../../docs/TEMPORAL.md");
+const AGENT_TRIAL_MD: &str = include_str!("../../../docs/AGENT_TRIAL.md");
+const ATTESTING_MD: &str = include_str!("../../../docs/ATTESTING.md");
+const GLOBAL_TRIAL_MD: &str = include_str!("../../../docs/GLOBAL_TRIAL.md");
+const MATERIALIZERS_MD: &str = include_str!("../../../docs/MATERIALIZERS.md");
+const SPACES_MD: &str = include_str!("../../../docs/SPACES.md");
+const TEMPORAL_MD: &str = include_str!("../../../docs/TEMPORAL.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
@@ -80,18 +84,19 @@ const WHITEPAPER_MD: &str = include_str!("../../../docs/WHITEPAPER.md");
 const SPEC_MD: &str = include_str!("../../../docs/SPEC.md");
 const PRIVACY_MD: &str = include_str!("../../../PRIVACY.md");
 const TERMS_MD: &str = include_str!("../../../TERMS.md");
+const SUPPORT_MD: &str = include_str!("../../../SUPPORT.md");
 const SITEMAP_XML: &str = include_str!("../../../web/sitemap.xml");
 const FAVICON_SVG: &str = include_str!("../../../web/favicon.svg");
 const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 
 const EXAMPLE_CLAUDE_DESKTOP: &str = include_str!("../../../examples/claude-desktop.json");
-const EXAMPLE_CLAUDE_CODE:    &str = include_str!("../../../examples/claude-code.mcp.json");
-const EXAMPLE_CURSOR:         &str = include_str!("../../../examples/cursor.mcp.json");
-const EXAMPLE_CLINE:          &str = include_str!("../../../examples/cline.mcp.json");
-const EXAMPLE_OPENAI:         &str = include_str!("../../../examples/openai-gpt-action.json");
-const EXAMPLE_LANGCHAIN:      &str = include_str!("../../../examples/langchain.py");
-const EXAMPLE_LLAMAINDEX:     &str = include_str!("../../../examples/llamaindex.py");
+const EXAMPLE_CLAUDE_CODE: &str = include_str!("../../../examples/claude-code.mcp.json");
+const EXAMPLE_CURSOR: &str = include_str!("../../../examples/cursor.mcp.json");
+const EXAMPLE_CLINE: &str = include_str!("../../../examples/cline.mcp.json");
+const EXAMPLE_OPENAI: &str = include_str!("../../../examples/openai-gpt-action.json");
+const EXAMPLE_LANGCHAIN: &str = include_str!("../../../examples/langchain.py");
+const EXAMPLE_LLAMAINDEX: &str = include_str!("../../../examples/llamaindex.py");
 
 /// Build the full HTTP router.
 pub fn router(state: AppState) -> Router {
@@ -116,10 +121,6 @@ pub fn router(state: AppState) -> Router {
         .route("/whitepaper.md", get(serve_whitepaper_md))
         .route("/spec", get(serve_spec_md))
         .route("/spec.md", get(serve_spec_md))
-        .route("/privacy", get(serve_privacy_md))
-        .route("/privacy.md", get(serve_privacy_md))
-        .route("/terms", get(serve_terms_md))
-        .route("/terms.md", get(serve_terms_md))
         .route("/llms.txt", get(serve_llms_txt))
         .route("/llms-full.txt", get(serve_llms_full))
         .route("/robots.txt", get(serve_robots))
@@ -127,26 +128,53 @@ pub fn router(state: AppState) -> Router {
         .route("/favicon.svg", get(serve_favicon))
         .route("/favicon.ico", get(serve_favicon))
         .route("/og-image.svg", get(serve_og_image))
-        .route("/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt", get(serve_indexnow_key))
+        .route(
+            "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
+            get(serve_indexnow_key),
+        )
         .route("/.well-known/security.txt", get(serve_security_txt))
         // Well-known
         .route("/health", get(health))
         .route("/.well-known/emem.json", get(well_known))
         .route("/.well-known/ai-plugin.json", get(ai_plugin))
         .route("/.well-known/agent.json", get(agent_manifest))
+        .route("/agent.json", get(agent_manifest))
         .route("/openapi.json", get(openapi))
         // Examples
-        .route("/examples/claude-desktop.json", get(serve_example_claude_desktop))
-        .route("/examples/claude-code.mcp.json", get(serve_example_claude_code))
+        .route(
+            "/examples/claude-desktop.json",
+            get(serve_example_claude_desktop),
+        )
+        .route(
+            "/examples/claude-code.mcp.json",
+            get(serve_example_claude_code),
+        )
         .route("/examples/cursor.mcp.json", get(serve_example_cursor))
         .route("/examples/cline.mcp.json", get(serve_example_cline))
-        .route("/examples/openai-gpt-action.json", get(serve_example_openai))
+        .route(
+            "/examples/openai-gpt-action.json",
+            get(serve_example_openai),
+        )
         .route("/examples/langchain.py", get(serve_example_langchain))
         .route("/examples/llamaindex.py", get(serve_example_llamaindex))
-        .route("/examples/agent-walkthroughs.md", get(serve_agent_walkthroughs))
+        .route(
+            "/examples/agent-walkthroughs.md",
+            get(serve_agent_walkthroughs),
+        )
         .route("/agent-trial.md", get(serve_agent_trial))
         .route("/attesting.md", get(serve_attesting))
         .route("/docs/ATTESTING.md", get(serve_attesting))
+        // Policy docs published under stable URLs so server.json's
+        // privacyPolicyUrl / termsOfServiceUrl / supportUrl resolve.
+        .route("/privacy", get(serve_privacy_md))
+        .route("/privacy.md", get(serve_privacy_md))
+        .route("/docs/PRIVACY.md", get(serve_privacy_md))
+        .route("/terms", get(serve_terms_md))
+        .route("/terms.md", get(serve_terms_md))
+        .route("/docs/TERMS.md", get(serve_terms_md))
+        .route("/support", get(serve_support_md))
+        .route("/support.md", get(serve_support_md))
+        .route("/docs/SUPPORT.md", get(serve_support_md))
         .route("/global-trial.md", get(serve_global_trial))
         .route("/docs/GLOBAL_TRIAL.md", get(serve_global_trial))
         .route("/materializers.md", get(serve_materializers_md))
@@ -185,7 +213,10 @@ pub fn router(state: AppState) -> Router {
         // sub-path. The handler still strips a `.geojson` suffix for
         // backward-compatible URLs that include it.
         .route("/v1/cells/:cell64/geojson", get(get_cell_geojson))
-        .route("/v1/cells/:cell64/recall_geojson", get(get_cell_recall_geojson))
+        .route(
+            "/v1/cells/:cell64/recall_geojson",
+            get(get_cell_recall_geojson),
+        )
         .route("/v1/cells/:cell64/scene.png", get(get_cell_scene_png))
         .route("/v1/locate", post(post_locate))
         .route("/v1/locate", get(get_locate))
@@ -197,6 +228,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/find_similar", post(post_find_similar))
         .route("/v1/diff", post(post_diff))
         .route("/v1/trajectory", post(post_trajectory))
+        .route("/v1/backfill", post(post_backfill))
+        .route("/v1/schema", get(get_schema))
         .route("/v1/verify", post(post_verify))
         .route("/v1/intent", post(post_intent))
         .route("/v1/attest", post(post_attest))
@@ -211,7 +244,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent_stats", get(agent_stats_endpoint))
         .route("/v1/reviews", post(post_review).get(list_reviews))
         .route("/v1/reviews/:subject_id", get(reviews_for_subject))
-        .route("/v1/temporal_route", post(post_temporal_route).get(get_temporal_route))
+        .route(
+            "/v1/temporal_route",
+            post(post_temporal_route).get(get_temporal_route),
+        )
         .route("/metrics", get(metrics))
         .route("/mcp", get(mcp_discover).post(mcp_jsonrpc))
         // Order: outermost wraps innermost. Trace first so spans see everything.
@@ -225,7 +261,9 @@ pub fn router(state: AppState) -> Router {
             StatusCode::GATEWAY_TIMEOUT,
             std::time::Duration::from_secs(timeout_seconds()),
         ))
-        .layer(tower_http::limit::RequestBodyLimitLayer::new(body_limit_bytes()))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            body_limit_bytes(),
+        ))
         // gzip the response body when the client signals support. JSON
         // payloads compress ~10× — agents under rate limit pay 10× less
         // bandwidth without giving up cite-ability (the canonical bytes
@@ -245,7 +283,8 @@ const METERS_PER_DEGREE_LAT: f64 = 111_320.0;
 /// Hard cap on POST bodies. Defaults to 16 MiB; tunable via
 /// `EMEM_BODY_LIMIT_MB` (clamped to 1..=256 MiB).
 fn body_limit_bytes() -> usize {
-    let mb: usize = std::env::var("EMEM_BODY_LIMIT_MB").ok()
+    let mb: usize = std::env::var("EMEM_BODY_LIMIT_MB")
+        .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(16);
     mb.clamp(1, 256) * 1024 * 1024
@@ -254,19 +293,73 @@ fn body_limit_bytes() -> usize {
 /// HTTP request gateway timeout. Defaults to 30s; tunable via
 /// `EMEM_TIMEOUT_SECS` (clamped to 1..=600).
 fn timeout_seconds() -> u64 {
-    std::env::var("EMEM_TIMEOUT_SECS").ok()
+    std::env::var("EMEM_TIMEOUT_SECS")
+        .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(30u64)
         .clamp(1, 600)
 }
 
-// ── CORS layer (open for agents) ────────────────────────────────────────
+/// Per-upstream materializer fetch timeout. Defaults to 15s; tunable via
+/// `EMEM_MATERIALIZER_TIMEOUT_SECS` (clamped to 2..=120). Bounding the
+/// upstream call here is what stops a slow MODIS / met.no / STAC peer
+/// from dragging the recall request past the gateway timeout — the
+/// previous behavior was an unbounded `reqwest::send().await`, which
+/// surfaced to agents as a generic 504 with no per-band attribution.
+fn materializer_timeout_secs() -> u64 {
+    std::env::var("EMEM_MATERIALIZER_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(15u64)
+        .clamp(2, 120)
+}
+
+/// Number of HTTP attempts a materializer makes before giving up.
+/// Defaults to 2; tunable via `EMEM_MATERIALIZER_RETRIES` (clamped 1..=5).
+fn materializer_retries() -> u32 {
+    std::env::var("EMEM_MATERIALIZER_RETRIES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2u32)
+        .clamp(1, 5)
+}
+
+// ── CORS layer (open for agents, Origin-allowlist when configured) ─────
+//
+// Default behavior is `Access-Control-Allow-Origin: *` so unauthenticated
+// agents (Claude, Cursor, Cline, …) can call the API from any origin
+// without preflight friction. Set `EMEM_ALLOWED_ORIGINS` to a comma-
+// separated list of origins (e.g. `https://claude.ai,https://claude.com`)
+// to switch to strict allowlist mode — when a request's Origin matches an
+// allowlisted entry the server echoes it back with `Vary: Origin`; when
+// it doesn't match (or no Origin header is present) no CORS headers are
+// emitted, which the browser interprets as same-origin-only.
+//
+// Anthropic's connector review criteria require Origin validation for
+// listed integrations; flipping the env var is the supported toggle.
+
+fn allowed_origins() -> Vec<String> {
+    std::env::var("EMEM_ALLOWED_ORIGINS")
+        .ok()
+        .map(|raw| {
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 async fn cors_layer(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Response {
     let is_preflight = req.method() == Method::OPTIONS;
+    let origin_header = req
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let mut response = if is_preflight {
         Response::builder()
             .status(StatusCode::NO_CONTENT)
@@ -276,10 +369,32 @@ async fn cors_layer(
         next.run(req).await
     };
     let h = response.headers_mut();
-    h.insert("access-control-allow-origin", HeaderValue::from_static("*"));
-    h.insert("access-control-allow-methods", HeaderValue::from_static("GET, POST, OPTIONS"));
-    h.insert("access-control-allow-headers", HeaderValue::from_static("content-type, authorization, traceparent, accept, if-none-match"));
-    h.insert("access-control-expose-headers", HeaderValue::from_static("etag, x-emem-receipt-cid, traceparent"));
+    let allow = allowed_origins();
+    if allow.is_empty() {
+        h.insert("access-control-allow-origin", HeaderValue::from_static("*"));
+    } else if let Some(origin) = origin_header {
+        if allow.iter().any(|o| o.eq_ignore_ascii_case(&origin)) {
+            if let Ok(v) = HeaderValue::from_str(&origin) {
+                h.insert("access-control-allow-origin", v);
+                h.insert("vary", HeaderValue::from_static("Origin"));
+            }
+        }
+        // Origin present but not allowlisted → no allow-origin header,
+        // browser blocks the response. Headless agents (no Origin
+        // header) keep working.
+    }
+    h.insert(
+        "access-control-allow-methods",
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    h.insert(
+        "access-control-allow-headers",
+        HeaderValue::from_static("content-type, authorization, traceparent, accept, if-none-match"),
+    );
+    h.insert(
+        "access-control-expose-headers",
+        HeaderValue::from_static("etag, x-emem-receipt-cid, traceparent"),
+    );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
     response
 }
@@ -296,46 +411,30 @@ async fn cors_layer(
 fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
     match path {
         // Stable across deploys (build-pinned constants).
-        "/v1/grid_info" |
-        "/v1/agent_card" |
-        "/v1/tools" |
-        "/v1/bands" |
-        "/v1/materializers" |
-        "/v1/functions" |
-        "/v1/sources" |
-        "/v1/manifests" |
-        "/v1/errors" |
-        "/v1/quickstart" |
-        "/agents.md" |
-        "/whitepaper.md" |
-        "/spec.md" |
-        "/llms.txt" |
-        "/llms-full.txt" |
-        "/agent-trial.md" |
-        "/attesting.md" |
-        "/global-trial.md" |
-        "/materializers.md" |
-        "/spaces.md" |
-        "/temporal.md" |
-        "/openapi.json"
-            => Some("public, max-age=86400, stale-while-revalidate=604800"),
+        "/v1/grid_info" | "/v1/agent_card" | "/v1/tools" | "/v1/bands" | "/v1/materializers"
+        | "/v1/functions" | "/v1/sources" | "/v1/manifests" | "/v1/errors" | "/v1/quickstart"
+        | "/agents.md" | "/whitepaper.md" | "/spec.md" | "/llms.txt" | "/llms-full.txt"
+        | "/agent-trial.md" | "/attesting.md" | "/privacy" | "/privacy.md" | "/docs/PRIVACY.md"
+        | "/terms" | "/terms.md" | "/docs/TERMS.md" | "/support" | "/support.md"
+        | "/docs/SUPPORT.md" | "/global-trial.md" | "/materializers.md" | "/spaces.md"
+        | "/temporal.md" | "/openapi.json" => {
+            Some("public, max-age=86400, stale-while-revalidate=604800")
+        }
         // Changes on manifest rotation (hours), not seconds.
-        "/.well-known/emem.json" |
-        "/.well-known/ai-plugin.json" |
-        "/.well-known/agent.json" |
-        "/v1/discover"
-            => Some("public, max-age=3600, stale-while-revalidate=86400"),
+        "/.well-known/emem.json"
+        | "/.well-known/ai-plugin.json"
+        | "/.well-known/agent.json"
+        | "/v1/discover" => Some("public, max-age=3600, stale-while-revalidate=86400"),
         // Active operational data — bounded staleness OK.
-        "/v1/contributors" |
-        "/v1/coverage" |
-        "/v1/coverage_map.svg" |
-        "/v1/agent_stats" |
-        "/v1/reviews"
-            => Some("public, max-age=300, stale-while-revalidate=900"),
+        "/v1/contributors"
+        | "/v1/coverage"
+        | "/v1/coverage_map.svg"
+        | "/v1/agent_stats"
+        | "/v1/reviews" => Some("public, max-age=300, stale-while-revalidate=900"),
         // Static assets.
-        "/favicon.svg" | "/favicon.ico" | "/og-image.svg" |
-        "/robots.txt" | "/sitemap.xml"
-            => Some("public, max-age=86400"),
+        "/favicon.svg" | "/favicon.ico" | "/og-image.svg" | "/robots.txt" | "/sitemap.xml" => {
+            Some("public, max-age=86400")
+        }
         _ => None,
     }
 }
@@ -382,20 +481,38 @@ async fn cache_hint_layer(
 fn classify_agent(ua: &str) -> &'static str {
     let ua_lc = ua.to_ascii_lowercase();
     // Order matters: more specific tokens first.
-    if ua_lc.contains("claude-code") { "claude-code" }
-    else if ua_lc.contains("claude") { "claude" }
-    else if ua_lc.contains("cursor") { "cursor" }
-    else if ua_lc.contains("cline") { "cline" }
-    else if ua_lc.contains("openai") || ua_lc.contains("gpt") { "openai" }
-    else if ua_lc.contains("perplexity") { "perplexity" }
-    else if ua_lc.contains("anthropic") { "anthropic" }
-    else if ua_lc.contains("langchain") { "langchain" }
-    else if ua_lc.contains("llamaindex") { "llamaindex" }
-    else if ua_lc.contains("python-requests") || ua_lc.contains("aiohttp") || ua_lc.contains("httpx") { "python" }
-    else if ua_lc.contains("curl") || ua_lc.contains("wget") { "cli" }
-    else if ua_lc.contains("mozilla") { "browser" }
-    else if ua_lc.is_empty() { "anonymous" }
-    else { "other" }
+    if ua_lc.contains("claude-code") {
+        "claude-code"
+    } else if ua_lc.contains("claude") {
+        "claude"
+    } else if ua_lc.contains("cursor") {
+        "cursor"
+    } else if ua_lc.contains("cline") {
+        "cline"
+    } else if ua_lc.contains("openai") || ua_lc.contains("gpt") {
+        "openai"
+    } else if ua_lc.contains("perplexity") {
+        "perplexity"
+    } else if ua_lc.contains("anthropic") {
+        "anthropic"
+    } else if ua_lc.contains("langchain") {
+        "langchain"
+    } else if ua_lc.contains("llamaindex") {
+        "llamaindex"
+    } else if ua_lc.contains("python-requests")
+        || ua_lc.contains("aiohttp")
+        || ua_lc.contains("httpx")
+    {
+        "python"
+    } else if ua_lc.contains("curl") || ua_lc.contains("wget") {
+        "cli"
+    } else if ua_lc.contains("mozilla") {
+        "browser"
+    } else if ua_lc.is_empty() {
+        "anonymous"
+    } else {
+        "other"
+    }
 }
 
 /// Hash the client IP so logs identify retries from the same caller without
@@ -407,7 +524,9 @@ fn hashed_ip(headers: &HeaderMap) -> String {
         return "anon".into();
     }
     let h = blake3::hash(raw.as_bytes());
-    data_encoding::BASE32_NOPAD.encode(&h.as_bytes()[..8]).to_lowercase()
+    data_encoding::BASE32_NOPAD
+        .encode(&h.as_bytes()[..8])
+        .to_lowercase()
 }
 
 async fn agent_access_log_layer(
@@ -419,21 +538,33 @@ async fn agent_access_log_layer(
     let path = req.uri().path().to_string();
     let query = req.uri().query().map(|q| q.to_string()).unwrap_or_default();
     let headers = req.headers().clone();
-    let ua = headers.get("user-agent")
-        .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let ua = headers
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let agent_family = classify_agent(&ua);
-    let traceparent = headers.get("traceparent")
-        .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    let accept = headers.get("accept")
-        .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let traceparent = headers
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let accept = headers
+        .get("accept")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let ip_h = hashed_ip(&headers);
 
     let resp = next.run(req).await;
 
     let dur_ms = started.elapsed().as_secs_f64() * 1000.0;
     let status = resp.status().as_u16();
-    let receipt_cid = resp.headers().get("x-emem-receipt-cid")
-        .and_then(|v| v.to_str().ok()).unwrap_or("");
+    let receipt_cid = resp
+        .headers()
+        .get("x-emem-receipt-cid")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
 
     record_request(agent_family, status, dur_ms);
 
@@ -469,7 +600,8 @@ async fn security_headers_layer(
     // host is 301-redirected to https. This keeps the alongside-5051 plain
     // listener for local agents, while pushing public traffic to TLS.
     if std::env::var("EMEM_REDIRECT_HTTPS").ok().as_deref() == Some("1") {
-        let proto_https = req.headers()
+        let proto_https = req
+            .headers()
             .get("x-forwarded-proto")
             .and_then(|v| v.to_str().ok())
             .map(|v| v.eq_ignore_ascii_case("https"))
@@ -479,19 +611,28 @@ async fn security_headers_layer(
             if let Some(host) = req.headers().get("host").and_then(|v| v.to_str().ok()) {
                 let lower = host.to_ascii_lowercase();
                 let host_only: String = lower.split(':').next().unwrap_or(&lower).to_string();
-                let tls_hosts: Vec<String> = std::env::var("EMEM_TLS_DOMAINS").ok()
-                    .map(|s| s.split(',').map(|x| x.trim().to_ascii_lowercase()).collect())
+                let tls_hosts: Vec<String> = std::env::var("EMEM_TLS_DOMAINS")
+                    .ok()
+                    .map(|s| {
+                        s.split(',')
+                            .map(|x| x.trim().to_ascii_lowercase())
+                            .collect()
+                    })
                     .unwrap_or_default();
                 if tls_hosts.iter().any(|h| h == &host_only) {
-                    let path = req.uri().path_and_query()
+                    let path = req
+                        .uri()
+                        .path_and_query()
                         .map(|p| p.as_str().to_string())
                         .unwrap_or_else(|| "/".into());
                     let location = format!("https://{host_only}{path}");
                     return Response::builder()
                         .status(StatusCode::PERMANENT_REDIRECT)
                         .header("location", location)
-                        .header("strict-transport-security",
-                            "max-age=31536000; includeSubDomains; preload")
+                        .header(
+                            "strict-transport-security",
+                            "max-age=31536000; includeSubDomains; preload",
+                        )
                         .body(axum::body::Body::empty())
                         .unwrap_or_else(|_| StatusCode::PERMANENT_REDIRECT.into_response());
                 }
@@ -502,25 +643,42 @@ async fn security_headers_layer(
     let h = response.headers_mut();
     // HSTS: opt browsers into HTTPS for 1y, including subdomains. Safe to send
     // over plain HTTP too — browsers ignore it on http://.
-    h.insert("strict-transport-security",
-        HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"));
-    h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
-    h.insert("referrer-policy", HeaderValue::from_static("strict-origin-when-cross-origin"));
-    h.insert("permissions-policy",
-        HeaderValue::from_static("geolocation=(), microphone=(), camera=()"));
+    h.insert(
+        "strict-transport-security",
+        HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"),
+    );
+    h.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        "referrer-policy",
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    h.insert(
+        "permissions-policy",
+        HeaderValue::from_static("geolocation=(), microphone=(), camera=()"),
+    );
     // Allow huggingface.co and *.hf.space to embed the landing page so the
     // HuggingFace Space iframe preview renders. Modern browsers ignore the
     // legacy X-Frame-Options when CSP frame-ancestors is set, so we drop it.
-    h.insert("content-security-policy", HeaderValue::from_static(
-        "default-src 'self'; \
+    h.insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'self'; \
          script-src 'self' https://www.googletagmanager.com 'unsafe-inline'; \
          connect-src 'self' https://www.google-analytics.com; \
          img-src 'self' data: https:; \
          style-src 'self' 'unsafe-inline'; \
          frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
          base-uri 'self'; \
-         form-action 'self'"));
-    h.insert("x-emem-version", HeaderValue::from_static(env!("CARGO_PKG_VERSION")));
+         form-action 'self'",
+        ),
+    );
+    h.insert(
+        "x-emem-version",
+        HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
+    );
     response
 }
 
@@ -538,7 +696,8 @@ use std::time::{Duration, Instant};
 /// 1 tok/s ≈ 60 req/min sustained, with `RATE_LIMIT_BURST` as the ceiling.
 /// Tunable via `EMEM_RATE_LIMIT_RPS` (clamped to 0.01..=1000.0).
 fn rate_limit_rps() -> f64 {
-    std::env::var("EMEM_RATE_LIMIT_RPS").ok()
+    std::env::var("EMEM_RATE_LIMIT_RPS")
+        .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(1.0_f64)
         .clamp(0.01, 1000.0)
@@ -547,7 +706,8 @@ fn rate_limit_rps() -> f64 {
 /// Default per-IP burst capacity (max tokens in the bucket).
 /// Tunable via `EMEM_RATE_LIMIT_BURST` (clamped to 1.0..=100_000.0).
 fn rate_limit_burst() -> f64 {
-    std::env::var("EMEM_RATE_LIMIT_BURST").ok()
+    std::env::var("EMEM_RATE_LIMIT_BURST")
+        .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(120.0_f64)
         .clamp(1.0, 100_000.0)
@@ -556,9 +716,13 @@ fn rate_limit_burst() -> f64 {
 const RATE_LIMIT_GC_AFTER: Duration = Duration::from_secs(600);
 
 #[derive(Clone, Copy)]
-struct Bucket { tokens: f64, last: Instant }
+struct Bucket {
+    tokens: f64,
+    last: Instant,
+}
 
-static BUCKETS: std::sync::OnceLock<Mutex<std::collections::HashMap<String, Bucket>>> = std::sync::OnceLock::new();
+static BUCKETS: std::sync::OnceLock<Mutex<std::collections::HashMap<String, Bucket>>> =
+    std::sync::OnceLock::new();
 
 fn buckets() -> &'static Mutex<std::collections::HashMap<String, Bucket>> {
     BUCKETS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
@@ -572,11 +736,20 @@ async fn rate_limit_layer(
     // Skip read-only health & discovery — they need to stay always-up for
     // monitoring and for agent bootstrap.
     let path = req.uri().path();
-    let bypass = matches!(path,
-        "/health" | "/metrics" | "/.well-known/emem.json" | "/openapi.json" |
-        "/robots.txt" | "/sitemap.xml" | "/favicon.svg" | "/favicon.ico"
+    let bypass = matches!(
+        path,
+        "/health"
+            | "/metrics"
+            | "/.well-known/emem.json"
+            | "/openapi.json"
+            | "/robots.txt"
+            | "/sitemap.xml"
+            | "/favicon.svg"
+            | "/favicon.ico"
     );
-    if bypass { return next.run(req).await; }
+    if bypass {
+        return next.run(req).await;
+    }
 
     let ip = client_ip(req.headers()).unwrap_or_else(|| "unknown".to_string());
     let now = Instant::now();
@@ -592,7 +765,8 @@ async fn rate_limit_layer(
             map.retain(|_, b| now.duration_since(b.last) < RATE_LIMIT_GC_AFTER);
         }
         let bucket = map.entry(ip.clone()).or_insert(Bucket {
-            tokens: burst, last: now,
+            tokens: burst,
+            last: now,
         });
         let elapsed = now.duration_since(bucket.last).as_secs_f64();
         bucket.tokens = (bucket.tokens + elapsed * rps).min(burst);
@@ -613,7 +787,8 @@ async fn rate_limit_layer(
             "message": format!("rate limit: {} req/min, burst {}; backoff and retry", (rps * 60.0) as u64, burst as u64),
         });
         let mut resp = (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
-        resp.headers_mut().insert("retry-after", HeaderValue::from_static("60"));
+        resp.headers_mut()
+            .insert("retry-after", HeaderValue::from_static("60"));
         resp
     }
 }
@@ -642,7 +817,7 @@ struct ErrorBody {
     message: String,
 }
 
-struct ApiError(StatusCode, ErrorBody);
+pub(crate) struct ApiError(StatusCode, ErrorBody);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -654,8 +829,10 @@ impl From<StorageError> for ApiError {
     fn from(e: StorageError) -> Self {
         let code = e.wire_code();
         let status = match code {
-            ErrorCode::CidNotFound | ErrorCode::BandNotInRegistry
-            | ErrorCode::FunctionNotInRegistry | ErrorCode::SchemaCidUnknown
+            ErrorCode::CidNotFound
+            | ErrorCode::BandNotInRegistry
+            | ErrorCode::FunctionNotInRegistry
+            | ErrorCode::SchemaCidUnknown
             | ErrorCode::RegistryCidUnknown => StatusCode::NOT_FOUND,
             ErrorCode::BadSignature | ErrorCode::BadMerkleProof => StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::Unauthorized | ErrorCode::AttesterRevoked => StatusCode::UNAUTHORIZED,
@@ -663,24 +840,39 @@ impl From<StorageError> for ApiError {
             ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             ErrorCode::ComputeTimeout => StatusCode::GATEWAY_TIMEOUT,
             ErrorCode::ComputeQuotaExceeded => StatusCode::PAYMENT_REQUIRED,
-            ErrorCode::SourceFetchFailed | ErrorCode::SourceFormatMismatch => StatusCode::BAD_GATEWAY,
-            ErrorCode::InvalidCell | ErrorCode::InvalidResolution
-            | ErrorCode::TslotMismatch | ErrorCode::SourceSchemeUnknown
+            ErrorCode::SourceFetchFailed | ErrorCode::SourceFormatMismatch => {
+                StatusCode::BAD_GATEWAY
+            }
+            ErrorCode::InvalidCell
+            | ErrorCode::InvalidResolution
+            | ErrorCode::TslotMismatch
+            | ErrorCode::SourceSchemeUnknown
             | ErrorCode::ClaimUndecidable => StatusCode::BAD_REQUEST,
-            ErrorCode::CanonicalEncodingDivergence | ErrorCode::CacheError
+            ErrorCode::CanonicalEncodingDivergence
+            | ErrorCode::CacheError
             | ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        ApiError(status, ErrorBody { code, message: e.to_string() })
+        ApiError(
+            status,
+            ErrorBody {
+                code,
+                message: e.to_string(),
+            },
+        )
     }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 fn prefer_markdown(headers: &HeaderMap) -> bool {
-    headers.get(ACCEPT).and_then(|v| v.to_str().ok()).map(|a| {
-        let a = a.to_lowercase();
-        a.contains("text/markdown") || a.contains("text/plain") || a.contains("text/x-markdown")
-    }).unwrap_or(false)
+    headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .map(|a| {
+            let a = a.to_lowercase();
+            a.contains("text/markdown") || a.contains("text/plain") || a.contains("text/x-markdown")
+        })
+        .unwrap_or(false)
 }
 
 fn text_response(content_type: &'static str, body: &'static str) -> Response {
@@ -707,9 +899,11 @@ async fn landing(headers: HeaderMap) -> Response {
     // (token-cheap summary), and HTML-asking browsers get the homepage.
     // This is the *first* request a fresh agent makes; getting it wrong
     // means an agent-only client never finds the protocol surface.
-    let accept = headers.get(ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
-    let prefers_json = accept.contains("application/json")
-        && !accept.contains("text/html");
+    let accept = headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let prefers_json = accept.contains("application/json") && !accept.contains("text/html");
     if prefers_json {
         let body = serde_json::to_vec(&serde_json::json!({
             "schema": "emem.landing.v1",
@@ -727,7 +921,8 @@ async fn landing(headers: HeaderMap) -> Response {
                 "GET /v1/coverage  — what places have data attested today",
                 "GET /v1/coverage_map.svg — visual gym (multimodal agents)"
             ]
-        })).unwrap_or_default();
+        }))
+        .unwrap_or_default();
         return Response::builder()
             .status(StatusCode::OK)
             .header(CONTENT_TYPE, "application/json; charset=utf-8")
@@ -743,25 +938,66 @@ async fn agents_page(headers: HeaderMap) -> Response {
     text_response("text/markdown; charset=utf-8", AGENTS_MD)
 }
 
-async fn serve_agents_md() -> Response { text_response("text/markdown; charset=utf-8", AGENTS_MD) }
-async fn serve_whitepaper_md() -> Response { text_response("text/markdown; charset=utf-8", WHITEPAPER_MD) }
-async fn serve_spec_md() -> Response { text_response("text/markdown; charset=utf-8", SPEC_MD) }
-async fn serve_privacy_md() -> Response { text_response("text/markdown; charset=utf-8", PRIVACY_MD) }
-async fn serve_terms_md() -> Response { text_response("text/markdown; charset=utf-8", TERMS_MD) }
-async fn serve_llms_txt() -> Response { text_response("text/plain; charset=utf-8", LLMS_TXT) }
-async fn serve_llms_full() -> Response { text_response("text/plain; charset=utf-8", LLMS_FULL_TXT) }
-async fn serve_agent_walkthroughs() -> Response { text_response("text/markdown; charset=utf-8", AGENT_WALKTHROUGHS_MD) }
-async fn serve_agent_trial() -> Response { text_response("text/markdown; charset=utf-8", AGENT_TRIAL_MD) }
-async fn serve_attesting() -> Response { text_response("text/markdown; charset=utf-8", ATTESTING_MD) }
-async fn serve_global_trial() -> Response { text_response("text/markdown; charset=utf-8", GLOBAL_TRIAL_MD) }
-async fn serve_materializers_md() -> Response { text_response("text/markdown; charset=utf-8", MATERIALIZERS_MD) }
-async fn serve_spaces_md() -> Response { text_response("text/markdown; charset=utf-8", SPACES_MD) }
-async fn serve_temporal_md() -> Response { text_response("text/markdown; charset=utf-8", TEMPORAL_MD) }
-async fn serve_robots() -> Response { text_response("text/plain; charset=utf-8", ROBOTS_TXT) }
-async fn serve_sitemap() -> Response { text_response("application/xml; charset=utf-8", SITEMAP_XML) }
-async fn serve_favicon() -> Response { text_response("image/svg+xml; charset=utf-8", FAVICON_SVG) }
-async fn serve_og_image() -> Response { text_response("image/svg+xml; charset=utf-8", OG_IMAGE_SVG) }
-async fn serve_indexnow_key() -> Response { text_response("text/plain; charset=utf-8", INDEXNOW_KEY) }
+async fn serve_agents_md() -> Response {
+    text_response("text/markdown; charset=utf-8", AGENTS_MD)
+}
+async fn serve_whitepaper_md() -> Response {
+    text_response("text/markdown; charset=utf-8", WHITEPAPER_MD)
+}
+async fn serve_spec_md() -> Response {
+    text_response("text/markdown; charset=utf-8", SPEC_MD)
+}
+async fn serve_llms_txt() -> Response {
+    text_response("text/plain; charset=utf-8", LLMS_TXT)
+}
+async fn serve_llms_full() -> Response {
+    text_response("text/plain; charset=utf-8", LLMS_FULL_TXT)
+}
+async fn serve_agent_walkthroughs() -> Response {
+    text_response("text/markdown; charset=utf-8", AGENT_WALKTHROUGHS_MD)
+}
+async fn serve_agent_trial() -> Response {
+    text_response("text/markdown; charset=utf-8", AGENT_TRIAL_MD)
+}
+async fn serve_attesting() -> Response {
+    text_response("text/markdown; charset=utf-8", ATTESTING_MD)
+}
+async fn serve_privacy_md() -> Response {
+    text_response("text/markdown; charset=utf-8", PRIVACY_MD)
+}
+async fn serve_terms_md() -> Response {
+    text_response("text/markdown; charset=utf-8", TERMS_MD)
+}
+async fn serve_support_md() -> Response {
+    text_response("text/markdown; charset=utf-8", SUPPORT_MD)
+}
+async fn serve_global_trial() -> Response {
+    text_response("text/markdown; charset=utf-8", GLOBAL_TRIAL_MD)
+}
+async fn serve_materializers_md() -> Response {
+    text_response("text/markdown; charset=utf-8", MATERIALIZERS_MD)
+}
+async fn serve_spaces_md() -> Response {
+    text_response("text/markdown; charset=utf-8", SPACES_MD)
+}
+async fn serve_temporal_md() -> Response {
+    text_response("text/markdown; charset=utf-8", TEMPORAL_MD)
+}
+async fn serve_robots() -> Response {
+    text_response("text/plain; charset=utf-8", ROBOTS_TXT)
+}
+async fn serve_sitemap() -> Response {
+    text_response("application/xml; charset=utf-8", SITEMAP_XML)
+}
+async fn serve_favicon() -> Response {
+    text_response("image/svg+xml; charset=utf-8", FAVICON_SVG)
+}
+async fn serve_og_image() -> Response {
+    text_response("image/svg+xml; charset=utf-8", OG_IMAGE_SVG)
+}
+async fn serve_indexnow_key() -> Response {
+    text_response("text/plain; charset=utf-8", INDEXNOW_KEY)
+}
 async fn serve_security_txt() -> Response {
     let body = build_security_txt();
     Response::builder()
@@ -798,7 +1034,10 @@ fn build_security_txt() -> String {
         out.push_str(&origin);
         out.push_str("/.well-known/security.txt\n");
     }
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
         + 365 * 24 * 60 * 60;
     out.push_str(&format!("Expires: {}\n", iso8601_utc(secs)));
     out.push_str("Preferred-Languages: en\n");
@@ -818,11 +1057,15 @@ fn build_security_txt() -> String {
 fn public_origin() -> Option<String> {
     if let Ok(u) = std::env::var("EMEM_PUBLIC_URL") {
         let u = u.trim().trim_end_matches('/');
-        if !u.is_empty() { return Some(u.to_string()); }
+        if !u.is_empty() {
+            return Some(u.to_string());
+        }
     }
     if let Ok(domains) = std::env::var("EMEM_TLS_DOMAINS") {
         let first = domains.split(',').next().unwrap_or("").trim();
-        if !first.is_empty() { return Some(format!("https://{first}")); }
+        if !first.is_empty() {
+            return Some(format!("https://{first}"));
+        }
     }
     None
 }
@@ -855,16 +1098,34 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m, d)
 }
-async fn ai_plugin() -> Response { text_response("application/json; charset=utf-8", AI_PLUGIN_JSON) }
-async fn agent_manifest() -> Response { text_response("application/json; charset=utf-8", AGENT_JSON) }
+async fn ai_plugin() -> Response {
+    text_response("application/json; charset=utf-8", AI_PLUGIN_JSON)
+}
+async fn agent_manifest() -> Response {
+    text_response("application/json; charset=utf-8", AGENT_JSON)
+}
 
-async fn serve_example_claude_desktop() -> Response { text_response("application/json", EXAMPLE_CLAUDE_DESKTOP) }
-async fn serve_example_claude_code()    -> Response { text_response("application/json", EXAMPLE_CLAUDE_CODE) }
-async fn serve_example_cursor()         -> Response { text_response("application/json", EXAMPLE_CURSOR) }
-async fn serve_example_cline()          -> Response { text_response("application/json", EXAMPLE_CLINE) }
-async fn serve_example_openai()         -> Response { text_response("application/json", EXAMPLE_OPENAI) }
-async fn serve_example_langchain()      -> Response { text_response("text/x-python", EXAMPLE_LANGCHAIN) }
-async fn serve_example_llamaindex()     -> Response { text_response("text/x-python", EXAMPLE_LLAMAINDEX) }
+async fn serve_example_claude_desktop() -> Response {
+    text_response("application/json", EXAMPLE_CLAUDE_DESKTOP)
+}
+async fn serve_example_claude_code() -> Response {
+    text_response("application/json", EXAMPLE_CLAUDE_CODE)
+}
+async fn serve_example_cursor() -> Response {
+    text_response("application/json", EXAMPLE_CURSOR)
+}
+async fn serve_example_cline() -> Response {
+    text_response("application/json", EXAMPLE_CLINE)
+}
+async fn serve_example_openai() -> Response {
+    text_response("application/json", EXAMPLE_OPENAI)
+}
+async fn serve_example_langchain() -> Response {
+    text_response("text/x-python", EXAMPLE_LANGCHAIN)
+}
+async fn serve_example_llamaindex() -> Response {
+    text_response("text/x-python", EXAMPLE_LLAMAINDEX)
+}
 
 // ── Introspection routes ─────────────────────────────────────────────────
 
@@ -940,13 +1201,29 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
         "agent_card_url": "/v1/agent_card",
         "quickstart_url": "/v1/quickstart",
         // Discovery hooks for connector-directory reviewers + offline
-        // signature-verifying clients. The full text lives at /privacy
-        // and /terms; the canonical contact is the maintainer email.
-        "privacy_url": "/privacy",
-        "terms_url": "/terms",
-        "support_url": "https://github.com/Vortx-AI/emem/issues",
+        // signature-verifying clients. The full text lives at /privacy,
+        // /terms, /support; the canonical contact is the maintainer
+        // email. `operator` carries the legal entity (Vortx AI Private
+        // Limited, India); the flat `vendor`/`*_url` keys below are
+        // kept as compatibility shims for tools that scrape the older
+        // shape from earlier in the directory-prep work.
         "vendor": "Vortx-AI",
         "contact_email": "avijeet@vortx.ai",
+        "privacy_url": "/privacy",
+        "terms_url":   "/terms",
+        "support_url": "/support",
+        "operator": {
+            "name":    "Vortx AI Private Limited",
+            "country": "India",
+            "url":     "https://vortx.ai",
+            "contact": "avijeet@vortx.ai",
+        },
+        "policies": {
+            "privacy_policy":   "/privacy",
+            "terms_of_service": "/terms",
+            "support":          "/support",
+            "security":         "https://github.com/Vortx-AI/emem/blob/main/SECURITY.md",
+        },
     }))
 }
 
@@ -972,10 +1249,12 @@ async fn bands() -> Json<JsonValue> {
 /// bands work cite-ably for any cell on Earth versus which require a
 /// pre-existing attestation.
 async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
-    Json(json!({
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let mut payload = json!({
         "schema": "emem.materializers.v1",
-        "responder_pubkey_b32": data_encoding::BASE32_NOPAD
-            .encode(&s.identity.pubkey.0).to_lowercase(),
+        "responder_pubkey_b32": pubkey_b32.clone(),
         "auto_materialize_enabled": auto_materialize_enabled(),
         "materializers": [
             {
@@ -1190,8 +1469,56 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
             "how_it_works": "Call POST /v1/recall {cell, bands: [<band>]}. If the cell has no fact yet AND auto_materialize_enabled is true, the responder fetches the upstream value, signs the resulting fact under its identity, persists it, and returns it in the same response. The next call hits the hot cache (~10 ms instead of ~180 ms).",
             "trust_model":  "Materialized facts are signed by the responder pubkey above, NOT by the upstream provider. The fact's `derivation.fn_key` declares the function that produced the value; an external attester can run the same function and submit their own signed fact to corroborate or correct.",
             "absence_facts": "Fact::Absence (kind: \"absence\") records confirmed no-data with a content-addressed `reason_cid`. Treat it as a signed statement that the responder tried and got no answer — don't re-fetch on every call.",
+            "history_bounds": "Each entry now carries `history_available_from_unix` / `history_available_to_unix` derived from the upstream provider's documented record. `null` means present-only (e.g. weather nowcast, Overture release snapshot, or static climatology). Pass these to `emem_backfill` to materialize and sign every per-tslot fact in the window — turns 'I want history' into 'history exists in the ledger'.",
         }
-    }))
+    });
+
+    // Decorate every materializer entry with history bounds + a tempo
+    // seconds value so an agent can size an `emem_backfill` window
+    // without a second round-trip to /v1/coverage_matrix. We post-process
+    // here rather than inlining per-entry to keep the inline JSON literal
+    // above the single source of truth for connector text — `band_materializer_meta`
+    // is the single source of truth for the bounds themselves.
+    if let Some(arr) = payload
+        .get_mut("materializers")
+        .and_then(|v| v.as_array_mut())
+    {
+        for entry in arr.iter_mut() {
+            let band = entry
+                .get("band")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let Some(band) = band else { continue };
+            let meta = band_materializer_meta(&band);
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert(
+                    "history_available_from_unix".into(),
+                    meta.as_ref()
+                        .and_then(|m| m.history_from_unix)
+                        .map(JsonValue::from)
+                        .unwrap_or(JsonValue::Null),
+                );
+                obj.insert(
+                    "history_available_to_unix".into(),
+                    meta.as_ref()
+                        .and_then(|m| m.history_to_unix)
+                        .map(JsonValue::from)
+                        .unwrap_or(JsonValue::Null),
+                );
+                if let Some(m) = meta.as_ref() {
+                    obj.insert(
+                        "tempo_seconds".into(),
+                        JsonValue::from(m.tempo.slot_seconds()),
+                    );
+                }
+                obj.insert(
+                    "responder_pubkey_b32".into(),
+                    JsonValue::from(pubkey_b32.clone()),
+                );
+            }
+        }
+    }
+    Json(payload)
 }
 
 /// `GET /v1/fleet` — declare the satellite/sensor lineage that feeds each
@@ -1225,12 +1552,12 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
 ///
 /// O(N) over the full storage index; capped by EMEM_COVERAGE_MATRIX_LIMIT
 /// (default 50_000) so big deployments don't blow the response.
-async fn coverage_matrix(
-    State(s): State<AppState>,
-) -> Json<JsonValue> {
+async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
     use std::collections::BTreeMap;
-    let limit: usize = std::env::var("EMEM_COVERAGE_MATRIX_LIMIT").ok()
-        .and_then(|v| v.parse().ok()).unwrap_or(50_000);
+    let limit: usize = std::env::var("EMEM_COVERAGE_MATRIX_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50_000);
 
     // Aggregate over the storage index. For each entry we resolve the
     // actual fact and parse its `signed_at` to get a real wall-clock
@@ -1250,7 +1577,9 @@ async fn coverage_matrix(
             entry.0 += 1;
             if k.tslot >= 1_577_836_800 {
                 let cur = entry.1.unwrap_or(0);
-                if (k.tslot as i64) > cur { entry.1 = Some(k.tslot as i64); }
+                if (k.tslot as i64) > cur {
+                    entry.1 = Some(k.tslot as i64);
+                }
             }
             cids.push(cid);
             keys.push(k);
@@ -1261,7 +1590,7 @@ async fn coverage_matrix(
         const CHUNK: usize = 256;
         for (chunk_keys, chunk_cids) in keys.chunks(CHUNK).zip(cids.chunks(CHUNK)) {
             if let Ok(facts) = s.storage.get_facts_many(chunk_cids).await {
-                for (k, fact) in chunk_keys.iter().zip(facts.into_iter()) {
+                for (k, fact) in chunk_keys.iter().zip(facts) {
                     let signed_at_unix = match fact.as_ref() {
                         Some(emem_fact::Fact::Primary(p)) => parse_iso8601_unix(&p.signed_at),
                         Some(emem_fact::Fact::Absence(n)) => parse_iso8601_unix(&n.signed_at),
@@ -1270,7 +1599,9 @@ async fn coverage_matrix(
                     if let Some(ts) = signed_at_unix {
                         let entry = counts.entry(k.band.clone()).or_insert((0, None));
                         let cur = entry.1.unwrap_or(0);
-                        if ts > cur { entry.1 = Some(ts); }
+                        if ts > cur {
+                            entry.1 = Some(ts);
+                        }
                     }
                 }
             }
@@ -1360,35 +1691,72 @@ async fn coverage_matrix(
     // `copdem30m.elevation_mean mat=True`, which makes agents conclude
     // "DEM is offline" when in fact it's wired under a different key.
     let cube_aliases: &[(&str, &[&str])] = &[
-        ("dem",       &["copdem30m.elevation_mean", "gmrt.topobathy_mean"]),
-        ("cop_dem",   &["copdem30m.elevation_mean"]),
-        ("climate",   &[
-            "weather.temperature_2m", "weather.cloud_cover",
-            "weather.precipitation_mm", "weather.wind_speed_10m",
-            "weather.relative_humidity_2m", "weather.dew_point_2m",
-            "weather.air_pressure_msl", "weather.wind_direction_10m",
-        ]),
-        ("indices",   &[
-            "indices.ndvi","indices.ndwi","indices.mndwi","indices.evi",
-            "indices.nbr","indices.ndmi","indices.savi","indices.bsi","indices.ndbi",
-        ]),
-        ("sentinel2_raw", &[
-            "s2.B01","s2.B02","s2.B03","s2.B04","s2.B05","s2.B06","s2.B07",
-            "s2.B08","s2.B8A","s2.B09","s2.B11","s2.B12","s2.scl",
-        ]),
-        ("geotessera", &[
-            "geotessera","geotessera.multi_year",
-            "geotessera.2017","geotessera.2018","geotessera.2019",
-            "geotessera.2020","geotessera.2021","geotessera.2022",
-            "geotessera.2023","geotessera.2024",
-        ]),
-        ("overture",   &[
-            "overture.buildings.count","overture.places.count",
-            "overture.transportation.road_length_m",
-        ]),
+        ("dem", &["copdem30m.elevation_mean", "gmrt.topobathy_mean"]),
+        ("cop_dem", &["copdem30m.elevation_mean"]),
+        (
+            "climate",
+            &[
+                "weather.temperature_2m",
+                "weather.cloud_cover",
+                "weather.precipitation_mm",
+                "weather.wind_speed_10m",
+                "weather.relative_humidity_2m",
+                "weather.dew_point_2m",
+                "weather.air_pressure_msl",
+                "weather.wind_direction_10m",
+            ],
+        ),
+        (
+            "indices",
+            &[
+                "indices.ndvi",
+                "indices.ndwi",
+                "indices.mndwi",
+                "indices.evi",
+                "indices.nbr",
+                "indices.ndmi",
+                "indices.savi",
+                "indices.bsi",
+                "indices.ndbi",
+            ],
+        ),
+        (
+            "sentinel2_raw",
+            &[
+                "s2.B01", "s2.B02", "s2.B03", "s2.B04", "s2.B05", "s2.B06", "s2.B07", "s2.B08",
+                "s2.B8A", "s2.B09", "s2.B11", "s2.B12", "s2.scl",
+            ],
+        ),
+        (
+            "geotessera",
+            &[
+                "geotessera",
+                "geotessera.multi_year",
+                "geotessera.2017",
+                "geotessera.2018",
+                "geotessera.2019",
+                "geotessera.2020",
+                "geotessera.2021",
+                "geotessera.2022",
+                "geotessera.2023",
+                "geotessera.2024",
+            ],
+        ),
+        (
+            "overture",
+            &[
+                "overture.buildings.count",
+                "overture.places.count",
+                "overture.transportation.road_length_m",
+            ],
+        ),
     ];
     let alias_for = |k: &str| -> &'static [&'static str] {
-        cube_aliases.iter().find(|(name, _)| *name == k).map(|(_, v)| *v).unwrap_or(&[])
+        cube_aliases
+            .iter()
+            .find(|(name, _)| *name == k)
+            .map(|(_, v)| *v)
+            .unwrap_or(&[])
     };
     let aggregate_subkey_facts = |subkeys: &[&str]| -> (u64, Option<i64>) {
         let mut n_total = 0u64;
@@ -1396,11 +1764,17 @@ async fn coverage_matrix(
         for k in subkeys {
             if let Some((n, last)) = counts.get(*k) {
                 n_total += *n;
-                if let Some(t) = last { latest = Some(latest.map_or(*t, |x| x.max(*t))); }
+                if let Some(t) = last {
+                    latest = Some(latest.map_or(*t, |x| x.max(*t)));
+                }
             }
         }
         (n_total, latest)
     };
+
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
 
     // Cube bands first — every entry from bands-v0.json. For family
     // alias slots we surface the wired sub-keys so an agent reading
@@ -1414,7 +1788,9 @@ async fn coverage_matrix(
         let is_family_alias = !subkeys.is_empty();
         let (n_sub, last_sub) = if is_family_alias {
             aggregate_subkey_facts(subkeys)
-        } else { (0, None) };
+        } else {
+            (0, None)
+        };
         let n = n_self + n_sub;
         let last = match (last_self, last_sub) {
             (Some(a), Some(b)) => Some(a.max(b)),
@@ -1422,13 +1798,19 @@ async fn coverage_matrix(
             (None, None) => None,
         };
         let has_mat = direct_mat || is_family_alias && subkeys.iter().any(|k| mat_set.contains(k));
-        let sat_lineage: Vec<&str> = materializer_bands.iter()
+        let sat_lineage: Vec<&str> = materializer_bands
+            .iter()
             .find(|t| t.0 == b.key.as_str())
-            .map(|t| t.3.to_vec()).unwrap_or_default();
+            .map(|t| t.3.to_vec())
+            .unwrap_or_default();
+        let meta = band_materializer_meta(b.key.as_str());
+        let history_from = meta.as_ref().and_then(|m| m.history_from_unix);
+        let history_to = meta.as_ref().and_then(|m| m.history_to_unix);
         let mut row = json!({
             "band":             b.key,
             "family":           format!("{:?}", b.family).to_ascii_lowercase(),
             "tempo":            format!("{:?}", b.tempo).to_ascii_lowercase(),
+            "tempo_seconds":    b.tempo.slot_seconds(),
             "in_cube":          true,
             "cube_offset":      b.offset,
             "cube_dims":        b.dims,
@@ -1436,39 +1818,65 @@ async fn coverage_matrix(
             "facts_count":      n,
             "last_attested_unix_s": last,
             "sat_lineage":      sat_lineage,
+            "history_available_from_unix": history_from,
+            "history_available_to_unix":   history_to,
+            "responder_pubkey_b32": pubkey_b32,
         });
         if is_family_alias {
-            row.as_object_mut().unwrap().insert("is_family_alias".into(), JsonValue::Bool(true));
+            row.as_object_mut()
+                .unwrap()
+                .insert("is_family_alias".into(), JsonValue::Bool(true));
             row.as_object_mut().unwrap().insert(
                 "wired_subkeys".into(),
-                JsonValue::Array(subkeys.iter().map(|k| JsonValue::String((*k).into())).collect()),
+                JsonValue::Array(
+                    subkeys
+                        .iter()
+                        .map(|k| JsonValue::String((*k).into()))
+                        .collect(),
+                ),
             );
         }
         bands_json.push(row);
     }
     // Auxiliary materializer-only bands (not in the cube).
     for (key, tempo, family, sats) in materializer_bands {
-        if seen.contains(*key) { continue; }
+        if seen.contains(*key) {
+            continue;
+        }
         let (n, last) = counts.get(*key).copied().unwrap_or((0, None));
+        let meta = band_materializer_meta(key);
+        let tempo_seconds = meta.as_ref().map(|m| m.tempo.slot_seconds()).unwrap_or(0);
+        let history_from = meta.as_ref().and_then(|m| m.history_from_unix);
+        let history_to = meta.as_ref().and_then(|m| m.history_to_unix);
         bands_json.push(json!({
             "band":             key,
             "family":           family,
             "tempo":            tempo,
+            "tempo_seconds":    tempo_seconds,
             "in_cube":          false,
             "has_materializer": true,
             "facts_count":      n,
             "last_attested_unix_s": last,
             "sat_lineage":      sats,
+            "history_available_from_unix": history_from,
+            "history_available_to_unix":   history_to,
+            "responder_pubkey_b32": pubkey_b32,
         }));
     }
 
     // Roll-ups for the agent's at-a-glance view.
     let total_bands = bands_json.len();
-    let total_facts: u64 = counts.values().map(|(n,_)| *n).sum();
-    let with_materializer = bands_json.iter()
-        .filter(|b| b.get("has_materializer").and_then(|v| v.as_bool()).unwrap_or(false))
+    let total_facts: u64 = counts.values().map(|(n, _)| *n).sum();
+    let with_materializer = bands_json
+        .iter()
+        .filter(|b| {
+            b.get("has_materializer")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
         .count();
-    let with_facts = bands_json.iter()
+    let with_facts = bands_json
+        .iter()
         .filter(|b| b.get("facts_count").and_then(|v| v.as_u64()).unwrap_or(0) > 0)
         .count();
 
@@ -1488,6 +1896,9 @@ async fn coverage_matrix(
             "use_when": "Decide which band to /v1/recall before paying for materialization. has_materializer=false bands need a third-party signed Attestation; in_cube=false bands ride alongside the 1792-D layout but aren't byte-addressable in the cube.",
             "family_aliases": "Some cube slots (`dem`, `cop_dem`, `climate`, `indices`, `sentinel2_raw`, `geotessera`, `overture`) reserve byte ranges for a *family* of attestable sub-keys; recall calls go to the granular subkey, not the family slot. When `is_family_alias=true`, the row reports rolled-up `facts_count` and `wired_subkeys` so the agent can pick the actual band to materialize.",
             "freshness": "facts_count>0 with a recent last_attested_unix_s means the band has been answered globally somewhere recently; per-cell freshness still needs /v1/temporal_route.",
+            "history_bounds": "history_available_from_unix / history_available_to_unix bound what an `emem_backfill` call can materialize on this responder. `null` = the band has no historical materializer here (e.g. weather nowcast, Overture snapshot, or static climatology where one fact answers for all time).",
+            "tempo_seconds": "Slot duration in seconds. 0 = static (one fact). Use it to convert between Unix epoch and tslot when planning a backfill window.",
+            "federation": "responder_pubkey_b32 is the ed25519 key that signs every fact for this band at this responder. When the directory grows beyond one responder, the same band may be signed by different pubkeys across responders — agents should treat (responder_pubkey, fact_cid) as the unit of trust.",
             "fleet": "/v1/fleet for per-platform sensor lineage (cadence, swath, native_res_m).",
         },
     }))
@@ -1642,9 +2053,8 @@ async fn sources() -> Json<JsonValue> {
 /// and immutable for the life of the process, so we hash it once and
 /// reuse the string everywhere it's surfaced (/health, /v1/manifests,
 /// /v1/discover, /v1/agent_card, /v1/algorithms, /v1/intent, /.well-known).
-static ALGORITHMS_CID: LazyLock<Option<String>> = LazyLock::new(|| {
-    emem_core::manifest::manifest_cid(&*emem_core::algorithms::DEFAULT).ok()
-});
+static ALGORITHMS_CID: LazyLock<Option<String>> =
+    LazyLock::new(|| emem_core::manifest::manifest_cid(&*emem_core::algorithms::DEFAULT).ok());
 
 async fn algorithms() -> Json<JsonValue> {
     let reg = &*emem_core::algorithms::DEFAULT;
@@ -1747,9 +2157,14 @@ async fn errors() -> Json<JsonValue> {
         ("internal",                     "responder-side bug",
          "Capture the response and the request that produced it; file at https://github.com/Vortx-AI/emem/issues."),
     ];
-    let codes: Vec<JsonValue> = entries.iter().map(|(c, m, r)| json!({
-        "code": c, "meaning": m, "recover": r,
-    })).collect();
+    let codes: Vec<JsonValue> = entries
+        .iter()
+        .map(|(c, m, r)| {
+            json!({
+                "code": c, "meaning": m, "recover": r,
+            })
+        })
+        .collect();
     Json(json!({
         "schema": "emem.errors.v1",
         "codes": codes,
@@ -1764,12 +2179,20 @@ async fn errors() -> Json<JsonValue> {
 async fn tools() -> Json<JsonValue> {
     let descriptors: Vec<JsonValue> = emem_mcp::TOOLS.iter().map(|t| json!({
         "name": t.name,
+        "title": t.title,
         "description": t.description,
         "when_to_use": t.when_to_use,
         "input_schema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
         "example_args": serde_json::from_str::<JsonValue>(t.example_args).unwrap_or(json!({})),
         "level": t.level,
         "category": t.category,
+        "annotations": {
+            "title":           t.title,
+            "readOnlyHint":    t.read_only_hint,
+            "destructiveHint": t.destructive_hint,
+            "idempotentHint":  t.idempotent_hint,
+            "openWorldHint":   t.open_world_hint,
+        },
     })).collect();
     Json(json!({ "tools": descriptors }))
 }
@@ -1777,12 +2200,20 @@ async fn tools() -> Json<JsonValue> {
 async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     let descriptors: Vec<JsonValue> = emem_mcp::TOOLS.iter().map(|t| json!({
         "name": t.name,
+        "title": t.title,
         "description": t.description,
         "when_to_use": t.when_to_use,
         "level": t.level,
         "category": t.category,
         "input_schema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
         "example_args": serde_json::from_str::<JsonValue>(t.example_args).unwrap_or(json!({})),
+        "annotations": {
+            "title":           t.title,
+            "readOnlyHint":    t.read_only_hint,
+            "destructiveHint": t.destructive_hint,
+            "idempotentHint":  t.idempotent_hint,
+            "openWorldHint":   t.open_world_hint,
+        },
     })).collect();
     Json(json!({
         "name": "emem",
@@ -2096,7 +2527,7 @@ async fn recall_with_auto_materialize(
                 materialize_notes.push(json!({
                     "band":   o.band,
                     "status": "materialized",
-                    "fact_cid": o.fact_cid.as_ref().map(|c| c.as_str()),
+                    "fact_cid": o.fact_cid.as_deref(),
                 }));
             }
         }
@@ -2107,8 +2538,15 @@ async fn recall_with_auto_materialize(
     Ok((resp, materialize_notes))
 }
 
-async fn get_cell(State(s): State<AppState>, Path(cell64): Path<String>) -> Result<Json<JsonValue>, ApiError> {
-    let req = RecallReq { cell: cell64, bands: None, tslot: None };
+async fn get_cell(
+    State(s): State<AppState>,
+    Path(cell64): Path<String>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let req = RecallReq {
+        cell: cell64,
+        bands: None,
+        tslot: None,
+    };
     let resp = recall(&req, &s).await?;
     Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
 }
@@ -2135,7 +2573,10 @@ async fn post_recall(
     let mut cids: Vec<String> = resp.receipt.fact_cids.iter().map(|c| c.0.clone()).collect();
     cids.sort();
     let mut hasher = blake3::Hasher::new();
-    for c in &cids { hasher.update(c.as_bytes()); hasher.update(b"\n"); }
+    for c in &cids {
+        hasher.update(c.as_bytes());
+        hasher.update(b"\n");
+    }
     let etag = format!("\"{}\"", &hasher.finalize().to_hex().to_string()[..16]);
 
     if let Some(inm) = headers.get(IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
@@ -2155,7 +2596,10 @@ async fn post_recall(
         let mut v = serde_json::to_value(&resp).unwrap_or(json!({}));
         if let Some(map) = v.as_object_mut() {
             if !materialize_notes.is_empty() {
-                map.insert("materialize_notes".into(), JsonValue::Array(materialize_notes));
+                map.insert(
+                    "materialize_notes".into(),
+                    JsonValue::Array(materialize_notes),
+                );
             }
             if let Some(env) = resolved_env {
                 map.insert("resolved_from".into(), env);
@@ -2199,16 +2643,25 @@ async fn post_recall_many(
     Json(mut req): Json<RecallManyReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if req.cells.is_empty() {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: "recall_many: `cells` cannot be empty".into(),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "recall_many: `cells` cannot be empty".into(),
+            },
+        ));
     }
     if req.cells.len() > 256 {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: format!("recall_many: max 256 cells per call (got {}); split client-side", req.cells.len()),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!(
+                    "recall_many: max 256 cells per call (got {}); split client-side",
+                    req.cells.len()
+                ),
+            },
+        ));
     }
     // Resolve any place names in the cells array. The result-by-cell
     // map is keyed by the resolved cell64 so a downstream agent can
@@ -2232,17 +2685,24 @@ async fn post_recall_many(
         match recall(&r, &s).await {
             Ok(resp) => {
                 total_facts += resp.facts.len();
-                by_cell.insert(cell.clone(), serde_json::to_value(&resp).unwrap_or(json!({})));
+                by_cell.insert(
+                    cell.clone(),
+                    serde_json::to_value(&resp).unwrap_or(json!({})),
+                );
             }
             Err(e) => {
-                by_cell.insert(cell.clone(), json!({
-                    "error": e.to_string(),
-                    "code": format!("{:?}", e.wire_code()),
-                }));
+                by_cell.insert(
+                    cell.clone(),
+                    json!({
+                        "error": e.to_string(),
+                        "code": format!("{:?}", e.wire_code()),
+                    }),
+                );
             }
         }
     }
-    let resolved_map: serde_json::Map<String, JsonValue> = resolved_inputs.iter()
+    let resolved_map: serde_json::Map<String, JsonValue> = resolved_inputs
+        .iter()
         .filter(|(input, c)| input != c)
         .map(|(input, c)| (input.clone(), JsonValue::String(c.clone())))
         .collect();
@@ -2307,64 +2767,95 @@ async fn post_recall_polygon(
     Json(req): Json<RecallPolygonReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Resolve polygon_bbox: explicit → place lookup → error.
-    let (bbox, polygon_source, place_label, via): ((f64, f64, f64, f64), &'static str, Option<String>, &'static str) =
-        if let Some(b) = req.polygon_bbox.as_ref() {
+    let (bbox, polygon_source, place_label, via): (
+        (f64, f64, f64, f64),
+        &'static str,
+        Option<String>,
+        &'static str,
+    ) = if let Some(b) = req.polygon_bbox.as_ref() {
+        (
+            (b.min_lat, b.max_lat, b.min_lng, b.max_lng),
+            "request_polygon_bbox",
+            None,
+            "direct",
+        )
+    } else if let Some(p) = req.place.as_deref() {
+        // Reuse locate_inner so we get the exact same geocoder layering
+        // (embedded → cache → Nominatim) including the wide-bbox table.
+        let lr = LocateReq {
+            lat: None,
+            lng: None,
+            place: Some(p.into()),
+        };
+        let resp = locate_inner(lr).await?;
+        // Pull polygon_bbox out; if Nominatim didn't return one, fall back
+        // to the centre cell's bbox (single-cell fan-out, basically
+        // /v1/recall behaviour but still OK as a degenerate case).
+        let pb = resp.0.get("polygon_bbox").cloned();
+        let lab = resp
+            .0
+            .get("place_label")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let v = resp
+            .0
+            .get("via")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let via_static: &'static str = match v {
+            "embedded" => "embedded",
+            "cache" => "cache",
+            "nominatim" => "nominatim",
+            "direct" => "direct",
+            _ => "unknown",
+        };
+        if let Some(JsonValue::Object(m)) = pb {
+            let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let src = m
+                .get("source")
+                .and_then(|v| v.as_str())
+                .unwrap_or("nominatim_boundingbox");
+            let src_static: &'static str = match src {
+                "wide_bbox_table" => "wide_bbox_table",
+                "nominatim_boundingbox" => "nominatim_boundingbox",
+                _ => "geocoder",
+            };
             (
-                (b.min_lat, b.max_lat, b.min_lng, b.max_lng),
-                "request_polygon_bbox",
-                None,
-                "direct",
+                (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
+                src_static,
+                lab,
+                via_static,
             )
-        } else if let Some(p) = req.place.as_deref() {
-            // Reuse locate_inner so we get the exact same geocoder layering
-            // (embedded → cache → Nominatim) including the wide-bbox table.
-            let lr = LocateReq {
-                lat: None, lng: None, place: Some(p.into()),
-            };
-            let resp = locate_inner(lr).await?;
-            // Pull polygon_bbox out; if Nominatim didn't return one, fall back
-            // to the centre cell's bbox (single-cell fan-out, basically
-            // /v1/recall behaviour but still OK as a degenerate case).
-            let pb = resp.0.get("polygon_bbox").cloned();
-            let lab = resp.0.get("place_label").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let v = resp.0.get("via").and_then(|v| v.as_str()).unwrap_or("unknown");
-            let via_static: &'static str = match v {
-                "embedded" => "embedded", "cache" => "cache",
-                "nominatim" => "nominatim", "direct" => "direct", _ => "unknown",
-            };
-            if let Some(JsonValue::Object(m)) = pb {
+        } else {
+            // No polygon — fall back to the locate centre + a tiny epsilon
+            // so sample_cells_in_bbox still returns the centre cell.
+            let bbox_centre = resp.0.get("bbox_deg").cloned();
+            if let Some(JsonValue::Object(m)) = bbox_centre {
                 let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let src = m.get("source").and_then(|v| v.as_str()).unwrap_or("nominatim_boundingbox");
-                let src_static: &'static str = match src {
-                    "wide_bbox_table" => "wide_bbox_table",
-                    "nominatim_boundingbox" => "nominatim_boundingbox",
-                    _ => "geocoder",
-                };
-                ((g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")), src_static, lab, via_static)
+                (
+                    (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
+                    "centre_cell_bbox",
+                    lab,
+                    via_static,
+                )
             } else {
-                // No polygon — fall back to the locate centre + a tiny epsilon
-                // so sample_cells_in_bbox still returns the centre cell.
-                let bbox_centre = resp.0.get("bbox_deg").cloned();
-                if let Some(JsonValue::Object(m)) = bbox_centre {
-                    let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    ((g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")), "centre_cell_bbox", lab, via_static)
-                } else {
-                    return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
+                return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
                         code: ErrorCode::Internal,
                         message: format!("recall_polygon: place '{p}' resolved without bbox or centre — try passing polygon_bbox explicitly"),
                     }));
-                }
             }
-        } else {
-            return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
+        }
+    } else {
+        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
                 code: ErrorCode::Internal,
                 message: "recall_polygon: supply either {place: \"...\"} or {polygon_bbox: {min_lat, max_lat, min_lng, max_lng}}".into(),
             }));
-        };
+    };
 
     // Sanity-check the bbox.
     if !(bbox.0.is_finite() && bbox.1.is_finite() && bbox.2.is_finite() && bbox.3.is_finite())
-        || bbox.0 > bbox.1 || bbox.2 > bbox.3
+        || bbox.0 > bbox.1
+        || bbox.2 > bbox.3
     {
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
             code: ErrorCode::Internal,
@@ -2375,10 +2866,13 @@ async fn post_recall_polygon(
     let max_cells = req.max_cells.unwrap_or(64).clamp(1, 256);
     let cells = sample_cells_in_bbox(bbox, max_cells);
     if cells.is_empty() {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: "recall_polygon: bbox sampled to zero cells".into(),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "recall_polygon: bbox sampled to zero cells".into(),
+            },
+        ));
     }
 
     // Fan out. Reuse the same lazy-materialize helper as POST /v1/recall
@@ -2409,11 +2903,14 @@ async fn post_recall_polygon(
                 }
             }
             Err(e) => {
-                by_cell.insert(cell.clone(), json!({
-                    "error":  e.1.message,
-                    "code":   format!("{:?}", e.1.code),
-                    "status": e.0.as_u16(),
-                }));
+                by_cell.insert(
+                    cell.clone(),
+                    json!({
+                        "error":  e.1.message,
+                        "code":   format!("{:?}", e.1.code),
+                        "status": e.0.as_u16(),
+                    }),
+                );
             }
         }
     }
@@ -2442,13 +2939,19 @@ async fn post_recall_polygon(
     });
     if !materialize_notes_all.is_empty() {
         if let Some(m) = out.as_object_mut() {
-            m.insert("materialize_notes".into(), JsonValue::Array(materialize_notes_all));
+            m.insert(
+                "materialize_notes".into(),
+                JsonValue::Array(materialize_notes_all),
+            );
         }
     }
     Ok(Json(out))
 }
 
-async fn post_query_region(State(s): State<AppState>, Json(req): Json<QueryRegionReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_query_region(
+    State(s): State<AppState>,
+    Json(req): Json<QueryRegionReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     let resp = query_region(&req, &s).await?;
     Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
 }
@@ -2462,7 +2965,11 @@ fn resolved_envelope(entries: Vec<(String, ResolvedRef)>) -> Option<JsonValue> {
             out.insert(field, serde_json::to_value(&r).unwrap_or(JsonValue::Null));
         }
     }
-    if out.is_empty() { None } else { Some(JsonValue::Object(out)) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(JsonValue::Object(out))
+    }
 }
 
 fn attach_resolved(mut body: JsonValue, env: Option<JsonValue>) -> JsonValue {
@@ -2472,7 +2979,10 @@ fn attach_resolved(mut body: JsonValue, env: Option<JsonValue>) -> JsonValue {
     body
 }
 
-async fn post_compare(State(s): State<AppState>, Json(mut req): Json<CompareReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_compare(
+    State(s): State<AppState>,
+    Json(mut req): Json<CompareReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     // Accept place names in either side. `compare {a:"Tokyo", b:"Mumbai"}`
     // now works without the agent having to call `emem_locate` twice first.
     let (a_cell, ra) = resolve_cell_field(&req.a).await?;
@@ -2481,18 +2991,30 @@ async fn post_compare(State(s): State<AppState>, Json(mut req): Json<CompareReq>
     req.b = b_cell;
     let resp = compare(&req, &s).await?;
     let env = resolved_envelope(vec![("a".into(), ra), ("b".into(), rb)]);
-    Ok(Json(attach_resolved(serde_json::to_value(resp).unwrap_or(json!({})), env)))
+    Ok(Json(attach_resolved(
+        serde_json::to_value(resp).unwrap_or(json!({})),
+        env,
+    )))
 }
 
-async fn post_compare_bands(State(s): State<AppState>, Json(mut req): Json<CompareBandsReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_compare_bands(
+    State(s): State<AppState>,
+    Json(mut req): Json<CompareBandsReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
     let resp = compare_bands(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
-    Ok(Json(attach_resolved(serde_json::to_value(resp).unwrap_or(json!({})), env)))
+    Ok(Json(attach_resolved(
+        serde_json::to_value(resp).unwrap_or(json!({})),
+        env,
+    )))
 }
 
-async fn post_find_similar(State(s): State<AppState>, Json(mut req): Json<FindSimilarReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_find_similar(
+    State(s): State<AppState>,
+    Json(mut req): Json<FindSimilarReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     // `key` may be `inline:[...]`, a cell64, or a place name. Only the
     // last needs resolution. Inline literals carry their own vector.
     let mut env_entries: Vec<(String, ResolvedRef)> = Vec::new();
@@ -2503,31 +3025,88 @@ async fn post_find_similar(State(s): State<AppState>, Json(mut req): Json<FindSi
     }
     let resp = find_similar(&req, &s).await?;
     let env = resolved_envelope(env_entries);
-    Ok(Json(attach_resolved(serde_json::to_value(resp).unwrap_or(json!({})), env)))
+    Ok(Json(attach_resolved(
+        serde_json::to_value(resp).unwrap_or(json!({})),
+        env,
+    )))
 }
 
-async fn post_diff(State(s): State<AppState>, Json(mut req): Json<DiffReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_diff(
+    State(s): State<AppState>,
+    Json(mut req): Json<DiffReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
     let resp = diff(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
-    Ok(Json(attach_resolved(serde_json::to_value(resp).unwrap_or(json!({})), env)))
+    Ok(Json(attach_resolved(
+        serde_json::to_value(resp).unwrap_or(json!({})),
+        env,
+    )))
 }
 
-async fn post_trajectory(State(s): State<AppState>, Json(mut req): Json<TrajectoryReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_trajectory(
+    State(s): State<AppState>,
+    Json(mut req): Json<TrajectoryReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
     let resp = trajectory(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
-    Ok(Json(attach_resolved(serde_json::to_value(resp).unwrap_or(json!({})), env)))
+    Ok(Json(attach_resolved(
+        serde_json::to_value(resp).unwrap_or(json!({})),
+        env,
+    )))
 }
 
-async fn post_verify(State(s): State<AppState>, Json(mut req): Json<VerifyReq>) -> Result<Json<JsonValue>, ApiError> {
+/// Request body for `POST /v1/backfill`. Mirrors the MCP `emem_backfill`
+/// schema declared in `emem-mcp/src/lib.rs`. `deny_unknown_fields` so
+/// agents that send `from_unix`/`to_unix` (or any other typo) get a 400
+/// instead of a silently-defaulted call that backfills the entire
+/// history of the band.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackfillReq {
+    cell: String,
+    band: String,
+    #[serde(default)]
+    start_unix: Option<i64>,
+    #[serde(default)]
+    end_unix: Option<i64>,
+    #[serde(default)]
+    max_facts: Option<usize>,
+}
+
+async fn post_backfill(
+    State(s): State<AppState>,
+    Json(mut req): Json<BackfillReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let (cell, rc) = resolve_cell_field(&req.cell).await?;
+    req.cell = cell;
+    let resp = backfill_inner(req, &s).await?;
+    let env = resolved_envelope(vec![("cell".into(), rc)]);
+    Ok(Json(attach_resolved(resp, env)))
+}
+
+/// `GET /v1/schema` — serve the active CDDL/JSON schema bundle. REST
+/// mirror of the MCP `emem_schema` tool. Closes the parity gap reported
+/// where curl-to-/v1/schema returned 404 while the MCP tool worked.
+async fn get_schema() -> Json<JsonValue> {
+    Json(serde_json::to_value(&*emem_core::schema::DEFAULT).unwrap_or(JsonValue::Null))
+}
+
+async fn post_verify(
+    State(s): State<AppState>,
+    Json(mut req): Json<VerifyReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
     let resp = verify(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
-    Ok(Json(attach_resolved(serde_json::to_value(resp).unwrap_or(json!({})), env)))
+    Ok(Json(attach_resolved(
+        serde_json::to_value(resp).unwrap_or(json!({})),
+        env,
+    )))
 }
 
 async fn post_intent(State(s): State<AppState>, Json(intent): Json<Intent>) -> Json<JsonValue> {
@@ -2580,39 +3159,60 @@ fn suggest_algorithms_for_intent(intent: &Intent) -> JsonValue {
         Intent::WhereIs { .. } => &[],
         Intent::WhatIsHere { .. } | Intent::Ask { .. } => &[
             "vegetation_class_from_ndvi",
-            "flood_history_class", "flood_risk", "water_consensus",
-            "built_up_from_ndbi", "urban_density_score",
-            "livability_index", "outdoor_comfort_score",
-            "place_archetype_match", "embedding_neighborhood_consistency",
+            "flood_history_class",
+            "flood_risk",
+            "water_consensus",
+            "built_up_from_ndbi",
+            "urban_density_score",
+            "livability_index",
+            "outdoor_comfort_score",
+            "place_archetype_match",
+            "embedding_neighborhood_consistency",
         ],
         Intent::IsLike { .. } => &[
-            "embedding_cosine", "embedding_l2_distance",
-            "region_similarity", "place_archetype_match",
+            "embedding_cosine",
+            "embedding_l2_distance",
+            "region_similarity",
+            "place_archetype_match",
             "embedding_weighted_blend",
         ],
         Intent::DidChange { .. } => &[
-            "embedding_change_score", "trend_strength",
-            "burn_severity_from_dnbr", "anomaly_zscore",
+            "embedding_change_score",
+            "trend_strength",
+            "burn_severity_from_dnbr",
+            "anomaly_zscore",
         ],
         Intent::FindLike { .. } => &[
-            "visual_search_match", "embedding_novelty",
-            "embedding_diversity_score", "embedding_corridor_consistency",
+            "visual_search_match",
+            "embedding_novelty",
+            "embedding_diversity_score",
+            "embedding_corridor_consistency",
             "place_archetype_match",
         ],
         Intent::Confirm { .. } => &[
-            "anomaly_zscore", "trend_strength",
-            "flood_history_class", "vegetation_class_from_ndvi",
+            "anomaly_zscore",
+            "trend_strength",
+            "flood_history_class",
+            "vegetation_class_from_ndvi",
         ],
     };
-    let mut hits: Vec<&emem_core::algorithms::Algorithm> = reg.algorithms.iter()
+    let mut hits: Vec<&emem_core::algorithms::Algorithm> = reg
+        .algorithms
+        .iter()
         .filter(|a| pattern.iter().any(|p| a.key.starts_with(p)))
         .collect();
     // Stable order: prefix order, then key alpha. Helps agent prompt
     // determinism — same intent always returns suggestions in the same
     // order, so cached responses stay valid.
     hits.sort_by(|a, b| {
-        let ai = pattern.iter().position(|p| a.key.starts_with(p)).unwrap_or(usize::MAX);
-        let bi = pattern.iter().position(|p| b.key.starts_with(p)).unwrap_or(usize::MAX);
+        let ai = pattern
+            .iter()
+            .position(|p| a.key.starts_with(p))
+            .unwrap_or(usize::MAX);
+        let bi = pattern
+            .iter()
+            .position(|p| b.key.starts_with(p))
+            .unwrap_or(usize::MAX);
         ai.cmp(&bi).then_with(|| a.key.cmp(&b.key))
     });
 
@@ -2655,7 +3255,9 @@ fn ciborium_to_json(v: &ciborium::Value) -> JsonValue {
                 JsonValue::from(i.to_string())
             }
         }
-        C::Float(f) => serde_json::Number::from_f64(*f).map(JsonValue::Number).unwrap_or(JsonValue::Null),
+        C::Float(f) => serde_json::Number::from_f64(*f)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
         C::Text(s) => JsonValue::String(s.clone()),
         C::Bytes(_) => JsonValue::Null,
         C::Array(xs) => JsonValue::Array(xs.iter().map(ciborium_to_json).collect()),
@@ -2673,23 +3275,35 @@ fn ciborium_to_json(v: &ciborium::Value) -> JsonValue {
     }
 }
 
-async fn post_attest(State(s): State<AppState>, Json(att): Json<Attestation>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_attest(
+    State(s): State<AppState>,
+    Json(att): Json<Attestation>,
+) -> Result<Json<JsonValue>, ApiError> {
     match s.storage.put_attestation(&att).await {
         Ok(cids) => {
             metrics_inc(&ATTEST_TOTAL);
             let cid_strs: Vec<&str> = cids.iter().map(|c| c.as_str()).collect();
             Ok(Json(json!({ "cids": cid_strs, "count": cids.len() })))
         }
-        Err(e) => { metrics_inc(&ATTEST_FAIL_TOTAL); Err(ApiError::from(e)) }
+        Err(e) => {
+            metrics_inc(&ATTEST_FAIL_TOTAL);
+            Err(ApiError::from(e))
+        }
     }
 }
 
-async fn post_attest_cbor(State(s): State<AppState>, body: Bytes) -> Result<Json<JsonValue>, ApiError> {
+async fn post_attest_cbor(
+    State(s): State<AppState>,
+    body: Bytes,
+) -> Result<Json<JsonValue>, ApiError> {
     let att: Attestation = ciborium::de::from_reader(body.as_ref()).map_err(|e| {
         metrics_inc(&ATTEST_FAIL_TOTAL);
         ApiError(
             StatusCode::BAD_REQUEST,
-            ErrorBody { code: ErrorCode::CanonicalEncodingDivergence, message: format!("cbor decode: {e}") },
+            ErrorBody {
+                code: ErrorCode::CanonicalEncodingDivergence,
+                message: format!("cbor decode: {e}"),
+            },
         )
     })?;
     match s.storage.put_attestation(&att).await {
@@ -2698,7 +3312,10 @@ async fn post_attest_cbor(State(s): State<AppState>, body: Bytes) -> Result<Json
             let cid_strs: Vec<&str> = cids.iter().map(|c| c.as_str()).collect();
             Ok(Json(json!({ "cids": cid_strs, "count": cids.len() })))
         }
-        Err(e) => { metrics_inc(&ATTEST_FAIL_TOTAL); Err(ApiError::from(e)) }
+        Err(e) => {
+            metrics_inc(&ATTEST_FAIL_TOTAL);
+            Err(ApiError::from(e))
+        }
     }
 }
 
@@ -2713,36 +3330,65 @@ struct VerifyReceiptReq {
     pubkey_b32: Option<String>,
 }
 
-async fn post_verify_receipt(Json(req): Json<VerifyReceiptReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_verify_receipt(
+    Json(req): Json<VerifyReceiptReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     let r = &req.receipt;
     let pk_bytes: [u8; 32] = if let Some(b32) = req.pubkey_b32 {
-        let raw = data_encoding::BASE32_NOPAD.decode(b32.to_uppercase().as_bytes())
-            .map_err(|e| ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-                code: ErrorCode::Internal, message: format!("pubkey_b32 decode: {e}"),
-            }))?;
+        let raw = data_encoding::BASE32_NOPAD
+            .decode(b32.to_uppercase().as_bytes())
+            .map_err(|e| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::Internal,
+                        message: format!("pubkey_b32 decode: {e}"),
+                    },
+                )
+            })?;
         if raw.len() != 32 {
-            return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-                code: ErrorCode::Internal, message: format!("pubkey_b32 must decode to 32 bytes, got {}", raw.len()),
-            }));
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("pubkey_b32 must decode to 32 bytes, got {}", raw.len()),
+                },
+            ));
         }
-        let mut arr = [0u8; 32]; arr.copy_from_slice(&raw); arr
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&raw);
+        arr
     } else {
         r.responder.0
     };
 
     let mut h = blake3::Hasher::new();
-    h.update(r.request_id.as_bytes()); h.update(b"|");
-    h.update(r.served_at.as_bytes()); h.update(b"|");
-    h.update(r.primitive.as_bytes()); h.update(b"|");
-    for c in &r.cells { h.update(c.as_bytes()); h.update(b","); }
+    h.update(r.request_id.as_bytes());
     h.update(b"|");
-    for c in &r.fact_cids { h.update(c.as_str().as_bytes()); h.update(b","); }
+    h.update(r.served_at.as_bytes());
+    h.update(b"|");
+    h.update(r.primitive.as_bytes());
+    h.update(b"|");
+    for c in &r.cells {
+        h.update(c.as_bytes());
+        h.update(b",");
+    }
+    h.update(b"|");
+    for c in &r.fact_cids {
+        h.update(c.as_str().as_bytes());
+        h.update(b",");
+    }
     let msg = h.finalize();
 
-    let pk = ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes)
-        .map_err(|e| ApiError(StatusCode::UNPROCESSABLE_ENTITY, ErrorBody {
-            code: ErrorCode::BadSignature, message: format!("bad pubkey: {e}"),
-        }))?;
+    let pk = ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes).map_err(|e| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::BadSignature,
+                message: format!("bad pubkey: {e}"),
+            },
+        )
+    })?;
     let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
     let valid = pk.verify_strict(msg.as_bytes(), &sig).is_ok();
 
@@ -2756,7 +3402,11 @@ async fn post_verify_receipt(Json(req): Json<VerifyReceiptReq>) -> Result<Json<J
     })))
 }
 
-async fn get_fact(State(s): State<AppState>, Path(cid): Path<String>, headers: HeaderMap) -> Response {
+async fn get_fact(
+    State(s): State<AppState>,
+    Path(cid): Path<String>,
+    headers: HeaderMap,
+) -> Response {
     // Immutable: the CID *is* the validator. Return 304 on If-None-Match match.
     let etag_value = format!("\"{}\"", &cid);
     if let Some(if_none) = headers.get(IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
@@ -2775,10 +3425,14 @@ async fn get_fact(State(s): State<AppState>, Path(cid): Path<String>, headers: H
         Err(e) => return ApiError::from(e).into_response(),
     };
     let Some(Some(fact)) = facts.into_iter().next() else {
-        return ApiError(StatusCode::NOT_FOUND, ErrorBody {
-            code: ErrorCode::CidNotFound,
-            message: format!("no fact for cid={cid}"),
-        }).into_response();
+        return ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!("no fact for cid={cid}"),
+            },
+        )
+        .into_response();
     };
     let body = serde_json::to_string(&fact).unwrap_or_else(|_| "{}".into());
     Response::builder()
@@ -2794,10 +3448,13 @@ async fn get_fact(State(s): State<AppState>, Path(cid): Path<String>, headers: H
 
 #[derive(Deserialize)]
 struct JsonRpcReq {
-    #[serde(default)] _jsonrpc: Option<String>,
+    #[serde(default)]
+    _jsonrpc: Option<String>,
     method: String,
-    #[serde(default)] params: Option<JsonValue>,
-    #[serde(default)] id: Option<JsonValue>,
+    #[serde(default)]
+    params: Option<JsonValue>,
+    #[serde(default)]
+    id: Option<JsonValue>,
 }
 
 /// `GET /mcp` — discovery document.
@@ -2807,7 +3464,9 @@ struct JsonRpcReq {
 /// URL learns the transport, the protocol version, the tool names, and a
 /// pasteable `initialize` body — without having to read source.
 async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
-    let pubkey = data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase();
+    let pubkey = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
     let tools: Vec<JsonValue> = emem_mcp::TOOLS
         .iter()
         .map(|t| json!({"name": t.name, "description": t.description}))
@@ -2869,7 +3528,8 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
     // looks identical in access logs and we can't tell `emem.recall` calls
     // apart from `emem.find_similar` calls.
     let tool_name = if method == "tools/call" {
-        req.params.as_ref()
+        req.params
+            .as_ref()
             .and_then(|p| p.get("name"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -2889,13 +3549,17 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
             // Without this, agents miss strong guidance like "ALWAYS call
             // emem_locate first" and end up guessing cell64 strings.
             //
-            // `annotations` carries the four behavioural hints the Anthropic
+            // `annotations` carries the five behavioural hints the Anthropic
             // Software Directory expects (`title`, `readOnlyHint`,
             // `destructiveHint`, `idempotentHint`, `openWorldHint`). Hosts
             // (Claude Desktop, Claude.ai connector picker) use these to
-            // group tools, gate auto-execution, and label them.
+            // group tools, gate auto-execution, and label them. Per-tool
+            // hints are explicit fields on `ToolDescriptor`; the per-category
+            // helpers on `ToolCategory` are kept as a fallback derivation
+            // for clients that read the descriptor crate directly.
             "tools": emem_mcp::TOOLS.iter().map(|t| json!({
                 "name": t.name,
+                "title": t.title,
                 "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
                 "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
                 "annotations": {
@@ -2935,7 +3599,8 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
                     // the structured-content sibling. This keeps the
                     // dispatch signature uniform while letting
                     // `emem_coverage_map` ship a real EmbeddedResource.
-                    let raw_content = inner.get("_mcp_content")
+                    let raw_content = inner
+                        .get("_mcp_content")
                         .and_then(|v| v.as_array())
                         .cloned();
                     let raw_structured = inner.get("_mcp_structured").cloned();
@@ -2946,8 +3611,8 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
                             "isError": false,
                         }))
                     } else {
-                        let text = serde_json::to_string(&inner)
-                            .unwrap_or_else(|_| "{}".to_string());
+                        let text =
+                            serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
                         Ok(json!({
                             "content": [{"type": "text", "text": text}],
                             "structuredContent": inner,
@@ -2999,7 +3664,11 @@ async fn mcp_jsonrpc(State(s): State<AppState>, Json(req): Json<JsonRpcReq>) -> 
     }
 }
 
-async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<JsonValue, (i64, String)> {
+async fn mcp_tool_call(
+    name: &str,
+    mut args: JsonValue,
+    s: &AppState,
+) -> Result<JsonValue, (i64, String)> {
     // Pre-flight: rewrite cell-typed args from place names to cell64
     // strings so MCP clients get the same place-name UX as REST. The
     // map below names the (tool → field-list) routes that take cell64
@@ -3008,9 +3677,13 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
     // cell64 strings cost zero locate calls.
     let canon = name.replace('.', "_");
     let cell_fields: &[&str] = match canon.as_str() {
-        "emem_recall" | "emem_compare_bands" | "emem_diff" |
-        "emem_trajectory" | "emem_verify" |
-        "emem_cell_scene_rgb" | "emem_cell_geojson" => &["cell"],
+        "emem_recall"
+        | "emem_compare_bands"
+        | "emem_diff"
+        | "emem_trajectory"
+        | "emem_verify"
+        | "emem_cell_scene_rgb"
+        | "emem_cell_geojson" => &["cell"],
         "emem_compare" => &["a", "b"],
         "emem_find_similar" => &["key"],
         _ => &[],
@@ -3021,9 +3694,12 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             for field in cell_fields {
                 if let Some(v) = obj.get(*field).and_then(|v| v.as_str()) {
                     // Skip inline:[...] vector literal in find_similar.key
-                    if v.starts_with("inline:") { continue; }
+                    if v.starts_with("inline:") {
+                        continue;
+                    }
                     if !emem_codec::is_cell64_shape(v) {
-                        let (cell64, rref) = resolve_cell_field(v).await
+                        let (cell64, rref) = resolve_cell_field(v)
+                            .await
                             .map_err(|e| (-(e.1.code as i64), e.1.message))?;
                         obj.insert((*field).to_string(), JsonValue::String(cell64));
                         if matches!(rref, ResolvedRef::Place { .. }) {
@@ -3050,7 +3726,10 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
     let attach_resolved_env = |mut v: JsonValue| -> JsonValue {
         if !resolved_envelope_map.is_empty() {
             if let Some(map) = v.as_object_mut() {
-                map.insert("resolved_from".into(), JsonValue::Object(resolved_envelope_map.clone()));
+                map.insert(
+                    "resolved_from".into(),
+                    JsonValue::Object(resolved_envelope_map.clone()),
+                );
             }
         }
         v
@@ -3067,13 +3746,20 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             // identical to GET/POST /v1/locate.
             #[derive(serde::Deserialize)]
             struct LocateArgs {
-                #[serde(default)] place: Option<String>,
-                #[serde(default)] lat: Option<f64>,
-                #[serde(default)] lng: Option<f64>,
+                #[serde(default)]
+                place: Option<String>,
+                #[serde(default)]
+                lat: Option<f64>,
+                #[serde(default)]
+                lng: Option<f64>,
             }
-            let a: LocateArgs = serde_json::from_value(args)
-                .map_err(|e| (-32602, e.to_string()))?;
-            let lreq = LocateReq { lat: a.lat, lng: a.lng, place: a.place };
+            let a: LocateArgs =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let lreq = LocateReq {
+                lat: a.lat,
+                lng: a.lng,
+                place: a.place,
+            };
             match locate_inner(lreq).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -3086,11 +3772,13 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             // the top of the call stack can answer without a second
             // round-trip.
             let req: AskReq = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            ask_inner(s.clone(), req).await.map_err(|e| (-(e.1.code as i64), e.1.message))
+            ask_inner(s.clone(), req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
         }
         "emem_recall_polygon" => {
-            let req: RecallPolygonReq = serde_json::from_value(args)
-                .map_err(|e| (-32602, e.to_string()))?;
+            let req: RecallPolygonReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_recall_polygon(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -3104,17 +3792,22 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             // same on-demand corpus growth as REST. Without this,
             // emem_recall via MCP returns empty for any cell that hasn't
             // been seeded — even though the materializer is registered.
-            let req: RecallReq = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            let (resp, materialize_notes) = recall_with_auto_materialize(&req, s).await
+            let req: RecallReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let (resp, materialize_notes) = recall_with_auto_materialize(&req, s)
+                .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))?;
             let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
             if !materialize_notes.is_empty() {
                 if let Some(map) = v.as_object_mut() {
-                    map.insert("materialize_notes".into(), JsonValue::Array(materialize_notes));
+                    map.insert(
+                        "materialize_notes".into(),
+                        JsonValue::Array(materialize_notes),
+                    );
                 }
             }
             Ok(attach_resolved_env(v))
-        },
+        }
         "emem_query_region" => call!(QueryRegionReq, query_region),
         "emem_compare" => call!(CompareReq, compare).map(attach_resolved_env),
         "emem_compare_bands" => call!(CompareBandsReq, compare_bands).map(attach_resolved_env),
@@ -3129,7 +3822,8 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             // future Sized despite the self-recursion. The planner never
             // emits another `emem_intent` step, so there is no infinite
             // recursion in practice.
-            let intent: Intent = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let intent: Intent =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             let p = plan(&intent);
             let mut results: Vec<JsonValue> = Vec::with_capacity(p.calls.len());
             for call in &p.calls {
@@ -3155,16 +3849,23 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
                 "results": results,
             }))
         }
-        "emem_bands" => Ok(serde_json::to_value(&*emem_core::bands::DEFAULT).unwrap_or(JsonValue::Null)),
-        "emem_functions" => Ok(serde_json::to_value(&*emem_core::functions::DEFAULT).unwrap_or(JsonValue::Null)),
-        "emem_sources" => Ok(serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(JsonValue::Null)),
+        "emem_bands" => {
+            Ok(serde_json::to_value(&*emem_core::bands::DEFAULT).unwrap_or(JsonValue::Null))
+        }
+        "emem_functions" => {
+            Ok(serde_json::to_value(&*emem_core::functions::DEFAULT).unwrap_or(JsonValue::Null))
+        }
+        "emem_sources" => {
+            Ok(serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(JsonValue::Null))
+        }
         "emem_algorithms" => Ok(algorithms().await.0),
         "emem_cell_geojson" => {
-            let cell = args.get("cell").and_then(|v| v.as_str())
+            let cell = args
+                .get("cell")
+                .and_then(|v| v.as_str())
                 .ok_or((-32602i64, "missing `cell`".to_string()))?;
             let feat = build_cell_geojson(cell).map_err(|e| (-32000i64, e))?;
-            let geojson_text = serde_json::to_string(&feat)
-                .unwrap_or_else(|_| "{}".to_string());
+            let geojson_text = serde_json::to_string(&feat).unwrap_or_else(|_| "{}".to_string());
             let origin = public_origin().unwrap_or_else(|| "urn:emem".into());
             let uri = format!("{origin}/v1/cells/{cell}/geojson");
             let summary = format!(
@@ -3186,11 +3887,20 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             }))
         }
         "emem_cell_scene_rgb" => {
-            let cell = args.get("cell").and_then(|v| v.as_str())
+            let cell = args
+                .get("cell")
+                .and_then(|v| v.as_str())
                 .ok_or((-32602i64, "missing `cell`".to_string()))?;
-            let max_cloud = args.get("max_cloud").and_then(|v| v.as_f64()).unwrap_or(20.0);
-            let datetime = args.get("datetime").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let scene = build_cell_scene_rgb(cell, max_cloud, datetime.as_deref()).await
+            let max_cloud = args
+                .get("max_cloud")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(20.0);
+            let datetime = args
+                .get("datetime")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let scene = build_cell_scene_rgb(cell, max_cloud, datetime.as_deref())
+                .await
                 .map_err(|e| (-32000i64, e))?;
             let b64 = data_encoding::BASE64.encode(&scene.png);
             let summary = format!(
@@ -3235,7 +3945,9 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             // image natively, plus a small text-summary block so
             // text-only clients still get the cell/fact counts.
             let (svg, cell_count, total_facts) = build_coverage_map_svg(s).await;
-            let pubkey = data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase();
+            let pubkey = data_encoding::BASE32_NOPAD
+                .encode(&s.identity.pubkey.0)
+                .to_lowercase();
             let origin = public_origin().unwrap_or_else(|| "urn:emem".into());
             let map_url = format!("{origin}/v1/coverage_map.svg");
             let summary = format!(
@@ -3263,7 +3975,9 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
                 },
             }))
         }
-        "emem_schema" => Ok(serde_json::to_value(&*emem_core::schema::DEFAULT).unwrap_or(JsonValue::Null)),
+        "emem_schema" => {
+            Ok(serde_json::to_value(&*emem_core::schema::DEFAULT).unwrap_or(JsonValue::Null))
+        }
         "emem_manifests" => Ok(json!({
             "bands_cid": &s.manifests.bands_cid,
             "functions_cid": s.manifests.registry_cid.as_str(),
@@ -3271,6 +3985,58 @@ async fn mcp_tool_call(name: &str, mut args: JsonValue, s: &AppState) -> Result<
             "schema_cid": s.manifests.schema_cid.as_str(),
         })),
         "emem_errors" => Ok(serde_json::to_value(emem_mcp::TOOLS.len()).unwrap_or(JsonValue::Null)),
+        "emem_fetch" => {
+            #[derive(serde::Deserialize)]
+            struct FetchArgs {
+                cid: String,
+            }
+            let a: FetchArgs = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let trimmed = a.cid.trim();
+            if trimmed.is_empty() {
+                return Err((
+                    -(ErrorCode::CidNotFound as i64),
+                    "cid must be a non-empty string".into(),
+                ));
+            }
+            // Cheap shape check — emem CIDs are blake3 base32-nopad lowercase
+            // (52 chars). Anything else cannot resolve, and rejecting early
+            // saves a storage round-trip on obviously-malformed input.
+            let shape_ok = trimmed.len() >= 32
+                && trimmed.len() <= 96
+                && trimmed.bytes().all(|c| c.is_ascii_alphanumeric());
+            if !shape_ok {
+                return Err((
+                    -(ErrorCode::CidNotFound as i64),
+                    format!("cid '{trimmed}' is not a well-formed content address"),
+                ));
+            }
+            let cid = emem_fact::FactCid::new(trimmed.to_string());
+            let facts = s
+                .storage
+                .get_facts_many(&[cid])
+                .await
+                .map_err(|e| (-(ErrorCode::Internal as i64), e.to_string()))?;
+            let fact = facts.into_iter().next().flatten().ok_or_else(|| {
+                (
+                    -(ErrorCode::CidNotFound as i64),
+                    format!("no fact for cid={trimmed}"),
+                )
+            })?;
+            Ok(json!({
+                "schema": "emem.fetch.v1",
+                "cid": trimmed,
+                "fact": serde_json::to_value(&fact).unwrap_or(JsonValue::Null),
+                "rest_url": format!("/v1/facts/{trimmed}"),
+                "agent_hint": "Fact bytes are byte-identical across responders for the same CID; the CID itself is the validator. Verify the responder's signature with /v1/verify_receipt.",
+            }))
+        }
+        "emem_backfill" => {
+            let req: BackfillReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            backfill_inner(req, s)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
         other => Err((-32601, format!("unknown tool: {other}"))),
     }
 }
@@ -3304,6 +4070,9 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/find_similar":      {"post":{"summary":"k-NN over band vectors","operationId":"emem_find_similar","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FindSimilarReq"}}}},"responses":{"200":{"description":"ok"}}}},
             "/v1/diff":              {"post":{"summary":"derivative fact between two tslots","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":{"description":"ok"}}}},
             "/v1/trajectory":        {"post":{"summary":"time series","operationId":"emem_trajectory","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TrajectoryReq"}}}},"responses":{"200":{"description":"ok"}}}},
+            "/v1/backfill":          {"post":{"summary":"materialize history in a window","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":{"description":"ok"}}}},
+            "/v1/schema":            {"get":{"summary":"active CDDL/JSON schema bundle (REST mirror of emem_schema)","operationId":"emem_schema","responses":{"200":{"description":"ok"}}}},
+            "/v1/facts/{cid}":       {"get":{"summary":"fetch a fact by CID (REST mirror of emem_fetch)","operationId":"emem_fetch","parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"},"404":{"description":"no fact for cid"}}}},
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":{"description":"ok"}}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt","operationId":"emem_verify_receipt","responses":{"200":{"description":"ok"}}}},
             "/v1/intent":            {"post":{"summary":"intent → plan","operationId":"emem_intent","responses":{"200":{"description":"ok"}}}},
@@ -3350,8 +4119,12 @@ async fn list_demos() -> Json<JsonValue> {
     if let Ok(rd) = std::fs::read_dir(&root) {
         for ent in rd.flatten() {
             let name = ent.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') { continue; }
-            if !ent.path().is_dir() { continue; }
+            if name.starts_with('.') {
+                continue;
+            }
+            if !ent.path().is_dir() {
+                continue;
+            }
             let mut steps = 0usize;
             let mut bytes = 0u64;
             if let Ok(rd2) = std::fs::read_dir(ent.path()) {
@@ -3359,7 +4132,9 @@ async fn list_demos() -> Json<JsonValue> {
                     if let Ok(md) = f.metadata() {
                         bytes += md.len();
                         let fname = f.file_name().to_string_lossy().into_owned();
-                        if fname.ends_with(".resp.json") { steps += 1; }
+                        if fname.ends_with(".resp.json") {
+                            steps += 1;
+                        }
                     }
                 }
             }
@@ -3373,8 +4148,12 @@ async fn list_demos() -> Json<JsonValue> {
             }));
         }
     }
-    runs.sort_by(|a, b| b["id"].as_str().unwrap_or("")
-        .cmp(a["id"].as_str().unwrap_or("")));
+    runs.sort_by(|a, b| {
+        b["id"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(a["id"].as_str().unwrap_or(""))
+    });
     Json(serde_json::json!({
         "root": root.to_string_lossy(),
         "count": runs.len(),
@@ -3384,7 +4163,9 @@ async fn list_demos() -> Json<JsonValue> {
 
 /// Return a single run's `trace.json` (the primary index for that run).
 async fn get_demo_index(Path(run): Path<String>) -> Response {
-    if !is_safe_id(&run) { return not_found("invalid run id"); }
+    if !is_safe_id(&run) {
+        return not_found("invalid run id");
+    }
     let p = demos_root().join(&run).join("trace.json");
     serve_demo_path(p, "application/json")
 }
@@ -3395,9 +4176,13 @@ async fn get_demo_file(Path((run, file)): Path<(String, String)>) -> Response {
         return not_found("invalid path");
     }
     let p = demos_root().join(&run).join(&file);
-    let mime = if file.ends_with(".cbor") { "application/cbor" }
-               else if file.ends_with(".md") { "text/markdown; charset=utf-8" }
-               else { "application/json" };
+    let mime = if file.ends_with(".cbor") {
+        "application/cbor"
+    } else if file.ends_with(".md") {
+        "text/markdown; charset=utf-8"
+    } else {
+        "application/json"
+    };
     serve_demo_path(p, mime)
 }
 
@@ -3447,15 +4232,15 @@ async fn api_alias() -> Response {
 /// fact so `recall` returns provenance, not silence.
 fn canonical_places() -> Vec<(&'static str, f64, f64)> {
     vec![
-        ("Mount Fuji",        35.3606, 138.7274),
-        ("Mount Everest",     27.9881,  86.9250),
-        ("Grand Canyon",      36.1069,-112.1129),
-        ("Tokyo, Japan",      35.6762, 139.6503),
-        ("New York, USA",     40.7128, -74.0060),
-        ("São Paulo, Brazil",-23.5505, -46.6333),
-        ("Lagos, Nigeria",     6.5244,   3.3792),
-        ("Sydney, Australia",-33.8688, 151.2093),
-        ("Reykjavík, Iceland",64.1466, -21.9426),
+        ("Mount Fuji", 35.3606, 138.7274),
+        ("Mount Everest", 27.9881, 86.9250),
+        ("Grand Canyon", 36.1069, -112.1129),
+        ("Tokyo, Japan", 35.6762, 139.6503),
+        ("New York, USA", 40.7128, -74.0060),
+        ("São Paulo, Brazil", -23.5505, -46.6333),
+        ("Lagos, Nigeria", 6.5244, 3.3792),
+        ("Sydney, Australia", -33.8688, 151.2093),
+        ("Reykjavík, Iceland", 64.1466, -21.9426),
     ]
 }
 
@@ -3466,13 +4251,17 @@ async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
     // Surface a slim algorithm-registry summary inline so the cold-start
     // bootstrap is genuinely one-call. Full bodies live at /v1/algorithms.
     let alg_reg = &*emem_core::algorithms::DEFAULT;
-    let alg_summary: Vec<JsonValue> = alg_reg.algorithms.iter()
-        .map(|a| json!({
-            "key":    a.key,
-            "kind":   a.kind,
-            "domain": a.domain,
-            "when_to_use": a.when_to_use.chars().take(140).collect::<String>(),
-        }))
+    let alg_summary: Vec<JsonValue> = alg_reg
+        .algorithms
+        .iter()
+        .map(|a| {
+            json!({
+                "key":    a.key,
+                "kind":   a.kind,
+                "domain": a.domain,
+                "when_to_use": a.when_to_use.chars().take(140).collect::<String>(),
+            })
+        })
         .collect();
     let alg_cid = emem_core::manifest::manifest_cid(alg_reg).ok();
     let mut places: Vec<JsonValue> = Vec::new();
@@ -3486,7 +4275,9 @@ async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
             "recall": format!("/v1/recall body {{\"cell\":\"{cell}\"}}"),
         }));
     }
-    let pubkey = data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase();
+    let pubkey = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
     Json(json!({
         "schema": "emem.discover.v1",
         "tagline": "Cite-able, content-addressed, signed memory of every place on Earth.",
@@ -3535,13 +4326,16 @@ async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
 #[derive(Deserialize)]
 struct LocateReq {
     /// (lat, lng) in WGS-84 degrees. Either this or `place` required.
-    #[serde(default)] lat: Option<f64>,
-    #[serde(default)] lng: Option<f64>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
     /// Free-text place name; resolved via OSM Nominatim (open data).
     /// Accepts `q` as an alias because that's the de-facto convention
     /// across OSM, Google Geocoding, Mapbox, etc. Agents transferring
     /// patterns from those APIs land on the right field either way.
-    #[serde(default, alias = "q", alias = "query", alias = "name")] place: Option<String>,
+    #[serde(default, alias = "q", alias = "query", alias = "name")]
+    place: Option<String>,
 }
 
 async fn post_locate(Json(req): Json<LocateReq>) -> Result<Json<JsonValue>, ApiError> {
@@ -3559,18 +4353,28 @@ pub enum ResolvedRef {
     /// Already a cell64.
     Cell,
     /// Resolved from a free-text place name.
-    Place { input: String, label: Option<String>, lat: f64, lng: f64, via: String },
+    Place {
+        input: String,
+        label: Option<String>,
+        lat: f64,
+        lng: f64,
+        via: String,
+    },
 }
 
 /// Resolve a cell-typed field. If the string is already shaped like a
 /// cell64 we keep it; otherwise we treat it as a place name and run
 /// `locate_inner`. Geocoding failures bubble up as 400 / 502 from
 /// locate so the agent can correct the call without a second round-trip.
-pub async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef), ApiError> {
+pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef), ApiError> {
     if emem_codec::is_cell64_shape(s) {
         return Ok((s.to_string(), ResolvedRef::Cell));
     }
-    let lr = LocateReq { lat: None, lng: None, place: Some(s.to_string()) };
+    let lr = LocateReq {
+        lat: None,
+        lng: None,
+        place: Some(s.to_string()),
+    };
     let resp = locate_inner(lr).await?;
     let body = &resp.0;
     let cell = body.get("cell64").and_then(|v| v.as_str())
@@ -3579,28 +4383,56 @@ pub async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef), ApiErr
             message: format!("could not resolve '{s}' to a cell64; pass a cell64 string or a recognisable place name"),
         }))?
         .to_string();
-    let label = body.get("place_label").and_then(|v| v.as_str()).map(String::from);
-    let lat = body.get("lat_input").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let lng = body.get("lng_input").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let via = body.get("via").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-    Ok((cell, ResolvedRef::Place { input: s.to_string(), label, lat, lng, via }))
+    let label = body
+        .get("place_label")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let lat = body
+        .get("lat_input")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let lng = body
+        .get("lng_input")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let via = body
+        .get("via")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    Ok((
+        cell,
+        ResolvedRef::Place {
+            input: s.to_string(),
+            label,
+            lat,
+            lng,
+            via,
+        },
+    ))
 }
 
 /// Same as `resolve_cell_field` but only returns the cell64 — convenient
 /// for handlers that want the substitution but don't surface the
 /// resolved-from envelope.
-pub async fn resolve_cell_only(s: &str) -> Result<String, ApiError> {
+#[allow(dead_code)]
+pub(crate) async fn resolve_cell_only(s: &str) -> Result<String, ApiError> {
     Ok(resolve_cell_field(s).await?.0)
 }
 
-async fn get_locate(axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> Result<Json<JsonValue>, ApiError> {
+async fn get_locate(
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<JsonValue>, ApiError> {
     let lat = q.get("lat").and_then(|s| s.parse::<f64>().ok());
     let lng = q.get("lng").and_then(|s| s.parse::<f64>().ok());
     // Same alias-set as the POST body deserialization: `place`, `q`,
     // `query`, `name` are all accepted so an agent doesn't fail merely
     // because they used a synonym from a different geocoder API.
-    let place = q.get("place").or_else(|| q.get("q"))
-        .or_else(|| q.get("query")).or_else(|| q.get("name"))
+    let place = q
+        .get("place")
+        .or_else(|| q.get("q"))
+        .or_else(|| q.get("query"))
+        .or_else(|| q.get("name"))
         .cloned();
     locate_inner(LocateReq { lat, lng, place }).await
 }
@@ -3677,8 +4509,10 @@ async fn grid_info() -> Json<JsonValue> {
 
 #[derive(Deserialize)]
 struct ElevationReq {
-    #[serde(default)] lat: Option<f64>,
-    #[serde(default)] lng: Option<f64>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
     /// Either `cell64` or `cell` accepted; decoded via emem_codec.
     #[serde(default, alias = "cell")]
     cell64: Option<String>,
@@ -3688,43 +4522,71 @@ async fn post_elevation(Json(req): Json<ElevationReq>) -> Result<Json<JsonValue>
     let (lat, lng, source_kind) = match (req.lat, req.lng, req.cell64.as_deref()) {
         (Some(la), Some(lo), _) => (la, lo, "input_latlng"),
         (_, _, Some(c)) => {
-            let info = emem_codec::latlng_from_cell64(c).map_err(|e| ApiError(
-                StatusCode::BAD_REQUEST,
-                ErrorBody { code: ErrorCode::InvalidCell, message: format!("cell64 decode: {e}") },
-            ))?;
+            let info = emem_codec::latlng_from_cell64(c).map_err(|e| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidCell,
+                        message: format!("cell64 decode: {e}"),
+                    },
+                )
+            })?;
             (info.lat_deg, info.lng_deg, "cell64_centre")
         }
-        _ => return Err(ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody { code: ErrorCode::Internal, message: "supply (lat,lng) or cell64".into() },
-        )),
+        _ => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: "supply (lat,lng) or cell64".into(),
+                },
+            ))
+        }
     };
-    let url = format!(
-        "https://api.open-meteo.com/v1/elevation?latitude={lat:.6}&longitude={lng:.6}",
-    );
+    let url =
+        format!("https://api.open-meteo.com/v1/elevation?latitude={lat:.6}&longitude={lng:.6}",);
     let cli = reqwest_client();
-    let resp = cli.get(&url).send().await.map_err(|e| ApiError(
-        StatusCode::BAD_GATEWAY,
-        ErrorBody { code: ErrorCode::SourceFetchFailed, message: format!("open-meteo http: {e}") },
-    ))?;
+    let resp = cli.get(&url).send().await.map_err(|e| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            ErrorBody {
+                code: ErrorCode::SourceFetchFailed,
+                message: format!("open-meteo http: {e}"),
+            },
+        )
+    })?;
     if !resp.status().is_success() {
-        return Err(ApiError(StatusCode::BAD_GATEWAY, ErrorBody {
-            code: ErrorCode::SourceFetchFailed,
-            message: format!("open-meteo status {}", resp.status()),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            ErrorBody {
+                code: ErrorCode::SourceFetchFailed,
+                message: format!("open-meteo status {}", resp.status()),
+            },
+        ));
     }
-    let body: JsonValue = resp.json().await.map_err(|e| ApiError(
-        StatusCode::BAD_GATEWAY,
-        ErrorBody { code: ErrorCode::SourceFormatMismatch, message: format!("open-meteo json: {e}") },
-    ))?;
-    let elev_m = body.get("elevation")
+    let body: JsonValue = resp.json().await.map_err(|e| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            ErrorBody {
+                code: ErrorCode::SourceFormatMismatch,
+                message: format!("open-meteo json: {e}"),
+            },
+        )
+    })?;
+    let elev_m = body
+        .get("elevation")
         .and_then(|v| v.as_array())
         .and_then(|a| a.first())
         .and_then(|v| v.as_f64())
-        .ok_or_else(|| ApiError(StatusCode::BAD_GATEWAY, ErrorBody {
-            code: ErrorCode::SourceFormatMismatch,
-            message: "open-meteo response missing elevation[0]".into(),
-        }))?;
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                ErrorBody {
+                    code: ErrorCode::SourceFormatMismatch,
+                    message: "open-meteo response missing elevation[0]".into(),
+                },
+            )
+        })?;
     let cell64 = emem_codec::cell64_from_latlng(lat, lng);
     Ok(Json(json!({
         "schema": "emem.elevation.v1",
@@ -3793,7 +4655,9 @@ enum ElevationMaterialization {
 /// truncation matches FactCid's wire form (base32-nopad-lowercase).
 fn reason_cid_for(reason: &str) -> ReasonCid {
     let h = blake3::hash(reason.as_bytes());
-    let cid = data_encoding::BASE32_NOPAD.encode(&h.as_bytes()[..16]).to_lowercase();
+    let cid = data_encoding::BASE32_NOPAD
+        .encode(&h.as_bytes()[..16])
+        .to_lowercase();
     ReasonCid::new(cid)
 }
 
@@ -3809,21 +4673,21 @@ async fn materialize_elevation_mean(
     s: &AppState,
 ) -> Result<ElevationMaterialization, String> {
     // 1. Decode cell → centre lat/lng.
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
     // 2. Call Open-Meteo. (Same client + UA as /v1/elevation.)
-    let url = format!(
-        "https://api.open-meteo.com/v1/elevation?latitude={lat:.6}&longitude={lng:.6}",
-    );
+    let url =
+        format!("https://api.open-meteo.com/v1/elevation?latitude={lat:.6}&longitude={lng:.6}",);
     let resp_result = reqwest_client().get(&url).send().await;
     let signed_at = chrono_iso8601_utc();
 
     let elev_m = match resp_result {
         Ok(resp) if resp.status().is_success() => {
-            let body: JsonValue = resp.json().await
+            let body: JsonValue = resp
+                .json()
+                .await
                 .map_err(|e| format!("open-meteo json: {e}"))?;
             body.get("elevation")
                 .and_then(|v| v.as_array())
@@ -3896,8 +4760,7 @@ async fn materialize_elevation_mean(
     // 4. Compute the merkle root via emem_attest::merkle_root over the
     //    sorted leaf hashes (verify_attestation re-runs this exact path).
     let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf)
-        .map_err(|e| format!("cbor encode: {e}"))?;
+    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
     let leaf_hash = blake3::hash(&buf);
     let mut leaf = [0u8; 32];
     leaf.copy_from_slice(leaf_hash.as_bytes());
@@ -3920,7 +4783,7 @@ async fn materialize_elevation_mean(
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid:   SchemaCid::new(s.manifests.schema_cid.as_str()),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at,
@@ -3928,10 +4791,15 @@ async fn materialize_elevation_mean(
 
     // 6. Persist. Storage layer recomputes the root, validates the
     //    signature, and commits to sled. Future recalls hit hot cache.
-    let cids = s.storage.put_attestation(&att).await
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
         .map_err(|e| format!("put_attestation: {e}"))?;
 
-    let cid = cids.into_iter().next()
+    let cid = cids
+        .into_iter()
+        .next()
         .ok_or_else(|| "put_attestation returned no fact_cid".to_string())?;
     Ok(ElevationMaterialization::Primary(cid))
 }
@@ -3949,21 +4817,24 @@ async fn materialize_gmrt_topobathy(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let url = format!(
         "https://www.gmrt.org/services/PointServer?latitude={lat:.6}&longitude={lng:.6}&format=text/plain",
     );
-    let resp = reqwest_client().get(&url).send().await
+    let resp = reqwest_client()
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| format!("gmrt http: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("gmrt status {}", resp.status()));
     }
-    let body = resp.text().await
-        .map_err(|e| format!("gmrt body: {e}"))?;
-    let elev_m: f64 = body.trim().parse()
+    let body = resp.text().await.map_err(|e| format!("gmrt body: {e}"))?;
+    let elev_m: f64 = body
+        .trim()
+        .parse()
         .map_err(|e| format!("gmrt non-numeric body {body:?}: {e}"))?;
 
     let signed_at = chrono_iso8601_utc();
@@ -3997,8 +4868,7 @@ async fn materialize_gmrt_topobathy(
     });
 
     let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf)
-        .map_err(|e| format!("cbor encode: {e}"))?;
+    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
     let leaf_hash = blake3::hash(&buf);
     let mut leaf = [0u8; 32];
     leaf.copy_from_slice(leaf_hash.as_bytes());
@@ -4019,88 +4889,208 @@ async fn materialize_gmrt_topobathy(
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid:   SchemaCid::new(s.manifests.schema_cid.as_str()),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at,
     };
 
-    let cids = s.storage.put_attestation(&att).await
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
         .map_err(|e| format!("put_attestation (gmrt): {e}"))?;
-    cids.into_iter().next()
+    cids.into_iter()
+        .next()
         .ok_or_else(|| "put_attestation (gmrt) returned no fact_cid".to_string())
 }
 
-/// Fetch the most recent valid 16-day MODIS NDVI value for the cell's
-/// centroid via the ORNL DAAC TESViS REST API. Build a signed Primary
-/// fact under the responder's identity. NDVI is the canonical
-/// vegetation-greenness signal — agents asking for crop/forest/biomass
-/// at a point land here naturally.
+/// Parse an ORNL MODIS calendar date `YYYY-MM-DD` to Unix epoch seconds
+/// (UTC midnight). Returns `None` if the string isn't well-formed.
+fn modis_calendar_to_unix(s: &str) -> Option<i64> {
+    // Format guaranteed by ORNL: "YYYY-MM-DD".
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let y: i64 = parts[0].parse().ok()?;
+    let m: i64 = parts[1].parse().ok()?;
+    let d: i64 = parts[2].parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Civil date → days since Unix epoch (Howard Hinnant date algorithm).
+    let yy = if m <= 2 { y - 1 } else { y };
+    let era = if yy >= 0 { yy / 400 } else { (yy - 399) / 400 };
+    let yoe = yy - era * 400; // 0..=399
+    let mp = if m > 2 { m - 3 } else { m + 9 }; // 0..=11
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some(days * 86400)
+}
+
+/// Fetch a MODIS MOD13Q1 16-day NDVI composite for the cell's centroid
+/// at a target Unix epoch. When `target_unix` is `None`, picks the most
+/// recent valid composite in the last 90 days (legacy "current" behavior
+/// used by the on-recall materializer). When `Some(t)`, opens a ±32-day
+/// window around `t` and selects the composite whose `calendar_date` is
+/// closest to `t` — that's the historical-backfill path used by
+/// `emem_backfill`.
 ///
 /// Reference: <https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset> —
 /// ORNL DAAC, no auth, free, supports up to 160 days per call.
-async fn materialize_modis_ndvi(
+async fn materialize_modis_ndvi_window(
     cell64: &str,
+    target_unix: Option<i64>,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
-    // The ORNL service uses MODIS julian-style dates: A<YYYY><DOY>.
-    // Look back 90 days from "now" to ensure we capture at least one
-    // 16-day composite even if the latest is missing or cloud-flagged.
+    // Window: target ±32d (covers ≥4 16-day composites) or "last 90d".
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64).unwrap_or(0);
-    let end_unix  = now;
-    let start_unix = end_unix - 90 * 86400;
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (start_unix, end_unix) = match target_unix {
+        Some(t) => {
+            let lo = (t - 32 * 86400).max(0);
+            let hi = (t + 32 * 86400).min(now);
+            (lo, hi.max(lo + 86400))
+        }
+        None => (now - 90 * 86400, now),
+    };
     let start_str = unix_to_modis_date(start_unix);
-    let end_str   = unix_to_modis_date(end_unix);
+    let end_str = unix_to_modis_date(end_unix);
     let url = format!(
         "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset?latitude={lat:.6}&longitude={lng:.6}&band=250m_16_days_NDVI&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
     );
-    let resp = reqwest_client().get(&url)
-        .header("accept", "application/json")
-        .send().await
-        .map_err(|e| format!("modis http: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("modis status {}", resp.status()));
-    }
-    let body: JsonValue = resp.json().await
-        .map_err(|e| format!("modis json: {e}"))?;
 
-    // Pick the latest valid (≠ fill_value -3000) reading. Order is
-    // chronological in the response, so we walk back from the end.
-    let scale: f64 = body.get("scale").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0.0001);
-    let subset = body.get("subset").and_then(|v| v.as_array())
-        .ok_or_else(|| "modis response missing `subset` array".to_string())?;
-    let mut latest: Option<(f64, String)> = None;
-    for entry in subset.iter().rev() {
-        let raw = entry.get("data").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_i64());
-        let cal = entry.get("calendar_date").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default();
-        if let Some(r) = raw {
-            if r == -3000 { continue; }   // fill value
-            let ndvi = (r as f64) * scale;
-            // valid_range -0.2..=1.0 per MOD13 user guide.
-            if (-0.2..=1.0).contains(&ndvi) {
-                latest = Some((ndvi, cal));
-                break;
+    // Bounded fetch with explicit retry. Total wall-clock cap is
+    // `materializer_timeout_secs() * materializer_retries()`, well under
+    // the 30s gateway timeout at default config.
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let retries = materializer_retries();
+    let mut last_err: String = String::new();
+    let mut body: Option<JsonValue> = None;
+    for attempt in 1..=retries {
+        let send = reqwest_client()
+            .get(&url)
+            .header("accept", "application/json")
+            .send();
+        match tokio::time::timeout(timeout, send).await {
+            Err(_) => {
+                last_err = format!(
+                    "modis timeout after {}s on attempt {attempt}/{retries}",
+                    timeout.as_secs()
+                );
+                continue;
+            }
+            Ok(Err(e)) => {
+                last_err = format!("modis http on attempt {attempt}/{retries}: {e}");
+                continue;
+            }
+            Ok(Ok(resp)) => {
+                let status = resp.status();
+                if !status.is_success() {
+                    last_err = format!("modis status {status} on attempt {attempt}/{retries}");
+                    if status.is_client_error() {
+                        break;
+                    } // 4xx won't change on retry
+                    continue;
+                }
+                match tokio::time::timeout(timeout, resp.json::<JsonValue>()).await {
+                    Err(_) => {
+                        last_err = format!(
+                            "modis body timeout after {}s on attempt {attempt}/{retries}",
+                            timeout.as_secs()
+                        );
+                        continue;
+                    }
+                    Ok(Err(e)) => {
+                        last_err = format!("modis json on attempt {attempt}/{retries}: {e}");
+                        continue;
+                    }
+                    Ok(Ok(b)) => {
+                        body = Some(b);
+                        break;
+                    }
+                }
             }
         }
     }
-    let (ndvi, cal_date) = latest.ok_or_else(||
-        "no valid NDVI observation in last 90 days; cell may be permanently cloudy or off-coverage".to_string()
+    let body = body.ok_or(last_err)?;
+
+    // Pick the entry closest to target_unix (or the latest valid one for
+    // the current-mode call).
+    let scale: f64 = body
+        .get("scale")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0001);
+    let subset = body
+        .get("subset")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "modis response missing `subset` array".to_string())?;
+    let mut best: Option<(i64, f64, String)> = None; // (priority, ndvi, cal_date)
+    for entry in subset.iter() {
+        let raw = entry
+            .get("data")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_i64());
+        let cal = entry
+            .get("calendar_date")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let Some(r) = raw else { continue };
+        if r == -3000 {
+            continue;
+        } // MOD13 fill value
+        let ndvi = (r as f64) * scale;
+        if !(-0.2..=1.0).contains(&ndvi) {
+            continue;
+        }
+        let entry_unix = modis_calendar_to_unix(&cal).unwrap_or(0);
+        let priority = match target_unix {
+            Some(t) => (entry_unix - t).abs(),
+            // Current mode: prefer most recent → priority is age (lower = better).
+            None => i64::MAX - entry_unix,
+        };
+        if best.as_ref().map(|(p, _, _)| priority < *p).unwrap_or(true) {
+            best = Some((priority, ndvi, cal));
+        }
+    }
+    let (_, ndvi, cal_date) = best.ok_or_else(||
+        if let Some(t) = target_unix {
+            format!("no valid NDVI observation in 64-day window around {t}; cell may be permanently cloudy or off-coverage")
+        } else {
+            "no valid NDVI observation in last 90 days; cell may be permanently cloudy or off-coverage".to_string()
+        }
     )?;
+
+    // Tslot is derived from the actual capture date — the MOD13Q1
+    // calendar_date the responder picked above, parsed back to Unix
+    // seconds. Both backfill and on-recall paths converge on the same
+    // tslot when they pick the same composite, so there's exactly one
+    // address per (cell, band, composite) regardless of how it was
+    // requested. Falls back to the request target (or now in current
+    // mode) when calendar parsing fails.
+    let cal_unix = modis_calendar_to_unix(&cal_date)
+        .or(target_unix)
+        .unwrap_or(now);
+    let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Medium).0;
 
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "modis.ndvi_mean".into(),
-        tslot: 0,
+        tslot,
         value: ciborium::Value::Float(ndvi),
-        unit: None,                       // NDVI is dimensionless
+        unit: None, // NDVI is dimensionless
         confidence: 0.9,
         uncertainty: None,
         sources: vec![Source {
@@ -4127,8 +5117,7 @@ async fn materialize_modis_ndvi(
     });
 
     let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf)
-        .map_err(|e| format!("cbor encode: {e}"))?;
+    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
     let leaf_hash = blake3::hash(&buf);
     let mut leaf = [0u8; 32];
     leaf.copy_from_slice(leaf_hash.as_bytes());
@@ -4149,16 +5138,27 @@ async fn materialize_modis_ndvi(
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid:   SchemaCid::new(s.manifests.schema_cid.as_str()),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at,
     };
 
-    let cids = s.storage.put_attestation(&att).await
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
         .map_err(|e| format!("put_attestation (modis): {e}"))?;
-    cids.into_iter().next()
+    cids.into_iter()
+        .next()
         .ok_or_else(|| "put_attestation (modis) returned no fact_cid".to_string())
+}
+
+/// On-recall materializer: latest 16-day composite. Wraps the windowed
+/// fetcher in current-mode for backwards compatibility (existing call
+/// sites pass no target).
+async fn materialize_modis_ndvi(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    materialize_modis_ndvi_window(cell64, None, s).await
 }
 
 /// Sample a single 128-D Tessera embedding pixel for the cell's centroid
@@ -4194,8 +5194,7 @@ async fn materialize_geotessera_multi_year(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -4204,13 +5203,18 @@ async fn materialize_geotessera_multi_year(
     let mut covered: Vec<i32> = Vec::new();
     for y in years.iter() {
         match fetch_geotessera_pixel(lat, lng, *y).await {
-            Ok(v) => { full.extend(v.into_iter().map(ciborium::Value::Float)); covered.push(*y); }
+            Ok(v) => {
+                full.extend(v.into_iter().map(ciborium::Value::Float));
+                covered.push(*y);
+            }
             Err(e) => {
                 tracing::debug!(target: "emem::materialize",
                     year = *y, error = %e, "geotessera multi-year skipped a year");
                 // Pad with zeros for byte-stable layout — the year list in args
                 // tells the agent which slices are real vs absent.
-                for _ in 0..128 { full.push(ciborium::Value::Float(0.0)); }
+                for _ in 0..128 {
+                    full.push(ciborium::Value::Float(0.0));
+                }
             }
         }
     }
@@ -4229,7 +5233,8 @@ async fn materialize_geotessera_multi_year(
         uncertainty: None,
         sources: vec![Source {
             scheme: "geotessera".into(),
-            id: "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{2017..2024}".into(),
+            id: "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{2017..2024}"
+                .into(),
             cid: None,
             hash: None,
             captured_at: Some(signed_at.clone()),
@@ -4240,8 +5245,18 @@ async fn materialize_geotessera_multi_year(
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
-                ciborium::Value::Array(years.iter().map(|y| ciborium::Value::Integer((*y as i64).into())).collect()),
-                ciborium::Value::Array(covered.iter().map(|y| ciborium::Value::Integer((*y as i64).into())).collect()),
+                ciborium::Value::Array(
+                    years
+                        .iter()
+                        .map(|y| ciborium::Value::Integer((*y as i64).into()))
+                        .collect(),
+                ),
+                ciborium::Value::Array(
+                    covered
+                        .iter()
+                        .map(|y| ciborium::Value::Integer((*y as i64).into()))
+                        .collect(),
+                ),
                 ciborium::Value::Text("zero_pad_missing_years".into()),
             ])),
         },
@@ -4265,46 +5280,73 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
     let base = format!(
         "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/{grid_name}"
     );
-    let emb_url    = format!("{base}/{grid_name}.npy");
+    let emb_url = format!("{base}/{grid_name}.npy");
     let scales_url = format!("{base}/{grid_name}_scales.npy");
 
     let cli = reqwest_client();
-    let emb_hdr = cli.get(&emb_url).header("range", "bytes=0-511").send().await
+    let emb_hdr = cli
+        .get(&emb_url)
+        .header("range", "bytes=0-511")
+        .send()
+        .await
         .map_err(|e| format!("emb head http: {e}"))?;
     if !(emb_hdr.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        || emb_hdr.status() == reqwest::StatusCode::OK) {
-        return Err(format!("emb head status {} for year {year}", emb_hdr.status()));
+        || emb_hdr.status() == reqwest::StatusCode::OK)
+    {
+        return Err(format!(
+            "emb head status {} for year {year}",
+            emb_hdr.status()
+        ));
     }
-    let emb_hdr_bytes = emb_hdr.bytes().await
+    let emb_hdr_bytes = emb_hdr
+        .bytes()
+        .await
         .map_err(|e| format!("emb head body: {e}"))?;
-    let (emb_shape, emb_dtype, emb_data_off) = parse_npy_header(&emb_hdr_bytes)
-        .map_err(|e| format!("emb npy: {e}"))?;
+    let (emb_shape, emb_dtype, emb_data_off) =
+        parse_npy_header(&emb_hdr_bytes).map_err(|e| format!("emb npy: {e}"))?;
     if emb_shape.len() != 3 || emb_shape[2] != 128 || emb_dtype != "|i1" {
-        return Err(format!("emb shape/dtype unexpected {emb_shape:?} {emb_dtype:?}"));
+        return Err(format!(
+            "emb shape/dtype unexpected {emb_shape:?} {emb_dtype:?}"
+        ));
     }
-    let h = emb_shape[0]; let w = emb_shape[1];
+    let h = emb_shape[0];
+    let w = emb_shape[1];
 
-    let sc_hdr = cli.get(&scales_url).header("range", "bytes=0-511").send().await
+    let sc_hdr = cli
+        .get(&scales_url)
+        .header("range", "bytes=0-511")
+        .send()
+        .await
         .map_err(|e| format!("scales head http: {e}"))?;
     if !(sc_hdr.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        || sc_hdr.status() == reqwest::StatusCode::OK) {
-        return Err(format!("scales head status {} for year {year}", sc_hdr.status()));
+        || sc_hdr.status() == reqwest::StatusCode::OK)
+    {
+        return Err(format!(
+            "scales head status {} for year {year}",
+            sc_hdr.status()
+        ));
     }
-    let sc_hdr_bytes = sc_hdr.bytes().await
+    let sc_hdr_bytes = sc_hdr
+        .bytes()
+        .await
         .map_err(|e| format!("scales head body: {e}"))?;
-    let (sc_shape, sc_dtype, sc_data_off) = parse_npy_header(&sc_hdr_bytes)
-        .map_err(|e| format!("scales npy: {e}"))?;
+    let (sc_shape, sc_dtype, sc_data_off) =
+        parse_npy_header(&sc_hdr_bytes).map_err(|e| format!("scales npy: {e}"))?;
     if sc_dtype != "<f4" {
         return Err(format!("scales dtype unexpected {sc_dtype:?}"));
     }
     let scales_per_pixel: usize = match sc_shape.len() {
         2 if sc_shape[0] == h && sc_shape[1] == w => 1,
         3 if sc_shape[0] == h && sc_shape[1] == w && sc_shape[2] == 128 => 128,
-        _ => return Err(format!("scales shape mismatch {sc_shape:?} vs {emb_shape:?}")),
+        _ => {
+            return Err(format!(
+                "scales shape mismatch {sc_shape:?} vs {emb_shape:?}"
+            ))
+        }
     };
 
     let north_lat = tile_lat + 0.05;
-    let west_lng  = tile_lon - 0.05;
+    let west_lng = tile_lon - 0.05;
     let frac_y = ((north_lat - lat) / 0.1).clamp(0.0, 1.0 - 1e-9);
     let frac_x = ((lng - west_lng) / 0.1).clamp(0.0, 1.0 - 1e-9);
     let row = (frac_y * (h as f64)) as usize;
@@ -4312,17 +5354,38 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
     let pixel_idx = row * w + col;
 
     let emb_off = emb_data_off + pixel_idx * 128;
-    let emb_resp = cli.get(&emb_url).header("range", format!("bytes={}-{}", emb_off, emb_off + 127)).send().await
+    let emb_resp = cli
+        .get(&emb_url)
+        .header("range", format!("bytes={}-{}", emb_off, emb_off + 127))
+        .send()
+        .await
         .map_err(|e| format!("emb pixel http: {e}"))?;
-    let emb_pixel = emb_resp.bytes().await.map_err(|e| format!("emb pixel body: {e}"))?;
-    if emb_pixel.len() != 128 { return Err(format!("emb pixel got {} bytes", emb_pixel.len())); }
+    let emb_pixel = emb_resp
+        .bytes()
+        .await
+        .map_err(|e| format!("emb pixel body: {e}"))?;
+    if emb_pixel.len() != 128 {
+        return Err(format!("emb pixel got {} bytes", emb_pixel.len()));
+    }
 
     let scale_bytes_n = scales_per_pixel * 4;
     let sc_off = sc_data_off + pixel_idx * scale_bytes_n;
-    let sc_resp = cli.get(&scales_url).header("range", format!("bytes={}-{}", sc_off, sc_off + scale_bytes_n - 1)).send().await
+    let sc_resp = cli
+        .get(&scales_url)
+        .header(
+            "range",
+            format!("bytes={}-{}", sc_off, sc_off + scale_bytes_n - 1),
+        )
+        .send()
+        .await
         .map_err(|e| format!("scale pixel http: {e}"))?;
-    let sc_bytes = sc_resp.bytes().await.map_err(|e| format!("scale pixel body: {e}"))?;
-    if sc_bytes.len() != scale_bytes_n { return Err(format!("scale got {} bytes", sc_bytes.len())); }
+    let sc_bytes = sc_resp
+        .bytes()
+        .await
+        .map_err(|e| format!("scale pixel body: {e}"))?;
+    if sc_bytes.len() != scale_bytes_n {
+        return Err(format!("scale got {} bytes", sc_bytes.len()));
+    }
 
     let mut out = Vec::with_capacity(128);
     if scales_per_pixel == 1 {
@@ -4334,7 +5397,12 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
     } else {
         for i in 0..128 {
             let off = i * 4;
-            let sc = f32::from_le_bytes([sc_bytes[off], sc_bytes[off+1], sc_bytes[off+2], sc_bytes[off+3]]);
+            let sc = f32::from_le_bytes([
+                sc_bytes[off],
+                sc_bytes[off + 1],
+                sc_bytes[off + 2],
+                sc_bytes[off + 3],
+            ]);
             let q = emb_pixel[i] as i8;
             out.push((q as f32 * sc) as f64);
         }
@@ -4349,12 +5417,16 @@ async fn materialize_geotessera_year_band(
     s: &AppState,
     band: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let suffix = band.strip_prefix("geotessera.")
+    let suffix = band
+        .strip_prefix("geotessera.")
         .ok_or_else(|| format!("not a geotessera year band: {band}"))?;
-    let year: i32 = suffix.parse()
+    let year: i32 = suffix
+        .parse()
         .map_err(|_| format!("invalid year in {band}"))?;
     if !(2017..=2024).contains(&year) {
-        return Err(format!("year {year} outside Tessera v1 vintage [2017,2024]"));
+        return Err(format!(
+            "year {year} outside Tessera v1 vintage [2017,2024]"
+        ));
     }
     materialize_geotessera_for_year(cell64, s, year, band).await
 }
@@ -4367,8 +5439,7 @@ async fn materialize_geotessera_for_year(
     year: i32,
     band_name: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let v = fetch_geotessera_pixel(lat, lng, year).await?;
@@ -4383,7 +5454,9 @@ async fn materialize_geotessera_for_year(
         uncertainty: None,
         sources: vec![Source {
             scheme: "geotessera".into(),
-            id: format!("https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/..."),
+            id: format!(
+                "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/..."
+            ),
             cid: None,
             hash: None,
             captured_at: Some(signed_at.clone()),
@@ -4425,8 +5498,7 @@ async fn materialize_weather_current(
     s: &AppState,
     band: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -4437,35 +5509,40 @@ async fn materialize_weather_current(
     // geostationary) so the temporal-class assignment (ultra_fast → advection
     // kernel) still matches the underlying physics.
     let (met_field, unit, confidence): (&str, Option<&str>, f32) = match band {
-        "weather.temperature_2m"      => ("air_temperature",          Some("degC"),    0.85),
-        "weather.cloud_cover"         => ("cloud_area_fraction",      Some("percent"), 0.80),
-        "weather.precipitation_mm"    => ("precipitation_amount",     Some("mm"),      0.75),
-        "weather.wind_speed_10m"      => ("wind_speed",               Some("m/s"),     0.80),
-        "weather.relative_humidity_2m"=> ("relative_humidity",        Some("percent"), 0.80),
-        "weather.dew_point_2m"        => ("dew_point_temperature",    Some("degC"),    0.80),
-        "weather.air_pressure_msl"    => ("air_pressure_at_sea_level",Some("hPa"),     0.85),
-        "weather.wind_direction_10m"  => ("wind_from_direction",      Some("deg"),     0.80),
+        "weather.temperature_2m" => ("air_temperature", Some("degC"), 0.85),
+        "weather.cloud_cover" => ("cloud_area_fraction", Some("percent"), 0.80),
+        "weather.precipitation_mm" => ("precipitation_amount", Some("mm"), 0.75),
+        "weather.wind_speed_10m" => ("wind_speed", Some("m/s"), 0.80),
+        "weather.relative_humidity_2m" => ("relative_humidity", Some("percent"), 0.80),
+        "weather.dew_point_2m" => ("dew_point_temperature", Some("degC"), 0.80),
+        "weather.air_pressure_msl" => ("air_pressure_at_sea_level", Some("hPa"), 0.85),
+        "weather.wind_direction_10m" => ("wind_from_direction", Some("deg"), 0.80),
         _ => return Err(format!("weather band not wired: {band}")),
     };
 
     let url = format!(
         "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={lat:.4}&lon={lng:.4}",
     );
-    let resp = reqwest_client().get(&url)
+    let resp = reqwest_client()
+        .get(&url)
         .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("met.no http: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("met.no status {} for {band}", resp.status()));
     }
-    let body: JsonValue = resp.json().await
-        .map_err(|e| format!("met.no json: {e}"))?;
+    let body: JsonValue = resp.json().await.map_err(|e| format!("met.no json: {e}"))?;
     // MET Norway returns the *current* observation as `properties.timeseries[0]`.
     // `instant.details` carries point-in-time fields; `next_1_hours.details`
     // carries accumulated values like precipitation_amount.
-    let ts0 = body.pointer("/properties/timeseries/0")
+    let ts0 = body
+        .pointer("/properties/timeseries/0")
         .ok_or_else(|| "met.no missing properties.timeseries[0]".to_string())?;
-    let captured = ts0.get("time").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let captured = ts0
+        .get("time")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let value: f64 = if band == "weather.precipitation_mm" {
         ts0.pointer("/data/next_1_hours/details/precipitation_amount")
             .and_then(|v| v.as_f64())
@@ -4533,9 +5610,21 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
         "s2.B02" => Some((vec![B02], "raw_reflectance", "B02 10m blue")),
         "s2.B03" => Some((vec![B03], "raw_reflectance", "B03 10m green")),
         "s2.B04" => Some((vec![B04], "raw_reflectance", "B04 10m red")),
-        "s2.B05" => Some((vec![B05], "raw_reflectance", "B05 20m vegetation red-edge 1")),
-        "s2.B06" => Some((vec![B06], "raw_reflectance", "B06 20m vegetation red-edge 2")),
-        "s2.B07" => Some((vec![B07], "raw_reflectance", "B07 20m vegetation red-edge 3")),
+        "s2.B05" => Some((
+            vec![B05],
+            "raw_reflectance",
+            "B05 20m vegetation red-edge 1",
+        )),
+        "s2.B06" => Some((
+            vec![B06],
+            "raw_reflectance",
+            "B06 20m vegetation red-edge 2",
+        )),
+        "s2.B07" => Some((
+            vec![B07],
+            "raw_reflectance",
+            "B07 20m vegetation red-edge 3",
+        )),
         "s2.B08" => Some((vec![B08], "raw_reflectance", "B08 10m wide NIR")),
         "s2.B8A" => Some((vec![B8A], "raw_reflectance", "B8A 20m narrow NIR")),
         "s2.B09" => Some((vec![B09], "raw_reflectance", "B09 60m water vapor")),
@@ -4544,24 +5633,51 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
         // Scene Classification Layer — uint8 categorical 0..11.
         "s2.scl" => Some((vec![SCL], "scl_categorical", "SCL 20m scene class (0..11)")),
         // Indices computed deterministically from raw reflectance.
-        "indices.ndvi"  => Some((vec![B08, B04], "index_ndvi",
-            "NDVI = (B08 − B04) / (B08 + B04). Vegetation greenness.")),
-        "indices.ndwi"  => Some((vec![B03, B08], "index_ndwi",
-            "NDWI (Gao) = (B03 − B08) / (B03 + B08). Open water; positive over water.")),
-        "indices.mndwi" => Some((vec![B03, B11], "index_mndwi",
-            "MNDWI (McFeeters) = (B03 − B11) / (B03 + B11). Stronger water mask using SWIR.")),
-        "indices.evi"   => Some((vec![B08, B04, B02], "index_evi",
-            "EVI = 2.5·(B08 − B04) / (B08 + 6·B04 − 7.5·B02 + 1). Saturation-resistant veg.")),
-        "indices.nbr"   => Some((vec![B08, B12], "index_nbr",
-            "NBR = (B08 − B12) / (B08 + B12). Burn-severity ratio.")),
-        "indices.ndmi"  => Some((vec![B08, B11], "index_ndmi",
-            "NDMI = (B08 − B11) / (B08 + B11). Canopy moisture.")),
-        "indices.savi"  => Some((vec![B08, B04], "index_savi",
-            "SAVI (L=0.5) = (1+L)·(B08 − B04) / (B08 + B04 + L). Soil-adjusted veg.")),
-        "indices.bsi"   => Some((vec![B11, B04, B08, B02], "index_bsi",
-            "BSI = ((B11+B04) − (B08+B02)) / ((B11+B04) + (B08+B02)). Bare-soil index.")),
-        "indices.ndbi"  => Some((vec![B11, B08], "index_ndbi",
-            "NDBI = (B11 − B08) / (B11 + B08). Built-up index.")),
+        "indices.ndvi" => Some((
+            vec![B08, B04],
+            "index_ndvi",
+            "NDVI = (B08 − B04) / (B08 + B04). Vegetation greenness.",
+        )),
+        "indices.ndwi" => Some((
+            vec![B03, B08],
+            "index_ndwi",
+            "NDWI (Gao) = (B03 − B08) / (B03 + B08). Open water; positive over water.",
+        )),
+        "indices.mndwi" => Some((
+            vec![B03, B11],
+            "index_mndwi",
+            "MNDWI (McFeeters) = (B03 − B11) / (B03 + B11). Stronger water mask using SWIR.",
+        )),
+        "indices.evi" => Some((
+            vec![B08, B04, B02],
+            "index_evi",
+            "EVI = 2.5·(B08 − B04) / (B08 + 6·B04 − 7.5·B02 + 1). Saturation-resistant veg.",
+        )),
+        "indices.nbr" => Some((
+            vec![B08, B12],
+            "index_nbr",
+            "NBR = (B08 − B12) / (B08 + B12). Burn-severity ratio.",
+        )),
+        "indices.ndmi" => Some((
+            vec![B08, B11],
+            "index_ndmi",
+            "NDMI = (B08 − B11) / (B08 + B11). Canopy moisture.",
+        )),
+        "indices.savi" => Some((
+            vec![B08, B04],
+            "index_savi",
+            "SAVI (L=0.5) = (1+L)·(B08 − B04) / (B08 + B04 + L). Soil-adjusted veg.",
+        )),
+        "indices.bsi" => Some((
+            vec![B11, B04, B08, B02],
+            "index_bsi",
+            "BSI = ((B11+B04) − (B08+B02)) / ((B11+B04) + (B08+B02)). Bare-soil index.",
+        )),
+        "indices.ndbi" => Some((
+            vec![B11, B08],
+            "index_ndbi",
+            "NDBI = (B11 − B08) / (B11 + B08). Built-up index.",
+        )),
         _ => None,
     }
 }
@@ -4588,23 +5704,30 @@ async fn materialize_sentinel2_band(
 ) -> Result<emem_fact::FactCid, String> {
     let plan = s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
     let (asset_lists, kind, formula_note) = plan;
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
     let now_unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     let start_unix = now_unix - 30 * 86400;
-    let datetime = format!("{}/{}", iso8601_utc(start_unix as u64), iso8601_utc(now_unix as u64));
+    let datetime = format!(
+        "{}/{}",
+        iso8601_utc(start_unix as u64),
+        iso8601_utc(now_unix as u64)
+    );
 
     let cli = s2_http_client();
-    let item = emem_fetch::stac::search_one(
-        &cli, "sentinel-2-l2a", lng, lat, &datetime, Some(40.0),
-    ).await
-        .map_err(|e| format!("stac: {e}"))?
-        .ok_or_else(|| "no Sentinel-2 L2A scene under 40% cloud in last 30 days".to_string())?;
-    let epsg = item.epsg.ok_or_else(|| "stac item missing proj:epsg".to_string())?;
+    let item =
+        emem_fetch::stac::search_one(&cli, "sentinel-2-l2a", lng, lat, &datetime, Some(40.0))
+            .await
+            .map_err(|e| format!("stac: {e}"))?
+            .ok_or_else(|| "no Sentinel-2 L2A scene under 40% cloud in last 30 days".to_string())?;
+    let epsg = item
+        .epsg
+        .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
     let utm = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
         .ok_or_else(|| format!("epsg {epsg} not a UTM code"))?;
 
@@ -4620,9 +5743,11 @@ async fn materialize_sentinel2_band(
             }
         }
         let url = url.ok_or_else(|| format!("stac item missing any of {:?}", aliases))?;
-        let prof = emem_fetch::cog::open_profile(&cli, &url).await
+        let prof = emem_fetch::cog::open_profile(&cli, &url)
+            .await
             .map_err(|e| format!("open COG {url}: {e}"))?;
-        let v = emem_fetch::cog::sample_pixel(&cli, &url, &prof, utm.easting, utm.northing).await
+        let v = emem_fetch::cog::sample_pixel(&cli, &url, &prof, utm.easting, utm.northing)
+            .await
             .map_err(|e| format!("sample {url}: {e}"))?;
         samples.push(v);
         asset_urls.push(url);
@@ -4633,7 +5758,10 @@ async fn materialize_sentinel2_band(
         "raw_reflectance" => {
             let raw = samples[0];
             if raw == 0.0 {
-                return Err(format!("nodata at scene={} (band={band} raw={raw})", item.id));
+                return Err(format!(
+                    "nodata at scene={} (band={band} raw={raw})",
+                    item.id
+                ));
             }
             let refl = raw * 1e-4;
             (refl, None)
@@ -4649,19 +5777,25 @@ async fn materialize_sentinel2_band(
         "index_ndvi" => {
             let nir = samples[0] * 1e-4;
             let red = samples[1] * 1e-4;
-            if nir + red < 1e-6 { return Err(format!("ndvi denom ≈ 0")); }
+            if nir + red < 1e-6 {
+                return Err("ndvi denom ≈ 0".to_string());
+            }
             ((nir - red) / (nir + red), None)
         }
         "index_ndwi" => {
             let g = samples[0] * 1e-4;
             let nir = samples[1] * 1e-4;
-            if g + nir < 1e-6 { return Err(format!("ndwi denom ≈ 0")); }
+            if g + nir < 1e-6 {
+                return Err("ndwi denom ≈ 0".to_string());
+            }
             ((g - nir) / (g + nir), None)
         }
         "index_mndwi" => {
             let g = samples[0] * 1e-4;
             let swir = samples[1] * 1e-4;
-            if g + swir < 1e-6 { return Err(format!("mndwi denom ≈ 0")); }
+            if g + swir < 1e-6 {
+                return Err("mndwi denom ≈ 0".to_string());
+            }
             ((g - swir) / (g + swir), None)
         }
         "index_evi" => {
@@ -4669,26 +5803,34 @@ async fn materialize_sentinel2_band(
             let red = samples[1] * 1e-4;
             let blue = samples[2] * 1e-4;
             let denom = nir + 6.0 * red - 7.5 * blue + 1.0;
-            if denom.abs() < 1e-6 { return Err(format!("evi denom ≈ 0")); }
+            if denom.abs() < 1e-6 {
+                return Err("evi denom ≈ 0".to_string());
+            }
             (2.5 * (nir - red) / denom, None)
         }
         "index_nbr" => {
             let nir = samples[0] * 1e-4;
             let swir2 = samples[1] * 1e-4;
-            if nir + swir2 < 1e-6 { return Err(format!("nbr denom ≈ 0")); }
+            if nir + swir2 < 1e-6 {
+                return Err("nbr denom ≈ 0".to_string());
+            }
             ((nir - swir2) / (nir + swir2), None)
         }
         "index_ndmi" => {
             let nir = samples[0] * 1e-4;
             let swir1 = samples[1] * 1e-4;
-            if nir + swir1 < 1e-6 { return Err(format!("ndmi denom ≈ 0")); }
+            if nir + swir1 < 1e-6 {
+                return Err("ndmi denom ≈ 0".to_string());
+            }
             ((nir - swir1) / (nir + swir1), None)
         }
         "index_savi" => {
             let nir = samples[0] * 1e-4;
             let red = samples[1] * 1e-4;
             let l = 0.5;
-            if nir + red + l < 1e-6 { return Err(format!("savi denom ≈ 0")); }
+            if nir + red + l < 1e-6 {
+                return Err("savi denom ≈ 0".to_string());
+            }
             ((1.0 + l) * (nir - red) / (nir + red + l), None)
         }
         "index_bsi" => {
@@ -4698,13 +5840,17 @@ async fn materialize_sentinel2_band(
             let blue = samples[3] * 1e-4;
             let num = (swir1 + red) - (nir + blue);
             let den = (swir1 + red) + (nir + blue);
-            if den.abs() < 1e-6 { return Err(format!("bsi denom ≈ 0")); }
+            if den.abs() < 1e-6 {
+                return Err("bsi denom ≈ 0".to_string());
+            }
             (num / den, None)
         }
         "index_ndbi" => {
             let swir1 = samples[0] * 1e-4;
             let nir = samples[1] * 1e-4;
-            if swir1 + nir < 1e-6 { return Err(format!("ndbi denom ≈ 0")); }
+            if swir1 + nir < 1e-6 {
+                return Err("ndbi denom ≈ 0".to_string());
+            }
             ((swir1 - nir) / (swir1 + nir), None)
         }
         other => return Err(format!("s2 band kind {other} not implemented")),
@@ -4736,7 +5882,9 @@ async fn materialize_sentinel2_band(
                 ciborium::Value::Text(item.id.clone()),
                 ciborium::Value::Integer((epsg as i64).into()),
                 ciborium::Value::Text(formula_note.into()),
-                ciborium::Value::Array(samples.iter().map(|v| ciborium::Value::Float(*v)).collect()),
+                ciborium::Value::Array(
+                    samples.iter().map(|v| ciborium::Value::Float(*v)).collect(),
+                ),
                 ciborium::Value::Float(item.cloud_cover.unwrap_or(-1.0)),
             ])),
         },
@@ -4762,42 +5910,62 @@ async fn materialize_sentinel1_vv(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
     let now_unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     let start_unix = now_unix - 30 * 86400;
-    let datetime = format!("{}/{}", iso8601_utc(start_unix as u64), iso8601_utc(now_unix as u64));
+    let datetime = format!(
+        "{}/{}",
+        iso8601_utc(start_unix as u64),
+        iso8601_utc(now_unix as u64)
+    );
 
     let cli = s2_http_client();
     let item = emem_fetch::stac::search_one_at(
-        &cli, emem_fetch::stac::STAC_MPC_V1, "sentinel-1-rtc",
-        lng, lat, &datetime, None,
-    ).await
-        .map_err(|e| format!("stac: {e}"))?
-        .ok_or_else(|| "no Sentinel-1 RTC scene in last 30 days".to_string())?;
-    let vv_url_raw = item.assets.get("vv").cloned()
+        &cli,
+        emem_fetch::stac::STAC_MPC_V1,
+        "sentinel-1-rtc",
+        lng,
+        lat,
+        &datetime,
+        None,
+    )
+    .await
+    .map_err(|e| format!("stac: {e}"))?
+    .ok_or_else(|| "no Sentinel-1 RTC scene in last 30 days".to_string())?;
+    let vv_url_raw = item
+        .assets
+        .get("vv")
+        .cloned()
         .or_else(|| item.assets.get("VV").cloned())
         .ok_or_else(|| "stac item missing vv asset".to_string())?;
     // MPC asset URLs are Azure Blob HTTPS. Append the anonymous SAS
     // token as a query string so range reads authenticate.
-    let sas = emem_fetch::stac::mpc_sas_token(&cli, "sentinel-1-rtc").await
+    let sas = emem_fetch::stac::mpc_sas_token(&cli, "sentinel-1-rtc")
+        .await
         .map_err(|e| format!("mpc sas: {e}"))?;
     let sep = if vv_url_raw.contains('?') { '&' } else { '?' };
     let vv_url = format!("{vv_url_raw}{sep}{sas}");
-    let epsg = item.epsg
+    let epsg = item
+        .epsg
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
-    let prof = emem_fetch::cog::open_profile(&cli, &vv_url).await
+    let prof = emem_fetch::cog::open_profile(&cli, &vv_url)
+        .await
         .map_err(|e| format!("open vv COG: {e}"))?;
     let utm = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
         .ok_or_else(|| format!("epsg {epsg} not a UTM code"))?;
-    let vv_lin = emem_fetch::cog::sample_pixel(&cli, &vv_url, &prof, utm.easting, utm.northing).await
+    let vv_lin = emem_fetch::cog::sample_pixel(&cli, &vv_url, &prof, utm.easting, utm.northing)
+        .await
         .map_err(|e| format!("sample vv: {e}"))?;
     if !vv_lin.is_finite() || vv_lin <= 0.0 {
-        return Err(format!("vv non-positive {vv_lin} (likely water mask or nodata)"));
+        return Err(format!(
+            "vv non-positive {vv_lin} (likely water mask or nodata)"
+        ));
     }
     let vv_db = 10.0 * vv_lin.log10();
 
@@ -4856,8 +6024,7 @@ async fn materialize_jrc_gsw_recurrence(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -4866,21 +6033,29 @@ async fn materialize_jrc_gsw_recurrence(
     // and the URL pattern verified live (recurrence_80E_30Nv1_4_2021.tif
     // → 200 OK at storage.googleapis.com).
     let lon_edge = (lng / 10.0).floor() as i32 * 10;
-    let lon_left = if lon_edge >= 0 { format!("{}E", lon_edge) }
-                   else              { format!("{}W", lon_edge.abs()) };
+    let lon_left = if lon_edge >= 0 {
+        format!("{}E", lon_edge)
+    } else {
+        format!("{}W", lon_edge.abs())
+    };
     let lat_edge = (lat / 10.0).ceil() as i32 * 10;
-    let lat_top  = if lat_edge >= 0 { format!("{}N", lat_edge) }
-                   else              { format!("{}S", lat_edge.abs()) };
+    let lat_top = if lat_edge >= 0 {
+        format!("{}N", lat_edge)
+    } else {
+        format!("{}S", lat_edge.abs())
+    };
     let url = format!(
         "https://storage.googleapis.com/global-surface-water/downloads2021/recurrence/recurrence_{lon_left}_{lat_top}v1_4_2021.tif",
     );
 
     let cli = s2_http_client();
-    let prof = emem_fetch::cog::open_profile(&cli, &url).await
+    let prof = emem_fetch::cog::open_profile(&cli, &url)
+        .await
         .map_err(|e| format!("open jrc gsw cog {url}: {e}"))?;
     // GSW tiles are EPSG:4326 — sample_pixel takes (world_x, world_y),
     // which for geographic CRS means (lng, lat).
-    let raw = emem_fetch::cog::sample_pixel(&cli, &url, &prof, lng, lat).await
+    let raw = emem_fetch::cog::sample_pixel(&cli, &url, &prof, lng, lat)
+        .await
         .map_err(|e| format!("sample jrc gsw {url}: {e}"))?;
 
     let signed_at = chrono_iso8601_utc();
@@ -4975,17 +6150,17 @@ async fn materialize_overture_buildings_count(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
-    let n = cli.buildings_count_in_bbox(bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng).await
+    let n = cli
+        .buildings_count_in_bbox(bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng)
+        .await
         .map_err(|e| format!("overture buildings: {e}"))?;
     let signed_at = chrono_iso8601_utc();
     let release = cli.release().to_string();
-    let upstream = format!(
-        "s3://overturemaps-us-west-2/release/{release}/theme=buildings/type=building/"
-    );
+    let upstream =
+        format!("s3://overturemaps-us-west-2/release/{release}/theme=buildings/type=building/");
     let upstream_url = format!(
         "https://overturemaps-us-west-2.s3.amazonaws.com/release/{release}/theme=buildings/type=building/"
     );
@@ -5027,17 +6202,17 @@ async fn materialize_overture_places_count(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
-    let n = cli.places_count_in_bbox(bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng).await
+    let n = cli
+        .places_count_in_bbox(bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng)
+        .await
         .map_err(|e| format!("overture places: {e}"))?;
     let signed_at = chrono_iso8601_utc();
     let release = cli.release().to_string();
-    let upstream = format!(
-        "s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/"
-    );
+    let upstream =
+        format!("s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/");
     let upstream_url = format!(
         "https://overturemaps-us-west-2.s3.amazonaws.com/release/{release}/theme=places/type=place/"
     );
@@ -5079,17 +6254,17 @@ async fn materialize_overture_road_length_m(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
-    let length_m = cli.road_length_m_in_bbox(bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng).await
+    let length_m = cli
+        .road_length_m_in_bbox(bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng)
+        .await
         .map_err(|e| format!("overture transportation: {e}"))?;
     let signed_at = chrono_iso8601_utc();
     let release = cli.release().to_string();
-    let upstream = format!(
-        "s3://overturemaps-us-west-2/release/{release}/theme=transportation/type=segment/"
-    );
+    let upstream =
+        format!("s3://overturemaps-us-west-2/release/{release}/theme=transportation/type=segment/");
     let upstream_url = format!(
         "https://overturemaps-us-west-2.s3.amazonaws.com/release/{release}/theme=transportation/type=segment/"
     );
@@ -5136,8 +6311,7 @@ async fn sign_and_persist(
     signed_at: &str,
 ) -> Result<emem_fact::FactCid, String> {
     let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf)
-        .map_err(|e| format!("cbor encode: {e}"))?;
+    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
     let leaf_hash = blake3::hash(&buf);
     let mut leaf = [0u8; 32];
     leaf.copy_from_slice(leaf_hash.as_bytes());
@@ -5156,14 +6330,18 @@ async fn sign_and_persist(
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid:   SchemaCid::new(s.manifests.schema_cid.as_str()),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
     };
-    let cids = s.storage.put_attestation(&att).await
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
         .map_err(|e| format!("put_attestation: {e}"))?;
-    cids.into_iter().next()
+    cids.into_iter()
+        .next()
         .ok_or_else(|| "put_attestation returned no fact_cid".to_string())
 }
 
@@ -5177,7 +6355,8 @@ fn s2_http_client() -> reqwest::Client {
             .timeout(std::time::Duration::from_secs(45))
             .build()
             .unwrap_or_default()
-    }).clone()
+    })
+    .clone()
 }
 
 /// Parse a NumPy `.npy` header from the leading bytes of the file.
@@ -5195,7 +6374,9 @@ fn parse_npy_header(buf: &[u8]) -> Result<(Vec<usize>, String, usize), String> {
             (n, 10usize)
         }
         2 | 3 => {
-            if buf.len() < 12 { return Err("v2 header too short".into()); }
+            if buf.len() < 12 {
+                return Err("v2 header too short".into());
+            }
             let n = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
             (n, 12usize)
         }
@@ -5203,7 +6384,11 @@ fn parse_npy_header(buf: &[u8]) -> Result<(Vec<usize>, String, usize), String> {
     };
     let end = body_off + hdr_len;
     if buf.len() < end {
-        return Err(format!("npy header truncated: have {} need {}", buf.len(), end));
+        return Err(format!(
+            "npy header truncated: have {} need {}",
+            buf.len(),
+            end
+        ));
     }
     let hdr = std::str::from_utf8(&buf[body_off..end])
         .map_err(|e| format!("npy header utf8: {e}"))?
@@ -5215,7 +6400,9 @@ fn parse_npy_header(buf: &[u8]) -> Result<(Vec<usize>, String, usize), String> {
     let mut shape = Vec::new();
     for tok in shape_s.split(',') {
         let t = tok.trim();
-        if t.is_empty() { continue; }
+        if t.is_empty() {
+            continue;
+        }
         let n: usize = t.parse().map_err(|e| format!("shape parse {t:?}: {e}"))?;
         shape.push(n);
     }
@@ -5228,7 +6415,7 @@ fn extract_str_field(hdr: &str, key: &str) -> Option<String> {
     let i = hdr.find(&needle)?;
     let rest = &hdr[i + needle.len()..];
     let q1 = rest.find('\'')?;
-    let after = &rest[q1+1..];
+    let after = &rest[q1 + 1..];
     let q2 = after.find('\'')?;
     Some(after[..q2].to_string())
 }
@@ -5238,7 +6425,7 @@ fn extract_paren_field(hdr: &str, key: &str) -> Option<String> {
     let i = hdr.find(&needle)?;
     let rest = &hdr[i + needle.len()..];
     let p1 = rest.find('(')?;
-    let after = &rest[p1+1..];
+    let after = &rest[p1 + 1..];
     let p2 = after.find(')')?;
     Some(after[..p2].to_string())
 }
@@ -5261,9 +6448,9 @@ fn unix_to_modis_date(unix_s: i64) -> String {
     // Day of year (1-indexed).
     let is_leap = (yy % 4 == 0 && yy % 100 != 0) || yy % 400 == 0;
     let cum: [i64; 13] = if is_leap {
-        [0,31,60,91,121,152,182,213,244,274,305,335,366]
+        [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366]
     } else {
-        [0,31,59,90,120,151,181,212,243,273,304,334,365]
+        [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365]
     };
     let doy = cum[(m - 1) as usize] + d;
     format!("A{:04}{:03}", yy, doy)
@@ -5301,8 +6488,7 @@ async fn sign_elevation_absence(
     });
 
     let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf)
-        .map_err(|e| format!("cbor encode: {e}"))?;
+    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
     let leaf_hash = blake3::hash(&buf);
     let mut leaf = [0u8; 32];
     leaf.copy_from_slice(leaf_hash.as_bytes());
@@ -5323,15 +6509,19 @@ async fn sign_elevation_absence(
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid:   SchemaCid::new(s.manifests.schema_cid.as_str()),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
     };
 
-    let cids = s.storage.put_attestation(&att).await
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
         .map_err(|e| format!("put_attestation (absence): {e}"))?;
-    cids.into_iter().next()
+    cids.into_iter()
+        .next()
         .ok_or_else(|| "put_attestation (absence) returned no fact_cid".to_string())
 }
 
@@ -5345,125 +6535,476 @@ struct MaterializeOutcome {
     skip_reason: Option<String>,
 }
 
+/// Resolve the tempo class for any band the responder knows about. Cube
+/// bands are sourced from the canonical bands manifest; pure-materializer
+/// bands (weather, modis, gmrt, copdem, …) declare their tempo via the
+/// `band_materializer_meta` table below — kept in sync with the live
+/// materializer registry exposed via `/v1/materializers`.
+fn tempo_for_band(band: &str) -> Option<emem_core::tslot::Tempo> {
+    if let Some(b) = emem_core::bands::DEFAULT.lookup(band) {
+        return Some(b.tempo);
+    }
+    band_materializer_meta(band).map(|m| m.tempo)
+}
+
+/// Per-band metadata for materializer-only bands (the ones not in the
+/// 1792-D cube layout). The tempo + history window come from the upstream
+/// provider's actual coverage, not editorial guesses.
+struct MaterializerMeta {
+    tempo: emem_core::tslot::Tempo,
+    /// Earliest Unix epoch the upstream provider can serve. `None` for
+    /// bands whose provider is now-only (e.g. met.no nowcast).
+    history_from_unix: Option<i64>,
+    /// Latest Unix epoch the upstream can serve. `None` defaults to
+    /// "now" at request time (most providers).
+    history_to_unix: Option<i64>,
+}
+
+/// Authoritative per-band history bounds. The Unix epoch values come from
+/// the upstream provider's documented start of record:
+///
+/// - MOD13Q1 first acquisition: 2000-02-18 (`Terra` launch + commissioning).
+/// - Sentinel-2 L2A operational: 2018-12-04 (Microsoft Planetary Computer
+///   coverage start; mission start was 2015-06-23 but L2A reprocessing
+///   begins late-2018).
+/// - Sentinel-1 RTC: 2014-10-03 (S1A operational; 2014-04 was launch).
+/// - Tessera v1 vintages: 2017–2024 (one fact per year on Jan 1 UTC).
+/// - JRC GSW recurrence: 1984-03-01 to 2021-12-31 climatology, but the
+///   product itself is a single static fact (no per-tslot backfill).
+/// - Cop-DEM / GMRT / WorldCover / weather nowcasts: static or now-only.
+fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
+    use emem_core::tslot::Tempo;
+    let modis_start: i64 = 951_177_600; // 2000-02-18T00:00:00Z
+    let s2_l2a_start: i64 = 1_543_881_600; // 2018-12-04T00:00:00Z
+    let s1_start: i64 = 1_412_294_400; // 2014-10-03T00:00:00Z
+    let tessera_start: i64 = 1_483_228_800; // 2017-01-01T00:00:00Z
+    let tessera_end: i64 = 1_704_067_200; // 2024-01-01T00:00:00Z
+    let m = match band {
+        "modis.ndvi_mean" => MaterializerMeta {
+            tempo: Tempo::Medium,
+            history_from_unix: Some(modis_start),
+            history_to_unix: None,
+        },
+        "indices.ndvi" | "indices.ndwi" | "indices.mndwi" | "indices.evi" | "indices.nbr"
+        | "indices.ndmi" | "indices.savi" | "indices.bsi" | "indices.ndbi" => MaterializerMeta {
+            tempo: Tempo::Fast,
+            history_from_unix: Some(s2_l2a_start),
+            history_to_unix: None,
+        },
+        "s2.B01" | "s2.B02" | "s2.B03" | "s2.B04" | "s2.B05" | "s2.B06" | "s2.B07" | "s2.B08"
+        | "s2.B8A" | "s2.B09" | "s2.B11" | "s2.B12" | "s2.scl" => MaterializerMeta {
+            tempo: Tempo::Fast,
+            history_from_unix: Some(s2_l2a_start),
+            history_to_unix: None,
+        },
+        "sentinel1_raw" => MaterializerMeta {
+            tempo: Tempo::Fast,
+            history_from_unix: Some(s1_start),
+            history_to_unix: None,
+        },
+        "geotessera"
+        | "geotessera.multi_year"
+        | "geotessera.2017"
+        | "geotessera.2018"
+        | "geotessera.2019"
+        | "geotessera.2020"
+        | "geotessera.2021"
+        | "geotessera.2022"
+        | "geotessera.2023"
+        | "geotessera.2024" => MaterializerMeta {
+            tempo: Tempo::Slow,
+            history_from_unix: Some(tessera_start),
+            history_to_unix: Some(tessera_end),
+        },
+        // Static climatologies / single-snapshot products — no per-tslot
+        // history; one fact answers for all time.
+        "copdem30m.elevation_mean" | "gmrt.topobathy_mean" | "surface_water.recurrence" => {
+            MaterializerMeta {
+                tempo: Tempo::Static,
+                history_from_unix: None,
+                history_to_unix: None,
+            }
+        }
+        // Met.no's locationforecast is a nowcast + 9-day forecast — no
+        // historical record. Backfill is honest about this.
+        b if b.starts_with("weather.") => MaterializerMeta {
+            tempo: Tempo::UltraFast,
+            history_from_unix: None,
+            history_to_unix: None,
+        },
+        // Overture Maps releases are versioned snapshots, not per-tslot
+        // historical series — treat as slow + present-only.
+        b if b.starts_with("overture.") => MaterializerMeta {
+            tempo: Tempo::Slow,
+            history_from_unix: None,
+            history_to_unix: None,
+        },
+        _ => return None,
+    };
+    Some(m)
+}
+
+/// Per-band materialization for a target Unix epoch. Returns Ok(cid) on
+/// success, Err(reason) when the band has no historical materializer at
+/// this responder. The reason string is wired to the per-step `reason`
+/// field of `BackfillResp` so an agent can distinguish "upstream down"
+/// from "this band is now-only at this responder".
+async fn materialize_band_at(
+    cell64: &str,
+    band: &str,
+    target_unix: i64,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    match band {
+        "modis.ndvi_mean" => materialize_modis_ndvi_window(cell64, Some(target_unix), s).await,
+        // Static products: tslot is meaningless, the regular materializer
+        // produces the canonical fact at tslot=0 regardless of target.
+        "copdem30m.elevation_mean" => match materialize_elevation_mean(cell64, s).await {
+            Ok(ElevationMaterialization::Primary(c))
+            | Ok(ElevationMaterialization::Absence(c)) => Ok(c),
+            Err(e) => Err(e),
+        },
+        "gmrt.topobathy_mean" => materialize_gmrt_topobathy(cell64, s).await,
+        b => Err(format!(
+            "present_only: '{b}' has no historical materializer at this responder; only the current value is auto-materializable"
+        )),
+    }
+}
+
+/// Result of a `POST /v1/backfill` call. Symmetrical with the MCP
+/// `emem_backfill` response shape.
+async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    use emem_core::tslot::{Tempo, Tslot};
+    let tempo = tempo_for_band(&req.band).ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::BandNotInRegistry,
+                message: format!(
+                    "unknown band '{}': call /v1/bands or emem_bands first",
+                    req.band
+                ),
+            },
+        )
+    })?;
+    let meta = band_materializer_meta(&req.band);
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // Bucket anchor for "no start_unix given": the band's documented
+    // upstream-of-record Unix second, falling back to the Unix epoch.
+    let default_start = meta.as_ref().and_then(|m| m.history_from_unix).unwrap_or(0);
+    let default_end = meta
+        .as_ref()
+        .and_then(|m| m.history_to_unix)
+        .unwrap_or(now_unix);
+    let mut start = req.start_unix.unwrap_or(default_start);
+    let mut end = req.end_unix.unwrap_or(default_end);
+    if start > end {
+        std::mem::swap(&mut start, &mut end);
+    }
+    let max_facts = req.max_facts.unwrap_or(64).clamp(1, 1024);
+
+    let slot_secs = tempo.slot_seconds();
+    let mut steps: Vec<JsonValue> = Vec::new();
+    let mut materialized = 0usize;
+    let mut cached = 0usize;
+    let mut skipped = 0usize;
+    let mut notes: Vec<String> = Vec::new();
+
+    // Fast path for static bands: one tslot 0, one fact total.
+    if matches!(tempo, Tempo::Static) {
+        // Already have it?
+        let existing = s.storage.scan_cell(&req.cell, None).await.map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: e.to_string(),
+                },
+            )
+        })?;
+        let already = existing
+            .into_iter()
+            .find(|(k, _)| k.band == req.band && k.tslot == 0)
+            .map(|(_, c)| c);
+        match already {
+            Some(cid) => {
+                cached += 1;
+                steps.push(json!({
+                    "tslot": 0u64,
+                    "target_unix": 0i64,
+                    "status": "cached",
+                    "fact_cid": cid.as_str(),
+                }));
+            }
+            None => match materialize_band_at(&req.cell, &req.band, now_unix, s).await {
+                Ok(cid) => {
+                    materialized += 1;
+                    steps.push(json!({
+                        "tslot": 0u64,
+                        "target_unix": now_unix,
+                        "status": "materialized",
+                        "fact_cid": cid.as_str(),
+                    }));
+                }
+                Err(e) => {
+                    skipped += 1;
+                    let status = if e.starts_with("present_only:") {
+                        "present_only"
+                    } else {
+                        "error"
+                    };
+                    steps.push(json!({
+                        "tslot": 0u64,
+                        "target_unix": now_unix,
+                        "status": status,
+                        "reason": e,
+                    }));
+                }
+            },
+        }
+    } else {
+        let start_t = Tslot::from_unix(start, tempo).0;
+        let end_t = Tslot::from_unix(end, tempo).0;
+        // Pre-load existing facts for this (cell, band) once, so we don't
+        // do N sled scans for an N-step backfill.
+        let existing = s.storage.scan_cell(&req.cell, None).await.map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: e.to_string(),
+                },
+            )
+        })?;
+        let mut have: std::collections::HashMap<u64, emem_fact::FactCid> = existing
+            .into_iter()
+            .filter(|(k, _)| k.band == req.band)
+            .map(|(k, c)| (k.tslot, c))
+            .collect();
+
+        for t in start_t..=end_t {
+            if steps.len() >= max_facts {
+                notes.push(format!(
+                    "max_facts={max_facts} reached at tslot {t}; partial backfill — call again with start_unix > {} to continue",
+                    (t as i64) * (slot_secs as i64),
+                ));
+                break;
+            }
+            let target_unix = (t as i64) * (slot_secs as i64);
+            if target_unix > now_unix {
+                steps.push(json!({
+                    "tslot": t,
+                    "target_unix": target_unix,
+                    "status": "future",
+                    "reason": "tslot is in the future relative to wall-clock now",
+                }));
+                skipped += 1;
+                continue;
+            }
+            if let Some(cid) = have.remove(&t) {
+                cached += 1;
+                steps.push(json!({
+                    "tslot": t,
+                    "target_unix": target_unix,
+                    "status": "cached",
+                    "fact_cid": cid.as_str(),
+                }));
+                continue;
+            }
+            match materialize_band_at(&req.cell, &req.band, target_unix, s).await {
+                Ok(cid) => {
+                    materialized += 1;
+                    steps.push(json!({
+                        "tslot": t,
+                        "target_unix": target_unix,
+                        "status": "materialized",
+                        "fact_cid": cid.as_str(),
+                    }));
+                }
+                Err(e) => {
+                    skipped += 1;
+                    let status = if e.starts_with("present_only:") {
+                        "present_only"
+                    } else {
+                        "error"
+                    };
+                    steps.push(json!({
+                        "tslot": t,
+                        "target_unix": target_unix,
+                        "status": status,
+                        "reason": e,
+                    }));
+                    // If the reason is "no historical materializer", every
+                    // remaining tslot will fail the same way — short-circuit
+                    // and tell the agent honestly.
+                    if status == "present_only" {
+                        notes.push(format!(
+                            "band '{}' is now-only at this responder; further tslots in this window will return the same status — stopping after first probe",
+                            req.band));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let pubkey = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    Ok(json!({
+        "schema": "emem.backfill.v1",
+        "cell": req.cell,
+        "band": req.band,
+        "tempo": format!("{:?}", tempo).to_ascii_lowercase(),
+        "slot_seconds": slot_secs,
+        "window_start_unix": start,
+        "window_end_unix": end,
+        "history_available_from_unix": meta.as_ref().and_then(|m| m.history_from_unix),
+        "history_available_to_unix": meta.as_ref().and_then(|m| m.history_to_unix),
+        "total_steps": steps.len(),
+        "materialized_count": materialized,
+        "cached_count": cached,
+        "skipped_count": skipped,
+        "responder_pubkey_b32": pubkey,
+        "steps": steps,
+        "notes": notes,
+        "next": [
+            "POST /v1/trajectory with the same cell+band+window to read back the now-attested series.",
+            "POST /v1/diff between any two materialized tslots for a signed delta.",
+            "Each step.fact_cid is independently citable via emem_fetch / GET /v1/facts/{cid}.",
+        ],
+        "agent_hint": "emem_backfill is the bridge between 'I want history' and 'history exists in the ledger'. Each materialized fact is signed by the responder above; replay across responders by content-addressing the same upstream URLs."
+    }))
+}
+
 /// Try to materialize each requested band on the given cell. Returns
 /// per-band outcomes so the recall handler can surface why a band was
 /// skipped (ocean cell, upstream down, no materializer registered).
-async fn try_materialize_bands(cell64: &str, bands: &[String], s: &AppState) -> Vec<MaterializeOutcome> {
+async fn try_materialize_bands(
+    cell64: &str,
+    bands: &[String],
+    s: &AppState,
+) -> Vec<MaterializeOutcome> {
     let mut out = Vec::with_capacity(bands.len());
-    if !auto_materialize_enabled() { return out; }
+    if !auto_materialize_enabled() {
+        return out;
+    }
     for b in bands {
         match b.as_str() {
-            "modis.ndvi_mean" => {
-                match materialize_modis_ndvi(cell64, s).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+            "modis.ndvi_mean" => match materialize_modis_ndvi(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
                 }
-            }
-            "gmrt.topobathy_mean" => {
-                match materialize_gmrt_topobathy(cell64, s).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
                 }
-            }
-            "copdem30m.elevation_mean" => {
-                match materialize_elevation_mean(cell64, s).await {
-                    Ok(ElevationMaterialization::Primary(cid)) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Ok(ElevationMaterialization::Absence(cid)) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "absence",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+            },
+            "gmrt.topobathy_mean" => match materialize_gmrt_topobathy(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
                 }
-            }
-            "geotessera" | "geotessera.multi_year"
-                | "geotessera.2017" | "geotessera.2018" | "geotessera.2019"
-                | "geotessera.2020" | "geotessera.2021" | "geotessera.2022"
-                | "geotessera.2023" | "geotessera.2024" => {
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
+            "copdem30m.elevation_mean" => match materialize_elevation_mean(cell64, s).await {
+                Ok(ElevationMaterialization::Primary(cid)) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Ok(ElevationMaterialization::Absence(cid)) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
+            "geotessera"
+            | "geotessera.multi_year"
+            | "geotessera.2017"
+            | "geotessera.2018"
+            | "geotessera.2019"
+            | "geotessera.2020"
+            | "geotessera.2021"
+            | "geotessera.2022"
+            | "geotessera.2023"
+            | "geotessera.2024" => {
                 let result = if b == "geotessera" {
                     materialize_geotessera_embedding(cell64, s).await
                 } else if b == "geotessera.multi_year" {
@@ -5478,7 +7019,9 @@ async fn try_materialize_bands(cell64: &str, bands: &[String], s: &AppState) -> 
                             materialize_fact_cid = %cid.as_str(),
                             materialize_kind = "primary", "materialize_ok");
                         out.push(MaterializeOutcome {
-                            band: b.clone(), fact_cid: Some(cid.as_str().to_string()), skip_reason: None,
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
                         });
                     }
                     Err(e) => {
@@ -5486,15 +7029,21 @@ async fn try_materialize_bands(cell64: &str, bands: &[String], s: &AppState) -> 
                             materialize_cell = %cell64, materialize_band = %b,
                             materialize_error = %e, "materialize_failed");
                         out.push(MaterializeOutcome {
-                            band: b.clone(), fact_cid: None, skip_reason: Some(e),
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
                         });
                     }
                 }
             }
-            "weather.temperature_2m" | "weather.cloud_cover"
-                | "weather.precipitation_mm" | "weather.wind_speed_10m"
-                | "weather.relative_humidity_2m" | "weather.dew_point_2m"
-                | "weather.air_pressure_msl" | "weather.wind_direction_10m" => {
+            "weather.temperature_2m"
+            | "weather.cloud_cover"
+            | "weather.precipitation_mm"
+            | "weather.wind_speed_10m"
+            | "weather.relative_humidity_2m"
+            | "weather.dew_point_2m"
+            | "weather.air_pressure_msl"
+            | "weather.wind_direction_10m" => {
                 match materialize_weather_current(cell64, s, b).await {
                     Ok(cid) => {
                         tracing::info!(
@@ -5525,12 +7074,10 @@ async fn try_materialize_bands(cell64: &str, bands: &[String], s: &AppState) -> 
                     }
                 }
             }
-            "indices.ndvi" | "indices.ndwi" | "indices.mndwi" | "indices.evi"
-                | "indices.nbr" | "indices.ndmi" | "indices.savi"
-                | "indices.bsi" | "indices.ndbi"
-                | "s2.B01" | "s2.B02" | "s2.B03" | "s2.B04" | "s2.B05" | "s2.B06"
-                | "s2.B07" | "s2.B08" | "s2.B8A" | "s2.B09" | "s2.B11" | "s2.B12"
-                | "s2.scl" => {
+            "indices.ndvi" | "indices.ndwi" | "indices.mndwi" | "indices.evi" | "indices.nbr"
+            | "indices.ndmi" | "indices.savi" | "indices.bsi" | "indices.ndbi" | "s2.B01"
+            | "s2.B02" | "s2.B03" | "s2.B04" | "s2.B05" | "s2.B06" | "s2.B07" | "s2.B08"
+            | "s2.B8A" | "s2.B09" | "s2.B11" | "s2.B12" | "s2.scl" => {
                 match materialize_sentinel2_band(cell64, s, b).await {
                     Ok(cid) => {
                         tracing::info!(
@@ -5592,37 +7139,35 @@ async fn try_materialize_bands(cell64: &str, bands: &[String], s: &AppState) -> 
                     }
                 }
             }
-            "overture.places.count" => {
-                match materialize_overture_places_count(cell64, s).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+            "overture.places.count" => match materialize_overture_places_count(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
                 }
-            }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             "overture.transportation.road_length_m" => {
                 match materialize_overture_road_length_m(cell64, s).await {
                     Ok(cid) => {
@@ -5654,68 +7199,64 @@ async fn try_materialize_bands(cell64: &str, bands: &[String], s: &AppState) -> 
                     }
                 }
             }
-            "sentinel1_raw" => {
-                match materialize_sentinel1_vv(cell64, s).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+            "sentinel1_raw" => match materialize_sentinel1_vv(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
                 }
-            }
-            "surface_water.recurrence" => {
-                match materialize_jrc_gsw_recurrence(cell64, s).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary_or_absence",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
                 }
-            }
+            },
+            "surface_water.recurrence" => match materialize_jrc_gsw_recurrence(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary_or_absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             _ => {
                 let e = format!("no_auto_materializer_registered: no upstream connector wired for band={b}; submit a signed Attestation via /v1/attest_cbor to seed it");
                 out.push(MaterializeOutcome {
@@ -5731,7 +7272,10 @@ async fn try_materialize_bands(cell64: &str, bands: &[String], s: &AppState) -> 
 
 fn chrono_iso8601_utc() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     iso8601_utc(secs)
 }
 
@@ -5743,26 +7287,38 @@ async fn coverage_json(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<JsonValue> {
-    let limit: usize = q.get("limit").and_then(|v| v.parse().ok()).unwrap_or(1000).min(10_000);
+    let limit: usize = q
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1000)
+        .min(10_000);
     let storage = s.storage.as_ref();
-    let entries = storage.iter_index(Some(limit * 8)).await.unwrap_or_default();
+    let entries = storage
+        .iter_index(Some(limit * 8))
+        .await
+        .unwrap_or_default();
     // Bin by cell64 and count facts per cell.
     let mut by_cell: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     for (k, _) in &entries {
         *by_cell.entry(k.cell.clone()).or_default() += 1;
     }
-    let mut cells: Vec<JsonValue> = by_cell.into_iter().filter_map(|(c, n)| {
-        let info = emem_codec::latlng_from_cell64(&c).ok()?;
-        Some(json!({
-            "cell64": c,
-            "lat_deg": info.lat_deg,
-            "lng_deg": info.lng_deg,
-            "fact_count": n,
-        }))
-    }).collect();
+    let mut cells: Vec<JsonValue> = by_cell
+        .into_iter()
+        .filter_map(|(c, n)| {
+            let info = emem_codec::latlng_from_cell64(&c).ok()?;
+            Some(json!({
+                "cell64": c,
+                "lat_deg": info.lat_deg,
+                "lng_deg": info.lng_deg,
+                "fact_count": n,
+            }))
+        })
+        .collect();
     cells.sort_by(|a, b| {
-        b["fact_count"].as_u64().unwrap_or(0)
-         .cmp(&a["fact_count"].as_u64().unwrap_or(0))
+        b["fact_count"]
+            .as_u64()
+            .unwrap_or(0)
+            .cmp(&a["fact_count"].as_u64().unwrap_or(0))
     });
     cells.truncate(limit);
     Json(json!({
@@ -5792,8 +7348,7 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
     // Bin into 1° × 1° cells for the map render. Each bin gets a count
     // that drives the colour saturation. 360 columns × 180 rows = 64,800
     // bins — comfortably under SVG element budgets.
-    let mut by_bin: std::collections::HashMap<(i32, i32), u64> =
-        std::collections::HashMap::new();
+    let mut by_bin: std::collections::HashMap<(i32, i32), u64> = std::collections::HashMap::new();
     for (k, _) in &entries {
         if let Ok(info) = emem_codec::latlng_from_cell64(&k.cell) {
             let bin_lat = info.lat_deg.floor() as i32;
@@ -5826,7 +7381,9 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
     }
     let cell_count = by_bin.len();
     let total_facts: u64 = by_bin.values().sum();
-    let pubkey = data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase();
+    let pubkey = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
     let pubkey_short = &pubkey[..32.min(pubkey.len())];
     // Coastline / latitude reference. Without this the map is a black
     // rectangle with three coloured dots — a multimodal agent has no way
@@ -5835,7 +7392,7 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
     // not real coastline) give enough geographic context to reason.
     let mut grid = String::new();
     for lat in (-60..=60).step_by(30) {
-        let y = ((90 - lat) * H / 180) as i32;
+        let y = (90 - lat) * H / 180;
         grid.push_str(&format!(
             "<line x1='0' y1='{y}' x2='{W}' y2='{y}' stroke='#ffffff' stroke-width='1' opacity='0.12'/>"
         ));
@@ -5845,13 +7402,14 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
         ));
     }
     for lng in (-150..=150).step_by(60) {
-        let x = ((lng + 180) * W / 360) as i32;
+        let x = (lng + 180) * W / 360;
         grid.push_str(&format!(
             "<line x1='{x}' y1='0' x2='{x}' y2='{H}' stroke='#ffffff' stroke-width='1' opacity='0.12'/>"
         ));
         grid.push_str(&format!(
             "<text x='{}' y='{}' font-size='10' opacity='0.5'>{lng}°</text>",
-            x + 4, H - 6
+            x + 4,
+            H - 6
         ));
     }
     // Hand-traced continent envelopes — *approximations* of land mass
@@ -5859,33 +7417,108 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
     // Each path is a closed polyline in lat/lng, converted to pixel-space
     // by the same Plate Carrée transform used for cells.
     let landmasses: &[(&str, &[(f64, f64)])] = &[
-        ("North America", &[
-            (71.0,-160.0),(60.0,-141.0),(50.0,-126.0),(31.0,-117.0),(15.0,-95.0),
-            (8.0,-78.0),(25.0,-80.0),(45.0,-66.0),(60.0,-55.0),(78.0,-72.0),(82.0,-95.0),(80.0,-130.0),(71.0,-160.0)
-        ]),
-        ("South America", &[
-            (12.0,-72.0),(0.0,-50.0),(-15.0,-39.0),(-35.0,-58.0),(-55.0,-67.0),
-            (-50.0,-72.0),(-30.0,-71.0),(0.0,-80.0),(12.0,-72.0)
-        ]),
-        ("Africa", &[
-            (37.0,-9.0),(35.0,11.0),(31.0,33.0),(15.0,42.0),(10.0,52.0),(-12.0,42.0),
-            (-34.0,18.0),(-30.0,15.0),(0.0,9.0),(15.0,-17.0),(37.0,-9.0)
-        ]),
-        ("Europe", &[
-            (71.0,30.0),(60.0,60.0),(45.0,40.0),(36.0,28.0),(36.0,-9.0),
-            (50.0,-10.0),(58.0,-8.0),(71.0,5.0),(71.0,30.0)
-        ]),
-        ("Asia", &[
-            (78.0,60.0),(75.0,140.0),(60.0,170.0),(40.0,140.0),(20.0,108.0),(8.0,98.0),
-            (8.0,80.0),(20.0,60.0),(30.0,48.0),(45.0,40.0),(60.0,50.0),(78.0,60.0)
-        ]),
-        ("Oceania", &[
-            (-10.0,113.0),(-10.0,153.0),(-25.0,153.0),(-39.0,146.0),(-35.0,118.0),(-22.0,114.0),(-10.0,113.0)
-        ]),
-        ("Antarctica", &[
-            (-65.0,-180.0),(-78.0,-90.0),(-85.0,0.0),(-78.0,90.0),(-65.0,180.0),
-            (-65.0,-180.0)
-        ]),
+        (
+            "North America",
+            &[
+                (71.0, -160.0),
+                (60.0, -141.0),
+                (50.0, -126.0),
+                (31.0, -117.0),
+                (15.0, -95.0),
+                (8.0, -78.0),
+                (25.0, -80.0),
+                (45.0, -66.0),
+                (60.0, -55.0),
+                (78.0, -72.0),
+                (82.0, -95.0),
+                (80.0, -130.0),
+                (71.0, -160.0),
+            ],
+        ),
+        (
+            "South America",
+            &[
+                (12.0, -72.0),
+                (0.0, -50.0),
+                (-15.0, -39.0),
+                (-35.0, -58.0),
+                (-55.0, -67.0),
+                (-50.0, -72.0),
+                (-30.0, -71.0),
+                (0.0, -80.0),
+                (12.0, -72.0),
+            ],
+        ),
+        (
+            "Africa",
+            &[
+                (37.0, -9.0),
+                (35.0, 11.0),
+                (31.0, 33.0),
+                (15.0, 42.0),
+                (10.0, 52.0),
+                (-12.0, 42.0),
+                (-34.0, 18.0),
+                (-30.0, 15.0),
+                (0.0, 9.0),
+                (15.0, -17.0),
+                (37.0, -9.0),
+            ],
+        ),
+        (
+            "Europe",
+            &[
+                (71.0, 30.0),
+                (60.0, 60.0),
+                (45.0, 40.0),
+                (36.0, 28.0),
+                (36.0, -9.0),
+                (50.0, -10.0),
+                (58.0, -8.0),
+                (71.0, 5.0),
+                (71.0, 30.0),
+            ],
+        ),
+        (
+            "Asia",
+            &[
+                (78.0, 60.0),
+                (75.0, 140.0),
+                (60.0, 170.0),
+                (40.0, 140.0),
+                (20.0, 108.0),
+                (8.0, 98.0),
+                (8.0, 80.0),
+                (20.0, 60.0),
+                (30.0, 48.0),
+                (45.0, 40.0),
+                (60.0, 50.0),
+                (78.0, 60.0),
+            ],
+        ),
+        (
+            "Oceania",
+            &[
+                (-10.0, 113.0),
+                (-10.0, 153.0),
+                (-25.0, 153.0),
+                (-39.0, 146.0),
+                (-35.0, 118.0),
+                (-22.0, 114.0),
+                (-10.0, 113.0),
+            ],
+        ),
+        (
+            "Antarctica",
+            &[
+                (-65.0, -180.0),
+                (-78.0, -90.0),
+                (-85.0, 0.0),
+                (-78.0, 90.0),
+                (-65.0, 180.0),
+                (-65.0, -180.0),
+            ],
+        ),
     ];
     let mut land = String::new();
     for (_name, pts) in landmasses {
@@ -5970,8 +7603,7 @@ async fn build_cell_scene_rgb(
     max_cloud_pct: f64,
     datetime_window: Option<&str>,
 ) -> Result<SceneRgb, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -5980,9 +7612,14 @@ async fn build_cell_scene_rgb(
         None => {
             let now_unix = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64).unwrap_or(0);
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
             let start_unix = now_unix - 90 * 86400;
-            format!("{}/{}", iso8601_utc(start_unix as u64), iso8601_utc(now_unix as u64))
+            format!(
+                "{}/{}",
+                iso8601_utc(start_unix as u64),
+                iso8601_utc(now_unix as u64)
+            )
         }
     };
 
@@ -5995,59 +7632,99 @@ async fn build_cell_scene_rgb(
             "no Sentinel-2 L2A scene with cloud_cover < {max_cloud_pct}% in the last 90 days at this cell"
         ))?;
 
-    let red_url   = item.assets.get("red")  .or_else(|| item.assets.get("B04")).cloned()
+    let red_url = item
+        .assets
+        .get("red")
+        .or_else(|| item.assets.get("B04"))
+        .cloned()
         .ok_or_else(|| "stac item missing red/B04 asset".to_string())?;
-    let green_url = item.assets.get("green").or_else(|| item.assets.get("B03")).cloned()
+    let green_url = item
+        .assets
+        .get("green")
+        .or_else(|| item.assets.get("B03"))
+        .cloned()
         .ok_or_else(|| "stac item missing green/B03 asset".to_string())?;
-    let blue_url  = item.assets.get("blue") .or_else(|| item.assets.get("B02")).cloned()
+    let blue_url = item
+        .assets
+        .get("blue")
+        .or_else(|| item.assets.get("B02"))
+        .cloned()
         .ok_or_else(|| "stac item missing blue/B02 asset".to_string())?;
-    let epsg = item.epsg.ok_or_else(|| "stac item missing proj:epsg".to_string())?;
+    let epsg = item
+        .epsg
+        .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
     let utm = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
         .ok_or_else(|| format!("epsg {epsg} not a UTM code"))?;
 
     const W: u32 = 256;
     const H: u32 = 256;
 
-    let red_prof = emem_fetch::cog::open_profile(&cli, &red_url).await
+    let red_prof = emem_fetch::cog::open_profile(&cli, &red_url)
+        .await
         .map_err(|e| format!("open red COG: {e}"))?;
-    let green_prof = emem_fetch::cog::open_profile(&cli, &green_url).await
+    let green_prof = emem_fetch::cog::open_profile(&cli, &green_url)
+        .await
         .map_err(|e| format!("open green COG: {e}"))?;
-    let blue_prof = emem_fetch::cog::open_profile(&cli, &blue_url).await
+    let blue_prof = emem_fetch::cog::open_profile(&cli, &blue_url)
+        .await
         .map_err(|e| format!("open blue COG: {e}"))?;
-    let red_pix = emem_fetch::cog::sample_window(
-        &cli, &red_url, &red_prof, utm.easting, utm.northing, W, H
-    ).await.map_err(|e| format!("sample red: {e}"))?;
+    let red_pix =
+        emem_fetch::cog::sample_window(&cli, &red_url, &red_prof, utm.easting, utm.northing, W, H)
+            .await
+            .map_err(|e| format!("sample red: {e}"))?;
     let green_pix = emem_fetch::cog::sample_window(
-        &cli, &green_url, &green_prof, utm.easting, utm.northing, W, H
-    ).await.map_err(|e| format!("sample green: {e}"))?;
+        &cli,
+        &green_url,
+        &green_prof,
+        utm.easting,
+        utm.northing,
+        W,
+        H,
+    )
+    .await
+    .map_err(|e| format!("sample green: {e}"))?;
     let blue_pix = emem_fetch::cog::sample_window(
-        &cli, &blue_url, &blue_prof, utm.easting, utm.northing, W, H
-    ).await.map_err(|e| format!("sample blue: {e}"))?;
+        &cli,
+        &blue_url,
+        &blue_prof,
+        utm.easting,
+        utm.northing,
+        W,
+        H,
+    )
+    .await
+    .map_err(|e| format!("sample blue: {e}"))?;
 
     // Per-channel 2nd–98th percentile stretch, then gamma 1/2.2.
     fn percentile(values: &[f64], p: f64) -> f64 {
-        let mut v: Vec<f64> = values.iter().copied().filter(|x| x.is_finite() && *x > 0.0).collect();
-        if v.is_empty() { return 0.0; }
+        let mut v: Vec<f64> = values
+            .iter()
+            .copied()
+            .filter(|x| x.is_finite() && *x > 0.0)
+            .collect();
+        if v.is_empty() {
+            return 0.0;
+        }
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let idx = ((v.len() as f64 - 1.0) * p).round() as usize;
         v[idx.min(v.len() - 1)]
     }
-    let r_lo = percentile(&red_pix,   0.02);
-    let r_hi = percentile(&red_pix,   0.98).max(r_lo + 1.0);
+    let r_lo = percentile(&red_pix, 0.02);
+    let r_hi = percentile(&red_pix, 0.98).max(r_lo + 1.0);
     let g_lo = percentile(&green_pix, 0.02);
     let g_hi = percentile(&green_pix, 0.98).max(g_lo + 1.0);
-    let b_lo = percentile(&blue_pix,  0.02);
-    let b_hi = percentile(&blue_pix,  0.98).max(b_lo + 1.0);
+    let b_lo = percentile(&blue_pix, 0.02);
+    let b_hi = percentile(&blue_pix, 0.98).max(b_lo + 1.0);
 
     let mut rgb = vec![0u8; (W as usize) * (H as usize) * 3];
     for i in 0..(W * H) as usize {
-        let r = ((red_pix[i]   - r_lo) / (r_hi - r_lo)).clamp(0.0, 1.0);
+        let r = ((red_pix[i] - r_lo) / (r_hi - r_lo)).clamp(0.0, 1.0);
         let g = ((green_pix[i] - g_lo) / (g_hi - g_lo)).clamp(0.0, 1.0);
-        let b = ((blue_pix[i]  - b_lo) / (b_hi - b_lo)).clamp(0.0, 1.0);
+        let b = ((blue_pix[i] - b_lo) / (b_hi - b_lo)).clamp(0.0, 1.0);
         let r8 = (r.powf(1.0 / 2.2) * 255.0) as u8;
         let g8 = (g.powf(1.0 / 2.2) * 255.0) as u8;
         let b8 = (b.powf(1.0 / 2.2) * 255.0) as u8;
-        rgb[i * 3]     = r8;
+        rgb[i * 3] = r8;
         rgb[i * 3 + 1] = g8;
         rgb[i * 3 + 2] = b8;
     }
@@ -6057,15 +7734,18 @@ async fn build_cell_scene_rgb(
         let mut encoder = png::Encoder::new(&mut png_bytes, W, H);
         encoder.set_color(png::ColorType::Rgb);
         encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header()
+        let mut writer = encoder
+            .write_header()
             .map_err(|e| format!("png header: {e}"))?;
-        writer.write_image_data(&rgb)
+        writer
+            .write_image_data(&rgb)
             .map_err(|e| format!("png write: {e}"))?;
     }
 
     Ok(SceneRgb {
         png: png_bytes,
-        w: W, h: H,
+        w: W,
+        h: H,
         item_id: item.id,
         item_datetime: item.datetime,
         cloud_cover: item.cloud_cover,
@@ -6085,13 +7765,16 @@ async fn get_cell_scene_png(
     axum::extract::Query(qs): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
     let cell = cell64.trim_end_matches(".png").to_string();
-    let max_cloud = qs.get("max_cloud")
+    let max_cloud = qs
+        .get("max_cloud")
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(20.0);
     let datetime_window = qs.get("datetime").cloned();
     let scene = match build_cell_scene_rgb(&cell, max_cloud, datetime_window.as_deref()).await {
         Ok(s) => s,
-        Err(e) => return (StatusCode::NOT_FOUND, format!("scene unavailable: {e}")).into_response(),
+        Err(e) => {
+            return (StatusCode::NOT_FOUND, format!("scene unavailable: {e}")).into_response()
+        }
     };
     Response::builder()
         .status(StatusCode::OK)
@@ -6099,8 +7782,13 @@ async fn get_cell_scene_png(
         .header(CACHE_CONTROL, "public, max-age=3600")
         .header("x-emem-scene-item-id", &scene.item_id)
         .header("x-emem-scene-datetime", &scene.item_datetime)
-        .header("x-emem-scene-cloud-cover",
-            scene.cloud_cover.map(|c| format!("{c:.2}")).unwrap_or_default())
+        .header(
+            "x-emem-scene-cloud-cover",
+            scene
+                .cloud_cover
+                .map(|c| format!("{c:.2}"))
+                .unwrap_or_default(),
+        )
         .header("x-emem-scene-epsg", scene.epsg.to_string())
         .body(axum::body::Body::from(scene.png))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
@@ -6122,39 +7810,156 @@ async fn get_cell_scene_png(
 // test `topic_route_matches_locate_inventory` keeps them in sync.
 
 const TOPIC_BANDS: &[(&str, &[&str])] = &[
-    ("flood_history_long_term",    &["surface_water.recurrence"]),
-    ("flood_water_event_window",   &["indices.ndwi", "indices.mndwi", "sentinel1_raw"]),
-    ("vegetation_condition",       &["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "modis.ndvi_mean"]),
-    ("fire_burn_severity",         &["indices.nbr"]),
-    ("soil_bare",                  &["indices.bsi"]),
-    ("built_up_human_geography",   &["indices.ndbi", "overture.buildings.count", "overture.places.count", "overture.transportation.road_length_m"]),
-    ("weather_now",                &["weather.temperature_2m", "weather.cloud_cover", "weather.precipitation_mm", "weather.wind_speed_10m"]),
+    ("flood_history_long_term", &["surface_water.recurrence"]),
+    (
+        "flood_water_event_window",
+        &["indices.ndwi", "indices.mndwi", "sentinel1_raw"],
+    ),
+    (
+        "vegetation_condition",
+        &[
+            "indices.ndvi",
+            "indices.evi",
+            "indices.savi",
+            "indices.ndmi",
+            "modis.ndvi_mean",
+        ],
+    ),
+    ("fire_burn_severity", &["indices.nbr"]),
+    ("soil_bare", &["indices.bsi"]),
+    (
+        "built_up_human_geography",
+        &[
+            "indices.ndbi",
+            "overture.buildings.count",
+            "overture.places.count",
+            "overture.transportation.road_length_m",
+        ],
+    ),
+    (
+        "weather_now",
+        &[
+            "weather.temperature_2m",
+            "weather.cloud_cover",
+            "weather.precipitation_mm",
+            "weather.wind_speed_10m",
+        ],
+    ),
     ("elevation_global_topobathy", &["gmrt.topobathy_mean"]),
-    ("elevation_land_only",        &["copdem30m.elevation_mean"]),
-    ("optical_raw_reflectance",    &["s2.B02", "s2.B03", "s2.B04", "s2.B08", "s2.B11", "s2.B12"]),
-    ("scene_classification",       &["s2.scl"]),
-    ("foundation_embedding",       &["geotessera", "geotessera.multi_year"]),
-    ("radar_all_weather_sar",      &["sentinel1_raw"]),
+    ("elevation_land_only", &["copdem30m.elevation_mean"]),
+    (
+        "optical_raw_reflectance",
+        &["s2.B02", "s2.B03", "s2.B04", "s2.B08", "s2.B11", "s2.B12"],
+    ),
+    ("scene_classification", &["s2.scl"]),
+    (
+        "foundation_embedding",
+        &["geotessera", "geotessera.multi_year"],
+    ),
+    ("radar_all_weather_sar", &["sentinel1_raw"]),
 ];
 
 const TOPIC_ALGORITHMS: &[(&str, &[&str])] = &[
-    ("flood_history_long_term",    &["flood_history_class@1"]),
-    ("flood_water_event_window",   &["water_consensus@1", "water_likelihood_from_vv@1"]),
-    ("flood_risk_composite",       &["flood_risk@1", "route_flood_exposure@1"]),
-    ("vegetation_condition",       &["vegetation_class_from_ndvi@1", "crop_stress_score@1"]),
-    ("fire_burn_severity",         &["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1"]),
-    ("soil_bare",                  &["bare_soil_class@1"]),
-    ("snow",                       &["snow_likelihood_from_ndsi@1"]),
-    ("built_up_human_geography",   &["built_up_from_ndbi@1", "urban_density_score@1", "noise_exposure_proxy@1"]),
-    ("weather_now",                &["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1"]),
-    ("topography",                 &["slope_from_dem_neighborhood@1", "ruggedness_index@1", "topo_position_index@1", "coastal_proximity@1"]),
-    ("foundation_embedding",       &["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1"]),
-    ("real_estate",                &["property_climate_risk_score@1", "insurance_premium_proxy@1", "coastal_erosion_proxy@1", "multi_peril_score@1"]),
-    ("esg",                        &["carbon_sink_score@1", "biodiversity_proxy@1", "physical_climate_risk_index@1"]),
-    ("agriculture",                &["crop_yield_proxy@1", "vineyard_terroir_score@1"]),
-    ("public_health",              &["heat_vulnerability_index@1"]),
-    ("urban_livability",           &["walkability_score@1", "bikeability_score@1", "green_space_access@1", "outdoor_comfort_score@1", "livability_index@1"]),
-    ("analytics",                  &["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1"]),
+    ("flood_history_long_term", &["flood_history_class@1"]),
+    (
+        "flood_water_event_window",
+        &["water_consensus@1", "water_likelihood_from_vv@1"],
+    ),
+    (
+        "flood_risk_composite",
+        &["flood_risk@1", "route_flood_exposure@1"],
+    ),
+    (
+        "vegetation_condition",
+        &["vegetation_class_from_ndvi@1", "crop_stress_score@1"],
+    ),
+    (
+        "fire_burn_severity",
+        &[
+            "burn_likelihood_from_nbr@1",
+            "burn_severity_from_dnbr@1",
+            "wildfire_exposure_score@1",
+        ],
+    ),
+    ("soil_bare", &["bare_soil_class@1"]),
+    ("snow", &["snow_likelihood_from_ndsi@1"]),
+    (
+        "built_up_human_geography",
+        &[
+            "built_up_from_ndbi@1",
+            "urban_density_score@1",
+            "noise_exposure_proxy@1",
+        ],
+    ),
+    (
+        "weather_now",
+        &[
+            "heat_index@2",
+            "heat_health_risk@2",
+            "wind_chill@1",
+            "outdoor_comfort_score@1",
+            "precip_intensity_class@1",
+        ],
+    ),
+    (
+        "topography",
+        &[
+            "slope_from_dem_neighborhood@1",
+            "ruggedness_index@1",
+            "topo_position_index@1",
+            "coastal_proximity@1",
+        ],
+    ),
+    (
+        "foundation_embedding",
+        &[
+            "embedding_cosine@1",
+            "embedding_l2_distance@1",
+            "embedding_change_score@1",
+            "region_similarity@1",
+            "place_archetype_match@1",
+        ],
+    ),
+    (
+        "real_estate",
+        &[
+            "property_climate_risk_score@1",
+            "insurance_premium_proxy@1",
+            "coastal_erosion_proxy@1",
+            "multi_peril_score@1",
+        ],
+    ),
+    (
+        "esg",
+        &[
+            "carbon_sink_score@1",
+            "biodiversity_proxy@1",
+            "physical_climate_risk_index@1",
+        ],
+    ),
+    (
+        "agriculture",
+        &["crop_yield_proxy@1", "vineyard_terroir_score@1"],
+    ),
+    ("public_health", &["heat_vulnerability_index@1"]),
+    (
+        "urban_livability",
+        &[
+            "walkability_score@1",
+            "bikeability_score@1",
+            "green_space_access@1",
+            "outdoor_comfort_score@1",
+            "livability_index@1",
+        ],
+    ),
+    (
+        "analytics",
+        &[
+            "spatial_volatility_index@1",
+            "trend_strength@1",
+            "anomaly_zscore@1",
+        ],
+    ),
 ];
 
 // Keyword routing. Order matters: composite/lifestyle topics come first
@@ -6163,87 +7968,224 @@ const TOPIC_ALGORITHMS: &[(&str, &[&str])] = &[
 // surface_water.recurrence + Cop-DEM + S1 via flood_risk@1) instead of
 // stopping at the single-band flood_history_long_term.
 const TOPIC_KEYWORDS: &[(&str, &[&str])] = &[
-    ("flood_risk_composite",     &[
-        "flood-prone", "flood prone", "floodprone", "flood risk",
-        // Word-ordering variants — agents and users alternate between
-        // "buy a flat" / "purchase a flat" / "purchasing a flat" / "buying
-        // an apartment" freely; match any of them so a real-estate
-        // question always routes to the composite recipe.
-        "buy a flat", "buying a flat", "purchase a flat", "purchasing a flat",
-        "flat purchase", "flat to buy", "buy an apartment", "purchase an apartment",
-        "buy a house", "buying a house", "purchase a house", "purchasing a house",
-        "buy a home", "buying a home", "purchase a home",
-        "buy property", "buying property", "purchase property", "invest in property",
-        "real estate purchase", "safe to live", "safe to buy",
-        "should i live", "should i buy", "is it safe", "is this safe",
-        "monsoon flooding", "monsoon water", "monsoon waterlogging",
-        "drainage", "floodplain",
-    ]),
-    ("real_estate",              &[
-        "insurance premium", "property risk", "real estate risk",
-        "climate risk score", "physical climate risk",
-    ]),
-    ("urban_livability",         &[
-        "walkable", "walkability", "bikeability", "livable", "livability",
-        "heat island", "green space", "outdoor comfort", "quality of life",
-    ]),
-    ("flood_history_long_term",  &[
-        "flood history", "historical flood", "ever flooded", "past flood",
-        "flooded before", "flooded in", "long-term flood",
-    ]),
-    ("flood_water_event_window", &[
-        "water now", "standing water", "puddle", "waterlogged",
-        "is there water", "wet right now", "current water",
-    ]),
-    ("vegetation_condition",     &[
-        "vegetation", "ndvi", "greenness", "green cover",
-        "tree cover", "forest cover", "crop health", "biomass",
-    ]),
-    ("fire_burn_severity",       &[
-        "fire", "burn", "wildfire", "burned", "scorched", "burn severity",
-    ]),
-    ("built_up_human_geography", &[
-        "urban density", "developed", "city density", "building",
-        "road length", "built up", "built-up", "ndbi",
-    ]),
-    ("weather_now",              &[
-        "weather", "temperature now", "rain now", "precipitation",
-        "wind speed", "humidity", "current heat",
-    ]),
-    ("elevation_land_only",      &[
-        "elevation", "altitude", "how high", "metres above", "meters above",
-        "above sea level",
-    ]),
-    ("topography",               &[
-        "slope", "terrain", "ruggedness", "ridge", "valley",
-    ]),
-    ("agriculture",              &[
-        "crop yield", "farm yield", "agricultural", "wheat", "rice yield",
-        "maize", "vineyard",
-    ]),
-    ("esg",                      &[
-        "carbon sink", "biodiversity", "esg", "environmental pressure",
-        "transition risk",
-    ]),
-    ("public_health",            &[
-        "air quality", "air pollution", "vector-borne", "mosquito",
-        "heat vulnerability",
-    ]),
-    ("foundation_embedding",     &[
-        "similar to", "like this place", "find places like", "compare to",
-        "embedding",
-    ]),
-    ("analytics",                &[
-        "volatility", "trend", "anomaly", "outlier", "z-score",
-    ]),
+    (
+        "flood_risk_composite",
+        &[
+            "flood-prone",
+            "flood prone",
+            "floodprone",
+            "flood risk",
+            // Word-ordering variants — agents and users alternate between
+            // "buy a flat" / "purchase a flat" / "purchasing a flat" / "buying
+            // an apartment" freely; match any of them so a real-estate
+            // question always routes to the composite recipe.
+            "buy a flat",
+            "buying a flat",
+            "purchase a flat",
+            "purchasing a flat",
+            "flat purchase",
+            "flat to buy",
+            "buy an apartment",
+            "purchase an apartment",
+            "buy a house",
+            "buying a house",
+            "purchase a house",
+            "purchasing a house",
+            "buy a home",
+            "buying a home",
+            "purchase a home",
+            "buy property",
+            "buying property",
+            "purchase property",
+            "invest in property",
+            "real estate purchase",
+            "safe to live",
+            "safe to buy",
+            "should i live",
+            "should i buy",
+            "is it safe",
+            "is this safe",
+            "monsoon flooding",
+            "monsoon water",
+            "monsoon waterlogging",
+            "drainage",
+            "floodplain",
+        ],
+    ),
+    (
+        "real_estate",
+        &[
+            "insurance premium",
+            "property risk",
+            "real estate risk",
+            "climate risk score",
+            "physical climate risk",
+        ],
+    ),
+    (
+        "urban_livability",
+        &[
+            "walkable",
+            "walkability",
+            "bikeability",
+            "livable",
+            "livability",
+            "heat island",
+            "green space",
+            "outdoor comfort",
+            "quality of life",
+        ],
+    ),
+    (
+        "flood_history_long_term",
+        &[
+            "flood history",
+            "historical flood",
+            "ever flooded",
+            "past flood",
+            "flooded before",
+            "flooded in",
+            "long-term flood",
+        ],
+    ),
+    (
+        "flood_water_event_window",
+        &[
+            "water now",
+            "standing water",
+            "puddle",
+            "waterlogged",
+            "is there water",
+            "wet right now",
+            "current water",
+        ],
+    ),
+    (
+        "vegetation_condition",
+        &[
+            "vegetation",
+            "ndvi",
+            "greenness",
+            "green cover",
+            "tree cover",
+            "forest cover",
+            "crop health",
+            "biomass",
+        ],
+    ),
+    (
+        "fire_burn_severity",
+        &[
+            "fire",
+            "burn",
+            "wildfire",
+            "burned",
+            "scorched",
+            "burn severity",
+        ],
+    ),
+    (
+        "built_up_human_geography",
+        &[
+            "urban density",
+            "developed",
+            "city density",
+            "building",
+            "road length",
+            "built up",
+            "built-up",
+            "ndbi",
+        ],
+    ),
+    (
+        "weather_now",
+        &[
+            "weather",
+            "temperature now",
+            "rain now",
+            "precipitation",
+            "wind speed",
+            "humidity",
+            "current heat",
+        ],
+    ),
+    (
+        "elevation_land_only",
+        &[
+            "elevation",
+            "altitude",
+            "how high",
+            "metres above",
+            "meters above",
+            "above sea level",
+        ],
+    ),
+    (
+        "topography",
+        &["slope", "terrain", "ruggedness", "ridge", "valley"],
+    ),
+    (
+        "agriculture",
+        &[
+            "crop yield",
+            "farm yield",
+            "agricultural",
+            "wheat",
+            "rice yield",
+            "maize",
+            "vineyard",
+        ],
+    ),
+    (
+        "esg",
+        &[
+            "carbon sink",
+            "biodiversity",
+            "esg",
+            "environmental pressure",
+            "transition risk",
+        ],
+    ),
+    (
+        "public_health",
+        &[
+            "air quality",
+            "air pollution",
+            "vector-borne",
+            "mosquito",
+            "heat vulnerability",
+        ],
+    ),
+    (
+        "foundation_embedding",
+        &[
+            "similar to",
+            "like this place",
+            "find places like",
+            "compare to",
+            "embedding",
+        ],
+    ),
+    (
+        "analytics",
+        &["volatility", "trend", "anomaly", "outlier", "z-score"],
+    ),
 ];
 
 fn live_bands_for_topic(topic: &str) -> &'static [&'static str] {
-    TOPIC_BANDS.iter().find(|(k, _)| *k == topic).map(|(_, v)| *v).unwrap_or(&[])
+    TOPIC_BANDS
+        .iter()
+        .find(|(k, _)| *k == topic)
+        .map(|(_, v)| *v)
+        .unwrap_or(&[])
 }
 
 fn algorithms_keys_for_topic(topic: &str) -> &'static [&'static str] {
-    TOPIC_ALGORITHMS.iter().find(|(k, _)| *k == topic).map(|(_, v)| *v).unwrap_or(&[])
+    TOPIC_ALGORITHMS
+        .iter()
+        .find(|(k, _)| *k == topic)
+        .map(|(_, v)| *v)
+        .unwrap_or(&[])
 }
 
 /// Map the user's free-text question to the set of topic keys that
@@ -6265,12 +8207,17 @@ pub fn route_question_to_topics(q: &str) -> Vec<&'static str> {
 /// Per-topic matched keyword breakdown for the response envelope.
 fn matched_keywords(q: &str) -> Vec<JsonValue> {
     let q_lc = q.to_ascii_lowercase();
-    TOPIC_KEYWORDS.iter().filter_map(|(topic, kws)| {
-        let m: Vec<&str> = kws.iter().copied().filter(|k| q_lc.contains(*k)).collect();
-        if m.is_empty() { None } else {
-            Some(json!({"topic": topic, "matched": m}))
-        }
-    }).collect()
+    TOPIC_KEYWORDS
+        .iter()
+        .filter_map(|(topic, kws)| {
+            let m: Vec<&str> = kws.iter().copied().filter(|k| q_lc.contains(*k)).collect();
+            if m.is_empty() {
+                None
+            } else {
+                Some(json!({"topic": topic, "matched": m}))
+            }
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -6279,26 +8226,37 @@ struct AskReq {
     q: String,
     /// Free-text place name (resolved via /v1/locate). One of `place`,
     /// `cell`, or both `lat`+`lng` is required.
-    #[serde(default)] place: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
     /// cell64 string (alternative to `place`).
-    #[serde(default)] cell: Option<String>,
+    #[serde(default)]
+    cell: Option<String>,
     /// WGS-84 latitude (paired with `lng`).
-    #[serde(default)] lat: Option<f64>,
-    #[serde(default)] lng: Option<f64>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
     /// Bundle a Sentinel-2 RGB scene URL with the response.
-    #[serde(default)] include_image: bool,
+    #[serde(default)]
+    include_image: bool,
 }
 
-async fn post_ask(State(s): State<AppState>, Json(req): Json<AskReq>) -> Result<Json<JsonValue>, ApiError> {
+async fn post_ask(
+    State(s): State<AppState>,
+    Json(req): Json<AskReq>,
+) -> Result<Json<JsonValue>, ApiError> {
     ask_inner(s, req).await.map(Json)
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: "ask: `q` cannot be empty".into(),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "ask: `q` cannot be empty".into(),
+            },
+        ));
     }
 
     // Resolve cell64 from whichever locator the caller provided. We
@@ -6307,36 +8265,74 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // second geocoder round-trip.
     let (cell, place_resolved): (String, JsonValue) = if let Some(c) = req.cell.as_ref() {
         if !emem_codec::is_cell64_shape(c) {
-            return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-                code: ErrorCode::Internal,
-                message: format!("ask: `cell` must be a cell64 string, got '{c}'"),
-            }));
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("ask: `cell` must be a cell64 string, got '{c}'"),
+                },
+            ));
         }
         let centre = emem_codec::latlng_from_cell64(c).ok();
-        (c.clone(), json!({
-            "cell64": c,
-            "lat":    centre.as_ref().map(|p| p.lat_deg),
-            "lng":    centre.as_ref().map(|p| p.lng_deg),
-            "via":    "direct_cell",
-        }))
+        (
+            c.clone(),
+            json!({
+                "cell64": c,
+                "lat":    centre.as_ref().map(|p| p.lat_deg),
+                "lng":    centre.as_ref().map(|p| p.lng_deg),
+                "via":    "direct_cell",
+            }),
+        )
     } else if let (Some(la), Some(lo)) = (req.lat, req.lng) {
-        let body = locate_inner(LocateReq { lat: Some(la), lng: Some(lo), place: None }).await?.0;
-        let cell = body.get("cell64").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        (cell.clone(), json!({
-            "cell64": cell, "lat": la, "lng": lo, "via": "direct_latlng",
-        }))
+        let body = locate_inner(LocateReq {
+            lat: Some(la),
+            lng: Some(lo),
+            place: None,
+        })
+        .await?
+        .0;
+        let cell = body
+            .get("cell64")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        (
+            cell.clone(),
+            json!({
+                "cell64": cell, "lat": la, "lng": lo, "via": "direct_latlng",
+            }),
+        )
     } else if let Some(p) = req.place.as_ref() {
-        let body = locate_inner(LocateReq { lat: None, lng: None, place: Some(p.clone()) }).await?.0;
-        let cell = body.get("cell64").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let body = locate_inner(LocateReq {
+            lat: None,
+            lng: None,
+            place: Some(p.clone()),
+        })
+        .await?
+        .0;
+        let cell = body
+            .get("cell64")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
         let label = body.get("place_label").cloned().unwrap_or(JsonValue::Null);
-        let lat = body.get("lat_input").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let lng = body.get("lng_input").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let lat = body
+            .get("lat_input")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let lng = body
+            .get("lng_input")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         let via = body.get("via").cloned().unwrap_or(json!("unknown"));
         let polygon_bbox = body.get("polygon_bbox").cloned().unwrap_or(JsonValue::Null);
-        (cell.clone(), json!({
-            "cell64": cell, "input": p, "label": label, "lat": lat, "lng": lng,
-            "via": via, "polygon_bbox": polygon_bbox,
-        }))
+        (
+            cell.clone(),
+            json!({
+                "cell64": cell, "input": p, "label": label, "lat": lat, "lng": lng,
+                "via": via, "polygon_bbox": polygon_bbox,
+            }),
+        )
     } else {
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
             code: ErrorCode::Internal,
@@ -6353,16 +8349,24 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // bands come from the algorithm registry's declared `inputs`.
     let mut want_bands: std::collections::BTreeSet<String> = Default::default();
     for t in &topics {
-        for b in live_bands_for_topic(t) { want_bands.insert((*b).into()); }
+        for b in live_bands_for_topic(t) {
+            want_bands.insert((*b).into());
+        }
         for alg_key in algorithms_keys_for_topic(t) {
-            for b in alg_reg.input_bands(alg_key) { want_bands.insert(b.into()); }
+            for b in alg_reg.input_bands(alg_key) {
+                want_bands.insert(b.into());
+            }
         }
     }
     let bands_vec: Vec<String> = want_bands.iter().cloned().collect();
 
     let recall_req = RecallReq {
         cell: cell.clone(),
-        bands: if bands_vec.is_empty() { None } else { Some(bands_vec.clone()) },
+        bands: if bands_vec.is_empty() {
+            None
+        } else {
+            Some(bands_vec.clone())
+        },
         tslot: None,
     };
     let (recall_resp, materialize_notes) = recall_with_auto_materialize(&recall_req, &s).await?;
@@ -6447,7 +8451,10 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     });
     if let Some(map) = body.as_object_mut() {
         if !materialize_notes.is_empty() {
-            map.insert("materialize_notes".into(), JsonValue::Array(materialize_notes));
+            map.insert(
+                "materialize_notes".into(),
+                JsonValue::Array(materialize_notes),
+            );
         }
         if topics_empty {
             map.insert("inventory".into(), json!({
@@ -6561,10 +8568,20 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         let dlng = c.bbox_deg.max_lng - c.bbox_deg.min_lng;
         let mut seen = std::collections::BTreeSet::new();
         let mut out = Vec::with_capacity(9);
-        for (sa, sb) in [(0.0, 0.0), (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0),
-                          (1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+        for (sa, sb) in [
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (-1.0, 0.0),
+            (0.0, 1.0),
+            (0.0, -1.0),
+            (1.0, 1.0),
+            (1.0, -1.0),
+            (-1.0, 1.0),
+            (-1.0, -1.0),
+        ] {
             let s = emem_codec::to_cell64(emem_codec::cell_from_latlng(
-                c.lat_deg + sa * dlat, c.lng_deg + sb * dlng,
+                c.lat_deg + sa * dlat,
+                c.lng_deg + sb * dlng,
             ));
             if seen.insert(s.clone()) {
                 out.push(s);
@@ -6719,75 +8736,120 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
 /// Format: (key, centre_lat, centre_lng, label).
 const GAZETTEER: &[(&str, f64, f64, &str)] = &[
     // World capitals (subset).
-    ("tokyo",            35.6764, 139.6500, "Tokyo, Japan"),
-    ("london",           51.5074,  -0.1278, "London, United Kingdom"),
-    ("paris",            48.8566,   2.3522, "Paris, France"),
-    ("new york",         40.7128, -74.0060, "New York City, USA"),
-    ("new york city",    40.7128, -74.0060, "New York City, USA"),
-    ("nyc",              40.7128, -74.0060, "New York City, USA"),
-    ("delhi",            28.6139,  77.2090, "Delhi, India"),
-    ("new delhi",        28.6139,  77.2090, "New Delhi, India"),
-    ("mumbai",           19.0760,  72.8777, "Mumbai, India"),
-    ("bangalore",        12.9716,  77.5946, "Bengaluru, India"),
-    ("bengaluru",        12.9716,  77.5946, "Bengaluru, India"),
-    ("chennai",          13.0827,  80.2707, "Chennai, India"),
-    ("kolkata",          22.5726,  88.3639, "Kolkata, India"),
-    ("beijing",          39.9042, 116.4074, "Beijing, China"),
-    ("shanghai",         31.2304, 121.4737, "Shanghai, China"),
-    ("seoul",            37.5665, 126.9780, "Seoul, South Korea"),
-    ("singapore",         1.3521, 103.8198, "Singapore"),
-    ("bangkok",          13.7563, 100.5018, "Bangkok, Thailand"),
-    ("jakarta",          -6.2088, 106.8456, "Jakarta, Indonesia"),
-    ("sydney",          -33.8688, 151.2093, "Sydney, Australia"),
-    ("são paulo",       -23.5505, -46.6333, "São Paulo, Brazil"),
-    ("sao paulo",       -23.5505, -46.6333, "São Paulo, Brazil"),
-    ("rio de janeiro",  -22.9068, -43.1729, "Rio de Janeiro, Brazil"),
-    ("buenos aires",    -34.6037, -58.3816, "Buenos Aires, Argentina"),
-    ("mexico city",      19.4326, -99.1332, "Mexico City, Mexico"),
-    ("lagos",             6.5244,   3.3792, "Lagos, Nigeria"),
-    ("nairobi",          -1.2864,  36.8172, "Nairobi, Kenya"),
-    ("cairo",            30.0444,  31.2357, "Cairo, Egypt"),
-    ("johannesburg",    -26.2041,  28.0473, "Johannesburg, South Africa"),
-    ("cape town",       -33.9249,  18.4241, "Cape Town, South Africa"),
-    ("istanbul",         41.0082,  28.9784, "Istanbul, Türkiye"),
-    ("dubai",            25.2048,  55.2708, "Dubai, UAE"),
-    ("moscow",           55.7558,  37.6173, "Moscow, Russia"),
-    ("berlin",           52.5200,  13.4050, "Berlin, Germany"),
-    ("madrid",           40.4168,  -3.7038, "Madrid, Spain"),
-    ("rome",             41.9028,  12.4964, "Rome, Italy"),
-    ("amsterdam",        52.3676,   4.9041, "Amsterdam, Netherlands"),
-    ("toronto",          43.6532, -79.3832, "Toronto, Canada"),
-    ("vancouver",        49.2827,-123.1207, "Vancouver, Canada"),
-    ("san francisco",    37.7749,-122.4194, "San Francisco, USA"),
-    ("los angeles",      34.0522,-118.2437, "Los Angeles, USA"),
-    ("seattle",          47.6062,-122.3321, "Seattle, USA"),
-    ("chicago",          41.8781, -87.6298, "Chicago, USA"),
-    ("reykjavík",        64.1466, -21.9426, "Reykjavík, Iceland"),
-    ("reykjavik",        64.1466, -21.9426, "Reykjavík, Iceland"),
+    ("tokyo", 35.6764, 139.6500, "Tokyo, Japan"),
+    ("london", 51.5074, -0.1278, "London, United Kingdom"),
+    ("paris", 48.8566, 2.3522, "Paris, France"),
+    ("new york", 40.7128, -74.0060, "New York City, USA"),
+    ("new york city", 40.7128, -74.0060, "New York City, USA"),
+    ("nyc", 40.7128, -74.0060, "New York City, USA"),
+    ("delhi", 28.6139, 77.2090, "Delhi, India"),
+    ("new delhi", 28.6139, 77.2090, "New Delhi, India"),
+    ("mumbai", 19.0760, 72.8777, "Mumbai, India"),
+    ("bangalore", 12.9716, 77.5946, "Bengaluru, India"),
+    ("bengaluru", 12.9716, 77.5946, "Bengaluru, India"),
+    ("chennai", 13.0827, 80.2707, "Chennai, India"),
+    ("kolkata", 22.5726, 88.3639, "Kolkata, India"),
+    ("beijing", 39.9042, 116.4074, "Beijing, China"),
+    ("shanghai", 31.2304, 121.4737, "Shanghai, China"),
+    ("seoul", 37.5665, 126.9780, "Seoul, South Korea"),
+    ("singapore", 1.3521, 103.8198, "Singapore"),
+    ("bangkok", 13.7563, 100.5018, "Bangkok, Thailand"),
+    ("jakarta", -6.2088, 106.8456, "Jakarta, Indonesia"),
+    ("sydney", -33.8688, 151.2093, "Sydney, Australia"),
+    ("são paulo", -23.5505, -46.6333, "São Paulo, Brazil"),
+    ("sao paulo", -23.5505, -46.6333, "São Paulo, Brazil"),
+    (
+        "rio de janeiro",
+        -22.9068,
+        -43.1729,
+        "Rio de Janeiro, Brazil",
+    ),
+    (
+        "buenos aires",
+        -34.6037,
+        -58.3816,
+        "Buenos Aires, Argentina",
+    ),
+    ("mexico city", 19.4326, -99.1332, "Mexico City, Mexico"),
+    ("lagos", 6.5244, 3.3792, "Lagos, Nigeria"),
+    ("nairobi", -1.2864, 36.8172, "Nairobi, Kenya"),
+    ("cairo", 30.0444, 31.2357, "Cairo, Egypt"),
+    (
+        "johannesburg",
+        -26.2041,
+        28.0473,
+        "Johannesburg, South Africa",
+    ),
+    ("cape town", -33.9249, 18.4241, "Cape Town, South Africa"),
+    ("istanbul", 41.0082, 28.9784, "Istanbul, Türkiye"),
+    ("dubai", 25.2048, 55.2708, "Dubai, UAE"),
+    ("moscow", 55.7558, 37.6173, "Moscow, Russia"),
+    ("berlin", 52.5200, 13.4050, "Berlin, Germany"),
+    ("madrid", 40.4168, -3.7038, "Madrid, Spain"),
+    ("rome", 41.9028, 12.4964, "Rome, Italy"),
+    ("amsterdam", 52.3676, 4.9041, "Amsterdam, Netherlands"),
+    ("toronto", 43.6532, -79.3832, "Toronto, Canada"),
+    ("vancouver", 49.2827, -123.1207, "Vancouver, Canada"),
+    ("san francisco", 37.7749, -122.4194, "San Francisco, USA"),
+    ("los angeles", 34.0522, -118.2437, "Los Angeles, USA"),
+    ("seattle", 47.6062, -122.3321, "Seattle, USA"),
+    ("chicago", 41.8781, -87.6298, "Chicago, USA"),
+    ("reykjavík", 64.1466, -21.9426, "Reykjavík, Iceland"),
+    ("reykjavik", 64.1466, -21.9426, "Reykjavík, Iceland"),
     // Iconic peaks & landmarks.
-    ("mount fuji",       35.3606, 138.7274, "Mount Fuji, Japan"),
-    ("mt fuji",          35.3606, 138.7274, "Mount Fuji, Japan"),
-    ("mt. fuji",         35.3606, 138.7274, "Mount Fuji, Japan"),
-    ("fuji",             35.3606, 138.7274, "Mount Fuji, Japan"),
-    ("mount everest",    27.9881,  86.9250, "Mount Everest, Nepal/Tibet"),
-    ("mt everest",       27.9881,  86.9250, "Mount Everest, Nepal/Tibet"),
-    ("mt. everest",      27.9881,  86.9250, "Mount Everest, Nepal/Tibet"),
-    ("everest",          27.9881,  86.9250, "Mount Everest, Nepal/Tibet"),
-    ("k2",               35.8825,  76.5133, "K2, Karakoram"),
-    ("kilimanjaro",      -3.0674,  37.3556, "Mount Kilimanjaro, Tanzania"),
-    ("denali",           63.0692,-151.0070, "Denali, Alaska"),
-    ("mount kosciuszko",-36.4558, 148.2640, "Mount Kosciuszko, Australia"),
-    ("aconcagua",       -32.6532, -70.0109, "Aconcagua, Argentina"),
-    ("matterhorn",       45.9763,   7.6586, "Matterhorn, Swiss/Italian Alps"),
-    ("mount blanc",      45.8326,   6.8652, "Mont Blanc, France/Italy"),
-    ("mont blanc",       45.8326,   6.8652, "Mont Blanc, France/Italy"),
+    ("mount fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
+    ("mt fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
+    ("mt. fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
+    ("fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
+    (
+        "mount everest",
+        27.9881,
+        86.9250,
+        "Mount Everest, Nepal/Tibet",
+    ),
+    ("mt everest", 27.9881, 86.9250, "Mount Everest, Nepal/Tibet"),
+    (
+        "mt. everest",
+        27.9881,
+        86.9250,
+        "Mount Everest, Nepal/Tibet",
+    ),
+    ("everest", 27.9881, 86.9250, "Mount Everest, Nepal/Tibet"),
+    ("k2", 35.8825, 76.5133, "K2, Karakoram"),
+    (
+        "kilimanjaro",
+        -3.0674,
+        37.3556,
+        "Mount Kilimanjaro, Tanzania",
+    ),
+    ("denali", 63.0692, -151.0070, "Denali, Alaska"),
+    (
+        "mount kosciuszko",
+        -36.4558,
+        148.2640,
+        "Mount Kosciuszko, Australia",
+    ),
+    ("aconcagua", -32.6532, -70.0109, "Aconcagua, Argentina"),
+    (
+        "matterhorn",
+        45.9763,
+        7.6586,
+        "Matterhorn, Swiss/Italian Alps",
+    ),
+    ("mount blanc", 45.8326, 6.8652, "Mont Blanc, France/Italy"),
+    ("mont blanc", 45.8326, 6.8652, "Mont Blanc, France/Italy"),
     // Iconic wide features (centroids — agents should fan out).
-    ("grand canyon",     36.0544,-112.1401, "Grand Canyon, USA"),
-    ("amazon",           -3.4653, -62.2159, "Amazon Basin, Brazil"),
-    ("sahara",           23.4162,  25.6628, "Sahara Desert"),
-    ("antarctica",      -82.8628,  35.0000, "Antarctica"),
-    ("arctic",           80.0000,  -0.0000, "Arctic Ocean"),
-    ("great barrier reef",-18.2871,147.6992,"Great Barrier Reef, Australia"),
+    ("grand canyon", 36.0544, -112.1401, "Grand Canyon, USA"),
+    ("amazon", -3.4653, -62.2159, "Amazon Basin, Brazil"),
+    ("sahara", 23.4162, 25.6628, "Sahara Desert"),
+    ("antarctica", -82.8628, 35.0000, "Antarctica"),
+    ("arctic", 80.0000, -0.0000, "Arctic Ocean"),
+    (
+        "great barrier reef",
+        -18.2871,
+        147.6992,
+        "Great Barrier Reef, Australia",
+    ),
 ];
 
 /// Bounding boxes for places that span enough of Earth that a single
@@ -6796,20 +8858,20 @@ const GAZETTEER: &[(&str, f64, f64, &str)] = &[
 /// names should fan out a /v1/recall over cells inside the box, not
 /// trust the centroid.
 const WIDE_BBOXES: &[(&str, f64, f64, f64, f64)] = &[
-    ("grand canyon",         35.95,  36.30, -113.00, -111.60),
-    ("amazon",              -10.00,   5.00,  -75.00,  -50.00),
-    ("amazon basin",        -10.00,   5.00,  -75.00,  -50.00),
-    ("sahara",               12.00,  35.00,  -17.00,   40.00),
-    ("antarctica",          -90.00, -60.00, -180.00,  180.00),
-    ("arctic",               66.50,  90.00, -180.00,  180.00),
-    ("great barrier reef",  -24.00, -10.00,  142.00,  154.00),
-    ("himalayas",            26.00,  36.00,   72.00,   97.00),
-    ("alps",                 43.00,  48.50,    5.00,   17.00),
-    ("rockies",              30.00,  60.00, -123.00, -103.00),
-    ("rocky mountains",      30.00,  60.00, -123.00, -103.00),
-    ("andes",               -55.00,  12.00,  -82.00,  -62.00),
-    ("greenland",            59.00,  84.00,  -73.00,  -11.00),
-    ("siberia",              50.00,  78.00,   60.00,  180.00),
+    ("grand canyon", 35.95, 36.30, -113.00, -111.60),
+    ("amazon", -10.00, 5.00, -75.00, -50.00),
+    ("amazon basin", -10.00, 5.00, -75.00, -50.00),
+    ("sahara", 12.00, 35.00, -17.00, 40.00),
+    ("antarctica", -90.00, -60.00, -180.00, 180.00),
+    ("arctic", 66.50, 90.00, -180.00, 180.00),
+    ("great barrier reef", -24.00, -10.00, 142.00, 154.00),
+    ("himalayas", 26.00, 36.00, 72.00, 97.00),
+    ("alps", 43.00, 48.50, 5.00, 17.00),
+    ("rockies", 30.00, 60.00, -123.00, -103.00),
+    ("rocky mountains", 30.00, 60.00, -123.00, -103.00),
+    ("andes", -55.00, 12.00, -82.00, -62.00),
+    ("greenland", 59.00, 84.00, -73.00, -11.00),
+    ("siberia", 50.00, 78.00, 60.00, 180.00),
 ];
 
 /// Return up to `target_n` distinct cell64 strings sampled inside a
@@ -6835,7 +8897,9 @@ fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) -> Vec<Stri
             let s = emem_codec::to_cell64(emem_codec::cell_from_latlng(la, ln));
             if seen.insert(s.clone()) {
                 out.push(s);
-                if out.len() >= target_n { return out; }
+                if out.len() >= target_n {
+                    return out;
+                }
             }
         }
     }
@@ -6844,7 +8908,9 @@ fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) -> Vec<Stri
 
 fn wide_bbox_lookup(query: &str) -> Option<(f64, f64, f64, f64)> {
     let q = query.trim().to_ascii_lowercase();
-    if q.is_empty() { return None; }
+    if q.is_empty() {
+        return None;
+    }
     for (key, mn_la, mx_la, mn_ln, mx_ln) in WIDE_BBOXES {
         if q == *key || q.starts_with(key) || q.contains(&format!(" {key} ")) {
             return Some((*mn_la, *mx_la, *mn_ln, *mx_ln));
@@ -6855,10 +8921,14 @@ fn wide_bbox_lookup(query: &str) -> Option<(f64, f64, f64, f64)> {
 
 fn embedded_gazetteer_lookup(query: &str) -> Option<(f64, f64, String)> {
     let q = query.trim().to_ascii_lowercase();
-    if q.is_empty() { return None; }
+    if q.is_empty() {
+        return None;
+    }
     // Exact match first (cheaper than a scan).
     for (key, lat, lng, label) in GAZETTEER {
-        if q == *key { return Some((*lat, *lng, (*label).to_string())); }
+        if q == *key {
+            return Some((*lat, *lng, (*label).to_string()));
+        }
     }
     // Substring tolerance: "tokyo, japan" still hits "tokyo".
     for (key, lat, lng, label) in GAZETTEER {
@@ -6894,13 +8964,13 @@ const NOMINATIM_CACHE_TTL_SECS_DEFAULT: i64 = 30 * 24 * 60 * 60;
 
 fn nominatim_cache_ttl_secs() -> i64 {
     std::env::var("EMEM_GEOCODER_TTL_SECS")
-        .ok().and_then(|s| s.parse().ok())
+        .ok()
+        .and_then(|s| s.parse().ok())
         .unwrap_or(NOMINATIM_CACHE_TTL_SECS_DEFAULT)
 }
 
 fn geocoder_db_path() -> std::path::PathBuf {
-    let dir = std::env::var("EMEM_DATA")
-        .unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
+    let dir = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
     std::path::Path::new(&dir).join("geocoder.sled")
 }
 
@@ -6922,9 +8992,9 @@ fn geocoder_db() -> &'static sled::Tree {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let db = sled::open(&path)
-            .expect("open geocoder sled DB");
-        let tree = db.open_tree("emem.geocoder")
+        let db = sled::open(&path).expect("open geocoder sled DB");
+        let tree = db
+            .open_tree("emem.geocoder")
             .expect("open geocoder sled tree");
         // Leak the Db so the Tree handle stays alive for process lifetime.
         // Sled's Db drops close all trees; OnceLock retains only the Tree.
@@ -6976,11 +9046,15 @@ fn nominatim_cache_put(
 ) {
     let q = query.trim().to_ascii_lowercase();
     let entry = CachedPlace {
-        lat, lng, label: label.to_string(), polygon_bbox,
+        lat,
+        lng,
+        label: label.to_string(),
+        polygon_bbox,
         inserted_unix_s: now_unix_s(),
     };
     let bytes = match serde_json::to_vec(&entry) {
-        Ok(b) => b, Err(_) => return,
+        Ok(b) => b,
+        Err(_) => return,
     };
     let _ = geocoder_db().insert(q.as_bytes(), bytes);
     // Sled flushes on its own background cadence (default ~500 ms).
@@ -6989,12 +9063,15 @@ fn nominatim_cache_put(
     // crash is fine, the cost of fsync-per-put isn't.
 }
 
+#[allow(dead_code)]
 async fn nominatim_lookup(q: &str) -> Result<NominatimHit, String> {
     // Single-best-match wrapper around the multi-candidate fetch. Keeps
     // the callsite simple while the candidate variant is exposed via
     // `nominatim_lookup_candidates` for disambiguation use.
-    let mut hits = nominatim_lookup_candidates(q, 1).await?;
-    hits.into_iter().next().ok_or_else(|| "no results".to_string())
+    let hits = nominatim_lookup_candidates(q, 1).await?;
+    hits.into_iter()
+        .next()
+        .ok_or_else(|| "no results".to_string())
 }
 
 /// Fetch up to `limit` candidates from Nominatim. Used by `/v1/locate`
@@ -7011,16 +9088,17 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
         urlencoding(q),
     );
     let body = nominatim_get(&url).await?;
-    let v: JsonValue = serde_json::from_str(&body)
-        .map_err(|e| format!("nominatim json: {e}"))?;
+    let v: JsonValue = serde_json::from_str(&body).map_err(|e| format!("nominatim json: {e}"))?;
     let arr = v.as_array().ok_or("nominatim returned non-array")?;
     let mut out = Vec::with_capacity(arr.len());
     for item in arr {
         let lat: f64 = match item["lat"].as_str().and_then(|s| s.parse().ok()) {
-            Some(v) => v, None => continue,
+            Some(v) => v,
+            None => continue,
         };
         let lng: f64 = match item["lon"].as_str().and_then(|s| s.parse().ok()) {
-            Some(v) => v, None => continue,
+            Some(v) => v,
+            None => continue,
         };
         let label = item["display_name"].as_str().unwrap_or("").to_string();
         let osm_type = item["osm_type"].as_str().unwrap_or("").to_string();
@@ -7029,14 +9107,25 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
         let importance = item["importance"].as_f64().unwrap_or(0.0);
         // boundingbox: [south, north, west, east] as strings.
         let bbox = item["boundingbox"].as_array().and_then(|a| {
-            if a.len() != 4 { return None; }
+            if a.len() != 4 {
+                return None;
+            }
             let s: f64 = a[0].as_str()?.parse().ok()?;
             let n: f64 = a[1].as_str()?.parse().ok()?;
             let w: f64 = a[2].as_str()?.parse().ok()?;
             let e: f64 = a[3].as_str()?.parse().ok()?;
             Some((s, n, w, e))
         });
-        out.push(NominatimHit { lat, lng, label, bbox, osm_type, class_, type_, importance });
+        out.push(NominatimHit {
+            lat,
+            lng,
+            label,
+            bbox,
+            osm_type,
+            class_,
+            type_,
+            importance,
+        });
     }
     if out.is_empty() {
         return Err("no results".into());
@@ -7071,9 +9160,14 @@ struct NominatimHit {
 /// `EMEM_TLS_CONTACT` so private deployments still identify themselves.
 fn nominatim_user_agent() -> String {
     let base = concat!("emem-server/", env!("CARGO_PKG_VERSION"));
-    let contact = std::env::var("EMEM_PUBLIC_URL").ok()
+    let contact = std::env::var("EMEM_PUBLIC_URL")
+        .ok()
         .map(|u| format!(" (+{})", u.trim().trim_end_matches('/')))
-        .or_else(|| std::env::var("EMEM_TLS_CONTACT").ok().map(|c| format!(" ({})", c.trim())))
+        .or_else(|| {
+            std::env::var("EMEM_TLS_CONTACT")
+                .ok()
+                .map(|c| format!(" ({})", c.trim()))
+        })
         .unwrap_or_default();
     format!("{base}{contact}")
 }
@@ -7085,15 +9179,20 @@ async fn nominatim_get(url: &str) -> Result<String, String> {
     // agent asked in (Cyrillic in, Cyrillic out) instead of forcing
     // English. Without this header Nominatim defaults to the upstream
     // server locale, which can mangle non-Latin labels.
-    let resp = cli.get(url)
+    let resp = cli
+        .get(url)
         .header("user-agent", &nominatim_user_agent())
         .header("accept", "application/json")
         .header("accept-language", "*")
-        .send().await.map_err(|e| format!("nominatim http: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("nominatim http: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("nominatim status {}", resp.status()));
     }
-    resp.text().await.map_err(|e| format!("nominatim body: {e}"))
+    resp.text()
+        .await
+        .map_err(|e| format!("nominatim body: {e}"))
 }
 
 fn reqwest_client() -> reqwest::Client {
@@ -7103,21 +9202,31 @@ fn reqwest_client() -> reqwest::Client {
             .timeout(std::time::Duration::from_secs(8))
             .build()
             .unwrap_or_default()
-    }).clone()
+    })
+    .clone()
 }
 
 fn urlencoding(s: &str) -> String {
-    s.bytes().map(|b| match b {
-        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-        _ => format!("%{:02X}", b),
-    }).collect()
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
 }
 
 async fn get_cell_info(Path(cell64): Path<String>) -> Result<Json<JsonValue>, ApiError> {
-    let info = emem_codec::latlng_from_cell64(&cell64).map_err(|e| ApiError(
-        StatusCode::BAD_REQUEST,
-        ErrorBody { code: ErrorCode::InvalidCell, message: format!("{e}") },
-    ))?;
+    let info = emem_codec::latlng_from_cell64(&cell64).map_err(|e| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidCell,
+                message: format!("{e}"),
+            },
+        )
+    })?;
     let lat_span = info.bbox_deg.max_lat - info.bbox_deg.min_lat;
     let lng_span = info.bbox_deg.max_lng - info.bbox_deg.min_lng;
     let lat_m = lat_span * METERS_PER_DEGREE_LAT;
@@ -7146,8 +9255,7 @@ async fn get_cell_info(Path(cell64): Path<String>) -> Result<Json<JsonValue>, Ap
 /// the REST handler [`get_cell_geojson`] and the MCP `emem_cell_geojson`
 /// tool so both surfaces serialise an identical Feature.
 fn build_cell_geojson(cell64: &str) -> Result<JsonValue, String> {
-    let info = emem_codec::latlng_from_cell64(cell64)
-        .map_err(|e| format!("cell64 decode: {e}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell64 decode: {e}"))?;
     let s_lat = info.bbox_deg.min_lat;
     let n_lat = info.bbox_deg.max_lat;
     let w_lng = info.bbox_deg.min_lng;
@@ -7161,13 +9269,22 @@ fn build_cell_geojson(cell64: &str) -> Result<JsonValue, String> {
     let mut seen = std::collections::BTreeSet::new();
     seen.insert(cell64.to_string());
     for (sa, sb) in [
-        ( 1.0,  0.0), (-1.0,  0.0), ( 0.0,  1.0), ( 0.0, -1.0),
-        ( 1.0,  1.0), ( 1.0, -1.0), (-1.0,  1.0), (-1.0, -1.0),
+        (1.0, 0.0),
+        (-1.0, 0.0),
+        (0.0, 1.0),
+        (0.0, -1.0),
+        (1.0, 1.0),
+        (1.0, -1.0),
+        (-1.0, 1.0),
+        (-1.0, -1.0),
     ] {
         let s = emem_codec::to_cell64(emem_codec::cell_from_latlng(
-            info.lat_deg + sa * lat_span, info.lng_deg + sb * lng_span,
+            info.lat_deg + sa * lat_span,
+            info.lng_deg + sb * lng_span,
         ));
-        if seen.insert(s.clone()) { neighbours.push(s); }
+        if seen.insert(s.clone()) {
+            neighbours.push(s);
+        }
     }
 
     let ring = json!([
@@ -7197,11 +9314,18 @@ fn build_cell_geojson(cell64: &str) -> Result<JsonValue, String> {
 
 async fn get_cell_geojson(Path(cell64_with_ext): Path<String>) -> Result<Response, ApiError> {
     // axum captures `cell64.geojson` as a single param; strip the suffix.
-    let cell64 = cell64_with_ext.strip_suffix(".geojson").unwrap_or(&cell64_with_ext);
-    let feat = build_cell_geojson(cell64).map_err(|e| ApiError(
-        StatusCode::BAD_REQUEST,
-        ErrorBody { code: ErrorCode::InvalidCell, message: e },
-    ))?;
+    let cell64 = cell64_with_ext
+        .strip_suffix(".geojson")
+        .unwrap_or(&cell64_with_ext);
+    let feat = build_cell_geojson(cell64).map_err(|e| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidCell,
+                message: e,
+            },
+        )
+    })?;
     let body = serde_json::to_string(&feat).unwrap_or_else(|_| "{}".into());
     let resp = Response::builder()
         .status(StatusCode::OK)
@@ -7222,10 +9346,15 @@ async fn get_cell_recall_geojson(
     Path(cell64): Path<String>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Response, ApiError> {
-    let info = emem_codec::latlng_from_cell64(&cell64).map_err(|e| ApiError(
-        StatusCode::BAD_REQUEST,
-        ErrorBody { code: ErrorCode::InvalidCell, message: format!("cell64 decode: {e}") },
-    ))?;
+    let info = emem_codec::latlng_from_cell64(&cell64).map_err(|e| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidCell,
+                message: format!("cell64 decode: {e}"),
+            },
+        )
+    })?;
     let s_lat = info.bbox_deg.min_lat;
     let n_lat = info.bbox_deg.max_lat;
     let w_lng = info.bbox_deg.min_lng;
@@ -7237,33 +9366,68 @@ async fn get_cell_recall_geojson(
         [w_lng, n_lat],
         [w_lng, s_lat],
     ]);
-    let band_filter: Option<Vec<String>> = q.get("bands")
-        .map(|v| v.split(',').map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()).collect());
+    let band_filter: Option<Vec<String>> = q.get("bands").map(|v| {
+        v.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
     let tslot: Option<u64> = q.get("tslot").and_then(|v| v.parse().ok());
-    let req = RecallReq { cell: cell64.clone(), bands: band_filter, tslot };
-    let resp = recall(&req, &s).await.map_err(|e| ApiError(
-        StatusCode::BAD_GATEWAY,
-        ErrorBody { code: ErrorCode::Internal, message: format!("recall failed: {e}") },
-    ))?;
+    let req = RecallReq {
+        cell: cell64.clone(),
+        bands: band_filter,
+        tslot,
+    };
+    let resp = recall(&req, &s).await.map_err(|e| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("recall failed: {e}"),
+            },
+        )
+    })?;
     let mut features: Vec<JsonValue> = Vec::new();
     let resp_json = serde_json::to_value(&resp).unwrap_or(json!({}));
-    let fact_cids: Vec<String> = resp_json.get("receipt")
+    let fact_cids: Vec<String> = resp_json
+        .get("receipt")
         .and_then(|r| r.get("fact_cids"))
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     if let Some(facts) = resp_json.get("facts").and_then(|v| v.as_array()) {
         for (i, f) in facts.iter().enumerate() {
             let cid = fact_cids.get(i).cloned().unwrap_or_default();
             let mut props = serde_json::Map::new();
             props.insert("cell64".into(), json!(cell64));
-            props.insert("kind".into(), f.get("kind").cloned().unwrap_or(json!("primary")));
-            for k in &["band", "tslot", "value", "unit", "confidence", "signed_at", "signer", "schema_cid"] {
-                if let Some(v) = f.get(*k) { props.insert((*k).into(), v.clone()); }
+            props.insert(
+                "kind".into(),
+                f.get("kind").cloned().unwrap_or(json!("primary")),
+            );
+            for k in &[
+                "band",
+                "tslot",
+                "value",
+                "unit",
+                "confidence",
+                "signed_at",
+                "signer",
+                "schema_cid",
+            ] {
+                if let Some(v) = f.get(*k) {
+                    props.insert((*k).into(), v.clone());
+                }
             }
-            if let Some(d) = f.get("derivation") { props.insert("derivation".into(), d.clone()); }
-            if !cid.is_empty() { props.insert("fact_cid".into(), json!(cid)); }
+            if let Some(d) = f.get("derivation") {
+                props.insert("derivation".into(), d.clone());
+            }
+            if !cid.is_empty() {
+                props.insert("fact_cid".into(), json!(cid));
+            }
             features.push(json!({
                 "type": "Feature",
                 "geometry": {"type": "Polygon", "coordinates": [ring.clone()]},
@@ -7300,8 +9464,14 @@ async fn list_contributors(State(s): State<AppState>) -> Json<JsonValue> {
     let mut rows: Vec<JsonValue> = Vec::new();
     let mut total: u64 = 0;
     if let Some(reg) = s.storage_attesters() {
-        if let Ok(top) = reg.top(limit) { for st in top { rows.push(stat_to_json(&st)); } }
-        if let Ok(c) = reg.count() { total = c; }
+        if let Ok(top) = reg.top(limit) {
+            for st in top {
+                rows.push(stat_to_json(&st));
+            }
+        }
+        if let Ok(c) = reg.count() {
+            total = c;
+        }
     }
     Json(json!({
         "schema": "emem.contributors.v1",
@@ -7317,21 +9487,30 @@ async fn get_contributor(
     Path(pubkey_b32): Path<String>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let Some(reg) = s.storage_attesters() else {
-        return Err(ApiError(StatusCode::NOT_FOUND, ErrorBody {
-            code: ErrorCode::Internal,
-            message: "attester registry unavailable on this responder".into(),
-        }));
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "attester registry unavailable on this responder".into(),
+            },
+        ));
     };
     match reg.get(&pubkey_b32) {
         Ok(Some(stat)) => Ok(Json(stat_to_json(&stat))),
-        Ok(None) => Err(ApiError(StatusCode::NOT_FOUND, ErrorBody {
-            code: ErrorCode::Internal,
-            message: format!("no contributor record for {pubkey_b32}"),
-        })),
-        Err(e) => Err(ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal,
-            message: format!("attester lookup failed: {e}"),
-        })),
+        Ok(None) => Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("no contributor record for {pubkey_b32}"),
+            },
+        )),
+        Err(e) => Err(ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("attester lookup failed: {e}"),
+            },
+        )),
     }
 }
 
@@ -7371,8 +9550,9 @@ static START_INSTANT: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 /// Latency-bucket boundaries in milliseconds (cumulative-LE histogram).
 /// Twelve log-spaced buckets cover sub-1 ms hot-cache reads through 5 s
 /// worst-case S3 range fetches, which spans ≈3.5 orders of magnitude.
-const LATENCY_BUCKETS_MS: [f64; 12] =
-    [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0];
+const LATENCY_BUCKETS_MS: [f64; 12] = [
+    1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0,
+];
 
 #[derive(Default)]
 struct FamilyCounters {
@@ -7390,7 +9570,7 @@ struct ToolCounters {
 
 struct AgentStatsState {
     by_family: std::sync::Mutex<std::collections::HashMap<&'static str, FamilyCounters>>,
-    by_tool:   std::sync::Mutex<std::collections::HashMap<String, ToolCounters>>,
+    by_tool: std::sync::Mutex<std::collections::HashMap<String, ToolCounters>>,
     status_2xx: AtomicU64,
     status_3xx: AtomicU64,
     status_4xx: AtomicU64,
@@ -7404,7 +9584,7 @@ impl AgentStatsState {
     fn new() -> Self {
         Self {
             by_family: Default::default(),
-            by_tool:   Default::default(),
+            by_tool: Default::default(),
             status_2xx: AtomicU64::new(0),
             status_3xx: AtomicU64::new(0),
             status_4xx: AtomicU64::new(0),
@@ -7430,12 +9610,12 @@ struct AgentStatsSnapshot {
     status_4xx: u64,
     status_5xx: u64,
     latency: [u64; 13],
-    by_family: Vec<(String, u64, u64, u64)>,   // (family, requests, errors, last_seen_unix_s)
-    by_tool:   Vec<(String, u64, u64, f64)>,   // (tool, calls, errors, total_dur_ms)
+    by_family: Vec<(String, u64, u64, u64)>, // (family, requests, errors, last_seen_unix_s)
+    by_tool: Vec<(String, u64, u64, f64)>,   // (tool, calls, errors, total_dur_ms)
 }
 
 const AGENT_STATS_TREE: &str = "emem.agent_stats";
-const AGENT_STATS_KEY:  &[u8] = b"snapshot";
+const AGENT_STATS_KEY: &[u8] = b"snapshot";
 const AGENT_STATS_FLUSH_SECS: u64 = 60;
 
 fn snapshot_agent_stats() -> AgentStatsSnapshot {
@@ -7450,12 +9630,14 @@ fn snapshot_agent_stats() -> AgentStatsSnapshot {
         by_tool: vec![],
     };
     if let Ok(m) = st.by_family.lock() {
-        snap.by_family = m.iter()
+        snap.by_family = m
+            .iter()
             .map(|(k, c)| ((*k).to_string(), c.requests, c.errors, c.last_seen_unix_s))
             .collect();
     }
     if let Ok(m) = st.by_tool.lock() {
-        snap.by_tool = m.iter()
+        snap.by_tool = m
+            .iter()
             .map(|(k, c)| (k.clone(), c.calls, c.errors, c.total_dur_ms))
             .collect();
     }
@@ -7500,9 +9682,20 @@ fn restore_agent_stats(snap: AgentStatsSnapshot) {
 /// returns a new family, add it here too.
 fn known_family_static(s: &str) -> Option<&'static str> {
     const KNOWN: &[&str] = &[
-        "claude-code", "claude", "cursor", "cline", "openai", "perplexity",
-        "anthropic", "langchain", "llamaindex", "python", "cli", "browser",
-        "anonymous", "other",
+        "claude-code",
+        "claude",
+        "cursor",
+        "cline",
+        "openai",
+        "perplexity",
+        "anthropic",
+        "langchain",
+        "llamaindex",
+        "python",
+        "cli",
+        "browser",
+        "anonymous",
+        "other",
     ];
     KNOWN.iter().copied().find(|k| *k == s)
 }
@@ -7512,7 +9705,9 @@ fn known_family_static(s: &str) -> Option<&'static str> {
 /// — calling twice is a no-op (the OnceLock blocks re-init).
 fn agent_stats_init_persistence(db: Arc<sled::Db>) {
     static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    if INIT.set(()).is_err() { return; }
+    if INIT.set(()).is_err() {
+        return;
+    }
 
     // Load.
     if let Ok(tree) = db.open_tree(AGENT_STATS_TREE) {
@@ -7535,7 +9730,9 @@ fn agent_stats_init_persistence(db: Arc<sled::Db>) {
             tick.tick().await;
             let snap = snapshot_agent_stats();
             let mut buf = Vec::with_capacity(1024);
-            if ciborium::ser::into_writer(&snap, &mut buf).is_err() { continue; }
+            if ciborium::ser::into_writer(&snap, &mut buf).is_err() {
+                continue;
+            }
             if let Ok(tree) = db.open_tree(AGENT_STATS_TREE) {
                 let _ = tree.insert(AGENT_STATS_KEY, buf);
                 let _ = tree.flush_async().await;
@@ -7547,30 +9744,49 @@ fn agent_stats_init_persistence(db: Arc<sled::Db>) {
 fn record_request(family: &'static str, status: u16, dur_ms: f64) {
     let st = agent_stats();
     match status / 100 {
-        2 => { st.status_2xx.fetch_add(1, Ordering::Relaxed); }
-        3 => { st.status_3xx.fetch_add(1, Ordering::Relaxed); }
-        4 => { st.status_4xx.fetch_add(1, Ordering::Relaxed); }
-        5 => { st.status_5xx.fetch_add(1, Ordering::Relaxed); }
+        2 => {
+            st.status_2xx.fetch_add(1, Ordering::Relaxed);
+        }
+        3 => {
+            st.status_3xx.fetch_add(1, Ordering::Relaxed);
+        }
+        4 => {
+            st.status_4xx.fetch_add(1, Ordering::Relaxed);
+        }
+        5 => {
+            st.status_5xx.fetch_add(1, Ordering::Relaxed);
+        }
         _ => {}
     }
-    let bucket = LATENCY_BUCKETS_MS.iter().position(|b| dur_ms <= *b).unwrap_or(12);
+    let bucket = LATENCY_BUCKETS_MS
+        .iter()
+        .position(|b| dur_ms <= *b)
+        .unwrap_or(12);
     st.latency[bucket].fetch_add(1, Ordering::Relaxed);
     if let Ok(mut map) = st.by_family.lock() {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs()).unwrap_or(0);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let e = map.entry(family).or_default();
         e.requests += 1;
-        if status >= 400 { e.errors += 1; }
+        if status >= 400 {
+            e.errors += 1;
+        }
         e.last_seen_unix_s = now;
     }
 }
 
 fn record_mcp_tool(tool: &str, ok: bool, dur_ms: f64) {
-    if tool.is_empty() { return; }
+    if tool.is_empty() {
+        return;
+    }
     if let Ok(mut map) = agent_stats().by_tool.lock() {
         let e = map.entry(tool.to_string()).or_default();
         e.calls += 1;
-        if !ok { e.errors += 1; }
+        if !ok {
+            e.errors += 1;
+        }
         e.total_dur_ms += dur_ms;
     }
 }
@@ -7581,9 +9797,15 @@ fn record_mcp_tool(tool: &str, ok: bool, dur_ms: f64) {
 /// approximation — not for SLA enforcement.
 fn latency_percentile(p: f64) -> Option<f64> {
     let st = agent_stats();
-    let counts: Vec<u64> = st.latency.iter().map(|a| a.load(Ordering::Relaxed)).collect();
+    let counts: Vec<u64> = st
+        .latency
+        .iter()
+        .map(|a| a.load(Ordering::Relaxed))
+        .collect();
     let total: u64 = counts.iter().sum();
-    if total == 0 { return None; }
+    if total == 0 {
+        return None;
+    }
     let target = ((total as f64) * p).ceil() as u64;
     let mut cum = 0u64;
     for (i, c) in counts.iter().enumerate() {
@@ -7654,19 +9876,31 @@ fn quality_kernel(tempo: emem_core::tslot::Tempo, dt_s: f64) -> (f64, &'static s
     let dt = dt_s.abs();
     match tempo {
         // Static bands never decay; one good attestation is forever.
-        Tempo::Static => (1.0, "identity", "Q = 1 (static phenomenon, no temporal decay)"),
+        Tempo::Static => (
+            1.0,
+            "identity",
+            "Q = 1 (static phenomenon, no temporal decay)",
+        ),
         // Slow (annual): linear decay over slot_seconds, then clamped.
         Tempo::Slow => {
             let horizon = Tempo::Slow.slot_seconds() as f64;
             let q = (1.0 - dt / horizon).max(0.0);
-            (q, "linear_ar1", "Q = max(0, 1 - Δt/T_slot); AR-1 process step")
+            (
+                q,
+                "linear_ar1",
+                "Q = max(0, 1 - Δt/T_slot); AR-1 process step",
+            )
         }
         // Medium (monthly): heat-equation Gaussian. σ = slot duration so
         // ~38% of the score remains at exactly one slot's worth of lag.
         Tempo::Medium => {
             let sigma = Tempo::Medium.slot_seconds() as f64;
             let q = (-((dt / sigma).powi(2))).exp();
-            (q, "heat_gaussian", "Q = exp(-(Δt/σ)²); fundamental solution of ∂u/∂t = D∇²u with σ = slot duration")
+            (
+                q,
+                "heat_gaussian",
+                "Q = exp(-(Δt/σ)²); fundamental solution of ∂u/∂t = D∇²u with σ = slot duration",
+            )
         }
         // Fast (daily): wave + seasonal. Sentinel-2 5-day revisit ≈
         // T_seasonal here. Half-cosine gives exactly 1.0 at Δt=0,
@@ -7674,16 +9908,24 @@ fn quality_kernel(tempo: emem_core::tslot::Tempo, dt_s: f64) -> (f64, &'static s
         Tempo::Fast => {
             let period = (Tempo::Fast.slot_seconds() as f64) * 5.0; // ≈ S2 revisit
             let phase = 2.0 * std::f64::consts::PI * dt / period;
-            let q = ((0.5 + 0.5 * phase.cos()).max(0.0)).min(1.0);
+            let q = (0.5 + 0.5 * phase.cos()).clamp(0.0, 1.0);
             // Hard cutoff once we're past one full period.
             let q = if dt > period { 0.0 } else { q };
-            (q, "wave_seasonal", "Q = max(0, 0.5 + 0.5·cos(2π·Δt/T)); ∂²u/∂t² = c²∇²u with T ≈ Sentinel-2 revisit")
+            (
+                q,
+                "wave_seasonal",
+                "Q = max(0, 0.5 + 0.5·cos(2π·Δt/T)); ∂²u/∂t² = c²∇²u with T ≈ Sentinel-2 revisit",
+            )
         }
         // Ultra-fast (hourly): advection. After ~6 h, the value is moot.
         Tempo::UltraFast => {
             let horizon = Tempo::UltraFast.slot_seconds() as f64 * 6.0;
             let q = (1.0 - dt / horizon).max(0.0);
-            (q, "advection_linear", "Q = max(0, 1 - Δt/horizon); ∂u/∂t + v·∇u = 0 with horizon ≈ 6 slots")
+            (
+                q,
+                "advection_linear",
+                "Q = max(0, 1 - Δt/horizon); ∂u/∂t + v·∇u = 0 with horizon ≈ 6 slots",
+            )
         }
     }
 }
@@ -7705,8 +9947,21 @@ fn score_band(
             // fast band rates 0.1 because by the time we attest, the
             // value is already stale.
             use emem_core::tslot::Tempo;
-            let q = match tempo { Tempo::Static => 1.0, Tempo::Slow => 0.5, Tempo::Medium => 0.3, Tempo::Fast => 0.1, Tempo::UltraFast => 0.05 };
-            return (q, "no_observation", format!("Q = {q:.3}; floor score for {:?} when no attestation exists yet", tempo));
+            let q = match tempo {
+                Tempo::Static => 1.0,
+                Tempo::Slow => 0.5,
+                Tempo::Medium => 0.3,
+                Tempo::Fast => 0.1,
+                Tempo::UltraFast => 0.05,
+            };
+            return (
+                q,
+                "no_observation",
+                format!(
+                    "Q = {q:.3}; floor score for {:?} when no attestation exists yet",
+                    tempo
+                ),
+            );
         }
     };
     let (q, kernel, deriv) = quality_kernel(tempo, dt_s);
@@ -7723,14 +9978,46 @@ fn intent_affinity(band_key: &str, family: &str, intent: &str) -> f64 {
     let bf = format!("{band_key} {family}").to_ascii_lowercase();
     let mut score = 1.0;
     let pairs: &[(&[&str], &[&str], f64)] = &[
-        (&["flood", "water", "wet", "river"], &["surface_water", "ocean_chl", "water"], 1.5),
-        (&["forest", "deforest", "tree", "logging"], &["forest_change", "mangrove", "vegetation"], 1.5),
-        (&["crop", "farm", "agri", "harvest", "yield"], &["indices", "phenology", "ndvi", "vegetation"], 1.5),
-        (&["urban", "city", "population", "human"], &["nightlights", "ghsl", "population", "human"], 1.5),
-        (&["climate", "weather", "temperature", "rainfall"], &["climate", "terraclimate", "koppen"], 1.5),
-        (&["terrain", "elevation", "mountain", "depth", "bathymetry"], &["dem", "cop_dem", "topobathy", "terrain"], 1.5),
-        (&["radar", "all-weather", "cloud", "night"], &["sentinel1"], 1.4),
-        (&["foundation", "embedding", "latent", "general"], &["geotessera", "foundation"], 1.3),
+        (
+            &["flood", "water", "wet", "river"],
+            &["surface_water", "ocean_chl", "water"],
+            1.5,
+        ),
+        (
+            &["forest", "deforest", "tree", "logging"],
+            &["forest_change", "mangrove", "vegetation"],
+            1.5,
+        ),
+        (
+            &["crop", "farm", "agri", "harvest", "yield"],
+            &["indices", "phenology", "ndvi", "vegetation"],
+            1.5,
+        ),
+        (
+            &["urban", "city", "population", "human"],
+            &["nightlights", "ghsl", "population", "human"],
+            1.5,
+        ),
+        (
+            &["climate", "weather", "temperature", "rainfall"],
+            &["climate", "terraclimate", "koppen"],
+            1.5,
+        ),
+        (
+            &["terrain", "elevation", "mountain", "depth", "bathymetry"],
+            &["dem", "cop_dem", "topobathy", "terrain"],
+            1.5,
+        ),
+        (
+            &["radar", "all-weather", "cloud", "night"],
+            &["sentinel1"],
+            1.4,
+        ),
+        (
+            &["foundation", "embedding", "latent", "general"],
+            &["geotessera", "foundation"],
+            1.3,
+        ),
     ];
     for (kws, fams, boost) in pairs {
         if kws.iter().any(|k| intent_lc.contains(k)) && fams.iter().any(|f| bf.contains(f)) {
@@ -7747,7 +10034,8 @@ async fn temporal_route_inner(
     let limit = req.limit.unwrap_or(8).min(64);
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64).unwrap_or(0);
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     let query_unix: i64 = match req.query_time.as_deref() {
         Some(qt) => parse_iso8601_unix(qt).unwrap_or(now_unix),
         None => now_unix,
@@ -7756,10 +10044,15 @@ async fn temporal_route_inner(
     let registry = &*emem_core::bands::DEFAULT;
     let candidates: Vec<&emem_core::bands::Band> = match &req.bands {
         Some(want) => {
-            let want_set: std::collections::HashSet<&str> = want.iter().map(|s| s.as_str()).collect();
-            registry.bands.iter()
-                .filter(|b| want_set.contains(b.key.as_str())
-                    || want.iter().any(|w| w.starts_with(&format!("{}.", b.key))))
+            let want_set: std::collections::HashSet<&str> =
+                want.iter().map(|s| s.as_str()).collect();
+            registry
+                .bands
+                .iter()
+                .filter(|b| {
+                    want_set.contains(b.key.as_str())
+                        || want.iter().any(|w| w.starts_with(&format!("{}.", b.key)))
+                })
                 .collect()
         }
         None => registry.bands.iter().collect(),
@@ -7770,32 +10063,33 @@ async fn temporal_route_inner(
     // we use scan_cell to get every fact, group by band-prefix, and
     // pick the latest signed_at. Cheap because cells hold ≤ tens of
     // facts in practice.
-    let last_obs_by_band: std::collections::HashMap<String, i64> =
-        match req.cell.as_deref() {
-            Some(cell) => {
-                let pairs = s.storage.scan_cell(cell, None).await.unwrap_or_default();
-                let cids: Vec<emem_fact::FactCid> = pairs.into_iter().map(|(_k, c)| c).collect();
-                let mut map = std::collections::HashMap::new();
-                if !cids.is_empty() {
-                    if let Ok(facts) = s.storage.get_facts_many(&cids).await {
-                        for f in facts.into_iter().flatten() {
-                            let (band, signed_at) = match f {
-                                Fact::Primary(p) => (p.band, p.signed_at),
-                                Fact::Absence(n) => (n.band, n.signed_at),
-                                Fact::Derivative(_) => continue,
-                            };
-                            if let Some(t) = parse_iso8601_unix(&signed_at) {
-                                let prefix = band.split('.').next().unwrap_or(&band).to_string();
-                                let entry = map.entry(prefix).or_insert(t);
-                                if t > *entry { *entry = t; }
+    let last_obs_by_band: std::collections::HashMap<String, i64> = match req.cell.as_deref() {
+        Some(cell) => {
+            let pairs = s.storage.scan_cell(cell, None).await.unwrap_or_default();
+            let cids: Vec<emem_fact::FactCid> = pairs.into_iter().map(|(_k, c)| c).collect();
+            let mut map = std::collections::HashMap::new();
+            if !cids.is_empty() {
+                if let Ok(facts) = s.storage.get_facts_many(&cids).await {
+                    for f in facts.into_iter().flatten() {
+                        let (band, signed_at) = match f {
+                            Fact::Primary(p) => (p.band, p.signed_at),
+                            Fact::Absence(n) => (n.band, n.signed_at),
+                            Fact::Derivative(_) => continue,
+                        };
+                        if let Some(t) = parse_iso8601_unix(&signed_at) {
+                            let prefix = band.split('.').next().unwrap_or(&band).to_string();
+                            let entry = map.entry(prefix).or_insert(t);
+                            if t > *entry {
+                                *entry = t;
                             }
                         }
                     }
                 }
-                map
             }
-            None => Default::default(),
-        };
+            map
+        }
+        None => Default::default(),
+    };
 
     let intent = req.intent.as_deref().unwrap_or("");
     let mut scored: Vec<(f64, JsonValue, bool)> = Vec::with_capacity(candidates.len());
@@ -7803,22 +10097,30 @@ async fn temporal_route_inner(
         let last_obs = last_obs_by_band.get(&band.key).copied();
         let (q_math, kernel, derivation) = score_band(band.tempo, query_unix, last_obs);
         let family_str = format!("{:?}", band.family).to_ascii_lowercase();
-        let affinity = if intent.is_empty() { 1.0 } else { intent_affinity(&band.key, &family_str, intent) };
+        let affinity = if intent.is_empty() {
+            1.0
+        } else {
+            intent_affinity(&band.key, &family_str, intent)
+        };
         let intent_matched = affinity > 1.0;
         let q_total = (q_math * affinity).min(1.5);
-        scored.push((q_total, json!({
-            "band":             band.key,
-            "family":           family_str,
-            "tempo":            format!("{:?}", band.tempo).to_ascii_lowercase(),
-            "score":            (q_total * 1000.0).round() / 1000.0,
-            "score_math":       (q_math * 1000.0).round() / 1000.0,
-            "intent_affinity":  (affinity * 1000.0).round() / 1000.0,
-            "intent_matched":   intent_matched,
-            "kernel":           kernel,
-            "derivation":       derivation,
-            "last_obs_unix_s":  last_obs,
-            "last_obs_age_s":   last_obs.map(|t| (query_unix - t).abs()),
-        }), intent_matched));
+        scored.push((
+            q_total,
+            json!({
+                "band":             band.key,
+                "family":           family_str,
+                "tempo":            format!("{:?}", band.tempo).to_ascii_lowercase(),
+                "score":            (q_total * 1000.0).round() / 1000.0,
+                "score_math":       (q_math * 1000.0).round() / 1000.0,
+                "intent_affinity":  (affinity * 1000.0).round() / 1000.0,
+                "intent_matched":   intent_matched,
+                "kernel":           kernel,
+                "derivation":       derivation,
+                "last_obs_unix_s":  last_obs,
+                "last_obs_age_s":   last_obs.map(|t| (query_unix - t).abs()),
+            }),
+            intent_matched,
+        ));
     }
     // Two ranked lists:
     //   - cite_now:        highest-Q-now (static and recently-attested
@@ -7829,9 +10131,14 @@ async fn temporal_route_inner(
     //                      to trigger materialization.
     let mut cite_now = scored.clone();
     cite_now.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    let cite_now_json: Vec<JsonValue> = cite_now.into_iter().take(limit).map(|(_, v, _)| v).collect();
+    let cite_now_json: Vec<JsonValue> = cite_now
+        .into_iter()
+        .take(limit)
+        .map(|(_, v, _)| v)
+        .collect();
 
-    let mut fetch: Vec<(f64, JsonValue)> = scored.into_iter()
+    let mut fetch: Vec<(f64, JsonValue)> = scored
+        .into_iter()
         .filter(|(_, _, matched)| *matched)
         .map(|(s, j, _)| (s, j))
         .collect();
@@ -7875,7 +10182,9 @@ async fn get_temporal_route(
         cell: q.get("cell").or_else(|| q.get("cell64")).cloned(),
         query_time: q.get("query_time").cloned(),
         intent: q.get("intent").cloned(),
-        bands: q.get("bands").map(|s| s.split(',').map(|x| x.trim().to_string()).collect()),
+        bands: q
+            .get("bands")
+            .map(|s| s.split(',').map(|x| x.trim().to_string()).collect()),
         limit: q.get("limit").and_then(|s| s.parse().ok()),
     };
     temporal_route_inner(State(s), req).await
@@ -7887,7 +10196,11 @@ fn parse_iso8601_unix(s: &str) -> Option<i64> {
     // Forms: "2026-04-27T01:23:45Z", "2026-04-27T01:23:45+00:00",
     //        "2026-04-27" (day boundary).
     let s = s.trim();
-    let (date_part, time_part) = if let Some((d, t)) = s.split_once('T') { (d, t) } else { (s, "00:00:00Z") };
+    let (date_part, time_part) = if let Some((d, t)) = s.split_once('T') {
+        (d, t)
+    } else {
+        (s, "00:00:00Z")
+    };
     let mut date_iter = date_part.splitn(3, '-');
     let y: i64 = date_iter.next()?.parse().ok()?;
     let m: i64 = date_iter.next()?.parse().ok()?;
@@ -7896,7 +10209,11 @@ fn parse_iso8601_unix(s: &str) -> Option<i64> {
     let mut time_iter = time_clean.splitn(3, ':');
     let h: i64 = time_iter.next()?.parse().ok()?;
     let mi: i64 = time_iter.next()?.parse().ok()?;
-    let se: i64 = time_iter.next().and_then(|s| s.split('.').next()).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let se: i64 = time_iter
+        .next()
+        .and_then(|s| s.split('.').next())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     // Days since civil 1970-01-01 (Howard Hinnant's date algorithm).
     let yy = if m <= 2 { y - 1 } else { y };
     let mm = if m <= 2 { m + 12 } else { m };
@@ -7947,11 +10264,13 @@ struct ReviewRecord {
     /// these four are the canonical values an agent should pick from.
     outcome: String,
     /// 1..=5 quality rating. 0 means unrated.
-    #[serde(default)] rating: u8,
+    #[serde(default)]
+    rating: u8,
     /// Free-form comment. Limit to 4 KiB on the wire to keep the index
     /// scannable; longer reviews should be uploaded as a Fact and
     /// referenced via subject_kind="fact".
-    #[serde(default)] comment: String,
+    #[serde(default)]
+    comment: String,
     /// ISO-8601 UTC. Server stamps on POST (clients have no input
     /// field for it, so backdating is impossible). Always populated
     /// when reading from sled.
@@ -7973,7 +10292,10 @@ const REVIEW_COMMENT_MAX: usize = 4096;
 const REVIEW_TASK_MAX: usize = 512;
 
 fn known_subject_kind(s: &str) -> bool {
-    matches!(s, "fact" | "cell" | "request_id" | "session" | "band" | "endpoint" | "other")
+    matches!(
+        s,
+        "fact" | "cell" | "request_id" | "session" | "band" | "endpoint" | "other"
+    )
 }
 
 fn known_outcome(s: &str) -> bool {
@@ -7991,7 +10313,9 @@ fn compute_review_cid(rec: &ReviewRecord) -> String {
     let mut buf = Vec::with_capacity(256);
     let _ = ciborium::ser::into_writer(&clean, &mut buf);
     let h = blake3::hash(&buf);
-    data_encoding::BASE32_NOPAD.encode(&h.as_bytes()[..16]).to_lowercase()
+    data_encoding::BASE32_NOPAD
+        .encode(&h.as_bytes()[..16])
+        .to_lowercase()
 }
 
 #[derive(Deserialize)]
@@ -8000,10 +10324,14 @@ struct ReviewIn {
     subject_id: String,
     task: String,
     outcome: String,
-    #[serde(default)] rating: u8,
-    #[serde(default)] comment: String,
-    #[serde(default)] agent_pubkey_b32: Option<String>,
-    #[serde(default)] agent_signature_hex: Option<String>,
+    #[serde(default)]
+    rating: u8,
+    #[serde(default)]
+    comment: String,
+    #[serde(default)]
+    agent_pubkey_b32: Option<String>,
+    #[serde(default)]
+    agent_signature_hex: Option<String>,
 }
 
 async fn post_review(
@@ -8017,16 +10345,25 @@ async fn post_review(
         }));
     }
     if !known_outcome(&req.outcome) {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: format!("outcome must be one of: success, partial, failed, noisy. got: {:?}", req.outcome),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!(
+                    "outcome must be one of: success, partial, failed, noisy. got: {:?}",
+                    req.outcome
+                ),
+            },
+        ));
     }
     if req.task.is_empty() {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: "task is required and must be non-empty (1..=512 chars).".into(),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "task is required and must be non-empty (1..=512 chars).".into(),
+            },
+        ));
     }
     if req.task.len() > REVIEW_TASK_MAX || req.comment.len() > REVIEW_COMMENT_MAX {
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, ErrorBody {
@@ -8035,10 +10372,13 @@ async fn post_review(
         }));
     }
     if req.rating > 5 {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: "rating must be 0..=5 (0 = unrated).".into(),
-        }));
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "rating must be 0..=5 (0 = unrated).".into(),
+            },
+        ));
     }
 
     let mut rec = ReviewRecord {
@@ -8064,34 +10404,63 @@ async fn post_review(
         })),
     };
 
-    let tree = db.open_tree(REVIEWS_TREE)
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("open reviews tree: {e}"),
-        }))?;
-    let idx = db.open_tree(REVIEWS_INDEX_TREE)
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("open reviews index: {e}"),
-        }))?;
+    let tree = db.open_tree(REVIEWS_TREE).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("open reviews tree: {e}"),
+            },
+        )
+    })?;
+    let idx = db.open_tree(REVIEWS_INDEX_TREE).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("open reviews index: {e}"),
+            },
+        )
+    })?;
 
     let mut buf = Vec::with_capacity(512);
-    ciborium::ser::into_writer(&rec, &mut buf)
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("cbor: {e}"),
-        }))?;
+    ciborium::ser::into_writer(&rec, &mut buf).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("cbor: {e}"),
+            },
+        )
+    })?;
 
     // Primary tree: key = review_cid → value = full record.
     tree.insert(rec.review_cid.as_bytes(), buf.clone())
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("insert: {e}"),
-        }))?;
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("insert: {e}"),
+                },
+            )
+        })?;
     // Index tree: key = "<subject_kind>:<subject_id>:<submitted_at>:<review_cid>"
     // (sorts by recency within a subject) → value = review_cid.
-    let idx_key = format!("{}:{}:{}:{}",
-        rec.subject_kind, rec.subject_id, rec.submitted_at, rec.review_cid);
+    let idx_key = format!(
+        "{}:{}:{}:{}",
+        rec.subject_kind, rec.subject_id, rec.submitted_at, rec.review_cid
+    );
     idx.insert(idx_key.as_bytes(), rec.review_cid.as_bytes())
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("index insert: {e}"),
-        }))?;
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("index insert: {e}"),
+                },
+            )
+        })?;
 
     tracing::info!(
         target: "emem::reviews",
@@ -8116,28 +10485,43 @@ async fn list_reviews(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let limit: usize = q.get("limit")
+    let limit: usize = q
+        .get("limit")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(50).min(500);
+        .unwrap_or(50)
+        .min(500);
     let db = match s.storage.hot_sled_db() {
         Some(db) => db,
-        None => return Ok(Json(json!({"reviews": [], "note": "ephemeral storage; reviews disabled"}))),
+        None => {
+            return Ok(Json(
+                json!({"reviews": [], "note": "ephemeral storage; reviews disabled"}),
+            ))
+        }
     };
-    let tree = db.open_tree(REVIEWS_TREE)
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("open: {e}"),
-        }))?;
+    let tree = db.open_tree(REVIEWS_TREE).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("open: {e}"),
+            },
+        )
+    })?;
     let mut out = Vec::with_capacity(limit);
-    for kv in tree.iter().take(limit) {
-        if let Ok((_k, v)) = kv {
-            if let Ok(rec) = ciborium::de::from_reader::<ReviewRecord, _>(v.as_ref()) {
-                if let Ok(j) = serde_json::to_value(&rec) { out.push(j); }
+    for (_k, v) in tree.iter().take(limit).flatten() {
+        if let Ok(rec) = ciborium::de::from_reader::<ReviewRecord, _>(v.as_ref()) {
+            if let Ok(j) = serde_json::to_value(&rec) {
+                out.push(j);
             }
         }
     }
     // Recent-first.
-    out.sort_by(|a, b| b.get("submitted_at").and_then(|x| x.as_str()).unwrap_or("")
-        .cmp(a.get("submitted_at").and_then(|x| x.as_str()).unwrap_or("")));
+    out.sort_by(|a, b| {
+        b.get("submitted_at")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .cmp(a.get("submitted_at").and_then(|x| x.as_str()).unwrap_or(""))
+    });
     Ok(Json(json!({
         "reviews": out,
         "count": out.len(),
@@ -8157,26 +10541,44 @@ async fn reviews_for_subject(
             message: format!("kind query param must be one of: fact, cell, request_id, session, band, endpoint, other. got: {kind:?}"),
         }));
     }
-    let limit: usize = q.get("limit")
+    let limit: usize = q
+        .get("limit")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(50).min(500);
+        .unwrap_or(50)
+        .min(500);
     let db = match s.storage.hot_sled_db() {
         Some(db) => db,
-        None => return Ok(Json(json!({"reviews": [], "note": "ephemeral storage; reviews disabled"}))),
+        None => {
+            return Ok(Json(
+                json!({"reviews": [], "note": "ephemeral storage; reviews disabled"}),
+            ))
+        }
     };
-    let tree = db.open_tree(REVIEWS_TREE)
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("open: {e}"),
-        }))?;
-    let idx = db.open_tree(REVIEWS_INDEX_TREE)
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, ErrorBody {
-            code: ErrorCode::Internal, message: format!("open idx: {e}"),
-        }))?;
+    let tree = db.open_tree(REVIEWS_TREE).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("open: {e}"),
+            },
+        )
+    })?;
+    let idx = db.open_tree(REVIEWS_INDEX_TREE).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("open idx: {e}"),
+            },
+        )
+    })?;
 
     let prefix = format!("{kind}:{subject_id}:");
     let mut review_cids: Vec<String> = Vec::with_capacity(limit);
     for kv in idx.scan_prefix(prefix.as_bytes()) {
-        if review_cids.len() >= limit { break; }
+        if review_cids.len() >= limit {
+            break;
+        }
         if let Ok((_k, v)) = kv {
             if let Ok(cid) = std::str::from_utf8(v.as_ref()) {
                 review_cids.push(cid.to_string());
@@ -8187,25 +10589,38 @@ async fn reviews_for_subject(
     for cid in &review_cids {
         if let Ok(Some(v)) = tree.get(cid.as_bytes()) {
             if let Ok(rec) = ciborium::de::from_reader::<ReviewRecord, _>(v.as_ref()) {
-                if let Ok(j) = serde_json::to_value(&rec) { out.push(j); }
+                if let Ok(j) = serde_json::to_value(&rec) {
+                    out.push(j);
+                }
             }
         }
     }
-    out.sort_by(|a, b| b.get("submitted_at").and_then(|x| x.as_str()).unwrap_or("")
-        .cmp(a.get("submitted_at").and_then(|x| x.as_str()).unwrap_or("")));
+    out.sort_by(|a, b| {
+        b.get("submitted_at")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .cmp(a.get("submitted_at").and_then(|x| x.as_str()).unwrap_or(""))
+    });
 
     let mut sum_rating = 0u32;
     let mut rated = 0u32;
     let mut by_outcome = std::collections::HashMap::<String, u32>::new();
     for r in &out {
         if let Some(rt) = r.get("rating").and_then(|v| v.as_u64()) {
-            if rt > 0 { sum_rating += rt as u32; rated += 1; }
+            if rt > 0 {
+                sum_rating += rt as u32;
+                rated += 1;
+            }
         }
         if let Some(oc) = r.get("outcome").and_then(|v| v.as_str()) {
             *by_outcome.entry(oc.to_string()).or_insert(0) += 1;
         }
     }
-    let mean = if rated == 0 { None } else { Some(sum_rating as f64 / rated as f64) };
+    let mean = if rated == 0 {
+        None
+    } else {
+        Some(sum_rating as f64 / rated as f64)
+    };
 
     Ok(Json(json!({
         "subject": { "kind": kind, "id": subject_id },
@@ -8221,32 +10636,55 @@ async fn agent_stats_endpoint() -> Json<JsonValue> {
     let st = agent_stats();
     let by_family: Vec<JsonValue> = match st.by_family.lock() {
         Ok(m) => {
-            let mut v: Vec<_> = m.iter().map(|(k, c)| (*k, c.requests, c.errors, c.last_seen_unix_s)).collect();
-            v.sort_by(|a, b| b.1.cmp(&a.1));
-            v.into_iter().map(|(k, r, e, t)| json!({
-                "family": k, "requests": r, "errors": e, "last_seen_unix_s": t,
-            })).collect()
+            let mut v: Vec<_> = m
+                .iter()
+                .map(|(k, c)| (*k, c.requests, c.errors, c.last_seen_unix_s))
+                .collect();
+            v.sort_by_key(|(_, requests, _, _)| std::cmp::Reverse(*requests));
+            v.into_iter()
+                .map(|(k, r, e, t)| {
+                    json!({
+                        "family": k, "requests": r, "errors": e, "last_seen_unix_s": t,
+                    })
+                })
+                .collect()
         }
         Err(_) => vec![],
     };
     let by_tool: Vec<JsonValue> = match st.by_tool.lock() {
         Ok(m) => {
-            let mut v: Vec<_> = m.iter().map(|(k, c)| (k.clone(), c.calls, c.errors, c.total_dur_ms)).collect();
-            v.sort_by(|a, b| b.1.cmp(&a.1));
-            v.into_iter().map(|(k, c, e, d)| json!({
-                "tool": k, "calls": c, "errors": e,
-                "mean_duration_ms": if c == 0 { 0.0 } else { d / c as f64 },
-            })).collect()
+            let mut v: Vec<_> = m
+                .iter()
+                .map(|(k, c)| (k.clone(), c.calls, c.errors, c.total_dur_ms))
+                .collect();
+            v.sort_by_key(|(_, calls, _, _)| std::cmp::Reverse(*calls));
+            v.into_iter()
+                .map(|(k, c, e, d)| {
+                    json!({
+                        "tool": k, "calls": c, "errors": e,
+                        "mean_duration_ms": if c == 0 { 0.0 } else { d / c as f64 },
+                    })
+                })
+                .collect()
         }
         Err(_) => vec![],
     };
-    let buckets: Vec<JsonValue> = LATENCY_BUCKETS_MS.iter().enumerate().map(|(i, b)| json!({
-        "le_ms": b, "count": st.latency[i].load(Ordering::Relaxed),
-    })).chain(std::iter::once(json!({
-        "le_ms": "+Inf", "count": st.latency[12].load(Ordering::Relaxed),
-    }))).collect();
-    let now_unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs()).unwrap_or(0);
+    let buckets: Vec<JsonValue> = LATENCY_BUCKETS_MS
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            json!({
+                "le_ms": b, "count": st.latency[i].load(Ordering::Relaxed),
+            })
+        })
+        .chain(std::iter::once(json!({
+            "le_ms": "+Inf", "count": st.latency[12].load(Ordering::Relaxed),
+        })))
+        .collect();
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let uptime = START_INSTANT.get_or_init(Instant::now).elapsed().as_secs();
     Json(json!({
         "schema": "emem.agent_stats.v1",
@@ -8272,15 +10710,19 @@ async fn agent_stats_endpoint() -> Json<JsonValue> {
     }))
 }
 
-fn metrics_inc(c: &AtomicU64) { c.fetch_add(1, Ordering::Relaxed); }
+fn metrics_inc(c: &AtomicU64) {
+    c.fetch_add(1, Ordering::Relaxed);
+}
 
 async fn metrics(State(s): State<AppState>) -> Response {
     let start = *START_INSTANT.get_or_init(Instant::now);
     let uptime = start.elapsed().as_secs();
     let bands_count = emem_core::bands::DEFAULT.bands.len();
-    let pubkey = data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase();
+    let pubkey = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
     let body = format!(
-"# HELP emem_uptime_seconds Process uptime in seconds.
+        "# HELP emem_uptime_seconds Process uptime in seconds.
 # TYPE emem_uptime_seconds counter
 emem_uptime_seconds {uptime}
 # HELP emem_request_total Total HTTP requests handled (excludes preflight).
@@ -8325,7 +10767,8 @@ emem_responder_pubkey{{pubkey_b32=\"{pubkey}\"}} 1
 fn not_found(msg: &str) -> Response {
     let body = serde_json::to_vec(&serde_json::json!({
         "code": "not_found", "message": msg,
-    })).unwrap_or_else(|_| br#"{"code":"not_found"}"#.to_vec());
+    }))
+    .unwrap_or_else(|_| br#"{"code":"not_found"}"#.to_vec());
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .header("content-type", "application/json")
@@ -8345,40 +10788,79 @@ mod tests {
     /// router fails, descriptions / keyword sets need to widen.
     const SHOULD_BE_EMEM_ASK: &[(&str, &str)] = &[
         // Lifestyle / decision-making — the original Ashok-Nagar shape.
-        ("is this neighbourhood flood-prone for a flat purchase",      "flood_risk_composite"),
-        ("should I buy a house here, is the area safe to live",        "flood_risk_composite"),
-        ("is it safe to invest in property in this area",              "flood_risk_composite"),
-        ("does this area have monsoon waterlogging issues",            "flood_risk_composite"),
+        (
+            "is this neighbourhood flood-prone for a flat purchase",
+            "flood_risk_composite",
+        ),
+        (
+            "should I buy a house here, is the area safe to live",
+            "flood_risk_composite",
+        ),
+        (
+            "is it safe to invest in property in this area",
+            "flood_risk_composite",
+        ),
+        (
+            "does this area have monsoon waterlogging issues",
+            "flood_risk_composite",
+        ),
         // Word-ordering variants (the bug the live test caught:
         // "purchase a flat" should route same as "flat purchase").
-        ("I want to purchase a flat here, has it ever flooded",        "flood_risk_composite"),
-        ("buying a home in this area, is it safe to buy",              "flood_risk_composite"),
-        ("purchasing an apartment, monsoon waterlogging concerns",     "flood_risk_composite"),
+        (
+            "I want to purchase a flat here, has it ever flooded",
+            "flood_risk_composite",
+        ),
+        (
+            "buying a home in this area, is it safe to buy",
+            "flood_risk_composite",
+        ),
+        (
+            "purchasing an apartment, monsoon waterlogging concerns",
+            "flood_risk_composite",
+        ),
         // Insurance / property risk.
-        ("what's the property risk for this address",                  "real_estate"),
-        ("estimate the insurance premium for this neighbourhood",      "real_estate"),
+        ("what's the property risk for this address", "real_estate"),
+        (
+            "estimate the insurance premium for this neighbourhood",
+            "real_estate",
+        ),
         // Livability.
-        ("how walkable is this area",                                  "urban_livability"),
-        ("urban heat island intensity here",                           "urban_livability"),
-        ("does this neighbourhood have green space access",            "urban_livability"),
+        ("how walkable is this area", "urban_livability"),
+        ("urban heat island intensity here", "urban_livability"),
+        (
+            "does this neighbourhood have green space access",
+            "urban_livability",
+        ),
         // Direct flood / water.
-        ("flood history of this place",                                "flood_history_long_term"),
-        ("has this area ever flooded",                                 "flood_history_long_term"),
-        ("is there standing water right now at this site",             "flood_water_event_window"),
+        ("flood history of this place", "flood_history_long_term"),
+        ("has this area ever flooded", "flood_history_long_term"),
+        (
+            "is there standing water right now at this site",
+            "flood_water_event_window",
+        ),
         // Vegetation.
-        ("what's the NDVI here",                                       "vegetation_condition"),
-        ("crop health in this region",                                 "vegetation_condition"),
+        ("what's the NDVI here", "vegetation_condition"),
+        ("crop health in this region", "vegetation_condition"),
         // Built-up.
-        ("is this area densely built up",                              "built_up_human_geography"),
-        ("road length and building count in this neighbourhood",       "built_up_human_geography"),
+        ("is this area densely built up", "built_up_human_geography"),
+        (
+            "road length and building count in this neighbourhood",
+            "built_up_human_geography",
+        ),
         // Topography.
-        ("elevation of this place above sea level",                    "elevation_land_only"),
-        ("how rugged is the terrain here",                             "topography"),
+        (
+            "elevation of this place above sea level",
+            "elevation_land_only",
+        ),
+        ("how rugged is the terrain here", "topography"),
         // Energy / agri / esg / health.
-        ("crop yield potential of this farm",                          "agriculture"),
-        ("carbon sink potential of this forest",                       "esg"),
-        ("heat vulnerability of this neighbourhood",                   "public_health"),
-        ("similar to this place, find lookalikes",                     "foundation_embedding"),
+        ("crop yield potential of this farm", "agriculture"),
+        ("carbon sink potential of this forest", "esg"),
+        ("heat vulnerability of this neighbourhood", "public_health"),
+        (
+            "similar to this place, find lookalikes",
+            "foundation_embedding",
+        ),
     ];
 
     #[test]
@@ -8396,8 +10878,10 @@ mod tests {
         assert!(
             misses.is_empty(),
             "router missed {} of {} corpus questions:\n{}",
-            misses.len(), SHOULD_BE_EMEM_ASK.len(),
-            misses.iter()
+            misses.len(),
+            SHOULD_BE_EMEM_ASK.len(),
+            misses
+                .iter()
                 .map(|(q, exp, got)| format!("  q={q:?} expected={exp:?} got={got:?}"))
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -8442,7 +10926,8 @@ mod tests {
     fn ask_req_deserialises_minimal_form() {
         let r: AskReq = serde_json::from_value(serde_json::json!({
             "q": "is this flood-prone", "place": "Ashok Nagar, Ranchi"
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(r.q, "is this flood-prone");
         assert_eq!(r.place.as_deref(), Some("Ashok Nagar, Ranchi"));
         assert!(r.cell.is_none());
@@ -8455,7 +10940,9 @@ mod tests {
         let p = plan(&Intent::Ask {
             description: "is this flood-prone".into(),
             place: Some("Ashok Nagar, Ranchi".into()),
-            cell: None, lat: None, lng: None,
+            cell: None,
+            lat: None,
+            lng: None,
         });
         assert_eq!(p.calls.len(), 1);
         assert_eq!(p.calls[0].primitive, "emem_ask");
@@ -8469,7 +10956,11 @@ mod tests {
             place: Some("Ashok Nagar, Ranchi".into()),
             description: Some("flood risk and waterlogging".into()),
         });
-        assert_eq!(p.calls.len(), 1, "expected single call to emem_ask, got {p:?}");
+        assert_eq!(
+            p.calls.len(),
+            1,
+            "expected single call to emem_ask, got {p:?}"
+        );
         assert_eq!(p.calls[0].primitive, "emem_ask");
     }
 }

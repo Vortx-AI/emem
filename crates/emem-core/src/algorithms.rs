@@ -123,13 +123,19 @@ pub struct Algorithm {
     #[serde(default = "default_true")]
     pub deterministic: bool,
     /// Optional editorial note explaining a `deterministic = false` entry.
-    #[serde(default, rename = "_deterministic_note", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "_deterministic_note",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub deterministic_note: Option<String>,
     /// Citation — preferred peer-reviewed source for the underlying math.
     pub citation: String,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Algorithms manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,16 +157,23 @@ impl Manifest for AlgorithmRegistry {
     fn validate(&self) -> Result<(), ManifestError> {
         if self.manifest != Self::KIND {
             return Err(ManifestError::WrongKind {
-                expected: Self::KIND, actual: self.manifest.clone(),
+                expected: Self::KIND,
+                actual: self.manifest.clone(),
             });
         }
         let mut seen: std::collections::HashSet<&str> = Default::default();
         for a in &self.algorithms {
             if !seen.insert(&a.key) {
-                return Err(ManifestError::Invalid(format!("duplicate algorithm key: {}", a.key)));
+                return Err(ManifestError::Invalid(format!(
+                    "duplicate algorithm key: {}",
+                    a.key
+                )));
             }
             if a.inputs.is_empty() {
-                return Err(ManifestError::Invalid(format!("algorithm {} has no inputs", a.key)));
+                return Err(ManifestError::Invalid(format!(
+                    "algorithm {} has no inputs",
+                    a.key
+                )));
             }
             if !["scalar", "classification", "vector"].contains(&a.output.kind.as_str()) {
                 return Err(ManifestError::Invalid(format!(
@@ -192,11 +205,14 @@ impl AlgorithmRegistry {
     /// Every key that this algorithm reads from. Useful for an agent
     /// that wants to assemble the right `/v1/recall` body in one shot.
     pub fn input_bands(&self, key: &str) -> Vec<&str> {
-        self.lookup(key).map(|a| {
-            a.inputs.iter()
-                .filter_map(|i| i.band.as_deref())
-                .collect::<Vec<_>>()
-        }).unwrap_or_default()
+        self.lookup(key)
+            .map(|a| {
+                a.inputs
+                    .iter()
+                    .filter_map(|i| i.band.as_deref())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
     }
 }
 

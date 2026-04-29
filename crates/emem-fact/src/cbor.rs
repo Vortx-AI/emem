@@ -18,7 +18,9 @@ pub const TAG_IPLD_CID: u64 = 42;
 /// the input traversal is deterministic (which is true for serde-derived
 /// structs — fields serialize in declaration order). For freeform maps
 /// callers MUST provide pre-sorted keys.
-pub fn to_canonical_cbor<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
+pub fn to_canonical_cbor<T: serde::Serialize>(
+    v: &T,
+) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
     let mut buf = Vec::new();
     ciborium::ser::into_writer(v, &mut buf)?;
     Ok(buf)

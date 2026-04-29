@@ -38,8 +38,7 @@ pub enum BboxError {
 
 impl Bbox {
     /// Construct with validation.
-    pub fn new(lat_min: f64, lat_max: f64,
-                lon_min: f64, lon_max: f64) -> Result<Self, BboxError> {
+    pub fn new(lat_min: f64, lat_max: f64, lon_min: f64, lon_max: f64) -> Result<Self, BboxError> {
         if !(-90.0..=90.0).contains(&lat_min) || !(-90.0..=90.0).contains(&lat_max) {
             return Err(BboxError::OutOfRange("lat"));
         }
@@ -49,20 +48,29 @@ impl Bbox {
         if lat_min > lat_max || lon_min > lon_max {
             return Err(BboxError::Inverted);
         }
-        Ok(Bbox { lat_min, lat_max, lon_min, lon_max })
+        Ok(Bbox {
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        })
     }
 
     /// Centroid (lat, lon).
     pub fn center(&self) -> (f64, f64) {
-        ((self.lat_min + self.lat_max) / 2.0,
-         (self.lon_min + self.lon_max) / 2.0)
+        (
+            (self.lat_min + self.lat_max) / 2.0,
+            (self.lon_min + self.lon_max) / 2.0,
+        )
     }
 
     /// CSV form `"lon_min,lat_min,lon_max,lat_max"` matching STAC search
     /// API conventions.
     pub fn to_csv(&self) -> String {
-        format!("{},{},{},{}",
-                 self.lon_min, self.lat_min, self.lon_max, self.lat_max)
+        format!(
+            "{},{},{},{}",
+            self.lon_min, self.lat_min, self.lon_max, self.lat_max
+        )
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -75,8 +83,11 @@ impl Bbox {
     pub fn lat_band_1deg(&self) -> String {
         let (lat, _) = self.center();
         let i = lat.floor() as i32;
-        if i >= 0 { format!("N{:02}", i) }
-        else      { format!("S{:02}", i.abs()) }
+        if i >= 0 {
+            format!("N{:02}", i)
+        } else {
+            format!("S{:02}", i.abs())
+        }
     }
 
     /// Copernicus DSM 30m longitude band: `Exxx` or `Wxxx` (zero-padded
@@ -84,8 +95,11 @@ impl Bbox {
     pub fn lon_band_1deg(&self) -> String {
         let (_, lon) = self.center();
         let i = lon.floor() as i32;
-        if i >= 0 { format!("E{:03}", i) }
-        else      { format!("W{:03}", i.abs()) }
+        if i >= 0 {
+            format!("E{:03}", i)
+        } else {
+            format!("W{:03}", i.abs())
+        }
     }
 
     /// JRC Global Surface Water tile longitude (10° grid, LEFT edge).
@@ -93,8 +107,11 @@ impl Bbox {
     pub fn lon_left_10deg(&self) -> String {
         let (_, lon) = self.center();
         let edge = (lon / 10.0).floor() as i32 * 10;
-        if edge >= 0 { format!("{}E", edge) }
-        else         { format!("{}W", edge.abs()) }
+        if edge >= 0 {
+            format!("{}E", edge)
+        } else {
+            format!("{}W", edge.abs())
+        }
     }
 
     /// JRC Global Surface Water tile latitude (10° grid, TOP edge).
@@ -102,8 +119,11 @@ impl Bbox {
     pub fn lat_top_10deg(&self) -> String {
         let (lat, _) = self.center();
         let edge = (lat / 10.0).ceil() as i32 * 10;
-        if edge >= 0 { format!("{}N", edge) }
-        else         { format!("{}S", edge.abs()) }
+        if edge >= 0 {
+            format!("{}N", edge)
+        } else {
+            format!("{}S", edge.abs())
+        }
     }
 
     /// Hansen GFC tile latitude band: TOP-of-tile `{NN}{N|S}` with the
@@ -111,8 +131,11 @@ impl Bbox {
     pub fn hansen_lat_band(&self) -> String {
         let (lat, _) = self.center();
         let edge = ((lat / 10.0).ceil() as i32) * 10;
-        if edge >= 0 { format!("{:02}N", edge) }
-        else         { format!("{:02}S", edge.abs()) }
+        if edge >= 0 {
+            format!("{:02}N", edge)
+        } else {
+            format!("{:02}S", edge.abs())
+        }
     }
 
     /// Hansen GFC tile longitude band: LEFT-of-tile `{NNN}{E|W}` with the
@@ -120,8 +143,11 @@ impl Bbox {
     pub fn hansen_lon_band(&self) -> String {
         let (_, lon) = self.center();
         let edge = (lon / 10.0).floor() as i32 * 10;
-        if edge >= 0 { format!("{:03}E", edge) }
-        else         { format!("{:03}W", edge.abs()) }
+        if edge >= 0 {
+            format!("{:03}E", edge)
+        } else {
+            format!("{:03}W", edge.abs())
+        }
     }
 
     /// ESA WorldCover tile id `Nxx{E|W}xxx` snapped to 3° grid.
@@ -158,7 +184,7 @@ mod tests {
 
     #[test]
     fn southern_hemisphere() {
-        let b = Bbox::new(-15.7, -15.3, -47.95, -47.85).unwrap();  // Brazil
+        let b = Bbox::new(-15.7, -15.3, -47.95, -47.85).unwrap(); // Brazil
         assert_eq!(b.lat_band_1deg(), "S16");
         assert_eq!(b.lon_band_1deg(), "W048");
         assert_eq!(b.hansen_lat_band(), "10S");
@@ -173,6 +199,6 @@ mod tests {
     #[test]
     fn csv_format_matches_stac() {
         let b = Bbox::new(1.0, 2.0, 3.0, 4.0).unwrap();
-        assert_eq!(b.to_csv(), "3,1,4,2");  // lon_min,lat_min,lon_max,lat_max
+        assert_eq!(b.to_csv(), "3,1,4,2"); // lon_min,lat_min,lon_max,lat_max
     }
 }

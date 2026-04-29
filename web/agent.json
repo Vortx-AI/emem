@@ -6,27 +6,48 @@
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",
+  "operator": {
+    "name":    "Vortx AI Private Limited",
+    "country": "India",
+    "url":     "https://vortx.ai",
+    "contact": "avijeet@vortx.ai"
+  },
+  "policies": {
+    "privacy_policy":    "https://emem.dev/privacy",
+    "terms_of_service":  "https://emem.dev/terms",
+    "support":           "https://emem.dev/support",
+    "security":          "https://github.com/Vortx-AI/emem/blob/main/SECURITY.md"
+  },
   "surfaces": {
-    "rest": "/openapi.json",
-    "mcp": "/mcp",
-    "well_known": "/.well-known/emem.json",
-    "agent_card": "/v1/agent_card",
-    "quickstart": "/v1/quickstart",
-    "tools": "/v1/tools",
-    "llms_txt": "/llms.txt",
+    "rest":          "/openapi.json",
+    "mcp":           "/mcp",
+    "well_known":    "/.well-known/emem.json",
+    "agent_card":    "/v1/agent_card",
+    "quickstart":    "/v1/quickstart",
+    "tools":         "/v1/tools",
+    "schema":        "/v1/schema",
+    "facts_by_cid":  "/v1/facts/{cid}",
+    "backfill":      "/v1/backfill",
+    "llms_txt":      "/llms.txt",
     "llms_full_txt": "/llms-full.txt"
   },
   "primitives": [
-    "emem.recall", "emem.query_region", "emem.compare", "emem.find_similar",
-    "emem.trajectory", "emem.diff", "emem.verify",
-    "emem.attest", "emem.challenge",
-    "emem.bands", "emem.functions", "emem.sources",
-    "emem.schema", "emem.errors", "emem.manifests",
-    "emem.intent"
+    "emem_recall", "emem_recall_polygon", "emem_query_region",
+    "emem_compare", "emem_compare_bands", "emem_find_similar",
+    "emem_trajectory", "emem_diff", "emem_verify",
+    "emem_fetch", "emem_backfill",
+    "emem_locate", "emem_ask",
+    "emem_attest", "emem_challenge",
+    "emem_bands", "emem_functions", "emem_sources",
+    "emem_schema", "emem_errors", "emem_manifests",
+    "emem_grid_info", "emem_coverage_matrix", "emem_materializers",
+    "emem_algorithms", "emem_coverage_map",
+    "emem_cell_scene_rgb", "emem_cell_geojson",
+    "emem_intent"
   ],
   "address_algebra": {
     "cell": "64-bit packed icosahedral aperture-7 hex (H3-equivalent geometry, wire-encoded as cell64: 4 BPE bigrams)",
-    "tslot": "u64 offset from emem epoch 2026-01-01T00:00:00Z, units = band tempo class slot duration",
+    "tslot": "u64 bucket of the Unix timeline at the band's tempo cadence (slot_seconds = 86400 fast / 2592000 medium / 31536000 slow / 3600 ultra_fast / 0 static). Equal across responders.",
     "band": "logical channel within a 1792D embedding contract; loaded from content-addressed band manifest"
   },
   "crypto": {
@@ -36,10 +57,11 @@
     "merkle_tree": "binary, blake3 leaves over canonical CBOR, leaves canonically-sorted"
   },
   "agent_first_design": {
-    "token_economical": true,
-    "self_describing": true,
-    "signed_receipts": true,
-    "open_data_default": true,
-    "no_keys_required": true
+    "token_economical":     true,
+    "self_describing":      true,
+    "signed_receipts":      true,
+    "open_data_default":    true,
+    "no_keys_required":     true,
+    "every_tool_annotated": true
   }
 }

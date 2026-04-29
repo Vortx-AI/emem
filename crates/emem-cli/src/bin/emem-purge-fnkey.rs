@@ -29,7 +29,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use emem_fact::Fact;
 
 #[derive(Debug)]
@@ -72,11 +72,18 @@ fn parse_args() -> Result<Args> {
             "--apply" => apply = true,
             "--dry-run" => apply = false,
             "--fn-key" => {
-                let v = it.next().context("--fn-key requires a value (comma-separated for multiple)")?;
-                if !fn_keys_set { fn_keys.clear(); fn_keys_set = true; }
+                let v = it
+                    .next()
+                    .context("--fn-key requires a value (comma-separated for multiple)")?;
+                if !fn_keys_set {
+                    fn_keys.clear();
+                    fn_keys_set = true;
+                }
                 for k in v.split(',') {
                     let k = k.trim();
-                    if !k.is_empty() { fn_keys.push(k.to_string()); }
+                    if !k.is_empty() {
+                        fn_keys.push(k.to_string());
+                    }
                 }
             }
             "--no-fn-key" => {
@@ -98,7 +105,14 @@ fn parse_args() -> Result<Args> {
             other => bail!("unknown arg: {other}"),
         }
     }
-    Ok(Args { data_dir, fn_keys, stale_grid, cell_prefix_not, orphan_facts, apply })
+    Ok(Args {
+        data_dir,
+        fn_keys,
+        stale_grid,
+        cell_prefix_not,
+        orphan_facts,
+        apply,
+    })
 }
 
 /// Active-grid cell prefix today. Cells that don't start with this came
@@ -153,7 +167,14 @@ fn main() -> Result<()> {
     if args.orphan_facts {
         println!("orphan_facts    : on (sweep facts not pointed to by any index entry)");
     }
-    println!("mode            : {}", if args.apply { "APPLY (deleting)" } else { "dry-run" });
+    println!(
+        "mode            : {}",
+        if args.apply {
+            "APPLY (deleting)"
+        } else {
+            "dry-run"
+        }
+    );
     println!();
 
     let db = sled::open(&cache_path)
@@ -177,16 +198,25 @@ fn main() -> Result<()> {
         let (k, v) = kv?;
         let cid_str = match std::str::from_utf8(&v) {
             Ok(s) => s.to_string(),
-            Err(_) => { errors_parse += 1; continue; }
+            Err(_) => {
+                errors_parse += 1;
+                continue;
+            }
         };
 
         let raw = match facts.get(cid_str.as_bytes())? {
             Some(b) => b,
-            None => { missing_facts += 1; continue; }
+            None => {
+                missing_facts += 1;
+                continue;
+            }
         };
         let fact: Fact = match ciborium::de::from_reader(raw.as_ref()) {
             Ok(f) => f,
-            Err(_) => { errors_parse += 1; continue; }
+            Err(_) => {
+                errors_parse += 1;
+                continue;
+            }
         };
 
         let (fn_key, cell, band, tslot, value_repr) = match &fact {
@@ -206,9 +236,10 @@ fn main() -> Result<()> {
             ),
             Fact::Derivative(_) => continue,
         };
-        let matches_fn_key = !args.fn_keys.is_empty() && args.fn_keys.iter().any(|k| *k == fn_key);
+        let matches_fn_key = !args.fn_keys.is_empty() && args.fn_keys.contains(&fn_key);
         let matches_stale_grid = args.stale_grid && !cell.starts_with(ACTIVE_GRID_PREFIX);
-        let matches_prefix_not = args.cell_prefix_not
+        let matches_prefix_not = args
+            .cell_prefix_not
             .as_ref()
             .map(|p| cell.starts_with(p))
             .unwrap_or(false);
@@ -218,7 +249,7 @@ fn main() -> Result<()> {
     }
 
     println!("=== matches: {} ===", hits.len());
-    println!("{:<26} {:<40} {:>6}  {}", "cell", "band", "tslot", "value");
+    println!("{:<26} {:<40} {:>6}  value", "cell", "band", "tslot");
     println!("{}", "-".repeat(100));
     for (_idx_key, _cid, cell, band, tslot, val) in &hits {
         println!("{:<26} {:<40} {:>6}  {}", cell, band, tslot, val);
@@ -290,12 +321,18 @@ fn main() -> Result<()> {
     let mut deleted_idx = 0usize;
     let mut deleted_facts = 0usize;
     for (idx_key, cid, _, _, _, _) in &hits {
-        if idx.remove(idx_key)?.is_some() { deleted_idx += 1; }
-        if facts.remove(cid.as_bytes())?.is_some() { deleted_facts += 1; }
+        if idx.remove(idx_key)?.is_some() {
+            deleted_idx += 1;
+        }
+        if facts.remove(cid.as_bytes())?.is_some() {
+            deleted_facts += 1;
+        }
     }
     let mut deleted_orphans = 0usize;
     for cid in &orphan_cids {
-        if facts.remove(cid.as_bytes())?.is_some() { deleted_orphans += 1; }
+        if facts.remove(cid.as_bytes())?.is_some() {
+            deleted_orphans += 1;
+        }
     }
     idx.flush()?;
     facts.flush()?;

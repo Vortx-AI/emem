@@ -6,22 +6,22 @@
 
 #![forbid(unsafe_code)]
 
-pub mod recall;
-pub mod query_region;
+pub mod cbor_ops;
 pub mod compare;
 pub mod compare_bands;
-pub mod find_similar;
-pub mod verify;
 pub mod diff;
-pub mod trajectory;
+pub mod find_similar;
+pub mod query_region;
+pub mod recall;
 pub mod refinement;
-pub mod cbor_ops;
+pub mod trajectory;
+pub mod verify;
 
-pub use recall::{recall, RecallReq, RecallResp};
-pub use query_region::{query_region, QueryRegionReq, QueryRegionResp};
 pub use compare::{compare, CompareReq, CompareResp};
 pub use compare_bands::{compare_bands, CompareBandsReq, CompareBandsResp};
-pub use find_similar::{find_similar, FindSimilarReq, FindSimilarResp, Neighbor};
-pub use verify::{verify, VerifyReq, VerifyResp, Mode};
 pub use diff::{diff, DiffReq, DiffResp};
-pub use trajectory::{trajectory, TrajectoryReq, TrajectoryResp, Point};
+pub use find_similar::{find_similar, FindSimilarReq, FindSimilarResp, Neighbor};
+pub use query_region::{query_region, QueryRegionReq, QueryRegionResp};
+pub use recall::{recall, RecallReq, RecallResp};
+pub use trajectory::{trajectory, Point, TrajectoryReq, TrajectoryResp};
+pub use verify::{verify, Mode, VerifyReq, VerifyResp};

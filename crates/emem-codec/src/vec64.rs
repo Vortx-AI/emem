@@ -21,7 +21,9 @@ pub const VEC64_PREFIX_BYTES: usize = 12;
 /// serialized as raw u16 little-endian bytes).
 pub fn to_vec64(v: &[f32]) -> String {
     let cid = vec64_to_cid(v);
-    BASE32_NOPAD.encode(&cid[..VEC64_PREFIX_BYTES]).to_lowercase()
+    BASE32_NOPAD
+        .encode(&cid[..VEC64_PREFIX_BYTES])
+        .to_lowercase()
 }
 
 /// Compute the full 32-byte CID over the fp16 canonical form of the vector.
@@ -44,13 +46,21 @@ fn f32_to_f16_bits(x: f32) -> u16 {
     let bits = x.to_bits();
     let sign = ((bits >> 16) & 0x8000) as u16;
     let exp = ((bits >> 23) & 0xFF) as i32 - 127 + 15;
-    let mant = (bits & 0x7FFFFF) as u32;
+    let mant = bits & 0x7FFFFF;
 
     if exp >= 31 {
-        return sign | 0x7C00 | if (bits & 0x7FFF_FFFF) > 0x7F80_0000 { 0x200 } else { 0 };
+        return sign
+            | 0x7C00
+            | if (bits & 0x7FFF_FFFF) > 0x7F80_0000 {
+                0x200
+            } else {
+                0
+            };
     }
     if exp <= 0 {
-        if exp < -10 { return sign; }
+        if exp < -10 {
+            return sign;
+        }
         let mant = mant | 0x0080_0000;
         let shift = (14 - exp) as u32;
         let new_mant = (mant >> shift) as u16;

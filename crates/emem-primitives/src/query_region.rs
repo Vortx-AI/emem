@@ -46,12 +46,18 @@ pub struct QueryRegionResp {
 }
 
 /// Run a region query.
-pub async fn query_region(req: &QueryRegionReq, srv: &Server) -> Result<QueryRegionResp, StorageError> {
+pub async fn query_region(
+    req: &QueryRegionReq,
+    srv: &Server,
+) -> Result<QueryRegionResp, StorageError> {
     let started = Instant::now();
     let storage = srv.storage.as_ref();
 
     let cells: Vec<String> = if let Some(rest) = req.geometry.strip_prefix("cells:") {
-        rest.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        rest.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     } else if req.geometry.starts_with("bbox:") || req.geometry.starts_with('{') {
         return Err(StorageError::Protocol {
             code: ErrorCode::InvalidCell,
@@ -75,7 +81,9 @@ pub async fn query_region(req: &QueryRegionReq, srv: &Server) -> Result<QueryReg
                     Fact::Absence(n) => &n.band,
                     Fact::Derivative(d) => &d.band,
                 };
-                if !filter.iter().any(|b| b == band) { continue; }
+                if !filter.iter().any(|b| b == band) {
+                    continue;
+                }
             }
             all_facts.push(fact);
         }
@@ -86,15 +94,12 @@ pub async fn query_region(req: &QueryRegionReq, srv: &Server) -> Result<QueryReg
         Some(op) => aggregate(&all_facts, op)?,
     };
 
-    let receipt = srv.sign_receipt(
-        "emem.query_region",
-        cells,
-        all_cids,
-        true,
-        started,
-        None,
-    );
-    Ok(QueryRegionResp { facts: all_facts, aggregates, receipt })
+    let receipt = srv.sign_receipt("emem.query_region", cells, all_cids, true, started, None);
+    Ok(QueryRegionResp {
+        facts: all_facts,
+        aggregates,
+        receipt,
+    })
 }
 
 fn aggregate(facts: &[Fact], op: &str) -> Result<BTreeMap<String, ciborium::Value>, StorageError> {
@@ -111,38 +116,60 @@ fn aggregate(facts: &[Fact], op: &str) -> Result<BTreeMap<String, ciborium::Valu
             "median" => agg_median(&values),
             "p90" => agg_percentile(&values, 0.90),
             "vector_centroid" => agg_vector_centroid(&values),
-            other => return Err(StorageError::Protocol {
-                code: ErrorCode::Internal,
-                message: format!("unknown aggregation: {other}"),
-            }),
+            other => {
+                return Err(StorageError::Protocol {
+                    code: ErrorCode::Internal,
+                    message: format!("unknown aggregation: {other}"),
+                })
+            }
         };
-        if let Some(v) = agg { out.insert(band, v); }
+        if let Some(v) = agg {
+            out.insert(band, v);
+        }
     }
     Ok(out)
 }
 
 fn agg_mean(values: &[&ciborium::Value]) -> Option<ciborium::Value> {
     let nums: Vec<f64> = values.iter().filter_map(|v| as_f64(v)).collect();
-    if nums.is_empty() { return None; }
-    Some(ciborium::Value::Float(nums.iter().sum::<f64>() / nums.len() as f64))
+    if nums.is_empty() {
+        return None;
+    }
+    Some(ciborium::Value::Float(
+        nums.iter().sum::<f64>() / nums.len() as f64,
+    ))
 }
 
 fn agg_median(values: &[&ciborium::Value]) -> Option<ciborium::Value> {
     // Strip NaN before aggregating: a single NaN would otherwise contaminate
     // the median via partial_cmp's undefined ordering.
-    let mut nums: Vec<f64> = values.iter().filter_map(|v| as_f64(v))
-        .filter(|x| !x.is_nan()).collect();
-    if nums.is_empty() { return None; }
+    let mut nums: Vec<f64> = values
+        .iter()
+        .filter_map(|v| as_f64(v))
+        .filter(|x| !x.is_nan())
+        .collect();
+    if nums.is_empty() {
+        return None;
+    }
     nums.sort_by(|a, b| a.total_cmp(b));
     let mid = nums.len() / 2;
-    let m = if nums.len() % 2 == 0 { (nums[mid - 1] + nums[mid]) / 2.0 } else { nums[mid] };
+    let m = if nums.len().is_multiple_of(2) {
+        (nums[mid - 1] + nums[mid]) / 2.0
+    } else {
+        nums[mid]
+    };
     Some(ciborium::Value::Float(m))
 }
 
 fn agg_percentile(values: &[&ciborium::Value], p: f64) -> Option<ciborium::Value> {
-    let mut nums: Vec<f64> = values.iter().filter_map(|v| as_f64(v))
-        .filter(|x| !x.is_nan()).collect();
-    if nums.is_empty() { return None; }
+    let mut nums: Vec<f64> = values
+        .iter()
+        .filter_map(|v| as_f64(v))
+        .filter(|x| !x.is_nan())
+        .collect();
+    if nums.is_empty() {
+        return None;
+    }
     nums.sort_by(|a, b| a.total_cmp(b));
     let idx = ((nums.len() - 1) as f64 * p).round() as usize;
     Some(ciborium::Value::Float(nums[idx]))
@@ -150,15 +177,22 @@ fn agg_percentile(values: &[&ciborium::Value], p: f64) -> Option<ciborium::Value
 
 fn agg_vector_centroid(values: &[&ciborium::Value]) -> Option<ciborium::Value> {
     let vecs: Vec<Vec<f32>> = values.iter().filter_map(|v| as_vec_f32(v)).collect();
-    if vecs.is_empty() { return None; }
+    if vecs.is_empty() {
+        return None;
+    }
     let dim = vecs[0].len();
-    if !vecs.iter().all(|v| v.len() == dim) { return None; }
+    if !vecs.iter().all(|v| v.len() == dim) {
+        return None;
+    }
     let mut sum = vec![0f64; dim];
     for v in &vecs {
-        for (i, x) in v.iter().enumerate() { sum[i] += *x as f64; }
+        for (i, x) in v.iter().enumerate() {
+            sum[i] += *x as f64;
+        }
     }
     let n = vecs.len() as f64;
-    let mean: Vec<ciborium::Value> = sum.into_iter()
+    let mean: Vec<ciborium::Value> = sum
+        .into_iter()
         .map(|s| ciborium::Value::Float(s / n))
         .collect();
     Some(ciborium::Value::Array(mean))

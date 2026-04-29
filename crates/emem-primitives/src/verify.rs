@@ -69,18 +69,27 @@ pub async fn verify(req: &VerifyReq, srv: &Server) -> Result<VerifyResp, Storage
     }
 
     let pairs = storage.scan_cell(&req.cell, None).await?;
-    let scoped: Vec<(emem_cache::CanonicalKey, FactCid)> = pairs.into_iter().filter(|(k, _)| {
-        if k.band != req.claim.band { return false; }
-        match (req.claim.tslot, req.claim.window) {
-            (Some(t), _) => k.tslot == t,
-            (None, Some([s, e])) => k.tslot >= s && k.tslot <= e,
-            (None, None) => true,
-        }
-    }).collect();
+    let scoped: Vec<(emem_cache::CanonicalKey, FactCid)> = pairs
+        .into_iter()
+        .filter(|(k, _)| {
+            if k.band != req.claim.band {
+                return false;
+            }
+            match (req.claim.tslot, req.claim.window) {
+                (Some(t), _) => k.tslot == t,
+                (None, Some([s, e])) => k.tslot >= s && k.tslot <= e,
+                (None, None) => true,
+            }
+        })
+        .collect();
 
     let cids: Vec<FactCid> = scoped.iter().map(|(_, c)| c.clone()).collect();
-    let facts: Vec<Fact> = storage.get_facts_many(&cids).await?
-        .into_iter().flatten().collect();
+    let facts: Vec<Fact> = storage
+        .get_facts_many(&cids)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
     let mut values: Vec<&ciborium::Value> = Vec::new();
     let mut absences = false;
@@ -102,13 +111,23 @@ pub async fn verify(req: &VerifyReq, srv: &Server) -> Result<VerifyResp, Storage
         started,
         None,
     );
-    Ok(VerifyResp { verdict, evidence: cids, receipt })
+    Ok(VerifyResp {
+        verdict,
+        evidence: cids,
+        receipt,
+    })
 }
 
 fn evaluate(claim: &Claim, values: &[&ciborium::Value], absences: bool) -> bool {
-    if matches!(claim.op, Op::Exists) { return !values.is_empty(); }
-    if matches!(claim.op, Op::Absent) { return absences; }
-    if values.is_empty() { return false; }
+    if matches!(claim.op, Op::Exists) {
+        return !values.is_empty();
+    }
+    if matches!(claim.op, Op::Absent) {
+        return absences;
+    }
+    if values.is_empty() {
+        return false;
+    }
 
     let agg = claim.agg.as_deref().unwrap_or("any");
     let per: Vec<bool> = values.iter().map(|v| eval_one(claim, v)).collect();
@@ -117,10 +136,13 @@ fn evaluate(claim: &Claim, values: &[&ciborium::Value], absences: bool) -> bool 
         "all" => per.iter().all(|x| *x),
         // Numeric aggregates compare a fold of values to claim.value.
         "mean" | "min" | "max" => {
-            let nums: Vec<f64> = values.iter()
+            let nums: Vec<f64> = values
+                .iter()
                 .filter_map(|v| crate::cbor_ops::as_f64(v))
                 .collect();
-            if nums.is_empty() { return false; }
+            if nums.is_empty() {
+                return false;
+            }
             let folded = match agg {
                 "mean" => nums.iter().sum::<f64>() / nums.len() as f64,
                 "min" => nums.iter().cloned().fold(f64::INFINITY, f64::min),

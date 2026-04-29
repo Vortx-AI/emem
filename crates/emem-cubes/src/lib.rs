@@ -34,7 +34,11 @@ impl Cube {
         let meta = std::fs::metadata(&path)?;
         // Approximate pixel count assuming float16 storage (2 bytes × 1792 dims).
         let n_pixels = (meta.len() as usize).saturating_div(2 * 1792);
-        Ok(Cube { n_pixels, dims: 1792, path })
+        Ok(Cube {
+            n_pixels,
+            dims: 1792,
+            path,
+        })
     }
 }
 

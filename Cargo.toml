@@ -20,7 +20,7 @@ members = [
 [workspace.package]
 version = "0.0.2"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/Vortx-AI/emem"
 authors = ["Vortx-AI"]

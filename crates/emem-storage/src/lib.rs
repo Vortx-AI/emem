@@ -62,44 +62,52 @@ pub struct MaterializingStorage {
 #[async_trait]
 pub trait Storage: Send + Sync {
     /// Look up canonical fact CIDs for many keys.
-    async fn lookup_canonical_many(&self, keys: &[CanonicalKey])
-        -> Result<Vec<Option<FactCid>>, StorageError>;
+    async fn lookup_canonical_many(
+        &self,
+        keys: &[CanonicalKey],
+    ) -> Result<Vec<Option<FactCid>>, StorageError>;
 
     /// Fetch many facts by CID.
-    async fn get_facts_many(&self, cids: &[FactCid])
-        -> Result<Vec<Option<Fact>>, StorageError>;
+    async fn get_facts_many(&self, cids: &[FactCid]) -> Result<Vec<Option<Fact>>, StorageError>;
 
     /// Persist an attestation. Verifies the merkle root + ed25519
     /// signature before committing. Returns CIDs of stored facts.
-    async fn put_attestation(&self, att: &Attestation)
-        -> Result<Vec<FactCid>, StorageError>;
+    async fn put_attestation(&self, att: &Attestation) -> Result<Vec<FactCid>, StorageError>;
 
     /// Lazy materialization entry point: ensure facts exist for these keys,
     /// fetching + computing + attesting on miss. Returns the resolved CIDs
     /// in the same order as inputs.
-    async fn materialize_many(&self, keys: &[CanonicalKey])
-        -> Result<Vec<FactCid>, StorageError>;
+    async fn materialize_many(&self, keys: &[CanonicalKey]) -> Result<Vec<FactCid>, StorageError>;
 
     /// Scan all (canonical_key, fact_cid) pairs whose key shares the given
     /// cell, optionally filtered by tslot. Returned order is index order.
-    async fn scan_cell(&self, cell: &str, tslot: Option<u64>)
-        -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>;
+    async fn scan_cell(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>;
 
     /// Iterate every (canonical_key, fact_cid) in the index. Used by
     /// corpus-wide scans (find_similar). Bounded by the optional `limit`
     /// to keep responses tractable.
-    async fn iter_index(&self, limit: Option<usize>)
-        -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>;
+    async fn iter_index(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>;
 
     /// Borrow the per-attester reputation tracker, if this storage backend
     /// runs one. Optional because ephemeral / read-only deploys may skip it.
-    fn attesters(&self) -> Option<&AttesterRegistry> { None }
+    fn attesters(&self) -> Option<&AttesterRegistry> {
+        None
+    }
 
     /// Borrow the hot-cache sled DB if one is mounted, so callers (e.g.
     /// the API layer's agent-stats persistence) can open auxiliary trees
     /// alongside the canonical index. Optional: ephemeral or non-sled
     /// backends return `None`.
-    fn hot_sled_db(&self) -> Option<&sled::Db> { None }
+    fn hot_sled_db(&self) -> Option<&sled::Db> {
+        None
+    }
 }
 
 /// Storage errors.
@@ -173,7 +181,9 @@ impl MaterializingStorage {
             cache: hot.clone(),
             hot: Some(hot),
             fetch,
-            bands, functions, sources,
+            bands,
+            functions,
+            sources,
             log,
             attesters,
         })
@@ -198,7 +208,9 @@ impl MaterializingStorage {
             cache: hot.clone(),
             hot: Some(hot),
             fetch,
-            bands, functions, sources,
+            bands,
+            functions,
+            sources,
             log,
             attesters,
         })
@@ -214,15 +226,14 @@ fn tempdir_for_log() -> std::io::Result<std::path::PathBuf> {
 
 #[async_trait]
 impl Storage for MaterializingStorage {
-    async fn lookup_canonical_many(&self, keys: &[CanonicalKey])
-        -> Result<Vec<Option<FactCid>>, StorageError>
-    {
+    async fn lookup_canonical_many(
+        &self,
+        keys: &[CanonicalKey],
+    ) -> Result<Vec<Option<FactCid>>, StorageError> {
         Ok(self.cache.lookup_many(keys).await?)
     }
 
-    async fn get_facts_many(&self, cids: &[FactCid])
-        -> Result<Vec<Option<Fact>>, StorageError>
-    {
+    async fn get_facts_many(&self, cids: &[FactCid]) -> Result<Vec<Option<Fact>>, StorageError> {
         let facts = self.cache.get_many(cids).await?;
         // Citation rollup — increments per-attester citation counters for
         // facts that were actually served. Best-effort: a tracker error
@@ -238,9 +249,7 @@ impl Storage for MaterializingStorage {
         Ok(facts)
     }
 
-    async fn put_attestation(&self, att: &Attestation)
-        -> Result<Vec<FactCid>, StorageError>
-    {
+    async fn put_attestation(&self, att: &Attestation) -> Result<Vec<FactCid>, StorageError> {
         verify_attestation(att)?;
         let cids = self.cache.put_many(&att.facts).await?;
         self.log.append(att).await?;
@@ -252,12 +261,10 @@ impl Storage for MaterializingStorage {
         Ok(cids)
     }
 
-    async fn materialize_many(&self, keys: &[CanonicalKey])
-        -> Result<Vec<FactCid>, StorageError>
-    {
+    async fn materialize_many(&self, keys: &[CanonicalKey]) -> Result<Vec<FactCid>, StorageError> {
         let hits = self.cache.lookup_many(keys).await?;
         let mut out: Vec<FactCid> = Vec::with_capacity(keys.len());
-        for (key, hit) in keys.iter().zip(hits.into_iter()) {
+        for (key, hit) in keys.iter().zip(hits) {
             match hit {
                 Some(cid) => out.push(cid),
                 None => {
@@ -270,31 +277,34 @@ impl Storage for MaterializingStorage {
         Ok(out)
     }
 
-    async fn scan_cell(&self, cell: &str, tslot: Option<u64>)
-        -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>
-    {
-        let hot = self.hot.as_ref().ok_or_else(|| {
-            StorageError::Protocol {
-                code: ErrorCode::Internal,
-                message: "scan_cell requires a SledHotCache handle".into(),
-            }
+    async fn scan_cell(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "scan_cell requires a SledHotCache handle".into(),
         })?;
         Ok(hot.scan_cell(cell, tslot)?)
     }
 
-    async fn iter_index(&self, limit: Option<usize>)
-        -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>
-    {
-        let hot = self.hot.as_ref().ok_or_else(|| {
-            StorageError::Protocol {
-                code: ErrorCode::Internal,
-                message: "iter_index requires a SledHotCache handle".into(),
-            }
+    async fn iter_index(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "iter_index requires a SledHotCache handle".into(),
         })?;
         let mut out = Vec::new();
         for entry in hot.iter_index() {
             out.push(entry?);
-            if let Some(n) = limit { if out.len() >= n { break; } }
+            if let Some(n) = limit {
+                if out.len() >= n {
+                    break;
+                }
+            }
         }
         Ok(out)
     }
@@ -329,7 +339,9 @@ fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
     if root != att.batch_root {
         return Err(StorageError::AttestationInvalid(format!(
             "merkle root mismatch: computed={} declared={}",
-            hex32(&root), hex32(&att.batch_root))));
+            hex32(&root),
+            hex32(&att.batch_root)
+        )));
     }
 
     let mut h = Hasher::new();
@@ -348,6 +360,8 @@ fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
 
 fn hex32(b: &[u8; 32]) -> String {
     let mut s = String::with_capacity(64);
-    for x in b { s.push_str(&format!("{:02x}", x)); }
+    for x in b {
+        s.push_str(&format!("{:02x}", x));
+    }
     s
 }

@@ -8,9 +8,15 @@
 /// then the target resolution (if different).
 pub fn schedule(target_res: u8) -> Vec<u8> {
     let mut s = Vec::with_capacity(3);
-    if target_res >= 9 { s.push(9); }
-    if target_res >= 11 && target_res != 9 { s.push(11); }
-    if !s.contains(&target_res) { s.push(target_res); }
+    if target_res >= 9 {
+        s.push(9);
+    }
+    if target_res >= 11 && target_res != 9 {
+        s.push(11);
+    }
+    if !s.contains(&target_res) {
+        s.push(target_res);
+    }
     s
 }
 

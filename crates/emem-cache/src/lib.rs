@@ -30,7 +30,11 @@ use emem_fact::{Fact, FactCid};
 /// A cache tier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Tier { Hot, Warm, Cold }
+pub enum Tier {
+    Hot,
+    Warm,
+    Cold,
+}
 
 /// Lookup key for the canonical-fact index.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]

@@ -25,14 +25,16 @@ use std::sync::Arc;
 use emem_api_rest::default_manifest_cids;
 use emem_core::manifest::manifest_cid;
 use emem_fact::{RegistryCid, SchemaCid};
-use emem_storage::{server::ResponderIdentity, MaterializingStorage, Server};
 use emem_storage::server::ManifestCids;
+use emem_storage::{server::ResponderIdentity, MaterializingStorage, Server};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .init();
 
     let bind = std::env::var("EMEM_BIND").unwrap_or_else(|_| "0.0.0.0:5051".into());
@@ -86,8 +88,14 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("  POST /v1/recall, /v1/compare, /v1/find_similar, /v1/diff, ...");
     eprintln!("  POST /mcp  (MCP JSON-RPC 2.0)");
 
-    let tls_domains = std::env::var("EMEM_TLS_DOMAINS").ok()
-        .map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>())
+    let tls_domains = std::env::var("EMEM_TLS_DOMAINS")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
 
     if tls_domains.is_empty() {
@@ -96,27 +104,32 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(%bind, "emem listening (plain HTTP)");
         eprintln!("emem listening on http://{bind}");
         let shutdown = shutdown_signal();
-        axum::serve(listener, app).with_graceful_shutdown(shutdown).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown)
+            .await?;
     } else {
         // Native TLS via rustls + Let's Encrypt (TLS-ALPN-01). Only :443 needed.
         let tls_bind: std::net::SocketAddr = std::env::var("EMEM_TLS_BIND")
             .unwrap_or_else(|_| "0.0.0.0:443".into())
             .parse()
             .map_err(|e| anyhow::anyhow!("EMEM_TLS_BIND parse failed: {e}"))?;
-        let contact = std::env::var("EMEM_TLS_CONTACT")
-            .unwrap_or_else(|_| "mailto:avijeet@vortx.ai".into());
+        let contact =
+            std::env::var("EMEM_TLS_CONTACT").unwrap_or_else(|_| "mailto:avijeet@vortx.ai".into());
         let staging = std::env::var("EMEM_TLS_STAGING").ok().as_deref() == Some("1");
         let cache_dir = std::path::Path::new(&data).join("acme.cache");
         std::fs::create_dir_all(&cache_dir).ok();
 
         tracing::info!(?tls_domains, %tls_bind, %contact, staging, cache=%cache_dir.display(),
             "emem listening (HTTPS, ACME via TLS-ALPN-01)");
-        eprintln!("emem listening on https://{tls_bind} for {:?}  (staging={})", tls_domains, staging);
+        eprintln!(
+            "emem listening on https://{tls_bind} for {:?}  (staging={})",
+            tls_domains, staging
+        );
 
         use futures_util::StreamExt;
+        use rustls_acme::axum::AxumAcceptor;
         use rustls_acme::caches::DirCache;
         use rustls_acme::AcmeConfig;
-        use rustls_acme::axum::AxumAcceptor;
 
         let mut state = AcmeConfig::new(tls_domains.clone())
             .contact_push(contact)
@@ -145,7 +158,8 @@ async fn main() -> anyhow::Result<()> {
                 if let Ok(listener) = tokio::net::TcpListener::bind(&bind).await {
                     tracing::info!(%bind, "emem also listening on plain HTTP for local agents");
                     let _ = axum::serve(listener, app_for_http)
-                        .with_graceful_shutdown(shutdown_signal()).await;
+                        .with_graceful_shutdown(shutdown_signal())
+                        .await;
                 }
             });
         }
@@ -161,7 +175,9 @@ async fn main() -> anyhow::Result<()> {
 
 async fn shutdown_signal() {
     use tokio::signal;
-    let ctrl_c = async { let _ = signal::ctrl_c().await; };
+    let ctrl_c = async {
+        let _ = signal::ctrl_c().await;
+    };
     #[cfg(unix)]
     let term = async {
         if let Ok(mut s) = signal::unix::signal(signal::unix::SignalKind::terminate()) {
@@ -206,10 +222,14 @@ fn load_or_create_identity(data_dir: &str) -> anyhow::Result<ResponderIdentity> 
 }
 
 fn decode_secret(s: &str) -> anyhow::Result<ResponderIdentity> {
-    let bytes = data_encoding::BASE32_NOPAD.decode(s.trim().to_uppercase().as_bytes())
+    let bytes = data_encoding::BASE32_NOPAD
+        .decode(s.trim().to_uppercase().as_bytes())
         .map_err(|e| anyhow::anyhow!("ed25519 secret must be base32-nopad: {e}"))?;
     if bytes.len() != 32 {
-        anyhow::bail!("ed25519 secret must decode to 32 bytes, got {}", bytes.len());
+        anyhow::bail!(
+            "ed25519 secret must decode to 32 bytes, got {}",
+            bytes.len()
+        );
     }
     let mut sec = [0u8; 32];
     sec.copy_from_slice(&bytes);

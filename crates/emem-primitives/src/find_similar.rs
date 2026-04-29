@@ -61,7 +61,10 @@ pub struct FindSimilarResp {
 }
 
 /// Run brute-force k-NN over the given band's vector facts.
-pub async fn find_similar(req: &FindSimilarReq, srv: &Server) -> Result<FindSimilarResp, StorageError> {
+pub async fn find_similar(
+    req: &FindSimilarReq,
+    srv: &Server,
+) -> Result<FindSimilarResp, StorageError> {
     let started = Instant::now();
     let storage = srv.storage.as_ref();
     let k = req.k.unwrap_or(10).min(1000) as usize;
@@ -89,10 +92,15 @@ pub async fn find_similar(req: &FindSimilarReq, srv: &Server) -> Result<FindSimi
         } else {
             let pairs = storage.scan_cell(&req.key, None).await.unwrap_or_default();
             let mut b: Vec<String> = pairs.into_iter().map(|(k, _)| k.band).collect();
-            b.sort(); b.dedup(); b
+            b.sort();
+            b.dedup();
+            b
         };
         let hint = if cell_bands.is_empty() {
-            format!("cell {} has no attested facts at all — call /v1/recall first to materialize bands", req.key)
+            format!(
+                "cell {} has no attested facts at all — call /v1/recall first to materialize bands",
+                req.key
+            )
         } else {
             format!(
                 "cell {} has bands {:?} but none under requested band {}. \
@@ -102,7 +110,10 @@ pub async fn find_similar(req: &FindSimilarReq, srv: &Server) -> Result<FindSimi
         };
         return Err(StorageError::Protocol {
             code: ErrorCode::CidNotFound,
-            message: format!("find_similar: no vector found for key='{}' band='{}'. Hint: {}", req.key, band, hint),
+            message: format!(
+                "find_similar: no vector found for key='{}' band='{}'. Hint: {}",
+                req.key, band, hint
+            ),
         });
     }
 
@@ -118,14 +129,23 @@ pub async fn find_similar(req: &FindSimilarReq, srv: &Server) -> Result<FindSimi
         Some(req.key.as_str())
     };
     for (key, cid) in entries {
-        if key.band != band { continue; }
-        if Some(key.cell.as_str()) == self_match { continue; }
-        let facts = storage.get_facts_many(&[cid.clone()]).await?;
-        let Some(Some(fact)) = facts.into_iter().next() else { continue; };
+        if key.band != band {
+            continue;
+        }
+        if Some(key.cell.as_str()) == self_match {
+            continue;
+        }
+        let facts = storage.get_facts_many(std::slice::from_ref(&cid)).await?;
+        let Some(Some(fact)) = facts.into_iter().next() else {
+            continue;
+        };
         if let Fact::Primary(p) = fact {
             if let Some(vec) = as_vec_f32(&p.value) {
                 let score = cosine(&query_vec, &vec);
-                scored.push(Neighbor { cell: key.cell, score });
+                scored.push(Neighbor {
+                    cell: key.cell,
+                    score,
+                });
             }
         }
     }
@@ -145,7 +165,10 @@ pub async fn find_similar(req: &FindSimilarReq, srv: &Server) -> Result<FindSimi
         started,
         None,
     );
-    Ok(FindSimilarResp { neighbors: scored, receipt })
+    Ok(FindSimilarResp {
+        neighbors: scored,
+        receipt,
+    })
 }
 
 fn parse_inline_vec(s: &str) -> Result<Vec<f32>, StorageError> {
@@ -153,11 +176,15 @@ fn parse_inline_vec(s: &str) -> Result<Vec<f32>, StorageError> {
     let mut out = Vec::new();
     for tok in trimmed.split(',') {
         let t = tok.trim();
-        if t.is_empty() { continue; }
-        let f: f32 = t.parse().map_err(|e: std::num::ParseFloatError| StorageError::Protocol {
-            code: ErrorCode::Internal,
-            message: format!("inline vector parse error '{t}': {e}"),
-        })?;
+        if t.is_empty() {
+            continue;
+        }
+        let f: f32 = t
+            .parse()
+            .map_err(|e: std::num::ParseFloatError| StorageError::Protocol {
+                code: ErrorCode::Internal,
+                message: format!("inline vector parse error '{t}': {e}"),
+            })?;
         out.push(f);
     }
     Ok(out)
@@ -169,7 +196,8 @@ async fn load_cell_vec(
     band: &str,
 ) -> Result<Vec<f32>, StorageError> {
     let entries = storage.scan_cell(cell, None).await?;
-    let band_entries: Vec<&FactCid> = entries.iter()
+    let band_entries: Vec<&FactCid> = entries
+        .iter()
         .filter(|(k, _)| k.band == band)
         .map(|(_, c)| c)
         .collect();
@@ -177,7 +205,9 @@ async fn load_cell_vec(
     // No facts exist on this cell for the requested band. Return empty
     // and let the caller produce a clean CidNotFound; an agent reading
     // that error knows to try a different (cell, band) combination.
-    if band_entries.is_empty() { return Ok(Vec::new()); }
+    if band_entries.is_empty() {
+        return Ok(Vec::new());
+    }
 
     let cids: Vec<FactCid> = band_entries.into_iter().cloned().collect();
     let facts = storage.get_facts_many(&cids).await?;

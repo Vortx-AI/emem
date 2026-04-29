@@ -16,6 +16,29 @@
       "sizes": ["any"]
     }
   ],
+  "x-emem": {
+    "operator": {
+      "name":     "Vortx AI Private Limited",
+      "country":  "India",
+      "url":      "https://vortx.ai"
+    },
+    "contact": {
+      "name":  "Avijeet",
+      "email": "avijeet@vortx.ai",
+      "url":   "https://emem.dev"
+    },
+    "privacyPolicyUrl":   "https://emem.dev/privacy",
+    "termsOfServiceUrl":  "https://emem.dev/terms",
+    "supportUrl":         "https://emem.dev/support",
+    "issuesUrl":          "https://github.com/Vortx-AI/emem/issues",
+    "documentationUrl":   "https://github.com/Vortx-AI/emem/blob/main/docs/SPEC.md",
+    "directoryCompliance": {
+      "annotations":     "every tool emits title + annotations.{readOnlyHint,destructiveHint} on tools/list",
+      "transport":       "MCP Streamable HTTP (2025-03-26) over HTTPS",
+      "auth":            "unauthenticated public-read; writes (emem_attest, emem_challenge) authenticated by ed25519 signature on the request body",
+      "originAllowlist": "EMEM_ALLOWED_ORIGINS env var (comma-separated) flips CORS from `*` to a strict allowlist with Vary: Origin"
+    }
+  },
   "packages": [
     {
       "registryType": "oci",

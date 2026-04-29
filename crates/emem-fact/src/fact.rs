@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use emem_core::{AttesterKey, Signature};
 use crate::cid::{FactCid, ReasonCid, SchemaCid};
+use emem_core::AttesterKey;
 
 /// Tagged enum over the three fact variants. Tag is the CBOR field `kind`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,15 +19,19 @@ pub enum Fact {
 
 /// String enum used for switching at the wire level.
 pub mod kind {
-    pub const PRIMARY: &str    = "primary";
+    pub const PRIMARY: &str = "primary";
     pub const DERIVATIVE: &str = "derivative";
-    pub const ABSENCE: &str    = "absence";
+    pub const ABSENCE: &str = "absence";
 }
 
 /// The kind discriminator (matches `Fact` variants).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FactKind { Primary, Derivative, Absence }
+pub enum FactKind {
+    Primary,
+    Derivative,
+    Absence,
+}
 
 /// A primary observation.
 #[derive(Debug, Clone, Serialize, Deserialize)]

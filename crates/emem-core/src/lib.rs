@@ -21,30 +21,30 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod cell;
-pub mod bbox;
-pub mod tslot;
-pub mod manifest;
-pub mod bands;
-pub mod functions;
-pub mod sources;
 pub mod algorithms;
-pub mod schema;
-pub mod taxonomy;
-pub mod privacy;
-pub mod key;
+pub mod bands;
+pub mod bbox;
+pub mod cell;
 pub mod error;
+pub mod functions;
+pub mod key;
+pub mod manifest;
+pub mod privacy;
+pub mod schema;
+pub mod sources;
+pub mod taxonomy;
+pub mod tslot;
 
-pub use cell::{Cell, Resolution, BaseCell, Mode, DEFAULT_RESOLUTION, MAX_RESOLUTION};
-pub use bbox::{Bbox, BboxError};
-pub use tslot::{Tslot, Tempo};
-pub use manifest::{Manifest, ManifestError, manifest_cid};
+pub use algorithms::{Algorithm, AlgorithmInput, AlgorithmKind, AlgorithmRegistry};
 pub use bands::{Band, BandFamily, BandRegistry};
-pub use functions::{Function, FnKind, FunctionRegistry, SourceRequirement};
-pub use sources::{SourceRegistry, SourceScheme, Provider, ConnectorKind};
-pub use algorithms::{Algorithm, AlgorithmKind, AlgorithmRegistry, AlgorithmInput};
-pub use schema::{SchemaFragment, SchemaRegistry};
-pub use taxonomy::{Lcv1, LcvFamily};
-pub use privacy::PrivacyClass;
-pub use key::{AttesterKey, KeyEpoch, Signature};
+pub use bbox::{Bbox, BboxError};
+pub use cell::{BaseCell, Cell, Mode, Resolution, DEFAULT_RESOLUTION, MAX_RESOLUTION};
 pub use error::{Error, ErrorCode};
+pub use functions::{FnKind, Function, FunctionRegistry, SourceRequirement};
+pub use key::{AttesterKey, KeyEpoch, Signature};
+pub use manifest::{manifest_cid, Manifest, ManifestError};
+pub use privacy::PrivacyClass;
+pub use schema::{SchemaFragment, SchemaRegistry};
+pub use sources::{ConnectorKind, Provider, SourceRegistry, SourceScheme};
+pub use taxonomy::{Lcv1, LcvFamily};
+pub use tslot::{Tempo, Tslot};

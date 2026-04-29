@@ -61,10 +61,18 @@ pub async fn compare(req: &CompareReq, srv: &Server) -> Result<CompareResp, Stor
     let a_cids: Vec<FactCid> = a_pairs.iter().map(|(_, c)| c.clone()).collect();
     let b_cids: Vec<FactCid> = b_pairs.iter().map(|(_, c)| c.clone()).collect();
 
-    let a_facts: Vec<Fact> = storage.get_facts_many(&a_cids).await?
-        .into_iter().flatten().collect();
-    let b_facts: Vec<Fact> = storage.get_facts_many(&b_cids).await?
-        .into_iter().flatten().collect();
+    let a_facts: Vec<Fact> = storage
+        .get_facts_many(&a_cids)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
+    let b_facts: Vec<Fact> = storage
+        .get_facts_many(&b_cids)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
     let mut a_by_band: BTreeMap<String, ciborium::Value> = BTreeMap::new();
     let mut b_by_band: BTreeMap<String, ciborium::Value> = BTreeMap::new();
@@ -87,7 +95,9 @@ pub async fn compare(req: &CompareReq, srv: &Server) -> Result<CompareResp, Stor
     let mut concat_a: Vec<f32> = Vec::new();
     let mut concat_b: Vec<f32> = Vec::new();
     for (band, va) in &a_by_band {
-        let Some(vb) = b_by_band.get(band) else { continue; };
+        let Some(vb) = b_by_band.get(band) else {
+            continue;
+        };
         if let (Some(av), Some(bv)) = (as_vec_f32(va), as_vec_f32(vb)) {
             let c = cosine(&av, &bv);
             per_band.insert(band.clone(), f32_to_cbor(c));
@@ -100,23 +110,38 @@ pub async fn compare(req: &CompareReq, srv: &Server) -> Result<CompareResp, Stor
     }
 
     let (summary_cos, note) = if concat_a.is_empty() {
-        (None, Some(format!(
-            "no vector band shared by both cells — cosine is undefined here. \
+        (
+            None,
+            Some(format!(
+                "no vector band shared by both cells — cosine is undefined here. \
              Cells share {} scalar band(s): {:?}. To get a similarity score, \
              materialize a vector band like `geotessera` at both cells \
              (e.g. by passing it explicitly to /v1/recall) before comparing.",
-            per_band.len(),
-            per_band.keys().cloned().collect::<Vec<_>>(),
-        )))
+                per_band.len(),
+                per_band.keys().cloned().collect::<Vec<_>>(),
+            )),
+        )
     } else {
         (Some(cosine(&concat_a, &concat_b)), None)
     };
 
-    let mut shared_bands: Vec<String> = a_by_band.keys().filter(|k| b_by_band.contains_key(*k)).cloned().collect();
+    let mut shared_bands: Vec<String> = a_by_band
+        .keys()
+        .filter(|k| b_by_band.contains_key(*k))
+        .cloned()
+        .collect();
     shared_bands.sort();
-    let mut only_a: Vec<String> = a_by_band.keys().filter(|k| !b_by_band.contains_key(*k)).cloned().collect();
+    let mut only_a: Vec<String> = a_by_band
+        .keys()
+        .filter(|k| !b_by_band.contains_key(*k))
+        .cloned()
+        .collect();
     only_a.sort();
-    let mut only_b: Vec<String> = b_by_band.keys().filter(|k| !a_by_band.contains_key(*k)).cloned().collect();
+    let mut only_b: Vec<String> = b_by_band
+        .keys()
+        .filter(|k| !a_by_band.contains_key(*k))
+        .cloned()
+        .collect();
     only_b.sort();
 
     let mut all_cids = a_cids.clone();
@@ -129,7 +154,15 @@ pub async fn compare(req: &CompareReq, srv: &Server) -> Result<CompareResp, Stor
         started,
         None,
     );
-    Ok(CompareResp { cosine: summary_cos, per_band, shared_bands, only_a, only_b, note, receipt })
+    Ok(CompareResp {
+        cosine: summary_cos,
+        per_band,
+        shared_bands,
+        only_a,
+        only_b,
+        note,
+        receipt,
+    })
 }
 
 fn filter_band(band: &str, family: Option<&str>) -> bool {

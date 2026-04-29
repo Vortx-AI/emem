@@ -21,23 +21,29 @@ use serde::{Deserialize, Serialize};
 // ── Bit layout constants ─────────────────────────────────────────────────
 
 const RESERVED_SHIFT: u32 = 63;
-const RESERVED_MASK: u64  = 1u64 << RESERVED_SHIFT;
+const RESERVED_MASK: u64 = 1u64 << RESERVED_SHIFT;
 
 const MODE_SHIFT: u32 = 59;
-const MODE_BITS: u32  = 4;
-const MODE_MASK: u64  = ((1u64 << MODE_BITS) - 1) << MODE_SHIFT;
+const MODE_BITS: u32 = 4;
+const MODE_MASK: u64 = ((1u64 << MODE_BITS) - 1) << MODE_SHIFT;
 
+// Reserved disambiguator bits in the cell64 layout (spec §3). Not yet
+// consumed by the encoder, but the bit positions are part of the protocol
+// and decoders MUST treat them as opaque pass-through.
+#[allow(dead_code)]
 const DISAMBIG_SHIFT: u32 = 56;
-const DISAMBIG_BITS: u32  = 3;
-const DISAMBIG_MASK: u64  = ((1u64 << DISAMBIG_BITS) - 1) << DISAMBIG_SHIFT;
+#[allow(dead_code)]
+const DISAMBIG_BITS: u32 = 3;
+#[allow(dead_code)]
+const DISAMBIG_MASK: u64 = ((1u64 << DISAMBIG_BITS) - 1) << DISAMBIG_SHIFT;
 
 const RES_SHIFT: u32 = 52;
-const RES_BITS: u32  = 4;
-const RES_MASK: u64  = ((1u64 << RES_BITS) - 1) << RES_SHIFT;
+const RES_BITS: u32 = 4;
+const RES_MASK: u64 = ((1u64 << RES_BITS) - 1) << RES_SHIFT;
 
 const BASE_SHIFT: u32 = 45;
-const BASE_BITS: u32  = 7;
-const BASE_MASK: u64  = ((1u64 << BASE_BITS) - 1) << BASE_SHIFT;
+const BASE_BITS: u32 = 7;
+const BASE_MASK: u64 = ((1u64 << BASE_BITS) - 1) << BASE_SHIFT;
 
 /// 3 bits per path level.
 pub const PATH_BITS_PER_LEVEL: u32 = 3;
@@ -98,7 +104,9 @@ const fn level_bit_pos(level: u32) -> u32 {
 impl Cell {
     /// Construct from raw u64. No validation; callers must use [`Cell::pack`]
     /// for validated construction.
-    pub const fn from_raw(raw: u64) -> Self { Cell(raw) }
+    pub const fn from_raw(raw: u64) -> Self {
+        Cell(raw)
+    }
 
     /// Pack mode/resolution/base/path into a Cell. Trailing path digits are
     /// auto-filled with the sentinel.
@@ -152,16 +160,26 @@ impl Cell {
     /// Extract the path digit at `level` (1..=15). Returns `None` if the
     /// digit is unset (sentinel) or `level` exceeds this cell's resolution.
     pub fn path_digit(&self, level: u32) -> Option<u8> {
-        if level == 0 || level > MAX_PATH_LEVELS { return None; }
-        if level > self.resolution().0 as u32 { return None; }
+        if level == 0 || level > MAX_PATH_LEVELS {
+            return None;
+        }
+        if level > self.resolution().0 as u32 {
+            return None;
+        }
         let d = ((self.0 >> level_bit_pos(level)) & 0b111) as u8;
-        if d == PATH_SENTINEL { None } else { Some(d) }
+        if d == PATH_SENTINEL {
+            None
+        } else {
+            Some(d)
+        }
     }
 
     /// Parent cell at one coarser resolution. None when already at res 0.
     pub fn parent(&self) -> Option<Cell> {
         let r = self.resolution().0;
-        if r == 0 { return None; }
+        if r == 0 {
+            return None;
+        }
         let pos = level_bit_pos(r as u32);
         // set this level's digit to sentinel, then decrement res
         let mut raw = self.0 & !(0b111u64 << pos);
@@ -174,7 +192,9 @@ impl Cell {
     /// (0..=6). Returns `None` if already at MAX_RESOLUTION or digit invalid.
     pub fn child(&self, digit: u8) -> Option<Cell> {
         let r = self.resolution().0;
-        if r >= MAX_RESOLUTION.0 || digit > 6 { return None; }
+        if r >= MAX_RESOLUTION.0 || digit > 6 {
+            return None;
+        }
         let new_r = r + 1;
         let pos = level_bit_pos(new_r as u32);
         let mut raw = self.0 & !(0b111u64 << pos);
@@ -186,7 +206,9 @@ impl Cell {
     /// True iff the reserved bit is zero and the mode is one of the defined
     /// values.
     pub fn is_well_formed(&self) -> bool {
-        if self.0 & RESERVED_MASK != 0 { return false; }
+        if self.0 & RESERVED_MASK != 0 {
+            return false;
+        }
         self.mode().is_some()
     }
 }

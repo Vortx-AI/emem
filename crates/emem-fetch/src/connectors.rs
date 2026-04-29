@@ -11,13 +11,15 @@ use async_trait::async_trait;
 use blake3::Hasher;
 use data_encoding::BASE32_NOPAD;
 
-use emem_core::ConnectorKind;
 use crate::{FetchError, FetchResponse, SourceConnector};
+use emem_core::ConnectorKind;
 
 fn cid_for(bytes: &[u8]) -> String {
     let mut h = Hasher::new();
     h.update(bytes);
-    BASE32_NOPAD.encode(&h.finalize().as_bytes()[..32]).to_lowercase()
+    BASE32_NOPAD
+        .encode(&h.finalize().as_bytes()[..32])
+        .to_lowercase()
 }
 
 /// Map a reqwest error to `FetchError::Transport` with a stable string.
@@ -28,13 +30,12 @@ fn transport(e: impl std::fmt::Display) -> FetchError {
 /// Inspect the response for `429 Too Many Requests` and return the
 /// matching [`FetchError::RateLimited`] if applicable.  Otherwise return
 /// the response unchanged.
-fn check_rate_limit(resp: reqwest::Response, url: &str)
-    -> Result<reqwest::Response, FetchError>
-{
+fn check_rate_limit(resp: reqwest::Response, url: &str) -> Result<reqwest::Response, FetchError> {
     if resp.status().as_u16() != 429 {
         return Ok(resp);
     }
-    let retry_after_s = resp.headers()
+    let retry_after_s = resp
+        .headers()
         .get("retry-after")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok())
@@ -72,15 +73,17 @@ impl HttpsConnector {
         Self { client, kind }
     }
 
-    async fn build_response(resp: reqwest::Response, url: &str)
-        -> Result<FetchResponse, FetchError>
-    {
+    async fn build_response(
+        resp: reqwest::Response,
+        url: &str,
+    ) -> Result<FetchResponse, FetchError> {
         let status = resp.status().as_u16();
         let resp = check_rate_limit(resp, url)?;
         if !(200..300).contains(&status) {
             return Err(FetchError::Transport(format!("HTTP {status} from {url}")));
         }
-        let captured_at = resp.headers()
+        let captured_at = resp
+            .headers()
             .get("last-modified")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
@@ -98,29 +101,44 @@ impl HttpsConnector {
 
 #[async_trait]
 impl SourceConnector for HttpsConnector {
-    fn kind(&self) -> ConnectorKind { self.kind }
+    fn kind(&self) -> ConnectorKind {
+        self.kind
+    }
 
-    async fn fetch(&self, url: &str, _auth: &str)
-        -> Result<FetchResponse, FetchError>
-    {
-        let resp = self.client.get(url)
+    async fn fetch(&self, url: &str, _auth: &str) -> Result<FetchResponse, FetchError> {
+        let resp = self
+            .client
+            .get(url)
             .header(reqwest::header::ACCEPT_ENCODING, "identity")
-            .send().await.map_err(transport)?;
+            .send()
+            .await
+            .map_err(transport)?;
         Self::build_response(resp, url).await
     }
 
-    async fn fetch_range(&self, url: &str, _auth: &str,
-                          start: u64, end_inclusive: u64)
-        -> Result<FetchResponse, FetchError>
-    {
+    async fn fetch_range(
+        &self,
+        url: &str,
+        _auth: &str,
+        start: u64,
+        end_inclusive: u64,
+    ) -> Result<FetchResponse, FetchError> {
         if end_inclusive < start {
-            return Err(FetchError::Transport(
-                format!("invalid range [{start},{end_inclusive}] for {url}")));
+            return Err(FetchError::Transport(format!(
+                "invalid range [{start},{end_inclusive}] for {url}"
+            )));
         }
-        let resp = self.client.get(url)
+        let resp = self
+            .client
+            .get(url)
             .header(reqwest::header::ACCEPT_ENCODING, "identity")
-            .header(reqwest::header::RANGE, format!("bytes={start}-{end_inclusive}"))
-            .send().await.map_err(transport)?;
+            .header(
+                reqwest::header::RANGE,
+                format!("bytes={start}-{end_inclusive}"),
+            )
+            .send()
+            .await
+            .map_err(transport)?;
         Self::build_response(resp, url).await
     }
 }
@@ -138,7 +156,9 @@ pub struct GcsConnector {
 impl GcsConnector {
     /// Build a GCS connector that rewrites `gs://...` to public HTTPS.
     pub fn new() -> Self {
-        Self { inner: HttpsConnector::new(ConnectorKind::GcsCog) }
+        Self {
+            inner: HttpsConnector::new(ConnectorKind::GcsCog),
+        }
     }
 
     fn rewrite(url: &str) -> String {
@@ -151,25 +171,31 @@ impl GcsConnector {
 }
 
 impl Default for GcsConnector {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
 impl SourceConnector for GcsConnector {
-    fn kind(&self) -> ConnectorKind { ConnectorKind::GcsCog }
+    fn kind(&self) -> ConnectorKind {
+        ConnectorKind::GcsCog
+    }
 
-    async fn fetch(&self, url: &str, auth: &str)
-        -> Result<FetchResponse, FetchError>
-    {
+    async fn fetch(&self, url: &str, auth: &str) -> Result<FetchResponse, FetchError> {
         self.inner.fetch(&Self::rewrite(url), auth).await
     }
 
-    async fn fetch_range(&self, url: &str, auth: &str,
-                          start: u64, end_inclusive: u64)
-        -> Result<FetchResponse, FetchError>
-    {
-        self.inner.fetch_range(&Self::rewrite(url), auth,
-                                start, end_inclusive).await
+    async fn fetch_range(
+        &self,
+        url: &str,
+        auth: &str,
+        start: u64,
+        end_inclusive: u64,
+    ) -> Result<FetchResponse, FetchError> {
+        self.inner
+            .fetch_range(&Self::rewrite(url), auth, start, end_inclusive)
+            .await
     }
 }
 
@@ -181,13 +207,14 @@ pub struct IpldConnector;
 
 #[async_trait]
 impl SourceConnector for IpldConnector {
-    fn kind(&self) -> ConnectorKind { ConnectorKind::IpldCid }
+    fn kind(&self) -> ConnectorKind {
+        ConnectorKind::IpldCid
+    }
 
-    async fn fetch(&self, url: &str, _auth: &str)
-        -> Result<FetchResponse, FetchError>
-    {
+    async fn fetch(&self, url: &str, _auth: &str) -> Result<FetchResponse, FetchError> {
         Err(FetchError::Transport(format!(
-            "IPLD connector requires an operator-registered blockstore; requested {url}")))
+            "IPLD connector requires an operator-registered blockstore; requested {url}"
+        )))
     }
 }
 
@@ -197,7 +224,9 @@ impl SourceConnector for IpldConnector {
 /// (Earthdata, Requester-Pays GCS, etc.) by registering additional connectors.
 pub fn register_default_https(disp: &mut crate::Dispatcher) {
     disp.register(Box::new(HttpsConnector::new(ConnectorKind::HttpsGeotiff)));
-    disp.register(Box::new(HttpsConnector::new(ConnectorKind::HttpsCogVsicurl)));
+    disp.register(Box::new(HttpsConnector::new(
+        ConnectorKind::HttpsCogVsicurl,
+    )));
     disp.register(Box::new(GcsConnector::new()));
 }
 

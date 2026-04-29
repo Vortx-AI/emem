@@ -21,8 +21,34 @@ const BANDS_V0_JSON: &str = include_str!("../data/bands-v0.json");
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BandFamily {
-    Foundation, Optical, Radar, Terrain, Climate, Soil, Vegetation,
-    Landcover, Water, Human, Vision, Topology, Encoding, Reserved,
+    /// Cross-domain identity / addressing (e.g. cell64, tslot framing).
+    Foundation,
+    /// Visible / NIR / SWIR optical reflectance (Sentinel-2, MODIS, Landsat).
+    Optical,
+    /// Synthetic-aperture radar (Sentinel-1 RTC, ALOS).
+    Radar,
+    /// Elevation, slope, aspect, and other DEM-derived surfaces.
+    Terrain,
+    /// Atmospheric / climatic state (Open-Meteo, MET Norway).
+    Climate,
+    /// Soil composition, moisture, and properties.
+    Soil,
+    /// Vegetation indices and phenology (NDVI, LAI, FPAR).
+    Vegetation,
+    /// Land-cover classification (ESA WorldCover, JRC, Hansen).
+    Landcover,
+    /// Surface and ground water occurrence (JRC GSW, hydrography).
+    Water,
+    /// Human-built environment (population, OSM, Overture).
+    Human,
+    /// Learned visual embeddings (Tessera, Clay, Prithvi).
+    Vision,
+    /// Network / topology relations (graphs, adjacency).
+    Topology,
+    /// Compression / encoding-only metadata.
+    Encoding,
+    /// Reserved for future families; not used by current ontology.
+    Reserved,
 }
 
 /// A single band record loaded from the manifest.
@@ -77,10 +103,15 @@ impl Manifest for BandRegistry {
         for b in &self.bands {
             if b.offset != expected_offset {
                 return Err(ManifestError::Invalid(format!(
-                    "band '{}' offset {} != expected {}", b.key, b.offset, expected_offset)));
+                    "band '{}' offset {} != expected {}",
+                    b.key, b.offset, expected_offset
+                )));
             }
             if keys.insert(&b.key, ()).is_some() {
-                return Err(ManifestError::Invalid(format!("duplicate band key: {}", b.key)));
+                return Err(ManifestError::Invalid(format!(
+                    "duplicate band key: {}",
+                    b.key
+                )));
             }
             expected_offset = expected_offset
                 .checked_add(b.dims)
@@ -88,7 +119,9 @@ impl Manifest for BandRegistry {
         }
         if expected_offset != self.total_dims {
             return Err(ManifestError::Invalid(format!(
-                "bands sum to {} dims, expected {}", expected_offset, self.total_dims)));
+                "bands sum to {} dims, expected {}",
+                expected_offset, self.total_dims
+            )));
         }
         Ok(())
     }
@@ -113,9 +146,8 @@ impl BandRegistry {
 }
 
 /// Process-wide cached default registry. Loaded once on first access.
-pub static DEFAULT: LazyLock<BandRegistry> = LazyLock::new(|| {
-    BandRegistry::parse_default().expect("embedded bands-v0.json is malformed")
-});
+pub static DEFAULT: LazyLock<BandRegistry> =
+    LazyLock::new(|| BandRegistry::parse_default().expect("embedded bands-v0.json is malformed"));
 
 #[cfg(test)]
 mod tests {
@@ -131,8 +163,18 @@ mod tests {
     #[test]
     fn key_lookup_finds_known_bands() {
         let r = &*DEFAULT;
-        for k in &["geotessera", "overture", "_reserved_512", "sentinel2_raw", "indices",
-                   "dem", "landcover", "koppen", "soilgrids", "reserved"] {
+        for k in &[
+            "geotessera",
+            "overture",
+            "_reserved_512",
+            "sentinel2_raw",
+            "indices",
+            "dem",
+            "landcover",
+            "koppen",
+            "soilgrids",
+            "reserved",
+        ] {
             assert!(r.lookup(k).is_some(), "missing band: {k}");
         }
     }
@@ -141,14 +183,14 @@ mod tests {
     fn matches_canonical_offsets() {
         let r = &*DEFAULT;
         let idx = r.key_index();
-        assert_eq!(idx["geotessera"].offset,    0);
-        assert_eq!(idx["overture"].offset,      128);
-        assert_eq!(idx["overture"].dims,        64);
+        assert_eq!(idx["geotessera"].offset, 0);
+        assert_eq!(idx["overture"].offset, 128);
+        assert_eq!(idx["overture"].dims, 64);
         assert_eq!(idx["_reserved_512"].offset, 192);
-        assert_eq!(idx["_reserved_512"].dims,   512);
+        assert_eq!(idx["_reserved_512"].dims, 512);
         assert_eq!(idx["sentinel2_raw"].offset, 704);
-        assert_eq!(idx["sam3_visual"].offset,   894);
-        assert_eq!(idx["qwen_visual"].offset,   1086);
-        assert_eq!(idx["reserved"].offset,      1672);
+        assert_eq!(idx["sam3_visual"].offset, 894);
+        assert_eq!(idx["qwen_visual"].offset, 1086);
+        assert_eq!(idx["reserved"].offset, 1672);
     }
 }

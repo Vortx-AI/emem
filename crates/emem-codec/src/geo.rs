@@ -21,25 +21,22 @@
 //!   bits 31..00   hilbert_d(order=16, lat_q, lng_q)
 //! ```
 
-use emem_core::Cell;
-use crate::hilbert::{d_to_xy, xy_to_d};
 use crate::cell64::{from_cell64, to_cell64, CodecError};
+use crate::hilbert::{d_to_xy, xy_to_d};
+use emem_core::Cell;
 
 const GEO_MODE: u64 = 1;
-const GEO_RES:  u64 = 12;
+const GEO_RES: u64 = 12;
 const GEO_BASE: u64 = 0xab;
 const GEO_PREFIX_MASK: u64 = 0xFFFF_F000_0000_0000;
-const GEO_PREFIX: u64 =
-    (GEO_MODE  << 60) |
-    (GEO_RES   << 52) |
-    (GEO_BASE  << 44);
+const GEO_PREFIX: u64 = (GEO_MODE << 60) | (GEO_RES << 52) | (GEO_BASE << 44);
 
 /// Encode a WGS-84 (lat_deg, lng_deg) point to a cell64 string.
 /// Lat clamped to [-90, 90]; lng wrapped to [-180, 180).
 pub fn cell_from_latlng(lat_deg: f64, lng_deg: f64) -> Cell {
     let lat = lat_deg.clamp(-90.0, 90.0);
     let lng = ((lng_deg + 180.0).rem_euclid(360.0)) - 180.0;
-    let lat_q = (((lat + 90.0)  / 180.0) * 65535.0).round() as u32 & 0xFFFF;
+    let lat_q = (((lat + 90.0) / 180.0) * 65535.0).round() as u32 & 0xFFFF;
     let lng_q = (((lng + 180.0) / 360.0) * 65535.0).round() as u32 & 0xFFFF;
     let d = xy_to_d(16, lat_q, lng_q);
     Cell::from_raw(GEO_PREFIX | (d as u64 & 0xFFFF_FFFF))
@@ -64,10 +61,11 @@ pub fn latlng_from_cell64(s: &str) -> Result<LatLng, CodecError> {
     let (lat_q, lng_q) = d_to_xy(16, d);
     let lat_deg = (lat_q as f64 / 65535.0) * 180.0 - 90.0;
     let lng_deg = (lng_q as f64 / 65535.0) * 360.0 - 180.0;
-    let half_lat = 90.0  / 65535.0; // half-bucket edge in degrees
+    let half_lat = 90.0 / 65535.0; // half-bucket edge in degrees
     let half_lng = 180.0 / 65535.0;
     Ok(LatLng {
-        lat_deg, lng_deg,
+        lat_deg,
+        lng_deg,
         bbox_deg: BboxDeg {
             min_lat: (lat_deg - half_lat).max(-90.0),
             max_lat: (lat_deg + half_lat).min(90.0),
@@ -91,8 +89,10 @@ pub struct LatLng {
 /// Lat/lng bounding box.
 #[derive(Debug, Clone, Copy)]
 pub struct BboxDeg {
-    pub min_lat: f64, pub max_lat: f64,
-    pub min_lng: f64, pub max_lng: f64,
+    pub min_lat: f64,
+    pub max_lat: f64,
+    pub min_lng: f64,
+    pub max_lng: f64,
 }
 
 #[cfg(test)]
@@ -104,8 +104,16 @@ mod tests {
         // Mt. Fuji
         let s = cell64_from_latlng(35.3606, 138.7274);
         let back = latlng_from_cell64(&s).unwrap();
-        assert!((back.lat_deg - 35.3606).abs() < 0.005, "lat off: {}", back.lat_deg);
-        assert!((back.lng_deg - 138.7274).abs() < 0.005, "lng off: {}", back.lng_deg);
+        assert!(
+            (back.lat_deg - 35.3606).abs() < 0.005,
+            "lat off: {}",
+            back.lat_deg
+        );
+        assert!(
+            (back.lng_deg - 138.7274).abs() < 0.005,
+            "lng off: {}",
+            back.lng_deg
+        );
 
         // Mt. Everest
         let s = cell64_from_latlng(27.9881, 86.9250);

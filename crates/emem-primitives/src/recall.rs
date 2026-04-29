@@ -54,13 +54,17 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
 
     let pairs: Vec<(CanonicalKey, FactCid)> = match (&req.bands, req.tslot) {
         (Some(bands), Some(tslot)) => {
-            let keys: Vec<CanonicalKey> = bands.iter().map(|b| CanonicalKey {
-                cell: req.cell.clone(),
-                band: b.clone(),
-                tslot,
-            }).collect();
+            let keys: Vec<CanonicalKey> = bands
+                .iter()
+                .map(|b| CanonicalKey {
+                    cell: req.cell.clone(),
+                    band: b.clone(),
+                    tslot,
+                })
+                .collect();
             let cids = storage.lookup_canonical_many(&keys).await?;
-            keys.into_iter().zip(cids.into_iter())
+            keys.into_iter()
+                .zip(cids)
                 .filter_map(|(k, c)| c.map(|cid| (k, cid)))
                 .collect()
         }
@@ -93,7 +97,8 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     let bands_available = {
         let all = storage.scan_cell(&req.cell, None).await.unwrap_or_default();
         let mut bands: Vec<String> = all.into_iter().map(|(k, _)| k.band).collect();
-        bands.sort(); bands.dedup();
+        bands.sort();
+        bands.dedup();
         Some(bands)
     };
 
@@ -105,5 +110,9 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         started,
         None,
     );
-    Ok(RecallResp { facts, receipt, bands_available })
+    Ok(RecallResp {
+        facts,
+        receipt,
+        bands_available,
+    })
 }

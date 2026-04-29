@@ -1,11 +1,11 @@
 # emem Terms of Service
 
-_Last updated: 2026-04-28_
+_Last updated: 2026-04-29_
 
 These terms govern your use of the canonical emem responder operated by
-Vortx-AI at `https://emem.dev` (and mirrored at
-`https://vortx-ai-emem.hf.space`). The protocol itself is Apache-2.0 and
-self-hosting is unrestricted; these terms cover only the public hosted
+**Vortx AI Private Limited** (India) at `https://emem.dev` (and mirrored
+at `https://vortx-ai-emem.hf.space`). The protocol itself is Apache-2.0
+and self-hosting is unrestricted; these terms cover only the public hosted
 instance.
 
 ## 1. The service
@@ -19,16 +19,21 @@ free, anonymous, and rate-limited. L2 write endpoints (`/v1/attest`,
 
 You agree not to:
 
-- Use emem to violate applicable law in your jurisdiction or ours.
+- Use emem to violate applicable law in your jurisdiction or ours (India).
 - Use emem to facilitate the violation of any applicable AI provider's
   usage policy (e.g., Anthropic's Usage Policy when emem is used as a
   Claude connector).
-- Submit attestations you know to be false, or attestations that violate the
-  intellectual-property or privacy rights of third parties.
+- Submit attestations you know to be false, or attestations that violate
+  the intellectual-property or privacy rights of third parties.
 - Use emem to identify, locate, or surveil specific natural persons. emem
   serves geographic cells (~305 m today), not people.
 - Attempt to circumvent rate limits, DoS the service, or extract data at a
   rate inconsistent with normal agent use.
+- Use `emem_backfill` to drive sustained high-volume historical fetches
+  that would impact upstream open-data providers (MODIS, ORNL DAAC,
+  Microsoft Planetary Computer, etc.). Backfill is rate-limited per-IP;
+  for bulk historical processing, run a self-hosted responder against the
+  same open-data sources.
 - Re-publish bulk corpus exports under a more restrictive licence than the
   upstream providers permit (see `/v1/sources` for per-provider licences).
 
@@ -52,14 +57,16 @@ When you submit an attestation:
 - The responder may re-sign your attestation under its own identity for
   redistribution; this does not transfer authorship.
 
-## 5. Third-party data
+## 5. Third-party data and licences
 
 emem auto-materialises facts from public open-data providers (Copernicus,
-JRC, Hansen, ESA, Overture, OSM, Open-Meteo, …). Each provider's licence
+JRC, Hansen, ESA, Overture, OSM, Open-Meteo, MET Norway, MODIS / ORNL
+DAAC, Microsoft Planetary Computer, Tessera, …). Each provider's licence
 applies to the underlying values and is surfaced via `/v1/sources`. The
-responder's signed receipt covers _the responder's promise that the fact was
-fetched from the named source at the named time_, not the upstream
-provider's terms.
+responder's signed receipt covers *the responder's promise that the fact
+was fetched from the named source at the named time*, not the upstream
+provider's terms. You must respect upstream terms when you redistribute
+or build on these facts.
 
 ## 6. No warranty
 
@@ -70,15 +77,15 @@ source of truth for life-safety, financial, or legally binding decisions.
 
 ## 7. Limitation of liability
 
-To the maximum extent permitted by law, Vortx-AI shall not be liable for
-any indirect, incidental, special, consequential, or punitive damages
-arising out of your use of the hosted responder.
+To the maximum extent permitted by law, Vortx AI Private Limited shall
+not be liable for any indirect, incidental, special, consequential, or
+punitive damages arising out of your use of the hosted responder.
 
 ## 8. Indemnity
 
-You agree to indemnify and hold Vortx-AI harmless from any claims arising
-out of attestations you submit, your violation of these terms, or your
-violation of any third-party right.
+You agree to indemnify and hold Vortx AI Private Limited harmless from
+any claims arising out of attestations you submit, your violation of
+these terms, or your violation of any third-party right.
 
 ## 9. Open source
 
@@ -86,14 +93,21 @@ The protocol, schema, and reference implementation are licensed under
 Apache-2.0. The licence file is `LICENSE` in
 [github.com/Vortx-AI/emem](https://github.com/Vortx-AI/emem).
 
-## 10. Changes
+## 10. Governing law
+
+These terms are governed by the laws of India. The seat of jurisdiction
+is the courts of the city where Vortx AI Private Limited is registered.
+
+## 11. Changes
 
 We may revise these terms as the protocol evolves. The canonical version
 is `TERMS.md` in the repo; the live HTTPS rendering is at
-`https://emem.dev/terms`. Material changes will be summarised in the
+`https://emem.dev/terms`. Material changes will be summarised in
 `CHANGELOG.md`.
 
-## 11. Contact
+## 12. Contact
 
 - Issues, support, security: <https://github.com/Vortx-AI/emem/issues>
-- Legal / commercial: **avijeet@vortx.ai**
+- Legal / commercial / data-subject-rights: **avijeet@vortx.ai**
+
+The hosted responder is operated by **Vortx AI Private Limited** (India).

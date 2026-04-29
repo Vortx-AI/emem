@@ -12,9 +12,9 @@
 //! Behaviour by value type:
 //! - both scalar           → `metric = "delta"`,  `value = b - a`
 //! - both vector (eq dim)  → `metric = "cosine"`, `value = cos(a, b)`,
-//!                           `l2_distance` and per-dim diff also reported
+//!   `l2_distance` and per-dim diff also reported
 //! - mismatched / wrong    → returns Internal error (so the agent can
-//!                           branch on `incomparable_band_types`)
+//!   branch on `incomparable_band_types`)
 
 use std::time::Instant;
 
@@ -104,36 +104,61 @@ pub struct BandRef {
     pub fact_cid: String,
 }
 
-pub async fn compare_bands(req: &CompareBandsReq, srv: &Server) -> Result<CompareBandsResp, StorageError> {
+pub async fn compare_bands(
+    req: &CompareBandsReq,
+    srv: &Server,
+) -> Result<CompareBandsResp, StorageError> {
     let started = Instant::now();
     let storage = srv.storage.as_ref();
 
-    let key_a = CanonicalKey { cell: req.cell.clone(), band: req.a.clone(), tslot: req.tslot_a };
-    let key_b = CanonicalKey { cell: req.cell.clone(), band: req.b.clone(), tslot: req.tslot_b };
-    let cids = storage.lookup_canonical_many(&[key_a.clone(), key_b.clone()]).await?;
+    let key_a = CanonicalKey {
+        cell: req.cell.clone(),
+        band: req.a.clone(),
+        tslot: req.tslot_a,
+    };
+    let key_b = CanonicalKey {
+        cell: req.cell.clone(),
+        band: req.b.clone(),
+        tslot: req.tslot_b,
+    };
+    let cids = storage
+        .lookup_canonical_many(&[key_a.clone(), key_b.clone()])
+        .await?;
     let cid_a = cids[0].clone().ok_or_else(|| StorageError::Protocol {
         code: ErrorCode::CidNotFound,
-        message: format!("no fact at ({}, {}, tslot={})", req.cell, req.a, req.tslot_a),
+        message: format!(
+            "no fact at ({}, {}, tslot={})",
+            req.cell, req.a, req.tslot_a
+        ),
     })?;
     let cid_b = cids[1].clone().ok_or_else(|| StorageError::Protocol {
         code: ErrorCode::CidNotFound,
-        message: format!("no fact at ({}, {}, tslot={})", req.cell, req.b, req.tslot_b),
+        message: format!(
+            "no fact at ({}, {}, tslot={})",
+            req.cell, req.b, req.tslot_b
+        ),
     })?;
 
-    let facts = storage.get_facts_many(&[cid_a.clone(), cid_b.clone()]).await?;
+    let facts = storage
+        .get_facts_many(&[cid_a.clone(), cid_b.clone()])
+        .await?;
     let fa = facts[0].clone().ok_or_else(|| StorageError::Protocol {
-        code: ErrorCode::CidNotFound, message: format!("missing fact bytes for {}", cid_a.as_str()),
+        code: ErrorCode::CidNotFound,
+        message: format!("missing fact bytes for {}", cid_a.as_str()),
     })?;
     let fb = facts[1].clone().ok_or_else(|| StorageError::Protocol {
-        code: ErrorCode::CidNotFound, message: format!("missing fact bytes for {}", cid_b.as_str()),
+        code: ErrorCode::CidNotFound,
+        message: format!("missing fact bytes for {}", cid_b.as_str()),
     })?;
 
     let (va, vb) = match (&fa, &fb) {
         (Fact::Primary(a), Fact::Primary(b)) => (&a.value, &b.value),
-        _ => return Err(StorageError::Protocol {
-            code: ErrorCode::Internal,
-            message: "compare_bands requires Primary facts on both bands".into(),
-        }),
+        _ => {
+            return Err(StorageError::Protocol {
+                code: ErrorCode::Internal,
+                message: "compare_bands requires Primary facts on both bands".into(),
+            })
+        }
     };
 
     let (metric, value, absolute_diff, per_dim_delta) =
@@ -172,11 +197,17 @@ pub async fn compare_bands(req: &CompareBandsReq, srv: &Server) -> Result<Compar
     let verdict = req.predicate.as_ref().map(|p| {
         let scalar_pair = metric == "delta";
         match (p, scalar_pair) {
-            (ConsistencyPredicate::AbsDiffLe { threshold }, true) => bool_str(absolute_diff <= *threshold),
-            (ConsistencyPredicate::AbsDiffLt { threshold }, true) => bool_str(absolute_diff <  *threshold),
-            (ConsistencyPredicate::CosineGe   { threshold }, false) => bool_str(value >= *threshold),
-            (ConsistencyPredicate::CosineGt   { threshold }, false) => bool_str(value >  *threshold),
-            (ConsistencyPredicate::L2DistanceLe { threshold }, false) => bool_str(absolute_diff <= *threshold),
+            (ConsistencyPredicate::AbsDiffLe { threshold }, true) => {
+                bool_str(absolute_diff <= *threshold)
+            }
+            (ConsistencyPredicate::AbsDiffLt { threshold }, true) => {
+                bool_str(absolute_diff < *threshold)
+            }
+            (ConsistencyPredicate::CosineGe { threshold }, false) => bool_str(value >= *threshold),
+            (ConsistencyPredicate::CosineGt { threshold }, false) => bool_str(value > *threshold),
+            (ConsistencyPredicate::L2DistanceLe { threshold }, false) => {
+                bool_str(absolute_diff <= *threshold)
+            }
             // Predicate type does not match the value-pair type
             _ => "incomparable".to_string(),
         }
@@ -193,8 +224,16 @@ pub async fn compare_bands(req: &CompareBandsReq, srv: &Server) -> Result<Compar
 
     Ok(CompareBandsResp {
         cell: req.cell.clone(),
-        a: BandRef { band: req.a.clone(), tslot: req.tslot_a, fact_cid: cid_a.as_str().to_string() },
-        b: BandRef { band: req.b.clone(), tslot: req.tslot_b, fact_cid: cid_b.as_str().to_string() },
+        a: BandRef {
+            band: req.a.clone(),
+            tslot: req.tslot_a,
+            fact_cid: cid_a.as_str().to_string(),
+        },
+        b: BandRef {
+            band: req.b.clone(),
+            tslot: req.tslot_b,
+            fact_cid: cid_b.as_str().to_string(),
+        },
         metric,
         value,
         absolute_diff,
@@ -205,7 +244,11 @@ pub async fn compare_bands(req: &CompareBandsReq, srv: &Server) -> Result<Compar
     })
 }
 
-fn bool_str(b: bool) -> String { (if b { "true" } else { "false" }).to_string() }
+fn bool_str(b: bool) -> String {
+    (if b { "true" } else { "false" }).to_string()
+}
 
 #[allow(dead_code)]
-fn _force_use(c: &[FactCid]) { let _ = c; }
+fn _force_use(c: &[FactCid]) {
+    let _ = c;
+}

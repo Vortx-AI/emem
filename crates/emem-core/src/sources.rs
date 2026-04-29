@@ -51,8 +51,12 @@ pub struct Provider {
     pub license: String,
 }
 
-fn default_auth() -> String { "anonymous".into() }
-fn default_rate_limit() -> u32 { 50 }
+fn default_auth() -> String {
+    "anonymous".into()
+}
+fn default_rate_limit() -> u32 {
+    50
+}
 
 /// One source scheme entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,16 +91,23 @@ impl Manifest for SourceRegistry {
     fn validate(&self) -> Result<(), ManifestError> {
         if self.manifest != Self::KIND {
             return Err(ManifestError::WrongKind {
-                expected: Self::KIND, actual: self.manifest.clone(),
+                expected: Self::KIND,
+                actual: self.manifest.clone(),
             });
         }
         let mut seen: std::collections::HashSet<&str> = Default::default();
         for s in &self.sources {
             if !seen.insert(&s.scheme) {
-                return Err(ManifestError::Invalid(format!("duplicate source scheme: {}", s.scheme)));
+                return Err(ManifestError::Invalid(format!(
+                    "duplicate source scheme: {}",
+                    s.scheme
+                )));
             }
             if s.providers.is_empty() {
-                return Err(ManifestError::Invalid(format!("source {} has no providers", s.scheme)));
+                return Err(ManifestError::Invalid(format!(
+                    "source {} has no providers",
+                    s.scheme
+                )));
             }
         }
         Ok(())

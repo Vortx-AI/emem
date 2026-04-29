@@ -86,7 +86,11 @@ pub struct Error {
 impl Error {
     /// Build a new error.
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), offending: None }
+        Self {
+            code,
+            message: message.into(),
+            offending: None,
+        }
     }
     /// Builder: attach an offending reference.
     pub fn with_offending(mut self, offending: impl Into<String>) -> Self {

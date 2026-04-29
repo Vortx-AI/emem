@@ -6,8 +6,8 @@
 
 #![forbid(unsafe_code)]
 
-use serde::{Deserialize, Serialize};
 use emem_claim::Claim;
+use serde::{Deserialize, Serialize};
 
 /// A typed agent intent. Routed by the planner to a sequence of primitive
 /// tool calls. New variants ship under semver and degrade via
@@ -24,16 +24,27 @@ pub enum Intent {
     /// in the user's question but no cell64, and the old planner errored
     /// out with `missing field "cell"`.
     WhatIsHere {
-        #[serde(default, skip_serializing_if = "Option::is_none")] cell: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")] place: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")] description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cell: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     /// "Is A like B?" — pairwise similarity.
     IsLike { a: String, b: String },
     /// "Did this band change at this cell over this window?"
-    DidChange { cell: String, band: String, window: [u64; 2] },
+    DidChange {
+        cell: String,
+        band: String,
+        window: [u64; 2],
+    },
     /// "Find cells like this key under filter."
-    FindLike { key: String, k: Option<u32>, filter: Option<Claim> },
+    FindLike {
+        key: String,
+        k: Option<u32>,
+        filter: Option<Claim>,
+    },
     /// "Is this claim true at this cell?"
     Confirm { claim: Claim, cell: String },
     /// Free-text place question. Maps to `emem_ask`, which runs the full
@@ -43,10 +54,14 @@ pub enum Intent {
     /// primitive in mind.
     Ask {
         description: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")] place: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")] cell: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")] lat: Option<f64>,
-        #[serde(default, skip_serializing_if = "Option::is_none")] lng: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cell: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lat: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lng: Option<f64>,
     },
 }
 
@@ -83,19 +98,34 @@ pub fn plan(intent: &Intent) -> Plan {
         // The old hard-required `cell` field was a UX dead-end whenever
         // the LLM had a place name but no cell64 yet — fall through to
         // the ask path instead of erroring.
-        Intent::WhatIsHere { cell: Some(cell), .. } => vec![ToolCall {
+        Intent::WhatIsHere {
+            cell: Some(cell), ..
+        } => vec![ToolCall {
             primitive: "emem_recall".into(),
             args: scalar_args(&[("cell", cell.clone())]),
         }],
-        Intent::WhatIsHere { cell: None, place, description } => {
+        Intent::WhatIsHere {
+            cell: None,
+            place,
+            description,
+        } => {
             let q = description.clone().unwrap_or_else(|| "what is here".into());
-            let place = place.clone().or_else(|| description.clone()).unwrap_or_default();
+            let place = place
+                .clone()
+                .or_else(|| description.clone())
+                .unwrap_or_default();
             vec![ToolCall {
                 primitive: "emem_ask".into(),
                 args: ask_args(&q, Some(place), None, None, None),
             }]
         }
-        Intent::Ask { description, place, cell, lat, lng } => vec![ToolCall {
+        Intent::Ask {
+            description,
+            place,
+            cell,
+            lat,
+            lng,
+        } => vec![ToolCall {
             primitive: "emem_ask".into(),
             args: ask_args(description, place.clone(), cell.clone(), *lat, *lng),
         }],
@@ -143,9 +173,15 @@ pub fn plan(intent: &Intent) -> Plan {
 
 fn scalar_args(pairs: &[(&str, String)]) -> ciborium::Value {
     ciborium::Value::Map(
-        pairs.iter().map(|(k, v)| {
-            (ciborium::Value::Text((*k).into()), ciborium::Value::Text(v.clone()))
-        }).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| {
+                (
+                    ciborium::Value::Text((*k).into()),
+                    ciborium::Value::Text(v.clone()),
+                )
+            })
+            .collect(),
     )
 }
 
@@ -155,12 +191,18 @@ fn scalar_args(pairs: &[(&str, String)]) -> ciborium::Value {
 /// alongside `scalar_args` rather than overloading it.
 fn recall_args_with_bands(cell: String, bands: &[&str]) -> ciborium::Value {
     ciborium::Value::Map(vec![
-        (ciborium::Value::Text("cell".into()), ciborium::Value::Text(cell)),
+        (
+            ciborium::Value::Text("cell".into()),
+            ciborium::Value::Text(cell),
+        ),
         (
             ciborium::Value::Text("bands".into()),
-            ciborium::Value::Array(bands.iter()
-                .map(|b| ciborium::Value::Text((*b).into()))
-                .collect()),
+            ciborium::Value::Array(
+                bands
+                    .iter()
+                    .map(|b| ciborium::Value::Text((*b).into()))
+                    .collect(),
+            ),
         ),
     ])
 }
@@ -169,21 +211,40 @@ fn recall_args_with_bands(cell: String, bands: &[&str]) -> ciborium::Value {
 /// string locator(s), optional f64 lat/lng), so the helper packs each
 /// field into the right CBOR primitive instead of going through
 /// `scalar_args` (which is text-only).
-fn ask_args(q: &str, place: Option<String>, cell: Option<String>, lat: Option<f64>, lng: Option<f64>) -> ciborium::Value {
-    let mut entries: Vec<(ciborium::Value, ciborium::Value)> = vec![
-        (ciborium::Value::Text("q".into()), ciborium::Value::Text(q.into())),
-    ];
+fn ask_args(
+    q: &str,
+    place: Option<String>,
+    cell: Option<String>,
+    lat: Option<f64>,
+    lng: Option<f64>,
+) -> ciborium::Value {
+    let mut entries: Vec<(ciborium::Value, ciborium::Value)> = vec![(
+        ciborium::Value::Text("q".into()),
+        ciborium::Value::Text(q.into()),
+    )];
     if let Some(p) = place {
-        entries.push((ciborium::Value::Text("place".into()), ciborium::Value::Text(p)));
+        entries.push((
+            ciborium::Value::Text("place".into()),
+            ciborium::Value::Text(p),
+        ));
     }
     if let Some(c) = cell {
-        entries.push((ciborium::Value::Text("cell".into()), ciborium::Value::Text(c)));
+        entries.push((
+            ciborium::Value::Text("cell".into()),
+            ciborium::Value::Text(c),
+        ));
     }
     if let Some(la) = lat {
-        entries.push((ciborium::Value::Text("lat".into()), ciborium::Value::Float(la)));
+        entries.push((
+            ciborium::Value::Text("lat".into()),
+            ciborium::Value::Float(la),
+        ));
     }
     if let Some(lo) = lng {
-        entries.push((ciborium::Value::Text("lng".into()), ciborium::Value::Float(lo)));
+        entries.push((
+            ciborium::Value::Text("lng".into()),
+            ciborium::Value::Float(lo),
+        ));
     }
     ciborium::Value::Map(entries)
 }

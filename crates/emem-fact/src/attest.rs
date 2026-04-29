@@ -2,9 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use emem_core::{AttesterKey, KeyEpoch, Signature};
 use crate::cid::{RegistryCid, SchemaCid};
 use crate::fact::Fact;
+use emem_core::{AttesterKey, KeyEpoch, Signature};
 
 /// A signed batch of facts with a Merkle root over their CIDs.
 #[derive(Debug, Clone, Serialize, Deserialize)]

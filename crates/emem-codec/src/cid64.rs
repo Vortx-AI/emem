@@ -13,7 +13,8 @@ pub fn to_cid64(cid: &[u8; 32]) -> String {
 /// Decode a cid64 string back to its 8-byte prefix.
 /// Note: cid64 is a *prefix*; full collision-resistance requires the full CID.
 pub fn from_cid64(s: &str) -> Result<[u8; 8], Cid64Error> {
-    let bytes = BASE32_NOPAD.decode(s.to_uppercase().as_bytes())
+    let bytes = BASE32_NOPAD
+        .decode(s.to_uppercase().as_bytes())
         .map_err(|_| Cid64Error::BadBase32)?;
     if bytes.len() != 8 {
         return Err(Cid64Error::WrongLength(bytes.len()));

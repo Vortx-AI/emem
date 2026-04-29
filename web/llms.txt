@@ -1,5 +1,8 @@
 # emem — Earth memory protocol for AI agents
 
+> Operated by Vortx AI Private Limited (India). Contact: avijeet@vortx.ai
+> Privacy: /privacy · Terms: /terms · Support: /support · Code: github.com/Vortx-AI/emem
+>
 > Cite-able, content-addressed, signed memory of every place on Earth.
 > Pure-Rust HTTP-range materializers feed Sentinel-2 (12 spectral +
 > 9 indices), Sentinel-1 GRD (VV dB radar), Tessera (128-D foundation
@@ -41,11 +44,14 @@ The voxel itself is addressable: `emem:vec/<vec64>` dereferences via
 - "How similar is X to Y" → POST `/v1/compare`
 - "Find places like X" → POST `/v1/find_similar`
 - "What changed at X between t1 and t2" → POST `/v1/diff`
-- "Show me the trajectory" → POST `/v1/trajectory`
+- "Show me the trajectory" → POST `/v1/trajectory` (returns only already-attested tslots)
+- "Give me HISTORY for this band over a window" → POST `/v1/backfill` (materializes per-tslot history; signed; bounded by `history_available_from_unix`/`to_unix` in `/v1/coverage_matrix`)
 - Spatial yes/no with citable evidence → POST `/v1/verify`
 - Region average / median / p90 → POST `/v1/query_region`
+- "Resolve a CID to its fact" → GET `/v1/facts/{cid}` or MCP `emem_fetch`
+- "What schema is this responder serving?" → GET `/v1/schema` or MCP `emem_schema`
 - Underspecified spatial ask → POST `/v1/intent`
-- "Which dataset answers X right now?" → GET `/v1/coverage_matrix`
+- "Which dataset answers X right now?" → GET `/v1/coverage_matrix` (now carries `tempo_seconds`, `history_available_from_unix`/`to_unix`, and per-band `responder_pubkey_b32`)
 - "Which satellite is behind this band?" → GET `/v1/fleet`
 - "What band given query time + intent?" → POST `/v1/temporal_route`
 

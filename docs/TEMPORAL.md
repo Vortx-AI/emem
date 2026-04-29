@@ -5,6 +5,7 @@
 > phenomenon's natural cadence — not heuristics. This document is
 > the math, the architectural inspiration, and the protocol surface.
 
+
 ---
 
 ## TL;DR

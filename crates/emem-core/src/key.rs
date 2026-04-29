@@ -25,7 +25,9 @@ impl Serialize for Signature {
         // automatically; emit as a tuple so JSON/CBOR round-trip both work.
         use serde::ser::SerializeTuple;
         let mut t = ser.serialize_tuple(64)?;
-        for b in &self.0 { t.serialize_element(b)?; }
+        for b in &self.0 {
+            t.serialize_element(b)?;
+        }
         t.end()
     }
 }
@@ -38,16 +40,22 @@ impl<'de> Deserialize<'de> for Signature {
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str("a 64-byte ed25519 signature")
             }
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Signature, A::Error> {
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Signature, A::Error> {
                 let mut out = [0u8; 64];
                 for (i, slot) in out.iter_mut().enumerate() {
-                    *slot = seq.next_element()?
+                    *slot = seq
+                        .next_element()?
                         .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
                 }
                 Ok(Signature(out))
             }
             fn visit_bytes<E: serde::de::Error>(self, v: &[u8]) -> Result<Signature, E> {
-                if v.len() != 64 { return Err(E::invalid_length(v.len(), &self)); }
+                if v.len() != 64 {
+                    return Err(E::invalid_length(v.len(), &self));
+                }
                 let mut out = [0u8; 64];
                 out.copy_from_slice(v);
                 Ok(Signature(out))

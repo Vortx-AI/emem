@@ -57,7 +57,16 @@ pub async fn search_one(
     datetime: &str,
     max_cloud: Option<f64>,
 ) -> Result<Option<StacItem>, String> {
-    search_one_at(client, STAC_ELEMENT84_V1, collection, lng, lat, datetime, max_cloud).await
+    search_one_at(
+        client,
+        STAC_ELEMENT84_V1,
+        collection,
+        lng,
+        lat,
+        datetime,
+        max_cloud,
+    )
+    .await
 }
 
 /// Like [`search_one`] but parameterised on the STAC host URL so callers
@@ -88,7 +97,8 @@ pub async fn search_one_at(
         .header("content-type", "application/json")
         .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
         .json(&body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("stac http: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("stac status {}", resp.status()));
@@ -102,11 +112,22 @@ pub async fn search_one_at(
         Some(f) => f,
         None => return Ok(None),
     };
-    let id = f.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let id = f
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let props = f.get("properties").cloned().unwrap_or(Value::Null);
     let cloud_cover = props.get("eo:cloud_cover").and_then(|v| v.as_f64());
-    let datetime_str = props.get("datetime").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let epsg = props.get("proj:epsg").and_then(|v| v.as_u64()).map(|n| n as u32);
+    let datetime_str = props
+        .get("datetime")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let epsg = props
+        .get("proj:epsg")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
     let mut assets = std::collections::BTreeMap::new();
     if let Some(a) = f.get("assets").and_then(|a| a.as_object()) {
         for (k, v) in a {
@@ -116,8 +137,11 @@ pub async fn search_one_at(
         }
     }
     Ok(Some(StacItem {
-        id, cloud_cover, datetime: datetime_str,
-        epsg, assets,
+        id,
+        cloud_cover,
+        datetime: datetime_str,
+        epsg,
+        assets,
         collection: collection.to_string(),
     }))
 }
@@ -139,31 +163,39 @@ pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, 
     if let Ok(guard) = SAS_CACHE.lock() {
         if let Some((cached_collection, cached)) = guard.as_ref() {
             if cached_collection == collection
-               && cached.fetched_at.elapsed() < Duration::from_secs(50 * 60) {
+                && cached.fetched_at.elapsed() < Duration::from_secs(50 * 60)
+            {
                 return Ok(cached.token.clone());
             }
         }
     }
-    let url = format!(
-        "https://planetarycomputer.microsoft.com/api/sas/v1/token/{collection}"
-    );
+    let url = format!("https://planetarycomputer.microsoft.com/api/sas/v1/token/{collection}");
     let resp = client
         .get(&url)
         .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("mpc sas http: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("mpc sas status {}", resp.status()));
     }
-    let v: Value = resp.json().await.map_err(|e| format!("mpc sas json: {e}"))?;
-    let token = v.get("token").and_then(|t| t.as_str())
+    let v: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("mpc sas json: {e}"))?;
+    let token = v
+        .get("token")
+        .and_then(|t| t.as_str())
         .ok_or_else(|| "mpc sas response missing `token` field".to_string())?
         .to_string();
     if let Ok(mut guard) = SAS_CACHE.lock() {
-        *guard = Some((collection.to_string(), CachedSas {
-            token: token.clone(),
-            fetched_at: Instant::now(),
-        }));
+        *guard = Some((
+            collection.to_string(),
+            CachedSas {
+                token: token.clone(),
+                fetched_at: Instant::now(),
+            },
+        ));
     }
     Ok(token)
 }

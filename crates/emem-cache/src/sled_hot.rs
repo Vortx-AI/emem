@@ -13,8 +13,8 @@ use async_trait::async_trait;
 use blake3::Hasher;
 use data_encoding::BASE32_NOPAD;
 
-use emem_fact::{Fact, FactCid};
 use crate::{Cache, CacheError, CanonicalKey, Tier};
+use emem_fact::{Fact, FactCid};
 
 const TREE_INDEX: &str = "emem.canonical_index";
 const TREE_FACTS: &str = "emem.facts";
@@ -48,11 +48,12 @@ impl SledHotCache {
 
     /// Iterate every (canonical_key, fact_cid) in the index. Used by
     /// primitives like find_similar that need a corpus-wide scan.
-    pub fn iter_index(&self) -> impl Iterator<Item = Result<(CanonicalKey, FactCid), CacheError>> + '_ {
+    pub fn iter_index(
+        &self,
+    ) -> impl Iterator<Item = Result<(CanonicalKey, FactCid), CacheError>> + '_ {
         self.idx.iter().map(|kv| {
             let (k, v) = kv?;
-            let key = decode_key(&k)
-                .map_err(|e| CacheError::Cbor(e))?;
+            let key = decode_key(&k).map_err(CacheError::Cbor)?;
             let cid_s = std::str::from_utf8(&v)
                 .map_err(|e| CacheError::Cbor(e.to_string()))?
                 .to_string();
@@ -66,7 +67,11 @@ impl SledHotCache {
     /// well above any expected legitimate density (a single cell holds one
     /// fact per (band, tslot)); hitting it indicates either an attack or a
     /// schema mistake, both of which we want logged.
-    pub fn scan_cell(&self, cell: &str, tslot: Option<u64>) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+    pub fn scan_cell(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
         let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -90,22 +95,34 @@ impl SledHotCache {
             }
             let (k, v) = kv?;
             let key = decode_key(&k).map_err(CacheError::Cbor)?;
-            if let Some(t) = tslot { if key.tslot != t { continue; } }
-            let cid_s = std::str::from_utf8(&v).map_err(|e| CacheError::Cbor(e.to_string()))?.to_string();
+            if let Some(t) = tslot {
+                if key.tslot != t {
+                    continue;
+                }
+            }
+            let cid_s = std::str::from_utf8(&v)
+                .map_err(|e| CacheError::Cbor(e.to_string()))?
+                .to_string();
             out.push((key, FactCid::new(cid_s)));
         }
         Ok(out)
     }
 
     /// Approximate item count across the index tree.
-    pub fn len(&self) -> usize { self.idx.len() }
+    pub fn len(&self) -> usize {
+        self.idx.len()
+    }
     /// Whether the index has zero entries.
-    pub fn is_empty(&self) -> bool { self.idx.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.idx.is_empty()
+    }
     /// Total bytes across both trees on disk (sled estimate).
     /// Borrow the underlying sled DB so callers (e.g., the attester
     /// reputation tracker) can open additional named trees alongside the
     /// canonical index + facts trees without re-opening the file.
-    pub fn db(&self) -> &sled::Db { &self.db }
+    pub fn db(&self) -> &sled::Db {
+        &self.db
+    }
 
     pub fn size_on_disk(&self) -> Result<u64, CacheError> {
         Ok(self.db.size_on_disk()?)
@@ -154,8 +171,12 @@ fn decode_key(b: &[u8]) -> Result<CanonicalKey, String> {
     let mut t = [0u8; 8];
     t.copy_from_slice(rest);
     Ok(CanonicalKey {
-        cell: std::str::from_utf8(cell).map_err(|e| e.to_string())?.to_string(),
-        band: std::str::from_utf8(band).map_err(|e| e.to_string())?.to_string(),
+        cell: std::str::from_utf8(cell)
+            .map_err(|e| e.to_string())?
+            .to_string(),
+        band: std::str::from_utf8(band)
+            .map_err(|e| e.to_string())?
+            .to_string(),
         tslot: u64::from_be_bytes(t),
     })
 }
@@ -223,23 +244,31 @@ impl Cache for SledHotCache {
             }
             out.push(cid);
         }
-        self.idx.flush_async().await
+        self.idx
+            .flush_async()
+            .await
             .map_err(|e| CacheError::Cbor(e.to_string()))?;
-        self.facts.flush_async().await
+        self.facts
+            .flush_async()
+            .await
             .map_err(|e| CacheError::Cbor(e.to_string()))?;
         Ok(out)
     }
 
     async fn tier_of(&self, cid: &FactCid) -> Result<Option<Tier>, CacheError> {
-        Ok(if self.facts.contains_key(cid.as_str().as_bytes())? { Some(Tier::Hot) } else { None })
+        Ok(if self.facts.contains_key(cid.as_str().as_bytes())? {
+            Some(Tier::Hot)
+        } else {
+            None
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emem_core::{AttesterKey, KeyEpoch, Signature};
-    use emem_fact::{PrimaryFact, Source, Derivation, SchemaCid};
+    use emem_core::AttesterKey;
+    use emem_fact::{Derivation, PrimaryFact, SchemaCid, Source};
 
     fn sample_fact(cell: &str, band: &str, tslot: u64) -> Fact {
         Fact::Primary(PrimaryFact {
@@ -250,8 +279,18 @@ mod tests {
             unit: None,
             confidence: 1.0,
             uncertainty: None,
-            sources: vec![Source { scheme: "test".into(), id: "t1".into(), cid: None, hash: None, captured_at: None, url: None }],
-            derivation: Derivation { fn_key: "test@1".into(), args: None },
+            sources: vec![Source {
+                scheme: "test".into(),
+                id: "t1".into(),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
             privacy_class: "public".into(),
             schema_cid: SchemaCid::new("test"),
             signer: AttesterKey([0u8; 32]),
@@ -263,7 +302,7 @@ mod tests {
     async fn put_then_lookup_roundtrips() {
         let c = SledHotCache::open_temporary().unwrap();
         let f = sample_fact("ento.bria.calo.tris", "indices.ndvi", 7);
-        let cids = c.put_many(&[f.clone()]).await.unwrap();
+        let cids = c.put_many(std::slice::from_ref(&f)).await.unwrap();
         assert_eq!(cids.len(), 1);
 
         let key = CanonicalKey {
@@ -285,7 +324,9 @@ mod tests {
             sample_fact("ento.bria.calo.tris", "indices.ndvi", 7),
             sample_fact("ento.bria.calo.tris", "indices.evi", 7),
             sample_fact("ento.bria.calo.tris", "indices.ndvi", 8),
-        ]).await.unwrap();
+        ])
+        .await
+        .unwrap();
 
         let only_t7 = c.scan_cell("ento.bria.calo.tris", Some(7)).unwrap();
         assert_eq!(only_t7.len(), 2);

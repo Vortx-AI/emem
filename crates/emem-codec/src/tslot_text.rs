@@ -15,7 +15,8 @@ pub fn to_tslot_text(t: Tslot) -> String {
 /// Parse a tslot from `"t.<base32>"`.
 pub fn from_tslot_text(s: &str) -> Result<Tslot, TslotTextError> {
     let body = s.strip_prefix("t.").ok_or(TslotTextError::MissingPrefix)?;
-    let bytes = BASE32_NOPAD.decode(body.to_uppercase().as_bytes())
+    let bytes = BASE32_NOPAD
+        .decode(body.to_uppercase().as_bytes())
         .map_err(|_| TslotTextError::BadBase32)?;
     let v = decode_varint(&bytes).ok_or(TslotTextError::BadVarint)?;
     Ok(Tslot(v))
@@ -55,7 +56,9 @@ fn decode_varint(buf: &[u8]) -> Option<u64> {
             return Some(v);
         }
         shift += 7;
-        if shift >= 64 { return None; }
+        if shift >= 64 {
+            return None;
+        }
     }
     None
 }

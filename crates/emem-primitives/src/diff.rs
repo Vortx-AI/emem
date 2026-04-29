@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use emem_cache::CanonicalKey;
 use emem_core::ErrorCode;
-use emem_fact::{Derivation, DerivativeFact, Fact, FactCid, Receipt};
-use emem_storage::{Server, StorageError, server::iso8601_now};
+use emem_fact::{Derivation, DerivativeFact, Fact, Receipt};
+use emem_storage::{server::iso8601_now, Server, StorageError};
 
 use crate::cbor_ops::{as_f64, as_vec_f32};
 
@@ -44,31 +44,53 @@ pub async fn diff(req: &DiffReq, srv: &Server) -> Result<DiffResp, StorageError>
     let started = Instant::now();
     let storage = srv.storage.as_ref();
 
-    let key_a = CanonicalKey { cell: req.cell.clone(), band: req.band.clone(), tslot: req.tslot_a };
-    let key_b = CanonicalKey { cell: req.cell.clone(), band: req.band.clone(), tslot: req.tslot_b };
-    let cids = storage.lookup_canonical_many(&[key_a.clone(), key_b.clone()]).await?;
+    let key_a = CanonicalKey {
+        cell: req.cell.clone(),
+        band: req.band.clone(),
+        tslot: req.tslot_a,
+    };
+    let key_b = CanonicalKey {
+        cell: req.cell.clone(),
+        band: req.band.clone(),
+        tslot: req.tslot_b,
+    };
+    let cids = storage
+        .lookup_canonical_many(&[key_a.clone(), key_b.clone()])
+        .await?;
     let cid_a = cids[0].clone().ok_or_else(|| StorageError::Protocol {
         code: ErrorCode::CidNotFound,
-        message: format!("no fact at tslot_a={} for ({},{})", req.tslot_a, req.cell, req.band),
+        message: format!(
+            "no fact at tslot_a={} for ({},{})",
+            req.tslot_a, req.cell, req.band
+        ),
     })?;
     let cid_b = cids[1].clone().ok_or_else(|| StorageError::Protocol {
         code: ErrorCode::CidNotFound,
-        message: format!("no fact at tslot_b={} for ({},{})", req.tslot_b, req.cell, req.band),
+        message: format!(
+            "no fact at tslot_b={} for ({},{})",
+            req.tslot_b, req.cell, req.band
+        ),
     })?;
-    let facts = storage.get_facts_many(&[cid_a.clone(), cid_b.clone()]).await?;
+    let facts = storage
+        .get_facts_many(&[cid_a.clone(), cid_b.clone()])
+        .await?;
     let fa = facts[0].clone().ok_or_else(|| StorageError::Protocol {
-        code: ErrorCode::CidNotFound, message: format!("missing fact bytes for {}", cid_a.as_str()),
+        code: ErrorCode::CidNotFound,
+        message: format!("missing fact bytes for {}", cid_a.as_str()),
     })?;
     let fb = facts[1].clone().ok_or_else(|| StorageError::Protocol {
-        code: ErrorCode::CidNotFound, message: format!("missing fact bytes for {}", cid_b.as_str()),
+        code: ErrorCode::CidNotFound,
+        message: format!("missing fact bytes for {}", cid_b.as_str()),
     })?;
 
     let (va, vb) = match (&fa, &fb) {
         (Fact::Primary(a), Fact::Primary(b)) => (&a.value, &b.value),
-        _ => return Err(StorageError::Protocol {
-            code: ErrorCode::Internal,
-            message: "diff requires primary facts at both tslots".into(),
-        }),
+        _ => {
+            return Err(StorageError::Protocol {
+                code: ErrorCode::Internal,
+                message: "diff requires primary facts at both tslots".into(),
+            })
+        }
     };
 
     let value = if let (Some(av), Some(bv)) = (as_vec_f32(va), as_vec_f32(vb)) {
@@ -94,7 +116,10 @@ pub async fn diff(req: &DiffReq, srv: &Server) -> Result<DiffResp, StorageError>
         parents: vec![cid_a.clone(), cid_b.clone()],
         value,
         confidence: 1.0,
-        derivation: Derivation { fn_key: "nd.delta@1".into(), args: None },
+        derivation: Derivation {
+            fn_key: "nd.delta@1".into(),
+            args: None,
+        },
         schema_cid: srv.manifests.schema_cid.clone(),
         signer: srv.identity.pubkey,
         signed_at: iso8601_now(),
@@ -108,5 +133,8 @@ pub async fn diff(req: &DiffReq, srv: &Server) -> Result<DiffResp, StorageError>
         started,
         None,
     );
-    Ok(DiffResp { delta_fact: derivative, receipt })
+    Ok(DiffResp {
+        delta_fact: derivative,
+        receipt,
+    })
 }

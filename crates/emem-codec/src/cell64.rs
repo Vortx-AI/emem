@@ -6,8 +6,8 @@
 //! spatially proximate cells share string prefixes through the cell ID's
 //! own bit structure (mode|res|base|path), not through alphabet ordering.
 
-use emem_core::Cell;
 use crate::alphabet::{ALPHABET, ALPHABET_INDEX};
+use emem_core::Cell;
 
 /// Encode a 64-bit cell ID as a `cell64` string. Output is exactly 4 bigrams
 /// joined by `.`, e.g. `"ento.bria.calo.tris"`.
@@ -16,8 +16,11 @@ pub fn to_cell64(cell: Cell) -> String {
     let d0 = ((raw >> 48) & 0xFFFF) as usize;
     let d1 = ((raw >> 32) & 0xFFFF) as usize;
     let d2 = ((raw >> 16) & 0xFFFF) as usize;
-    let d3 = ( raw        & 0xFFFF) as usize;
-    format!("{}.{}.{}.{}", ALPHABET[d0], ALPHABET[d1], ALPHABET[d2], ALPHABET[d3])
+    let d3 = (raw & 0xFFFF) as usize;
+    format!(
+        "{}.{}.{}.{}",
+        ALPHABET[d0], ALPHABET[d1], ALPHABET[d2], ALPHABET[d3]
+    )
 }
 
 /// Cheap shape-only check: is this string syntactically a cell64?
@@ -27,7 +30,9 @@ pub fn to_cell64(cell: Cell) -> String {
 /// geocoder.
 pub fn is_cell64_shape(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
-    if parts.len() != 4 { return false; }
+    if parts.len() != 4 {
+        return false;
+    }
     parts.iter().all(|sym| ALPHABET_INDEX.contains_key(*sym))
 }
 
@@ -40,7 +45,8 @@ pub fn from_cell64(s: &str) -> Result<Cell, CodecError> {
     }
     let mut raw: u64 = 0;
     for (i, sym) in parts.iter().enumerate() {
-        let idx = *ALPHABET_INDEX.get(sym)
+        let idx = *ALPHABET_INDEX
+            .get(sym)
             .ok_or_else(|| CodecError::UnknownSymbol((*sym).to_string()))?;
         raw |= (idx as u64) << (48 - i * 16);
     }

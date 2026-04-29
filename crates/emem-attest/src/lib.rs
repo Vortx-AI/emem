@@ -16,16 +16,19 @@ pub fn merkle_root(leaves: &[[u8; 32]]) -> [u8; 32] {
     // multi-leaf trees both produce a *hash* root (closes the
     // leaf-vs-root domain confusion that would otherwise let a raw leaf
     // be claimed as a one-fact attestation root).
-    let mut layer: Vec<[u8; 32]> = leaves.iter().map(|leaf| {
-        let mut h = Hasher::new();
-        h.update(leaf);
-        h.update(leaf);
-        let mut out = [0u8; 32];
-        out.copy_from_slice(h.finalize().as_bytes());
-        out
-    }).collect();
+    let mut layer: Vec<[u8; 32]> = leaves
+        .iter()
+        .map(|leaf| {
+            let mut h = Hasher::new();
+            h.update(leaf);
+            h.update(leaf);
+            let mut out = [0u8; 32];
+            out.copy_from_slice(h.finalize().as_bytes());
+            out
+        })
+        .collect();
     while layer.len() > 1 {
-        let mut next: Vec<[u8; 32]> = Vec::with_capacity((layer.len() + 1) / 2);
+        let mut next: Vec<[u8; 32]> = Vec::with_capacity(layer.len().div_ceil(2));
         for pair in layer.chunks(2) {
             let mut h = Hasher::new();
             h.update(&pair[0]);

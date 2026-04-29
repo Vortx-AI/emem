@@ -22,13 +22,13 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-pub mod template;
-pub mod connectors;
 pub mod cache_window;
 pub mod cog;
+pub mod connectors;
+pub mod overture;
 pub mod proj;
 pub mod stac;
-pub mod overture;
+pub mod template;
 
 /// A single fetch request.
 ///
@@ -89,7 +89,10 @@ pub enum FetchError {
     Transport(String),
     /// Provider rate-limited.
     #[error("rate limited by {provider_id}; retry after {retry_after_s}s")]
-    RateLimited { provider_id: String, retry_after_s: u32 },
+    RateLimited {
+        provider_id: String,
+        retry_after_s: u32,
+    },
     /// Template variable was not provided.
     #[error("missing template variable: {0}")]
     MissingVariable(String),
@@ -110,12 +113,16 @@ pub trait SourceConnector: Send + Sync {
     /// reads are *the* mechanism that makes vsicurl-style global lazy
     /// fetch viable: a Sentinel-2 scene is ~1 GB but a 5x5 km AOI
     /// touches only a few hundred KB of IFD + tile data.
-    async fn fetch_range(&self, url: &str, _auth: &str,
-                          _start: u64, _end_inclusive: u64)
-        -> Result<FetchResponse, FetchError>
-    {
+    async fn fetch_range(
+        &self,
+        url: &str,
+        _auth: &str,
+        _start: u64,
+        _end_inclusive: u64,
+    ) -> Result<FetchResponse, FetchError> {
         Err(FetchError::Transport(format!(
-            "range not supported for connector serving {url}")))
+            "range not supported for connector serving {url}"
+        )))
     }
 }
 
@@ -128,7 +135,9 @@ pub struct Dispatcher {
 impl Dispatcher {
     /// Build a new dispatcher with no registered connectors.
     pub fn new() -> Self {
-        Self { connectors: HashMap::new() }
+        Self {
+            connectors: HashMap::new(),
+        }
     }
 
     /// Register a connector for its `kind()`. Last-registered wins.
@@ -142,24 +151,33 @@ impl Dispatcher {
         sources: &emem_core::SourceRegistry,
         req: &FetchRequest,
     ) -> Result<FetchResponse, FetchError> {
-        let scheme = sources.lookup(&req.scheme)
+        let scheme = sources
+            .lookup(&req.scheme)
             .ok_or_else(|| FetchError::UnknownScheme(req.scheme.clone()))?;
         let mut last_err: Option<String> = None;
         for prov in &scheme.providers {
             let connector = match self.connectors.get(&prov.kind) {
                 Some(c) => c,
-                None => { last_err = Some(format!("no connector for {:?}", prov.kind)); continue; }
+                None => {
+                    last_err = Some(format!("no connector for {:?}", prov.kind));
+                    continue;
+                }
             };
             let url = match &prov.url_template {
                 Some(t) => template::expand(t, req)?,
                 None => match &prov.cid {
                     Some(cid) => format!("ipld:{cid}"),
-                    None => { last_err = Some("no url_template or cid".into()); continue; }
+                    None => {
+                        last_err = Some("no url_template or cid".into());
+                        continue;
+                    }
                 },
             };
             match connector.fetch(&url, &prov.auth).await {
                 Ok(resp) => return Ok(resp),
-                Err(e) => { last_err = Some(format!("{}: {e}", prov.id)); }
+                Err(e) => {
+                    last_err = Some(format!("{}: {e}", prov.id));
+                }
             }
         }
         Err(FetchError::AllProvidersFailed {
@@ -170,5 +188,7 @@ impl Dispatcher {
 }
 
 impl Default for Dispatcher {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

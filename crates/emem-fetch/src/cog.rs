@@ -155,7 +155,10 @@ pub async fn open_profile(client: &Client, url: &str) -> Result<CogProfile, CogE
                     return Err(CogError::Transport(format!(
                         "open_profile retry: range request not honored or file truncated \
                          (had {} bytes, asked for {}, got {})",
-                        buf.len(), end, next.len())));
+                        buf.len(),
+                        end,
+                        next.len()
+                    )));
                 }
                 buf = next;
             }
@@ -168,10 +171,15 @@ pub async fn open_profile(client: &Client, url: &str) -> Result<CogProfile, CogE
 
 fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     if buf.len() < 8 {
-        return Err(CogError::ShortRead { needed: 8, offset: 0 });
+        return Err(CogError::ShortRead {
+            needed: 8,
+            offset: 0,
+        });
     }
     if &buf[..2] != b"II" {
-        return Err(CogError::Unsupported("big-endian TIFF (MM) not yet supported".into()));
+        return Err(CogError::Unsupported(
+            "big-endian TIFF (MM) not yet supported".into(),
+        ));
     }
     let magic = u16::from_le_bytes([buf[2], buf[3]]) as u32;
     if magic != 42 {
@@ -179,12 +187,18 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     }
     let ifd0_off = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
     if buf.len() < ifd0_off + 2 {
-        return Err(CogError::ShortRead { needed: ifd0_off + 2, offset: 0 });
+        return Err(CogError::ShortRead {
+            needed: ifd0_off + 2,
+            offset: 0,
+        });
     }
     let n = u16::from_le_bytes([buf[ifd0_off], buf[ifd0_off + 1]]) as usize;
     let entries_start = ifd0_off + 2;
     if buf.len() < entries_start + n * 12 {
-        return Err(CogError::ShortRead { needed: entries_start + n * 12, offset: 0 });
+        return Err(CogError::ShortRead {
+            needed: entries_start + n * 12,
+            offset: 0,
+        });
     }
 
     let mut width: Option<u32> = None;
@@ -207,11 +221,11 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     for i in 0..n {
         let e = entries_start + i * 12;
         let tag = u16::from_le_bytes([buf[e], buf[e + 1]]);
-        let typ = u16::from_le_bytes([buf[e + 2], buf[e + 3]]);
+        let _typ = u16::from_le_bytes([buf[e + 2], buf[e + 3]]);
         let cnt = u32::from_le_bytes([buf[e + 4], buf[e + 5], buf[e + 6], buf[e + 7]]) as usize;
         let raw = &buf[e + 8..e + 12];
         let val_u32 = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize;
-        let val_u16_first = u16::from_le_bytes([raw[0], raw[1]]) as u16;
+        let val_u16_first = u16::from_le_bytes([raw[0], raw[1]]);
 
         match tag {
             256 => width = Some(val_u32 as u32),
@@ -228,27 +242,37 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
             339 => sample_format = val_u16_first,
             33550 => {
                 // ModelPixelScale: 3 doubles (sx, sy, sz)
-                if cnt < 2 { continue; }
+                if cnt < 2 {
+                    continue;
+                }
                 let off = val_u32;
                 if buf.len() < off + 16 {
-                    return Err(CogError::ShortRead { needed: off + 16, offset: 0 });
+                    return Err(CogError::ShortRead {
+                        needed: off + 16,
+                        offset: 0,
+                    });
                 }
-                let sx = f64::from_le_bytes(buf[off..off+8].try_into().unwrap());
-                let sy = f64::from_le_bytes(buf[off+8..off+16].try_into().unwrap());
+                let sx = f64::from_le_bytes(buf[off..off + 8].try_into().unwrap());
+                let sy = f64::from_le_bytes(buf[off + 8..off + 16].try_into().unwrap());
                 pixel_scale = Some((sx, sy));
             }
             33922 => {
                 // ModelTiepoint: 6 doubles (i, j, k, x, y, z) — 2D = use 4
-                if cnt < 6 { continue; }
+                if cnt < 6 {
+                    continue;
+                }
                 let off = val_u32;
                 if buf.len() < off + 48 {
-                    return Err(CogError::ShortRead { needed: off + 48, offset: 0 });
+                    return Err(CogError::ShortRead {
+                        needed: off + 48,
+                        offset: 0,
+                    });
                 }
-                let i = f64::from_le_bytes(buf[off..off+8].try_into().unwrap());
-                let j = f64::from_le_bytes(buf[off+8..off+16].try_into().unwrap());
+                let i = f64::from_le_bytes(buf[off..off + 8].try_into().unwrap());
+                let j = f64::from_le_bytes(buf[off + 8..off + 16].try_into().unwrap());
                 // skip k at off+16..off+24
-                let x = f64::from_le_bytes(buf[off+24..off+32].try_into().unwrap());
-                let y = f64::from_le_bytes(buf[off+32..off+40].try_into().unwrap());
+                let x = f64::from_le_bytes(buf[off + 24..off + 32].try_into().unwrap());
+                let y = f64::from_le_bytes(buf[off + 32..off + 40].try_into().unwrap());
                 tiepoint = Some((i, j, x, y));
             }
             34735 => {
@@ -258,14 +282,23 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
             42113 => {
                 // GDAL_NODATA: ASCII
                 if cnt <= 4 {
-                    let s = std::str::from_utf8(&raw[..cnt.min(4)]).unwrap_or("").trim_end_matches('\0').to_string();
+                    let s = std::str::from_utf8(&raw[..cnt.min(4)])
+                        .unwrap_or("")
+                        .trim_end_matches('\0')
+                        .to_string();
                     nodata = Some(s);
                 } else {
                     let off = val_u32;
                     if buf.len() < off + cnt {
-                        return Err(CogError::ShortRead { needed: off + cnt, offset: 0 });
+                        return Err(CogError::ShortRead {
+                            needed: off + cnt,
+                            offset: 0,
+                        });
                     }
-                    let s = std::str::from_utf8(&buf[off..off+cnt]).unwrap_or("").trim_end_matches('\0').to_string();
+                    let s = std::str::from_utf8(&buf[off..off + cnt])
+                        .unwrap_or("")
+                        .trim_end_matches('\0')
+                        .to_string();
                     nodata = Some(s);
                 }
             }
@@ -280,30 +313,38 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     let pixel_scale = pixel_scale.ok_or(CogError::MissingTag(33550))?;
     let tiepoint = tiepoint.ok_or(CogError::MissingTag(33922))?;
     let (toff_cnt, toff_off) = tile_offsets_ref.ok_or(CogError::MissingTag(324))?;
-    let (tbc_cnt, tbc_off)   = tile_byte_counts_ref.ok_or(CogError::MissingTag(325))?;
+    let (tbc_cnt, tbc_off) = tile_byte_counts_ref.ok_or(CogError::MissingTag(325))?;
     if toff_cnt != tbc_cnt {
-        return Err(CogError::Unsupported(format!("tile_offsets cnt {toff_cnt} != tile_byte_counts cnt {tbc_cnt}")));
+        return Err(CogError::Unsupported(format!(
+            "tile_offsets cnt {toff_cnt} != tile_byte_counts cnt {tbc_cnt}"
+        )));
     }
 
     if buf.len() < toff_off + toff_cnt * 4 {
-        return Err(CogError::ShortRead { needed: toff_off + toff_cnt * 4, offset: 0 });
+        return Err(CogError::ShortRead {
+            needed: toff_off + toff_cnt * 4,
+            offset: 0,
+        });
     }
     if buf.len() < tbc_off + tbc_cnt * 4 {
-        return Err(CogError::ShortRead { needed: tbc_off + tbc_cnt * 4, offset: 0 });
+        return Err(CogError::ShortRead {
+            needed: tbc_off + tbc_cnt * 4,
+            offset: 0,
+        });
     }
     let mut tile_offsets = Vec::with_capacity(toff_cnt);
     for k in 0..toff_cnt {
         let p = toff_off + k * 4;
-        tile_offsets.push(u32::from_le_bytes(buf[p..p+4].try_into().unwrap()) as u64);
+        tile_offsets.push(u32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as u64);
     }
     let mut tile_byte_counts = Vec::with_capacity(tbc_cnt);
     for k in 0..tbc_cnt {
         let p = tbc_off + k * 4;
-        tile_byte_counts.push(u32::from_le_bytes(buf[p..p+4].try_into().unwrap()) as u64);
+        tile_byte_counts.push(u32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as u64);
     }
 
-    let tile_cols = (width + tile_w - 1) / tile_w;
-    let tile_rows = (height + tile_h - 1) / tile_h;
+    let tile_cols = width.div_ceil(tile_w);
+    let tile_rows = height.div_ceil(tile_h);
     if (tile_cols as usize) * (tile_rows as usize) != toff_cnt {
         return Err(CogError::Unsupported(format!(
             "tile grid {}x{} != tile_offsets count {}",
@@ -316,14 +357,16 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     if let Some((cnt, off)) = geokey_ref {
         if buf.len() >= off + cnt * 2 {
             // Header: 4 u16 — version, key_revision, minor_revision, num_keys
-            let num_keys = u16::from_le_bytes(buf[off+6..off+8].try_into().unwrap()) as usize;
+            let num_keys = u16::from_le_bytes(buf[off + 6..off + 8].try_into().unwrap()) as usize;
             for k in 0..num_keys {
                 let kp = off + 8 + k * 8;
-                if buf.len() < kp + 8 { break; }
-                let key_id = u16::from_le_bytes(buf[kp..kp+2].try_into().unwrap());
-                let tiff_tag_loc = u16::from_le_bytes(buf[kp+2..kp+4].try_into().unwrap());
-                let _count = u16::from_le_bytes(buf[kp+4..kp+6].try_into().unwrap());
-                let value = u16::from_le_bytes(buf[kp+6..kp+8].try_into().unwrap());
+                if buf.len() < kp + 8 {
+                    break;
+                }
+                let key_id = u16::from_le_bytes(buf[kp..kp + 2].try_into().unwrap());
+                let tiff_tag_loc = u16::from_le_bytes(buf[kp + 2..kp + 4].try_into().unwrap());
+                let _count = u16::from_le_bytes(buf[kp + 4..kp + 6].try_into().unwrap());
+                let value = u16::from_le_bytes(buf[kp + 6..kp + 8].try_into().unwrap());
                 if key_id == 3072 && tiff_tag_loc == 0 {
                     epsg = Some(value as u32);
                     break;
@@ -333,12 +376,24 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     }
 
     Ok(CogProfile {
-        width, height, bits_per_sample, sample_format,
-        compression, predictor,
-        tile_w, tile_h, tile_cols, tile_rows,
-        samples_per_pixel, planar_config,
-        tile_offsets, tile_byte_counts,
-        pixel_scale, tiepoint, epsg, nodata,
+        width,
+        height,
+        bits_per_sample,
+        sample_format,
+        compression,
+        predictor,
+        tile_w,
+        tile_h,
+        tile_cols,
+        tile_rows,
+        samples_per_pixel,
+        planar_config,
+        tile_offsets,
+        tile_byte_counts,
+        pixel_scale,
+        tiepoint,
+        epsg,
+        nodata,
     })
 }
 
@@ -355,12 +410,17 @@ pub async fn sample_pixel(
 ) -> Result<f64, CogError> {
     if profile.compression != 8 && profile.compression != 5 {
         return Err(CogError::Unsupported(format!(
-            "compression={} (Deflate (8) and LZW (5) supported)", profile.compression
+            "compression={} (Deflate (8) and LZW (5) supported)",
+            profile.compression
         )));
     }
-    if profile.bits_per_sample != 16 && profile.bits_per_sample != 8 && profile.bits_per_sample != 32 {
+    if profile.bits_per_sample != 16
+        && profile.bits_per_sample != 8
+        && profile.bits_per_sample != 32
+    {
         return Err(CogError::Unsupported(format!(
-            "bits_per_sample={} (8/16/32 supported)", profile.bits_per_sample
+            "bits_per_sample={} (8/16/32 supported)",
+            profile.bits_per_sample
         )));
     }
 
@@ -378,7 +438,9 @@ pub async fn sample_pixel(
     let tile_row = row / profile.tile_h;
     let tile_idx = (tile_row * profile.tile_cols + tile_col) as usize;
     if tile_idx >= profile.tile_offsets.len() {
-        return Err(CogError::Unsupported(format!("tile_idx {tile_idx} out of range")));
+        return Err(CogError::Unsupported(format!(
+            "tile_idx {tile_idx} out of range"
+        )));
     }
     let intra_col = col - tile_col * profile.tile_w;
     let intra_row = row - tile_row * profile.tile_h;
@@ -386,7 +448,9 @@ pub async fn sample_pixel(
     let off = profile.tile_offsets[tile_idx];
     let len = profile.tile_byte_counts[tile_idx];
     if len == 0 {
-        return Err(CogError::Unsupported(format!("tile {tile_idx} byte_count=0 (sparse — empty)")));
+        return Err(CogError::Unsupported(format!(
+            "tile {tile_idx} byte_count=0 (sparse — empty)"
+        )));
     }
     let tile_compressed = http_range(client, url, off, off + len - 1).await?;
 
@@ -397,14 +461,16 @@ pub async fn sample_pixel(
     //       matches the TIFF spec; standard TIFF readers (libtiff, image-rs)
     //       use the same configuration.
     let mut tile_bytes = Vec::with_capacity(
-        (profile.tile_w as usize) * (profile.tile_h as usize)
-        * (profile.samples_per_pixel as usize)
-        * (profile.bits_per_sample as usize / 8)
+        (profile.tile_w as usize)
+            * (profile.tile_h as usize)
+            * (profile.samples_per_pixel as usize)
+            * (profile.bits_per_sample as usize / 8),
     );
     match profile.compression {
         8 => {
             let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
-            decoder.read_to_end(&mut tile_bytes)
+            decoder
+                .read_to_end(&mut tile_bytes)
                 .map_err(|e| CogError::Inflate(e.to_string()))?;
         }
         5 => {
@@ -414,7 +480,8 @@ pub async fn sample_pixel(
             // boundary. weezl::decode::Decoder::with_tiff_size_switch is
             // the libtiff-compatible mode every TIFF reader uses.
             let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-            tile_bytes = dec.decode(&tile_compressed[..])
+            tile_bytes = dec
+                .decode(&tile_compressed[..])
                 .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
         }
         _ => unreachable!("compression already validated above"),
@@ -428,12 +495,13 @@ pub async fn sample_pixel(
             16 => {
                 for r in 0..profile.tile_h as usize {
                     let base = r * row_bytes;
-                    let mut prev: u16 = u16::from_le_bytes(tile_bytes[base..base+2].try_into().unwrap());
+                    let mut prev: u16 =
+                        u16::from_le_bytes(tile_bytes[base..base + 2].try_into().unwrap());
                     for c in 1..profile.tile_w as usize {
                         let p = base + c * 2;
-                        let cur_diff = u16::from_le_bytes(tile_bytes[p..p+2].try_into().unwrap());
+                        let cur_diff = u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap());
                         let v = prev.wrapping_add(cur_diff);
-                        tile_bytes[p..p+2].copy_from_slice(&v.to_le_bytes());
+                        tile_bytes[p..p + 2].copy_from_slice(&v.to_le_bytes());
                         prev = v;
                     }
                 }
@@ -453,12 +521,13 @@ pub async fn sample_pixel(
             32 => {
                 for r in 0..profile.tile_h as usize {
                     let base = r * row_bytes;
-                    let mut prev: u32 = u32::from_le_bytes(tile_bytes[base..base+4].try_into().unwrap());
+                    let mut prev: u32 =
+                        u32::from_le_bytes(tile_bytes[base..base + 4].try_into().unwrap());
                     for c in 1..profile.tile_w as usize {
                         let p = base + c * 4;
-                        let cur_diff = u32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap());
+                        let cur_diff = u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap());
                         let v = prev.wrapping_add(cur_diff);
-                        tile_bytes[p..p+4].copy_from_slice(&v.to_le_bytes());
+                        tile_bytes[p..p + 4].copy_from_slice(&v.to_le_bytes());
                         prev = v;
                     }
                 }
@@ -497,26 +566,45 @@ pub async fn sample_pixel(
             }
         }
     } else if profile.predictor != 1 {
-        return Err(CogError::Unsupported(format!("predictor={} (1/2/3 supported)", profile.predictor)));
+        return Err(CogError::Unsupported(format!(
+            "predictor={} (1/2/3 supported)",
+            profile.predictor
+        )));
     }
 
     let bps = (profile.bits_per_sample / 8) as usize;
-    let pixel_off = (intra_row as usize) * (profile.tile_w as usize) * bps + (intra_col as usize) * bps;
+    let pixel_off =
+        (intra_row as usize) * (profile.tile_w as usize) * bps + (intra_col as usize) * bps;
     if tile_bytes.len() < pixel_off + bps {
         return Err(CogError::Unsupported(format!(
             "decompressed tile too small: {} bytes, need >= {}",
-            tile_bytes.len(), pixel_off + bps
+            tile_bytes.len(),
+            pixel_off + bps
         )));
     }
     let value = match (profile.bits_per_sample, profile.sample_format) {
-        (16, 1) => u16::from_le_bytes(tile_bytes[pixel_off..pixel_off+2].try_into().unwrap()) as f64,
-        (16, 2) => i16::from_le_bytes(tile_bytes[pixel_off..pixel_off+2].try_into().unwrap()) as f64,
-        (8, 1)  => tile_bytes[pixel_off] as f64,
-        (8, 2)  => (tile_bytes[pixel_off] as i8) as f64,
-        (32, 3) => f32::from_le_bytes(tile_bytes[pixel_off..pixel_off+4].try_into().unwrap()) as f64,
-        (32, 1) => u32::from_le_bytes(tile_bytes[pixel_off..pixel_off+4].try_into().unwrap()) as f64,
-        (32, 2) => i32::from_le_bytes(tile_bytes[pixel_off..pixel_off+4].try_into().unwrap()) as f64,
-        (b, sf) => return Err(CogError::Unsupported(format!("bits={b} sample_format={sf}"))),
+        (16, 1) => {
+            u16::from_le_bytes(tile_bytes[pixel_off..pixel_off + 2].try_into().unwrap()) as f64
+        }
+        (16, 2) => {
+            i16::from_le_bytes(tile_bytes[pixel_off..pixel_off + 2].try_into().unwrap()) as f64
+        }
+        (8, 1) => tile_bytes[pixel_off] as f64,
+        (8, 2) => (tile_bytes[pixel_off] as i8) as f64,
+        (32, 3) => {
+            f32::from_le_bytes(tile_bytes[pixel_off..pixel_off + 4].try_into().unwrap()) as f64
+        }
+        (32, 1) => {
+            u32::from_le_bytes(tile_bytes[pixel_off..pixel_off + 4].try_into().unwrap()) as f64
+        }
+        (32, 2) => {
+            i32::from_le_bytes(tile_bytes[pixel_off..pixel_off + 4].try_into().unwrap()) as f64
+        }
+        (b, sf) => {
+            return Err(CogError::Unsupported(format!(
+                "bits={b} sample_format={sf}"
+            )))
+        }
     };
     Ok(value)
 }
@@ -540,17 +628,23 @@ pub async fn sample_window(
 ) -> Result<Vec<f64>, CogError> {
     if profile.compression != 8 && profile.compression != 5 {
         return Err(CogError::Unsupported(format!(
-            "compression={} (Deflate (8) and LZW (5) supported)", profile.compression
+            "compression={} (Deflate (8) and LZW (5) supported)",
+            profile.compression
         )));
     }
-    if profile.bits_per_sample != 16 && profile.bits_per_sample != 8 && profile.bits_per_sample != 32 {
+    if profile.bits_per_sample != 16
+        && profile.bits_per_sample != 8
+        && profile.bits_per_sample != 32
+    {
         return Err(CogError::Unsupported(format!(
-            "bits_per_sample={} (8/16/32 supported)", profile.bits_per_sample
+            "bits_per_sample={} (8/16/32 supported)",
+            profile.bits_per_sample
         )));
     }
     if profile.samples_per_pixel != 1 {
         return Err(CogError::Unsupported(format!(
-            "sample_window: spp=1 only (got {})", profile.samples_per_pixel
+            "sample_window: spp=1 only (got {})",
+            profile.samples_per_pixel
         )));
     }
     let bps = (profile.bits_per_sample / 8) as usize;
@@ -581,23 +675,29 @@ pub async fn sample_window(
     for tr in tile_row_a..=tile_row_b {
         for tc in tile_col_a..=tile_col_b {
             let tile_idx = (tr * profile.tile_cols + tc) as usize;
-            if tile_idx >= profile.tile_offsets.len() { continue; }
+            if tile_idx >= profile.tile_offsets.len() {
+                continue;
+            }
             let off = profile.tile_offsets[tile_idx];
             let len = profile.tile_byte_counts[tile_idx];
-            if len == 0 { continue; }
+            if len == 0 {
+                continue;
+            }
             let tile_compressed = http_range(client, url, off, off + len - 1).await?;
-            let mut tile_bytes = Vec::with_capacity(
-                (profile.tile_w as usize) * (profile.tile_h as usize) * bps
-            );
+            let mut tile_bytes =
+                Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * bps);
             match profile.compression {
                 8 => {
                     let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
-                    decoder.read_to_end(&mut tile_bytes)
+                    decoder
+                        .read_to_end(&mut tile_bytes)
                         .map_err(|e| CogError::Inflate(e.to_string()))?;
                 }
                 5 => {
-                    let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-                    tile_bytes = dec.decode(&tile_compressed[..])
+                    let mut dec =
+                        weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
+                    tile_bytes = dec
+                        .decode(&tile_compressed[..])
                         .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
                 }
                 _ => unreachable!(),
@@ -608,38 +708,48 @@ pub async fn sample_window(
             if profile.predictor == 2 {
                 let row_bytes = (profile.tile_w as usize) * bps;
                 match profile.bits_per_sample {
-                    16 => for r in 0..profile.tile_h as usize {
-                        let base = r * row_bytes;
-                        let mut prev: u16 = u16::from_le_bytes(tile_bytes[base..base+2].try_into().unwrap());
-                        for c in 1..profile.tile_w as usize {
-                            let p = base + c * 2;
-                            let cur_diff = u16::from_le_bytes(tile_bytes[p..p+2].try_into().unwrap());
-                            let v = prev.wrapping_add(cur_diff);
-                            tile_bytes[p..p+2].copy_from_slice(&v.to_le_bytes());
-                            prev = v;
+                    16 => {
+                        for r in 0..profile.tile_h as usize {
+                            let base = r * row_bytes;
+                            let mut prev: u16 =
+                                u16::from_le_bytes(tile_bytes[base..base + 2].try_into().unwrap());
+                            for c in 1..profile.tile_w as usize {
+                                let p = base + c * 2;
+                                let cur_diff =
+                                    u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap());
+                                let v = prev.wrapping_add(cur_diff);
+                                tile_bytes[p..p + 2].copy_from_slice(&v.to_le_bytes());
+                                prev = v;
+                            }
                         }
-                    },
-                    8 => for r in 0..profile.tile_h as usize {
-                        let base = r * row_bytes;
-                        let mut prev: u8 = tile_bytes[base];
-                        for c in 1..profile.tile_w as usize {
-                            let p = base + c;
-                            let v = prev.wrapping_add(tile_bytes[p]);
-                            tile_bytes[p] = v;
-                            prev = v;
+                    }
+                    8 => {
+                        for r in 0..profile.tile_h as usize {
+                            let base = r * row_bytes;
+                            let mut prev: u8 = tile_bytes[base];
+                            for c in 1..profile.tile_w as usize {
+                                let p = base + c;
+                                let v = prev.wrapping_add(tile_bytes[p]);
+                                tile_bytes[p] = v;
+                                prev = v;
+                            }
                         }
-                    },
-                    32 => for r in 0..profile.tile_h as usize {
-                        let base = r * row_bytes;
-                        let mut prev: u32 = u32::from_le_bytes(tile_bytes[base..base+4].try_into().unwrap());
-                        for c in 1..profile.tile_w as usize {
-                            let p = base + c * 4;
-                            let cur_diff = u32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap());
-                            let v = prev.wrapping_add(cur_diff);
-                            tile_bytes[p..p+4].copy_from_slice(&v.to_le_bytes());
-                            prev = v;
+                    }
+                    32 => {
+                        for r in 0..profile.tile_h as usize {
+                            let base = r * row_bytes;
+                            let mut prev: u32 =
+                                u32::from_le_bytes(tile_bytes[base..base + 4].try_into().unwrap());
+                            for c in 1..profile.tile_w as usize {
+                                let p = base + c * 4;
+                                let cur_diff =
+                                    u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap());
+                                let v = prev.wrapping_add(cur_diff);
+                                tile_bytes[p..p + 4].copy_from_slice(&v.to_le_bytes());
+                                prev = v;
+                            }
                         }
-                    },
+                    }
                     _ => unreachable!(),
                 }
             } else if profile.predictor == 3 {
@@ -654,7 +764,8 @@ pub async fn sample_window(
                 for r in 0..profile.tile_h as usize {
                     let base = r * row_bytes;
                     for i in 1..row_bytes {
-                        tile_bytes[base + i] = tile_bytes[base + i].wrapping_add(tile_bytes[base + i - 1]);
+                        tile_bytes[base + i] =
+                            tile_bytes[base + i].wrapping_add(tile_bytes[base + i - 1]);
                     }
                     let row: Vec<u8> = tile_bytes[base..base + row_bytes].to_vec();
                     for i in 0..tw {
@@ -664,7 +775,10 @@ pub async fn sample_window(
                     }
                 }
             } else if profile.predictor != 1 {
-                return Err(CogError::Unsupported(format!("predictor={} (1/2/3 supported)", profile.predictor)));
+                return Err(CogError::Unsupported(format!(
+                    "predictor={} (1/2/3 supported)",
+                    profile.predictor
+                )));
             }
 
             // Memcpy the intersection of [tile bbox] ∩ [window bbox]
@@ -682,15 +796,27 @@ pub async fn sample_window(
                     let intra_col = (c - tile_col0) as usize;
                     let intra_row = (r - tile_row0) as usize;
                     let p = (intra_row * profile.tile_w as usize + intra_col) * bps;
-                    if p + bps > tile_bytes.len() { continue; }
+                    if p + bps > tile_bytes.len() {
+                        continue;
+                    }
                     let v = match (profile.bits_per_sample, profile.sample_format) {
-                        (16, 1) => u16::from_le_bytes(tile_bytes[p..p+2].try_into().unwrap()) as f64,
-                        (16, 2) => i16::from_le_bytes(tile_bytes[p..p+2].try_into().unwrap()) as f64,
-                        (8, 1)  => tile_bytes[p] as f64,
-                        (8, 2)  => (tile_bytes[p] as i8) as f64,
-                        (32, 3) => f32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap()) as f64,
-                        (32, 1) => u32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap()) as f64,
-                        (32, 2) => i32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap()) as f64,
+                        (16, 1) => {
+                            u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
+                        }
+                        (16, 2) => {
+                            i16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
+                        }
+                        (8, 1) => tile_bytes[p] as f64,
+                        (8, 2) => (tile_bytes[p] as i8) as f64,
+                        (32, 3) => {
+                            f32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                        }
+                        (32, 1) => {
+                            u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                        }
+                        (32, 2) => {
+                            i32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                        }
                         _ => 0.0,
                     };
                     let out_col = (c as i64 - want_col0) as usize;
@@ -718,18 +844,24 @@ pub async fn sample_pixel_multi(
 ) -> Result<Vec<f64>, CogError> {
     if profile.compression != 8 {
         return Err(CogError::Unsupported(format!(
-            "compression={} (only Deflate (8) supported)", profile.compression
+            "compression={} (only Deflate (8) supported)",
+            profile.compression
         )));
     }
     if profile.planar_config != 1 {
         return Err(CogError::Unsupported(format!(
-            "planar_config={} (only chunky=1 supported)", profile.planar_config
+            "planar_config={} (only chunky=1 supported)",
+            profile.planar_config
         )));
     }
     let bps = (profile.bits_per_sample / 8) as usize;
-    if !(profile.bits_per_sample == 8 || profile.bits_per_sample == 16 || profile.bits_per_sample == 32) {
+    if !(profile.bits_per_sample == 8
+        || profile.bits_per_sample == 16
+        || profile.bits_per_sample == 32)
+    {
         return Err(CogError::Unsupported(format!(
-            "bits_per_sample={} (8/16/32 supported)", profile.bits_per_sample
+            "bits_per_sample={} (8/16/32 supported)",
+            profile.bits_per_sample
         )));
     }
     let spp = profile.samples_per_pixel as usize;
@@ -748,7 +880,9 @@ pub async fn sample_pixel_multi(
     let tile_row = row / profile.tile_h;
     let tile_idx = (tile_row * profile.tile_cols + tile_col) as usize;
     if tile_idx >= profile.tile_offsets.len() {
-        return Err(CogError::Unsupported(format!("tile_idx {tile_idx} out of range")));
+        return Err(CogError::Unsupported(format!(
+            "tile_idx {tile_idx} out of range"
+        )));
     }
     let intra_col = col - tile_col * profile.tile_w;
     let intra_row = row - tile_row * profile.tile_h;
@@ -756,13 +890,18 @@ pub async fn sample_pixel_multi(
     let off = profile.tile_offsets[tile_idx];
     let len = profile.tile_byte_counts[tile_idx];
     if len == 0 {
-        return Err(CogError::Unsupported(format!("tile {tile_idx} byte_count=0 (sparse — empty)")));
+        return Err(CogError::Unsupported(format!(
+            "tile {tile_idx} byte_count=0 (sparse — empty)"
+        )));
     }
     let tile_compressed = http_range(client, url, off, off + len - 1).await?;
 
     let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
-    let mut tile_bytes = Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * stride);
-    decoder.read_to_end(&mut tile_bytes).map_err(|e| CogError::Inflate(e.to_string()))?;
+    let mut tile_bytes =
+        Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * stride);
+    decoder
+        .read_to_end(&mut tile_bytes)
+        .map_err(|e| CogError::Inflate(e.to_string()))?;
 
     if profile.predictor == 2 {
         // Horizontal differencing applies per-sample within a row.
@@ -771,23 +910,31 @@ pub async fn sample_pixel_multi(
             for c_idx in 1..profile.tile_w as usize {
                 for sample in 0..spp {
                     let p_prev = r * row_bytes + (c_idx - 1) * stride + sample * bps;
-                    let p_cur  = r * row_bytes +  c_idx      * stride + sample * bps;
+                    let p_cur = r * row_bytes + c_idx * stride + sample * bps;
                     match bps {
                         1 => {
                             let v = tile_bytes[p_prev].wrapping_add(tile_bytes[p_cur]);
                             tile_bytes[p_cur] = v;
                         }
                         2 => {
-                            let prev = u16::from_le_bytes(tile_bytes[p_prev..p_prev+2].try_into().unwrap());
-                            let cur  = u16::from_le_bytes(tile_bytes[p_cur..p_cur+2].try_into().unwrap());
+                            let prev = u16::from_le_bytes(
+                                tile_bytes[p_prev..p_prev + 2].try_into().unwrap(),
+                            );
+                            let cur = u16::from_le_bytes(
+                                tile_bytes[p_cur..p_cur + 2].try_into().unwrap(),
+                            );
                             let v = prev.wrapping_add(cur);
-                            tile_bytes[p_cur..p_cur+2].copy_from_slice(&v.to_le_bytes());
+                            tile_bytes[p_cur..p_cur + 2].copy_from_slice(&v.to_le_bytes());
                         }
                         4 => {
-                            let prev = u32::from_le_bytes(tile_bytes[p_prev..p_prev+4].try_into().unwrap());
-                            let cur  = u32::from_le_bytes(tile_bytes[p_cur..p_cur+4].try_into().unwrap());
+                            let prev = u32::from_le_bytes(
+                                tile_bytes[p_prev..p_prev + 4].try_into().unwrap(),
+                            );
+                            let cur = u32::from_le_bytes(
+                                tile_bytes[p_cur..p_cur + 4].try_into().unwrap(),
+                            );
                             let v = prev.wrapping_add(cur);
-                            tile_bytes[p_cur..p_cur+4].copy_from_slice(&v.to_le_bytes());
+                            tile_bytes[p_cur..p_cur + 4].copy_from_slice(&v.to_le_bytes());
                         }
                         _ => unreachable!(),
                     }
@@ -795,44 +942,68 @@ pub async fn sample_pixel_multi(
             }
         }
     } else if profile.predictor != 1 {
-        return Err(CogError::Unsupported(format!("predictor={} (1/2 supported)", profile.predictor)));
+        return Err(CogError::Unsupported(format!(
+            "predictor={} (1/2 supported)",
+            profile.predictor
+        )));
     }
 
-    let pixel_off = (intra_row as usize) * (profile.tile_w as usize) * stride
-                  + (intra_col as usize) * stride;
+    let pixel_off =
+        (intra_row as usize) * (profile.tile_w as usize) * stride + (intra_col as usize) * stride;
     if tile_bytes.len() < pixel_off + stride {
         return Err(CogError::Unsupported(format!(
             "decompressed tile too small: {} bytes, need >= {}",
-            tile_bytes.len(), pixel_off + stride
+            tile_bytes.len(),
+            pixel_off + stride
         )));
     }
     let mut out = Vec::with_capacity(spp);
     for sample in 0..spp {
         let p = pixel_off + sample * bps;
         let v = match (profile.bits_per_sample, profile.sample_format) {
-            (16, 1) => u16::from_le_bytes(tile_bytes[p..p+2].try_into().unwrap()) as f64,
-            (16, 2) => i16::from_le_bytes(tile_bytes[p..p+2].try_into().unwrap()) as f64,
-            (8, 1)  => tile_bytes[p] as f64,
-            (8, 2)  => (tile_bytes[p] as i8) as f64,
-            (32, 3) => f32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap()) as f64,
-            (32, 1) => u32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap()) as f64,
-            (32, 2) => i32::from_le_bytes(tile_bytes[p..p+4].try_into().unwrap()) as f64,
-            (b, sf) => return Err(CogError::Unsupported(format!("bits={b} sample_format={sf}"))),
+            (16, 1) => u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64,
+            (16, 2) => i16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64,
+            (8, 1) => tile_bytes[p] as f64,
+            (8, 2) => (tile_bytes[p] as i8) as f64,
+            (32, 3) => f32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64,
+            (32, 1) => u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64,
+            (32, 2) => i32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64,
+            (b, sf) => {
+                return Err(CogError::Unsupported(format!(
+                    "bits={b} sample_format={sf}"
+                )))
+            }
         };
         out.push(v);
     }
     Ok(out)
 }
 
-async fn http_range(client: &Client, url: &str, start: u64, end_inclusive: u64) -> Result<Bytes, CogError> {
-    let resp = client.get(url)
+async fn http_range(
+    client: &Client,
+    url: &str,
+    start: u64,
+    end_inclusive: u64,
+) -> Result<Bytes, CogError> {
+    let resp = client
+        .get(url)
         .header("range", format!("bytes={}-{}", start, end_inclusive))
         .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
-        .send().await
+        .send()
+        .await
         .map_err(|e| CogError::Transport(e.to_string()))?;
     if !(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        || resp.status() == reqwest::StatusCode::OK) {
-        return Err(CogError::Transport(format!("status {} for range {}-{} on {}", resp.status(), start, end_inclusive, url)));
+        || resp.status() == reqwest::StatusCode::OK)
+    {
+        return Err(CogError::Transport(format!(
+            "status {} for range {}-{} on {}",
+            resp.status(),
+            start,
+            end_inclusive,
+            url
+        )));
     }
-    resp.bytes().await.map_err(|e| CogError::Transport(e.to_string()))
+    resp.bytes()
+        .await
+        .map_err(|e| CogError::Transport(e.to_string()))
 }

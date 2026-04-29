@@ -5,13 +5,15 @@
 
 #![forbid(unsafe_code)]
 
-pub mod fact;
 pub mod attest;
-pub mod receipt;
 pub mod cbor;
 pub mod cid;
+pub mod fact;
+pub mod receipt;
 
-pub use fact::{Fact, PrimaryFact, DerivativeFact, NegativeFact, Source, Derivation, Uncertainty, FactKind};
 pub use attest::Attestation;
-pub use receipt::{Receipt, Cost};
-pub use cid::{FactCid, RegistryCid, SchemaCid, ReasonCid};
+pub use cid::{FactCid, ReasonCid, RegistryCid, SchemaCid};
+pub use fact::{
+    Derivation, DerivativeFact, Fact, FactKind, NegativeFact, PrimaryFact, Source, Uncertainty,
+};
+pub use receipt::{Cost, Receipt};
