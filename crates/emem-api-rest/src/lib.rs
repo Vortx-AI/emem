@@ -422,6 +422,13 @@ async fn cors_layer(
 
 fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
     match path {
+        // Homepage + agent.json are build-pinned static surfaces; cache
+        // them like the other static introspection responses so a fresh
+        // Claude Desktop install doesn't re-fetch on every connector
+        // listing refresh.
+        "/" | "/index.html" | "/agent.json" => {
+            Some("public, max-age=3600, stale-while-revalidate=86400")
+        }
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info"
         | "/v1/agent_card"
@@ -1286,10 +1293,13 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
 async fn manifests(State(s): State<AppState>) -> Json<JsonValue> {
     let algorithms_cid = ALGORITHMS_CID.clone();
     Json(json!({
-        "bands_cid": &s.manifests.bands_cid,
+        "bands_cid":     &s.manifests.bands_cid,
+        // Spec name. The earlier `functions_cid` alias is kept below for
+        // one release so existing clients don't break.
+        "registry_cid":  s.manifests.registry_cid.as_str(),
         "functions_cid": s.manifests.registry_cid.as_str(),
-        "sources_cid": &s.manifests.sources_cid,
-        "schema_cid": s.manifests.schema_cid.as_str(),
+        "sources_cid":   &s.manifests.sources_cid,
+        "schema_cid":    s.manifests.schema_cid.as_str(),
         "algorithms_cid": algorithms_cid,
     }))
 }
@@ -2453,10 +2463,41 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         },
         "manifests": {
             "bands_cid": &s.manifests.bands_cid,
+            // Spec key. `functions_cid` is the legacy alias for the same
+            // value; both are set so clients diffing by either key see
+            // a match. New code should read `registry_cid`.
+            "registry_cid": s.manifests.registry_cid.as_str(),
             "functions_cid": s.manifests.registry_cid.as_str(),
             "sources_cid": &s.manifests.sources_cid,
             "schema_cid": s.manifests.schema_cid.as_str(),
             "algorithms_cid": ALGORITHMS_CID.clone(),
+        },
+        // Reconciles the four band counts agents see across surfaces so
+        // they don't have to guess which one is authoritative. The
+        // numbers come from one place each — no copy / no constant —
+        // so this stays in sync as connectors land or retire.
+        "band_taxonomy": {
+            "_purpose": "Four different band counts surface across the protocol because they measure different things. This block names each one and gives the live count from the same source the corresponding endpoint reads, so an agent sees a unified picture.",
+            "cube_slots": {
+                "count":          emem_core::bands::DEFAULT.bands.len(),
+                "what_it_means":  "Top-level band keys in the canonical 1792-D voxel layout (geotessera, sentinel2_raw, indices, etc.). One slot can carry many attestable subkeys (e.g. sentinel2_raw covers s2.B01..B12).",
+                "see_endpoint":   "/v1/bands",
+            },
+            "materializer_wired": {
+                "count":          all_materializable_bands().len(),
+                "what_it_means":  "Concrete band names (cube slot + subkey) that this responder will auto-fetch on a recall miss. Every entry maps to a real upstream connector.",
+                "see_endpoint":   "/v1/materializers (also /v1/data_availability with kind/tempo/history-window per band)",
+            },
+            "tools": {
+                "count":          emem_mcp::TOOLS.len(),
+                "what_it_means":  "Distinct MCP / REST tools — what an agent actually calls. Some tools cross many bands (e.g. emem_recall is one tool that recalls any wired band).",
+                "see_endpoint":   "/v1/tools (or MCP tools/list)",
+            },
+            "algorithms": {
+                "count":          emem_core::algorithms::DEFAULT.algorithms.len(),
+                "what_it_means":  "Composition recipes that fuse multiple band facts into named scores (flood_risk, walkability, carbon NPP, SDG indicators, …). Each is content-addressed under algorithms_cid.",
+                "see_endpoint":   "/v1/algorithms",
+            },
         },
         "surfaces": {
             "rest_openapi":     "/openapi.json",
@@ -2499,7 +2540,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                     "wired_via": "REST + MCP",
                     "mcp_tool": "emem_cell_geojson",
                     "mcp_content_block": "EmbeddedResource (text resource, mimeType application/geo+json) + a text summary block",
-                    "agent_use":  "Polygon hexagon + bbox/lat/lng/neighbours. Drop straight into Mapbox/Leaflet/Deck.gl/QGIS without a GIS pipeline."
+                    "agent_use":  "Polygon (4-vertex rectangle on the active ~305 m Hilbert-packed cell64 grid; the spec target is a 3.4 m H3 hex but that grid is not yet active — surface this in the receipt's caveats) + bbox / centre lat,lng / neighbours. Drop straight into Mapbox/Leaflet/Deck.gl/QGIS without a GIS pipeline."
                 },
                 "cell_scene_rgb": {
                     "url_template": "/v1/cells/{cell64}/scene.png?max_cloud=20",
@@ -3470,7 +3511,20 @@ fn suggest_algorithms_for_intent(intent: &Intent) -> JsonValue {
         })).collect::<Vec<_>>(),
         "_note_for_more_specific": match intent {
             Intent::WhatIsHere { .. } | Intent::Ask { .. } => "If the user's question is COMPOSITE (flood risk, walkability, climate exposure), look up `data_at_this_cell.algorithms_for_topic` from a fresh /v1/locate at this cell — that is the topic→recipe map.",
-            _ => "GET /v1/algorithms for the full registry of 68 recipes across 17 domains.",
+            _ => {
+                static MSG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+                MSG.get_or_init(|| {
+                    let r = &emem_core::algorithms::DEFAULT.algorithms;
+                    let domains: std::collections::BTreeSet<&str> =
+                        r.iter().filter_map(|a| a.domain.as_deref()).collect();
+                    format!(
+                        "GET /v1/algorithms for the full registry of {} recipes across {} domains.",
+                        r.len(),
+                        domains.len()
+                    )
+                })
+                .as_str()
+            }
         },
         "_emit_ai_kind_distribution": json!({
             "solo_count":      reg.by_kind(AlgorithmKind::Solo).count(),
@@ -3761,9 +3815,28 @@ async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
 
 async fn mcp_jsonrpc(
     State(s): State<AppState>,
-    Json(req): Json<JsonRpcReq>,
+    body: axum::body::Bytes,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+    // Spec: malformed JSON / missing required JSON-RPC fields MUST be
+    // returned as a JSON-RPC `-32600 Invalid Request` envelope, NOT as
+    // an HTTP-level 422 (which is what axum's `Json<T>` extractor
+    // produces by default — text/plain body, breaks the JSON-RPC
+    // contract a host like Claude.ai expects).
+    let req: JsonRpcReq = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return Json(json!({
+                "jsonrpc": "2.0",
+                "id":      JsonValue::Null,
+                "error":   {
+                    "code":    -32600i64,
+                    "message": format!("Invalid Request: {e}"),
+                },
+            }))
+            .into_response();
+        }
+    };
     metrics_inc(&MCP_TOTAL);
     let started = std::time::Instant::now();
     // Per JSON-RPC 2.0 §4.1 + MCP Streamable-HTTP spec, a request without
@@ -4437,24 +4510,14 @@ async fn mcp_tool_call(
     match canon.as_str() {
         "emem_locate" => {
             // The geocoder layer is HTTP-side, not a primitive. Reuse the
-            // exact `locate_inner` path so the response shape is byte-
-            // identical to GET/POST /v1/locate.
-            #[derive(serde::Deserialize)]
-            struct LocateArgs {
-                #[serde(default)]
-                place: Option<String>,
-                #[serde(default)]
-                lat: Option<f64>,
-                #[serde(default)]
-                lng: Option<f64>,
-            }
-            let a: LocateArgs =
+            // exact `LocateReq` deserializer so MCP `tools/call` honours
+            // the same `place` / `q` / `query` / `name` aliases that the
+            // REST `POST /v1/locate` accepts. Without this passthrough,
+            // an MCP client that copies a Nominatim/Mapbox-shaped
+            // `{"q":"Mumbai"}` payload would get a -32602 here while the
+            // identical REST payload succeeds.
+            let lreq: LocateReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            let lreq = LocateReq {
-                lat: a.lat,
-                lng: a.lng,
-                place: a.place,
-            };
             match locate_inner(lreq).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -4739,7 +4802,16 @@ async fn mcp_tool_call(
                 .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))
         }
-        other => Err((-32601, format!("unknown tool: {other}"))),
+        // MCP spec: unknown TOOL names are tool-runtime failures, not
+        // protocol errors — surface them through the CallToolResult
+        // envelope (`isError: true`) so the host treats it as an
+        // agent-retryable failure rather than a transport error. The
+        // wrapper at `tools/call` keeps the JSON-RPC -32601 reserved
+        // for unknown JSON-RPC METHODS only.
+        other => Err((
+            -32602,
+            format!("unknown tool '{other}'; call tools/list for the catalog"),
+        )),
     }
 }
 
@@ -4812,6 +4884,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property — paste straight into Mapbox/Leaflet/Deck.gl","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":{"description":"ok"}}}},
+            "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":{"description":"ok"}}},"post":{"summary":"PDE-based band routing for a query time + intent","operationId":"emem_temporal_route_post","responses":{"200":{"description":"ok"}}}},
             "/v1/elevation":         {"post":{"summary":"convenience elevation lookup (uses copdem30m / gmrt fallback)","responses":{"200":{"description":"ok"}}}},
             "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","responses":{"200":{"description":"ok"}}}},
             "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject","responses":{"200":{"description":"ok"}}}},
@@ -6286,6 +6360,36 @@ async fn materialize_weather_current(
         ts0.pointer("/data/next_1_hours/details/precipitation_amount")
             .and_then(|v| v.as_f64())
             .ok_or_else(|| "met.no missing next_1_hours.precipitation_amount".to_string())?
+    } else if band == "weather.dew_point_2m" {
+        // met.no's `compact` product strips dew_point_temperature from
+        // instant.details (it is only in the `complete` product). Compute
+        // it from the air-temperature and relative-humidity fields using
+        // the Alduchov–Eskridge 1996 Magnus formulation, which is the
+        // most accurate widely-cited approximation:
+        //   γ(T,RH) = ln(RH/100) + b·T / (c + T)
+        //   T_d     = c·γ / (b − γ)
+        // with b = 17.625, c = 243.04 (J. Appl. Meteorol. 35:601–609).
+        // Switching to the `complete` endpoint would also work but
+        // materially increases met.no's load per call — they prefer
+        // compact + downstream derivation.
+        let t = ts0
+            .pointer("/data/instant/details/air_temperature")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "met.no missing instant.details.air_temperature".to_string())?;
+        let rh = ts0
+            .pointer("/data/instant/details/relative_humidity")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| "met.no missing instant.details.relative_humidity".to_string())?;
+        if !(0.0..=100.0).contains(&rh) {
+            return Err(format!(
+                "met.no relative_humidity out of range: {rh}% at ({lat:.4},{lng:.4})"
+            ));
+        }
+        let b = 17.625_f64;
+        let c = 243.04_f64;
+        let rh_safe = rh.max(0.001); // ln domain
+        let gamma = (rh_safe / 100.0).ln() + (b * t) / (c + t);
+        (c * gamma) / (b - gamma)
     } else {
         ts0.pointer(&format!("/data/instant/details/{met_field}"))
             .and_then(|v| v.as_f64())
@@ -6310,7 +6414,18 @@ async fn materialize_weather_current(
             url: None,
         }],
         derivation: Derivation {
-            fn_key: "met_no_locationforecast_compact@1".into(),
+            fn_key: if band == "weather.dew_point_2m" {
+                // The compact product strips dew_point_temperature; we
+                // derive it from air_temperature + relative_humidity via
+                // the Alduchov–Eskridge 1996 Magnus formulation. Surface
+                // the derived-from arc in the receipt so a verifier can
+                // re-check the computation against the responder's two
+                // input facts (or independently against met.no's
+                // complete product).
+                "met_no_locationforecast_compact_magnus_dewpoint@1".into()
+            } else {
+                "met_no_locationforecast_compact@1".into()
+            },
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -11248,7 +11363,10 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         // unit test in tests::locate_inventory_matches_coverage_matrix.
         "data_at_this_cell": json!({
             "_purpose": "Topic-grouped list of every band you can recall at this cell, plus the algorithm recipes that compose those bands into named scores. Read this BEFORE concluding the responder doesn't have data on a topic, and BEFORE inventing a synthesis formula in your own reasoning.",
-            "_pointer_to_algorithms": "GET /v1/algorithms — full content-addressed registry of 68 composition recipes (flood_risk, walkability, embedding_novelty, etc.) used by `algorithms_for_topic` below. Cite the algorithm key + algorithms_cid in the receipt.",
+            "_pointer_to_algorithms": format!(
+                "GET /v1/algorithms for the full content-addressed registry of {} composition recipes (flood_risk, walkability, embedding_novelty, carbon-MRV, SDG indicators, etc.) used by `algorithms_for_topic` below. Cite the algorithm key + algorithms_cid in the receipt.",
+                emem_core::algorithms::DEFAULT.algorithms.len()
+            ),
             "live_bands_by_topic": {
                 "flood_history_long_term":    ["surface_water.recurrence"],
                 "flood_water_event_window":   ["indices.ndwi","indices.mndwi","sentinel1_raw"],

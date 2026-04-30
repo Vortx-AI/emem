@@ -170,12 +170,12 @@
       "native_resolution_m": 30
     },
     {
-      "scheme": "hansen.gfc.v1_12.treecover2000",
+      "scheme": "hansen.gfc.v1_11.treecover2000",
       "providers": [
         {
           "id": "gcs.public",
           "kind": "https_cog_vsicurl",
-          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_treecover2000_{hansen_lat_band}_{hansen_lon_band}.tif",
+          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2023-v1.11/Hansen_GFC-2023-v1.11_treecover2000_{hansen_lat_band}_{hansen_lon_band}.tif",
           "auth": "anonymous",
           "rate_limit_qps": 100,
           "license": "Public (Hansen et al.)"
@@ -185,12 +185,12 @@
       "native_resolution_m": 30
     },
     {
-      "scheme": "hansen.gfc.v1_12.loss",
+      "scheme": "hansen.gfc.v1_11.loss",
       "providers": [
         {
           "id": "gcs.public",
           "kind": "https_cog_vsicurl",
-          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_loss_{hansen_lat_band}_{hansen_lon_band}.tif",
+          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2023-v1.11/Hansen_GFC-2023-v1.11_loss_{hansen_lat_band}_{hansen_lon_band}.tif",
           "auth": "anonymous",
           "rate_limit_qps": 100,
           "license": "Public (Hansen et al.)"
@@ -200,12 +200,12 @@
       "native_resolution_m": 30
     },
     {
-      "scheme": "hansen.gfc.v1_12.lossyear",
+      "scheme": "hansen.gfc.v1_11.lossyear",
       "providers": [
         {
           "id": "gcs.public",
           "kind": "https_cog_vsicurl",
-          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_lossyear_{hansen_lat_band}_{hansen_lon_band}.tif",
+          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2023-v1.11/Hansen_GFC-2023-v1.11_lossyear_{hansen_lat_band}_{hansen_lon_band}.tif",
           "auth": "anonymous",
           "rate_limit_qps": 100,
           "license": "Public (Hansen et al.)"

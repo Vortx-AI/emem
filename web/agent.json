@@ -41,7 +41,7 @@
     "emem_bands", "emem_functions", "emem_sources",
     "emem_schema", "emem_errors", "emem_manifests",
     "emem_grid_info", "emem_coverage_matrix", "emem_materializers",
-    "emem_algorithms", "emem_coverage_map",
+    "emem_data_availability", "emem_algorithms", "emem_coverage_map",
     "emem_cell_scene_rgb", "emem_cell_geojson",
     "emem_intent"
   ],

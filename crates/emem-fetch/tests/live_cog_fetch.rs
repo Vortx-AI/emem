@@ -110,7 +110,7 @@ async fn gcs_hansen_range_read_returns_tiff_header() {
         return;
     }
     let sources = SourceRegistry::parse_default().unwrap();
-    let req = iowa_request("hansen.gfc.v1_12.treecover2000");
+    let req = iowa_request("hansen.gfc.v1_11.treecover2000");
     let scheme = sources.lookup(&req.scheme).expect("scheme registered");
     let provider = scheme.providers.first().unwrap();
     let url = emem_fetch::template::expand(provider.url_template.as_ref().unwrap(), &req).unwrap();
