@@ -423,16 +423,38 @@ async fn cors_layer(
 fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
     match path {
         // Stable across deploys (build-pinned constants).
-        "/v1/grid_info" | "/v1/agent_card" | "/v1/tools" | "/v1/bands" | "/v1/materializers"
-        | "/v1/data_availability" | "/v1/functions" | "/v1/sources" | "/v1/manifests"
-        | "/v1/errors" | "/v1/quickstart"
-        | "/agents.md" | "/whitepaper.md" | "/spec.md" | "/llms.txt" | "/llms-full.txt"
-        | "/agent-trial.md" | "/attesting.md" | "/privacy" | "/privacy.md" | "/docs/PRIVACY.md"
-        | "/terms" | "/terms.md" | "/docs/TERMS.md" | "/support" | "/support.md"
-        | "/docs/SUPPORT.md" | "/global-trial.md" | "/materializers.md" | "/spaces.md"
-        | "/temporal.md" | "/openapi.json" => {
-            Some("public, max-age=86400, stale-while-revalidate=604800")
-        }
+        "/v1/grid_info"
+        | "/v1/agent_card"
+        | "/v1/tools"
+        | "/v1/bands"
+        | "/v1/materializers"
+        | "/v1/data_availability"
+        | "/v1/functions"
+        | "/v1/sources"
+        | "/v1/manifests"
+        | "/v1/errors"
+        | "/v1/quickstart"
+        | "/agents.md"
+        | "/whitepaper.md"
+        | "/spec.md"
+        | "/llms.txt"
+        | "/llms-full.txt"
+        | "/agent-trial.md"
+        | "/attesting.md"
+        | "/privacy"
+        | "/privacy.md"
+        | "/docs/PRIVACY.md"
+        | "/terms"
+        | "/terms.md"
+        | "/docs/TERMS.md"
+        | "/support"
+        | "/support.md"
+        | "/docs/SUPPORT.md"
+        | "/global-trial.md"
+        | "/materializers.md"
+        | "/spaces.md"
+        | "/temporal.md"
+        | "/openapi.json" => Some("public, max-age=86400, stale-while-revalidate=604800"),
         // Changes on manifest rotation (hours), not seconds.
         "/.well-known/emem.json"
         | "/.well-known/ai-plugin.json"
@@ -1567,7 +1589,11 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
     {
         let curated: std::collections::HashSet<String> = arr
             .iter()
-            .filter_map(|e| e.get("band").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .filter_map(|e| {
+                e.get("band")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         for band in all_materializable_bands() {
             if curated.contains(&band) {
@@ -1579,10 +1605,7 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
             let mut obj = serde_json::Map::new();
             obj.insert("band".into(), JsonValue::from(band.clone()));
             obj.insert("value_kind".into(), JsonValue::from("primary"));
-            obj.insert(
-                "auto_generated".into(),
-                JsonValue::from(true),
-            );
+            obj.insert("auto_generated".into(), JsonValue::from(true));
             obj.insert(
                 "notes".into(),
                 JsonValue::from("auto-registered from band_materializer_meta — see /v1/data_availability for the full machine-readable catalog and any peer-reviewed citation in source code"),
@@ -1604,10 +1627,7 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 JsonValue::from(meta.tempo.slot_seconds()),
             );
             obj.insert("temporal_kind".into(), JsonValue::from(meta.kind.as_str()));
-            obj.insert(
-                "upstream_wire_path".into(),
-                JsonValue::from(meta.wire_path),
-            );
+            obj.insert("upstream_wire_path".into(), JsonValue::from(meta.wire_path));
             obj.insert(
                 "responder_pubkey_b32".into(),
                 JsonValue::from(pubkey_b32.clone()),
@@ -3792,7 +3812,17 @@ async fn mcp_jsonrpc(
             Ok(json!({
                 "protocolVersion": negotiated,
                 "serverInfo": { "name": "emem", "version": env!("CARGO_PKG_VERSION") },
-                "capabilities": { "tools": {} },
+                // Declare every MCP feature this responder serves so spec-
+                // compliant clients (Claude Desktop, Claude.ai connector
+                // picker, MCP Inspector, Cursor, Cline) know to call
+                // resources/list and prompts/list. `listChanged: false`
+                // because emem's resource and prompt sets are compiled in
+                // — they only change on a redeploy.
+                "capabilities": {
+                    "tools":     { "listChanged": false },
+                    "resources": { "listChanged": false, "subscribe": false },
+                    "prompts":   { "listChanged": false },
+                },
             }))
         }
         "tools/list" => Ok(json!({
@@ -3890,12 +3920,60 @@ async fn mcp_jsonrpc(
                 }
             }
         }
+        // ---- MCP Resources ----------------------------------------------
+        //
+        // Static, content-addressed-compatible documentation surfaces
+        // exposed as MCP `resources`. Compliant clients (Claude Desktop,
+        // Inspector) auto-attach them as context, so an agent's first
+        // turn already carries our agent_card / spec / whitepaper without
+        // a separate tool call. URIs use the `emem://` scheme and are
+        // dereferenced server-side from compile-time `include_str!`
+        // constants — no I/O, no network round-trip.
+        "resources/list" => Ok(json!({
+            "resources": mcp_static_resources(),
+        })),
+        "resources/templates/list" => Ok(json!({
+            "resourceTemplates": mcp_resource_templates(),
+        })),
+        "resources/read" => {
+            let p = req.params.unwrap_or(JsonValue::Null);
+            match p.get("uri").and_then(|v| v.as_str()) {
+                Some(uri) => mcp_read_resource(uri).map(|c| json!({ "contents": [c] })),
+                None => Err((-32602, "missing `uri`".to_string())),
+            }
+        }
+        // ---- MCP Prompts ------------------------------------------------
+        //
+        // Canned prompt templates that wrap the most-asked place questions
+        // (flood, air quality, urban heat, place summary, compare, forest
+        // loss, coastal eutrophication, carbon-uptake anomaly). Each names
+        // its required arguments so hosts can render a form / slot-fill,
+        // and `prompts/get` returns a single user-message that already
+        // wires the right tool sequence (emem_locate → emem_recall +
+        // algorithm key) so the agent doesn't have to re-derive it.
+        "prompts/list" => Ok(json!({
+            "prompts": mcp_prompts(),
+        })),
+        "prompts/get" => {
+            let p = req.params.unwrap_or(JsonValue::Null);
+            match p.get("name").and_then(|v| v.as_str()) {
+                Some(name) => {
+                    let args = p.get("arguments").cloned().unwrap_or(json!({}));
+                    mcp_render_prompt(name, &args)
+                }
+                None => Err((-32602, "missing `name`".to_string())),
+            }
+        }
         // MCP lifecycle: client signals it's done with `initialize` by
         // sending `notifications/initialized` (JSON-RPC notification — no
         // id, no response expected). Per spec we MUST accept it; the
         // empty result here is harmless because the dispatch layer below
         // suppresses notifications when `id` is null.
         "notifications/initialized" => Ok(json!({})),
+        // Cancellation notifications — we don't track in-flight ids
+        // (every tool call is awaited synchronously here), so accept and
+        // discard.
+        "notifications/cancelled" => Ok(json!({})),
         // Optional health-ping; MCP spec leaves the response shape free
         // beyond it being a successful result.
         "ping" => Ok(json!({})),
@@ -3930,6 +4008,355 @@ async fn mcp_jsonrpc(
         }))
         .into_response(),
     }
+}
+
+// ── MCP Resources ────────────────────────────────────────────────────────
+//
+// Per MCP spec a Resource has `uri`, `name`, optional `description` and
+// `mimeType`. The static set below is content-addressed at compile time
+// (`include_str!`), so resources/list is constant-time and resources/read
+// can never produce stale bytes for a given binary build.
+
+fn mcp_static_resources() -> Vec<JsonValue> {
+    // Tuples of (uri, name, mimeType, description) — kept in a single
+    // place so resources/list and resources/read share a single source
+    // of truth. The bodies are looked up in `mcp_read_resource` below
+    // by matching on the uri suffix.
+    let entries: &[(&str, &str, &str, &str)] = &[
+        (
+            "emem://docs/agents.md",
+            "agents.md",
+            "text/markdown",
+            "Full integration guide: REST + MCP setup for Claude Desktop/Code, Cursor, Cline, OpenAI GPT, plus tool reference and worked examples.",
+        ),
+        (
+            "emem://docs/spec.md",
+            "spec",
+            "text/markdown",
+            "Authoritative protocol spec: cell64, tslot, content-addressing, ed25519 receipts, lazy materialization, attestation merkle root.",
+        ),
+        (
+            "emem://docs/whitepaper.md",
+            "whitepaper",
+            "text/markdown",
+            "Architecture and math: 1792-D voxel layout, BLAKE3 fact CIDs, ed25519 attestation, agent-native invariants.",
+        ),
+        (
+            "emem://docs/llms.txt",
+            "llms.txt",
+            "text/markdown",
+            "LLM-optimised summary: when to call which primitive, which bands answer which question, 30-second curl examples.",
+        ),
+        (
+            "emem://docs/llms-full.txt",
+            "llms-full.txt",
+            "text/markdown",
+            "Long-form LLM-optimised guide: full band catalogue, every primitive with example payload, error catalogue.",
+        ),
+        (
+            "emem://docs/agent_walkthroughs.md",
+            "agent_walkthroughs",
+            "text/markdown",
+            "Agent walkthroughs: end-to-end flows for flood-history, urban-heat, similarity, and trajectory questions.",
+        ),
+        (
+            "emem://docs/temporal.md",
+            "temporal",
+            "text/markdown",
+            "Temporal model: Tempo (Static/Slow/Medium/Fast/UltraFast), tslot mapping, backfill semantics, history bounds.",
+        ),
+        (
+            "emem://docs/materializers.md",
+            "materializers",
+            "text/markdown",
+            "Materializer playbook: how a band's upstream connector turns into a signed fact, error envelope, no-fallback rule.",
+        ),
+        (
+            "emem://docs/agent.json",
+            "agent.json",
+            "application/json",
+            "Discovery manifest: operator, surfaces, primitives, policies — what a host platform reads to wire emem in.",
+        ),
+        (
+            "emem://docs/privacy.md",
+            "privacy",
+            "text/markdown",
+            "Privacy policy of the responder operator (Vortx AI). No PII collected from inbound MCP/REST requests.",
+        ),
+        (
+            "emem://docs/terms.md",
+            "terms",
+            "text/markdown",
+            "Terms of service of the responder operator. Apache-2.0 protocol; hosted-instance terms.",
+        ),
+    ];
+    entries
+        .iter()
+        .map(|(uri, name, mime, desc)| {
+            json!({
+                "uri":         uri,
+                "name":        name,
+                "mimeType":    mime,
+                "description": desc,
+            })
+        })
+        .collect()
+}
+
+fn mcp_resource_templates() -> Vec<JsonValue> {
+    // Templated URIs that the host can fill in (cell64 / fact CID) and
+    // dereference via resources/read. Useful for "show me this place's
+    // polygon" / "show me the bytes behind this CID" without a tool call.
+    vec![
+        json!({
+            "uriTemplate": "emem://cell/{cell64}/geojson",
+            "name":        "cell.geojson",
+            "mimeType":    "application/geo+json",
+            "description": "Cell polygon as GeoJSON Feature with bbox + neighbours, ready for Mapbox/Leaflet/Deck.gl.",
+        }),
+        json!({
+            "uriTemplate": "emem://cell/{cell64}/scene.png",
+            "name":        "cell.scene.png",
+            "mimeType":    "image/png",
+            "description": "Sentinel-2 L2A true-colour 256×256 thumbnail centred on the cell. Use the emem_cell_scene_rgb tool to actually fetch it (resources/read returns a pointer; the tool returns the bytes).",
+        }),
+    ]
+}
+
+fn mcp_read_resource(uri: &str) -> Result<JsonValue, (i64, String)> {
+    // Match the docs/{slug} family by suffix. For markdown / plain text
+    // resources we return the body via the spec's `text` field; for
+    // application/json resources we still return as `text` (the spec
+    // permits JSON to be embedded as text), so any client can render
+    // them without a separate JSON parser.
+    let body: Option<(&str, &str)> = match uri {
+        "emem://docs/agents.md" => Some((AGENTS_MD, "text/markdown")),
+        "emem://docs/spec.md" => Some((SPEC_MD, "text/markdown")),
+        "emem://docs/whitepaper.md" => Some((WHITEPAPER_MD, "text/markdown")),
+        "emem://docs/llms.txt" => Some((LLMS_TXT, "text/markdown")),
+        "emem://docs/llms-full.txt" => Some((LLMS_FULL_TXT, "text/markdown")),
+        "emem://docs/agent_walkthroughs.md" => Some((AGENT_WALKTHROUGHS_MD, "text/markdown")),
+        "emem://docs/temporal.md" => Some((TEMPORAL_MD, "text/markdown")),
+        "emem://docs/materializers.md" => Some((MATERIALIZERS_MD, "text/markdown")),
+        "emem://docs/agent.json" => Some((AGENT_JSON, "application/json")),
+        "emem://docs/privacy.md" => Some((PRIVACY_MD, "text/markdown")),
+        "emem://docs/terms.md" => Some((TERMS_MD, "text/markdown")),
+        _ => None,
+    };
+    match body {
+        Some((text, mime)) => Ok(json!({
+            "uri":      uri,
+            "mimeType": mime,
+            "text":     text,
+        })),
+        None => Err((
+            -32602,
+            format!(
+                "unknown resource uri '{uri}': call resources/list for the catalog. Templated URIs (emem://cell/...) need to go through the matching tool: emem_cell_geojson / emem_cell_scene_rgb."
+            ),
+        )),
+    }
+}
+
+// ── MCP Prompts ──────────────────────────────────────────────────────────
+//
+// Canned prompts that wrap emem's most-asked place questions. Each prompt
+// names the arguments it needs, and `prompts/get` returns a fully-rendered
+// user-message that already names the tools the agent should call. Hosts
+// (Claude Desktop, Cursor) render them as slash-commands or pickable
+// templates, so a non-technical user can ask "is this place flooded?"
+// without knowing the band names.
+
+fn mcp_prompts() -> Vec<JsonValue> {
+    vec![
+        json!({
+            "name":        "flood_history",
+            "title":       "Has this place flooded historically?",
+            "description": "Long-term flood/inundation history at a place, classified from JRC Global Surface Water v1.4 (1984–2021).",
+            "arguments": [{
+                "name":        "place",
+                "description": "Place name, address, or 'lat,lng' string. Resolved via emem_locate.",
+                "required":    true,
+            }],
+        }),
+        json!({
+            "name":        "air_quality_now",
+            "title":       "What's the air quality at this place right now?",
+            "description": "Current PM2.5 / PM10 / NO2 / O3 / SO2 / CO at a place, classified against WHO 2021 AQG ladder.",
+            "arguments": [{
+                "name":        "place",
+                "description": "Place name, address, or 'lat,lng'.",
+                "required":    true,
+            }],
+        }),
+        json!({
+            "name":        "urban_heat",
+            "title":       "Is this neighbourhood hot for an urban area?",
+            "description": "Urban-heat-island assessment from MODIS LST day/night and indices.urban_canopy_index, with cooling-potential note.",
+            "arguments": [{ "name": "place", "description": "Place name or 'lat,lng'.", "required": true }],
+        }),
+        json!({
+            "name":        "place_summary",
+            "title":       "Summarize a place",
+            "description": "Quick characterisation: landcover (ESA WorldCover), elevation (Cop-DEM), greenness (NDVI), current temperature.",
+            "arguments": [{ "name": "place", "description": "Place name or 'lat,lng'.", "required": true }],
+        }),
+        json!({
+            "name":        "compare_places",
+            "title":       "How similar are two places?",
+            "description": "Cosine similarity over the geotessera 128-D embedding, with dominant-band rationale.",
+            "arguments": [
+                { "name": "place_a", "description": "First place.",  "required": true },
+                { "name": "place_b", "description": "Second place.", "required": true },
+            ],
+        }),
+        json!({
+            "name":        "forest_loss",
+            "title":       "Has this place lost forest?",
+            "description": "Hansen Global Forest Change v1.11 layers: tree cover 2000, year of loss (2001–2023), gain mask.",
+            "arguments": [{ "name": "place", "description": "Place name or 'lat,lng'.", "required": true }],
+        }),
+        json!({
+            "name":        "coastal_eutrophication",
+            "title":       "Are coastal waters here algal?",
+            "description": "SDG 14.1.1a coastal-eutrophication first-pass: floating-algae index + chlorophyll proxy + turbidity + SST.",
+            "arguments": [{ "name": "place", "description": "Coastal place name or 'lat,lng'.", "required": true }],
+        }),
+        json!({
+            "name":        "carbon_uptake_anomaly",
+            "title":       "Is carbon uptake unusual at this place?",
+            "description": "GPP anomaly z-score from MOD17A2H trajectory (current 8-day vs same-DOY climatology).",
+            "arguments": [{ "name": "place", "description": "Place name or 'lat,lng'.", "required": true }],
+        }),
+    ]
+}
+
+fn mcp_render_prompt(name: &str, args: &JsonValue) -> Result<JsonValue, (i64, String)> {
+    // Argument helpers — return a clear JSON-RPC -32602 if a required
+    // arg is missing so hosts can surface the correct field.
+    let s = |key: &str| -> Result<String, (i64, String)> {
+        args.get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| (-32602, format!("missing or empty argument `{key}`")))
+    };
+
+    let (description, text): (&str, String) = match name {
+        "flood_history" => {
+            let place = s("place")?;
+            (
+                "Long-term flood/inundation history",
+                format!(
+                    "Has {place} flooded historically? \
+                     Step 1: call emem_locate with q={place:?} to get a cell64. \
+                     Step 2: call emem_recall on that cell with bands=['surface_water.recurrence']. \
+                     Step 3: classify with the algorithm key `flood_history_class@1` (never/occasional/seasonal/perennial/none). \
+                     Cite the receipt's first fact_cid and the responder pubkey in your reply."
+                ),
+            )
+        }
+        "air_quality_now" => {
+            let place = s("place")?;
+            (
+                "Current air quality vs WHO 2021 AQG",
+                format!(
+                    "What is the air quality at {place} right now? \
+                     emem_locate then emem_recall bands=['cams.pm25','cams.pm10','cams.no2','cams.o3','cams.so2','cams.co']. \
+                     Classify the PM2.5 reading against the WHO 2021 ladder \
+                     (≤5 / ≤10 / ≤15 / ≤25 / ≤35 µg/m³ → AQG / IT-4 / IT-3 / IT-2 / IT-1 / exceeds-IT-1). \
+                     Surface the materialised_at timestamp so the user knows the cadence (CAMS hourly)."
+                ),
+            )
+        }
+        "urban_heat" => {
+            let place = s("place")?;
+            (
+                "Urban heat-island assessment",
+                format!(
+                    "Is {place} hot for an urban area? \
+                     emem_locate then emem_recall bands=['modis.lst_day_8day','modis.lst_night_8day','indices.urban_canopy_index','weather.temperature_2m']. \
+                     Use the algorithm `carbon.urban_canopy_cooling_potential@1` for the headline number and surface the diurnal amplitude (LST day − LST night)."
+                ),
+            )
+        }
+        "place_summary" => {
+            let place = s("place")?;
+            (
+                "Quick place characterisation",
+                format!(
+                    "Summarize {place}. \
+                     emem_locate then emem_recall bands=['esa_worldcover.lc_2021','copdem30m.elevation_mean','indices.ndvi','weather.temperature_2m','overture.places.count','overture.transportation.road_length_m']. \
+                     Convert the WorldCover class to a human label (10=tree cover, 20=shrub, 30=grass, 40=crop, 50=built-up, 60=bare, 80=water, 90=wet, 95=mangroves, 100=moss/lichen). \
+                     Cite all six fact_cids."
+                ),
+            )
+        }
+        "compare_places" => {
+            let a = s("place_a")?;
+            let b = s("place_b")?;
+            (
+                "Embedding-cosine similarity",
+                format!(
+                    "How similar are {a} and {b}? \
+                     emem_locate on both → call emem_compare with the two cells and band='geotessera'. \
+                     Report the cosine similarity (0.0 = orthogonal physical types, 1.0 = identical), \
+                     and call emem_recall on each cell with bands=['esa_worldcover.lc_2021','copdem30m.elevation_mean','indices.ndvi'] to narrate WHY they are/aren't similar."
+                ),
+            )
+        }
+        "forest_loss" => {
+            let place = s("place")?;
+            (
+                "Hansen Global Forest Change v1.11 read",
+                format!(
+                    "Has {place} lost forest since 2000? \
+                     emem_locate then emem_recall bands=['hansen.tree_cover_2000','hansen.loss_year','hansen.gain']. \
+                     If loss_year > 0, the year of loss is 2000 + loss_year (1=2001 … 23=2023). \
+                     Pair with esa_worldcover.lc_2021 to confirm the current state. \
+                     Use the algorithm `carbon.deforestation_alert_proxy@1` if you want a composite score across years."
+                ),
+            )
+        }
+        "coastal_eutrophication" => {
+            let place = s("place")?;
+            (
+                "SDG 14.1.1a coastal eutrophication first-pass",
+                format!(
+                    "Are coastal waters at {place} algal? \
+                     emem_locate then emem_recall bands=['indices.fai','indices.gndvi','indices.tss','marine.sst']. \
+                     Apply the algorithm `sdg.14_1_1a.coastal_eutrophication_index@1` (FAI + GNDVI + TSS + SST modifier). \
+                     Flag CEI > 0.6 as anomalous; recommend confirmation via Sentinel-3 OLCI Chl-a once that connector lands."
+                ),
+            )
+        }
+        "carbon_uptake_anomaly" => {
+            let place = s("place")?;
+            (
+                "GPP anomaly z-score",
+                format!(
+                    "Is carbon uptake unusual at {place}? \
+                     emem_locate then emem_trajectory band='modis.gpp_8day' across the past 5 years. \
+                     Apply the algorithm `carbon.gpp_anomaly_zscore@1`: group by DOY, compute z = (current − mean) / sd. \
+                     |z| > 2 is significant; sign indicates direction (negative = below baseline, positive = above)."
+                ),
+            )
+        }
+        _ => {
+            return Err((
+                -32602,
+                format!("unknown prompt '{name}': call prompts/list for the catalog"),
+            ));
+        }
+    };
+
+    Ok(json!({
+        "description": description,
+        "messages": [{
+            "role": "user",
+            "content": { "type": "text", "text": text },
+        }],
+    }))
 }
 
 async fn mcp_tool_call(
@@ -6215,7 +6642,8 @@ async fn materialize_era5_band(
         .and_then(|v| v.as_f64())
         .ok_or_else(|| format!("era5 hourly.{om_field}[{idx}] missing or null"))?;
     let signed_at = chrono_iso8601_utc();
-    let tslot = emem_core::tslot::Tslot::from_unix(target_unix, emem_core::tslot::Tempo::UltraFast).0;
+    let tslot =
+        emem_core::tslot::Tslot::from_unix(target_unix, emem_core::tslot::Tempo::UltraFast).0;
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
@@ -6322,9 +6750,8 @@ async fn materialize_marine_band(
             }
         }
     }
-    let (idx, iso) = chosen.ok_or_else(|| {
-        format!("marine response had no hour matching target {target_hour_unix}")
-    })?;
+    let (idx, iso) = chosen
+        .ok_or_else(|| format!("marine response had no hour matching target {target_hour_unix}"))?;
     let v = values
         .get(idx)
         .and_then(|v| v.as_f64())
@@ -6369,7 +6796,10 @@ async fn materialize_marine_band(
 /// Strict: must match exactly 16 chars, the literal `T`, and `:00` minutes.
 fn parse_iso_utc_hour(s: &str) -> Option<i64> {
     let bytes = s.as_bytes();
-    if bytes.len() != 16 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T'
+    if bytes.len() != 16
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
         || bytes[13] != b':'
     {
         return None;
@@ -6520,9 +6950,7 @@ async fn materialize_ornl_modis_band(
                             }
                         }
                     }
-                    last_err = format!(
-                        "{product} status {status} on attempt {attempt}/{retries}"
-                    );
+                    last_err = format!("{product} status {status} on attempt {attempt}/{retries}");
                     if status.is_client_error() {
                         break;
                     }
@@ -6596,9 +7024,9 @@ async fn materialize_ornl_modis_band(
         }
     }
     let (_, value, cal_date) = best.ok_or_else(|| match target_unix {
-        Some(t) => format!(
-            "no valid {product} {variable} observation in ±{half_window_days}d around {t}"
-        ),
+        Some(t) => {
+            format!("no valid {product} {variable} observation in ±{half_window_days}d around {t}")
+        }
         None => format!(
             "no valid {product} {variable} observation in last {} days",
             4 * half_window_days
@@ -6846,9 +7274,7 @@ async fn materialize_sentinel2_band(
             .await
             .map_err(|e| format!("stac: {e}"))?
             .ok_or_else(|| match target_unix {
-                Some(t) => format!(
-                    "no Sentinel-2 L2A scene under 40% cloud within ±30d of {t}"
-                ),
+                Some(t) => format!("no Sentinel-2 L2A scene under 40% cloud within ±30d of {t}"),
                 None => "no Sentinel-2 L2A scene under 40% cloud in last 30 days".to_string(),
             })?;
     let epsg = item
@@ -7022,8 +7448,7 @@ async fn materialize_sentinel2_band(
             let red = samples[1] * 1e-4;
             let swir1 = samples[2] * 1e-4;
             // S2 band centers (nm): B04=665, B08=842, B11=1610.
-            let lambda_baseline =
-                red + (842.0 - 665.0) / (1610.0 - 665.0) * (swir1 - red);
+            let lambda_baseline = red + (842.0 - 665.0) / (1610.0 - 665.0) * (swir1 - red);
             (nir - lambda_baseline, None)
         }
         "index_tss" => {
@@ -8354,7 +8779,8 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             kind: BandKind::PerRelease,
             history_from_unix: Some(days_from_civil(2000, 1, 1) * 86_400),
             history_to_unix: Some(days_from_civil(2024, 1, 1) * 86_400 - 1),
-            wire_path: "storage.googleapis.com/earthenginepartners-hansen GFC-2023-v1.11 30 m tiles",
+            wire_path:
+                "storage.googleapis.com/earthenginepartners-hansen GFC-2023-v1.11 30 m tiles",
         },
         _ => return None,
     };
@@ -8522,7 +8948,9 @@ async fn materialize_band_at(
     // Static products: tslot is meaningless, the canonical fact lives at
     // tslot=0 regardless of target.
     match band {
-        "modis.ndvi_mean" => return materialize_modis_ndvi_window(cell64, Some(target_unix), s).await,
+        "modis.ndvi_mean" => {
+            return materialize_modis_ndvi_window(cell64, Some(target_unix), s).await
+        }
         "copdem30m.elevation_mean" => {
             return match materialize_elevation_mean(cell64, s).await {
                 Ok(ElevationMaterialization::Primary(c))
@@ -8553,9 +8981,7 @@ async fn materialize_band_at(
         // Overture is a versioned global snapshot, not a per-tslot series;
         // the canonical fact is "latest release" — backfill on a past
         // target_unix surfaces the same fact (signed at request time).
-        "overture.buildings.count" => {
-            return materialize_overture_buildings_count(cell64, s).await
-        }
+        "overture.buildings.count" => return materialize_overture_buildings_count(cell64, s).await,
         "overture.places.count" => return materialize_overture_places_count(cell64, s).await,
         "overture.transportation.road_length_m" => {
             return materialize_overture_road_length_m(cell64, s).await
@@ -9399,37 +9825,35 @@ async fn try_materialize_bands(
                 }
             }
             // ESA WorldCover 2021 (single global release).
-            "esa_worldcover.lc_2021" => {
-                match materialize_esa_worldcover_2021(cell64, s).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary_or_absence",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+            "esa_worldcover.lc_2021" => match materialize_esa_worldcover_2021(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary_or_absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
                 }
-            }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             // Hansen Global Forest Change v1.11.
             "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain" => {
                 match materialize_hansen_band(cell64, s, b).await {
