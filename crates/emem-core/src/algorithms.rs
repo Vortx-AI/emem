@@ -204,12 +204,18 @@ impl AlgorithmRegistry {
 
     /// Every key that this algorithm reads from. Useful for an agent
     /// that wants to assemble the right `/v1/recall` body in one shot.
+    /// Filters out the `<composite>` placeholder used in `algorithms-v0.json`
+    /// to mark inputs that come from other algorithms (not raw bands) —
+    /// passing that string to a materializer caused a silent
+    /// `no_auto_materializer_registered` skip and an empty answer for
+    /// composite-of-composites questions like "air quality" / "livability".
     pub fn input_bands(&self, key: &str) -> Vec<&str> {
         self.lookup(key)
             .map(|a| {
                 a.inputs
                     .iter()
                     .filter_map(|i| i.band.as_deref())
+                    .filter(|b| !b.starts_with('<'))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()

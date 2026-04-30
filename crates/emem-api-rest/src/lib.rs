@@ -4237,8 +4237,32 @@ async fn mcp_jsonrpc(
         other => Err((-32601, format!("method not found: {other}"))),
     };
     let dur_ms = started.elapsed().as_secs_f64() * 1000.0;
+    // Honest signal: a JSON-RPC envelope success that carries a
+    // `CallToolResult { isError: true }` is still a tool failure from
+    // the agent's point of view. Without this, every tool-runtime error
+    // is logged as `mcp_ok=true` and silently disappears.
     let (ok, err_code) = match &result {
-        Ok(_) => (true, 0i64),
+        Ok(v) => {
+            let is_tool_error = v.get("isError").and_then(|x| x.as_bool()).unwrap_or(false);
+            if is_tool_error {
+                let inner_msg = v
+                    .get("content")
+                    .and_then(|c| c.get(0))
+                    .and_then(|b| b.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("(no message)");
+                tracing::warn!(
+                    target: "emem::mcp",
+                    mcp_method = %method,
+                    mcp_tool = %tool_name,
+                    error_text = %inner_msg,
+                    "tool runtime error (CallToolResult.isError=true) — agent saw an error toast"
+                );
+                (false, -32000i64)
+            } else {
+                (true, 0i64)
+            }
+        }
         Err((c, _)) => (false, *c),
     };
     record_mcp_tool(&tool_name, ok, dur_ms);
@@ -6455,7 +6479,55 @@ async fn materialize_geotessera_for_year(
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
-    let v = fetch_geotessera_pixel(lat, lng, year).await?;
+    let v = match fetch_geotessera_pixel(lat, lng, year).await {
+        Ok(v) => v,
+        Err(e) => {
+            // Tessera tiles are sparse per (lat, lng, year) — some years
+            // ship complete global coverage, others only cover specific
+            // regions. A 404 on the upstream HEAD probe is a confirmed
+            // "no embedding here for this cell+year", not a connector
+            // bug, so we sign Absence (with the upstream skip reason as
+            // a content-addressed reason_cid) and persist. Subsequent
+            // recalls hit the hot cache and serve the signed Absence
+            // directly — no upstream re-probe, and the agent gets a
+            // citable "tried, no data here" Fact instead of an empty
+            // result.
+            if e.contains("status 404") || e.contains("404 Not Found") {
+                let signed_at = chrono_iso8601_utc();
+                let reason = format!(
+                    "geotessera_no_tile: no Tessera embedding tile published upstream \
+                     at dl2.geotessera.org for ({lat:.6},{lng:.6}) in year {year} \
+                     (HEAD returned 404). Coverage is regional per year — many cells \
+                     ship in some vintages and not others. The 1024-D fused \
+                     `geotessera.multi_year` band zero-pads absent years and is the \
+                     right choice when full year-by-year vintage coverage isn't required."
+                );
+                let reason_cid = reason_cid_for(&reason);
+                let fact = Fact::Absence(NegativeFact {
+                    cell: cell64.to_string(),
+                    band: band_name.to_string(),
+                    tslot: 0,
+                    reason_cid,
+                    confidence: 1.0,
+                    sources: vec![Source {
+                        scheme: "geotessera".into(),
+                        id: format!(
+                            "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/..."
+                        ),
+                        cid: None,
+                        hash: None,
+                        captured_at: Some(signed_at.clone()),
+                        url: None,
+                    }],
+                    schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                    signer: s.identity.pubkey,
+                    signed_at: signed_at.clone(),
+                });
+                return sign_and_persist(s, fact, &signed_at).await;
+            }
+            return Err(e);
+        }
+    };
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
@@ -10791,6 +10863,82 @@ const TOPIC_BANDS: &[(&str, &[&str])] = &[
     ),
     ("elevation_global_topobathy", &["gmrt.topobathy_mean"]),
     ("elevation_land_only", &["copdem30m.elevation_mean"]),
+    // Direct-band rows for the topics that previously had only an
+    // algorithm composite. Without these, `emem_ask "air quality at X"`
+    // would compose `heat_vulnerability_index@1` (a composite-of-composites
+    // with no auto-materializer) instead of recalling the live cams.*
+    // bands the user actually asked for, and return zero facts.
+    (
+        "public_health",
+        &[
+            "cams.pm25",
+            "cams.pm10",
+            "cams.no2",
+            "cams.o3",
+            "cams.so2",
+            "cams.co",
+            "cams.aod_550",
+            "modis.lst_day_8day",
+            "modis.lst_night_8day",
+            "weather.temperature_2m",
+            "weather.relative_humidity_2m",
+        ],
+    ),
+    (
+        "agriculture",
+        &[
+            "indices.ndvi",
+            "indices.evi",
+            "indices.savi",
+            "indices.ndmi",
+            "modis.ndvi_mean",
+            "modis.lai_8day",
+            "power.t2m",
+            "power.t2m_min",
+            "power.precip",
+        ],
+    ),
+    (
+        "esg",
+        &[
+            "indices.ndvi",
+            "modis.gpp_8day",
+            "modis.burned_area_monthly",
+            "hansen.loss_year",
+            "esa_worldcover.lc_2021",
+            "cams.pm25",
+            "cams.no2",
+        ],
+    ),
+    (
+        "real_estate",
+        &[
+            "surface_water.recurrence",
+            "copdem30m.elevation_mean",
+            "indices.ndvi",
+            "modis.lst_day_8day",
+            "indices.urban_canopy_index",
+            "overture.transportation.road_length_m",
+        ],
+    ),
+    (
+        "urban_livability",
+        &[
+            "indices.urban_canopy_index",
+            "indices.ndvi",
+            "modis.lst_day_8day",
+            "overture.places.count",
+            "overture.transportation.road_length_m",
+        ],
+    ),
+    (
+        "flood_risk_composite",
+        &[
+            "surface_water.recurrence",
+            "copdem30m.elevation_mean",
+            "sentinel1_raw",
+        ],
+    ),
     (
         "optical_raw_reflectance",
         &["s2.B02", "s2.B03", "s2.B04", "s2.B08", "s2.B11", "s2.B12"],
@@ -10915,6 +11063,10 @@ const TOPIC_KEYWORDS: &[(&str, &[&str])] = &[
     (
         "flood_risk_composite",
         &[
+            // Bare "flood" must come first — covers "is X going to flood",
+            // "will it flood", "flood here". The substring router checks
+            // contains() so this also catches "flooding", "floods", etc.
+            "flood",
             "flood-prone",
             "flood prone",
             "floodprone",
@@ -11278,9 +11430,24 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             }),
         )
     } else {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: "ask: requires one of `place` (free text), `cell` (cell64), or both `lat` and `lng`".into(),
+        // No explicit location field. The honest schema (see SCHEMA_ASK
+        // in emem-mcp) declares one-of place|cell|lat+lng as required, so
+        // a spec-compliant client never lands here — but if a fuzzy
+        // client (or a bare `q` fallback) does, return a *soft* envelope
+        // (isError=false) so the LLM at the call stack top sees a useful
+        // structured response rather than an error toast. The LLM is
+        // far better at extracting a place name from the user's turn
+        // than any hardcoded heuristic we could ship.
+        return Ok(json!({
+            "schema":   "emem.ask.v1",
+            "status":   "needs_location",
+            "question": req.q,
+            "message":  "no location provided. Pass `place` (free text), `cell` (cell64), or `lat`+`lng`.",
+            "next_steps": [
+                "call emem_ask again with `place: \"<place name>\"` extracted from the user's turn",
+                "or call emem_locate first to resolve a place hint, then pass the returned cell64 here",
+            ],
+            "agent_hint": "Pick a noun phrase (city, park, address, landmark) from the user's question and pass it as `place`. emem_ask will then run the full locate → recall → algorithm chain and return a packaged answer.",
         }));
     };
 
