@@ -245,6 +245,35 @@
   receipt offline with the responder pubkey alone, no callback.
 </blockquote>
 
+<h2>Direct integrations (zero install)</h2>
+<p style="font-size:.88rem; color:var(--mut); margin-top:.25rem">
+  Every major assistant already crawls emem and can cite our facts in
+  its reply <strong>without any setup on your side</strong>. Use these
+  paths first; install MCP only when you need write surfaces (attest,
+  challenge) or programmatic access from a CLI / IDE.
+</p>
+<div class="when">
+  <code>Claude.ai (web)</code><span style="color:var(--mut)">Just ask &mdash; <code>ClaudeBot</code> indexes emem and <code>Claude-User</code> fetches us when you cite a place. No connector needed. Power-user path: paste <code>https://emem.dev/mcp</code> as a custom MCP connector.</span>
+  <code>ChatGPT (web)</code><span style="color:var(--mut)">Just ask &mdash; <code>OAI-SearchBot</code> indexes us; <code>ChatGPT-User</code> fetches when answering. Power-user path: <a href="/openapi.json"><code>/openapi.json</code></a> pasted as a Custom GPT Action (no API key).</span>
+  <code>Google Gemini (web)</code><span style="color:var(--mut)">Just ask &mdash; <code>Googlebot</code> + <code>Google-Extended</code> index emem; AI Overviews and Vertex AI cite our facts. Power-user path: <code>gemini extensions install https://emem.dev/gemini-extension.json</code> (one command).</span>
+  <code>Perplexity</code><span style="color:var(--mut)">Just ask &mdash; <code>PerplexityBot</code> indexes; <code>Perplexity-User</code> fetches when citing. We're crawl-friendly with rich JSON-LD (<code>WebAPI</code> + <code>Dataset</code>) so Perplexity surfaces emem facts inline.</span>
+  <code>Microsoft Copilot</code><span style="color:var(--mut)">Auto-discovered via <code>Bingbot</code> + the A2A agent card at <a href="/.well-known/agent-card.json"><code>/.well-known/agent-card.json</code></a> (consumed by Microsoft Agent Framework). Zero config on your side.</span>
+  <code>DuckAssist (DuckDuckGo)</code><span style="color:var(--mut)">Just ask &mdash; <code>DuckAssistBot</code> indexes our content for the Llama-backed answer engine. No setup.</span>
+  <code>Meta AI</code><span style="color:var(--mut)">Indexed via <code>Meta-ExternalAgent</code> + <code>Meta-ExternalFetcher</code>. Just ask about a place and Meta AI can cite emem.</span>
+  <code>Mistral Le Chat</code><span style="color:var(--mut)">Indexed via <code>MistralAI-User</code>. Ask about a place; Le Chat fetches and cites.</span>
+  <code>Apple Intelligence</code><span style="color:var(--mut)">Indexed via <code>Applebot-Extended</code>. No tool registry yet; relies on web crawl.</span>
+  <code>xAI / Grok</code><span style="color:var(--mut)">Indexed via <code>xAI-Bot</code>. Ask about a place inside Grok.</span>
+  <code>Any AI assistant</code><span style="color:var(--mut)">Drop <a href="/llms.txt"><code>https://emem.dev/llms.txt</code></a> (or <a href="/llms-full.txt"><code>llms-full.txt</code></a>) into the system prompt or context window &mdash; gives the assistant the full agent guide in a single fetch with no install.</span>
+</div>
+<p style="font-size:.78rem; color:var(--mut); margin:.6rem 0 0">
+  All of the above are <strong>already live</strong>: you do not need to ask
+  Vortx to allowlist anything. <code>robots.txt</code> explicitly allows every
+  crawler in the table; <a href="/.well-known/mcp.json"><code>/.well-known/mcp.json</code></a>,
+  <a href="/.well-known/agent-card.json"><code>/.well-known/agent-card.json</code></a> (A2A v0.2),
+  <a href="/.well-known/oauth-protected-resource"><code>/.well-known/oauth-protected-resource</code></a> (RFC 9728, declares <code>auth: none</code>),
+  and <a href="/.well-known/emem.json"><code>/.well-known/emem.json</code></a> are served byte-stable.
+</p>
+
 <h2>Wire it into your agent (60 seconds)</h2>
 <p style="font-size:.88rem; color:var(--mut); margin-top:.25rem">
   Streamable-HTTP MCP transport (spec id 2025-03-26) at <a href="/mcp"><code>/mcp</code></a> over HTTPS.
@@ -265,7 +294,11 @@
 
 <p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>OpenAI / GPT Custom Action</strong>, paste <a href="/openapi.json"><code>https://emem.dev/openapi.json</code></a> as the schema URL. No auth required.</p>
 
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Google Gemini CLI</strong>, one command: <code>gemini extensions install https://emem.dev/gemini-extension.json</code>. Pulls our <a href="/gemini-extension.json"><code>gemini-extension.json</code></a> manifest, wires the emem MCP server, ready to use.</p>
+
 <p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Anthropic API</strong>, pass <code>{"type":"url","url":"https://emem.dev/mcp","name":"emem"}</code> in the <code>mcp_servers</code> array on a Messages call.</p>
+
+<p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Auto-discovery clients</strong> (Cursor 0.30+, VS Code Copilot Chat MCP, Claude Desktop ≥ 0.10, Continue, Cline, Open WebUI), point at <a href="/.well-known/mcp.json"><code>https://emem.dev/.well-known/mcp.json</code></a> &mdash; one URL replaces the entire MCP config blob.</p>
 
 <p style="font-size:.85rem; margin: .9rem 0 .25rem"><strong>Plain REST</strong>, every MCP tool is also an HTTPS REST endpoint at <code>/v1/&lt;tool&gt;</code>. Discover with <a href="/v1/discover"><code>GET /v1/discover</code></a> (one call: card + manifests + tools + canonical places). The hosted instance at <code>emem.dev</code> is HTTPS-only; plain HTTP is available only on self-hosted deployments.</p>
 

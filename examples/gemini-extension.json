@@ -1,0 +1,53 @@
+{
+  "_doc": "Gemini CLI extension manifest. Install with one command: `gemini extensions install https://emem.dev/gemini-extension.json`. After install, every Gemini CLI session can call emem_recall, emem_compare, emem_find_similar, etc. against any place on Earth without an API key. The hosted instance at https://emem.dev/mcp is HTTPS-only Streamable HTTP transport (MCP 2025-03-26+). For self-hosted, change `url` to your own emem responder.",
+  "name": "emem",
+  "version": "0.0.2",
+  "description": "Cite-able, content-addressed, signed Earth memory protocol. Recall any place on Earth (cell × band × tslot) and get back ed25519 receipts you can quote in your reply. 30 tools. 94 materializable bands. 84 composition algorithms. No API keys.",
+  "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
+  "license": "Apache-2.0",
+  "homepage": "https://emem.dev",
+  "repository": "https://github.com/Vortx-AI/emem",
+  "documentation": "https://emem.dev/agents.md",
+  "icon": "https://emem.dev/favicon.svg",
+  "keywords": [
+    "earth-observation",
+    "geospatial",
+    "satellite",
+    "mcp",
+    "ed25519",
+    "content-addressed",
+    "no-api-key"
+  ],
+  "mcpServers": {
+    "emem": {
+      "url": "https://emem.dev/mcp",
+      "transport": "streamable-http",
+      "description": "Earth memory protocol — recall, compare, find_similar, diff, trajectory, verify over signed receipts."
+    }
+  },
+  "context": {
+    "agent_card_url": "https://emem.dev/v1/agent_card",
+    "openapi_url": "https://emem.dev/openapi.json",
+    "llms_txt_url": "https://emem.dev/llms.txt",
+    "llms_full_txt_url": "https://emem.dev/llms-full.txt",
+    "well_known_url": "https://emem.dev/.well-known/emem.json",
+    "agent_card_a2a_url": "https://emem.dev/.well-known/agent-card.json"
+  },
+  "examples": [
+    {
+      "name": "Locate a place by name",
+      "tool": "emem_locate",
+      "arguments": {"q": "Mount Fuji"}
+    },
+    {
+      "name": "Recall elevation at a cell",
+      "tool": "emem_recall",
+      "arguments": {"cell": "damO.zb000.xUti.zde78", "bands": ["copdem30m.elevation_mean"]}
+    },
+    {
+      "name": "Find similar places",
+      "tool": "emem_find_similar",
+      "arguments": {"key": "damO.zb000.xUti.zde78", "band": "geotessera", "k": 5}
+    }
+  ]
+}

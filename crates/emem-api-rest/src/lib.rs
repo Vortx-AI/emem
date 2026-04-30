@@ -95,6 +95,7 @@ const EXAMPLE_CLAUDE_CODE: &str = include_str!("../../../examples/claude-code.mc
 const EXAMPLE_CURSOR: &str = include_str!("../../../examples/cursor.mcp.json");
 const EXAMPLE_CLINE: &str = include_str!("../../../examples/cline.mcp.json");
 const EXAMPLE_OPENAI: &str = include_str!("../../../examples/openai-gpt-action.json");
+const EXAMPLE_GEMINI_EXTENSION: &str = include_str!("../../../examples/gemini-extension.json");
 const EXAMPLE_LANGCHAIN: &str = include_str!("../../../examples/langchain.py");
 const EXAMPLE_LLAMAINDEX: &str = include_str!("../../../examples/llamaindex.py");
 
@@ -139,6 +140,7 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/ai-plugin.json", get(ai_plugin))
         .route("/.well-known/agent.json", get(agent_manifest))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
+        .route("/.well-known/mcp.json", get(well_known_mcp))
         .route(
             "/.well-known/oauth-protected-resource",
             get(well_known_oauth_protected_resource),
@@ -160,6 +162,11 @@ pub fn router(state: AppState) -> Router {
             "/examples/openai-gpt-action.json",
             get(serve_example_openai),
         )
+        .route("/examples/gemini-extension.json", get(serve_example_gemini))
+        // Top-level alias so `gemini extensions install
+        // https://emem.dev/gemini-extension.json` works without the
+        // examples/ prefix.
+        .route("/gemini-extension.json", get(serve_example_gemini))
         .route("/examples/langchain.py", get(serve_example_langchain))
         .route("/examples/llamaindex.py", get(serve_example_llamaindex))
         .route(
@@ -472,7 +479,9 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/.well-known/ai-plugin.json"
         | "/.well-known/agent.json"
         | "/.well-known/agent-card.json"
+        | "/.well-known/mcp.json"
         | "/.well-known/oauth-protected-resource"
+        | "/gemini-extension.json"
         | "/v1/discover" => Some("public, max-age=3600, stale-while-revalidate=86400"),
         // Active operational data — bounded staleness OK.
         "/v1/contributors"
@@ -792,7 +801,9 @@ async fn rate_limit_layer(
             | "/.well-known/emem.json"
             | "/.well-known/agent.json"
             | "/.well-known/agent-card.json"
+            | "/.well-known/mcp.json"
             | "/.well-known/oauth-protected-resource"
+            | "/gemini-extension.json"
             | "/openapi.json"
             | "/robots.txt"
             | "/sitemap.xml"
@@ -1241,6 +1252,72 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     }))
 }
 
+/// `GET /.well-known/mcp.json` — direct MCP server discovery descriptor.
+/// Newer MCP clients (Cursor 0.30+, VS Code Copilot Chat MCP, Claude
+/// Desktop ≥ 0.10, Continue, Cline, Open WebUI) probe this path before
+/// asking the user to paste a config blob, so a present + correct
+/// document means the user can install with one URL instead of seven
+/// JSON fields. Schema mirrors the mcpServers entry shape used by every
+/// major client so the same doc works everywhere.
+async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let tools: Vec<&str> = emem_mcp::TOOLS.iter().map(|t| t.name).collect();
+    Json(json!({
+        "$schema":     "https://modelcontextprotocol.io/schemas/draft/well-known-mcp.json",
+        "name":        "emem",
+        "version":     env!("CARGO_PKG_VERSION"),
+        "description": "Cite-able, content-addressed, signed Earth memory protocol. cell × band × tslot. Every read returns an ed25519 receipt. No API keys for L0/L1.",
+        "homepage":    "https://emem.dev",
+        "documentation": format!("{origin}/agents.md"),
+        "icon":        format!("{origin}/favicon.svg"),
+        "license":     "Apache-2.0",
+        "operator": {
+            "name":    "Vortx AI Private Limited",
+            "country": "India",
+            "contact": "avijeet@vortx.ai",
+            "url":     "https://vortx.ai",
+        },
+        // Universal mcpServers shape — the same blob a user would paste
+        // into Claude Desktop / Cursor / Cline / Gemini CLI / Continue
+        // / Open WebUI. Clients that auto-install pull this directly.
+        "mcpServers": {
+            "emem": {
+                "url":         format!("{origin}/mcp"),
+                "transport":   "streamable-http",
+                "description": "Earth memory protocol — recall, compare, find_similar, diff, trajectory, verify over signed receipts.",
+            }
+        },
+        // Capability surface so the client can decide whether to install
+        // without round-tripping initialize.
+        "capabilities": {
+            "tools":     { "count": tools.len(), "listChanged": false },
+            "resources": { "listChanged": false, "subscribe": false },
+            "prompts":   { "listChanged": false },
+            "auth":      { "type": "none", "required": false },
+            "transport": ["streamable-http", "http+json"],
+            "protocol_versions": ["2024-11-05", "2025-03-26", "2025-06-18"],
+        },
+        "tools": tools,
+        "discovery": {
+            "openapi":              format!("{origin}/openapi.json"),
+            "agent_card":           format!("{origin}/v1/agent_card"),
+            "agent_card_a2a":       format!("{origin}/.well-known/agent-card.json"),
+            "well_known_emem":      format!("{origin}/.well-known/emem.json"),
+            "oauth_protected_resource": format!("{origin}/.well-known/oauth-protected-resource"),
+            "llms_txt":             format!("{origin}/llms.txt"),
+            "llms_full_txt":        format!("{origin}/llms-full.txt"),
+        },
+        "responder": {
+            "pubkey_b32":    pubkey_b32,
+            "signature_alg": "ed25519",
+            "hash_alg":      "blake3",
+        },
+    }))
+}
+
 /// `GET /.well-known/oauth-protected-resource` — RFC 9728 protected
 /// resource metadata. The hosted instance is *no-auth* read-only, but
 /// Anthropic's MCP broker (and others) probe this path before falling
@@ -1279,6 +1356,9 @@ async fn serve_example_cline() -> Response {
 }
 async fn serve_example_openai() -> Response {
     text_response("application/json", EXAMPLE_OPENAI)
+}
+async fn serve_example_gemini() -> Response {
+    text_response("application/json", EXAMPLE_GEMINI_EXTENSION)
 }
 async fn serve_example_langchain() -> Response {
     text_response("text/x-python", EXAMPLE_LANGCHAIN)
