@@ -171,49 +171,41 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],"properties"
 
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
 
+// Anthropic's tool input_schema validator (consumed by Claude.ai
+// connectors and the Anthropic API `tools` array) only accepts the
+// JSON-Schema subset {type, properties, required} at the root. Top-level
+// `anyOf`/`oneOf`/`allOf` and a top-level `description` cause
+// `tools.<idx>.custom.input_schema` 400s when Claude Code adds the
+// connector. The "exactly one location" requirement therefore lives in
+// the per-property descriptions (LLMs respect description text) plus a
+// soft-envelope safety net at the handler — the schema itself stays
+// strictly within the Anthropic-accepted subset.
 const SCHEMA_LOCATE: &str = r#"{"type":"object","properties":{
-"place":{"type":"string","description":"Free-text place name (e.g. 'Mount Everest', 'Tokyo'). Aliases: `q`, `query`, `name`."},
-"q":{"type":"string","description":"Alias for `place` — accepted because OSM/Mapbox/Google Geocoding all use `q`. Resolves the same way."},
-"lat":{"type":"number","description":"WGS-84 latitude in degrees, paired with `lng`."},
-"lng":{"type":"number","description":"WGS-84 longitude in degrees, paired with `lat`."}
-},
-"anyOf":[
-{"required":["place"]},
-{"required":["q"]},
-{"required":["lat","lng"]}
-],
-"description":"Resolve a place to a cell64. Provide either `place`/`q` (free text) or both `lat`+`lng`."}"#;
+"place":{"type":"string","description":"Free-text place name (e.g. 'Mount Everest', 'Tokyo'). REQUIRED unless `lat`+`lng` is provided. Aliases also accepted: `q`, `query`, `name`."},
+"q":{"type":"string","description":"Alias for `place` — accepted because OSM/Mapbox/Google Geocoding all use `q`. Provide either this or `place` (or `lat`+`lng`)."},
+"lat":{"type":"number","description":"WGS-84 latitude in degrees, paired with `lng`. REQUIRED with `lng` unless `place`/`q` is provided."},
+"lng":{"type":"number","description":"WGS-84 longitude in degrees, paired with `lat`. REQUIRED with `lat` unless `place`/`q` is provided."}
+}}"#;
 
 const SCHEMA_ASK: &str = r#"{"type":"object","required":["q"],"properties":{
 "q":{"type":"string","description":"User's natural-language question about the place (e.g. \"is this neighbourhood flood-prone\")."},
-"place":{"type":"string","description":"Free-text place name (e.g. \"Mount Fuji\", \"Ashok Nagar, Ranchi\"). Use this when the user's turn names a place — extract the noun phrase yourself; the responder geocodes via OSM Nominatim."},
-"cell":{"type":"string","description":"cell64 string (alternative to `place` — use when you have one from a prior emem_locate / emem_recall response)."},
+"place":{"type":"string","description":"Free-text place name (e.g. \"Mount Fuji\", \"Ashok Nagar, Ranchi\"). REQUIRED unless `cell` or `lat`+`lng` is provided. Extract the noun phrase from the user's turn; the responder geocodes via OSM Nominatim."},
+"cell":{"type":"string","description":"cell64 string (alternative to `place` — use when you have one from a prior emem_locate / emem_recall response). Provide this OR `place` OR `lat`+`lng`."},
 "lat":{"type":"number","description":"WGS-84 latitude (paired with `lng`; alternative to `place` / `cell`)."},
 "lng":{"type":"number","description":"WGS-84 longitude (paired with `lat`)."},
 "include_image":{"type":"boolean","default":false,"description":"Bundle a Sentinel-2 RGB scene URL for the resolved cell. Adds ~1-2 s on first call."}
-},
-"anyOf":[
-{"required":["place"]},
-{"required":["cell"]},
-{"required":["lat","lng"]}
-],
-"description":"Single-shot free-text answer about a real-world location. `q` is always required. Exactly one location form is also required: `place` (free text — extract the noun phrase from the user's turn), `cell` (cell64 from a prior call), or both `lat`+`lng`."}"#;
+}}"#;
 
 const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
-"place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder. Either `place` or `polygon_bbox` is required."},
+"place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder. REQUIRED unless `polygon_bbox` is provided."},
 "polygon_bbox":{"type":"object","properties":{
   "min_lat":{"type":"number"},"max_lat":{"type":"number"},
   "min_lng":{"type":"number"},"max_lng":{"type":"number"}
-}, "description":"Explicit polygon bbox; alternative to `place` when caller already has coordinates."},
+}, "description":"Explicit polygon bbox; alternative to `place` when caller already has coordinates. REQUIRED unless `place` is provided."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Bands to recall at each fan-out cell."},
 "tslot":{"type":"integer"},
 "max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64,"description":"Cap on cells sampled from the polygon."}
-},
-"anyOf":[
-{"required":["place"]},
-{"required":["polygon_bbox"]}
-],
-"description":"Recall facts across every cell inside a place's polygon. Provide either `place` (free text) or `polygon_bbox` (explicit coordinates)."}"#;
+}}"#;
 
 const SCHEMA_GRID_INFO: &str = r#"{"type":"object","properties":{}}"#;
 const SCHEMA_COVERAGE_MATRIX: &str = r#"{"type":"object","properties":{}}"#;
