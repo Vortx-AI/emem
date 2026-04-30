@@ -143,10 +143,13 @@ point you encode.
   That's a separate event-bus problem; cell64 gives you the *where*
   but the *when* + *propagation* require a sub-second pub/sub layer
   that doesn't exist in emem yet.
-- Indoor positioning accuracy. The codec produces ~305 m cells at
-  the geographic equator; rescaled to a 100 m × 100 m floor plan,
-  the same 64-bit budget gives ~10 cm cells, which is enough for
-  room-level reasoning but not robotic-grasp precision.
+- Indoor positioning accuracy. The geographic codec produces square
+  ~10 m × ~10 m cells at the equator; rescaled to a 100 m × 100 m
+  floor plan, the same 43-bit lat/lng budget gives ~3 mm cells, which
+  is enough for furniture-level reasoning. The full 64-bit budget
+  (lifting the mode/resolution prefix for the indoor mode word)
+  pushes that into the sub-mm regime, sufficient for robotic-grasp
+  precision when paired with a global-to-local frame anchor.
 
 ---
 

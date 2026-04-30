@@ -61,10 +61,12 @@ The voxel itself is addressable: `emem:vec/<vec64>` dereferences via
   Sentinel-1/Sentinel-2 pixel — not interpolated, not coarsened.
   The multimodal-fusion contract guarantees that algorithms anchored
   on S1/S2/Landsat consume 10 m inputs natively.
-- `cell_dedupe_m` (~305 m) is a CACHE granularity, not the data
-  resolution. Two queries within ~305 m return the *same* cached
-  10 m-fidelity value; they don't fall back to a coarser aggregate.
-  Use `/v1/recall_polygon` when you want different sub-cell samples.
+- `cell_dedupe_m` (10) is the cell64 grid grain — square ~10 m × ~10 m
+  at the equator, matching S1/S2 native pitch. Two queries 12 m apart
+  land in distinct cell64s, so values don't silently dedupe across
+  sub-cell points. Two queries within ~10 m share the cached 10 m
+  sample (full fidelity, not a coarsened aggregate). Use
+  `/v1/recall_polygon` when you want a region of per-cell samples.
 - Signed `Absence` is a real answer ("tried and got no answer"); do
   not retry, surface it as an honest gap.
 - Never invent a `fact_cid` — quote what the JSON returned, or omit

@@ -19,9 +19,10 @@
 //!    `parquet::arrow::async_reader::ParquetObjectReader`) is cached the
 //!    first time a file is touched. Footer reads are 1-2 KB; subsequent
 //!    cells in the same area pay only the row-group bytes.
-//!  - The cell bbox is *small* (~305 m × ~190 m at 52° N) so most cells
-//!    touch one or two row groups across one or two parquet files. Future
-//!    cells in the same neighborhood reuse the same footer cache.
+//!  - The cell bbox is *small* (~10 m × ~6 m at 52° N) so most cells
+//!    touch one row group, and a single parquet file's bytes cover many
+//!    adjacent cells. Future cells in the same neighborhood reuse the
+//!    same footer cache.
 //!
 //! Error model: every failure surfaces as `OvertureError` so the caller
 //! (the materializer in emem-api-rest) can record it as a `skip_reason`
@@ -366,8 +367,8 @@ impl OvertureClient {
     ) -> Result<f64, OvertureError> {
         let files = self.list_files(SEGMENTS).await?;
         let lat0 = (s_lat + n_lat) / 2.0;
-        // Local-tangent-plane scaling; exact at lat0, accurate to a few cm
-        // over a 305 m cell.
+        // Local-tangent-plane scaling; exact at lat0, accurate to sub-mm
+        // over a ~10 m cell.
         let m_per_deg_lat = 111_320.0_f64;
         let m_per_deg_lng = 111_320.0_f64 * lat0.to_radians().cos();
         let parallel = scan_parallelism();
@@ -793,7 +794,7 @@ pub fn wkb_point_inside(buf: &[u8], s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f
 }
 
 /// Test if a WKB Polygon's vertex centroid falls inside the bbox.
-/// (Average of outer-ring vertices — adequate for a ~305 m cell; the
+/// (Average of outer-ring vertices — adequate for a ~10 m cell; the
 /// buildings.count band is documented as "centroid inside bbox", so the
 /// approximation is part of the contract.)
 pub fn wkb_polygon_centroid_inside(
@@ -907,7 +908,7 @@ fn read_linestring(cur: &mut WkbCursor<'_>) -> Option<Vec<(f64, f64)>> {
 
 /// Sum the planar-projected length of each polyline's segment that falls
 /// inside the bbox. Uses Liang-Barsky-style segment clipping; a tiny cell
-/// (~305 m) makes the planar approximation indistinguishable from haversine.
+/// (~10 m) makes the planar approximation indistinguishable from haversine.
 fn polyline_clipped_length(
     polylines: &[Vec<(f64, f64)>],
     s_lat: f64,

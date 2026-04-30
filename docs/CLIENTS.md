@@ -25,7 +25,8 @@ piece of data at *one* lat/lng, skip cell64 entirely and use the
 boring GETs. Every one returns a signed Fact plus `cell64`,
 `fact_cid`, `responder_pubkey_b32`, `source_url`, `signed_at`,
 `data_resolution_m` (the upstream sensor pitch — 10 m for S1/S2),
-and `cell_dedupe_m` (~305 m, the cache-key granularity).
+and `cell_dedupe_m` (10, the cell64 grid grain — square ~10 m × ~10 m
+at the equator, matching S1/S2 native pitch).
 
 ```bash
 curl -s 'https://emem.dev/v1/ndvi?lat=30.5&lon=75.85'      # vegetation
@@ -52,8 +53,7 @@ polygons, or history.
 ## 0a. The three "resolutions" (so you can answer questions correctly)
 
 Before you wire emem into any client, calibrate your expectations
-against the live server. Two facts that previous releases described
-loosely:
+against the live server.
 
 ### 0a.1  Three resolutions, one value — distinguish them
 
@@ -62,30 +62,37 @@ When you read an emem fact, three numbers describe how granular it is:
 | field                | meaning                                                                                    | example values        |
 |----------------------|--------------------------------------------------------------------------------------------|-----------------------|
 | `data_resolution_m`  | upstream sensor pitch the materializer **actually sampled**                                | 10 (S1/S2/indices), 90 (Cop-DEM), 250 (SoilGrids), 1000 (MODIS LST) |
-| `cell_dedupe_m`      | cache-key granularity (cell64 grid pitch on the lat axis at the equator)                   | ~305                  |
-| `spec_target_m`      | future grid (aperture-7 hex DGGS, not yet active)                                          | ~3.4                  |
+| `cell_dedupe_m`      | cell64 grid grain at the equator (square ~10 m × ~10 m, lat 21 bits × lng 22 bits)         | 10                    |
+| `spec_target_m`      | future grid (aperture-7 hex DGGS, equal-area, not yet active)                              | ~3.4                  |
 
 The boring API surfaces the first two on every response.
 
 **The point that matters:** when `data_resolution_m=10`, the value is a
-real 10 m Sentinel-1/2 pixel. We confirmed by reading the materializer:
-`crates/emem-api-rest/src/lib.rs:8575` calls `sample_pixel(...)` once at
+real 10 m Sentinel-1/2 pixel. The materializer
+(`crates/emem-api-rest/src/lib.rs`) calls `sample_pixel(...)` once at
 the cell-centre lat/lng — not interpolated, not coarsened, not block-
 averaged. The multimodal-fusion contract holds.
 
-What the ~305 m number actually represents: emem keys its persistent
-store by `cell64`. Two queries < 305 m apart get the **same cached 10 m
-sample** (the one taken at the cell centre when the cell was first
-materialized). They don't fall back to a coarser aggregate; the value
-they share is full 10 m fidelity. If an agent needs a *different* 10 m
-sample inside the same cell, it calls `/v1/recall_polygon` with a tight
-polygon and gets per-sub-cell facts.
+What the cell64 grain actually means: emem keys its persistent store by
+`cell64` at ~10 m × ~10 m square pixels at the equator. Two queries 12 m
+apart land in **distinct cell64 strings** — there is no silent dedupe
+across sub-cell points. Two queries within the same cell (~10 m apart)
+share the cached 10 m sample taken at the cell centre when the cell was
+first materialized; the value they share is full 10 m fidelity, not a
+coarsened aggregate. Above the equator, longitude pitch narrows with
+cos(lat) so cells become taller than wide — H3 (the spec target) fixes
+this with equal-area hexagons.
 
 ```bash
-# Same cell, same cached 10 m S2 pixel value:
+# Two queries < 10 m apart hit the same cell64 → same cached value:
 curl -s 'https://emem.dev/v1/ndvi?lat=17.3850&lon=78.4867'    | jq '{value, data_resolution_m, cell64, fact_cid}'
 curl -s 'https://emem.dev/v1/ndvi?lat=17.3850&lon=78.486794'  | jq '{value, data_resolution_m, cell64, fact_cid}'
 # → identical fact_cid, identical value, data_resolution_m=10
+
+# Two queries 12 m east → distinct cell64s, distinct fact_cids:
+curl -s 'https://emem.dev/v1/ndvi?lat=17.3850&lon=78.4867'      | jq '.cell64'
+curl -s 'https://emem.dev/v1/ndvi?lat=17.3850&lon=78.486808'    | jq '.cell64'
+# → different cell64 strings (12 m / 111 km ≈ 1.08e-4 deg crosses the cell boundary)
 ```
 
 ```bash
@@ -98,9 +105,9 @@ curl -sX POST 'https://emem.dev/v1/recall_polygon' \
 ```
 
 So when you write a user-facing summary, the honest line is:
-*"The value is a Sentinel-2 10 m measurement at <cell64>. Querying any
-point within ~305 m of the cell centre returns this same 10 m sample;
-ask for a wider region with `/v1/recall_polygon` to fan out."*
+*"The value is a Sentinel-2 10 m measurement at <cell64>. The cell64
+grid is ~10 m × ~10 m square at the equator; ask for a wider region
+with `/v1/recall_polygon` to fan out."*
 
 `/v1/grid_info` carries the authoritative numbers and a stable
 `honest_warnings` array; pin those at session start if your agent
@@ -572,7 +579,7 @@ Reality: same 28-tool surface; no Codex-specific friction observed.
 
 | symptom                                                                        | root cause                                                              | fix                                                                                                       |
 |--------------------------------------------------------------------------------|-------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| `multimodal.delivery_resolution_m=10` but two queries 10 m apart return same fact | `cell64` quantizes at ~305 m; "10 m" is the input-sensor fidelity, not the served grain | renamed the field's *meaning* in `docs/MULTIMODAL.md` and `docs/CLIENTS.md §0.1`; field name will be tightened to `input_sensor_resolution_m` next manifest |
+| `multimodal.delivery_resolution_m=10` but two queries 10 m apart return same fact | both queries fell in the same cell64 (~10 m square at equator); the cached 10 m S2 pixel is shared by points inside one cell | distinguish in your reply: query 12 m apart to cross the cell boundary, or call `/v1/recall_polygon` for per-sub-cell samples |
 | `sentinel1_raw` returned `Absence` over Brazilian Amazon                       | no S1 RTC scene in last 30 days at that cell                            | document the failure mode (§0.2 table); use `/v1/data_availability` to plan calls                         |
 | `soilgrids.soc_0_30cm` returned `Absence` over Iowa city centre                | ISRIC REST API returns null on urban-mask pixels                        | document the urban-mask gotcha; rural cells (Punjab, Amazon) returned Primary correctly                   |
 | 41-band batch hit a 504 gateway timeout                                        | default 30 s gateway timeout                                            | doubled to 60 s; doubled materializer timeout 15 → 30 s, S2 client 45 → 90 s, reqwest 8 → 16 s            |

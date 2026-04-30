@@ -218,7 +218,7 @@
           "explanation": "Built-up index used to estimate residential share R: high NDBI in mixed-use areas → R ≈ 0.7; low NDBI (parks, industrial fringe) → R ≈ 0.85 (residential-dominant); we use R = 0.85 - 0.15·sigmoid(10·NDBI) as a soft estimator. Wire a dedicated GHSL-Land-Use band to replace this." }
       ],
       "formula": "let A = if has(overture.buildings.area_m2) { overture.buildings.area_m2 } else { 100 * overture.buildings.count }; let H = overture.buildings.height_mean orelse 7.5; let storeys = max(1, H / 3.0); let R = 0.85 - 0.15 * sigmoid(10 * indices.ndbi); let floor_area = A * storeys * R; people = floor_area / 67",
-      "output": { "kind": "scalar", "unit": "people_per_cell", "range": [0, "+inf"], "explanation": "GHSL-style dasymetric population estimate: floor_area = footprint × storeys × residential_share, then divided by 67 m² of residential floor space per person (GHSL-Pop default). Storeys = max(1, height/3 m). Returns persons per cell (cell64 ≈ 305 m × 305 m = 9.3 ha). Multiply by 1/0.093 for people/km². For national-census-anchored gridded population use a WorldPop or GHSL-POP attestation when wired." },
+      "output": { "kind": "scalar", "unit": "people_per_cell", "range": [0, "+inf"], "explanation": "GHSL-style dasymetric population estimate: floor_area = footprint × storeys × residential_share, then divided by 67 m² of residential floor space per person (GHSL-Pop default). Storeys = max(1, height/3 m). Returns persons per cell (cell64 is square ~10 m × ~10 m at the equator ≈ 100 m² = 0.01 ha). Multiply by 10 000 for people/km². For national-census-anchored gridded population use a WorldPop or GHSL-POP attestation when wired." },
       "when_to_use": "Comparative population estimates anywhere on Earth where Overture has building coverage; calibrated against GHSL methodology. Report cell area in the receipt so density conversion is unambiguous.",
       "primitive": "POST /v1/recall {bands:['overture.buildings.count','overture.buildings.area_m2','overture.buildings.height_mean','indices.ndbi']}",
       "deterministic": true,
@@ -625,10 +625,10 @@
       "kind": "combined",
       "domain": "human",
       "inputs": [
-        { "band": "indices.ndvi", "role": "ring_vegetation_fraction", "explanation": "K-ring (radius 3 cells, ~1.6 km) NDVI sample. Fraction of cells with NDVI ≥ 0.4 = parks/woodland threshold." }
+        { "band": "indices.ndvi", "role": "ring_vegetation_fraction", "explanation": "K-ring (radius 30 cells × ~10 m ≈ 300 m) NDVI sample. Fraction of cells with NDVI ≥ 0.4 = parks/woodland threshold." }
       ],
       "formula": "fraction_green = (1/N_ring) * count_{c in K3_ring} { indices.ndvi(c) >= 0.4 }; access_score = clamp01(fraction_green / 0.20)",
-      "output": { "kind": "scalar", "unit": "access_index", "range": [0, 1], "explanation": "Score saturates at 20 % canopy/park share within ~1.6 km, the WHO recommendation that residents have green space within 300 m. We use a coarser ring because cell64 ~305 m." },
+      "output": { "kind": "scalar", "unit": "access_index", "range": [0, 1], "explanation": "Score saturates at 20 % canopy/park share within ~300 m, matching the WHO recommendation that residents have green space within 300 m. cell64 is now ~10 m square so the 30-cell ring tracks the WHO threshold directly." },
       "when_to_use": "Property and livability assessments; environmental-justice screens. Note in the receipt that this is an NDVI-fraction proxy, not a parks-database lookup.",
       "primitive": "POST /v1/locate → neighborhood_cells + polygon_sample_cells; POST /v1/recall_many {bands:['indices.ndvi']}",
       "deterministic": true,
@@ -660,14 +660,14 @@
       "kind": "combined",
       "domain": "human",
       "inputs": [
-        { "band": "overture.transportation.road_length_m", "role": "road_emitter",   "weight": 0.70, "transform": "sigmoid((x - 800)/400)",
-          "explanation": "Traffic-noise scales with road length within the cell; our 305 m cell holds ~800 m of street as a 'busy threshold'." },
-        { "band": "overture.buildings.count",              "role": "reverberation",   "weight": 0.20, "transform": "tanh(x/300)",
-          "explanation": "Dense buildings amplify (urban canyon), the modifier is small but real." },
+        { "band": "overture.transportation.road_length_m", "role": "road_emitter",   "weight": 0.70, "transform": "sigmoid((x - 26)/13)",
+          "explanation": "Traffic-noise scales with road length within the cell; our ~10 m × 10 m cell holds ~26 m of street (a typical 2-lane road bisecting the cell) as the 'busy threshold'. Cells with no street through them stay near zero." },
+        { "band": "overture.buildings.count",              "role": "reverberation",   "weight": 0.20, "transform": "tanh(x/2)",
+          "explanation": "Dense buildings amplify (urban canyon); at ~10 m × 10 m a single building may occupy the cell, so the modifier saturates around 2 buildings." },
         { "band": "indices.ndvi",                          "role": "canopy_attenuation","weight": 0.10, "transform": "1 - clamp01((x - 0.2)/0.4)",
           "explanation": "Tree canopy attenuates traffic noise by 3–7 dB; we subtract a soft canopy uplift." }
       ],
-      "formula": "0.70*sigmoid((road_length_m - 800)/400) + 0.20*tanh(buildings.count/300) - 0.10*clamp01((ndvi - 0.2)/0.4)",
+      "formula": "0.70*sigmoid((road_length_m - 26)/13) + 0.20*tanh(buildings.count/2) - 0.10*clamp01((ndvi - 0.2)/0.4)",
       "output": { "kind": "scalar", "unit": "noise_proxy", "range": [-0.1, 1], "explanation": "Directional traffic-noise exposure proxy. Calibrated noise data (LDEN) requires a city noise-map attestation; this is a screening tool only." },
       "when_to_use": "Quiet-flat / loud-flat screening. Always frame as 'traffic-noise proxy', not measured dB(A).",
       "primitive": "POST /v1/recall {bands:['overture.transportation.road_length_m','overture.buildings.count','indices.ndvi']}",

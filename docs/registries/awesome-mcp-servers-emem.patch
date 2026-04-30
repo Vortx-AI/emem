@@ -13,7 +13,7 @@
  - [TimLukaHorstmann/mcp-weather](https://github.com/TimLukaHorstmann/mcp-weather) 📇 ☁️  - Accurate weather forecasts via the AccuWeather API (free tier available).
  - [trackmage/trackmage-mcp-server](https://github.com/trackmage/trackmage-mcp-server) 📇 - Shipment tracking api and logistics management capabilities through the [TrackMage API] (https://trackmage.com/)
  - [webcoderz/MCP-Geo](https://github.com/webcoderz/MCP-Geo) 🐍 🏠 - Geocoding MCP server for nominatim, ArcGIS, Bing
-+- [Vortx-AI/emem](https://github.com/Vortx-AI/emem) 🦀 ☁️ 🏠 🍎 🪟 🐧 - Geocode any place name to a content-addressed, ed25519-signed cell64 (~305 m Hilbert) and recall attested facts (NDVI, surface water, DEM elevation, weather, OSM/Overture buildings) with offline-verifiable receipts. Hosted at [emem.dev/mcp](https://emem.dev/mcp).
++- [Vortx-AI/emem](https://github.com/Vortx-AI/emem) 🦀 ☁️ 🏠 🍎 🪟 🐧 - Geocode any place name to a content-addressed, ed25519-signed cell64 (square ~10 m × ~10 m at the equator, matching Sentinel-1/Sentinel-2 native pitch) and recall attested facts (NDVI, surface water, DEM elevation, weather, OSM/Overture buildings) with offline-verifiable receipts. Hosted at [emem.dev/mcp](https://emem.dev/mcp).
 +
  
  ### 🎯 <a name="marketing"></a>Marketing

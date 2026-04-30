@@ -58,8 +58,8 @@ curl -s -XPOST https://emem.dev/v1/locate \
 ```
 
 `via: embedded` means the gazetteer baked into the binary answered.
-Embedded peaks come back without a polygon — for a 305 m × 190 m cell
-at the summit there isn't really one.
+Embedded peaks come back without a polygon — for a ~10 m × ~6 m cell
+at this latitude the bbox is essentially the centre point.
 
 ```bash
 curl -s -XPOST https://emem.dev/v1/recall \

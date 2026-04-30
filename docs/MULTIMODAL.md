@@ -16,23 +16,28 @@ on the live emem.dev responder.
 >    multimodal block declares `delivery_resolution_m: 10` and the
 >    fact's anchor band is `s2.*`, `indices.*`, or `sentinel1_raw`,
 >    the materializer reads a single **real 10 m pixel** at the cell-
->    centre lat/lng (`crates/emem-api-rest/src/lib.rs:8575`,
+>    centre lat/lng (`crates/emem-api-rest/src/lib.rs`,
 >    `sample_pixel(...)`). The value is not interpolated, not
 >    coarsened, not block-averaged. The 10 m claim is honest.
-> 2. **`cell_dedupe_m`** (cache key) — emem keys its persistent fact
->    store by `cell64`, the active grid quantizes at ~305 m on the
->    latitude axis at the equator. Two queries 10 m apart land in the
->    same cell and return the **same cached 10 m-fidelity value** —
->    they do *not* fall back to a coarser aggregate. If an agent needs
->    a different 10 m sample inside the same cell, it must call
->    `/v1/recall_polygon` with a tighter polygon (or wait for the
->    H3 migration).
-> 3. **Spec target grid** — aperture-7 hex DGGS at ~3.4 m edge length
->    (`docs/SPEC.md §3`). Not yet active.
+> 2. **`cell_dedupe_m`** (cell64 grid grain) — emem keys its persistent
+>    fact store by `cell64`, which is now globally **square ~10 m × ~10 m
+>    at the equator** (lat 21 bits × lng 22 bits in the cell64 word; see
+>    `crates/emem-codec/src/geo.rs`). Two queries 12 m apart land in
+>    distinct cells, so values do not silently dedupe across sub-cell
+>    points. Two queries within the same cell (~10 m apart) share the
+>    cached 10 m sample taken at the cell centre — that is the cell-grain
+>    cache, not a coarsening. If an agent needs a different 10 m sample
+>    inside the same cell, it calls `/v1/recall_polygon` with a tighter
+>    polygon. Above the equator, longitude pitch narrows with cos(lat)
+>    so cells become taller than wide.
+> 3. **Spec target grid** — aperture-7 hex DGGS at ~3.4 m edge length,
+>    equal-area (`docs/SPEC.md §3`). Not yet active; the H3 migration
+>    will issue strings under a new mode prefix and pin manifest CIDs in
+>    the receipt for backward compat.
 >
 > The `multimodal.delivery_resolution_m` field is interpretation (1):
 > the sensor pitch the algorithm consumes. Authoritative numbers live
-> at `/v1/grid_info`; the boring-API responses surface all three as
+> at `/v1/grid_info`; the boring-API responses surface (1) and (2) as
 > `data_resolution_m`, `cell_dedupe_m`, and the live `cell64`. See
 > `docs/CLIENTS.md §0a` for the empirical demonstration.
 
@@ -118,13 +123,13 @@ pub enum FusionMethod {
 }
 ```
 
-When inputs span resolutions (e.g. S2 10 m + SoilGrids 250 m + cell64
-~305 m), the fusion rule is: **emit at the variance-source's native
-grid; treat coarser inputs as per-cell scalar priors**. The cell64
-(or future H3) grid does the spatial aggregation; we do not artificially
-upsample SoilGrids to 10 m or downsample S2 to 250 m. Each fact's
-native resolution is recorded in the receipt; the algorithm declares
-its delivery resolution honestly.
+When inputs span resolutions (e.g. S2 10 m + SoilGrids 250 m on the
+~10 m cell64 grid), the fusion rule is: **emit at the variance-source's
+native grid; treat coarser inputs as per-cell scalar priors**. The
+cell64 (or future H3) grid does the spatial aggregation; we do not
+artificially upsample SoilGrids to 10 m or downsample S2 to 250 m. Each
+fact's native resolution is recorded in the receipt; the algorithm
+declares its delivery resolution honestly.
 
 ## 5. Algorithms with multimodal blocks (live as of 2026-04-30)
 

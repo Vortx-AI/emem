@@ -1787,7 +1787,7 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
                 "fetch_strategy":    "anonymous_s3 + parquet_row_group_pruning + wkb_linestring_clip",
-                "notes":             "Sum of road-segment length (metres) intersecting the cell bbox. Each WKB LineString is clipped to the bbox via Liang-Barsky and projected planar with a local-tangent-plane scale at the cell's mid-latitude. The cell is small (~305 m × ~190 m at 52° N) so planar approximation is within centimetres of haversine."
+                "notes":             "Sum of road-segment length (metres) intersecting the cell bbox. Each WKB LineString is clipped to the bbox via Liang-Barsky and projected planar with a local-tangent-plane scale at the cell's mid-latitude. The cell is small (~10 m × ~6 m at 52° N) so planar approximation is well within millimetres of haversine."
             }
         ],
         "agent_hint": {
@@ -2808,7 +2808,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                     "wired_via": "REST + MCP",
                     "mcp_tool": "emem_cell_geojson",
                     "mcp_content_block": "EmbeddedResource (text resource, mimeType application/geo+json) + a text summary block",
-                    "agent_use":  "Polygon (4-vertex rectangle on the active ~305 m Hilbert-packed cell64 grid; the spec target is a 3.4 m H3 hex but that grid is not yet active — surface this in the receipt's caveats) + bbox / centre lat,lng / neighbours. Drop straight into Mapbox/Leaflet/Deck.gl/QGIS without a GIS pipeline."
+                    "agent_use":  "Polygon (4-vertex rectangle on the active ~10 m square cell64 grid; the spec target is a 3.4 m H3 hex but that grid is not yet active — surface this in the receipt's caveats) + bbox / centre lat,lng / neighbours. Drop straight into Mapbox/Leaflet/Deck.gl/QGIS without a GIS pipeline."
                 },
                 "cell_scene_rgb": {
                     "url_template": "/v1/cells/{cell64}/scene.png?max_cloud=20",
@@ -3184,10 +3184,10 @@ async fn post_recall(
 // Honesty fields surfaced by every boring response:
 //   resolution_m_input — sensor's native pitch (10 m for S1/S2,
 //                        90 m for Cop-DEM, 250 m for SoilGrids…)
-//   resolution_m_grid  — served grain (~305 m on the lat axis at
+//   cell_dedupe_m      — cell64 grid grain (~10 m × ~10 m square at
 //                        the equator; see /v1/grid_info)
-// Two queries 10 m apart resolve to the same cell64; do NOT promise
-// sub-cell granularity to the user.
+// Two queries 12 m apart resolve to distinct cell64s — there is no
+// sub-cell silent dedupe at the boring API surface.
 // =============================================================
 
 #[derive(Deserialize)]
@@ -3245,9 +3245,10 @@ fn band_input_resolution_m(band: &str) -> Option<u32> {
     }
 }
 
-/// Cell-grid grain on the latitude axis at the equator, in metres.
+/// Cell-grid grain at the equator, in metres. Square ~10 m × ~10 m
+/// pixels (21 bits lat × 22 bits lng — see `emem-codec/src/geo.rs`).
 /// Single source of truth: `/v1/grid_info`.
-const RESOLUTION_M_GRID: u32 = 305;
+const RESOLUTION_M_GRID: u32 = 10;
 
 /// Project a Fact + receipt-context into the boring response shape.
 /// Returns `(value-or-null, json blob)` so the caller can decide how
@@ -3277,10 +3278,6 @@ fn boring_view(
                 "resolution_m_input":    res_in,
                 "cell_dedupe_m":         RESOLUTION_M_GRID,
                 "cell64":                cell64,
-                // Storage key the fact was signed under. For boring-API
-                // facts this is `<cell64>@<lat_q>:<lng_q>` (10 m fine
-                // cell); for legacy POST /v1/recall it equals cell64.
-                "fact_cell":             p.cell.as_str(),
                 "fact_cid":              fact_cid,
                 "responder_pubkey_b32":  responder_pubkey_b32,
                 "signed_at":             p.signed_at,
@@ -3298,7 +3295,6 @@ fn boring_view(
             "resolution_m_input":    band_input_resolution_m(&a.band),
             "cell_dedupe_m":         RESOLUTION_M_GRID,
             "cell64":                cell64,
-            "fact_cell":             a.cell.as_str(),
             "fact_cid":              fact_cid,
             "responder_pubkey_b32":  responder_pubkey_b32,
             "signed_at":             a.signed_at,
@@ -3346,13 +3342,8 @@ async fn boring_recall_at(
     }
     let cell = emem_codec::cell_from_latlng(lat, lng);
     let cell_str = emem_codec::to_cell64(cell);
-    // Fine cell is the storage key for boring-API materializations:
-    // 10 m-quantized lat/lng appended to cell64, so two queries at
-    // different sub-cell points get distinct fact_cids and the
-    // materializer samples at THIS lat/lng (not the cell centre).
-    let fine_cell = fine_cell_str(&cell_str, lat, lng);
     let req = RecallReq {
-        cell: fine_cell.clone(),
+        cell: cell_str.clone(),
         bands: if bands.is_empty() {
             None
         } else {
@@ -3387,9 +3378,6 @@ async fn boring_recall_at(
             _ => continue,
         };
         let cid = cid_for(&band);
-        // The fact's `cell` field is the fine_cell (signed into the
-        // fact_cid); the boring response surfaces the bare cell64 in
-        // each per-band view so agents see the canonical cell ID.
         by_band.insert(
             band.clone(),
             boring_view(fact, cid.as_deref(), &pubkey_b32, &cell_str, &served_at),
@@ -3413,10 +3401,8 @@ async fn boring_recall_at(
         json!({
             "bands":                by_band,
             "cell64":               cell_str.clone(),
-            "fine_cell":            fine_cell.clone(),
             "responder_pubkey_b32": pubkey_b32.clone(),
             "cell_dedupe_m":        RESOLUTION_M_GRID,
-            "fine_cell_quanta_m":   ((1.0 / FINE_CELL_QUANTA_PER_DEG) * 111_000.0).round() as u32,
             "served_at":            served_at.clone(),
         })
     };
@@ -3600,11 +3586,11 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
             "Identical canonical facts have identical CIDs across responders — answers are reproducible.",
             "Signed Absence is a real answer ('tried and got no answer'); do not retry.",
             "Data fidelity is the SENSOR pitch. `data_resolution_m=10` for Sentinel-1/2 indices means the value comes from a real 10 m pixel — not interpolated, not coarsened. The multimodal-fusion contract guarantees that algorithms anchored on S1/S2/Landsat consume 10 m inputs natively.",
-            "`cell_dedupe_m` is a CACHE granularity (cell64 indexes our store at ~305 m). Two queries 10 m apart return the SAME cached 10 m-fidelity value — they don't fall back to a 305 m aggregate. If the user needs a different 10 m sample, ask via /v1/recall_polygon with a tighter polygon.",
+            "`cell_dedupe_m` is the cell64 grid grain (~10 m × ~10 m square at the equator, matching S1/S2 native pitch). Two queries 12 m apart land in distinct cells, so values don't silently dedupe across sub-cell points. For coarser sources (Cop-DEM 90 m, SoilGrids 250 m, MODIS 1 km), adjacent cells share the upstream sample — that is correct, not a bug.",
             "No API keys at the request path. Every materializer reads from a no-key public source (Sentinel-1/2, MODIS, NASA POWER, ERA5, CAMS, met.no, JRC GSW, Hansen, ESA WorldCover, SoilGrids, Overture, Cop-DEM, GMRT).",
         ],
         "boring_endpoints": [
-            { "intent": "vegetation",      "priority": 1, "method": "GET", "path": "/v1/ndvi",      "params": ["lat","lon"], "returns": "indices.ndvi (Sentinel-2 L2A, 10 m input, ~305 m grid)" },
+            { "intent": "vegetation",      "priority": 1, "method": "GET", "path": "/v1/ndvi",      "params": ["lat","lon"], "returns": "indices.ndvi (Sentinel-2 L2A, 10 m input, ~10 m square cell64 grid)" },
             { "intent": "elevation",       "priority": 1, "method": "GET", "path": "/v1/elevation", "params": ["lat","lon"], "returns": "Cop-DEM 30 m elevation (Open-Meteo Elevation REST)" },
             { "intent": "air_quality",     "priority": 1, "method": "GET", "path": "/v1/air",       "params": ["lat","lon"], "returns": "cams.pm25 + cams.no2 + cams.o3 (Open-Meteo CAMS, hourly 2013-08+)" },
             { "intent": "land_surface_temperature", "priority": 2, "method": "GET", "path": "/v1/lst", "params": ["lat","lon"], "returns": "MODIS LST day + night 8-day (1 km, MOD11A2)" },
@@ -3640,7 +3626,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
         "citation_pattern": "<value> <unit> at <cell64> (fact_cid <first 8 chars>, signed by responder <first 8 chars of pubkey_b32>; source: <source_url>).",
         "anti_patterns": [
             "Do not invent a fact_cid; if the response is missing one, omit the citation rather than fabricate it.",
-            "Do not say 'this is a 305 m measurement' — the value IS a 10 m S1/S2 pixel (when data_resolution_m=10). The 305 m number is our cache key, not the data resolution.",
+            "Do not say 'this is a 305 m measurement' — that was the legacy grid. The active cell64 is ~10 m × ~10 m square at the equator, matching Sentinel-1/Sentinel-2 native pitch. `data_resolution_m` reports the upstream sample (10 m for S1/S2 indices, 90 m Cop-DEM, 250 m SoilGrids, 1 km MODIS LST).",
             "Do not retry on signed Absence — it is the correct answer.",
             "Do not POST to GET endpoints; the boring API is GET-only and idempotent.",
         ],
@@ -6133,19 +6119,20 @@ async fn grid_info() -> Json<JsonValue> {
     Json(json!({
         "schema": "emem.grid_info.v1",
         "active_encoding": {
-            "name": "cell64-hilbert16",
-            "kind": "raster, locality-preserving Hilbert curve",
-            "lat_lng_bits": 16,
+            "name": "cell64-geo-21x22",
+            "kind": "raster, packed lat/lng quantisation (square at equator)",
+            "lat_bits": 21,
+            "lng_bits": 22,
             "encoded_string_form": "four base-1024 bigrams joined by '.', e.g. damO.zb000.xUti.zde79",
             "string_length_chars": 18,
             "ground_resolution": {
-                "lat_axis_deg":   0.00275,
-                "lng_axis_deg":   0.00549,
-                "lat_axis_metres_at_equator":  305.0,
-                "lng_axis_metres_at_equator":  611.0,
-                "lat_axis_metres_at_lat_60":   305.0,
-                "lng_axis_metres_at_lat_60":   305.0,
-                "comment": "Latitude is uniform; longitude varies with cos(lat) so high-latitude cells are physically smaller in the lng axis."
+                "lat_axis_deg":   8.583e-5,
+                "lng_axis_deg":   8.583e-5,
+                "lat_axis_metres_at_equator":  9.54,
+                "lng_axis_metres_at_equator":  9.55,
+                "lat_axis_metres_at_lat_60":   9.54,
+                "lng_axis_metres_at_lat_60":   4.77,
+                "comment": "Square ~10 m × ~10 m pixel at the equator (matching Sentinel-1/Sentinel-2 native pitch). Latitude pitch is uniform; longitude pitch narrows with cos(lat), so cells become taller than wide above the equator. Spec target H3 is the eventual migration to per-cell equal-area pixels."
             },
             "domain": {
                 "lat_deg": [-90.0, 90.0],
@@ -6161,7 +6148,7 @@ async fn grid_info() -> Json<JsonValue> {
             "cell_area_m2": 30.2,
             "h3_compatibility": "Reference implementations MAY use Uber H3 ≥4.0 as a backend if outputs pass the cell.* test vectors (SPEC §19). H3 is not normatively cited in the wire format.",
             "s2_compatibility": "Not declared. Conversion to S2 cell IDs is straightforward via lat/lng but not built in.",
-            "status": "Spec target not yet active in this build. Migration to hex H3 backend is planned; today the responder serves cells at the cell64-hilbert16 resolution above."
+            "status": "Spec target not yet active in this build. Migration to hex H3 backend is planned; today the responder serves cells at the cell64-geo-21x22 resolution above (~10 m square at the equator)."
         },
         "interop": {
             "to_h3":  "Decode cell64 → (lat, lng) via /v1/cells/{cell64}/info, then call h3.geo_to_h3(lat, lng, res) client-side.",
@@ -6169,9 +6156,10 @@ async fn grid_info() -> Json<JsonValue> {
             "from_h3":"Use h3.h3_to_geo(h3_id) for the centre, then POST /v1/locate with {lat, lng}."
         },
         "honest_warnings": [
-            "cell64 is a CACHE KEY, not a data-resolution floor. Each fact value is a real upstream sensor sample at the source's native pitch (10 m for Sentinel-1/Sentinel-2 indices, 90 m for Cop-DEM, 250 m for SoilGrids, 1 km for MODIS LST). The cell pitch (~305 m on the lat axis at the equator) just determines when two queries dedupe to the same cached pixel.",
-            "Two callers asking about the same place from slightly different (lat, lng) inputs may land in adjacent cells. Use /v1/locate's `neighborhood_cells` for fan-out, or call /v1/recall_polygon when you want different sub-cell samples.",
-            "When the migration to hex H3 (~3.4 m edge) lands, current cell64 strings remain valid but new strings will be issued under a new mode prefix; receipts pin the active manifest CIDs so historical answers don't drift."
+            "cell64 is a 10 m-grain cache key. The cell pitch matches the native pitch of S1/S2 sources, so two queries 12 m apart resolve to distinct cells — no silent dedupe across sub-cell points. For coarser sources (Cop-DEM 90 m, SoilGrids 250 m, MODIS LST 1 km), the upstream sample is wider than the cell; multiple adjacent cells will receive the same value, which is correct.",
+            "Pixels are square at the equator (lat ~9.54 m × lng ~9.55 m). Above the equator, longitude pitch narrows with cos(lat) so cells become taller than wide — H3 (the spec target) fixes this with equal-area hexagons.",
+            "Legacy cell64 strings from the older ~305 m grid (resolution tag 12) do NOT decode under the active codec (resolution tag 21). They fail with `NotGeoCell` rather than silently misplacing a fact by hundreds of metres.",
+            "When the migration to hex H3 (~3.4 m edge) lands, new cell strings will be issued under a new mode prefix; receipts pin the active manifest CIDs so historical answers don't drift."
         ],
         "next": [
             "GET  /v1/cells/{cell64}/info  — lat/lng/bbox for any cell",
@@ -6361,7 +6349,7 @@ async fn materialize_elevation_mean(
     s: &AppState,
 ) -> Result<ElevationMaterialization, String> {
     // 1. Decode cell → centre lat/lng.
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -6505,7 +6493,7 @@ async fn materialize_gmrt_topobathy(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let url = format!(
@@ -6633,7 +6621,7 @@ async fn materialize_modis_ndvi_window(
     target_unix: Option<i64>,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -6882,7 +6870,7 @@ async fn materialize_geotessera_multi_year(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -7127,7 +7115,7 @@ async fn materialize_geotessera_for_year(
     year: i32,
     band_name: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let v = match fetch_geotessera_pixel(lat, lng, year).await {
@@ -7303,7 +7291,7 @@ async fn materialize_geotessera_bin128(
     })?;
 
     let signed_at = chrono_iso8601_utc();
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let rot_cid = rotation_cid();
@@ -7372,7 +7360,7 @@ async fn materialize_weather_current(
     s: &AppState,
     band: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -7536,7 +7524,7 @@ async fn materialize_power_band(
         "power.ws10m" => ("WS10M", Some("m/s"), 0.80),
         _ => return Err(format!("power band not wired: {band}")),
     };
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // POWER's daily product publishes with ~3-5 day latency depending on
@@ -7686,7 +7674,7 @@ async fn materialize_cams_band(
         "cams.aod_550" => ("aerosol_optical_depth", None, 0.75),
         _ => return Err(format!("cams band not wired: {band}")),
     };
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let now_unix = std::time::SystemTime::now()
@@ -7809,7 +7797,7 @@ async fn materialize_era5_band(
         "era5.dewpoint_2m" => ("dew_point_2m", Some("degC"), 0.85),
         _ => return Err(format!("era5 band not wired: {band}")),
     };
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let date = unix_to_yyyymmdd(target_unix);
@@ -7919,7 +7907,7 @@ async fn materialize_marine_band(
         "marine.wave_direction" => ("wave_direction", Some("deg"), 0.75),
         _ => return Err(format!("marine band not wired: {band}")),
     };
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let now_unix = std::time::SystemTime::now()
@@ -8156,7 +8144,7 @@ async fn materialize_ornl_modis_band(
         ),
         _ => return Err(format!("ornl modis band not wired: {band}")),
     };
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let now = std::time::SystemTime::now()
@@ -8546,7 +8534,7 @@ async fn materialize_sentinel2_band(
 ) -> Result<emem_fact::FactCid, String> {
     let plan = s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
     let (asset_lists, kind, formula_note) = plan;
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -8890,7 +8878,7 @@ async fn materialize_sentinel1_vv(
     s: &AppState,
     target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -9016,7 +9004,7 @@ async fn materialize_jrc_gsw_recurrence(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -9142,7 +9130,7 @@ async fn materialize_overture_buildings_count(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
     let n = cli
@@ -9194,7 +9182,7 @@ async fn materialize_overture_places_count(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
     let n = cli
@@ -9246,7 +9234,7 @@ async fn materialize_overture_road_length_m(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
     let length_m = cli
@@ -9309,7 +9297,7 @@ async fn materialize_esa_worldcover_2021(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // SW-corner naming on a 3° grid; lat is N/S, lng is E/W.
@@ -9488,7 +9476,7 @@ async fn materialize_soilgrids_band(
         "soilgrids.nitrogen_0_30cm" => ("nitrogen", "soilgrids.v2.nitrogen", "cg/kg", 0.55),
         _ => return Err(format!("soilgrids band not wired: {band}")),
     };
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // SoilGrids is land-only and excludes Antarctica (lat < -60). Sign Absence
@@ -9696,7 +9684,7 @@ async fn materialize_hansen_band(
         "hansen.gain" => "gain",
         _ => return Err(format!("hansen band {band} not registered")),
     };
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // NW-corner naming on a 10° grid.
@@ -10572,78 +10560,6 @@ fn tessera_year_for_unix(t: i64, range: std::ops::RangeInclusive<i32>) -> Option
         }
     }
     None
-}
-
-// =============================================================
-// Fine-cell encoding (10 m sub-cell cache key).
-//
-// A "fine cell" is a string of the form `<cell64>@<lat_q>:<lng_q>`
-// where `lat_q = round(lat * 9000)` and `lng_q = round(lng * 9000)`
-// (≈11 m on the lat axis at the equator — matching Sentinel-2's
-// 10 m native pitch). The boring API uses fine_cell as the storage
-// cell field so two queries at different lat/lng inside the same
-// cell64 get distinct fact_cids; the materializer samples at the
-// embedded (lat, lng), not the cell centre. This stops the silent
-// cross-agent corruption mode where Agent A materialized cell X
-// from its lat/lng and Agent B asks at a different lat/lng inside
-// X and gets back A's value with a signed receipt.
-//
-// Bare cell64 still works for legacy POST /v1/recall — those calls
-// pass `cell="cell64"` and the materializer falls back to cell-
-// centre lat/lng, which is the same behaviour as before.
-// =============================================================
-
-const FINE_CELL_QUANTA_PER_DEG: f64 = 9000.0;
-
-/// Build a fine_cell string from a base cell64 and an exact (lat, lng).
-fn fine_cell_str(cell64: &str, lat: f64, lng: f64) -> String {
-    let lat_q = (lat * FINE_CELL_QUANTA_PER_DEG).round() as i64;
-    let lng_q = (lng * FINE_CELL_QUANTA_PER_DEG).round() as i64;
-    format!("{cell64}@{lat_q}:{lng_q}")
-}
-
-/// Decode either a bare cell64 or a fine_cell into a LatLng, where
-/// `lat_deg`/`lng_deg` is the **sampling location** (cell centre for
-/// bare cell64, the embedded sub-cell point for fine_cell) and
-/// `bbox_deg` is the cell's canonical bbox (unchanged by the suffix —
-/// any cell-bbox math like UTM projection or STAC scene search keeps
-/// using the canonical bucket).
-///
-/// Drop-in replacement for `emem_codec::latlng_from_cell64(s)
-/// .map_err(|e| format!("cell decode: {e}"))?` in the materializer
-/// chain. Returns `Result<LatLng, String>` to match the existing
-/// error-flow shape in materializers.
-fn latlng_for_cell_str(s: &str) -> Result<emem_codec::LatLng, String> {
-    if let Some((base, suffix)) = s.split_once('@') {
-        let (lat_q_str, lng_q_str) = suffix
-            .split_once(':')
-            .ok_or_else(|| format!("malformed fine_cell suffix: {suffix}"))?;
-        let lat_q: i64 = lat_q_str
-            .parse()
-            .map_err(|e| format!("bad fine_cell lat_q '{lat_q_str}': {e}"))?;
-        let lng_q: i64 = lng_q_str
-            .parse()
-            .map_err(|e| format!("bad fine_cell lng_q '{lng_q_str}': {e}"))?;
-        let lat = (lat_q as f64) / FINE_CELL_QUANTA_PER_DEG;
-        let lng = (lng_q as f64) / FINE_CELL_QUANTA_PER_DEG;
-        let info = emem_codec::latlng_from_cell64(base)
-            .map_err(|e| format!("cell decode (fine cell base '{base}'): {e}"))?;
-        Ok(emem_codec::LatLng {
-            lat_deg: lat,
-            lng_deg: lng,
-            bbox_deg: info.bbox_deg,
-        })
-    } else {
-        emem_codec::latlng_from_cell64(s).map_err(|e| format!("cell decode: {e}"))
-    }
-}
-
-/// Strip a fine_cell suffix down to the bare cell64 (for response
-/// surfaces that want to expose the canonical cell). For a bare
-/// cell64 input, returns the input unchanged.
-#[allow(dead_code)]
-fn base_cell64_of(s: &str) -> &str {
-    s.split_once('@').map(|(b, _)| b).unwrap_or(s)
 }
 
 /// Per-band materialization for a target Unix epoch. Returns Ok(cid) on
@@ -12008,7 +11924,7 @@ async fn build_cell_scene_rgb(
     max_cloud_pct: f64,
     datetime_window: Option<&str>,
 ) -> Result<SceneRgb, String> {
-    let info = latlng_for_cell_str(cell64)?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -13103,7 +13019,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     };
 
     let caveats = json!({
-        "grid_resolution":               "cell64 is ~305 m × ~611 m at the equator. Sub-cell phenomena (street-level waterlogging, single-building damage) are below this grid. Spec target is 3.4 m H3 — declared via /v1/grid_info.",
+        "grid_resolution":               "cell64 is ~10 m × ~10 m square at the equator (matching Sentinel-1/Sentinel-2 native pitch). Above the equator, lng pitch narrows with cos(lat) so cells become taller than wide. Spec target is 3.4 m equal-area H3 — declared via /v1/grid_info.",
         "satellite_revisit_typical":     "Sentinel-1 6-12 d; Sentinel-2 5 d combined. Short-duration urban flash events between revisits are not captured by satellite bands; check `weather.precipitation_mm` for the now-cast.",
         "out_of_scope_when_topic_null":  "If `topic_routing.matched_topics` is empty, the question class isn't covered by this responder. Topics not listed in `data_at_this_cell.live_bands_by_topic` (real-time air quality, traffic, indoor data) are out of scope today — say so honestly instead of refusing or web-searching.",
     });
@@ -13314,7 +13230,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             "source": polygon_source,
         })),
         "polygon_sample_cells": polygon_bbox.map(|bb| sample_cells_in_bbox(bb, 64)),
-        "advice": "Place names map to a single cell at ~305 m / ~610 m resolution (lat × lng axis at equator; lng narrows with latitude). For point features (peaks, towers), use `neighborhood_cells` to fan out across the immediate ~9 cells. For wide features (canyons, basins, regions, countries), `polygon_bbox` carries the actual extent and `polygon_sample_cells` is a 64-cell grid sample inside it — query those to find the data. **`data_at_this_cell` lists every band you can recall here, grouped by topic — read it BEFORE concluding emem can't answer.**",
+        "advice": "Place names map to a single cell at ~10 m × ~10 m square resolution at the equator (matching S1/S2 native pitch). For point features (peaks, towers), use `neighborhood_cells` to fan out across the immediate ~9 cells. For wide features (canyons, basins, regions, countries), `polygon_bbox` carries the actual extent and `polygon_sample_cells` is a 64-cell grid sample inside it — query those to find the data. **`data_at_this_cell` lists every band you can recall here, grouped by topic — read it BEFORE concluding emem can't answer.**",
         // Topic-grouped roster of every band the responder can answer at
         // this cell, plus the cube placeholders that have no materializer
         // wired (so the agent reports them as honest "not connected" rather
@@ -15716,72 +15632,31 @@ mod tests {
         assert_eq!(band_input_resolution_m("cams.pm25"), Some(11_000));
     }
 
-    /// The grid-cache constant must stay 305 m on the lat axis at the
-    /// equator. This is the cell64 cache-key pitch reported by
-    /// `/v1/grid_info` and surfaced as `cell_dedupe_m` on every boring
-    /// response. If the active grid ever changes (e.g. H3 migration),
-    /// this constant must change in lock-step with `/v1/grid_info`.
+    /// The cell-grid constant must stay 10 m at the equator. This is
+    /// the cell64 grain reported by `/v1/grid_info` and surfaced as
+    /// `cell_dedupe_m` on every boring response. The codec itself
+    /// (emem-codec/src/geo.rs) is the source of truth for the bit
+    /// budget; this test guards lock-step with that crate.
     #[test]
     fn cell_dedupe_constant_matches_active_grid() {
-        assert_eq!(RESOLUTION_M_GRID, 305);
+        assert_eq!(RESOLUTION_M_GRID, 10);
     }
 
-    /// Fine cell encoder + decoder are inverse at 10 m grid pitch:
-    /// any (lat, lng) we put through `fine_cell_str` then
-    /// `latlng_for_cell_str` round-trips to within ~11 m on the lat
-    /// axis (the chosen quantum, 1/9000 deg). The bare-cell64 fallback
-    /// path also works for legacy callers.
+    /// Two queries 12 m apart on the same cell64 MUST resolve to
+    /// distinct cells — the global 10 m grid is the corruption guard
+    /// the older fine_cell suffix used to provide. (The codec test
+    /// `cells_distinguish_12_metre_neighbors` proves this at the
+    /// codec layer; here we just sanity-check the boring API plumbing
+    /// goes through `cell_from_latlng` and not a coarser path.)
     #[test]
-    fn fine_cell_encode_decode_roundtrip() {
-        let cell = emem_codec::cell_from_latlng(30.5, 75.85);
-        let cell64 = emem_codec::to_cell64(cell);
-        let fc = fine_cell_str(&cell64, 30.5, 75.85);
-        assert!(fc.starts_with(&cell64));
-        assert!(fc.contains('@'));
-        let info = latlng_for_cell_str(&fc).unwrap();
-        // Round-trip within the 1/9000-degree quantum (~11 m at the
-        // equator on the lat axis).
-        assert!(
-            (info.lat_deg - 30.5).abs() < 1.0 / FINE_CELL_QUANTA_PER_DEG,
-            "lat round-trip drift {} > {}",
-            (info.lat_deg - 30.5).abs(),
-            1.0 / FINE_CELL_QUANTA_PER_DEG
-        );
-        assert!(
-            (info.lng_deg - 75.85).abs() < 1.0 / FINE_CELL_QUANTA_PER_DEG,
-            "lng round-trip drift {} > {}",
-            (info.lng_deg - 75.85).abs(),
-            1.0 / FINE_CELL_QUANTA_PER_DEG
-        );
-        // Bare cell64 still decodes (fallback path).
-        let info_bare = latlng_for_cell_str(&cell64).unwrap();
-        assert!(info_bare.lat_deg.is_finite());
-        assert!(info_bare.lng_deg.is_finite());
-        // base_cell64_of strips the suffix back to the canonical cell.
-        assert_eq!(base_cell64_of(&fc), cell64.as_str());
-        assert_eq!(base_cell64_of(&cell64), cell64.as_str());
-    }
-
-    /// Two queries 10 m apart MUST resolve to **different** fine
-    /// cells — that's the whole anti-corruption guarantee. (Note: the
-    /// quantum is 1/9000 deg ≈ 11.1 m on the lat axis at the equator;
-    /// 10 m east on lng is ~9 m on the longitude grid at lat=30.5°,
-    /// so we use 12 m to be safely above the quantum.)
-    #[test]
-    fn fine_cell_separates_sub_cell_queries() {
-        let cell = emem_codec::cell_from_latlng(30.5, 75.85);
-        let cell64 = emem_codec::to_cell64(cell);
-        let fc1 = fine_cell_str(&cell64, 30.5, 75.85);
-        // ~12 m east on the lng axis (12 m / 111 km ≈ 1.08e-4 deg)
-        let fc2 = fine_cell_str(&cell64, 30.5, 75.85 + 1.08e-4);
+    fn boring_recall_cells_distinguish_at_10_metres() {
+        let a = emem_codec::cell_from_latlng(30.5, 75.85);
+        let b = emem_codec::cell_from_latlng(30.5, 75.85 + 1.08e-4);
         assert_ne!(
-            fc1, fc2,
-            "12 m east must produce a distinct fine_cell — corruption guard"
+            emem_codec::to_cell64(a),
+            emem_codec::to_cell64(b),
+            "12 m east must produce a distinct cell64 — corruption guard"
         );
-        // Queries within the quantum DO collide (intentional: that's
-        // the 10 m cache-key granularity).
-        let fc3 = fine_cell_str(&cell64, 30.5, 75.85 + 1e-6);
-        assert_eq!(fc1, fc3);
     }
 
     /// LatLngQ accepts both `lon` and `lng` so that an agent trained
