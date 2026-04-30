@@ -8920,6 +8920,232 @@ async fn materialize_esa_worldcover_2021(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+// ---------------- SoilGrids 2.0 (ISRIC) materializer ----------------
+//
+// ISRIC publishes static, global, 250 m soil-property maps via a public
+// REST API at https://rest.isric.org/soilgrids/v2.0/properties/query .
+// The product is a single "static" fact per cell — the maps themselves
+// are derived from a snapshot of WoSIS soil profiles + covariate ML
+// (Hengl et al. 2017, Poggio et al. 2021) and only update on major
+// SoilGrids releases (2017, 2020, 2024). One fact at tslot=0 answers
+// for every recall.
+//
+// Bands wired here (all aggregated 0–30 cm, the standard agronomic
+// topsoil window the algorithms speak in):
+//   - soilgrids.soc_0_30cm       (g/kg, Soil Organic Carbon)
+//   - soilgrids.phh2o_0_30cm     (pH ×1, post-rescale of dg/m³ → pH units)
+//   - soilgrids.clay_0_30cm      (g/kg, clay fraction)
+//   - soilgrids.sand_0_30cm      (g/kg, sand fraction)
+//   - soilgrids.bdod_0_30cm      (kg/dm³, dry bulk density)
+//   - soilgrids.nitrogen_0_30cm  (cg/kg = 0.01 g/kg, total N)
+//
+// The REST API returns three depth slices (0–5, 5–15, 15–30 cm); we
+// thickness-weight them to a single 0–30 cm value (weights 5/30, 10/30,
+// 15/30) so the resulting fact matches the depth interval VM0042
+// soil-carbon credits and SoilGrids agronomic outputs are reported at.
+//
+// Each layer's `mapped_units` × `d_factor` reciprocal is required to
+// land on the documented physical unit — e.g. SOC mean is published in
+// dg/kg with `d_factor=10` so divide by 10 to get g/kg. We pull these
+// from the response itself (`properties.layers[*].unit_measure`) rather
+// than hardcoding so an upstream re-scaling can't silently drift.
+async fn materialize_soilgrids_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    // Map emem band → (REST property key, source scheme, output unit, confidence).
+    // The output `unit` is what's persisted on the fact AFTER applying ISRIC's
+    // d_factor — i.e. the human-readable unit, not SoilGrids' internal scaling.
+    let (property, scheme, unit, confidence): (&str, &str, &str, f32) = match band {
+        "soilgrids.soc_0_30cm" => ("soc", "soilgrids.v2.soc", "g/kg", 0.55),
+        "soilgrids.phh2o_0_30cm" => ("phh2o", "soilgrids.v2.phh2o", "pH", 0.60),
+        "soilgrids.clay_0_30cm" => ("clay", "soilgrids.v2.clay", "g/kg", 0.55),
+        "soilgrids.sand_0_30cm" => ("sand", "soilgrids.v2.sand", "g/kg", 0.55),
+        "soilgrids.bdod_0_30cm" => ("bdod", "soilgrids.v2.bdod", "kg/dm^3", 0.55),
+        "soilgrids.nitrogen_0_30cm" => ("nitrogen", "soilgrids.v2.nitrogen", "cg/kg", 0.55),
+        _ => return Err(format!("soilgrids band not wired: {band}")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    // SoilGrids is land-only and excludes Antarctica (lat < -60). Sign Absence
+    // up-front rather than burning a network round-trip on cells we know lie
+    // outside the product's mask.
+    let absence_signed_at = chrono_iso8601_utc();
+    if !(-60.0..=84.0).contains(&lat) {
+        let url = format!(
+            "https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lng:.4}&lat={lat:.4}&property={property}"
+        );
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            0,
+            scheme,
+            &url,
+            &absence_signed_at,
+            &format!(
+                "soilgrids_outside_mask: SoilGrids 2.0 covers latitudes [-60°,+84°] (excludes Antarctic interior); cell at lat={lat:.4} lng={lng:.4} lies outside the product mask"
+            ),
+        )
+        .await;
+    }
+    let url = format!(
+        "https://rest.isric.org/soilgrids/v2.0/properties/query\
+         ?lon={lng:.4}&lat={lat:.4}\
+         &property={property}\
+         &depth=0-5cm&depth=5-15cm&depth=15-30cm\
+         &value=mean"
+    );
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let resp = tokio::time::timeout(
+        timeout,
+        reqwest_client()
+            .get(&url)
+            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .send(),
+    )
+    .await
+    .map_err(|_| format!("soilgrids timeout after {}s", timeout.as_secs()))?
+    .map_err(|e| format!("soilgrids https: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        // ISRIC returns 404 for cells outside their land mask (open ocean
+        // tile gaps) and 5xx during occasional rebuilds. Both should sign
+        // Absence so the agent gets a citable answer rather than a
+        // transport error that re-fetches on every recall.
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            0,
+            scheme,
+            &url,
+            &absence_signed_at,
+            &format!("soilgrids status {status} for {band} at lat={lat:.4} lng={lng:.4}"),
+        )
+        .await;
+    }
+    let body: JsonValue = resp.json().await.map_err(|e| format!("soilgrids json: {e}"))?;
+
+    // Response shape:
+    //   properties.layers[ {name:"soc", unit_measure:{d_factor:10,mapped_units:"g/kg",...},
+    //                       depths:[ {label:"0-5cm",  values:{mean: 142}},
+    //                                {label:"5-15cm", values:{mean: 130}},
+    //                                {label:"15-30cm",values:{mean: 118}} ]} ]
+    // We pull d_factor (so we don't hardcode it), pull each depth's mean,
+    // weight by depth thickness, then divide by d_factor.
+    let layer = body
+        .pointer("/properties/layers/0")
+        .ok_or_else(|| "soilgrids response missing properties.layers[0]".to_string())?;
+
+    // Some ISRIC responses use d_factor==0 / null when a property is bare
+    // (e.g. coastal slivers) — treat as "no useful value" Absence.
+    let d_factor = layer
+        .pointer("/unit_measure/d_factor")
+        .and_then(|v| v.as_f64())
+        .filter(|f| f.is_finite() && *f > 0.0)
+        .unwrap_or(1.0);
+
+    // Three depth slices, thickness-weighted to 0–30 cm. Any missing or
+    // null mean (ocean, frozen, no-data) makes the cell Absence-grade —
+    // we don't want to half-extrapolate over a single 5 cm layer.
+    let depths = layer
+        .pointer("/depths")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "soilgrids response missing properties.layers[0].depths".to_string())?;
+    let want = [("0-5cm", 5.0_f64), ("5-15cm", 10.0_f64), ("15-30cm", 15.0_f64)];
+    let mut acc = 0.0_f64;
+    let mut wsum = 0.0_f64;
+    let mut missing: Vec<&str> = Vec::new();
+    for (label, thickness) in want {
+        let entry = depths
+            .iter()
+            .find(|d| d.pointer("/label").and_then(|v| v.as_str()) == Some(label));
+        let Some(mean_raw) = entry
+            .and_then(|d| d.pointer("/values/mean"))
+            .and_then(|v| v.as_f64())
+        else {
+            missing.push(label);
+            continue;
+        };
+        if !mean_raw.is_finite() {
+            missing.push(label);
+            continue;
+        }
+        acc += mean_raw * thickness;
+        wsum += thickness;
+    }
+    if !missing.is_empty() {
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            0,
+            scheme,
+            &url,
+            &absence_signed_at,
+            &format!(
+                "soilgrids_no_data: missing depth slices {missing:?} for property={property} at lat={lat:.4} lng={lng:.4}; ISRIC returned null mean (ocean / frozen / out-of-mask)"
+            ),
+        )
+        .await;
+    }
+    // Apply d_factor AFTER the thickness-weighted aggregation so the
+    // result is in the documented `mapped_units`.
+    let value = (acc / wsum) / d_factor;
+    if !value.is_finite() {
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            0,
+            scheme,
+            &url,
+            &absence_signed_at,
+            &format!(
+                "soilgrids_non_finite: aggregated {property} at lat={lat:.4} lng={lng:.4} produced non-finite value (likely d_factor=0 in response)"
+            ),
+        )
+        .await;
+    }
+
+    let signed_at = chrono_iso8601_utc();
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot: 0,
+        value: ciborium::Value::Float(value),
+        unit: Some(unit.to_string()),
+        confidence,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: scheme.to_string(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(signed_at.clone()),
+            url: None,
+        }],
+        derivation: Derivation {
+            fn_key: "soilgrids_v2_rest_0_30cm@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(property.to_string()),
+                ciborium::Value::Text("0-30cm".into()),
+                ciborium::Value::Text("thickness_weighted_mean".into()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 // ---------------- Hansen Global Forest Change materializer ----------------
 //
 // Three layers from the GFC v1.11 (2023) release:
@@ -9641,6 +9867,17 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "storage.googleapis.com/earthenginepartners-hansen GFC-2023-v1.11 30 m tiles",
         },
+        // SoilGrids 2.0 (ISRIC) — static global soil-property maps, 250 m,
+        // 0–30 cm thickness-weighted to match agronomic topsoil depth.
+        // Single fact per cell at tslot=0; SoilGrids is rebuilt on roughly
+        // 3-year cadence (2017 → 2020 → 2024) so backfill is meaningless.
+        b if b.starts_with("soilgrids.") => MaterializerMeta {
+            tempo: Tempo::Static,
+            kind: BandKind::Static,
+            history_from_unix: None,
+            history_to_unix: None,
+            wire_path: "rest.isric.org/soilgrids/v2.0 properties/query (REST, anonymous)",
+        },
         _ => return None,
     };
     Some(m)
@@ -9776,6 +10013,13 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("hansen.tree_cover_2000".into());
     out.push("hansen.loss_year".into());
     out.push("hansen.gain".into());
+    // SoilGrids 2.0 (ISRIC) — six 0–30 cm topsoil property layers.
+    out.push("soilgrids.soc_0_30cm".into());
+    out.push("soilgrids.phh2o_0_30cm".into());
+    out.push("soilgrids.clay_0_30cm".into());
+    out.push("soilgrids.sand_0_30cm".into());
+    out.push("soilgrids.bdod_0_30cm".into());
+    out.push("soilgrids.nitrogen_0_30cm".into());
     out
 }
 
@@ -9916,6 +10160,20 @@ async fn materialize_band_at(
         "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain"
     ) {
         return materialize_hansen_band(cell64, s, band).await;
+    }
+
+    // SoilGrids 2.0 (ISRIC) — static, global, 250 m soil-property maps. One
+    // fact per cell at tslot=0 because the maps don't update sub-annually.
+    if matches!(
+        band,
+        "soilgrids.soc_0_30cm"
+            | "soilgrids.phh2o_0_30cm"
+            | "soilgrids.clay_0_30cm"
+            | "soilgrids.sand_0_30cm"
+            | "soilgrids.bdod_0_30cm"
+            | "soilgrids.nitrogen_0_30cm"
+    ) {
+        return materialize_soilgrids_band(cell64, s, band).await;
     }
 
     // Met.no nowcast — no historical record. Surface this honestly so the
@@ -10738,6 +10996,46 @@ async fn try_materialize_bands(
                             materialize_cell = %cell64, materialize_band = %b,
                             materialize_fact_cid = %cid.as_str(),
                             materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // SoilGrids 2.0 (ISRIC) static topsoil 0–30 cm scalars.
+            // Six properties (soc, phh2o, clay, sand, bdod, nitrogen),
+            // all routed through one materializer that handles the
+            // depth-thickness aggregation.
+            "soilgrids.soc_0_30cm"
+            | "soilgrids.phh2o_0_30cm"
+            | "soilgrids.clay_0_30cm"
+            | "soilgrids.sand_0_30cm"
+            | "soilgrids.bdod_0_30cm"
+            | "soilgrids.nitrogen_0_30cm" => {
+                match materialize_soilgrids_band(cell64, s, b).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary_or_absence",
                             "materialize_ok"
                         );
                         out.push(MaterializeOutcome {

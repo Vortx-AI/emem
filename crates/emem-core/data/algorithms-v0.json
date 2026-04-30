@@ -1417,10 +1417,10 @@
           "explanation": "Wet soil reflectance suppresses SWIR — algorithm masks NDMI > 0.2 or applies a moisture-correction term." },
         { "band": "copdem30m.elevation_mean", "role": "topography_prior",
           "explanation": "Elevation + slope are top-3 covariates in SoilGrids 2.0 random-forest (Hengl et al. 2017)." },
-        { "band": "soilgrids.v2.soc",         "role": "global_prior",
-          "explanation": "ISRIC SoilGrids 2.0 global prior at 250 m, 0–30 cm depth. The algorithm Bayesian-blends this with the S2-derived residual when both are available; falls back to prior-only if S2 is cloud-blocked." }
+        { "band": "soilgrids.soc_0_30cm",     "role": "global_prior",
+          "explanation": "ISRIC SoilGrids 2.0 global prior at 250 m, 0–30 cm thickness-weighted topsoil mean (g/kg). The algorithm Bayesian-blends this with the S2-derived residual when both are available; falls back to prior-only if S2 is cloud-blocked." }
       ],
-      "formula": "if NDMI > 0.2 or BSI < 0.05 -> tier:'A_prior_only'; soc_est = soilgrids.v2.soc; else { ndvi_bare_score = clamp01((bsi - 0.05)/0.20); s2_residual = α0 + α1*B11 + α2*B12 + α3*elevation; soc_est = (1-w)*soilgrids.v2.soc + w*(soilgrids.v2.soc + s2_residual) where w = 0.5 * ndvi_bare_score; tier:'B_s2_blend' }; tier:'C_lab_calibrated' is reserved for receipts that cite a lab-measurement attestation_cid",
+      "formula": "if NDMI > 0.2 or BSI < 0.05 -> tier:'A_prior_only'; soc_est = soilgrids.soc_0_30cm; else { ndvi_bare_score = clamp01((bsi - 0.05)/0.20); s2_residual = α0 + α1*B11 + α2*B12 + α3*elevation; soc_est = (1-w)*soilgrids.soc_0_30cm + w*(soilgrids.soc_0_30cm + s2_residual) where w = 0.5 * ndvi_bare_score; tier:'B_s2_blend' }; tier:'C_lab_calibrated' is reserved for receipts that cite a lab-measurement attestation_cid",
       "output": { "kind": "scalar", "unit": "g_kg", "range": [0, 600], "explanation": "Topsoil (0–30 cm) Soil Organic Carbon concentration in g C / kg soil. Three-tier confidence label (A_prior_only / B_s2_blend / C_lab_calibrated) MUST be surfaced — DO NOT use tier-B for carbon-credit certification. Tier-A R² ~0.4 (global), tier-B R² ~0.65 (in-region with calibration), tier-C R² > 0.85 (lab samples). Multiply by bulk_density × depth_m × 100 to convert g/kg → t SOC / ha." },
       "when_to_use": "Plot-level SOC screening, agronomic carbon stocktake, baseline for credit projects (tier-C ONLY). Tier-B is suitable for change-detection between two well-separated dates (≥1 yr) but NOT for absolute claims at certification grade.",
       "primitive": "POST /v1/recall {bands:['indices.bsi','s2.B11','s2.B12','indices.ndmi','copdem30m.elevation_mean','soilgrids.v2.soc']} → apply tiered logic",

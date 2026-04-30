@@ -233,11 +233,11 @@
       "scheme": "soilgrids.v2.phh2o",
       "providers": [
         {
-          "id": "isric.public",
-          "kind": "https_cog_vsicurl",
-          "url_template": "https://files.isric.org/soilgrids/latest/data/phh2o/phh2o_{depth}_mean.vrt",
+          "id": "isric.rest",
+          "kind": "https_json_api",
+          "url_template": "https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lng}&lat={lat}&property=phh2o&depth=0-5cm&depth=5-15cm&depth=15-30cm&value=mean",
           "auth": "anonymous",
-          "rate_limit_qps": 30,
+          "rate_limit_qps": 5,
           "license": "CC-BY-4.0"
         }
       ],
@@ -248,11 +248,71 @@
       "scheme": "soilgrids.v2.soc",
       "providers": [
         {
-          "id": "isric.public",
-          "kind": "https_cog_vsicurl",
-          "url_template": "https://files.isric.org/soilgrids/latest/data/soc/soc_{depth}_mean.vrt",
+          "id": "isric.rest",
+          "kind": "https_json_api",
+          "url_template": "https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lng}&lat={lat}&property=soc&depth=0-5cm&depth=5-15cm&depth=15-30cm&value=mean",
           "auth": "anonymous",
-          "rate_limit_qps": 30,
+          "rate_limit_qps": 5,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 250
+    },
+    {
+      "scheme": "soilgrids.v2.clay",
+      "providers": [
+        {
+          "id": "isric.rest",
+          "kind": "https_json_api",
+          "url_template": "https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lng}&lat={lat}&property=clay&depth=0-5cm&depth=5-15cm&depth=15-30cm&value=mean",
+          "auth": "anonymous",
+          "rate_limit_qps": 5,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 250
+    },
+    {
+      "scheme": "soilgrids.v2.sand",
+      "providers": [
+        {
+          "id": "isric.rest",
+          "kind": "https_json_api",
+          "url_template": "https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lng}&lat={lat}&property=sand&depth=0-5cm&depth=5-15cm&depth=15-30cm&value=mean",
+          "auth": "anonymous",
+          "rate_limit_qps": 5,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 250
+    },
+    {
+      "scheme": "soilgrids.v2.bdod",
+      "providers": [
+        {
+          "id": "isric.rest",
+          "kind": "https_json_api",
+          "url_template": "https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lng}&lat={lat}&property=bdod&depth=0-5cm&depth=5-15cm&depth=15-30cm&value=mean",
+          "auth": "anonymous",
+          "rate_limit_qps": 5,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 250
+    },
+    {
+      "scheme": "soilgrids.v2.nitrogen",
+      "providers": [
+        {
+          "id": "isric.rest",
+          "kind": "https_json_api",
+          "url_template": "https://rest.isric.org/soilgrids/v2.0/properties/query?lon={lng}&lat={lat}&property=nitrogen&depth=0-5cm&depth=5-15cm&depth=15-30cm&value=mean",
+          "auth": "anonymous",
+          "rate_limit_qps": 5,
           "license": "CC-BY-4.0"
         }
       ],
