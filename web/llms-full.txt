@@ -1,9 +1,13 @@
 # emem, Earth memory protocol for AI agents (full agent context)
 
 > Cite-able, content-addressed, signed memory of every place on Earth.
-> 1 protocol. 8 read primitives. ed25519 receipts. No keys for L0/L1.
-> Apache-2.0. Pure Rust + open data only.
+> 1 protocol. 30 primitives across REST + MCP. ed25519 receipts.
+> No API keys for L0/L1 reads. Apache-2.0. Pure Rust + open data only.
 > github.com/Vortx-AI/emem  •  https://emem.dev
+>
+> Counts (94 materializable bands, 30 tools, 84 algorithms) are the live
+> values at time of last refresh; the wire-stable source of truth is
+> `/v1/manifests`, `/v1/data_availability`, and `/v1/tools`.
 
 This file is the single-call agent context dump for emem. It includes
 every primitive, every live materializer, the address algebra, the
@@ -59,10 +63,12 @@ agents earn trust and how emem ranks contributors.
 | URL                           | what                                                    |
 |-------------------------------|---------------------------------------------------------|
 | `/health`                     | liveness, manifest CIDs, responder pubkey               |
-| `/.well-known/emem.json`      | protocol manifest                                       |
-| `/.well-known/ai-plugin.json` | OpenAI plugin manifest                                  |
+| `/.well-known/emem.json`      | protocol manifest (CIDs + responder pubkey)             |
+| `/.well-known/agent-card.json`| A2A v0.2 agent card (Microsoft Agent Framework, Gemini) |
+| `/.well-known/agent.json`     | self-describing agent metadata (operator + surfaces)    |
+| `/.well-known/oauth-protected-resource` | RFC 9728 (declares auth=none for L0/L1 reads)|
 | `/openapi.json`               | OpenAPI 3.1 (paste into GPT Custom Action)              |
-| `/mcp`                        | MCP Streamable HTTP transport over HTTPS (2025-03-26)   |
+| `/mcp`                        | MCP Streamable HTTP transport (2024-11-05/2025-03-26/2025-06-18) |
 | `/v1/discover`                | bootstrap: agent_card + bands + manifests + sample places |
 | `/v1/agent_card`              | tool descriptors + when-to-use + schemas                |
 | `/v1/quickstart`              | six-step onboarding playbook                            |
@@ -194,7 +200,7 @@ is the temporal-coverage twin: same band list, plus `kind`,
 | `surface_water.recurrence`        | JRC GSW v1.4 (Landsat 1984–2021) COG HTTPS range    | %     | static      |
 | `gmrt.topobathy_mean`             | gmrt.org PointServer                                | m     | static      |
 | `copdem30m.elevation_mean`        | Open-Meteo Elevation REST → Primary or Absence      | m     | static      |
-| `weather.{temperature_2m,…,wind_direction_10m}` | api.met.no/locationforecast/2.0/compact (8 vars)| varies | ultra_fast |
+| `weather.{temperature_2m,…,wind_direction_10m,dew_point_2m}` | api.met.no/locationforecast/2.0/compact (8 vars; dew_point computed via Magnus from t2m+rh2m) | varies | ultra_fast |
 | `power.{t2m,t2m_min,t2m_max,precip,rh2m,allsky_sw,ws10m}` | NASA POWER daily/point REST (MERRA-2 + GEOS), 1981+ | varies | fast |
 | `cams.{pm25,pm10,no2,o3,so2,co,aod_550}` | Open-Meteo CAMS air-quality (ECMWF CAMS), hourly, 2013-08+ | µg/m³ | ultra_fast |
 | `era5.{t2m,precip,rh2m,windspeed_10m,cloudcover,surface_pressure,dewpoint_2m}` | Open-Meteo Archive ERA5 reanalysis, hourly, 1940+ | varies | ultra_fast |
@@ -258,7 +264,7 @@ curl -s -X POST https://emem.dev/v1/locate \
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}'
-# → value=3776.24 m, signed under responder 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+# → value=3776.24 m, signed under the responder pubkey from /health
 
 # 3) Recall fan-out across cells (one round trip, per-cell receipts).
 curl -s -X POST https://emem.dev/v1/recall_many \
@@ -337,7 +343,7 @@ User: *"What's the elevation around Mount Fuji?"*
                          "bands": ["copdem30m.elevation_mean"]}
    → per-cell facts, each with its own signed receipt
 3. Reply: "Elevation at `damO.zb000.xUti.zde78` is 3776 m
-   (Cop-DEM 30 m). cid64 oivxwgme…  responder 777er3yi…"
+   (Cop-DEM 30 m). cid64 <first-8-of-fact-cid>… responder <first-8-of-pubkey-from-health>…"
 ```
 
 If a cell has no fact AND `auto_materialize_enabled=true`, the responder
@@ -354,13 +360,12 @@ response. The next call hits the hot cache.
 - CID: `base32_nopad_lowercase(blake3(canonical_cbor(fact)))`.
 - Merkle: binary, blake3 leaves over canonical CBOR; leaves canonically
   sorted; single-leaf root = `blake3(leaf || leaf)`.
-- Manifest CIDs (current responder at emem.dev):
-  `bands_cid=dhimsuf325dd23viqmfh55rf24d33pwz5gfpxnl2rdyf3d4ly2zq`,
-  `functions_cid=hcbqrsck4sobm3s4uocsrf45ucl7ckyh2n4ma6fckdvf7qkexsza`,
-  `schema_cid=d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq`,
-  `sources_cid=2nwvbnvltilyxah6e2e3xadxgjkicvomdrdvshcpv6wh556blrxa`.
-- Responder pubkey (hosted instance):
-  `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
+- Manifest CIDs and the responder pubkey rotate when the operator
+  republishes manifests or rotates keys. The wire-stable source of
+  truth is `GET /v1/manifests` (returns `bands_cid`, `registry_cid`,
+  `schema_cid`, `sources_cid`, `algorithms_cid`) and `GET /health`
+  (returns `responder_pubkey_b32`). Pin these per-receipt at issue
+  time; do not hardcode them in client code.
 
 Materialized facts are signed by the *responder*, not the upstream
 provider. The fact's `derivation.fn_key` declares the recipe that
@@ -377,7 +382,7 @@ geographic primitive, the band is a typed channel from a published
 ontology (`/v1/bands`), and the tslot maps to a real-world clock. The
 fact's value can be a scalar, a vector, a histogram, or a signed
 Absence; the CID is reproducible across responders. Vector search
-(`/v1/find_similar`) is one of eight primitives, not the only one.
+(`/v1/find_similar`) is one of 30 primitives, not the only one.
 
 ---
 

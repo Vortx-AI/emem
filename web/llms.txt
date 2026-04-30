@@ -4,17 +4,22 @@
 > Privacy: /privacy · Terms: /terms · Support: /support · Code: github.com/Vortx-AI/emem
 >
 > Cite-able, content-addressed, signed memory of every place on Earth.
-> 90+ bands, all anonymous: Sentinel-2 (12 spectral + 19 indices,
-> including 10 consumer-health ones: turbidity, chlorophyll, floating
-> algae, surface dryness, urban canopy, snow cover, aerosol-resistant
-> veg, suspended solids, NDRE, GNDVI), Sentinel-1 GRD VV radar,
-> Tessera 2017–2024 + multi-year embedding, MODIS (NDVI / LST day+night
-> 8-day / ET / GPP / LAI / burned area), JRC Global Surface Water,
-> Cop-DEM, GMRT, NASA POWER daily (1981–present), Open-Meteo CAMS air
-> quality (PM2.5/PM10/NO2/O3/SO2/CO/AOD), Open-Meteo ERA5 archive
-> (1940–present), Open-Meteo Marine waves+SST, MET Norway nowcast,
-> Overture Maps. No API keys. Every answer signed ed25519 + content-
-> addressed blake3.
+> 94 materializable bands as of last refresh (live count via
+> `/v1/data_availability`), all anonymous: Sentinel-2 L2A (12 spectral
+> assets + 19 spectral indices, including 10 consumer-health-relevant
+> ones: turbidity, red-edge chlorophyll, floating algae, suspended
+> solids, snow cover, aerosol-resistant veg, surface dryness, urban
+> canopy, NDRE, GNDVI), Sentinel-1 GRD VV radar, Tessera 2017–2024 +
+> multi-year fused embedding, MODIS (NDVI / LST day+night 8-day / ET /
+> GPP / LAI / burned area), JRC Global Surface Water, Hansen Global
+> Forest Change v1.11, ESA WorldCover 2021 v200, Cop-DEM, GMRT, NASA
+> POWER daily (1981–present), Open-Meteo CAMS air quality
+> (PM2.5/PM10/NO2/O3/SO2/CO/AOD, hourly 2013-08+), Open-Meteo ERA5
+> archive (1940–present), Open-Meteo Marine waves+SST, MET Norway
+> nowcast, Overture Maps. 30 MCP tools wired. 84 composition algorithms
+> (carbon MRV, SDG indicators, real-estate climate-risk, walkability,
+> heat-vulnerability). No API keys. Every answer signed ed25519 +
+> content-addressed blake3.
 
 ## What emem is
 
@@ -141,7 +146,7 @@ Mention `responder_pubkey_b32` once per session.
 ## 30-second curl
 
 ```bash
-# Mount Fuji elevation, signed under responder 777er3yi…
+# Mount Fuji elevation, signed under the responder pubkey at /health.
 curl -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}'

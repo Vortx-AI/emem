@@ -138,6 +138,11 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/emem.json", get(well_known))
         .route("/.well-known/ai-plugin.json", get(ai_plugin))
         .route("/.well-known/agent.json", get(agent_manifest))
+        .route("/.well-known/agent-card.json", get(well_known_agent_card))
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(well_known_oauth_protected_resource),
+        )
         .route("/agent.json", get(agent_manifest))
         .route("/openapi.json", get(openapi))
         // Examples
@@ -466,6 +471,8 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         "/.well-known/emem.json"
         | "/.well-known/ai-plugin.json"
         | "/.well-known/agent.json"
+        | "/.well-known/agent-card.json"
+        | "/.well-known/oauth-protected-resource"
         | "/v1/discover" => Some("public, max-age=3600, stale-while-revalidate=86400"),
         // Active operational data — bounded staleness OK.
         "/v1/contributors"
@@ -783,6 +790,9 @@ async fn rate_limit_layer(
         "/health"
             | "/metrics"
             | "/.well-known/emem.json"
+            | "/.well-known/agent.json"
+            | "/.well-known/agent-card.json"
+            | "/.well-known/oauth-protected-resource"
             | "/openapi.json"
             | "/robots.txt"
             | "/sitemap.xml"
@@ -1166,6 +1176,93 @@ async fn ai_plugin() -> Response {
 }
 async fn agent_manifest() -> Response {
     text_response("application/json; charset=utf-8", AGENT_JSON)
+}
+
+/// `GET /.well-known/agent-card.json` — A2A (Agent2Agent) protocol agent
+/// card. Microsoft Agent Framework, Google Gemini CLI, and the broader A2A
+/// steering committee (AWS / Cisco / IBM / Salesforce / SAP / ServiceNow)
+/// all auto-discover agents at this path. The schema mirrors A2A v0.2:
+/// name, description, url, capabilities, skills, securitySchemes,
+/// provider. We declare emem as a free, no-auth read-only agent and list
+/// every primitive as a skill (deduplicated from `emem_mcp::TOOLS`).
+async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let skills: Vec<JsonValue> = emem_mcp::TOOLS
+        .iter()
+        .map(|t| {
+            json!({
+                "id":          t.name,
+                "name":        t.title,
+                "description": t.description,
+                "tags":        [t.category, if t.read_only_hint { "read" } else { "write" }],
+                "examples":    [t.when_to_use],
+            })
+        })
+        .collect();
+    Json(json!({
+        // A2A protocol envelope (https://a2a-protocol.org/latest/topics/agent-discovery/)
+        "protocolVersion":    "0.2",
+        "name":               "emem",
+        "description":        "Agent-native, content-addressed, ed25519-signed Earth memory protocol. Recall any place on Earth (cell × band × tslot) and get back a signed receipt with a content address you can cite.",
+        "url":                format!("{origin}/mcp"),
+        "preferredTransport": "HTTP+JSON",
+        "version":            env!("CARGO_PKG_VERSION"),
+        "documentationUrl":   "https://emem.dev/agents.md",
+        "iconUrl":            format!("{origin}/favicon.svg"),
+        "capabilities": {
+            "streaming":            false,
+            "pushNotifications":    false,
+            "stateTransitionHistory": true,
+        },
+        "defaultInputModes":  ["text/plain", "application/json"],
+        "defaultOutputModes": ["application/json"],
+        "skills": skills,
+        "securitySchemes": {
+            "none": { "type": "noAuth" }
+        },
+        "security": [{ "none": [] }],
+        "provider": {
+            "organization": "Vortx AI Private Limited",
+            "url":          "https://vortx.ai",
+            "contact":      "avijeet@vortx.ai",
+            "country":      "India",
+        },
+        "additionalInterfaces": [
+            { "url": format!("{origin}/openapi.json"),               "transport": "openapi-3.1" },
+            { "url": format!("{origin}/.well-known/emem.json"),      "transport": "well-known-json" },
+            { "url": format!("{origin}/v1/agent_card"),              "transport": "agent-card-v1" },
+            { "url": format!("{origin}/mcp"),                        "transport": "mcp-streamable-http" },
+        ],
+        "responder": {
+            "pubkey_b32":    data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
+            "signature_alg": "ed25519",
+            "hash_alg":      "blake3",
+        },
+    }))
+}
+
+/// `GET /.well-known/oauth-protected-resource` — RFC 9728 protected
+/// resource metadata. The hosted instance is *no-auth* read-only, but
+/// Anthropic's MCP broker (and others) probe this path before falling
+/// through to anonymous. Publishing an explicit "no-auth" doc avoids a
+/// silent 404 → conservative-default → host-allowlist failure mode.
+async fn well_known_oauth_protected_resource() -> Json<JsonValue> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    Json(json!({
+        // RFC 9728 OAuth 2.0 Protected Resource Metadata
+        "resource":                       format!("{origin}/mcp"),
+        "authorization_servers":          [],
+        "bearer_methods_supported":       [],
+        "resource_documentation":         format!("{origin}/agents.md"),
+        "scopes_supported":               [],
+        "resource_signing_alg_values_supported": ["EdDSA"],
+        // Non-standard but read by some MCP brokers — declare auth=none
+        // explicitly so a directory reviewer / client-side broker doesn't
+        // assume DCR is required.
+        "auth":                           "none",
+        "auth_required":                  false,
+        "notes":                          "L0 / L1 reads are anonymous. L2 writes (attest, challenge) require an ed25519 attester key submitted via /v1/attest_cbor; no OAuth is involved in any flow.",
+    }))
 }
 
 async fn serve_example_claude_desktop() -> Response {
@@ -2311,7 +2408,7 @@ async fn algorithm_detail(
 /// codes (which is what we did before) doesn't tell an agent what to DO
 /// when it hits one. Each entry now has a `recover` field naming the
 /// concrete next step.
-async fn errors() -> Json<JsonValue> {
+fn errors_payload() -> JsonValue {
     let entries: &[(&str, &str, &str)] = &[
         ("invalid_cell",                 "cell64 string did not parse",
          "Re-encode (lat,lng) via POST /v1/locate, or check the bigram boundaries (must be exactly four base-1024 bigrams joined by '.')."),
@@ -2370,7 +2467,7 @@ async fn errors() -> Json<JsonValue> {
             })
         })
         .collect();
-    Json(json!({
+    json!({
         "schema": "emem.errors.v1",
         "codes": codes,
         "next": [
@@ -2378,7 +2475,11 @@ async fn errors() -> Json<JsonValue> {
             "GET /v1/bands      — band catalogue with tempo + privacy_class",
             "POST /v1/verify_receipt — debug a bad_signature with `preimage_blake3_hex`"
         ],
-    }))
+    })
+}
+
+async fn errors() -> Json<JsonValue> {
+    Json(errors_payload())
 }
 
 async fn tools() -> Json<JsonValue> {
@@ -2451,8 +2552,11 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // reviewer can reach the maintainer without scraping the repo.
         "vendor": "Vortx-AI",
         "contact_email": "avijeet@vortx.ai",
-        "privacy_url": "https://emem.dev/privacy",
-        "terms_url": "https://emem.dev/terms",
+        // Path-relative so a self-hosted operator on a different origin
+        // doesn't publish broken external links. Mirrors the same shape
+        // already used at /.well-known/emem.json.
+        "privacy_url": "/privacy",
+        "terms_url": "/terms",
         "support_url": "https://github.com/Vortx-AI/emem/issues",
         "documentation_url": "https://github.com/Vortx-AI/emem#readme",
         "license": "Apache-2.0",
@@ -4745,11 +4849,13 @@ async fn mcp_tool_call(
         }
         "emem_manifests" => Ok(json!({
             "bands_cid": &s.manifests.bands_cid,
+            "registry_cid": s.manifests.registry_cid.as_str(),
             "functions_cid": s.manifests.registry_cid.as_str(),
             "sources_cid": &s.manifests.sources_cid,
             "schema_cid": s.manifests.schema_cid.as_str(),
+            "algorithms_cid": ALGORITHMS_CID.clone(),
         })),
-        "emem_errors" => Ok(serde_json::to_value(emem_mcp::TOOLS.len()).unwrap_or(JsonValue::Null)),
+        "emem_errors" => Ok(errors_payload()),
         "emem_fetch" => {
             #[derive(serde::Deserialize)]
             struct FetchArgs {
@@ -4818,6 +4924,27 @@ async fn mcp_tool_call(
 // ── OpenAPI 3.1 (hand-rolled, agent-discoverable) ────────────────────────
 
 async fn openapi() -> Json<JsonValue> {
+    // OpenAI Custom GPTs and several other platforms refuse a tool spec
+    // without an absolute base URL. Emit `public_origin()` (driven by
+    // EMEM_PUBLIC_URL or EMEM_TLS_DOMAINS) so a self-hosted operator on
+    // a different domain doesn't ship "https://emem.dev" to its agents.
+    // The relative `"/"` server is always present so loopback / fork
+    // deployments still work even when no public origin is set.
+    let mut servers: Vec<JsonValue> = Vec::with_capacity(2);
+    match public_origin() {
+        Some(origin) => servers.push(json!({
+            "url": origin,
+            "description": "Hosted instance (HTTPS-only)",
+        })),
+        None => servers.push(json!({
+            "url": "https://emem.dev",
+            "description": "Hosted instance (HTTPS-only)",
+        })),
+    }
+    servers.push(json!({
+        "url": "/",
+        "description": "Same-origin (self-hosted or local)",
+    }));
     Json(json!({
         "openapi": "3.1.0",
         "info": {
@@ -4826,14 +4953,7 @@ async fn openapi() -> Json<JsonValue> {
             "description": "Agent-native, content-addressed Earth memory protocol. Every read returns a signed receipt. cell × band × tslot.",
             "license": { "name": "Apache-2.0" }
         },
-        // Servers list is REQUIRED for OpenAI Custom GPTs and several
-        // other agent platforms that won't pick up a tool spec without
-        // an absolute base URL. We declare both the hosted instance and
-        // a relative-base form so self-hosted deployments still work.
-        "servers": [
-            {"url": "https://emem.dev",  "description": "Hosted instance (HTTPS-only)"},
-            {"url": "/",                 "description": "Same-origin (self-hosted or local)"}
-        ],
+        "servers": servers,
         "paths": {
             "/health":               {"get":{"summary":"liveness","responses":{"200":{"description":"ok"}}}},
             "/.well-known/emem.json":{"get":{"summary":"protocol discovery","responses":{"200":{"description":"ok"}}}},

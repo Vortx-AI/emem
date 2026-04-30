@@ -5,10 +5,10 @@
   <url><loc>https://emem.dev/llms-full.txt</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/openapi.json</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://emem.dev/.well-known/emem.json</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
-  <url><loc>https://emem.dev/.well-known/ai-plugin.json</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://emem.dev/.well-known/agent.json</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/.well-known/agent-card.json</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/.well-known/oauth-protected-resource</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/health</loc><changefreq>hourly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://emem.dev/mcp</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
 
   <url><loc>https://emem.dev/v1/discover</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://emem.dev/v1/agent_card</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>

@@ -1,42 +1,135 @@
-# emem.dev — explicitly opens the surface to AI crawlers and agents.
-# Every endpoint here is designed to be agent-readable.
+# emem.dev — agent-readable surface, intentionally open to AI crawlers.
+# Every endpoint here is designed to be agent-readable. We name each major
+# crawler explicitly so operators that probe for their own user-agent
+# directive get an unambiguous Allow.
+#
+# Operator: Vortx AI Private Limited (India), avijeet@vortx.ai
+# Source: https://github.com/Vortx-AI/emem · License: Apache-2.0
 
 User-agent: *
 Allow: /
 
-# Explicit allow for the major LLM crawlers (some honour these specifically)
-User-agent: GPTBot
-Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
-User-agent: OAI-SearchBot
-Allow: /
-
+# --- Anthropic (current, three-bot framework as of 2026) ---
+# Indexer (training/indexing)
 User-agent: ClaudeBot
 Allow: /
 
-User-agent: anthropic-ai
+# User-triggered citation fetches (Claude.ai answers)
+User-agent: Claude-User
 Allow: /
 
-User-agent: Claude-Web
+# Claude search experiences
+User-agent: Claude-SearchBot
 Allow: /
 
-User-agent: PerplexityBot
+# --- OpenAI ---
+# GPT model training/index
+User-agent: GPTBot
 Allow: /
 
-User-agent: cohere-ai
+# ChatGPT user-triggered fetches
+User-agent: ChatGPT-User
 Allow: /
 
+# OpenAI search index (powers ChatGPT search)
+User-agent: OAI-SearchBot
+Allow: /
+
+# --- Google ---
+# Opt-in directive for Gemini training/Vertex AI
 User-agent: Google-Extended
 Allow: /
 
-User-agent: Bytespider
+# Google's main crawler (Search + AI Overviews substrate)
+User-agent: Googlebot
+Allow: /
+
+# --- Microsoft ---
+# Bing index (powers Copilot)
+User-agent: Bingbot
+Allow: /
+
+# --- Meta ---
+# General crawler used by Meta AI
+User-agent: Meta-ExternalAgent
+Allow: /
+
+# User-triggered Meta fetches
+User-agent: Meta-ExternalFetcher
+Allow: /
+
+# Meta product crawler
+User-agent: facebookexternalhit
+Allow: /
+
+# --- Perplexity ---
+# Indexer
+User-agent: PerplexityBot
+Allow: /
+
+# User-triggered Perplexity citation fetches
+User-agent: Perplexity-User
+Allow: /
+
+# --- Amazon ---
+# Powers Alexa, Amazon Q, Bedrock-adjacent indexing
+User-agent: Amazonbot
+Allow: /
+
+# --- Apple ---
+# Apple Intelligence + Siri training
+User-agent: Applebot
 Allow: /
 
 User-agent: Applebot-Extended
 Allow: /
 
+# --- DuckDuckGo ---
+# DuckAssist (Llama-backed answers)
+User-agent: DuckAssistBot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+# --- Mistral ---
+# User-triggered Le Chat fetches
+User-agent: MistralAI-User
+Allow: /
+
+# --- Cohere ---
+User-agent: cohere-ai
+Allow: /
+
+User-agent: cohere-training-data-crawler
+Allow: /
+
+# --- xAI / Grok ---
+User-agent: xAI-Bot
+Allow: /
+
+# --- ByteDance ---
+User-agent: Bytespider
+Allow: /
+
+# --- Common Crawl (substrate of many open-source LLMs) ---
+User-agent: CCBot
+Allow: /
+
+# --- Diffbot (knowledge-graph crawler used by many AI products) ---
+User-agent: Diffbot
+Allow: /
+
+# --- Allen Institute (Semantic Scholar / OLMo) ---
+User-agent: AI2Bot
+Allow: /
+
+User-agent: AI2Bot-Dolma
+Allow: /
+
+# --- Yandex (CIS coverage) ---
+User-agent: YandexBot
+Allow: /
+
+# Sitemap + IndexNow
 Sitemap: https://emem.dev/sitemap.xml
-Host: emem.dev

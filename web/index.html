@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>emem, Earth memory for AI agents</title>
-<meta name="description" content="Cite-able, content-addressed, signed memory of every place on Earth. 90+ bands across Sentinel-2, Sentinel-1, MODIS LST/ET/GPP/LAI, NASA POWER reanalysis, CAMS air quality (PM2.5/NO2/O3), ERA5, Tessera embeddings, JRC water, all anonymous, all signed. Built for AI agents.">
+<meta name="description" content="Cite-able, content-addressed, signed memory of every place on Earth. 94 bands and 30 tools across Sentinel-2, Sentinel-1, MODIS LST/ET/GPP/LAI, NASA POWER reanalysis, CAMS air quality (PM2.5/NO2/O3), ERA5, Tessera embeddings, JRC Global Surface Water, Hansen GFC v1.11, ESA WorldCover. 84 composition algorithms (carbon MRV, SDG indicators, walkability, heat-vulnerability, real-estate climate-risk). All anonymous, all signed. Built for AI agents.">
 <link rel="canonical" href="https://emem.dev/">
 
 <meta name="ai-plugin" content="/.well-known/ai-plugin.json">
@@ -19,7 +19,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="emem">
 <meta property="og:title" content="emem, Earth memory for AI agents">
-<meta property="og:description" content="Cite-able, content-addressed, signed memory of every place on Earth. 1 protocol. 8 primitives. ed25519 receipts.">
+<meta property="og:description" content="Cite-able, content-addressed, signed memory of every place on Earth. 1 protocol. 30 primitives across REST + MCP. ed25519 receipts. No API keys.">
 <meta property="og:url" content="https://emem.dev/">
 <meta property="og:locale" content="en_US">
 <meta property="og:image" content="https://emem.dev/og-image.svg">
@@ -298,6 +298,140 @@
   <code>foundation embedding (k-NN)</code><span style="color:var(--mut)"><code>geotessera</code>, <code>geotessera.multi_year</code>, <code>geotessera.{2017..2024}</code></span>
   <code>radar (night, cloudy)</code><span style="color:var(--mut)"><code>sentinel1_raw</code>, γ⁰ VV in dB</span>
 </div>
+
+<h2>Use-cases for AI agents</h2>
+<p style="font-size:.88rem; color:var(--mut)">
+  Group your user's question by intent, not by satellite. Each entry names the
+  bands to recall and the algorithm CID (when one exists) to compose them. All
+  84 algorithms are listed at <a href="/v1/algorithms"><code>/v1/algorithms</code></a>;
+  every one carries a peer-reviewed citation and a <code>when_to_use</code>
+  field so an agent can verify a recipe is real before quoting it. Honest
+  gaps are listed at the bottom of this section.
+</p>
+
+<h3 style="margin-top:1.4rem">Consumer health</h3>
+<div class="when">
+  <code>"Is it safe for my kid to play outside this afternoon?"</code><span style="color:var(--mut)">recall <code>cams.pm25</code>, <code>cams.o3</code>, <code>weather.temperature_2m</code>; compose <code>heat_health_risk@2</code> + <code>air_stagnation_wang_angell@1</code>. Cite both algorithm_cids and the three fact_cids.</span>
+  <code>"Can I swim in this lake?"</code><span style="color:var(--mut)">recall <code>indices.ndti</code> (turbidity), <code>indices.fai</code> (floating algae), <code>indices.tss</code> (suspended solids). Flag if <code>indices.fai &gt; 0.02</code>; cite three fact_cids.</span>
+  <code>"Is the heat dangerous for elderly residents?"</code><span style="color:var(--mut)">recall <code>modis.lst_day_8day</code>, <code>modis.lst_night_8day</code>; compose <code>urban_heat_island_imhoff@1</code> + <code>heat_vulnerability_index@1</code> (environment-only — no census).</span>
+  <code>"Will mosquitoes be bad here this week?"</code><span style="color:var(--mut)">recall <code>weather.temperature_2m</code>, <code>weather.relative_humidity_2m</code>, <code>surface_water.recurrence</code>, <code>indices.ndwi</code>; compose <code>aedes_thermal_suitability_mordecai@1</code> (Brière TPC, Mordecai 2017).</span>
+  <code>"Where's the cleanest air for my morning run?"</code><span style="color:var(--mut)">POST <code>/v1/recall_polygon</code> with <code>cams.pm25</code> + <code>cams.no2</code> over the city, return cells in the bottom quartile.</span>
+  <code>"Is this neighbourhood hot at night?"</code><span style="color:var(--mut)">recall <code>modis.lst_night_8day</code> + <code>indices.urban_canopy_index</code>; high LST_night + low canopy = sleep-disrupting UHI signature.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Real estate &amp; insurance</h3>
+<div class="when">
+  <code>"Is this address a flood-disclosure risk?"</code><span style="color:var(--mut)">compose <code>flood_risk@1</code> (JRC GSW recurrence + Cop-DEM elevation-above-water + S1 radar). Cite the three input fact_cids.</span>
+  <code>"What's the parametric wildfire risk score?"</code><span style="color:var(--mut)">compose <code>wildfire_exposure_score@1</code> (Fosberg FWI + vegetation class + slope) and <code>multi_peril_score@1</code> for a single insurance badge.</span>
+  <code>"Is this neighbourhood walkable / has tree canopy?"</code><span style="color:var(--mut)">compose <code>walkability_score@1</code> + <code>green_space_access@1</code> + <code>urban_canopy_cooling_potential@1</code>. Surface the per-component breakdown.</span>
+  <code>"Coastal-erosion exposure for this beachfront?"</code><span style="color:var(--mut)">compose <code>coastal_erosion_proxy@1</code> (slope + S1 radar + GSW change). Pair with <code>property_climate_risk_score@1</code> for the underwriting view.</span>
+  <code>"Defensible property climate-risk score?"</code><span style="color:var(--mut)">compose <code>property_climate_risk_score@1</code> + <code>insurance_premium_proxy@1</code> (multi-peril composite, never present as a quote).</span>
+  <code>"Noise / livability for a relocation?"</code><span style="color:var(--mut)">compose <code>noise_exposure_proxy@1</code> + <code>livability_index@1</code> + <code>bikeability_score@1</code>.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Climate finance &amp; carbon credits (MRV)</h3>
+<div class="when">
+  <code>"NPP at this REDD+ parcel last 8 days?"</code><span style="color:var(--mut)">compose <code>carbon.npp_8day@1</code> (MODIS MOD17A2H, 500 m). Aggregate to annual for VCS / ART-TREES baselines.</span>
+  <code>"Is this project under drought stress this season?"</code><span style="color:var(--mut)">compose <code>carbon.gpp_anomaly_zscore@1</code> + <code>carbon.drought_carbon_stress@1</code>.</span>
+  <code>"Estimate fire-emissions CO₂ for this burn scar."</code><span style="color:var(--mut)">compose <code>carbon.fire_emissions_co2_proxy@1</code> from <code>modis.burned_area_monthly</code>.</span>
+  <code>"Track deforestation alerts at this concession."</code><span style="color:var(--mut)">compose <code>carbon.deforestation_alert_proxy@1</code>; confirm with the <code>hansen.loss_year</code> band (annual, lagged).</span>
+  <code>"Quantify urban-cooling co-benefit of tree-planting."</code><span style="color:var(--mut)">compose <code>carbon.urban_canopy_cooling_potential@1</code>.</span>
+  <code>"Albedo radiative forcing of a cool-roof retrofit?"</code><span style="color:var(--mut)">compose <code>carbon.surface_albedo_broadband@1</code> → <code>carbon.albedo_radiative_forcing@1</code> (W/m²).</span>
+  <code>"AGB at this monitoring plot?"</code><span style="color:var(--mut)">compose <code>agb_ndvi_powerlaw@1</code> (Saatchi 2011). Saturates above ~150 Mg/ha — algorithm receipt prints this caveat.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">ESG / SDG reporting</h3>
+<div class="when">
+  <code>SDG 6.6.1 — water-related ecosystems</code><span style="color:var(--mut)"><code>sdg.6_6_1.water_extent_anomaly@1</code> from JRC GSW.</span>
+  <code>SDG 11.6.2 — annual PM₂.₅ city mean</code><span style="color:var(--mut)"><code>sdg.11_6_2.annual_pm25_mean@1</code>; backfill <code>cams.pm25</code> then aggregate.</span>
+  <code>SDG 13.2.2 — GHG-proxy from burned area</code><span style="color:var(--mut)"><code>sdg.13_2_2.ghg_proxy_burned_area@1</code>.</span>
+  <code>SDG 14.1.1a — coastal eutrophication</code><span style="color:var(--mut)"><code>sdg.14_1_1a.coastal_eutrophication_index@1</code> (S2 FAI proxy; flag as proxy, not OLCI Chl-a).</span>
+  <code>SDG 15.3.1 — land productivity (LDN, UNCCD)</code><span style="color:var(--mut)"><code>sdg.15_3_1.land_productivity_class@1</code>.</span>
+  <code>SDG 15.4.2 — mountain green cover (FAO)</code><span style="color:var(--mut)"><code>sdg.15_4_2.mountain_green_cover_index@1</code>.</span>
+  <code>TCFD physical-risk screening</code><span style="color:var(--mut)">compose <code>physical_climate_risk_index@1</code> + <code>transition_risk_proxy@1</code> + <code>esg_environmental_pressure@1</code>.</span>
+  <code>Biodiversity credits</code><span style="color:var(--mut)">compose <code>biodiversity_proxy@1</code> + <code>embedding_diversity_score@1</code> over polygon samples of <code>geotessera</code>.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Agriculture</h3>
+<div class="when">
+  <code>"Is this field stressed?"</code><span style="color:var(--mut)">compose <code>crop_stress_score@1</code>. Apply only to cells where <code>vegetation_class_from_ndvi@1 ≥ sparse</code>.</span>
+  <code>"Smallholder NPP for outcome-based finance"</code><span style="color:var(--mut)">compose <code>carbon.evi_npp_proxy@1</code> (10 m S2 EVI proxy).</span>
+  <code>"Frost risk overnight?"</code><span style="color:var(--mut)">recall <code>power.t2m_min</code> + <code>weather.dew_point_2m</code> (Magnus from t2m + RH); flag if <code>t2m_min &lt; 0</code>.</span>
+  <code>"Yield-proxy for commodity desks"</code><span style="color:var(--mut)">compose <code>crop_yield_proxy@1</code>; surface fixed alg_cid + manifests_cid for audit.</span>
+  <code>"Vineyard terroir pre-screen"</code><span style="color:var(--mut)">compose <code>vineyard_terroir_score@1</code> (directional; not a geological survey).</span>
+  <code>"Is this soil bare today?"</code><span style="color:var(--mut)">compose <code>bare_soil_class@1</code> + <code>indices.bsi</code>.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Urban planning</h3>
+<div class="when">
+  <code>"Where should the next cooling centre go?"</code><span style="color:var(--mut)"><code>recall_polygon</code> the city for <code>heat_vulnerability_index@1</code>; rank cells.</span>
+  <code>"Identify low-canopy schools for tree-planting"</code><span style="color:var(--mut)">compose <code>green_space_access@1</code> + filter <code>overture.places.count</code> to schools.</span>
+  <code>"Population estimate at sub-city grain"</code><span style="color:var(--mut)">compose <code>population_ghsl_dasymetric@1</code> (Overture-calibrated GHSL methodology).</span>
+  <code>"Built-up density"</code><span style="color:var(--mut)">compose <code>urban_density_score@1</code> + <code>built_up_from_ndbi@1</code>.</span>
+  <code>"Bike-network gap analysis"</code><span style="color:var(--mut)">compose <code>bikeability_score@1</code> over <code>recall_polygon</code> output.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Disaster response</h3>
+<div class="when">
+  <code>"Flood now through cloud cover"</code><span style="color:var(--mut)">recall <code>sentinel1_raw</code> + compose <code>water_likelihood_from_vv@1</code> (all-weather radar; no waiting for clear skies).</span>
+  <code>"Burn severity post-fire"</code><span style="color:var(--mut)">compose <code>burn_severity_from_dnbr@1</code> with pre/post tslots from <code>emem_trajectory</code>.</span>
+  <code>"Drought severity snapshot"</code><span style="color:var(--mut)">compose <code>vapor_pressure_deficit@1</code> + <code>era5.precip</code> 30-day deficit.</span>
+  <code>"Route exposure to flood"</code><span style="color:var(--mut)">compose <code>route_flood_exposure@1</code> over a polyline of cells.</span>
+  <code>"Where did the flood reach?"</code><span style="color:var(--mut)">compose <code>flood_history_class@1</code> from JRC GSW (1984–2021 climatology, not real-time).</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Conservation &amp; biodiversity</h3>
+<div class="when">
+  <code>"Is this forest losing canopy?"</code><span style="color:var(--mut)">recall <code>hansen.loss_year</code> + compose <code>carbon.deforestation_alert_proxy@1</code>.</span>
+  <code>"Diverse-habitat score for biodiversity credits"</code><span style="color:var(--mut)">compose <code>embedding_diversity_score@1</code> over a polygon of <code>geotessera</code> samples.</span>
+  <code>"Mangrove / wetland extent"</code><span style="color:var(--mut)">recall <code>esa_worldcover.lc_2021</code> class 95 (mangroves) + <code>surface_water.recurrence</code>.</span>
+  <code>"Find places like the Sundarbans"</code><span style="color:var(--mut)">compose <code>region_similarity@1</code> + <code>place_archetype_match@1</code> via <code>emem_find_similar</code>.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Energy siting</h3>
+<div class="when">
+  <code>"Wind-resource screen for a turbine"</code><span style="color:var(--mut)">compose <code>wind_power_density@1</code> from <code>weather.wind_speed_10m</code> + DEM altitude.</span>
+  <code>"Run-of-river / micro-hydro feasibility"</code><span style="color:var(--mut)">compose <code>hydro_theoretical_power@1</code> (slope × discharge proxy).</span>
+  <code>"PV pre-screen at this site"</code><span style="color:var(--mut)">compose <code>ghi_clearsky_haurwitz@1</code> + recall <code>power.allsky_sw</code> for measured GHI.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Mining impact assessment</h3>
+<div class="when">
+  <code>"Deforestation around concession"</code><span style="color:var(--mut)">compose <code>carbon.deforestation_alert_proxy@1</code> + recall <code>hansen.loss_year</code>.</span>
+  <code>"Tailings / pit-water expansion"</code><span style="color:var(--mut)">compose <code>carbon.surface_water_extent_anomaly@1</code> + recall <code>indices.ndti</code>.</span>
+  <code>"Rehabilitation success vs baseline"</code><span style="color:var(--mut)">compose <code>embedding_change_score@1</code> between pre-mine and current <code>geotessera</code>.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Tourism &amp; recreation</h3>
+<div class="when">
+  <code>"Best 10 diverse spots in this area"</code><span style="color:var(--mut)">compose <code>embedding_diversity_score@1</code> over polygon samples.</span>
+  <code>"Outdoor-event scheduling today"</code><span style="color:var(--mut)">compose <code>outdoor_comfort_score@1</code> (THI + wind + precip).</span>
+  <code>"Snow on the ground for ski plans?"</code><span style="color:var(--mut)">recall <code>indices.ndsi</code>.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Fisheries</h3>
+<div class="when">
+  <code>"Sea-surface temperature for fishery shifts"</code><span style="color:var(--mut)">recall <code>marine.sst</code>.</span>
+  <code>"Coastal eutrophication / HAB risk"</code><span style="color:var(--mut)">compose <code>sdg.14_1_1a.coastal_eutrophication_index@1</code> + recall <code>indices.fai</code>.</span>
+  <code>"Wave climate for vessel routing"</code><span style="color:var(--mut)">recall <code>marine.wave_height</code> + <code>marine.swell_period</code> + <code>marine.swell_height</code> + <code>marine.wave_direction</code>.</span>
+</div>
+
+<h3 style="margin-top:1.4rem">Honest gaps (do not over-claim)</h3>
+<p style="font-size:.85rem; color:var(--mut)">
+  Be explicit when emem cannot answer. Each gap is a wiring-list item, not
+  a hidden capability:
+</p>
+<ul style="font-size:.85rem; color:var(--mut)">
+  <li><code>cams.pm25</code> is a <em>modelled</em> CAMS value, not regulatory in-situ AQI.</li>
+  <li><code>sdg.14_1_1a</code> uses S2 FAI as a chlorophyll proxy; not OLCI Chl-a.</li>
+  <li><code>agb_ndvi_powerlaw@1</code> saturates above ~150 Mg/ha (Saatchi 2011 limitation).</li>
+  <li>Active-fire detection is monthly <code>MCD64A1</code> burn scars, not real-time MODIS/VIIRS thermal anomalies.</li>
+  <li>Coastal flood story uses JRC + DEM; no tide gauge, no storm-surge model wired.</li>
+  <li>Hansen <code>loss_year</code> covers 2001–2023; annual and lagged. Not near-real-time.</li>
+  <li><code>heat_vulnerability_index@1</code> is environment-only; pair with census data for SVI-style outputs.</li>
+  <li>Active grid is ~305 m Hilbert <code>cell64</code>; the spec's H3 hex grain is not active. <a href="/v1/grid_info"><code>/v1/grid_info</code></a> is authoritative.</li>
+  <li>Pollen / allergen indices are not wired today; canopy seasonality is a coarse proxy at best.</li>
+</ul>
 
 <h2>Worked example, "Has this place flooded?"</h2>
 <pre><code># 1. Place → cell64
