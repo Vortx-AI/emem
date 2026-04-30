@@ -185,7 +185,7 @@ before expiry.
   `Referrer-Policy: strict-origin-when-cross-origin`,
   `Permissions-Policy: geolocation=(), microphone=(), camera=()`
 - **Body cap** 16 MiB on all POST endpoints (413 on overflow)
-- **Per-IP rate limit** 60 req/min, 120 burst, with `Retry-After: 60`
+- **Per-IP rate limit** 600 req/min, 1200 burst, with `Retry-After: 60`
 - **30 s request timeout** (504 on overflow)
 - **Graceful shutdown** on SIGTERM (sled flushes, in-flight responses drain)
 - **Identity persistence** ed25519 secret stored mode 0600 at

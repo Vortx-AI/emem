@@ -749,22 +749,23 @@ async fn security_headers_layer(
 
 // ── In-process token-bucket rate limit ───────────────────────────────────
 //
-// 60 req/min per remote IP, 120 burst. Enough headroom for a busy agent
-// but small enough that a misbehaving client can't drown the server. State
-// is held in a single Mutex (cheap; entries are 24 bytes); GC-free since
-// we only mutate on hit.
+// 600 req/min per remote IP, 1200 burst. Sized for agent traffic patterns
+// (a single Claude/ChatGPT/Cursor session opens many parallel tool calls
+// for fan-out reads — 60/min throttled noticeably during composite
+// recipes that touch 10+ bands). State is held in a single Mutex (cheap;
+// entries are 24 bytes); GC-free since we only mutate on hit.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Default per-IP token-bucket refill rate, in tokens per second.
-/// 1 tok/s ≈ 60 req/min sustained, with `RATE_LIMIT_BURST` as the ceiling.
+/// 10 tok/s ≈ 600 req/min sustained, with `RATE_LIMIT_BURST` as the ceiling.
 /// Tunable via `EMEM_RATE_LIMIT_RPS` (clamped to 0.01..=1000.0).
 fn rate_limit_rps() -> f64 {
     std::env::var("EMEM_RATE_LIMIT_RPS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1.0_f64)
+        .unwrap_or(10.0_f64)
         .clamp(0.01, 1000.0)
 }
 
@@ -774,7 +775,7 @@ fn rate_limit_burst() -> f64 {
     std::env::var("EMEM_RATE_LIMIT_BURST")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(120.0_f64)
+        .unwrap_or(1200.0_f64)
         .clamp(1.0, 100_000.0)
 }
 
