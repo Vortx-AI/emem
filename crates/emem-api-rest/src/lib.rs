@@ -390,11 +390,22 @@ async fn cors_layer(
     );
     h.insert(
         "access-control-allow-headers",
-        HeaderValue::from_static("content-type, authorization, traceparent, accept, if-none-match"),
+        // Includes the MCP Streamable-HTTP negotiation / session / SSE-resume
+        // headers (mcp-protocol-version, mcp-session-id, last-event-id) so
+        // browser-based MCP clients (Claude.ai, Inspector) can preflight the
+        // /mcp endpoint without being blocked.
+        HeaderValue::from_static(
+            "content-type, authorization, traceparent, accept, if-none-match, \
+             mcp-protocol-version, mcp-session-id, last-event-id",
+        ),
     );
     h.insert(
         "access-control-expose-headers",
-        HeaderValue::from_static("etag, x-emem-receipt-cid, traceparent"),
+        // Expose the MCP session header so JS clients can read it after
+        // initialize and echo it on subsequent requests.
+        HeaderValue::from_static(
+            "etag, x-emem-receipt-cid, traceparent, mcp-session-id, mcp-protocol-version",
+        ),
     );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
     response
