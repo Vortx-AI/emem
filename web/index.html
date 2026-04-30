@@ -462,7 +462,7 @@
   <li>Coastal flood story uses JRC + DEM; no tide gauge, no storm-surge model wired.</li>
   <li>Hansen <code>loss_year</code> covers 2001–2023; annual and lagged. Not near-real-time.</li>
   <li><code>heat_vulnerability_index@1</code> is environment-only; pair with census data for SVI-style outputs.</li>
-  <li>Active grid is ~305 m Hilbert <code>cell64</code>; the spec's H3 hex grain is not active. <a href="/v1/grid_info"><code>/v1/grid_info</code></a> is authoritative.</li>
+  <li>Each fact value is a real upstream sensor sample at its native pitch (10 m for S1/S2 indices, 90 m for Cop-DEM, 250 m for SoilGrids…). The <code>cell64</code> grid (~305 m) is a cache key — two queries within the same cell return the same cached real-pixel value, not a coarsened aggregate. The spec's H3 hex grain (3.4 m) is not yet active. <a href="/v1/grid_info"><code>/v1/grid_info</code></a> is authoritative.</li>
   <li>Pollen / allergen indices are not wired today; canopy seasonality is a coarse proxy at best.</li>
 </ul>
 
@@ -526,7 +526,7 @@ curl -sX POST https://emem.dev/v1/recall \
 <div class="grid">
   <a href="/v1/discover">/v1/discover</a><span style="color:var(--mut)">one-call: agent_card + manifests + tools + canonical places</span>
   <a href="/v1/quickstart">/v1/quickstart</a><span style="color:var(--mut)">6-step flow: discover → coverage_matrix → locate → recall_many → audit → contribute</span>
-  <a href="/v1/grid_info">/v1/grid_info</a><span style="color:var(--mut)">cell64 ground resolution (~305 m lat / ~611 m lng at equator)</span>
+  <a href="/v1/grid_info">/v1/grid_info</a><span style="color:var(--mut)">cell64 cache-key pitch (~305 m lat / ~611 m lng at equator); fact values are real upstream sensor samples at native pitch (10 m S1/S2)</span>
   <a href="/agent-trial.md">/agent-trial.md</a><span style="color:var(--mut)">first-person Claude trial (current state, gaps + what works)</span>
 </div>
 

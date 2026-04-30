@@ -6166,9 +6166,9 @@ async fn grid_info() -> Json<JsonValue> {
             "from_h3":"Use h3.h3_to_geo(h3_id) for the centre, then POST /v1/locate with {lat, lng}."
         },
         "honest_warnings": [
-            "Cell granularity is ~305 m, not 30 m and not 10 m. Earlier docs and the locate `advice` string used ~30 m loosely; that has been corrected.",
-            "Two callers asking about the same place from slightly different (lat, lng) inputs will land in adjacent cells. Use /v1/locate's `neighborhood_cells` for fan-out before concluding a place is empty.",
-            "When the migration to hex H3 lands, current cell64 strings remain valid but new strings will be issued under a new mode prefix; receipts pin the active manifest CIDs so historical answers don't drift."
+            "cell64 is a CACHE KEY, not a data-resolution floor. Each fact value is a real upstream sensor sample at the source's native pitch (10 m for Sentinel-1/Sentinel-2 indices, 90 m for Cop-DEM, 250 m for SoilGrids, 1 km for MODIS LST). The cell pitch (~305 m on the lat axis at the equator) just determines when two queries dedupe to the same cached pixel.",
+            "Two callers asking about the same place from slightly different (lat, lng) inputs may land in adjacent cells. Use /v1/locate's `neighborhood_cells` for fan-out, or call /v1/recall_polygon when you want different sub-cell samples.",
+            "When the migration to hex H3 (~3.4 m edge) lands, current cell64 strings remain valid but new strings will be issued under a new mode prefix; receipts pin the active manifest CIDs so historical answers don't drift."
         ],
         "next": [
             "GET  /v1/cells/{cell64}/info  — lat/lng/bbox for any cell",
@@ -15603,5 +15603,84 @@ mod tests {
             "expected single call to emem_ask, got {p:?}"
         );
         assert_eq!(p.calls[0].primitive, "emem_ask");
+    }
+
+    /// Boring API contract: every band that emem materializes natively
+    /// from a 10 m sensor (Sentinel-1 / Sentinel-2 reflectance and
+    /// derived indices) must report `data_resolution_m == 10`. This is
+    /// the multimodal-fusion guarantee — if it ever regresses, the
+    /// "10 m fidelity" claim in CLIENTS.md and ai-plugin.json starts
+    /// lying about the data.
+    #[test]
+    fn band_input_resolution_m_matches_sensor_pitch() {
+        // Sentinel-2 reflectance + indices: 10 m
+        for band in [
+            "s2.B04",
+            "s2.B08",
+            "s2.B11",
+            "indices.ndvi",
+            "indices.bsi",
+            "indices.ndmi",
+            "indices.urban_canopy_index",
+        ] {
+            assert_eq!(
+                band_input_resolution_m(band),
+                Some(10),
+                "{band}: expected 10 m S2 pitch"
+            );
+        }
+        // Sentinel-1 RTC: 10 m
+        assert_eq!(band_input_resolution_m("sentinel1_raw"), Some(10));
+        // Cop-DEM 90 m, SoilGrids 250 m, MODIS LST 1 km, CAMS 11 km.
+        assert_eq!(
+            band_input_resolution_m("copdem30m.elevation_mean"),
+            Some(90)
+        );
+        assert_eq!(band_input_resolution_m("soilgrids.soc_0_30cm"), Some(250));
+        assert_eq!(band_input_resolution_m("modis.lst_day_8day"), Some(1000));
+        assert_eq!(band_input_resolution_m("cams.pm25"), Some(11_000));
+    }
+
+    /// The grid-cache constant must stay 305 m on the lat axis at the
+    /// equator. This is the cell64 cache-key pitch reported by
+    /// `/v1/grid_info` and surfaced as `cell_dedupe_m` on every boring
+    /// response. If the active grid ever changes (e.g. H3 migration),
+    /// this constant must change in lock-step with `/v1/grid_info`.
+    #[test]
+    fn cell_dedupe_constant_matches_active_grid() {
+        assert_eq!(RESOLUTION_M_GRID, 305);
+    }
+
+    /// LatLngQ accepts both `lon` and `lng` so that an agent trained
+    /// on either spelling reaches the same handler.
+    #[test]
+    fn latlng_query_accepts_both_lon_and_lng_spellings() {
+        let q1 = LatLngQ {
+            lat: 30.5,
+            lon: Some(75.85),
+            lng: None,
+            band: None,
+            bands: None,
+            tslot: None,
+        };
+        let q2 = LatLngQ {
+            lat: 30.5,
+            lon: None,
+            lng: Some(75.85),
+            band: None,
+            bands: None,
+            tslot: None,
+        };
+        assert!(q1.longitude().ok() == Some(75.85));
+        assert!(q2.longitude().ok() == Some(75.85));
+        let q_missing = LatLngQ {
+            lat: 30.5,
+            lon: None,
+            lng: None,
+            band: None,
+            bands: None,
+            tslot: None,
+        };
+        assert!(q_missing.longitude().is_err());
     }
 }

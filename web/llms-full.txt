@@ -168,9 +168,15 @@ fetch path are still byte-stable in the layout (zero or NaN until
 attested), so the address algebra is forward-compatible.
 
 `cell64` is locality-preserving: adjacent codepoints map to spatially
-adjacent cells. The active grid resolves to ~305 m on the latitude axis
-and ~611 m on the longitude axis at the equator (longitude narrows with
-cos(lat) toward the poles). Authoritative resolution: `/v1/grid_info`.
+adjacent cells. The cell pitch is ~305 m on the latitude axis and
+~611 m on the longitude axis at the equator (longitude narrows with
+cos(lat) toward the poles). Important: cell64 is a **cache key**, not a
+data-resolution floor — every fact value is a real upstream sensor
+sample at the source's native pitch (10 m for Sentinel-1/Sentinel-2
+indices, 90 m for Cop-DEM, 250 m for SoilGrids, 1 km for MODIS LST).
+Two queries within the same cell return the *same* cached real-pixel
+value. Use `/v1/recall_polygon` when you want a different sub-cell
+sample. Authoritative numbers: `/v1/grid_info`.
 
 `tslot = 0` is the protocol epoch `2026-01-01T00:00:00Z`. Tempo classes:
 `static` · `slow` (annual) · `medium` (16–30 d) · `fast` (5–12 d) ·

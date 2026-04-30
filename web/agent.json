@@ -2,7 +2,7 @@
   "name": "emem",
   "version": "0.0.2",
   "protocol": "emem-earth-memory",
-  "description": "Agent-native, content-addressed, signed Earth memory protocol. 101 materializable bands across Sentinel-1/2, MODIS, Landsat (target), Tessera, NASA POWER, ERA5, CAMS, Open-Meteo Marine, JRC Global Surface Water, Hansen GFC, ESA WorldCover, SoilGrids 2.0, Overture. 101 composition algorithms (carbon MRV, VM0042, EUDR, RUSLE, SoilGrids SOC, IPCC Tier-2 rice CH₄, SDG indicators, parametric insurance, climate-risk). Multimodal-fusion policy: sensor priority S1 > S2 > Landsat > IoT > OtherSat > Static, with mechanical validator that blocks any ≤10 m delivery claim not anchored on S1/S2/Landsat (see docs/MULTIMODAL.md).",
+  "description": "Agent-native, content-addressed, signed Earth memory protocol. 101 materializable bands across Sentinel-1/2, MODIS, Landsat (target), Tessera, NASA POWER, ERA5, CAMS, Open-Meteo Marine, JRC Global Surface Water, Hansen GFC, ESA WorldCover, SoilGrids 2.0, Overture. 101 composition algorithms (carbon MRV, VM0042, EUDR, RUSLE, SoilGrids SOC, IPCC Tier-2 rice CH₄, SDG indicators, parametric insurance, climate-risk). Multimodal-fusion: every algorithm anchored on S1/S2/Landsat consumes the upstream sensor pitch natively (10 m for S1/S2 indices, 30 m Landsat target); the value returned is the real upstream pixel sample. cell64 (~305 m) is a cache key, not a data-resolution floor.",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",

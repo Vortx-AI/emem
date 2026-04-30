@@ -23,9 +23,9 @@ truth** before we hand it to your agent.
 If the agent is calling on behalf of a user who just wants *one*
 piece of data at *one* lat/lng, skip cell64 entirely and use the
 boring GETs. Every one returns a signed Fact plus `cell64`,
-`fact_cid`, `responder_pubkey_b32`, `source_url`, `signed_at`, and
-both `resolution_m_input` (sensor pitch) and `resolution_m_grid`
-(~305 m served grain).
+`fact_cid`, `responder_pubkey_b32`, `source_url`, `signed_at`,
+`data_resolution_m` (the upstream sensor pitch — 10 m for S1/S2),
+and `cell_dedupe_m` (~305 m, the cache-key granularity).
 
 ```bash
 curl -s 'https://emem.dev/v1/ndvi?lat=30.5&lon=75.85'      # vegetation
@@ -49,7 +49,7 @@ polygons, or history.
 
 ---
 
-## 0a. Reality check (read this before promising sub-cell precision)
+## 0a. The three "resolutions" (so you can answer questions correctly)
 
 Before you wire emem into any client, calibrate your expectations
 against the live server. Two facts that previous releases described

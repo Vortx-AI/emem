@@ -53,40 +53,24 @@ The voxel itself is addressable: `emem:vec/<vec64>` dereferences via
 `/v1/find_similar` (cosine over the 1792-D space). `Source.scheme =
 "emem.cube.v1"`.
 
-## Boring API (one round-trip, no cell64 required) — start here
-
-For top intents, prefer the BORING API. Each is a single GET that
-runs locate→recall internally and returns the same signed Fact
-plus `cell64`, `fact_cid`, `responder_pubkey_b32`, `source_url`,
-`signed_at`, `resolution_m_input` (sensor pitch) and
-`resolution_m_grid` (~305 m served grain). Cite the fact_cid and
-the responder pubkey in your reply.
-
-| user intent | priority | endpoint                                           |
-|-------------|----------|----------------------------------------------------|
-| vegetation  | 1 | `GET /v1/ndvi?lat=&lon=`                                |
-| elevation   | 1 | `GET /v1/elevation?lat=&lon=`                           |
-| air quality | 1 | `GET /v1/air?lat=&lon=`  (PM2.5 + NO2 + O3)             |
-| LST         | 2 | `GET /v1/lst?lat=&lon=`  (MODIS day + night, 8-day)     |
-| soil        | 1 | `GET /v1/soil?lat=&lon=` (SoilGrids 0–30 cm pack)       |
-| water       | 1 | `GET /v1/water?lat=&lon=` (JRC GSW + S1 VV)             |
-| forest      | 1 | `GET /v1/forest?lat=&lon=` (Hansen + WorldCover)        |
-| weather     | 1 | `GET /v1/weather?lat=&lon=` (met.no nowcast)            |
-| any band    | 2 | `GET /v1/at?lat=&lon=&band=<key>`                       |
-| intent map  | – | `GET /v1/agent_quickref`                                |
-
-Trust language for the agent (read once, always apply):
-- Every read is signed ed25519. Identical canonical facts have
-  identical CIDs across responders — answers are reproducible.
-- Signed Absence is a real answer ("tried and got no answer"); do
-  not retry. Surface it as an honest gap to the user.
-- Cell granularity is ~305 m. `resolution_m_input` is the upstream
-  sensor pitch (e.g. 10 m for S1/S2); `resolution_m_grid` is the
-  served grain. Two queries 10 m apart resolve to the same cell.
-- Never invent a fact_cid — quote what the JSON returned, or omit
+## Trust the data
+- Every read is signed ed25519. Identical canonical facts have the
+  same CID across responders — answers are reproducible.
+- Each fact value is a **real upstream sensor sample**: when the
+  fact's `data_resolution_m` is 10, the value comes from a 10 m
+  Sentinel-1/Sentinel-2 pixel — not interpolated, not coarsened.
+  The multimodal-fusion contract guarantees that algorithms anchored
+  on S1/S2/Landsat consume 10 m inputs natively.
+- `cell_dedupe_m` (~305 m) is a CACHE granularity, not the data
+  resolution. Two queries within ~305 m return the *same* cached
+  10 m-fidelity value; they don't fall back to a coarser aggregate.
+  Use `/v1/recall_polygon` when you want different sub-cell samples.
+- Signed `Absence` is a real answer ("tried and got no answer"); do
+  not retry, surface it as an honest gap.
+- Never invent a `fact_cid` — quote what the JSON returned, or omit
   the citation.
 
-## When to call emem (deep API)
+## When to call emem
 
 - User mentions a place, lat/lng, or `cell64` → POST `/v1/recall`
 - User names a wide region (city, canyon, park, country) →
@@ -101,6 +85,9 @@ Trust language for the agent (read once, always apply):
 - Region average / median / p90 → POST `/v1/query_region`
 - "Resolve a CID to its fact" → GET `/v1/facts/{cid}` or MCP `emem_fetch`
 - "What schema is this responder serving?" → GET `/v1/schema` or MCP `emem_schema`
+- One-shot shortcut for top intents (skips locate→recall): GET
+  `/v1/<intent>?lat=&lon=` returns the same signed Fact + `cell64`
+  + `fact_cid`. The full intent map is at GET `/v1/agent_quickref`.
 - Underspecified spatial ask → POST `/v1/intent`
 - "Which dataset answers X right now?" → GET `/v1/coverage_matrix` (now carries `tempo_seconds`, `history_available_from_unix`/`to_unix`, and per-band `responder_pubkey_b32`)
 - "Which satellite is behind this band?" → GET `/v1/fleet`
