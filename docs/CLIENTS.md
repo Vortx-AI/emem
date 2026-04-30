@@ -18,52 +18,93 @@ truth** before we hand it to your agent.
 
 ---
 
-## 0. Reality check (read this first)
+## 0. Quickstart — the boring API
+
+If the agent is calling on behalf of a user who just wants *one*
+piece of data at *one* lat/lng, skip cell64 entirely and use the
+boring GETs. Every one returns a signed Fact plus `cell64`,
+`fact_cid`, `responder_pubkey_b32`, `source_url`, `signed_at`, and
+both `resolution_m_input` (sensor pitch) and `resolution_m_grid`
+(~305 m served grain).
+
+```bash
+curl -s 'https://emem.dev/v1/ndvi?lat=30.5&lon=75.85'      # vegetation
+curl -s 'https://emem.dev/v1/elevation?lat=35.36&lon=138.73'  # Cop-DEM
+curl -s 'https://emem.dev/v1/air?lat=17.385&lon=78.4867'   # PM2.5 + NO2 + O3
+curl -s 'https://emem.dev/v1/lst?lat=41.59&lon=-93.625'    # MODIS LST day+night
+curl -s 'https://emem.dev/v1/soil?lat=30.5&lon=75.85'      # SoilGrids 0–30 cm
+curl -s 'https://emem.dev/v1/water?lat=23.35&lon=85.28'    # JRC GSW + S1
+curl -s 'https://emem.dev/v1/forest?lat=-3.47&lon=-62.22'  # Hansen + WorldCover
+curl -s 'https://emem.dev/v1/weather?lat=35.36&lon=138.73' # met.no nowcast
+curl -s 'https://emem.dev/v1/at?lat=30.5&lon=75.85&band=indices.bsi'  # any band
+curl -s 'https://emem.dev/v1/agent_quickref'               # intent map
+```
+
+The intent map (`/v1/agent_quickref`) tells your agent which boring
+endpoint to call for which user intent, with `priority` ordering
+and the trust language an LLM needs to know it can rely on the
+answer. Fall through to the deep API (POST /v1/recall, /v1/recall_polygon,
+/v1/recall_many, /v1/backfill, etc.) when the agent needs batches,
+polygons, or history.
+
+---
+
+## 0a. Reality check (read this before promising sub-cell precision)
 
 Before you wire emem into any client, calibrate your expectations
 against the live server. Two facts that previous releases described
 loosely:
 
-### 0.1  The grid is ~305 m, **not** 10 m
+### 0a.1  Three resolutions, one value — distinguish them
+
+When you read an emem fact, three numbers describe how granular it is:
+
+| field                | meaning                                                                                    | example values        |
+|----------------------|--------------------------------------------------------------------------------------------|-----------------------|
+| `data_resolution_m`  | upstream sensor pitch the materializer **actually sampled**                                | 10 (S1/S2/indices), 90 (Cop-DEM), 250 (SoilGrids), 1000 (MODIS LST) |
+| `cell_dedupe_m`      | cache-key granularity (cell64 grid pitch on the lat axis at the equator)                   | ~305                  |
+| `spec_target_m`      | future grid (aperture-7 hex DGGS, not yet active)                                          | ~3.4                  |
+
+The boring API surfaces the first two on every response.
+
+**The point that matters:** when `data_resolution_m=10`, the value is a
+real 10 m Sentinel-1/2 pixel. We confirmed by reading the materializer:
+`crates/emem-api-rest/src/lib.rs:8575` calls `sample_pixel(...)` once at
+the cell-centre lat/lng — not interpolated, not coarsened, not block-
+averaged. The multimodal-fusion contract holds.
+
+What the ~305 m number actually represents: emem keys its persistent
+store by `cell64`. Two queries < 305 m apart get the **same cached 10 m
+sample** (the one taken at the cell centre when the cell was first
+materialized). They don't fall back to a coarser aggregate; the value
+they share is full 10 m fidelity. If an agent needs a *different* 10 m
+sample inside the same cell, it calls `/v1/recall_polygon` with a tight
+polygon and gets per-sub-cell facts.
 
 ```bash
-curl -s https://emem.dev/v1/grid_info | jq '.honest_warnings'
+# Same cell, same cached 10 m S2 pixel value:
+curl -s 'https://emem.dev/v1/ndvi?lat=17.3850&lon=78.4867'    | jq '{value, data_resolution_m, cell64, fact_cid}'
+curl -s 'https://emem.dev/v1/ndvi?lat=17.3850&lon=78.486794'  | jq '{value, data_resolution_m, cell64, fact_cid}'
+# → identical fact_cid, identical value, data_resolution_m=10
 ```
-
-```json
-[
-  "Cell granularity is ~305 m, not 30 m and not 10 m.",
-  "Two callers asking about the same place from slightly different
-   (lat, lng) inputs will land in adjacent cells.",
-  "The migration to hex H3 lands later; current cell64 strings stay
-   valid forever under their original `bands_cid`."
-]
-```
-
-Empirically:
 
 ```bash
-curl -sX POST https://emem.dev/v1/locate -H 'content-type: application/json' \
-  -d '{"q":"17.3850, 78.4867"}'  | jq -r '.cell64'   # damO.zb000.weso.yupu
-curl -sX POST https://emem.dev/v1/locate -H 'content-type: application/json' \
-  -d '{"q":"17.3850, 78.486794"}' | jq -r '.cell64'   # damO.zb000.weso.yupu  (10 m east → same cell)
-curl -sX POST https://emem.dev/v1/locate -H 'content-type: application/json' \
-  -d '{"q":"17.3850, 78.4905"}'  | jq -r '.cell64'   # damO.zb000.weso.yase  (≈400 m east → new cell)
+# Polygon path: per-cell 10 m samples across a region
+curl -sX POST 'https://emem.dev/v1/recall_polygon' \
+  -H 'content-type: application/json' \
+  -d '{"place":"Punjab","bands":["indices.ndvi"],"max_cells":9}' \
+  | jq '.by_cell'
+# → 9 cells, each with its own 10 m-pixel value sampled at the cell centre
 ```
 
-So when an algorithm declares `multimodal.delivery_resolution_m: 10`,
-it means the **input sensor is 10 m native** (Sentinel-2 reflectance,
-Sentinel-1 GRD, etc.). The **served answer** is one value per `cell64`,
-i.e. ~305 m on the lat axis at the equator. If you need true sub-cell
-detail today, you must call `/v1/recall_polygon` with `max_cells=N`
-and downstream-aggregate yourself.
+So when you write a user-facing summary, the honest line is:
+*"The value is a Sentinel-2 10 m measurement at <cell64>. Querying any
+point within ~305 m of the cell centre returns this same 10 m sample;
+ask for a wider region with `/v1/recall_polygon` to fan out."*
 
-The protocol's spec target (`docs/SPEC.md §3`) is an aperture-7 hex
-DGGS at ~3.4 m edge length. That migration is not yet shipped; the
-field name will be tightened from `delivery_resolution_m` to
-`input_sensor_resolution_m` to remove the ambiguity in the next
-algorithms manifest. Until then, **read the field as "input fidelity",
-not "output granularity"**.
+`/v1/grid_info` carries the authoritative numbers and a stable
+`honest_warnings` array; pin those at session start if your agent
+includes the protocol details verbatim.
 
 ### 0.2  Sensor availability is real
 

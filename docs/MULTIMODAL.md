@@ -9,18 +9,32 @@ This document describes the policy, the registry validator that
 enforces it, and the cross-modality test methodology used to verify it
 on the live emem.dev responder.
 
-> **Resolution truth (read first).** The `multimodal.delivery_resolution_m`
-> field describes the *input sensor's native pitch*, **not** the served
-> grain. The active wire grid (`cell64-hilbert16`) quantizes to ~305 m
-> on the latitude axis at the equator; two queries 10 m apart resolve
-> to the same cell and return the same fact. So a `delivery_resolution_m=10`
-> algorithm runs on 10 m S1/S2 inputs but **delivers one value per
-> ~305 m cell**. The spec target (`docs/SPEC.md §3`) is an aperture-7
-> hex DGGS at ~3.4 m edge length; that migration is not yet shipped.
-> Authoritative numbers live at `/v1/grid_info`. We keep the field name
-> for now to preserve manifest stability and will rename it to
-> `input_sensor_resolution_m` in the next algorithms manifest. See
-> `docs/CLIENTS.md §0.1` for the empirical demonstration.
+> **Resolution truth (read first).** Three different "resolutions"
+> sit behind the multimodal block — distinguish them carefully.
+>
+> 1. **`data_resolution_m`** (the value's fidelity) — when the
+>    multimodal block declares `delivery_resolution_m: 10` and the
+>    fact's anchor band is `s2.*`, `indices.*`, or `sentinel1_raw`,
+>    the materializer reads a single **real 10 m pixel** at the cell-
+>    centre lat/lng (`crates/emem-api-rest/src/lib.rs:8575`,
+>    `sample_pixel(...)`). The value is not interpolated, not
+>    coarsened, not block-averaged. The 10 m claim is honest.
+> 2. **`cell_dedupe_m`** (cache key) — emem keys its persistent fact
+>    store by `cell64`, the active grid quantizes at ~305 m on the
+>    latitude axis at the equator. Two queries 10 m apart land in the
+>    same cell and return the **same cached 10 m-fidelity value** —
+>    they do *not* fall back to a coarser aggregate. If an agent needs
+>    a different 10 m sample inside the same cell, it must call
+>    `/v1/recall_polygon` with a tighter polygon (or wait for the
+>    H3 migration).
+> 3. **Spec target grid** — aperture-7 hex DGGS at ~3.4 m edge length
+>    (`docs/SPEC.md §3`). Not yet active.
+>
+> The `multimodal.delivery_resolution_m` field is interpretation (1):
+> the sensor pitch the algorithm consumes. Authoritative numbers live
+> at `/v1/grid_info`; the boring-API responses surface all three as
+> `data_resolution_m`, `cell_dedupe_m`, and the live `cell64`. See
+> `docs/CLIENTS.md §0a` for the empirical demonstration.
 
 ---
 

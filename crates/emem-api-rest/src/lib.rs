@@ -39,7 +39,7 @@
 use std::sync::{Arc, LazyLock};
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -248,6 +248,17 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
         .route("/v1/recall", post(post_recall))
+        // Boring-API skin: lat/lng GETs over the deep recall protocol.
+        .route("/v1/at", get(get_v1_at))
+        .route("/v1/ndvi", get(get_v1_ndvi))
+        .route("/v1/elevation", get(get_v1_elevation))
+        .route("/v1/air", get(get_v1_air))
+        .route("/v1/lst", get(get_v1_lst))
+        .route("/v1/soil", get(get_v1_soil))
+        .route("/v1/water", get(get_v1_water))
+        .route("/v1/forest", get(get_v1_forest))
+        .route("/v1/weather", get(get_v1_weather))
+        .route("/v1/agent_quickref", get(get_v1_agent_quickref))
         .route("/v1/query_region", post(post_query_region))
         .route("/v1/compare", post(post_compare))
         .route("/v1/compare_bands", post(post_compare_bands))
@@ -475,6 +486,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/manifests"
         | "/v1/errors"
         | "/v1/quickstart"
+        | "/v1/agent_quickref"
         | "/agents.md"
         | "/whitepaper.md"
         | "/spec.md"
@@ -3157,6 +3169,481 @@ async fn post_recall(
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()))
 }
 
+// =============================================================
+// Boring-API skin: lat/lng GETs over the deep recall protocol.
+//
+// Why: agents trained on the public API zoo (OpenWeather, Maps,
+// Stripe…) reach for `GET /thing?lat=&lon=` first; cell64 + body-
+// POST is a wall on the activation path. The boring layer runs
+// locate→recall internally and returns a flat scalar + the protocol
+// citizenship (cell64, fact_cid, responder_pubkey_b32, signed_at)
+// so a one-liner curl works AND every guarantee is preserved.
+// Agents that need polygons / batches / history graduate to
+// /v1/recall, /v1/recall_polygon, /v1/backfill via the `next` hints.
+//
+// Honesty fields surfaced by every boring response:
+//   resolution_m_input — sensor's native pitch (10 m for S1/S2,
+//                        90 m for Cop-DEM, 250 m for SoilGrids…)
+//   resolution_m_grid  — served grain (~305 m on the lat axis at
+//                        the equator; see /v1/grid_info)
+// Two queries 10 m apart resolve to the same cell64; do NOT promise
+// sub-cell granularity to the user.
+// =============================================================
+
+#[derive(Deserialize)]
+struct LatLngQ {
+    lat: f64,
+    #[serde(default)]
+    lon: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
+    #[serde(default)]
+    band: Option<String>,
+    #[serde(default)]
+    bands: Option<String>,
+    #[serde(default)]
+    tslot: Option<u64>,
+}
+
+impl LatLngQ {
+    fn longitude(&self) -> Result<f64, ApiError> {
+        self.lon.or(self.lng).ok_or_else(|| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: "missing `lon` (or `lng`) query parameter".into(),
+                },
+            )
+        })
+    }
+}
+
+/// Native pixel pitch of the upstream sensor, in metres. None when
+/// the band has no single defensible figure (e.g. embedding bands).
+fn band_input_resolution_m(band: &str) -> Option<u32> {
+    match band {
+        b if b.starts_with("s2.") || b.starts_with("indices.") => Some(10),
+        "sentinel1_raw" => Some(10),
+        b if b.starts_with("geotessera") => Some(10),
+        "modis.ndvi_mean" => Some(250),
+        b if b.starts_with("modis.lst_") => Some(1000),
+        b if b.starts_with("modis.") => Some(500),
+        "copdem30m.elevation_mean" => Some(90),
+        "gmrt.topobathy_mean" => Some(100),
+        "surface_water.recurrence" => Some(30),
+        b if b.starts_with("hansen.") => Some(30),
+        "esa_worldcover.lc_2021" => Some(10),
+        b if b.starts_with("soilgrids.") => Some(250),
+        b if b.starts_with("cams.") => Some(11_000),
+        b if b.starts_with("era5.") => Some(11_000),
+        b if b.starts_with("power.") => Some(55_000),
+        b if b.starts_with("weather.") => Some(2_500),
+        b if b.starts_with("marine.") => Some(11_000),
+        b if b.starts_with("overture.") => Some(305),
+        _ => None,
+    }
+}
+
+/// Cell-grid grain on the latitude axis at the equator, in metres.
+/// Single source of truth: `/v1/grid_info`.
+const RESOLUTION_M_GRID: u32 = 305;
+
+/// Project a Fact + receipt-context into the boring response shape.
+/// Returns `(value-or-null, json blob)` so the caller can decide how
+/// to compose multi-band bundles.
+fn boring_view(
+    fact: &emem_fact::Fact,
+    fact_cid: Option<&str>,
+    responder_pubkey_b32: &str,
+    cell64: &str,
+    served_at: &str,
+) -> JsonValue {
+    use emem_fact::Fact;
+    match fact {
+        Fact::Primary(p) => {
+            let source = p.sources.first();
+            let res_in = band_input_resolution_m(&p.band);
+            json!({
+                "kind":                  "primary",
+                "band":                  p.band,
+                "value":                 ciborium_to_json(&p.value),
+                "unit":                  p.unit,
+                "confidence":            p.confidence,
+                "source":                source.map(|s| s.scheme.as_str()),
+                "source_url":            source.map(|s| s.id.as_str()),
+                "captured_at":           source.and_then(|s| s.captured_at.as_deref()),
+                // Resolution honesty, in three numbers:
+                //   data_resolution_m  = the pitch of the upstream pixel
+                //                        we actually sampled (10 m for S1/S2,
+                //                        90 m for Cop-DEM, 250 m for SoilGrids…).
+                //                        THIS IS THE FIDELITY OF THE VALUE.
+                //   cell_dedupe_m      = our cache key granularity. Two queries
+                //                        within ~305 m hit the same cached
+                //                        sample (the one taken at the cell
+                //                        centre); it does NOT mean the value
+                //                        is a 305 m aggregate.
+                //   resolution_m_input = legacy alias of data_resolution_m;
+                //                        kept for compatibility this release.
+                "data_resolution_m":     res_in,
+                "resolution_m_input":    res_in,
+                "cell_dedupe_m":         RESOLUTION_M_GRID,
+                "cell64":                cell64,
+                "fact_cid":              fact_cid,
+                "responder_pubkey_b32":  responder_pubkey_b32,
+                "signed_at":             p.signed_at,
+                "served_at":             served_at,
+                "tslot":                 p.tslot,
+                "derivation_fn_key":     p.derivation.fn_key.as_str(),
+            })
+        }
+        Fact::Absence(a) => json!({
+            "kind":                  "absence",
+            "band":                  a.band,
+            "value":                 JsonValue::Null,
+            "reason_cid":            a.reason_cid.as_str(),
+            "data_resolution_m":     band_input_resolution_m(&a.band),
+            "resolution_m_input":    band_input_resolution_m(&a.band),
+            "cell_dedupe_m":         RESOLUTION_M_GRID,
+            "cell64":                cell64,
+            "fact_cid":              fact_cid,
+            "responder_pubkey_b32":  responder_pubkey_b32,
+            "signed_at":             a.signed_at,
+            "served_at":             served_at,
+            "tslot":                 a.tslot,
+            "advice": "signed Absence is a real answer ('tried and got no answer'); do not retry",
+        }),
+        _ => json!({
+            "kind":                  "other",
+            "band":                  null,
+            "cell64":                cell64,
+            "responder_pubkey_b32":  responder_pubkey_b32,
+            "advice": "use POST /v1/recall for non-Primary/Absence fact kinds (Range, Range2, Vector, …)",
+        }),
+    }
+}
+
+/// Common worker for every boring GET. Resolves lat/lng → cell64,
+/// fans out to the requested band(s), runs auto-materialize, and
+/// returns a flat JSON value.
+async fn boring_recall_at(
+    state: &AppState,
+    lat: f64,
+    lng: f64,
+    bands: &[String],
+    tslot: Option<u64>,
+) -> Result<JsonValue, ApiError> {
+    if !lat.is_finite() || !lng.is_finite() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "lat/lon must be finite numbers".into(),
+            },
+        ));
+    }
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "lat must be in [-90,90], lon in [-180,180]".into(),
+            },
+        ));
+    }
+    let cell = emem_codec::cell_from_latlng(lat, lng);
+    let cell_str = emem_codec::to_cell64(cell);
+    let req = RecallReq {
+        cell: cell_str.clone(),
+        bands: if bands.is_empty() {
+            None
+        } else {
+            Some(bands.to_vec())
+        },
+        tslot,
+    };
+    let (resp, materialize_notes) = recall_with_auto_materialize(&req, state).await?;
+
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&state.identity.pubkey.0)
+        .to_lowercase();
+    let served_at = resp.receipt.served_at.clone();
+    let cid_for = |band: &str| -> Option<String> {
+        for (idx, fact) in resp.facts.iter().enumerate() {
+            let fact_band = match fact {
+                emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
+                emem_fact::Fact::Absence(a) => Some(a.band.as_str()),
+                _ => None,
+            };
+            if fact_band == Some(band) {
+                return resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
+            }
+        }
+        None
+    };
+    let mut by_band = serde_json::Map::new();
+    for fact in &resp.facts {
+        let band = match fact {
+            emem_fact::Fact::Primary(p) => p.band.clone(),
+            emem_fact::Fact::Absence(a) => a.band.clone(),
+            _ => continue,
+        };
+        let cid = cid_for(&band);
+        by_band.insert(
+            band.clone(),
+            boring_view(fact, cid.as_deref(), &pubkey_b32, &cell_str, &served_at),
+        );
+    }
+
+    // If a single-band request returned exactly one fact, hoist it
+    // to the top level so `value` is reachable without a band lookup.
+    let single = bands.len() == 1 && resp.facts.len() == 1;
+    let mut envelope = if single {
+        if let Some(only) = by_band.into_iter().next() {
+            only.1
+        } else {
+            JsonValue::Null
+        }
+    } else {
+        // Multi-band envelope: each entry under `bands` is a full Fact
+        // view; hoist the protocol-citizen fields (cell64, the responder
+        // pubkey, both resolution numbers) to the top so an agent that
+        // only reads the first level still gets the citation surface.
+        json!({
+            "bands":                by_band,
+            "cell64":               cell_str.clone(),
+            "responder_pubkey_b32": pubkey_b32.clone(),
+            "cell_dedupe_m":        RESOLUTION_M_GRID,
+            "served_at":            served_at.clone(),
+        })
+    };
+
+    if let Some(map) = envelope.as_object_mut() {
+        map.insert("lat".into(), json!(lat));
+        map.insert("lon".into(), json!(lng));
+        if !materialize_notes.is_empty() {
+            map.insert(
+                "materialize_notes".into(),
+                JsonValue::Array(materialize_notes),
+            );
+        }
+        map.insert(
+            "next".into(),
+            json!({
+                "deep_recall":      format!("POST /v1/recall {{cell:'{cell_str}', bands:[…]}}"),
+                "polygon_aggregate": "POST /v1/recall_polygon {place:'<text>', bands:[…], max_cells:9}",
+                "history":          format!("POST /v1/backfill {{cell:'{cell_str}', band:'<band>', from_unix:…, to_unix:…}}"),
+                "fact_dereference": "GET /v1/facts/{fact_cid}",
+                "verify_offline":   "POST /v1/verify_receipt {receipt}",
+            }),
+        );
+    }
+    Ok(envelope)
+}
+
+/// `GET /v1/at?lat=&lon=&band=…&tslot=…`
+/// Generic single-or-multi-band lat/lng lookup. CSV-or-repeated
+/// `band` accepted via the `bands` field too.
+async fn get_v1_at(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let lng = q.longitude()?;
+    let mut bands: Vec<String> = Vec::new();
+    if let Some(b) = &q.band {
+        bands.push(b.clone());
+    }
+    if let Some(csv) = &q.bands {
+        for tok in csv.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if !bands.iter().any(|b| b == tok) {
+                bands.push(tok.to_string());
+            }
+        }
+    }
+    Ok(Json(
+        boring_recall_at(&s, q.lat, lng, &bands, q.tslot).await?,
+    ))
+}
+
+/// Build a fixed-bands boring GET. Used by every named shorthand
+/// below (/v1/ndvi, /v1/elevation, …).
+async fn boring_named(
+    s: &AppState,
+    q: LatLngQ,
+    bands: &[&str],
+) -> Result<Json<JsonValue>, ApiError> {
+    let lng = q.longitude()?;
+    let bands_owned: Vec<String> = bands.iter().map(|s| (*s).to_string()).collect();
+    Ok(Json(
+        boring_recall_at(s, q.lat, lng, &bands_owned, q.tslot).await?,
+    ))
+}
+
+/// `GET /v1/ndvi?lat=&lon=` → indices.ndvi
+async fn get_v1_ndvi(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["indices.ndvi"]).await
+}
+
+/// `GET /v1/elevation?lat=&lon=` → copdem30m.elevation_mean
+async fn get_v1_elevation(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["copdem30m.elevation_mean"]).await
+}
+
+/// `GET /v1/air?lat=&lon=` → cams.pm25 + cams.no2 + cams.o3
+async fn get_v1_air(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["cams.pm25", "cams.no2", "cams.o3"]).await
+}
+
+/// `GET /v1/lst?lat=&lon=` → MODIS LST day + night, 8-day composite
+async fn get_v1_lst(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["modis.lst_day_8day", "modis.lst_night_8day"]).await
+}
+
+/// `GET /v1/soil?lat=&lon=` → SoilGrids 0–30 cm topsoil pack
+async fn get_v1_soil(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(
+        &s,
+        q,
+        &[
+            "soilgrids.soc_0_30cm",
+            "soilgrids.phh2o_0_30cm",
+            "soilgrids.clay_0_30cm",
+            "soilgrids.sand_0_30cm",
+            "soilgrids.bdod_0_30cm",
+            "soilgrids.nitrogen_0_30cm",
+        ],
+    )
+    .await
+}
+
+/// `GET /v1/water?lat=&lon=` → JRC GSW recurrence + S1 VV (when available)
+async fn get_v1_water(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["surface_water.recurrence", "sentinel1_raw"]).await
+}
+
+/// `GET /v1/forest?lat=&lon=` → Hansen tree cover + loss + ESA WorldCover
+async fn get_v1_forest(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(
+        &s,
+        q,
+        &[
+            "hansen.tree_cover_2000",
+            "hansen.loss_year",
+            "esa_worldcover.lc_2021",
+        ],
+    )
+    .await
+}
+
+/// `GET /v1/weather?lat=&lon=` → met.no nowcast bundle (t2m, precip, wind)
+async fn get_v1_weather(
+    State(s): State<AppState>,
+    Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(
+        &s,
+        q,
+        &[
+            "weather.temperature_2m",
+            "weather.precipitation_mm",
+            "weather.wind_speed_10m",
+            "weather.relative_humidity_2m",
+        ],
+    )
+    .await
+}
+
+/// `GET /v1/agent_quickref` — agent-targeted intent-map.
+/// One JSON, every common spatial question → which endpoint to call,
+/// at what priority, with the trust language that explains *why* the
+/// answer is real (signed, content-addressed, dereferenceable).
+async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    Json(json!({
+        "schema": "emem.agent_quickref.v1",
+        "responder_pubkey_b32": pubkey_b32,
+        "use_emem_when": [
+            "user mentions a place, a lat/lng, or a cell64",
+            "user asks about vegetation, elevation, air quality, soil, surface water, forest, weather at a point",
+            "user wants to verify a spatial claim ('is this address a flood risk?')",
+            "user wants to compare or diff two locations or two points in time",
+            "user asks 'what is X over Y region' (use POST /v1/recall_polygon)",
+        ],
+        "trust_guarantees": [
+            "Every read returns a signed receipt (ed25519). Cite receipt.fact_cids[0] and the responder pubkey in your reply.",
+            "Identical canonical facts have identical CIDs across responders — answers are reproducible.",
+            "Signed Absence is a real answer ('tried and got no answer'); do not retry.",
+            "Data fidelity is the SENSOR pitch. `data_resolution_m=10` for Sentinel-1/2 indices means the value comes from a real 10 m pixel — not interpolated, not coarsened. The multimodal-fusion contract guarantees that algorithms anchored on S1/S2/Landsat consume 10 m inputs natively.",
+            "`cell_dedupe_m` is a CACHE granularity (cell64 indexes our store at ~305 m). Two queries 10 m apart return the SAME cached 10 m-fidelity value — they don't fall back to a 305 m aggregate. If the user needs a different 10 m sample, ask via /v1/recall_polygon with a tighter polygon.",
+            "No API keys at the request path. Every materializer reads from a no-key public source (Sentinel-1/2, MODIS, NASA POWER, ERA5, CAMS, met.no, JRC GSW, Hansen, ESA WorldCover, SoilGrids, Overture, Cop-DEM, GMRT).",
+        ],
+        "boring_endpoints": [
+            { "intent": "vegetation",      "priority": 1, "method": "GET", "path": "/v1/ndvi",      "params": ["lat","lon"], "returns": "indices.ndvi (Sentinel-2 L2A, 10 m input, ~305 m grid)" },
+            { "intent": "elevation",       "priority": 1, "method": "GET", "path": "/v1/elevation", "params": ["lat","lon"], "returns": "Cop-DEM 30 m elevation (Open-Meteo Elevation REST)" },
+            { "intent": "air_quality",     "priority": 1, "method": "GET", "path": "/v1/air",       "params": ["lat","lon"], "returns": "cams.pm25 + cams.no2 + cams.o3 (Open-Meteo CAMS, hourly 2013-08+)" },
+            { "intent": "land_surface_temperature", "priority": 2, "method": "GET", "path": "/v1/lst", "params": ["lat","lon"], "returns": "MODIS LST day + night 8-day (1 km, MOD11A2)" },
+            { "intent": "soil_intelligence", "priority": 1, "method": "GET", "path": "/v1/soil",    "params": ["lat","lon"], "returns": "SoilGrids 2.0 SOC + pH + clay + sand + BDOD + N (0–30 cm; ISRIC, 250 m)" },
+            { "intent": "surface_water",   "priority": 1, "method": "GET", "path": "/v1/water",     "params": ["lat","lon"], "returns": "JRC GSW recurrence (1984–2021) + S1 VV when available" },
+            { "intent": "forest",          "priority": 1, "method": "GET", "path": "/v1/forest",    "params": ["lat","lon"], "returns": "Hansen tree_cover_2000 + loss_year + ESA WorldCover 2021 class" },
+            { "intent": "weather_now",     "priority": 1, "method": "GET", "path": "/v1/weather",   "params": ["lat","lon"], "returns": "met.no nowcast: t2m + precip + wind + RH" },
+            { "intent": "any_band",        "priority": 2, "method": "GET", "path": "/v1/at",        "params": ["lat","lon","band"], "returns": "any of the 101 materializable bands by name" }
+        ],
+        "deep_endpoints": [
+            { "intent": "single_cell_recall",   "method": "POST", "path": "/v1/recall",         "use_when": "you have a cell64 already, or want multi-band batch in one call" },
+            { "intent": "regional_aggregate",  "method": "POST", "path": "/v1/recall_polygon", "use_when": "user named a wide region (city/park/country); collapses locate→sample→recall_many" },
+            { "intent": "fan_out_cells",       "method": "POST", "path": "/v1/recall_many",    "use_when": "you have a list of cell64s (max 256) and want one round-trip" },
+            { "intent": "history_window",      "method": "POST", "path": "/v1/backfill",       "use_when": "user wants per-tslot history (call /v1/data_availability first)" },
+            { "intent": "trajectory",          "method": "POST", "path": "/v1/trajectory",     "use_when": "show how a value moved across attested tslots" },
+            { "intent": "diff",                "method": "POST", "path": "/v1/diff",           "use_when": "compare a band at two tslots in the same cell" },
+            { "intent": "verify_claim",        "method": "POST", "path": "/v1/verify",         "use_when": "user makes a structured spatial claim ('elevation > 3000 m at X')" },
+            { "intent": "knn_similar",         "method": "POST", "path": "/v1/find_similar",   "use_when": "'find places like X' — k-NN over geotessera or any vector band" },
+            { "intent": "place_to_cell64",     "method": "POST", "path": "/v1/locate",         "use_when": "you only have a place name or lat/lng and need cell64" },
+        ],
+        "discovery_endpoints": [
+            "GET  /openapi.json           — OpenAPI 3.1 spec (Custom GPT Action)",
+            "GET  /.well-known/ai-plugin.json — ChatGPT plugin manifest",
+            "GET  /.well-known/emem.json  — protocol manifest CIDs + responder pubkey",
+            "POST /mcp                    — MCP Streamable HTTP (Claude / Cursor / Cline / Codex / Antigravity)",
+            "GET  /v1/agent_card          — tool catalogue with when-to-use hints",
+            "GET  /v1/grid_info           — authoritative cell resolution + spec target",
+            "GET  /v1/data_availability   — per-band coverage windows",
+            "GET  /v1/algorithms          — 101 composition recipes with citations",
+            "GET  /clients.md             — per-client integration guide (this responder, live)",
+            "GET  /multimodal.md          — sensor-fusion architecture + validator rules",
+        ],
+        "citation_pattern": "<value> <unit> at <cell64> (fact_cid <first 8 chars>, signed by responder <first 8 chars of pubkey_b32>; source: <source_url>).",
+        "anti_patterns": [
+            "Do not invent a fact_cid; if the response is missing one, omit the citation rather than fabricate it.",
+            "Do not say 'this is a 305 m measurement' — the value IS a 10 m S1/S2 pixel (when data_resolution_m=10). The 305 m number is our cache key, not the data resolution.",
+            "Do not retry on signed Absence — it is the correct answer.",
+            "Do not POST to GET endpoints; the boring API is GET-only and idempotent.",
+        ],
+    }))
+}
+
 #[derive(Deserialize)]
 struct RecallManyReq {
     /// Cells to fan out across (alias `cell64s` accepted).
@@ -5258,7 +5745,19 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":png_ok}}},
             "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property — paste straight into Mapbox/Leaflet/Deck.gl","operationId":"emem_cell_recall_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":json_ok}}},
             "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent","operationId":"emem_temporal_route_post","responses":{"200":json_ok}}},
-            "/v1/elevation":         {"post":{"summary":"convenience elevation lookup (uses copdem30m / gmrt fallback)","operationId":"emem_elevation","responses":{"200":json_ok}}},
+            "/v1/elevation":         {
+                "get":{"summary":"GET /v1/elevation?lat=&lon= — boring lat/lng lookup, returns Cop-DEM elevation (signed)","operationId":"emem_elevation_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"convenience elevation lookup (legacy POST; uses copdem30m / gmrt fallback)","operationId":"emem_elevation","responses":{"200":json_ok}}
+            },
+            "/v1/at":                {"get":{"summary":"GET /v1/at?lat=&lon=&band= — boring lat/lng lookup of any of the 101 materializable bands","operationId":"emem_at_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}},{"name":"band","in":"query","required":false,"schema":{"type":"string","description":"e.g. indices.ndvi, soilgrids.soc_0_30cm, weather.temperature_2m"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"CSV of bands, applied alongside `band`"}},{"name":"tslot","in":"query","required":false,"schema":{"type":"integer"}}],"responses":{"200":json_ok}}},
+            "/v1/ndvi":              {"get":{"summary":"GET /v1/ndvi?lat=&lon= — Sentinel-2 NDVI at a point (signed)","operationId":"emem_ndvi_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/air":               {"get":{"summary":"GET /v1/air?lat=&lon= — CAMS PM2.5 + NO2 + O3 bundle (signed)","operationId":"emem_air_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/lst":               {"get":{"summary":"GET /v1/lst?lat=&lon= — MODIS LST day + night 8-day composite (signed)","operationId":"emem_lst_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/soil":              {"get":{"summary":"GET /v1/soil?lat=&lon= — SoilGrids 2.0 0–30 cm topsoil pack (SOC, pH, clay, sand, BDOD, N) (signed)","operationId":"emem_soil_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/water":             {"get":{"summary":"GET /v1/water?lat=&lon= — JRC Global Surface Water recurrence + Sentinel-1 VV (signed)","operationId":"emem_water_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/forest":            {"get":{"summary":"GET /v1/forest?lat=&lon= — Hansen tree_cover_2000 + loss_year + ESA WorldCover class (signed)","operationId":"emem_forest_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/weather":           {"get":{"summary":"GET /v1/weather?lat=&lon= — met.no nowcast (t2m + precip + wind + RH) (signed)","operationId":"emem_weather_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/agent_quickref":    {"get":{"summary":"agent-targeted intent map: which endpoint to call for which user intent, with usage priority + trust language","operationId":"emem_agent_quickref","tags":["boring"],"responses":{"200":json_ok}}},
             "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","operationId":"emem_discover","responses":{"200":json_ok}}},
             "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject","operationId":"emem_reviews_post","responses":{"200":json_ok}}},
             "/v1/reviews/{subject_id}":{"get":{"summary":"list reviews for a subject","operationId":"emem_reviews_get","parameters":[{"name":"subject_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},

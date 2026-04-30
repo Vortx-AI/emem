@@ -31,6 +31,18 @@
     "llms_txt":      "/llms.txt",
     "llms_full_txt": "/llms-full.txt"
   },
+  "boring_endpoints": {
+    "vegetation": "GET /v1/ndvi?lat=&lon=",
+    "elevation":  "GET /v1/elevation?lat=&lon=",
+    "air":        "GET /v1/air?lat=&lon=",
+    "lst":        "GET /v1/lst?lat=&lon=",
+    "soil":       "GET /v1/soil?lat=&lon=",
+    "water":      "GET /v1/water?lat=&lon=",
+    "forest":     "GET /v1/forest?lat=&lon=",
+    "weather":    "GET /v1/weather?lat=&lon=",
+    "any_band":   "GET /v1/at?lat=&lon=&band=",
+    "intent_map": "GET /v1/agent_quickref"
+  },
   "primitives": [
     "emem_recall", "emem_recall_polygon", "emem_query_region",
     "emem_compare", "emem_compare_bands", "emem_find_similar",
