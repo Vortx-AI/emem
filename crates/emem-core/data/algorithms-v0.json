@@ -1400,7 +1400,16 @@
       "deterministic": true,
       "citation": "Wagner, W., Lemoine, G. & Rott, H. 1999. A method for estimating soil moisture from ERS scatterometer and soil data. Remote Sensing of Environment 70:191–207. Bauer-Marschallinger, B. et al. 2018. Toward global soil moisture monitoring with Sentinel-1: harmonising assets and analysing data with TU Wien algorithm. Remote Sensing of Environment 213:1–18.",
       "frequency_of_calculation": "every Sentinel-1 revisit (~6 d in Europe / ~12 d elsewhere). Trajectory window of 24 mo gives a stable percentile envelope; rebuild every quarter.",
-      "accuracy_band": "R² 0.50–0.70 vs in-situ probes on bare/sparse fields (Bauer-Marschallinger 2018). Drops to R² ~0.3 under dense canopy — surface as `confidence:'low'`."
+      "accuracy_band": "R² 0.50–0.70 vs in-situ probes on bare/sparse fields (Bauer-Marschallinger 2018). Drops to R² ~0.3 under dense canopy — surface as `confidence:'low'`.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["sentinel1_raw"],
+        "variance_sources":  ["sentinel1_raw", "indices.ndvi", "weather.precipitation_mm"],
+        "fusion_method": "bayesian_blend",
+        "priority_chain": ["s1", "s2", "static"],
+        "anchor_band": "sentinel1_raw",
+        "fallback_strategy": "absence"
+      }
     },
     {
       "key": "soc_estimate_s2_dem@1",
@@ -1427,7 +1436,16 @@
       "deterministic": true,
       "citation": "Hengl, T. et al. 2017. SoilGrids250m: Global gridded soil information based on machine learning. PLoS ONE 12(2):e0169748. Castaldi, F. et al. 2018. Mapping SOC at European scale by integrating Sentinel-2 imagery with European LUCAS data. Geoderma 327:153–165. Vaudour, E. et al. 2022. Sentinel-2 image capacities to predict common topsoil properties of temperate and Mediterranean agro-ecosystems. RSE 273:112978. Stevens, A. et al. 2008. Laboratory, field and airborne spectroscopy for monitoring SOC: state-of-the-art. Geoderma 144:395–404.",
       "frequency_of_calculation": "annual (post-harvest, bare-soil window). Sub-annual updates ARE NOT defensible — SOC stocks change <1%/yr in undisturbed soils; instrument noise dominates inside that interval.",
-      "accuracy_band": "tier-A R² ~0.40 (global SoilGrids prior alone); tier-B R² 0.55–0.70 (S2 + DEM blended, in-region); tier-C R² > 0.85 (lab-calibrated). NEVER advertise tier-B at tier-C accuracy."
+      "accuracy_band": "tier-A R² ~0.40 (global SoilGrids prior alone); tier-B R² 0.55–0.70 (S2 + DEM blended, in-region); tier-C R² > 0.85 (lab-calibrated). NEVER advertise tier-B at tier-C accuracy.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["soilgrids.soc_0_30cm", "copdem30m.elevation_mean"],
+        "variance_sources":  ["s2.B11", "s2.B12", "indices.bsi", "indices.ndmi"],
+        "fusion_method": "bayesian_blend",
+        "priority_chain": ["s2", "static"],
+        "anchor_band": "s2.B12",
+        "fallback_strategy": "prior_only_with_confidence_drop"
+      }
     },
     {
       "key": "soc_change_credit@1",
@@ -1446,7 +1464,17 @@
       "deterministic": true,
       "citation": "Verra Verified Carbon Standard. 2023. VM0042 — Methodology for Improved Agricultural Land Management v2.0. IPCC 2019 Refinement to the 2006 Guidelines for National GHG Inventories, Vol 4 Ch 5 (Soil Carbon). Smith, P. et al. 2020. How to measure, report and verify soil carbon change. Global Change Biology 26:219–241. Paustian, K. et al. 2019. Soil C sequestration as a biological negative emission strategy. Frontiers in Climate 1:8.",
       "frequency_of_calculation": "annual, anchored to project crediting period (typically t0 + Nyr where N ∈ [5,40]). Cannot be claimed sub-annually — VM0042 v2.0 §6.2 requires ≥1 yr separation between baseline and monitoring measurements.",
-      "accuracy_band": "uncertainty discount per VCS Tool VT0006: tier-A: 50% deduction, tier-B: 30% deduction, tier-C: 10% deduction. Surface BOTH the gross ΔSOC and the net issuable credit so auditors can verify the discount."
+      "accuracy_band": "uncertainty discount per VCS Tool VT0006: tier-A: 50% deduction, tier-B: 30% deduction, tier-C: 10% deduction. Surface BOTH the gross ΔSOC and the net issuable credit so auditors can verify the discount.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["<composite>"],
+        "variance_sources":  ["<composite>"],
+        "fusion_method": "bayesian_blend",
+        "priority_chain": ["s2", "static"],
+        "anchor_band": "<composite>",
+        "fallback_strategy": "absence",
+        "composite_inherit": true
+      }
     },
     {
       "key": "typed_stress_attribution@1",
@@ -1470,7 +1498,16 @@
       "deterministic": true,
       "citation": "Sandholt, I., Rasmussen, K. & Andersen, J. 2002. A simple interpretation of the surface temperature/vegetation index space for assessment of surface moisture status. RSE 79:213–224. Gitelson, A.A., Gritz, Y. & Merzlyak, M.N. 2003. Relationships between leaf chlorophyll content and spectral reflectance. Journal of Plant Physiology 160:271–282. Anderegg, W.R.L. et al. 2019. Climate-driven risks to forest carbon. Science 368:1327.",
       "frequency_of_calculation": "every Sentinel-2 cloud-free observation (~5–10 d non-monsoon, weekly composite during monsoon with SAR-fill). Stress classification updates faster than yield models because field response windows are <2 weeks.",
-      "accuracy_band": "70–90% precision per stress class once per-crop baselines exist (typed precision of `unexplained` is by definition a referral signal, not a measurement)."
+      "accuracy_band": "70–90% precision per stress class once per-crop baselines exist (typed precision of `unexplained` is by definition a referral signal, not a measurement).",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["modis.lst_day_8day"],
+        "variance_sources":  ["indices.ndvi", "indices.ndmi", "indices.ndre", "weather.temperature_2m"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "other_sat", "static"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      }
     },
     {
       "key": "n_uptake_ndre@1",
@@ -1491,7 +1528,16 @@
       "deterministic": true,
       "citation": "Gitelson, A.A., Gritz, Y. & Merzlyak, M.N. 2003. Relationships between leaf chlorophyll content and spectral reflectance. Journal of Plant Physiology 160:271–282. Cao, Q. et al. 2017. Active canopy sensing of winter wheat nitrogen status: an evaluation of two sensors, NDRE-based VIs, and a soil reflectance NIR-based VI. Field Crops Research 154:133–144. Clevers, J.G.P.W. & Kooistra, L. 2012. Using hyperspectral remote sensing data for retrieving canopy chlorophyll and nitrogen content. IEEE JSTARS 5:574–583.",
       "frequency_of_calculation": "every Sentinel-2 cloud-free pass (5-day revisit cadence, ~8–14 d cloud-permitting in non-monsoon). Sub-weekly updates not informative — leaf-N changes on ~3-day timescale at most.",
-      "accuracy_band": "NDRE→leaf-N R²~0.77 (Gitelson 2003); NDRE×LAI→kg N/ha R²~0.85 with crop-specific SPAD calibration on ≥200 plots; without SPAD calibration treat as relative ranking only, not absolute kg/ha."
+      "accuracy_band": "NDRE→leaf-N R²~0.77 (Gitelson 2003); NDRE×LAI→kg N/ha R²~0.85 with crop-specific SPAD calibration on ≥200 plots; without SPAD calibration treat as relative ranking only, not absolute kg/ha.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["modis.lai_8day"],
+        "variance_sources":  ["indices.ndre", "indices.ndvi"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "other_sat"],
+        "anchor_band": "indices.ndre",
+        "fallback_strategy": "tier_demote"
+      }
     },
     {
       "key": "eudr_compliance@1",
@@ -1502,17 +1548,30 @@
           "explanation": "Hansen Global Forest Change v1.11 baseline tree-cover percentage at year 2000. Cell qualifies as 'forest' if ≥30% per FAO definition." },
         { "band": "hansen.loss_year",      "role": "loss_year",
           "explanation": "Year of the FIRST Hansen-detected tree-cover loss event (2001–2024, encoded 1–24). Year ≥ 21 (i.e. 2021 or later) → fail per EUDR cut-off date 31 Dec 2020." },
-        { "band": "esa.worldcover.lc_2021", "role": "current_lc",
-          "explanation": "ESA WorldCover 2021 — confirms current land-cover; cropland/built/etc. on a former-forest pixel = converted commodity land = EUDR fail." }
+        { "band": "esa_worldcover.lc_2021", "role": "current_lc",
+          "explanation": "ESA WorldCover 2021 — confirms current land-cover; cropland/built/etc. on a former-forest pixel = converted commodity land = EUDR fail." },
+        { "band": "indices.ndvi",          "role": "current_canopy_variance",
+          "explanation": "Sentinel-2 NDVI trajectory across the 2020-12-31 EUDR cut-off line provides the 10 m variance term: a 0.30+ NDVI drop straddling the cut-off plot-confirms a loss flagged by Hansen at 30 m and lifts the receipt to 10 m delivery resolution." },
+        { "band": "sentinel1_raw",         "role": "all_weather_canopy_variance",
+          "explanation": "Sentinel-1 γ⁰ VV change across the cut-off — a γ⁰ drop ≥1.5 dB is a forest-clearing structural signature even under monsoon cloud (Bouvet et al. 2018) and lets the receipt stand up in tropical-belt audits where optical blackouts are routine." }
       ],
-      "formula": "if tree_cover_2000 < 30 -> 'not_in_scope'; if loss_year >= 21 -> 'fail'; if tree_cover_2000 >= 30 and loss_year < 21 -> 'pass'; aggregate over polygon: any cell == 'fail' -> polygon FAIL with cell-area % deforested reported",
+      "formula": "if tree_cover_2000 < 30 -> 'not_in_scope'; if loss_year >= 21 -> 'fail' (confirm with NDVI(t<2021) - NDVI(t>=2021) >= 0.30 OR Δsentinel1_raw <= -1.5 dB straddling cut-off when optical missing); if tree_cover_2000 >= 30 and loss_year < 21 -> 'pass'; aggregate over polygon: any cell == 'fail' -> polygon FAIL with cell-area % deforested reported",
       "output": { "kind": "classification", "values": ["pass", "fail", "not_in_scope", "indeterminate"], "explanation": "EU Regulation 2023/1115 plot-level compliance verdict. The signed receipt cites hansen.tree_cover_2000 and hansen.loss_year fact_cids = audit-grade evidence accepted by EU Due Diligence Information System. ALWAYS print the % polygon area in 'fail' alongside the verdict; one bad pixel shouldn't disqualify a 100-ha plot if the loss footprint is 0.01 ha edge-effect." },
       "when_to_use": "EUDR Due Diligence Statements for the seven controlled commodities (cattle, cocoa, coffee, oil palm, rubber, soy, wood and their derivatives). Pair with a polygon (`/v1/recall_polygon`) — never run on a single point; EUDR requires geolocation polygons ≥4 ha or all parcel coordinates for smaller plots.",
       "primitive": "POST /v1/recall_polygon {polygon, bands:['hansen.tree_cover_2000','hansen.loss_year','esa.worldcover.lc_2021']} → apply formula → emit signed verdict",
       "deterministic": true,
       "citation": "European Union. 2023. Regulation (EU) 2023/1115 of 31 May 2023 on the making available on the Union market and the export from the Union of certain commodities and products associated with deforestation and forest degradation. Hansen, M.C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850–853 (annual updates v1.11 = 2024 release). FAO 2020. Global Forest Resources Assessment 2020 (forest-definition >30% canopy cover).",
       "frequency_of_calculation": "annual at minimum (Hansen GFC publishes a new vintage each year, typically April). For active commodity supply chains, re-run on every Hansen v1.x release AND on every RADD/GLAD near-real-time alert (when wired) to detect new losses inside the EUDR cut-off window.",
-      "accuracy_band": "Hansen GFC user's accuracy 87% for 2000 cover ≥ 25%, 73% for cover 0–25% (Hansen et al. 2013, supplementary). EU Joint Research Centre validation on EUDR-relevant commodities reports ≥ 90% producer's accuracy at ≥ 0.5 ha minimum mapping unit. Surface a `false_positive_risk` flag for fail-verdicts < 0.5 ha total."
+      "accuracy_band": "Hansen GFC user's accuracy 87% for 2000 cover ≥ 25%, 73% for cover 0–25% (Hansen et al. 2013, supplementary). S2 NDVI + S1 γ⁰ confirmation lifts plot-edge precision to ≥95% for ≥0.5 ha cleared patches and downgrades unconfirmed Hansen alerts to `indeterminate`. Surface a `false_positive_risk` flag for fail-verdicts < 0.5 ha total.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["hansen.tree_cover_2000", "hansen.loss_year", "esa_worldcover.lc_2021"],
+        "variance_sources":  ["indices.ndvi", "sentinel1_raw"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2", "s1", "static"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      }
     },
     {
       "key": "residue_burn_multisensor@1",
@@ -1537,7 +1596,16 @@
       "deterministic": true,
       "citation": "Key, C.H. & Benson, N.C. 2006. Landscape Assessment: Sampling and Analysis Methods. USDA-FS RMRS-GTR-164. van Deventer, A.P. et al. 1997. Using thematic mapper data to identify contrasting soil plains and tillage practices. PE&RS 63(1):87–93. Giglio, L. et al. 2018. The Collection 6 MODIS burned area mapping algorithm and product. RSE 217:72–85. Liu, T. et al. 2019. Crop residue burning practices across north India inferred from household survey data: bridging gaps in satellite observations. Atmospheric Environment 6:100091.",
       "frequency_of_calculation": "every Sentinel-2 pass during burn season (Oct–Nov, Mar–Apr in north-Indian Indo-Gangetic plain). Outside burn season, weekly suffices. For NRT enforcement, drop in VIIRS active-fire (375 m, ~3 hr latency) and run hourly.",
-      "accuracy_band": ">95% precision for `high_confidence_burn` (≥3-sensor agreement) in validation studies of Punjab/Haryana paddy stubble. `likely_burn` ~85% precision; `single_sensor_signal` ~60% — useful as a triage/scout signal only."
+      "accuracy_band": ">95% precision for `high_confidence_burn` (≥3-sensor agreement) in validation studies of Punjab/Haryana paddy stubble. `likely_burn` ~85% precision; `single_sensor_signal` ~60% — useful as a triage/scout signal only.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["modis.burned_area_monthly", "cams.aod_550", "cams.pm25"],
+        "variance_sources":  ["indices.nbr", "indices.ndti"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2", "other_sat"],
+        "anchor_band": "indices.nbr",
+        "fallback_strategy": "tier_demote"
+      }
     },
     {
       "key": "rice_methane_awd_modeled@1",
@@ -1560,7 +1628,16 @@
       "deterministic": true,
       "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Vol 4 Ch 5.5 'Rice Cultivations' (Table 5.11 baseline EF + scaling factors). Yan, X. et al. 2009. Statistical analysis of the major variables controlling methane emission from rice fields. Global Change Biology 15:1817–1819. Bouvet, A. et al. 2018. Use of the SAR shadowing effect for deforestation detection. RSE 215:228–243. Verra Verified Carbon Standard. 2024. VM0042 + AWD methodology module.",
       "frequency_of_calculation": "once per rice season (typically 110–150 d). Mid-season interim estimates can be issued every 10 days from sowing for monitoring dashboards but credit issuance MUST anchor on the full-season trajectory.",
-      "accuracy_band": "±25–30% (IPCC Tier-2 uncertainty for rice CH₄). Eddy-covariance ground-truth lifts the AWD-vs-continuous-flood discrimination to >90% — that's the part Verra cares about, not the absolute flux magnitude."
+      "accuracy_band": "±25–30% (IPCC Tier-2 uncertainty for rice CH₄). Eddy-covariance ground-truth lifts the AWD-vs-continuous-flood discrimination to >90% — that's the part Verra cares about, not the absolute flux magnitude.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["weather.temperature_2m"],
+        "variance_sources":  ["indices.ndwi", "sentinel1_raw", "indices.ndvi"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s1", "s2", "static"],
+        "anchor_band": "sentinel1_raw",
+        "fallback_strategy": "tier_demote"
+      }
     },
     {
       "key": "gdd_phenology@1",
@@ -1579,7 +1656,251 @@
       "deterministic": true,
       "citation": "McMaster, G.S. & Wilhelm, W.W. 1997. Growing degree-days: one equation, two interpretations. Agricultural and Forest Meteorology 87:291–300. Miller, P., Lanier, W. & Brandt, S. 2001. Using growing degree days to predict plant stages. MSU Extension MT200103AG. Snyder, R.L. 1985. Hand calculating degree days. Agricultural and Forest Meteorology 35:353–358.",
       "frequency_of_calculation": "daily, anchored to user-supplied sowing date. Required as a phenology input by typed_stress_attribution@1, n_uptake_ndre@1, and crop_yield_proxy@1.",
-      "accuracy_band": "±50 GDD per ±1 °C systematic bias in the temperature inputs. NASA POWER vs in-situ stations: RMSE ~1.2 °C → ~50 GDD/season uncertainty over a 1500 GDD season ≈ 3% — well inside crop-stage-detection tolerance."
+      "accuracy_band": "±50 GDD per ±1 °C systematic bias in the temperature inputs. NASA POWER vs in-situ stations: RMSE ~1.2 °C → ~50 GDD/season uncertainty over a 1500 GDD season ≈ 3% — well inside crop-stage-detection tolerance.",
+      "multimodal": {
+        "delivery_resolution_m": 25000,
+        "baseline_sources": ["weather.temperature_2m"],
+        "variance_sources":  ["weather.temperature_2m"],
+        "fusion_method": "none",
+        "priority_chain": ["static"],
+        "anchor_band": "weather.temperature_2m",
+        "fallback_strategy": "absence"
+      }
+    },
+    {
+      "key": "rusle_soil_erosion@1",
+      "kind": "combined",
+      "domain": "soil",
+      "inputs": [
+        { "band": "power.precip",            "role": "rainfall_archive",
+          "explanation": "Annual precipitation series for the R-factor (rainfall erosivity). NASA POWER 1981→ daily; aggregate to MFI (modified Fournier index) over ≥10 years for a stable R." },
+        { "band": "soilgrids.clay_0_30cm",   "role": "clay",
+          "explanation": "Clay fraction → K-factor (soil erodibility) per Williams 1995 EPIC equation. Higher clay = lower K (more aggregate stability)." },
+        { "band": "soilgrids.sand_0_30cm",   "role": "sand",
+          "explanation": "Sand fraction → K-factor. Combined with silt (= 1000 − clay − sand) and SOC drives erodibility." },
+        { "band": "soilgrids.soc_0_30cm",    "role": "soc",
+          "explanation": "Soil Organic Carbon → K-factor; higher SOC suppresses erodibility (organic matter binds aggregates)." },
+        { "band": "copdem30m.elevation_mean", "role": "topography",
+          "explanation": "Elevation surface used to derive slope length λ (m) and slope angle θ — feeds the LS-factor (slope-length × slope-steepness, McCool et al. 1987)." },
+        { "band": "esa_worldcover.lc_2021",  "role": "lulc_cover_factor",
+          "explanation": "Land-cover class drives the C-factor (cover-management) lookup: cropland 0.20–0.40, grassland 0.05, shrubs 0.03, forest 0.003, bare 1.0 (Panagos et al. 2015 reference values)." },
+        { "band": "indices.bsi",              "role": "current_bare_soil_variance",
+          "explanation": "Sentinel-2 Bare Soil Index — current bare-soil fraction modulates the C-factor at 10 m. C-factor base value from ESA WorldCover gets multiplied by clamp(BSI/0.20, 0.5, 1.5) so a fallow crop pixel inherits a higher C than a vigorously-canopied one within the same WorldCover class (Borrelli 2017 dynamic-C approach)." },
+        { "band": "sentinel1_raw",            "role": "surface_roughness_variance",
+          "explanation": "Sentinel-1 γ⁰ VV — recent backscatter informs surface-roughness contribution to the LS-factor. A sharp γ⁰ rise (tilled / freshly-bare) raises LS by ~10%; γ⁰ stable (residue-covered or canopy) keeps LS at the DEM baseline. All-weather variance source for monsoon belts where S2 BSI is cloud-blocked." }
+      ],
+      "formula": "R = MFI_to_R(MFI, regional_eq); MFI = Σ_month (P_month² / P_year);  K = 0.0034 + 0.0405·exp(-0.5·((log10(D_g)+1.659)/0.7101)²)  where D_g is geometric mean particle size from sand/silt/clay (Wischmeier 1978 nomograph); LS_base = (λ/22.13)^m · (65.41·sin²θ + 4.56·sinθ + 0.065) where m=0.5 if slope_pct≥5 (McCool 1987); LS = LS_base · clamp(1 + 0.10*z_sentinel1, 0.9, 1.15);  C_base = lookup(esa_worldcover.lc_2021);  C = C_base · clamp(indices.bsi/0.20, 0.5, 1.5)  (Borrelli 2017 dynamic-C);  P = 1.0 (no support practice, conservative); A = R · K · LS · C · P",
+      "output": { "kind": "scalar", "unit": "t_ha_yr", "range": [0, 200], "explanation": "Annual soil loss (USLE/RUSLE), tonnes per hectare per year. Threshold ladder per UN-FAO and EU JRC: ≤2 = tolerable, 2–5 = low, 5–10 = moderate, 10–20 = high, >20 = severe (NABARD subsidy threshold 10 t/ha/yr in India). Receipt MUST list each factor (R, K, LS, C, P) so an auditor can challenge any single component without re-running the chain. ALWAYS surface the dominant factor — most erosion answers reduce to either LS (steep slopes) or C (bare crops in monsoon)." },
+      "when_to_use": "Watershed / plot erosion screening, NABARD soil-conservation subsidy verification, EU CAP eco-scheme conditionality, carbon-project additionality (eroded plots can't bank SOC). Pair with `soc_change_credit@1` — accelerated erosion debits the carbon ledger and SHOULD be deducted from issuable credits.",
+      "primitive": "POST /v1/backfill {cell, band:'power.precip', from: t-10yr, to: t}; POST /v1/recall {bands:['soilgrids.{clay,sand,soc}_0_30cm','copdem30m.elevation_mean','esa_worldcover.lc_2021']}; apply formula",
+      "deterministic": true,
+      "citation": "Wischmeier, W.H. & Smith, D.D. 1978. Predicting Rainfall Erosion Losses — A Guide to Conservation Planning. USDA Agriculture Handbook 537. Renard, K.G. et al. 1997. Predicting Soil Erosion by Water: A Guide to Conservation Planning with the Revised Universal Soil Loss Equation (RUSLE). USDA Agriculture Handbook 703. Panagos, P. et al. 2015. The new assessment of soil loss by water erosion in Europe. Environmental Science & Policy 54:438–447. McCool, D.K. et al. 1987. Revised slope steepness factor for the Universal Soil Loss Equation. Trans. ASAE 30:1387–1396.",
+      "frequency_of_calculation": "annual (R-factor recomputed over a 10-yr rolling rainfall window per WMO guidance; K-factor static; LS-factor static at the 30 m DEM resolution; C-factor refresh on every Sentinel-2 cloud-free pass via dynamic-BSI modulation per Borrelli 2017).",
+      "accuracy_band": "RUSLE absolute uncertainty ±50% at plot scale (vs. erosion-pin or sediment-trap measurements; Renard 1997 §1.5). Skill at ranking plots and regions is materially better — use for relative prioritisation and threshold compliance, not absolute t/ha quotation. Dynamic C-factor from S2 BSI + S1 γ⁰ improves within-season bare-vs-canopy discrimination by ~25% over a static WorldCover-only C (Panagos 2015 vs. Borrelli 2017 European cross-validation).",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["power.precip", "soilgrids.clay_0_30cm", "soilgrids.sand_0_30cm", "soilgrids.soc_0_30cm", "copdem30m.elevation_mean", "esa_worldcover.lc_2021"],
+        "variance_sources":  ["indices.bsi", "sentinel1_raw"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "s1", "static"],
+        "anchor_band": "indices.bsi",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+    {
+      "key": "soil_salinity_index@1",
+      "kind": "combined",
+      "domain": "soil",
+      "inputs": [
+        { "band": "s2.B04",          "role": "red",
+          "explanation": "Sentinel-2 red (665 nm); high reflectance over salt crust." },
+        { "band": "s2.B11",          "role": "swir1",
+          "explanation": "SWIR1 (1610 nm); strong absorption depression over salinized bare soil. SI-T (Khan 2005) anchors here." },
+        { "band": "s2.B12",          "role": "swir2",
+          "explanation": "SWIR2 (2190 nm); secondary salinity-absorption window." },
+        { "band": "indices.bsi",     "role": "bare_soil_gate",
+          "explanation": "Salinity is detectable only on bare or sparsely-vegetated soil (NDVI < 0.3); the algorithm returns Absence over canopy." },
+        { "band": "soilgrids.soc_0_30cm", "role": "context",
+          "explanation": "SOC informs the SOC-vs-salt confusion case — salt crust and dry low-SOC soils share a SWIR signature; SOC < 5 g/kg + B11/B12 ratio confirms salinity, > 15 g/kg ambiguous." }
+      ],
+      "formula": "if BSI < 0.05 -> Absence{reason:'canopy_dominated'}; SI_T = 100 * sqrt(B04 * B11);  ratio_SWIR = B11 / B12;  salinity_class = if SI_T > 18.0 AND ratio_SWIR > 1.05 AND soc_0_30cm < 8.0 -> 'severe'; else if SI_T > 12.0 AND ratio_SWIR > 1.02 -> 'moderate'; else if SI_T > 8.0 -> 'mild'; else 'none'",
+      "output": { "kind": "classification", "values": ["none", "mild", "moderate", "severe", "absent_canopy"], "explanation": "Plot-level soil salinity hotspot screening. Khan 2005 SI-T threshold (12-18) plus SWIR ratio (Allbed 2014) discriminate genuine salt crust from organic dark soil. NOT a calibrated EC measurement — receipts MUST cite this as 'screening grade' not 'lab grade'. Pair with EC1:5 lab samples on flagged hotspots before any reclamation prescription." },
+      "when_to_use": "State-government coastal-reclamation programs (Gujarat saline tracts, Sundarbans), CGWB groundwater-irrigation salinity surveys, insurance fraud-screening on yield-loss claims that should correlate with salinity. Do NOT use over canopy or wet soil (water in pores erases SWIR signal).",
+      "primitive": "POST /v1/recall {bands:['s2.B04','s2.B11','s2.B12','indices.bsi','soilgrids.soc_0_30cm']} → apply formula",
+      "deterministic": true,
+      "citation": "Khan, N.M. et al. 2005. Assessment of hydrosaline land degradation by using a simple approach of remote sensing indicators. Agric. Water Manag. 77:96–109. Allbed, A. & Kumar, L. 2013. Soil salinity mapping and monitoring in arid and semi-arid regions using remote sensing technology. Adv. Remote Sens. 2:373–385. Allbed, A. et al. 2014. Mapping and modelling spatial variation in soil salinity. Geoderma 230-231:1–8.",
+      "frequency_of_calculation": "every Sentinel-2 cloud-free pass during dry season (post-harvest bare-soil window). Outside dry season SI-T noise dominates; rely on the existing post-harvest scan.",
+      "accuracy_band": "75–85% precision discriminating salinity-class >= 'moderate' vs. 'none' against EC1:5 ground samples in arid/semi-arid plots (Allbed 2014). Substantially worse in subhumid/humid where SOC variability confounds the SWIR signal.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["soilgrids.soc_0_30cm"],
+        "variance_sources":  ["s2.B04", "s2.B11", "s2.B12", "indices.bsi"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "static"],
+        "anchor_band": "s2.B11",
+        "fallback_strategy": "absence"
+      }
+    },
+    {
+      "key": "sowing_date_detection@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "indices.ndvi",            "role": "ndvi_trajectory",
+          "explanation": "Per-Sentinel-2-revisit NDVI series across the agent-supplied search window (typically pre-monsoon to early post-monsoon for kharif, or late autumn for rabi). Sowing defined as the first NDVI inflection rising above NDVI_baseline + 0.05 sustained for ≥3 observations (Sakamoto 2005; Bolton-Friedl 2013)." },
+        { "band": "sentinel1_raw",           "role": "tillage_signal",
+          "explanation": "Sentinel-1 γ⁰ VV drop ≥1.5 dB straddling the candidate sowing date = tillage / land preparation signature (Vreugdenhil 2018). Independent confirmation under cloud." },
+        { "band": "power.t2m",               "role": "gdd_anchor",
+          "explanation": "GDD accumulation from candidate sowing date — emergence requires ≥50–100 GDD for major crops; if not reached within 14 d, candidate is rejected." }
+      ],
+      "formula": "candidates = { t : NDVI(t) - NDVI(t-revisit) > 0.05 AND NDVI(t) > 0.20 AND NDVI(t+revisit) > NDVI(t) }; for each candidate, require sentinel1_raw_drop(t-7d, t+7d) >= 1.5 dB OR persistence: NDVI(t+30d) - NDVI(t) > 0.15;  sowing_date = argmin(candidate); if no candidate in [search_start, search_end] -> Absence",
+      "output": { "kind": "scalar", "unit": "unix_seconds", "range": [0, "+inf"], "explanation": "Unix epoch second of the detected sowing date. RMSE ~9 days vs. agronomist-recorded sowing per Bolton & Friedl 2013 validation across 18 US Midwest counties; Indian smallholder validation by Singh et al. 2024 reports 7–12 d RMSE depending on cloud cover. ALWAYS surface a `confidence_window` field (typically ±7 d) so downstream phenology and yield models can propagate the uncertainty." },
+      "when_to_use": "Insurance sowing-window verification (PMFBY mandates documented sowing for premium/claim eligibility), warehouse capacity planning at Arya FPOs (predict harvest = sowing + days-to-maturity from `gdd_phenology@1`), agri-input timing recommendations.",
+      "primitive": "POST /v1/trajectory {bands:['indices.ndvi','sentinel1_raw'], from:search_start, to:search_end}; POST /v1/backfill {band:'power.t2m', from:candidate, to:candidate+14d}; apply formula",
+      "deterministic": true,
+      "citation": "Sakamoto, T. et al. 2005. A crop phenology detection method using time-series MODIS data. Remote Sensing of Environment 96:366–374. Bolton, D.K. & Friedl, M.A. 2013. Forecasting crop yield using remotely sensed vegetation indices and crop phenology metrics. Agricultural and Forest Meteorology 173:74–84. Vreugdenhil, M. et al. 2018. Sentinel-1 cross-ratio and vegetation optical depth: a comparison over Europe. Remote Sensing 10:1396.",
+      "frequency_of_calculation": "once per cropping season per plot, anchored to the user-supplied search window. Re-run only if the upstream Sentinel-2 archive backfills new cloud-free observations into the search window.",
+      "accuracy_band": "RMSE ~9 d on plots ≥ 0.5 ha with ≤ 30% monsoon cloud cover. Degrades to RMSE 14+ d in heavy-monsoon zones — surface SAR-only fallback explicitly when optical observations < 3 in the search window.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["power.t2m"],
+        "variance_sources":  ["indices.ndvi", "sentinel1_raw"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2", "s1", "static"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+    {
+      "key": "harvest_date_detection@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "indices.ndvi",   "role": "ndvi_drop",
+          "explanation": "Senescence: sharp NDVI drop > 0.20 over 14 d signals harvest, NOT senescence-only — decoupled from gradual maturation." },
+        { "band": "indices.ndti",   "role": "residue_signature",
+          "explanation": "NDTI rise post-harvest = exposed crop residue (cellulose absorption shifts vs. healthy canopy). Bowman et al. 2024." },
+        { "band": "s2.B11",         "role": "swir1_dryness",
+          "explanation": "B11 reflectance jump = bare-soil/residue signature, robust to NDVI noise." },
+        { "band": "sentinel1_raw",  "role": "all_weather_post_harvest",
+          "explanation": "Sentinel-1 γ⁰ VV rise post-harvest (lodging / stubble structural change) — the cloud-permitting confirmation channel for monsoon-overlapping rabi harvest in north-Indian wheat." }
+      ],
+      "formula": "candidate_t = first t in window where NDVI(t-revisit) - NDVI(t) > 0.20 AND NDVI(t) < 0.30;  confirm_residue = NDTI(t+revisit) - NDTI(t-revisit) > 0.05; confirm_dryness = B11(t+revisit) - B11(t-revisit) > 0.05; confirm_sar = sentinel1_raw(t+revisit) - sentinel1_raw(t-revisit) > 1.0 dB; harvest_date = candidate_t IF (confirm_residue OR confirm_dryness OR confirm_sar); else Absence",
+      "output": { "kind": "scalar", "unit": "unix_seconds", "range": [0, "+inf"], "explanation": "Unix epoch second of detected harvest date. RMSE 5–10 d for major cereals (Whitcraft 2015; Mandanici 2022). Pair with `sowing_date_detection@1` and `gdd_phenology@1` to derive growing-season length and validate against crop-specific phenology priors. Triple-confirmation (NDVI drop + NDTI rise + B11 jump) lifts precision >90% but reduces recall ~80% in heavy cloud — surface BOTH precision and recall in the receipt." },
+      "when_to_use": "Storage capacity planning at FPOs (predict warehouse inflow ±5–10 d), trader procurement scheduling, mandi-arrival forecasting, post-harvest residue-burning enforcement (couples to `residue_burn_multisensor@1`).",
+      "primitive": "POST /v1/trajectory {bands:['indices.ndvi','indices.ndti','s2.B11'], from:search_start, to:search_end}; apply formula",
+      "deterministic": true,
+      "citation": "Whitcraft, A.K. et al. 2015. A framework for defining spatially explicit Earth observation requirements for a global agricultural monitoring initiative (GEOGLAM). Remote Sensing 7:1461–1481. Mandanici, E. et al. 2022. Sentinel-2-based crop calendar metrics for European agriculture. RSE 270:112873. Bowman, T. et al. 2024. NDTI for residue-cover monitoring at field scale. Computers & Electronics in Agriculture 217:108652.",
+      "frequency_of_calculation": "once per cropping season; retro-detect only — no real-time forecast. Storage planners should pair with `gdd_phenology@1` for forecast.",
+      "accuracy_band": "RMSE 5–10 d on cereals with ≥3 cloud-free observations across the senescence window. Tropical/wet harvest seasons degrade detectability — surface as low-confidence when monsoon cloud > 60%. Adding the Sentinel-1 confirmation channel keeps recall >80% even at 90% monsoon cloud (Veloso 2017).",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources":  ["indices.ndvi", "indices.ndti", "s2.B11", "sentinel1_raw"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2", "s1"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+    {
+      "key": "crop_loss_event_assessment@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "indices.ndvi",            "role": "ndvi_pre_post",
+          "explanation": "Pre-event vs post-event NDVI window; the loss percentage is a calibrated function of |ΔNDVI/NDVI_pre|." },
+        { "band": "indices.nbr",             "role": "burn_severity",
+          "explanation": "If the event is fire/heat, NBR drop adds severity dimension separate from greenness." },
+        { "band": "indices.ndwi",            "role": "flood_signature",
+          "explanation": "If the event is flood, NDWI persistence ≥ 5 d straddling event date confirms inundation." },
+        { "band": "sentinel1_raw",           "role": "all_weather_evidence",
+          "explanation": "γ⁰ VV drop (water under canopy) or rise (lodging) is the cloud-permitting evidence path during monsoon." },
+        { "band": "era5.precip",             "role": "event_window_validator",
+          "explanation": "ERA5 precip anomaly over the event window confirms the meteorological proximate cause; required for PMFBY-grade loss certification." }
+      ],
+      "formula": "ndvi_pre  = max(NDVI over [event_start - 21d, event_start]);  ndvi_post = min(NDVI over [event_end, event_end + 21d]); loss_frac_optical = clamp01((ndvi_pre - ndvi_post) / ndvi_pre); loss_frac_sar    = clamp01((sigma0_pre - sigma0_post) / 5.0);  loss_class = if max(loss_frac_optical, loss_frac_sar) >= 0.50 -> 'total'; >= 0.33 -> 'severe'; >= 0.15 -> 'moderate'; >= 0.05 -> 'mild'; else 'none'; require era5.precip event-window anomaly OR explicit event_kind for PMFBY-grade evidence",
+      "output": { "kind": "classification", "values": ["none", "mild", "moderate", "severe", "total"], "explanation": "PMFBY-grade plot loss verdict, signed with both optical and SAR fact_cids and the ERA5 precip-anomaly fact_cid. Class boundaries match PMFBY 2024-25 yield-loss bracket thresholds (5/15/33/50%) so the receipt drops directly into AIC's claim-payout schedule. Surface `loss_frac_optical`, `loss_frac_sar`, and `disagreement_flag` if they diverge by > 0.20 — that's the auditor's hook." },
+      "when_to_use": "PMFBY claim assessment (₹15K Cr+ premium pool; satellite verification mandated by IRDAI Order F.No.IRDAI/AGR/REG/CIR/130/12/2017), parametric-payout validation, ESG-grade insurance subrogation. Always pair with `parametric_trigger@1` for the event-window precondition.",
+      "primitive": "POST /v1/trajectory {bands:['indices.ndvi','indices.nbr','indices.ndwi','sentinel1_raw','era5.precip'], from:event_start - 21d, to:event_end + 21d}; apply formula → emit signed classification",
+      "deterministic": true,
+      "citation": "PMFBY 2.0 Operational Guidelines 2020 (Ministry of Agriculture & Farmers' Welfare, Govt of India). Tucker, C.J. et al. 2005. An extended AVHRR 8-km NDVI dataset compatible with MODIS and SPOT vegetation NDVI data. International Journal of Remote Sensing 26:4485–4498. Tellman, B. et al. 2021. Satellite imaging reveals increased proportion of population exposed to floods. Nature 596:80–86. Boschetti, L. et al. 2015. MODIS Collection 6 active fire and burned-area products: validation and comparison. RSE 159:158–170.",
+      "frequency_of_calculation": "event-driven — triggered by a parametric event (drought, flood, hail, fire) or a farmer's claim filing. Pre/post windows are 21 d each; do NOT shorten because cloud cover collapses confidence.",
+      "accuracy_band": "Optical-only loss-class accuracy 80–88% vs. AIC field-survey ground truth (Yagci 2015 corroborated on Indian PMFBY pilots). Adding SAR cross-validation lifts to 88–92% in cloud-prone seasons.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["era5.precip"],
+        "variance_sources":  ["indices.ndvi", "indices.nbr", "indices.ndwi", "sentinel1_raw"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2", "s1", "static"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+    {
+      "key": "land_degradation_trend@1",
+      "kind": "combined",
+      "domain": "soil",
+      "inputs": [
+        { "band": "indices.evi",             "role": "annual_peak_evi",
+          "explanation": "Per-year peak EVI (cloud-permitting Mar-Apr or Sep-Oct depending on hemisphere). Mann-Kendall on ≥6-yr series tests for monotonic decline." },
+        { "band": "indices.bsi",             "role": "bare_soil_trend",
+          "explanation": "Multi-year increase in BSI = expanding bare patches = degradation, even when a one-year EVI dip masks." },
+        { "band": "hansen.loss_year",        "role": "forest_loss",
+          "explanation": "Hansen GFC loss year — cell-level forest loss is direct LDN evidence per UNCCD SDG 15.3.1 sub-indicator (a)." },
+        { "band": "copdem30m.elevation_mean", "role": "slope_amplifier",
+          "explanation": "Slope > 8% amplifies degradation severity; surfaced in the explanation but not in the score (separation of structure)." }
+      ],
+      "formula": "tau, p_value = mann_kendall(evi_peak series, n>=6); s_evi = if tau<0 AND p<0.10 -> clamp01(-tau); else 0;  s_bsi = clamp01((bsi_recent_mean - bsi_baseline_mean) / 0.10); s_forest = step(hansen.loss_year >= 2001 within polygon); degradation_score = 0.50*s_evi + 0.30*s_bsi + 0.20*s_forest; class = if score >= 0.6 -> 'declining'; else if score >= 0.3 -> 'stable_at_risk'; else 'stable_or_improving'",
+      "output": { "kind": "scalar", "unit": "ldn_score", "range": [0, 1], "explanation": "UNCCD-aligned land-degradation neutrality (LDN, SDG 15.3.1) sub-indicator composite. The three sub-signals (productivity decline, bare-soil expansion, forest loss) are the three SDG 15.3.1 sub-indicators (a), (b), (c) UN-mandated for LDN reporting. Receipt MUST cite all three sub-indicators independently — UNCCD requires sub-indicator transparency, not just a composite." },
+      "when_to_use": "UNCCD SDG 15.3.1 national/sub-national reporting, NABARD watershed-restoration eligibility, ESG land-stewardship attestations, India's National Land Restoration Programme (NLRP). Use polygon (`/v1/recall_polygon`) — single-cell LDN is meaningless; the indicator is a population statistic.",
+      "primitive": "POST /v1/trajectory {band:'indices.evi', from: t-10yr, to: t}; POST /v1/recall {bands:['indices.bsi','hansen.loss_year','copdem30m.elevation_mean']}; apply Mann-Kendall + composite",
+      "deterministic": true,
+      "citation": "UNCCD 2017. Methodological note for SDG indicator 15.3.1: Proportion of land that is degraded over total land area. Sims, N.C. et al. 2021. Good Practice Guidance for SDG Indicator 15.3.1 (V2.0). UNCCD Global Mechanism. Mann, H.B. 1945. Nonparametric tests against trend. Econometrica 13:245–259. Kendall, M.G. 1975. Rank Correlation Methods (4th ed.). Charles Griffin.",
+      "frequency_of_calculation": "annual; Mann-Kendall requires ≥6 years for statistical power, ≥10 years for reliable LDN reporting. Re-run with each new full year of Sentinel-2 archive.",
+      "accuracy_band": "Mann-Kendall trend p<0.10 detection power ~85% on 6-yr series; >95% on 10-yr series (Yue & Wang 2002 simulation studies). Composite score is editorial; the three sub-indicators are the auditable units.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["hansen.tree_cover_2000", "copdem30m.elevation_mean"],
+        "variance_sources":  ["indices.evi", "indices.bsi", "hansen.loss_year"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "static"],
+        "anchor_band": "indices.evi",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+    {
+      "key": "parametric_trigger@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "<composite>", "role": "drought_index",
+          "explanation": "spi_meteorological_drought@1 with the contract-defined window (typically SPI-3)." },
+        { "band": "<composite>", "role": "flood_signal",
+          "explanation": "water_consensus@1 instantaneous probability OR water_likelihood_from_vv@1 plus surface_water.recurrence baseline for an event-anomaly framing." },
+        { "band": "weather.temperature_2m",  "role": "heat_threshold" },
+        { "band": "era5.precip",             "role": "rain_intensity",
+          "explanation": "Cumulative ERA5 precip over the contract window for excess-rain triggers (cyclone tail, cloudburst)." }
+      ],
+      "formula": "trigger = trip(SPI <= contract.drought_threshold) OR trip(flood_prob >= contract.flood_threshold for >= contract.duration_days) OR trip(weather.temperature_2m >= contract.heat_threshold for >= contract.heat_consecutive_days) OR trip(era5_precip_window >= contract.rain_threshold);  payout_multiplier = max trigger of: linear interpolation between threshold and cap as defined in contract.tranches",
+      "output": { "kind": "scalar", "unit": "trigger_state", "range": [0, 1], "explanation": "Contract-grade parametric-trigger evaluation. 0 = no trigger; 1 = full trigger; intermediate = tranched payout proportion. Receipt cites every input fact_cid plus the contract's `algorithm_cid` snapshot, so a re-run on the published manifests CIDs reproduces the trigger evaluation byte-for-byte. This is the legal-evidence layer underneath any parametric agri product." },
+      "when_to_use": "Indian parametric agri insurance (growing 11.3% CAGR per IRDAI 2024), Swiss Re / Munich Re / RGA reinsurer-grade index products, FPO climate-event guarantees. The signed receipt — citing emem's responder pubkey + fact_cids + algorithm_cid + contract snapshot — replaces the per-event field-survey of indemnity products.",
+      "primitive": "Compose: spi_meteorological_drought@1 + water_consensus@1 + recall on weather.temperature_2m, era5.precip; then apply contract thresholds",
+      "deterministic": true,
+      "deterministic_note": "The threshold ladder is contract-supplied — the algorithm itself is deterministic in fact_cids + contract; the contract MUST be content-addressed too.",
+      "citation": "IRDAI 2023. Master circular on parametric-index agri insurance products. Swiss Re Institute. 2023. Parametric insurance: a fast and transparent settlement option. Skees, J.R. & Collier, B. 2008. The potential of weather index insurance for spurring a green revolution in Africa. World Bank Working Paper. WMO/UNDP 2022. Index Insurance Guidance Note.",
+      "frequency_of_calculation": "daily during the contract risk window (typically 90–180 d for drought / cyclone covers); event-driven evaluation outside the window. Receipts are emitted on every state change, not on a poll cadence.",
+      "accuracy_band": "Trigger reproducibility = 100% (deterministic given inputs + contract). Basis-risk vs. on-ground indemnity loss is a separate question — quote Skees & Collier 2008 ~15% basis-risk for well-designed weather-index products.",
+      "multimodal": {
+        "delivery_resolution_m": 5500,
+        "baseline_sources": ["<composite>"],
+        "variance_sources":  ["<composite>", "weather.temperature_2m", "era5.precip"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["static"],
+        "anchor_band": "<composite>",
+        "fallback_strategy": "absence",
+        "composite_inherit": true
+      }
     },
     {
       "key": "spi_meteorological_drought@1",
@@ -1596,7 +1917,16 @@
       "deterministic": true,
       "citation": "McKee, T.B., Doesken, N.J. & Kleist, J. 1993. The relationship of drought frequency and duration to time scales. 8th Conf. on Applied Climatology, AMS, 179–184. WMO. 2012. Standardized Precipitation Index User Guide. WMO-No.1090. Guttman, N.B. 1999. Accepting the SPI: a calculation algorithm. JAWRA 35(2):311–322. Stagge, J.H. et al. 2015. Candidate distributions for climatological drought indices (SPI and SPEI). Int. J. Climatol. 35:4027–4040.",
       "frequency_of_calculation": "monthly for SPI-1 / SPI-3; quarterly for SPI-6 / SPI-12. Re-fit the gamma parameters every 5 yr to incorporate climate-change non-stationarity (use a moving 30-yr reference window per WMO guidance).",
-      "accuracy_band": "Gamma-fit standard error < 0.1 SPI units when ≥30 yr of complete record is available. With NASA POWER (1981→) every cell on Earth has ≥40 yr by 2026 = sound footing. Reduce confidence below SPI ±2 if record-length < 30 yr (e.g. local stations)."
+      "accuracy_band": "Gamma-fit standard error < 0.1 SPI units when ≥30 yr of complete record is available. With NASA POWER (1981→) every cell on Earth has ≥40 yr by 2026 = sound footing. Reduce confidence below SPI ±2 if record-length < 30 yr (e.g. local stations).",
+      "multimodal": {
+        "delivery_resolution_m": 5500,
+        "baseline_sources": ["weather.precipitation_mm"],
+        "variance_sources":  ["weather.precipitation_mm"],
+        "fusion_method": "none",
+        "priority_chain": ["static"],
+        "anchor_band": "weather.precipitation_mm",
+        "fallback_strategy": "absence"
+      }
     }
   ]
 }
