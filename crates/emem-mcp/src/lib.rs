@@ -358,26 +358,15 @@ pub const TOOLS: &[ToolDescriptor] = &[
         level: "L1", category: ToolCategory::Verify,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
-    ToolDescriptor {
-        name: "emem_attest",
-        title: "Submit a signed Attestation (write)",
-        description: "Submit a signed Attestation (Merkle-rooted batch of facts) — L2 / authorized writers only. Extends the responder's signed ledger.",
-        when_to_use: "Call only when an authorized client wants to write facts. Requires ed25519 attester key + canonical Merkle root over fact CIDs. JSON path: POST /v1/attest. Byte-exact CBOR path: POST /v1/attest_cbor.",
-        input_schema: SCHEMA_NONE,
-        example_args: r#"{"_": "see /openapi.json#/components/schemas/Attestation"}"#,
-        level: "L2", category: ToolCategory::Write,
-    read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
-    },
-    ToolDescriptor {
-        name: "emem_challenge",
-        title: "Dispute an attestation (write)",
-        description: "Dispute an attestation with counter-evidence (L2 / staked). Marks an existing attestation as disputed; resolution policy lives in the schema manifest.",
-        when_to_use: "Call only when a client holds counter-evidence and wants to mark an attestation as disputed. Disputes require stake; resolution policy lives in the schema manifest.",
-        input_schema: SCHEMA_NONE,
-        example_args: r#"{"_": "see /openapi.json"}"#,
-        level: "L2", category: ToolCategory::Write,
-    read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
-    },
+    // L2 write surfaces (`emem_attest`, `emem_challenge`) are intentionally
+    // NOT exposed as MCP tools because they require an ed25519 attester key
+    // an LLM-driven host cannot generate (the signing happens client-side).
+    // Advertising them caused every Claude.ai connector-onboarding tile
+    // click to error with "unknown tool" because no dispatch arm could
+    // accept a CBOR-encoded Attestation envelope through MCP's JSON-only
+    // tool-call path. Authorized writers continue to use the REST/CBOR
+    // routes directly: POST /v1/attest, POST /v1/attest_cbor, POST
+    // /v1/challenge — all documented in /openapi.json + /agents.md.
 
     // ── Introspection ────────────────────────────────────────────────
     ToolDescriptor {

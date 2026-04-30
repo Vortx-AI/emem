@@ -25,6 +25,14 @@ pub enum ConnectorKind {
     IpldCid,
     /// Microsoft Planetary Computer STAC API (anonymous; signed item URLs).
     StacPc,
+    /// Plain HTTPS JSON REST API (no COG semantics) — Open-Meteo,
+    /// NASA POWER, met.no, ORNL DAAC subset, GMRT point-query, ORNL
+    /// MODIS-bio. The fetcher pulls a JSON document and the
+    /// per-band materializer maps fields → fact value.
+    HttpsJsonApi,
+    /// Parquet bulk read over anonymous S3 / GCS / R2 (used for
+    /// Overture Maps Foundation per-cell aggregates).
+    ParquetS3,
 }
 
 /// One provider for a source scheme.

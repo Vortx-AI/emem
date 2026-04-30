@@ -273,6 +273,224 @@
       ],
       "tempo": "static",
       "native_resolution_m": 1000
+    },
+    {
+      "scheme": "open_meteo",
+      "providers": [
+        {
+          "id": "open-meteo.com",
+          "kind": "https_json_api",
+          "url_template": "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&hourly={field}",
+          "auth": "anonymous",
+          "rate_limit_qps": 50,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "ultra_fast",
+      "native_resolution_m": 11000
+    },
+    {
+      "scheme": "open_meteo_marine",
+      "providers": [
+        {
+          "id": "marine-api.open-meteo.com",
+          "kind": "https_json_api",
+          "url_template": "https://marine-api.open-meteo.com/v1/marine?latitude={lat}&longitude={lng}&hourly={field}",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "ultra_fast",
+      "native_resolution_m": 11000
+    },
+    {
+      "scheme": "open_meteo_cams",
+      "providers": [
+        {
+          "id": "air-quality-api.open-meteo.com",
+          "kind": "https_json_api",
+          "url_template": "https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lng}&hourly={field}",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "ultra_fast",
+      "native_resolution_m": 9000
+    },
+    {
+      "scheme": "open_meteo_era5",
+      "providers": [
+        {
+          "id": "archive-api.open-meteo.com",
+          "kind": "https_json_api",
+          "url_template": "https://archive-api.open-meteo.com/v1/era5?latitude={lat}&longitude={lng}&start_date={start}&end_date={end}&hourly={field}",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 27750
+    },
+    {
+      "scheme": "met_no",
+      "providers": [
+        {
+          "id": "api.met.no",
+          "kind": "https_json_api",
+          "url_template": "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={lat}&lon={lng}",
+          "auth": "anonymous",
+          "rate_limit_qps": 20,
+          "license": "NLOD 2.0 (Norwegian Meteorological Institute)"
+        }
+      ],
+      "tempo": "ultra_fast",
+      "native_resolution_m": 1000
+    },
+    {
+      "scheme": "nasa_power",
+      "providers": [
+        {
+          "id": "power.larc.nasa.gov",
+          "kind": "https_json_api",
+          "url_template": "https://power.larc.nasa.gov/api/temporal/daily/point?parameters={param}&latitude={lat}&longitude={lng}&start={date}&end={date}&community=ag&format=JSON",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "Public domain (NASA POWER)"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 55000
+    },
+    {
+      "scheme": "ornl_modis",
+      "providers": [
+        {
+          "id": "modis.ornl.gov",
+          "kind": "https_json_api",
+          "url_template": "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat}&longitude={lng}&band={variable}&startDate={start}&endDate={end}&kmAboveBelow=0&kmLeftRight=0",
+          "auth": "anonymous",
+          "rate_limit_qps": 5,
+          "license": "Public domain (NASA / ORNL DAAC)"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 250
+    },
+    {
+      "scheme": "gmrt",
+      "providers": [
+        {
+          "id": "gmrt.org",
+          "kind": "https_json_api",
+          "url_template": "https://www.gmrt.org/services/PointServer?latitude={lat}&longitude={lng}&format=json",
+          "auth": "anonymous",
+          "rate_limit_qps": 10,
+          "license": "CC-BY-4.0 (Marine Geoscience Data System)"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 100
+    },
+    {
+      "scheme": "sentinel_s2_l2a",
+      "providers": [
+        {
+          "id": "earth-search.aws.element84",
+          "kind": "stac_pc",
+          "url_template": "https://earth-search.aws.element84.com/v1/search?collections=sentinel-2-l2a&bbox={bbox_csv}&datetime={iso_date}&limit=1",
+          "auth": "anonymous",
+          "rate_limit_qps": 50,
+          "license": "Copernicus open data"
+        },
+        {
+          "id": "planetarycomputer.microsoft",
+          "kind": "stac_pc",
+          "url_template": "https://planetarycomputer.microsoft.com/api/stac/v1/search?collections=sentinel-2-l2a&bbox={bbox_csv}&datetime={iso_date}&limit=1",
+          "auth": "anonymous",
+          "rate_limit_qps": 50,
+          "license": "Copernicus open data"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "sentinel_s1_rtc_mpc",
+      "providers": [
+        {
+          "id": "planetarycomputer.microsoft",
+          "kind": "stac_pc",
+          "url_template": "https://planetarycomputer.microsoft.com/api/stac/v1/search?collections=sentinel-1-rtc&bbox={bbox_csv}&datetime={iso_date}&limit=1",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "Copernicus open data"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "geotessera",
+      "providers": [
+        {
+          "id": "huggingface.geotessera",
+          "kind": "https_geotiff",
+          "url_template": "https://huggingface.co/datasets/torgeotessera/geotessera-{year}/resolve/main/{tile_id}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "Apache-2.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "overture.maps.foundation.v1",
+      "providers": [
+        {
+          "id": "overturemaps-us-west-2.s3",
+          "kind": "parquet_s3",
+          "url_template": "s3://overturemaps-us-west-2/release/{release}/theme={theme}/type={type}/",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "ODbL / CDLA-Permissive-2.0 (mixed by theme)"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 0
+    },
+    {
+      "scheme": "hansen.gfc.v1_11.2023",
+      "providers": [
+        {
+          "id": "earthenginepartners-hansen.gcs",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2023-v1.11/Hansen_GFC-2023-v1.11_{layer}_{lat_top1}_{lon_left1}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Public (Hansen et al. 2013)"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "esa.worldcover.v200.2021",
+      "providers": [
+        {
+          "id": "aws.opendata",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{tile_id}_Map.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 200,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 10
     }
   ]
 }

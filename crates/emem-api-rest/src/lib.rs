@@ -141,6 +141,13 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/agent.json", get(agent_manifest))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
         .route("/.well-known/mcp.json", get(well_known_mcp))
+        // OpenAI's hosted MCP discovery probes a vendor-prefixed path
+        // before the spec one. Serve the same payload at both so the
+        // ChatGPT "Tools" picker auto-installs without the user having
+        // to paste a URL. (Vendor namespacing is also why we mirror at
+        // /.well-known/mcp.json — any single missing alias breaks one
+        // platform's auto-install.)
+        .route("/.well-known/openai-mcp.json", get(well_known_mcp))
         .route(
             "/.well-known/oauth-protected-resource",
             get(well_known_oauth_protected_resource),
@@ -1198,14 +1205,27 @@ async fn agent_manifest() -> Response {
 /// every primitive as a skill (deduplicated from `emem_mcp::TOOLS`).
 async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    // Skill tags must be a deduplicated set of editorial labels — earlier
+    // version emitted `[t.category, read|write]` which produced
+    // `["read","read"]` for every Read primitive (16 of 30 skills). A2A
+    // importers (Vertex Agent Builder, Microsoft Copilot Studio) flatten
+    // tags into a chip row, so duplicates surface as visible UI noise.
+    // We now emit category + level only (level is L0/L1, distinct).
     let skills: Vec<JsonValue> = emem_mcp::TOOLS
         .iter()
         .map(|t| {
+            let cat = match t.category {
+                emem_mcp::ToolCategory::Read => "read",
+                emem_mcp::ToolCategory::Write => "write",
+                emem_mcp::ToolCategory::Verify => "verify",
+                emem_mcp::ToolCategory::Introspect => "introspect",
+                emem_mcp::ToolCategory::Plan => "plan",
+            };
             json!({
                 "id":          t.name,
                 "name":        t.title,
                 "description": t.description,
-                "tags":        [t.category, if t.read_only_hint { "read" } else { "write" }],
+                "tags":        [cat, t.level],
                 "examples":    [t.when_to_use],
             })
         })
@@ -1238,11 +1258,16 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "contact":      "avijeet@vortx.ai",
             "country":      "India",
         },
+        // A2A v0.3 constrains `transport` to JSONRPC|HTTP|SSE|HTTP+JSON|GRPC.
+        // Earlier custom values ("openapi-3.1", "mcp-streamable-http", …)
+        // were silently dropped by Vertex / Copilot Studio importers — they
+        // saw zero alternate interfaces. We now use spec-valid transports
+        // and keep the surface kind in `protocol` (extension field).
         "additionalInterfaces": [
-            { "url": format!("{origin}/openapi.json"),               "transport": "openapi-3.1" },
-            { "url": format!("{origin}/.well-known/emem.json"),      "transport": "well-known-json" },
-            { "url": format!("{origin}/v1/agent_card"),              "transport": "agent-card-v1" },
-            { "url": format!("{origin}/mcp"),                        "transport": "mcp-streamable-http" },
+            { "url": format!("{origin}/openapi.json"),          "transport": "HTTP+JSON", "protocol": "openapi-3.1" },
+            { "url": format!("{origin}/.well-known/emem.json"), "transport": "HTTP+JSON", "protocol": "well-known-json" },
+            { "url": format!("{origin}/v1/agent_card"),         "transport": "HTTP+JSON", "protocol": "agent-card-v1" },
+            { "url": format!("{origin}/mcp"),                   "transport": "JSONRPC",   "protocol": "mcp-streamable-http" },
         ],
         "responder": {
             "pubkey_b32":    data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
@@ -3311,10 +3336,24 @@ async fn post_recall_polygon(
             }
         }
     } else {
-        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-                code: ErrorCode::Internal,
-                message: "recall_polygon: supply either {place: \"...\"} or {polygon_bbox: {min_lat, max_lat, min_lng, max_lng}}".into(),
-            }));
+        // Soft envelope — same rationale as `locate_inner` and `ask_inner`.
+        // Return 200 + structured `needs_location` so MCP/Assistants/Vertex
+        // hosts route the payload back to the model rather than surfacing
+        // a red 4xx toast.
+        return Ok(Json(json!({
+            "schema":  "emem.recall_polygon.v1",
+            "status":  "needs_location",
+            "message": "no polygon provided. Pass `place` (free-text place name) or `polygon_bbox` ({min_lat, max_lat, min_lng, max_lng}).",
+            "examples": [
+                {"place": "Cambridge, UK"},
+                {"polygon_bbox": {"min_lat": 52.18, "max_lat": 52.22, "min_lng": 0.10, "max_lng": 0.16}},
+            ],
+            "next_steps": [
+                "if the user named a place, extract the noun phrase and pass it as `place`",
+                "if you have a bbox from a previous emem_locate, copy its `polygon_bbox` here",
+            ],
+            "agent_hint": "emem_recall_polygon collapses locate → polygon_sample_cells → recall_many. The geocoder layering matches /v1/locate.",
+        })));
     };
 
     // Sanity-check the bbox.
@@ -4795,8 +4834,39 @@ async fn mcp_tool_call(
             // future Sized despite the self-recursion. The planner never
             // emits another `emem_intent` step, so there is no infinite
             // recursion in practice.
-            let intent: Intent =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            //
+            // Deserialize failures (missing `type`, unknown variant) used
+            // to bubble up as -32602 which Anthropic / OpenAI / Vertex
+            // surface as a red error toast. Convert to a soft envelope —
+            // same pattern as ask_inner / locate_inner / recall_polygon —
+            // so the model sees a structured `needs_intent_type` payload
+            // and can self-correct on the next turn.
+            let intent: Intent = match serde_json::from_value::<Intent>(args.clone()) {
+                Ok(i) => i,
+                Err(e) => {
+                    return Ok(json!({
+                        "schema":  "emem.intent.v1",
+                        "status":  "needs_intent_type",
+                        "message": format!("could not parse Intent: {e}. Pass `type` plus the variant's required fields."),
+                        "received": args,
+                        "valid_types": [
+                            {"type": "where_is",     "required": ["description"]},
+                            {"type": "what_is_here", "required_one_of": ["cell", "place", "description"]},
+                            {"type": "is_like",      "required": ["a", "b"]},
+                            {"type": "did_change",   "required": ["cell", "band", "window"]},
+                            {"type": "find_like",    "required": ["key"]},
+                            {"type": "confirm",      "required": ["claim", "cell"]},
+                            {"type": "ask",          "required": ["description"], "required_one_of": ["place", "cell", "lat+lng"]},
+                        ],
+                        "examples": [
+                            {"type": "ask",          "description": "is this neighbourhood flood-prone", "place": "Ashok Nagar, Ranchi"},
+                            {"type": "what_is_here", "place": "Mt Fuji"},
+                            {"type": "where_is",     "description": "the Eiffel Tower"},
+                        ],
+                        "agent_hint": "emem_intent dispatches a typed Intent to the right primitive. If you only want a one-shot answer to a place question, prefer `emem_ask` directly.",
+                    }));
+                }
+            };
             let p = plan(&intent);
             let mut results: Vec<JsonValue> = Vec::with_capacity(p.calls.len());
             for call in &p.calls {
@@ -5032,23 +5102,49 @@ async fn openapi() -> Json<JsonValue> {
     // without an absolute base URL. Emit `public_origin()` (driven by
     // EMEM_PUBLIC_URL or EMEM_TLS_DOMAINS) so a self-hosted operator on
     // a different domain doesn't ship "https://emem.dev" to its agents.
-    // The relative `"/"` server is always present so loopback / fork
-    // deployments still work even when no public origin is set.
-    let mut servers: Vec<JsonValue> = Vec::with_capacity(2);
-    match public_origin() {
-        Some(origin) => servers.push(json!({
+    //
+    // Earlier versions also emitted a second `{"url":"/"}` server entry
+    // for "same-origin" use, but OpenAI's Custom GPT importer (and
+    // several Vertex / Bedrock importers) reject any non-absolute URL
+    // and refuse to parse the spec. Drop the relative entry — the
+    // single absolute server is enough; clients that want to override
+    // can edit it on import.
+    let servers: Vec<JsonValue> = vec![match public_origin() {
+        Some(origin) => json!({
             "url": origin,
             "description": "Hosted instance (HTTPS-only)",
-        })),
-        None => servers.push(json!({
+        }),
+        None => json!({
             "url": "https://emem.dev",
             "description": "Hosted instance (HTTPS-only)",
-        })),
-    }
-    servers.push(json!({
-        "url": "/",
-        "description": "Same-origin (self-hosted or local)",
-    }));
+        }),
+    }];
+    // Boilerplate for response shapes — the JSON envelopes are too
+    // varied to schema-fy individually here (each handler returns a
+    // different shape), but every endpoint that returns 200 needs *a*
+    // `content` block or OpenAI's tool-call validator marks the op as
+    // non-callable and silently drops it from the importer's tool list.
+    let json_ok = json!({
+        "description": "ok",
+        "content": { "application/json": { "schema": { "type": "object" } } }
+    });
+    let json_etag = json!({
+        "description": "ok (immutable, ETag-tagged)",
+        "content": { "application/json": { "schema": { "type": "object" } } }
+    });
+    let json_unchanged = json!({ "description": "unchanged (ETag matched If-None-Match)" });
+    let json_not_found = json!({
+        "description": "not found",
+        "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+    });
+    let svg_ok = json!({
+        "description": "ok (image/svg+xml)",
+        "content": { "image/svg+xml": { "schema": { "type": "string", "format": "binary" } } }
+    });
+    let png_ok = json!({
+        "description": "ok (image/png)",
+        "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } }
+    });
     Json(json!({
         "openapi": "3.1.0",
         "info": {
@@ -5059,65 +5155,70 @@ async fn openapi() -> Json<JsonValue> {
         },
         "servers": servers,
         "paths": {
-            "/health":               {"get":{"summary":"liveness","responses":{"200":{"description":"ok"}}}},
-            "/.well-known/emem.json":{"get":{"summary":"protocol discovery","responses":{"200":{"description":"ok"}}}},
-            "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","responses":{"200":{"description":"ok"}}}},
-            "/v1/quickstart":        {"get":{"summary":"6-step playbook","responses":{"200":{"description":"ok"}}}},
-            "/v1/manifests":         {"get":{"summary":"active manifest CIDs","responses":{"200":{"description":"ok"}}}},
-            "/v1/bands":             {"get":{"summary":"band ontology","responses":{"200":{"description":"ok"}}}},
-            "/v1/materializers":     {"get":{"summary":"per-band auto-fetch registry (which bands the responder will materialize on a recall miss)","responses":{"200":{"description":"ok"}}}},
-            "/v1/data_availability": {"get":{"summary":"per-band temporal coverage catalog (window + tempo + kind + upstream wire path)","responses":{"200":{"description":"ok"}}}},
-            "/v1/functions":         {"get":{"summary":"function registry","responses":{"200":{"description":"ok"}}}},
-            "/v1/sources":           {"get":{"summary":"source registry","responses":{"200":{"description":"ok"}}}},
-            "/v1/errors":            {"get":{"summary":"error code catalog","responses":{"200":{"description":"ok"}}}},
-            "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","responses":{"200":{"description":"ok"}}}},
-            "/v1/cells/{cell64}":    {"get":{"summary":"recall facts at a cell","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/recall":            {"post":{"summary":"recall facts","operationId":"emem_recall","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RecallReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/query_region":      {"post":{"summary":"query region","operationId":"emem_query_region","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryRegionReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/compare":           {"post":{"summary":"compare two cells","operationId":"emem_compare","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/find_similar":      {"post":{"summary":"k-NN over band vectors","operationId":"emem_find_similar","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FindSimilarReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/diff":              {"post":{"summary":"derivative fact between two tslots","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/trajectory":        {"post":{"summary":"time series","operationId":"emem_trajectory","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TrajectoryReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/backfill":          {"post":{"summary":"materialize history in a window","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/schema":            {"get":{"summary":"active CDDL/JSON schema bundle (REST mirror of emem_schema)","operationId":"emem_schema","responses":{"200":{"description":"ok"}}}},
-            "/v1/facts/{cid}":       {"get":{"summary":"fetch a fact by CID (REST mirror of emem_fetch)","operationId":"emem_fetch","parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"},"404":{"description":"no fact for cid"}}}},
-            "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt","operationId":"emem_verify_receipt","responses":{"200":{"description":"ok"}}}},
-            "/v1/intent":            {"post":{"summary":"intent → plan","operationId":"emem_intent","responses":{"200":{"description":"ok"}}}},
-            "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON)","operationId":"emem_attest","responses":{"200":{"description":"ok"}}}},
-            "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":{"description":"ok"}}}},
-            "/v1/facts/{cid}":       {"get":{"summary":"fact dereference (immutable, ETag-tagged)","operationId":"emem_get_fact","parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"},"304":{"description":"unchanged"},"404":{"description":"not found"}}}},
-            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":{"description":"ok"}}}},
+            "/health":               {"get":{"summary":"liveness","operationId":"emem_health","responses":{"200":json_ok}}},
+            "/.well-known/emem.json":{"get":{"summary":"protocol discovery","operationId":"emem_well_known","responses":{"200":json_ok}}},
+            "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
+            "/v1/quickstart":        {"get":{"summary":"6-step playbook","operationId":"emem_quickstart","responses":{"200":json_ok}}},
+            "/v1/manifests":         {"get":{"summary":"active manifest CIDs","operationId":"emem_manifests","responses":{"200":json_ok}}},
+            "/v1/bands":             {"get":{"summary":"band ontology","operationId":"emem_bands","responses":{"200":json_ok}}},
+            "/v1/materializers":     {"get":{"summary":"per-band auto-fetch registry (which bands the responder will materialize on a recall miss)","operationId":"emem_materializers","responses":{"200":json_ok}}},
+            "/v1/data_availability": {"get":{"summary":"per-band temporal coverage catalog (window + tempo + kind + upstream wire path)","operationId":"emem_data_availability","responses":{"200":json_ok}}},
+            "/v1/functions":         {"get":{"summary":"function registry","operationId":"emem_functions","responses":{"200":json_ok}}},
+            "/v1/sources":           {"get":{"summary":"source registry","operationId":"emem_sources","responses":{"200":json_ok}}},
+            "/v1/errors":            {"get":{"summary":"error code catalog","operationId":"emem_errors","responses":{"200":json_ok}}},
+            "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","responses":{"200":json_ok}}},
+            "/v1/cells/{cell64}":    {"get":{"summary":"recall facts at a cell","operationId":"emem_recall_cell_get","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
+            "/v1/recall":            {"post":{"summary":"recall facts","operationId":"emem_recall","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RecallReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/query_region":      {"post":{"summary":"query region","operationId":"emem_query_region","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryRegionReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/compare":           {"post":{"summary":"compare two cells","operationId":"emem_compare","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/find_similar":      {"post":{"summary":"k-NN over band vectors","operationId":"emem_find_similar","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FindSimilarReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/diff":              {"post":{"summary":"derivative fact between two tslots","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/trajectory":        {"post":{"summary":"time series","operationId":"emem_trajectory","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TrajectoryReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/backfill":          {"post":{"summary":"materialize history in a window","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/schema":            {"get":{"summary":"active CDDL/JSON schema bundle (REST mirror of emem_schema)","operationId":"emem_schema","responses":{"200":json_ok}}},
+            // Single canonical /v1/facts/{cid} — earlier we listed it twice
+            // with different operationIds (emem_fetch and emem_get_fact);
+            // the second overrode the first in serde_json's object insert,
+            // and a few importers (Vertex Agent Builder, Postman) flagged
+            // the duplicate. Keep the ETag/304-aware shape, expose both
+            // operationIds via tags so the legacy clients still resolve.
+            "/v1/facts/{cid}":       {"get":{"summary":"fact dereference by CID (immutable, ETag-tagged)","operationId":"emem_fetch","tags":["fetch","get_fact"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_etag,"304":json_unchanged,"404":json_not_found}}},
+            "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt","operationId":"emem_verify_receipt","responses":{"200":json_ok}}},
+            "/v1/intent":            {"post":{"summary":"intent → plan","operationId":"emem_intent","responses":{"200":json_ok}}},
+            "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON)","operationId":"emem_attest","responses":{"200":json_ok}}},
+            "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
+            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
             // High-traffic endpoints that were previously discoverable
             // only via /v1/discover or the agent_card. OpenAI Custom GPT
             // and ChatGPT plugin pickers ignore endpoints not in
             // `paths`, so any tool we want them to route to MUST appear
             // here.
-            "/v1/locate":            {"post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"query":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}}}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":{"description":"ok"}}}},
-            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon","operationId":"emem_recall_polygon","responses":{"200":{"description":"ok"}}}},
-            "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":{"description":"ok"}}}},
-            "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":{"description":"ok"}}}},
-            "/v1/algorithms/{key}":  {"get":{"summary":"single algorithm detail","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/compare_bands":     {"post":{"summary":"per-band diff between two cells (delta + percent change)","operationId":"emem_compare_bands","responses":{"200":{"description":"ok"}}}},
-            "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":{"description":"ok"}}}},
-            "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","responses":{"200":{"description":"ok"}}}},
-            "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density (image/svg+xml)","responses":{"200":{"description":"ok"}}}},
-            "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","responses":{"200":{"description":"ok"}}}},
-            "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property — paste straight into Mapbox/Leaflet/Deck.gl","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":{"description":"ok"}}},"post":{"summary":"PDE-based band routing for a query time + intent","operationId":"emem_temporal_route_post","responses":{"200":{"description":"ok"}}}},
-            "/v1/elevation":         {"post":{"summary":"convenience elevation lookup (uses copdem30m / gmrt fallback)","responses":{"200":{"description":"ok"}}}},
-            "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","responses":{"200":{"description":"ok"}}}},
-            "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject","responses":{"200":{"description":"ok"}}}},
-            "/v1/reviews/{subject_id}":{"get":{"summary":"list reviews for a subject","parameters":[{"name":"subject_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/contributors":      {"get":{"summary":"list of contributing pubkeys + per-band fact counts","responses":{"200":{"description":"ok"}}}},
-            "/v1/contributors/{pubkey_b32}": {"get":{"summary":"contributor profile by pubkey","parameters":[{"name":"pubkey_b32","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}},
-            "/v1/agent_stats":       {"get":{"summary":"per-tool MCP latency + error counts","responses":{"200":{"description":"ok"}}}},
-            "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","responses":{"200":{"description":"ok"}}}}
+            "/v1/locate":            {"post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string"},"q":{"type":"string"},"query":{"type":"string"},"name":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
+            "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
+            "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
+            "/v1/algorithms/{key}":  {"get":{"summary":"single algorithm detail","operationId":"emem_algorithms_one","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
+            "/v1/compare_bands":     {"post":{"summary":"per-band diff between two cells (delta + percent change)","operationId":"emem_compare_bands","responses":{"200":json_ok}}},
+            "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":json_ok}}},
+            "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","responses":{"200":json_ok}}},
+            "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
+            "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
+            "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
+            "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
+            "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":png_ok}}},
+            "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property — paste straight into Mapbox/Leaflet/Deck.gl","operationId":"emem_cell_recall_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":json_ok}}},
+            "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent","operationId":"emem_temporal_route_post","responses":{"200":json_ok}}},
+            "/v1/elevation":         {"post":{"summary":"convenience elevation lookup (uses copdem30m / gmrt fallback)","operationId":"emem_elevation","responses":{"200":json_ok}}},
+            "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","operationId":"emem_discover","responses":{"200":json_ok}}},
+            "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject","operationId":"emem_reviews_post","responses":{"200":json_ok}}},
+            "/v1/reviews/{subject_id}":{"get":{"summary":"list reviews for a subject","operationId":"emem_reviews_get","parameters":[{"name":"subject_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
+            "/v1/contributors":      {"get":{"summary":"list of contributing pubkeys + per-band fact counts","operationId":"emem_contributors","responses":{"200":json_ok}}},
+            "/v1/contributors/{pubkey_b32}": {"get":{"summary":"contributor profile by pubkey","operationId":"emem_contributor_one","parameters":[{"name":"pubkey_b32","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
+            "/v1/agent_stats":       {"get":{"summary":"per-tool MCP latency + error counts","operationId":"emem_agent_stats","responses":{"200":json_ok}}},
+            "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","operationId":"emem_demos","responses":{"200":json_ok}}}
         },
         "components": {
             "schemas": {
@@ -5128,7 +5229,8 @@ async fn openapi() -> Json<JsonValue> {
                 "DiffReq":         {"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}},
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
-                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false}}}
+                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false}}},
+                "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}}
             }
         }
     }))
@@ -6774,20 +6876,64 @@ async fn materialize_power_band(
     .await
     .map_err(|_| format!("nasa power timeout after {}s", timeout.as_secs()))?
     .map_err(|e| format!("nasa power https: {e}"))?;
+    let target_tslot =
+        emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::Fast).0;
+    let absence_signed_at = chrono_iso8601_utc();
     if !resp.status().is_success() {
-        return Err(format!("nasa power status {} for {band}", resp.status()));
+        // POWER returns 422 for points outside its land-only mask
+        // (open ocean, polar). Sign Absence so the agent gets a citable
+        // "no POWER data here" rather than a transport error that gets
+        // re-fetched on every recall.
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            target_tslot,
+            "nasa_power",
+            &url,
+            &absence_signed_at,
+            &format!(
+                "nasa power status {} for {band} (POWER is land-only; ocean/polar cells return non-200)",
+                resp.status()
+            ),
+        )
+        .await;
     }
     let body: JsonValue = resp.json().await.map_err(|e| format!("power json: {e}"))?;
     // Response shape: properties.parameter.<PARAM>.<YYYYMMDD> = number.
-    let v = body
+    let Some(v) = body
         .pointer(&format!("/properties/parameter/{param}/{date}"))
         .and_then(|v| v.as_f64())
-        .ok_or_else(|| format!("nasa power missing properties.parameter.{param}.{date}"))?;
+    else {
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            target_tslot,
+            "nasa_power",
+            &url,
+            &absence_signed_at,
+            &format!("nasa power response missing properties.parameter.{param}.{date}"),
+        )
+        .await;
+    };
     if v <= -990.0 {
-        // POWER's nodata sentinel is -999.
-        return Err(format!(
-            "nasa power nodata at lat={lat:.3} lng={lng:.3} on {date} for {param}"
-        ));
+        // POWER's nodata sentinel is -999. Sign Absence — the upstream
+        // explicitly says "we have nothing here", which is a verifiable
+        // signed answer the agent can cite.
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            target_tslot,
+            "nasa_power",
+            &url,
+            &absence_signed_at,
+            &format!(
+                "nasa power nodata sentinel ({v}) at lat={lat:.3} lng={lng:.3} on {date} for {param}"
+            ),
+        )
+        .await;
     }
     let signed_at = chrono_iso8601_utc();
     let tslot = emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::Fast).0;
@@ -7111,21 +7257,61 @@ async fn materialize_marine_band(
     .await
     .map_err(|_| format!("marine timeout after {}s", timeout.as_secs()))?
     .map_err(|e| format!("marine https: {e}"))?;
+    let target_tslot =
+        emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::UltraFast).0;
+    let absence_signed_at = chrono_iso8601_utc();
+    // Helper: sign Absence at the request target tslot for any of the
+    // soft-fail paths below (inland point, no matching hour, null cell).
+    // Marine model has hard coastal coverage — interior cells must
+    // produce a *signed* "no data here" rather than a transport error
+    // so /v1/recall returns a citable absence and the cache stops
+    // re-fetching forever.
+    let sign_marine_absence = |reason: String, at: String| {
+        let url = url.clone();
+        let band = band.to_string();
+        let cell = cell64.to_string();
+        async move {
+            sign_band_absence(
+                &cell,
+                s,
+                &band,
+                target_tslot,
+                "open_meteo_marine",
+                &url,
+                &at,
+                &reason,
+            )
+            .await
+        }
+    };
     if !resp.status().is_success() {
-        return Err(format!(
-            "marine status {} for {band} (this is a coastal-only model — inland points always fail)",
-            resp.status()
-        ));
+        return sign_marine_absence(
+            format!(
+                "marine status {} for {band} (Open-Meteo marine model is coastal-only; inland or polar cells return non-200)",
+                resp.status()
+            ),
+            absence_signed_at,
+        )
+        .await;
     }
     let body: JsonValue = resp.json().await.map_err(|e| format!("marine json: {e}"))?;
-    let times = body
-        .pointer("/hourly/time")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "marine response missing hourly.time".to_string())?;
-    let values = body
+    let Some(times) = body.pointer("/hourly/time").and_then(|v| v.as_array()) else {
+        return sign_marine_absence(
+            "marine response missing hourly.time array".into(),
+            absence_signed_at,
+        )
+        .await;
+    };
+    let Some(values) = body
         .pointer(&format!("/hourly/{om_field}"))
         .and_then(|v| v.as_array())
-        .ok_or_else(|| format!("marine response missing hourly.{om_field}"))?;
+    else {
+        return sign_marine_absence(
+            format!("marine response missing hourly.{om_field} array"),
+            absence_signed_at,
+        )
+        .await;
+    };
     let target_hour_unix = (target / 3600) * 3600;
     let mut chosen: Option<(usize, String)> = None;
     for (i, t) in times.iter().enumerate() {
@@ -7137,12 +7323,23 @@ async fn materialize_marine_band(
             }
         }
     }
-    let (idx, iso) = chosen
-        .ok_or_else(|| format!("marine response had no hour matching target {target_hour_unix}"))?;
-    let v = values
-        .get(idx)
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| format!("marine hourly.{om_field}[{idx}] is null (likely inland point)"))?;
+    let (idx, iso) = match chosen {
+        Some(c) => c,
+        None => {
+            return sign_marine_absence(
+                format!("marine response had no hour matching target unix={target_hour_unix}"),
+                absence_signed_at,
+            )
+            .await;
+        }
+    };
+    let Some(v) = values.get(idx).and_then(|v| v.as_f64()) else {
+        return sign_marine_absence(
+            format!("marine hourly.{om_field}[{idx}] is null (inland or no-coverage cell)"),
+            absence_signed_at,
+        )
+        .await;
+    };
     let signed_at = chrono_iso8601_utc();
     let tslot = emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::UltraFast).0;
     let fact = Fact::Primary(PrimaryFact {
@@ -7389,15 +7586,17 @@ async fn materialize_ornl_modis_band(
         //   MOD16A2 ET:  32760+ (fill ranges). >= 32700 → fill.
         //   MOD17A2H GPP: 32760+ fill, also negative gpp on water.
         //   MOD15A2H LAI: 249..255 reserved (water/cloud/etc).
-        //   MCD64A1 Burn_Date: 0 = no burn that month, -1 unmapped/water.
+        //   MCD64A1 Burn_Date: 0 = no burn that month (valid observation,
+        //     emit as 0.0); -1 = unmapped/water (NOT a valid observation,
+        //     skip and let the caller sign Absence if every entry is -1).
         let is_nodata = match product {
             "MOD11A2" => r == 0,
             "MOD16A2" | "MOD17A2H" => r >= 32700,
             "MOD15A2H" => !(0..=100).contains(&r),
-            "MCD64A1" => r < 1, // 0 = unburned, treat as no event but emit value
+            "MCD64A1" => r == -1,
             _ => false,
         };
-        if product != "MCD64A1" && is_nodata {
+        if is_nodata {
             continue;
         }
         let scaled = (r as f64) * scale;
@@ -7410,15 +7609,45 @@ async fn materialize_ornl_modis_band(
             best = Some((priority, scaled, cal));
         }
     }
-    let (_, value, cal_date) = best.ok_or_else(|| match target_unix {
-        Some(t) => {
-            format!("no valid {product} {variable} observation in ±{half_window_days}d around {t}")
+    let (_, value, cal_date) = match best {
+        Some(b) => b,
+        None => {
+            // Every entry in the subset was a no-data sentinel (e.g.
+            // MCD64A1 over open ocean, MOD16A2 over a fill-only window,
+            // MOD15A2H reserved-class only). Sign Absence so the caller
+            // sees a verifiable "responder tried, got nothing" instead of
+            // an opaque transport failure that would be retried on the
+            // next recall. This is the same pattern as
+            // sign_elevation_absence over Cop-DEM water.
+            let reason_text = match target_unix {
+                Some(t) => format!(
+                    "no valid {product} {variable} observation in ±{half_window_days}d around unix={t}"
+                ),
+                None => format!(
+                    "no valid {product} {variable} observation in last {} days",
+                    4 * half_window_days
+                ),
+            };
+            let signed_at = chrono_iso8601_utc();
+            // Anchor the absence at the requested tslot so subsequent
+            // recalls at the same time hit the cached absence rather
+            // than re-fetching the upstream.
+            let anchor_unix = target_unix.unwrap_or(now);
+            let tslot =
+                emem_core::tslot::Tslot::from_unix(anchor_unix, emem_core::tslot::Tempo::Medium).0;
+            return sign_band_absence(
+                cell64,
+                s,
+                band,
+                tslot,
+                "ornl_modis",
+                &url,
+                &signed_at,
+                &reason_text,
+            )
+            .await;
         }
-        None => format!(
-            "no valid {product} {variable} observation in last {} days",
-            4 * half_window_days
-        ),
-    })?;
+    };
     let cal_unix = modis_calendar_to_unix(&cal_date)
         .or(target_unix)
         .unwrap_or(now);
@@ -8571,17 +8800,53 @@ async fn materialize_hansen_band(
     let cli = s2_http_client();
     let signed_at = chrono_iso8601_utc();
 
-    let prof = emem_fetch::cog::open_profile(&cli, &url)
-        .await
-        .map_err(|e| format!("open hansen cog {url}: {e}"))?;
+    let prof = match emem_fetch::cog::open_profile(&cli, &url).await {
+        Ok(p) => p,
+        Err(e) => {
+            // Hansen GFC tiles only exist on land between 80°N and 60°S;
+            // tiles outside that window 404 (and the bucket also has the
+            // odd missing oceanic tile). Treat 404 / not-found as a
+            // signed Absence so /v1/recall returns a citable "no data
+            // here" instead of looping the upstream forever. Other
+            // errors (timeout, 5xx) remain Err for retry.
+            let msg = e.to_string();
+            if msg.contains("404") || msg.to_lowercase().contains("not found") {
+                return sign_band_absence(
+                    cell64,
+                    s,
+                    band,
+                    0,
+                    "hansen.gfc.v1_11.2023",
+                    &url,
+                    &signed_at,
+                    &format!(
+                        "Hansen GFC tile {lat_tag}_{lng_tag} not present (outside 80°N–60°S coverage or oceanic): {msg}"
+                    ),
+                )
+                .await;
+            }
+            return Err(format!("open hansen cog {url}: {e}"));
+        }
+    };
     let raw = emem_fetch::cog::sample_pixel(&cli, &url, &prof, lng, lat)
         .await
         .map_err(|e| format!("sample hansen {url}: {e}"))?;
 
     if !raw.is_finite() {
-        return Err(format!(
-            "hansen pixel non-finite at ({lat:.6},{lng:.6}) {url}"
-        ));
+        // Hansen rasters use 0 as the on-land "no event" value, so a
+        // non-finite read is a true no-data sentinel (off-tile / nodata
+        // mask). Sign Absence rather than Err.
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            0,
+            "hansen.gfc.v1_11.2023",
+            &url,
+            &signed_at,
+            &format!("hansen pixel non-finite at ({lat:.6},{lng:.6}) {url}"),
+        )
+        .await;
     }
     let v = raw.round() as i64;
     let (unit, lo, hi) = match band {
@@ -8793,15 +9058,47 @@ async fn sign_elevation_absence(
     signed_at: &str,
     reason_text: &str,
 ) -> Result<emem_fact::FactCid, String> {
+    sign_band_absence(
+        cell64,
+        s,
+        "copdem30m.elevation_mean",
+        0,
+        "open_meteo",
+        upstream_url,
+        signed_at,
+        reason_text,
+    )
+    .await
+}
+
+/// Generic signed `Fact::Absence` helper. Use whenever an upstream
+/// returns a confirmed "no data here" sentinel (e.g. MCD64A1 -1 over
+/// water, MOD16A2 >=32700 fill ranges, marine open-ocean queries
+/// returning empty subsets, Hansen GFC outside its tropical bounding
+/// box, NASA POWER no-coverage zones). Signing Absence — instead of
+/// erroring — gives the agent a verifiable answer ("the responder
+/// tried and got nothing here") that can be cited and cached, rather
+/// than an opaque transport-level failure that gets retried forever.
+#[allow(clippy::too_many_arguments)]
+async fn sign_band_absence(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    tslot: u64,
+    scheme: &str,
+    upstream_url: &str,
+    signed_at: &str,
+    reason_text: &str,
+) -> Result<emem_fact::FactCid, String> {
     let reason_cid = reason_cid_for(reason_text);
     let fact = Fact::Absence(NegativeFact {
         cell: cell64.to_string(),
-        band: "copdem30m.elevation_mean".into(),
-        tslot: 0,
+        band: band.to_string(),
+        tslot,
         reason_cid,
         confidence: 1.0,
         sources: vec![Source {
-            scheme: "open_meteo".into(),
+            scheme: scheme.to_string(),
             id: upstream_url.to_string(),
             cid: None,
             hash: None,
@@ -9488,7 +9785,15 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
     if start > end {
         std::mem::swap(&mut start, &mut end);
     }
-    let max_facts = req.max_facts.unwrap_or(64).clamp(1, 1024);
+    // Backfill default lowered from 64 → 16. The default value is the
+    // ceiling an LLM client uses when it forgets to set `max_facts`,
+    // and 64 weather facts at 1.5–3 s each (Open-Meteo, NASA POWER,
+    // ORNL MODIS) routinely blew past Cursor / Claude Code's 60 s tool
+    // timeout, surfacing as an opaque "tool failed" with no partial
+    // result. 16 facts → ~30 s ceiling, fits comfortably in every
+    // host's tool-call window. Hard cap stays at 1024 for explicit
+    // wide backfills.
+    let max_facts = req.max_facts.unwrap_or(16).clamp(1, 1024);
 
     let slot_secs = tempo.slot_seconds();
     let mut steps: Vec<JsonValue> = Vec::new();
@@ -10949,6 +11254,20 @@ const TOPIC_BANDS: &[(&str, &[&str])] = &[
         &["geotessera", "geotessera.multi_year"],
     ),
     ("radar_all_weather_sar", &["sentinel1_raw"]),
+    // Analytics is a universal topic — its algorithms (spatial_volatility,
+    // trend_strength, anomaly_zscore) compose other algorithms' outputs
+    // and so reference `<composite>` placeholders, not raw bands. The
+    // structural router needs *something* to feed /v1/recall, so we
+    // anchor the topic on two universally-available bands: the
+    // foundation embedding (universal place vector for novelty / outlier
+    // detection) and the long MODIS NDVI time series (decade-scale
+    // trend / volatility). Without this, /v1/ask on an analytics
+    // question would return zero facts even though the algorithms are
+    // declared.
+    (
+        "analytics",
+        &["geotessera", "modis.ndvi_mean", "indices.ndvi"],
+    ),
 ];
 
 const TOPIC_ALGORITHMS: &[(&str, &[&str])] = &[
@@ -11063,10 +11382,20 @@ const TOPIC_KEYWORDS: &[(&str, &[&str])] = &[
     (
         "flood_risk_composite",
         &[
-            // Bare "flood" must come first — covers "is X going to flood",
-            // "will it flood", "flood here". The substring router checks
-            // contains() so this also catches "flooding", "floods", etc.
-            "flood",
+            // Forward-looking flood-risk phrases. The earlier list keyed
+            // on bare "flood" — that swept up pure-history queries
+            // ("flood history of this place", "has this area ever
+            // flooded") which should route to flood_history_long_term,
+            // not the forward-risk composite. Be specific about the
+            // intent (will / going to / risk / prone).
+            "will it flood",
+            "will this flood",
+            "will the area flood",
+            "could this flood",
+            "going to flood",
+            "is it going to flood",
+            "flood likelihood",
+            "flood likely",
             "flood-prone",
             "flood prone",
             "floodprone",
@@ -11658,13 +11987,32 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 (hit.lat, hit.lng, Some(hit.label))
             }
         }
-        _ => return Err(ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody {
-                code: ErrorCode::Internal,
-                message: "locate requires either {lat, lng} (WGS-84 degrees) or {place: \"...\"} (free-text place name; aliases accepted: q, query, name). Examples: {\"lat\":35.36,\"lng\":138.73} or {\"place\":\"Mt Fuji\"} or {\"q\":\"東京\"}.".into(),
-            },
-        )),
+        _ => {
+            // No location provided. The schema (SCHEMA_LOCATE) declares
+            // place|q|query|name OR lat+lng so a spec-compliant client
+            // never lands here. We return a *soft* envelope (200 OK with
+            // status:"needs_location") rather than a 4xx — Anthropic's
+            // hosted MCP frontend, OpenAI's Assistants tool harness, and
+            // Vertex's tool-call streamer all surface 4xx as a red error
+            // toast, but route 200 + a structured payload back to the
+            // model so it can self-correct on the next turn. This is the
+            // same pattern emem_ask uses (lib.rs:11459).
+            return Ok(Json(json!({
+                "schema":  "emem.locate.v1",
+                "status":  "needs_location",
+                "message": "no location provided. Pass `place` (free-text name), `q`/`query`/`name` (aliases), or `lat`+`lng` (WGS-84 degrees).",
+                "examples": [
+                    {"lat": 35.36, "lng": 138.73},
+                    {"place": "Mt Fuji"},
+                    {"q": "東京"},
+                ],
+                "next_steps": [
+                    "extract a noun phrase (city, park, address, landmark) from the user's turn and pass it as `place`",
+                    "or, if the user gave coordinates, pass `lat` + `lng` directly",
+                ],
+                "agent_hint": "emem_locate is the geocoder. Reply to the user only after this returns a `cell64` you can hand to emem_recall / emem_ask.",
+            })));
+        }
     };
     let cell = emem_codec::cell_from_latlng(lat, lng);
     let cell_str = emem_codec::to_cell64(cell);
