@@ -3273,22 +3273,14 @@ fn boring_view(
                 "source":                source.map(|s| s.scheme.as_str()),
                 "source_url":            source.map(|s| s.id.as_str()),
                 "captured_at":           source.and_then(|s| s.captured_at.as_deref()),
-                // Resolution honesty, in three numbers:
-                //   data_resolution_m  = the pitch of the upstream pixel
-                //                        we actually sampled (10 m for S1/S2,
-                //                        90 m for Cop-DEM, 250 m for SoilGrids…).
-                //                        THIS IS THE FIDELITY OF THE VALUE.
-                //   cell_dedupe_m      = our cache key granularity. Two queries
-                //                        within ~305 m hit the same cached
-                //                        sample (the one taken at the cell
-                //                        centre); it does NOT mean the value
-                //                        is a 305 m aggregate.
-                //   resolution_m_input = legacy alias of data_resolution_m;
-                //                        kept for compatibility this release.
                 "data_resolution_m":     res_in,
                 "resolution_m_input":    res_in,
                 "cell_dedupe_m":         RESOLUTION_M_GRID,
                 "cell64":                cell64,
+                // Storage key the fact was signed under. For boring-API
+                // facts this is `<cell64>@<lat_q>:<lng_q>` (10 m fine
+                // cell); for legacy POST /v1/recall it equals cell64.
+                "fact_cell":             p.cell.as_str(),
                 "fact_cid":              fact_cid,
                 "responder_pubkey_b32":  responder_pubkey_b32,
                 "signed_at":             p.signed_at,
@@ -3306,6 +3298,7 @@ fn boring_view(
             "resolution_m_input":    band_input_resolution_m(&a.band),
             "cell_dedupe_m":         RESOLUTION_M_GRID,
             "cell64":                cell64,
+            "fact_cell":             a.cell.as_str(),
             "fact_cid":              fact_cid,
             "responder_pubkey_b32":  responder_pubkey_b32,
             "signed_at":             a.signed_at,
@@ -3353,8 +3346,13 @@ async fn boring_recall_at(
     }
     let cell = emem_codec::cell_from_latlng(lat, lng);
     let cell_str = emem_codec::to_cell64(cell);
+    // Fine cell is the storage key for boring-API materializations:
+    // 10 m-quantized lat/lng appended to cell64, so two queries at
+    // different sub-cell points get distinct fact_cids and the
+    // materializer samples at THIS lat/lng (not the cell centre).
+    let fine_cell = fine_cell_str(&cell_str, lat, lng);
     let req = RecallReq {
-        cell: cell_str.clone(),
+        cell: fine_cell.clone(),
         bands: if bands.is_empty() {
             None
         } else {
@@ -3389,6 +3387,9 @@ async fn boring_recall_at(
             _ => continue,
         };
         let cid = cid_for(&band);
+        // The fact's `cell` field is the fine_cell (signed into the
+        // fact_cid); the boring response surfaces the bare cell64 in
+        // each per-band view so agents see the canonical cell ID.
         by_band.insert(
             band.clone(),
             boring_view(fact, cid.as_deref(), &pubkey_b32, &cell_str, &served_at),
@@ -3412,8 +3413,10 @@ async fn boring_recall_at(
         json!({
             "bands":                by_band,
             "cell64":               cell_str.clone(),
+            "fine_cell":            fine_cell.clone(),
             "responder_pubkey_b32": pubkey_b32.clone(),
             "cell_dedupe_m":        RESOLUTION_M_GRID,
+            "fine_cell_quanta_m":   ((1.0 / FINE_CELL_QUANTA_PER_DEG) * 111_000.0).round() as u32,
             "served_at":            served_at.clone(),
         })
     };
@@ -6358,7 +6361,7 @@ async fn materialize_elevation_mean(
     s: &AppState,
 ) -> Result<ElevationMaterialization, String> {
     // 1. Decode cell → centre lat/lng.
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -6502,7 +6505,7 @@ async fn materialize_gmrt_topobathy(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let url = format!(
@@ -6630,7 +6633,7 @@ async fn materialize_modis_ndvi_window(
     target_unix: Option<i64>,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -6879,7 +6882,7 @@ async fn materialize_geotessera_multi_year(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -7124,7 +7127,7 @@ async fn materialize_geotessera_for_year(
     year: i32,
     band_name: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let v = match fetch_geotessera_pixel(lat, lng, year).await {
@@ -7300,7 +7303,7 @@ async fn materialize_geotessera_bin128(
     })?;
 
     let signed_at = chrono_iso8601_utc();
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let rot_cid = rotation_cid();
@@ -7369,7 +7372,7 @@ async fn materialize_weather_current(
     s: &AppState,
     band: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -7533,7 +7536,7 @@ async fn materialize_power_band(
         "power.ws10m" => ("WS10M", Some("m/s"), 0.80),
         _ => return Err(format!("power band not wired: {band}")),
     };
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // POWER's daily product publishes with ~3-5 day latency depending on
@@ -7683,7 +7686,7 @@ async fn materialize_cams_band(
         "cams.aod_550" => ("aerosol_optical_depth", None, 0.75),
         _ => return Err(format!("cams band not wired: {band}")),
     };
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let now_unix = std::time::SystemTime::now()
@@ -7806,7 +7809,7 @@ async fn materialize_era5_band(
         "era5.dewpoint_2m" => ("dew_point_2m", Some("degC"), 0.85),
         _ => return Err(format!("era5 band not wired: {band}")),
     };
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let date = unix_to_yyyymmdd(target_unix);
@@ -7916,7 +7919,7 @@ async fn materialize_marine_band(
         "marine.wave_direction" => ("wave_direction", Some("deg"), 0.75),
         _ => return Err(format!("marine band not wired: {band}")),
     };
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let now_unix = std::time::SystemTime::now()
@@ -8153,7 +8156,7 @@ async fn materialize_ornl_modis_band(
         ),
         _ => return Err(format!("ornl modis band not wired: {band}")),
     };
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let now = std::time::SystemTime::now()
@@ -8543,7 +8546,7 @@ async fn materialize_sentinel2_band(
 ) -> Result<emem_fact::FactCid, String> {
     let plan = s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
     let (asset_lists, kind, formula_note) = plan;
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -8887,7 +8890,7 @@ async fn materialize_sentinel1_vv(
     s: &AppState,
     target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -9013,7 +9016,7 @@ async fn materialize_jrc_gsw_recurrence(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -9139,7 +9142,7 @@ async fn materialize_overture_buildings_count(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
     let n = cli
@@ -9191,7 +9194,7 @@ async fn materialize_overture_places_count(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
     let n = cli
@@ -9243,7 +9246,7 @@ async fn materialize_overture_road_length_m(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let bb = info.bbox_deg;
     let cli = emem_fetch::overture::OvertureClient::shared();
     let length_m = cli
@@ -9306,7 +9309,7 @@ async fn materialize_esa_worldcover_2021(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // SW-corner naming on a 3° grid; lat is N/S, lng is E/W.
@@ -9485,7 +9488,7 @@ async fn materialize_soilgrids_band(
         "soilgrids.nitrogen_0_30cm" => ("nitrogen", "soilgrids.v2.nitrogen", "cg/kg", 0.55),
         _ => return Err(format!("soilgrids band not wired: {band}")),
     };
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // SoilGrids is land-only and excludes Antarctica (lat < -60). Sign Absence
@@ -9693,7 +9696,7 @@ async fn materialize_hansen_band(
         "hansen.gain" => "gain",
         _ => return Err(format!("hansen band {band} not registered")),
     };
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     // NW-corner naming on a 10° grid.
@@ -10569,6 +10572,78 @@ fn tessera_year_for_unix(t: i64, range: std::ops::RangeInclusive<i32>) -> Option
         }
     }
     None
+}
+
+// =============================================================
+// Fine-cell encoding (10 m sub-cell cache key).
+//
+// A "fine cell" is a string of the form `<cell64>@<lat_q>:<lng_q>`
+// where `lat_q = round(lat * 9000)` and `lng_q = round(lng * 9000)`
+// (≈11 m on the lat axis at the equator — matching Sentinel-2's
+// 10 m native pitch). The boring API uses fine_cell as the storage
+// cell field so two queries at different lat/lng inside the same
+// cell64 get distinct fact_cids; the materializer samples at the
+// embedded (lat, lng), not the cell centre. This stops the silent
+// cross-agent corruption mode where Agent A materialized cell X
+// from its lat/lng and Agent B asks at a different lat/lng inside
+// X and gets back A's value with a signed receipt.
+//
+// Bare cell64 still works for legacy POST /v1/recall — those calls
+// pass `cell="cell64"` and the materializer falls back to cell-
+// centre lat/lng, which is the same behaviour as before.
+// =============================================================
+
+const FINE_CELL_QUANTA_PER_DEG: f64 = 9000.0;
+
+/// Build a fine_cell string from a base cell64 and an exact (lat, lng).
+fn fine_cell_str(cell64: &str, lat: f64, lng: f64) -> String {
+    let lat_q = (lat * FINE_CELL_QUANTA_PER_DEG).round() as i64;
+    let lng_q = (lng * FINE_CELL_QUANTA_PER_DEG).round() as i64;
+    format!("{cell64}@{lat_q}:{lng_q}")
+}
+
+/// Decode either a bare cell64 or a fine_cell into a LatLng, where
+/// `lat_deg`/`lng_deg` is the **sampling location** (cell centre for
+/// bare cell64, the embedded sub-cell point for fine_cell) and
+/// `bbox_deg` is the cell's canonical bbox (unchanged by the suffix —
+/// any cell-bbox math like UTM projection or STAC scene search keeps
+/// using the canonical bucket).
+///
+/// Drop-in replacement for `emem_codec::latlng_from_cell64(s)
+/// .map_err(|e| format!("cell decode: {e}"))?` in the materializer
+/// chain. Returns `Result<LatLng, String>` to match the existing
+/// error-flow shape in materializers.
+fn latlng_for_cell_str(s: &str) -> Result<emem_codec::LatLng, String> {
+    if let Some((base, suffix)) = s.split_once('@') {
+        let (lat_q_str, lng_q_str) = suffix
+            .split_once(':')
+            .ok_or_else(|| format!("malformed fine_cell suffix: {suffix}"))?;
+        let lat_q: i64 = lat_q_str
+            .parse()
+            .map_err(|e| format!("bad fine_cell lat_q '{lat_q_str}': {e}"))?;
+        let lng_q: i64 = lng_q_str
+            .parse()
+            .map_err(|e| format!("bad fine_cell lng_q '{lng_q_str}': {e}"))?;
+        let lat = (lat_q as f64) / FINE_CELL_QUANTA_PER_DEG;
+        let lng = (lng_q as f64) / FINE_CELL_QUANTA_PER_DEG;
+        let info = emem_codec::latlng_from_cell64(base)
+            .map_err(|e| format!("cell decode (fine cell base '{base}'): {e}"))?;
+        Ok(emem_codec::LatLng {
+            lat_deg: lat,
+            lng_deg: lng,
+            bbox_deg: info.bbox_deg,
+        })
+    } else {
+        emem_codec::latlng_from_cell64(s).map_err(|e| format!("cell decode: {e}"))
+    }
+}
+
+/// Strip a fine_cell suffix down to the bare cell64 (for response
+/// surfaces that want to expose the canonical cell). For a bare
+/// cell64 input, returns the input unchanged.
+#[allow(dead_code)]
+fn base_cell64_of(s: &str) -> &str {
+    s.split_once('@').map(|(b, _)| b).unwrap_or(s)
 }
 
 /// Per-band materialization for a target Unix epoch. Returns Ok(cid) on
@@ -11933,7 +12008,7 @@ async fn build_cell_scene_rgb(
     max_cloud_pct: f64,
     datetime_window: Option<&str>,
 ) -> Result<SceneRgb, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let info = latlng_for_cell_str(cell64)?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
@@ -15649,6 +15724,64 @@ mod tests {
     #[test]
     fn cell_dedupe_constant_matches_active_grid() {
         assert_eq!(RESOLUTION_M_GRID, 305);
+    }
+
+    /// Fine cell encoder + decoder are inverse at 10 m grid pitch:
+    /// any (lat, lng) we put through `fine_cell_str` then
+    /// `latlng_for_cell_str` round-trips to within ~11 m on the lat
+    /// axis (the chosen quantum, 1/9000 deg). The bare-cell64 fallback
+    /// path also works for legacy callers.
+    #[test]
+    fn fine_cell_encode_decode_roundtrip() {
+        let cell = emem_codec::cell_from_latlng(30.5, 75.85);
+        let cell64 = emem_codec::to_cell64(cell);
+        let fc = fine_cell_str(&cell64, 30.5, 75.85);
+        assert!(fc.starts_with(&cell64));
+        assert!(fc.contains('@'));
+        let info = latlng_for_cell_str(&fc).unwrap();
+        // Round-trip within the 1/9000-degree quantum (~11 m at the
+        // equator on the lat axis).
+        assert!(
+            (info.lat_deg - 30.5).abs() < 1.0 / FINE_CELL_QUANTA_PER_DEG,
+            "lat round-trip drift {} > {}",
+            (info.lat_deg - 30.5).abs(),
+            1.0 / FINE_CELL_QUANTA_PER_DEG
+        );
+        assert!(
+            (info.lng_deg - 75.85).abs() < 1.0 / FINE_CELL_QUANTA_PER_DEG,
+            "lng round-trip drift {} > {}",
+            (info.lng_deg - 75.85).abs(),
+            1.0 / FINE_CELL_QUANTA_PER_DEG
+        );
+        // Bare cell64 still decodes (fallback path).
+        let info_bare = latlng_for_cell_str(&cell64).unwrap();
+        assert!(info_bare.lat_deg.is_finite());
+        assert!(info_bare.lng_deg.is_finite());
+        // base_cell64_of strips the suffix back to the canonical cell.
+        assert_eq!(base_cell64_of(&fc), cell64.as_str());
+        assert_eq!(base_cell64_of(&cell64), cell64.as_str());
+    }
+
+    /// Two queries 10 m apart MUST resolve to **different** fine
+    /// cells — that's the whole anti-corruption guarantee. (Note: the
+    /// quantum is 1/9000 deg ≈ 11.1 m on the lat axis at the equator;
+    /// 10 m east on lng is ~9 m on the longitude grid at lat=30.5°,
+    /// so we use 12 m to be safely above the quantum.)
+    #[test]
+    fn fine_cell_separates_sub_cell_queries() {
+        let cell = emem_codec::cell_from_latlng(30.5, 75.85);
+        let cell64 = emem_codec::to_cell64(cell);
+        let fc1 = fine_cell_str(&cell64, 30.5, 75.85);
+        // ~12 m east on the lng axis (12 m / 111 km ≈ 1.08e-4 deg)
+        let fc2 = fine_cell_str(&cell64, 30.5, 75.85 + 1.08e-4);
+        assert_ne!(
+            fc1, fc2,
+            "12 m east must produce a distinct fine_cell — corruption guard"
+        );
+        // Queries within the quantum DO collide (intentional: that's
+        // the 10 m cache-key granularity).
+        let fc3 = fine_cell_str(&cell64, 30.5, 75.85 + 1e-6);
+        assert_eq!(fc1, fc3);
     }
 
     /// LatLngQ accepts both `lon` and `lng` so that an agent trained
