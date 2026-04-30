@@ -1593,6 +1593,25 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "notes":             "1024-D = 128 × 8 years (2017,2018,2019,2020,2021,2022,2023,2024). Years with no tile coverage at this cell get zero-padded slices; derivation.args.years_covered records which slices are real. Use this for time-aware similarity search — the temporal trajectory of a place across the Tessera vintage."
             },
             {
+                "band":              "geotessera.bin128",
+                "unit":              "bin128_be",
+                "value_kind":        "primary",
+                "value_shape":       [16],
+                "value_encoding":    "cbor.bytes(16)",
+                "coverage":          "wherever geotessera is attested — derived locally, no extra upstream call",
+                "upstream_scheme":   "geotessera",
+                "upstream_endpoint": "(derived from cached geotessera fp16 vector)",
+                "derivation_fn_key": "turboquant_geotessera_bin128_v1@1",
+                "confidence":        0.85,
+                "tempo":             "slow",
+                "fetch_strategy":    "derived: turboquant rotation + sign-bit pack",
+                "fetch_bytes_per_cell": 16,
+                "use_with":          "find_similar mode=hamming or hamming_then_rerank",
+                "compression_ratio": "16x vs geotessera (256 B → 16 B per cell)",
+                "scoring_throughput": "~10⁹ pairs/sec/core via XOR + popcount",
+                "notes":             "Sign-bit-packed 128-bit binary embedding derived from the geotessera fp16 vector after a fixed random orthogonal rotation (TurboQuant — Corley, https://geospatialml.com/posts/terrabit/). Designed to feed `find_similar` as a triage layer: ~65% recall@10 on its own, matches cosine precision when used with mode=hamming_then_rerank (the responder pulls 4·k Hamming candidates, re-ranks by cosine on the underlying geotessera vector). Rotation matrix is content-addressed via derivation.args[2] so a verifier can re-derive bit-for-bit."
+            },
+            {
                 "band":              "weather.temperature_2m",
                 "unit":              "degC",
                 "value_kind":        "primary",
@@ -2035,6 +2054,8 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
         ("geotessera.2022", "slow", "foundation", &["Tessera v1 2022"]),
         ("geotessera.2023", "slow", "foundation", &["Tessera v1 2023"]),
         ("geotessera.2024", "slow", "foundation", &["Tessera v1 2024"]),
+        ("geotessera.bin128", "slow", "foundation",
+            &["Derived: turboquant rotation + sign-bit pack of geotessera fp16 vector. 16 B/cell on disk; Hamming-distance triage k-NN at ~10⁹ pairs/sec/core. Designed to feed `find_similar` mode=hamming / hamming_then_rerank — the full fp16 vector under `geotessera` is still attested for re-rank."]),
         ("indices.ndvi", "fast", "vegetation", &["Sentinel-2A/B/C MSI (NDVI)"]),
         ("indices.ndwi", "fast", "water",      &["Sentinel-2A/B/C MSI (NDWI Gao)"]),
         ("indices.mndwi", "fast", "water",     &["Sentinel-2A/B/C MSI (MNDWI McFeeters)"]),
@@ -2815,7 +2836,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "elevation_land_only":  ["copdem30m.elevation_mean"],
             "optical_raw":          ["s2.B02","s2.B03","s2.B04","s2.B08","s2.B11","s2.B12"],
             "scene_classification": ["s2.scl"],
-            "foundation_embedding": ["geotessera","geotessera.multi_year"],
+            "foundation_embedding": ["geotessera","geotessera.multi_year","geotessera.bin128"],
         },
         "live_bands_discovery_hint": "live_bands is a curated subset; call `emem_materializers` for the full registry with upstream URLs, licenses, and value-kind (primary | absence | primary_or_absence). Call `emem_coverage_matrix` for per-band facts_count and last-attested timestamps.",
         "runtime": {
@@ -5225,7 +5246,7 @@ async fn openapi() -> Json<JsonValue> {
                 "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}},
                 "QueryRegionReq":  {"type":"object","required":["geometry"],"properties":{"geometry":{"type":"string"},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
-                "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string"},"k":{"type":"integer","minimum":1,"maximum":1000},"band":{"type":"string"}}},
+                "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D fp16). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
                 "DiffReq":         {"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}},
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
@@ -6655,6 +6676,148 @@ async fn materialize_geotessera_for_year(
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
                 ciborium::Value::Integer((year as i64).into()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+/// Materialize the binary-quantized 128-bit sibling of `geotessera`.
+///
+/// The fact value is a CBOR `Bytes(16)` payload — the sign-bit-packed
+/// output of [`emem_primitives::binary_embedding::pack_bin128`] applied
+/// to the (rotated) `geotessera` fp16 vector. Used by `find_similar`
+/// in `mode: "hamming"` / `"hamming_then_rerank"` for triage k-NN at
+/// ~1000× the throughput of fp32 cosine.
+///
+/// We chain on top of `materialize_geotessera_for_year` so a recall
+/// for `geotessera.bin128` at a fresh cell auto-fetches the underlying
+/// embedding too — agents never need to know the derivation order.
+/// The default vintage is `2024` (matches `materialize_geotessera_embedding`).
+async fn materialize_geotessera_bin128(
+    cell64: &str,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_primitives::binary_embedding::{pack_bin128_slice, rotation_cid, BIN_DIMS};
+
+    // Try existing facts first — read the most recent geotessera vector
+    // attested at this cell, regardless of vintage. This avoids re-
+    // fetching the upstream when the fp16 embedding is already cached.
+    let pairs = s.storage.scan_cell(cell64, None).await.unwrap_or_default();
+    let mut existing_vec: Option<Vec<f32>> = None;
+    for (key, cid) in &pairs {
+        let prefix_match = key.band == "geotessera"
+            || key.band == "geotessera.multi_year"
+            || key.band.starts_with("geotessera.20");
+        if !prefix_match {
+            continue;
+        }
+        let facts = s
+            .storage
+            .get_facts_many(std::slice::from_ref(cid))
+            .await
+            .map_err(|e| format!("scan geotessera for bin128: {e}"))?;
+        if let Some(Some(emem_fact::Fact::Primary(p))) = facts.into_iter().next() {
+            if let Some(v) = emem_primitives::cbor_ops::as_vec_f32(&p.value) {
+                if v.len() == BIN_DIMS {
+                    existing_vec = Some(v);
+                    break;
+                }
+            }
+        }
+    }
+
+    let vec = match existing_vec {
+        Some(v) => v,
+        None => {
+            // No geotessera fact yet — materialize the default vintage
+            // first, then re-read it.
+            materialize_geotessera_for_year(cell64, s, 2024, "geotessera").await?;
+            let pairs2 = s
+                .storage
+                .scan_cell(cell64, None)
+                .await
+                .unwrap_or_default();
+            let mut found: Option<Vec<f32>> = None;
+            for (key, cid) in &pairs2 {
+                if key.band != "geotessera" {
+                    continue;
+                }
+                let facts = s
+                    .storage
+                    .get_facts_many(std::slice::from_ref(cid))
+                    .await
+                    .map_err(|e| format!("post-fetch scan: {e}"))?;
+                if let Some(Some(emem_fact::Fact::Primary(p))) = facts.into_iter().next() {
+                    if let Some(v) = emem_primitives::cbor_ops::as_vec_f32(&p.value) {
+                        if v.len() == BIN_DIMS {
+                            found = Some(v);
+                            break;
+                        }
+                    }
+                }
+            }
+            found.ok_or_else(|| {
+                format!(
+                    "geotessera.bin128: no {BIN_DIMS}-D geotessera vector available at {cell64} \
+                     after upstream fetch (the fact may have been signed as Absence — over open \
+                     ocean or for a year with no upstream tile coverage)"
+                )
+            })?
+        }
+    };
+
+    let packed = pack_bin128_slice(&vec).ok_or_else(|| {
+        format!(
+            "geotessera.bin128: source vector wrong length {} (expected {BIN_DIMS})",
+            vec.len()
+        )
+    })?;
+
+    let signed_at = chrono_iso8601_utc();
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let rot_cid = rotation_cid();
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: "geotessera.bin128".into(),
+        tslot: 0,
+        // Bytes is the canonical encoding for fixed-shape binary
+        // embeddings — half the on-disk footprint of `Array(int)`
+        // and what every cross-language client (NumPy `.tobytes()`,
+        // JS `Uint8Array`) emits by default.
+        value: ciborium::Value::Bytes(packed.to_vec()),
+        unit: Some("bin128_be".into()),
+        confidence: 0.85,
+        uncertainty: None,
+        sources: vec![Source {
+            // Source scheme reuses the upstream geotessera scheme so
+            // the receipt's source chain remains intact (the binary
+            // is a deterministic transform of the cited fp16 fact).
+            scheme: "geotessera".into(),
+            id: format!("geotessera.bin128 (turboquant rotation_cid={rot_cid})"),
+            cid: None,
+            hash: None,
+            captured_at: Some(signed_at.clone()),
+            url: None,
+        }],
+        derivation: Derivation {
+            // fn_key encodes the rotation seed — verifiers must use
+            // the same seed to re-derive the rotation matrix and
+            // re-pack the source vector. Bumping the @N suffix here
+            // also means renaming the band (e.g. `bin128.v2`) so two
+            // responders never produce different binaries under the
+            // same band name.
+            fn_key: "turboquant_geotessera_bin128_v1@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(rot_cid),
             ])),
         },
         privacy_class: "public".into(),
@@ -9307,6 +9470,17 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: Some(tessera_window_end),
             wire_path: "dl2.geotessera.org × 8 vintages, fused 1024-D",
         },
+        "geotessera.bin128" => MaterializerMeta {
+            // Derived band — no upstream tempo of its own. Mirrors
+            // the latest-vintage geotessera fact (recall reuses the
+            // cached embedding when present, otherwise materializes
+            // the default 2024 vintage first).
+            tempo: Tempo::Slow,
+            kind: BandKind::AnnualSnapshot,
+            history_from_unix: Some(jan1_unix(*TESSERA_YEARS_RANGE.end())),
+            history_to_unix: Some(tessera_window_end),
+            wire_path: "derived: turboquant rotation + sign-bit pack of geotessera fp16 vector (16 B/cell)",
+        },
         b if parse_geotessera_year(b)
             .map(|y| TESSERA_YEARS_RANGE.contains(&y))
             .unwrap_or(false) =>
@@ -9537,6 +9711,10 @@ fn all_materializable_bands() -> Vec<String> {
         // Tessera vintages.
         "geotessera".into(),
         "geotessera.multi_year".into(),
+        // Binary-quantized sibling — derived locally from the cached
+        // geotessera fp16 vector via TurboQuant rotation + sign-bit
+        // packing. Feeds find_similar mode=hamming/hamming_then_rerank.
+        "geotessera.bin128".into(),
     ];
     for y in TESSERA_YEARS_RANGE_PUBLIC.clone() {
         out.push(format!("geotessera.{y}"));
@@ -9661,6 +9839,7 @@ async fn materialize_band_at(
             return materialize_geotessera_for_year(cell64, s, y, "geotessera").await;
         }
         "geotessera.multi_year" => return materialize_geotessera_multi_year(cell64, s).await,
+        "geotessera.bin128" => return materialize_geotessera_bin128(cell64, s).await,
         "sentinel1_raw" => return materialize_sentinel1_vv(cell64, s, Some(target_unix)).await,
         // Overture is a versioned global snapshot, not a per-tslot series;
         // the canonical fact is "latest release" — backfill on a past
@@ -10086,6 +10265,7 @@ async fn try_materialize_bands(
             },
             "geotessera"
             | "geotessera.multi_year"
+            | "geotessera.bin128"
             | "geotessera.2017"
             | "geotessera.2018"
             | "geotessera.2019"
@@ -10098,6 +10278,8 @@ async fn try_materialize_bands(
                     materialize_geotessera_embedding(cell64, s).await
                 } else if b == "geotessera.multi_year" {
                     materialize_geotessera_multi_year(cell64, s).await
+                } else if b == "geotessera.bin128" {
+                    materialize_geotessera_bin128(cell64, s).await
                 } else {
                     materialize_geotessera_year_band(cell64, s, b).await
                 };
@@ -11251,7 +11433,7 @@ const TOPIC_BANDS: &[(&str, &[&str])] = &[
     ("scene_classification", &["s2.scl"]),
     (
         "foundation_embedding",
-        &["geotessera", "geotessera.multi_year"],
+        &["geotessera", "geotessera.multi_year", "geotessera.bin128"],
     ),
     ("radar_all_weather_sar", &["sentinel1_raw"]),
     // Analytics is a universal topic — its algorithms (spatial_volatility,

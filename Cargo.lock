@@ -1307,6 +1307,7 @@ name = "emem-primitives"
 version = "0.0.2"
 dependencies = [
  "async-trait",
+ "blake3",
  "ciborium",
  "emem-cache",
  "emem-claim",

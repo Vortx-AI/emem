@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod binary_embedding;
 pub mod cbor_ops;
 pub mod compare;
 pub mod compare_bands;

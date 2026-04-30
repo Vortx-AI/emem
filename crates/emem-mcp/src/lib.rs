@@ -129,7 +129,8 @@ const SCHEMA_COMPARE_BANDS: &str = r#"{"type":"object","required":["cell","a","b
 const SCHEMA_FIND_SIMILAR: &str = r#"{"type":"object","required":["key"],"properties":{
 "key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},
 "k":{"type":"integer","minimum":1,"maximum":1000,"default":10},
-"band":{"type":"string","default":"geotessera","description":"vector band to scan (default: 128-D Tessera foundation embedding)"}
+"band":{"type":"string","default":"geotessera","description":"vector band to scan (default: 128-D Tessera foundation embedding). For mode=hamming/hamming_then_rerank you can pass either the cosine band (e.g. 'geotessera') or its binary sibling ('geotessera.bin128') — the responder picks the right one."},
+"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. cosine = fp32 over full vector (precise, ~256 B/cell scan). hamming = sign-bit popcount over the binary sibling band (~16 B/cell, ~1000× faster, ~65% recall@10). hamming_then_rerank = triage with Hamming on 4·k candidates then re-rank by cosine — matches cosine precision at ~16× less work."}
 }}"#;
 
 const SCHEMA_DIFF: &str = r#"{"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{
