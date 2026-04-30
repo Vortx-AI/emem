@@ -365,11 +365,8 @@ impl Manifest for AlgorithmRegistry {
             // entry has no `multimodal` block (older entries pre-date
             // the field and stay valid).
             if let Some(mm) = &a.multimodal {
-                let input_keys: std::collections::HashSet<&str> = a
-                    .inputs
-                    .iter()
-                    .filter_map(|i| i.band.as_deref())
-                    .collect();
+                let input_keys: std::collections::HashSet<&str> =
+                    a.inputs.iter().filter_map(|i| i.band.as_deref()).collect();
 
                 // R1 — anchor must be a declared input. The
                 // composite_inherit escape lets parametric_trigger@1
@@ -409,14 +406,12 @@ impl Manifest for AlgorithmRegistry {
                 // current state; a climatology can't carry that signal.
                 // Empty list is allowed only on `none` fusion (single
                 // baseline-only algorithms), checked in R3a.
-                let has_observational_variance = mm.variance_sources.iter().any(|b| {
-                    !matches!(
-                        SourceTier::for_band(b),
-                        SourceTier::Static
-                    )
-                });
-                let allow_no_variance = matches!(mm.fusion_method, FusionMethod::None)
-                    || mm.composite_inherit;
+                let has_observational_variance = mm
+                    .variance_sources
+                    .iter()
+                    .any(|b| !matches!(SourceTier::for_band(b), SourceTier::Static));
+                let allow_no_variance =
+                    matches!(mm.fusion_method, FusionMethod::None) || mm.composite_inherit;
                 if !has_observational_variance
                     && !allow_no_variance
                     && !mm.variance_sources.is_empty()
@@ -533,10 +528,7 @@ mod tests {
             SourceTier::for_band("soilgrids.soc_0_30cm"),
             SourceTier::Static
         );
-        assert_eq!(
-            SourceTier::for_band("hansen.loss_year"),
-            SourceTier::Static
-        );
+        assert_eq!(SourceTier::for_band("hansen.loss_year"), SourceTier::Static);
     }
 
     #[test]
@@ -571,7 +563,9 @@ mod tests {
           }]
         });
         let r: AlgorithmRegistry = serde_json::from_value(raw).unwrap();
-        let err = r.validate().expect_err("R2 must reject 10 m claim with no S1/S2");
+        let err = r
+            .validate()
+            .expect_err("R2 must reject 10 m claim with no S1/S2");
         assert!(format!("{err:?}").contains("delivery_resolution_m"));
     }
 

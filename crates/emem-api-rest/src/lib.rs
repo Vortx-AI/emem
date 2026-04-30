@@ -82,6 +82,8 @@ const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 const AGENTS_MD: &str = include_str!("../../../docs/AGENTS.md");
 const WHITEPAPER_MD: &str = include_str!("../../../docs/WHITEPAPER.md");
 const SPEC_MD: &str = include_str!("../../../docs/SPEC.md");
+const CLIENTS_MD: &str = include_str!("../../../docs/CLIENTS.md");
+const MULTIMODAL_MD: &str = include_str!("../../../docs/MULTIMODAL.md");
 const PRIVACY_MD: &str = include_str!("../../../PRIVACY.md");
 const TERMS_MD: &str = include_str!("../../../TERMS.md");
 const SUPPORT_MD: &str = include_str!("../../../SUPPORT.md");
@@ -122,6 +124,10 @@ pub fn router(state: AppState) -> Router {
         .route("/whitepaper.md", get(serve_whitepaper_md))
         .route("/spec", get(serve_spec_md))
         .route("/spec.md", get(serve_spec_md))
+        .route("/clients", get(serve_clients_md))
+        .route("/clients.md", get(serve_clients_md))
+        .route("/multimodal", get(serve_multimodal_md))
+        .route("/multimodal.md", get(serve_multimodal_md))
         .route("/llms.txt", get(serve_llms_txt))
         .route("/llms-full.txt", get(serve_llms_full))
         .route("/robots.txt", get(serve_robots))
@@ -310,28 +316,37 @@ fn body_limit_bytes() -> usize {
     mb.clamp(1, 256) * 1024 * 1024
 }
 
-/// HTTP request gateway timeout. Defaults to 30s; tunable via
-/// `EMEM_TIMEOUT_SECS` (clamped to 1..=600).
+/// HTTP request gateway timeout. Defaults to **60 s**; tunable via
+/// `EMEM_TIMEOUT_SECS` (clamped to 1..=600). Doubled from the previous
+/// 30 s default after a 41-band multimodal recall test hit a 504 on
+/// the public host — agents that ask one composite question routinely
+/// trigger 8-12 cross-modal materializers in parallel, and SoilGrids
+/// REST + STAC PC + ORNL DAAC all have ~5 s p99 on cold paths. 60 s
+/// keeps the cumulative miss path comfortably under the cap while
+/// still being short enough to surface a stuck upstream.
 fn timeout_seconds() -> u64 {
     std::env::var("EMEM_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(30u64)
+        .unwrap_or(60u64)
         .clamp(1, 600)
 }
 
-/// Per-upstream materializer fetch timeout. Defaults to 15s; tunable via
-/// `EMEM_MATERIALIZER_TIMEOUT_SECS` (clamped to 2..=120). Bounding the
-/// upstream call here is what stops a slow MODIS / met.no / STAC peer
-/// from dragging the recall request past the gateway timeout — the
-/// previous behavior was an unbounded `reqwest::send().await`, which
-/// surfaced to agents as a generic 504 with no per-band attribution.
+/// Per-upstream materializer fetch timeout. Defaults to **30 s**; tunable
+/// via `EMEM_MATERIALIZER_TIMEOUT_SECS` (clamped to 2..=240). Doubled
+/// from the previous 15 s default after observing real-world
+/// SoilGrids / ORNL DAAC / STAC PC p95 latencies hit ~12 s on cold
+/// cells. Bounding the upstream call here is what stops a slow MODIS /
+/// met.no / STAC peer from dragging the recall request past the
+/// gateway timeout — the previous behavior was an unbounded
+/// `reqwest::send().await`, which surfaced to agents as a generic 504
+/// with no per-band attribution.
 fn materializer_timeout_secs() -> u64 {
     std::env::var("EMEM_MATERIALIZER_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(15u64)
-        .clamp(2, 120)
+        .unwrap_or(30u64)
+        .clamp(2, 240)
 }
 
 /// Number of HTTP attempts a materializer makes before giving up.
@@ -463,6 +478,10 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/agents.md"
         | "/whitepaper.md"
         | "/spec.md"
+        | "/clients"
+        | "/clients.md"
+        | "/multimodal"
+        | "/multimodal.md"
         | "/llms.txt"
         | "/llms-full.txt"
         | "/agent-trial.md"
@@ -1017,6 +1036,12 @@ async fn serve_whitepaper_md() -> Response {
 }
 async fn serve_spec_md() -> Response {
     text_response("text/markdown; charset=utf-8", SPEC_MD)
+}
+async fn serve_clients_md() -> Response {
+    text_response("text/markdown; charset=utf-8", CLIENTS_MD)
+}
+async fn serve_multimodal_md() -> Response {
+    text_response("text/markdown; charset=utf-8", MULTIMODAL_MD)
 }
 async fn serve_llms_txt() -> Response {
     text_response("text/plain; charset=utf-8", LLMS_TXT)
@@ -6738,11 +6763,7 @@ async fn materialize_geotessera_bin128(
             // No geotessera fact yet — materialize the default vintage
             // first, then re-read it.
             materialize_geotessera_for_year(cell64, s, 2024, "geotessera").await?;
-            let pairs2 = s
-                .storage
-                .scan_cell(cell64, None)
-                .await
-                .unwrap_or_default();
+            let pairs2 = s.storage.scan_cell(cell64, None).await.unwrap_or_default();
             let mut found: Option<Vec<f32>> = None;
             for (key, cid) in &pairs2 {
                 if key.band != "geotessera" {
@@ -7040,8 +7061,7 @@ async fn materialize_power_band(
     .await
     .map_err(|_| format!("nasa power timeout after {}s", timeout.as_secs()))?
     .map_err(|e| format!("nasa power https: {e}"))?;
-    let target_tslot =
-        emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::Fast).0;
+    let target_tslot = emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::Fast).0;
     let absence_signed_at = chrono_iso8601_utc();
     if !resp.status().is_success() {
         // POWER returns 422 for points outside its land-only mask
@@ -9027,7 +9047,10 @@ async fn materialize_soilgrids_band(
         )
         .await;
     }
-    let body: JsonValue = resp.json().await.map_err(|e| format!("soilgrids json: {e}"))?;
+    let body: JsonValue = resp
+        .json()
+        .await
+        .map_err(|e| format!("soilgrids json: {e}"))?;
 
     // Response shape:
     //   properties.layers[ {name:"soc", unit_measure:{d_factor:10,mapped_units:"g/kg",...},
@@ -9055,7 +9078,11 @@ async fn materialize_soilgrids_band(
         .pointer("/depths")
         .and_then(|v| v.as_array())
         .ok_or_else(|| "soilgrids response missing properties.layers[0].depths".to_string())?;
-    let want = [("0-5cm", 5.0_f64), ("5-15cm", 10.0_f64), ("15-30cm", 15.0_f64)];
+    let want = [
+        ("0-5cm", 5.0_f64),
+        ("5-15cm", 10.0_f64),
+        ("15-30cm", 15.0_f64),
+    ];
     let mut acc = 0.0_f64;
     let mut wsum = 0.0_f64;
     let mut missing: Vec<&str> = Vec::new();
@@ -9327,13 +9354,16 @@ async fn sign_and_persist(
 }
 
 /// Long-timeout HTTP client for STAC + COG range reads. The default
-/// `reqwest_client()` uses an 8-s timeout that is too tight for the
+/// `reqwest_client()` uses a 16-s timeout that is too tight for the
 /// multi-step COG path (STAC POST + IFD head + tile range read).
+/// Bumped 45 → 90 s alongside the materializer/gateway doubling so
+/// cold STAC paths under the new 30 s materializer cap get two
+/// retries' worth of headroom on the same client.
 fn s2_http_client() -> reqwest::Client {
     static C: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     C.get_or_init(|| {
         reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(45))
+            .timeout(std::time::Duration::from_secs(90))
             .build()
             .unwrap_or_default()
     })
@@ -9706,7 +9736,8 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             kind: BandKind::AnnualSnapshot,
             history_from_unix: Some(jan1_unix(*TESSERA_YEARS_RANGE.end())),
             history_to_unix: Some(tessera_window_end),
-            wire_path: "derived: turboquant rotation + sign-bit pack of geotessera fp16 vector (16 B/cell)",
+            wire_path:
+                "derived: turboquant rotation + sign-bit pack of geotessera fp16 vector (16 B/cell)",
         },
         b if parse_geotessera_year(b)
             .map(|y| TESSERA_YEARS_RANGE.contains(&y))
@@ -11028,37 +11059,35 @@ async fn try_materialize_bands(
             | "soilgrids.clay_0_30cm"
             | "soilgrids.sand_0_30cm"
             | "soilgrids.bdod_0_30cm"
-            | "soilgrids.nitrogen_0_30cm" => {
-                match materialize_soilgrids_band(cell64, s, b).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary_or_absence",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+            | "soilgrids.nitrogen_0_30cm" => match materialize_soilgrids_band(cell64, s, b).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary_or_absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
                 }
-            }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             _ => {
                 let e = format!("no_auto_materializer_registered: no upstream connector wired for band={b}; submit a signed Attestation via /v1/attest_cbor to seed it");
                 out.push(MaterializeOutcome {
@@ -12586,14 +12615,24 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // for ambiguous names ("Springfield", "San José"). Picking
                 // the first match silently is what produced the worst kind
                 // of place-name drift in earlier trials.
-                let hits = nominatim_lookup_candidates(p, 5).await.map_err(|e| ApiError(
-                    StatusCode::BAD_GATEWAY,
-                    ErrorBody { code: ErrorCode::Internal, message: format!("place lookup failed: {e}") },
-                ))?;
-                let hit = hits.first().cloned().ok_or_else(|| ApiError(
-                    StatusCode::NOT_FOUND,
-                    ErrorBody { code: ErrorCode::Internal, message: format!("no geocoder match for '{p}'") },
-                ))?;
+                let hits = nominatim_lookup_candidates(p, 5).await.map_err(|e| {
+                    ApiError(
+                        StatusCode::BAD_GATEWAY,
+                        ErrorBody {
+                            code: ErrorCode::Internal,
+                            message: format!("place lookup failed: {e}"),
+                        },
+                    )
+                })?;
+                let hit = hits.first().cloned().ok_or_else(|| {
+                    ApiError(
+                        StatusCode::NOT_FOUND,
+                        ErrorBody {
+                            code: ErrorCode::Internal,
+                            message: format!("no geocoder match for '{p}'"),
+                        },
+                    )
+                })?;
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
                 nominatim_cache_put(p, hit.lat, hit.lng, &hit.label, hit_bbox_arr);
                 if polygon_bbox.is_none() {
@@ -12605,7 +12644,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // Build alternatives from hits[1..] so the agent can
                 // disambiguate without a second HTTP round-trip.
                 for alt in hits.iter().skip(1) {
-                    let alt_cell = emem_codec::to_cell64(emem_codec::cell_from_latlng(alt.lat, alt.lng));
+                    let alt_cell =
+                        emem_codec::to_cell64(emem_codec::cell_from_latlng(alt.lat, alt.lng));
                     alternatives.push(json!({
                         "cell64":     alt_cell,
                         "lat":        alt.lat,
@@ -13297,7 +13337,11 @@ fn reqwest_client() -> reqwest::Client {
     static C: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     C.get_or_init(|| {
         reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(8))
+            // Doubled 8 → 16 s alongside the gateway/materializer
+            // timeout doubling. JSON-API peers (Open-Meteo, NASA POWER,
+            // ORNL DAAC, SoilGrids REST, met.no, GMRT) routinely hit
+            // 5–10 s p95 cold latencies; 8 s was hair-trigger.
+            .timeout(std::time::Duration::from_secs(16))
             .build()
             .unwrap_or_default()
     })

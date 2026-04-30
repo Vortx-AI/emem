@@ -42,15 +42,19 @@ esac
 echo "==> systemctl --user restart $UNIT"
 systemctl --user restart "$UNIT"
 
-# Give axum-server a beat to bind, then sanity-check.
-for i in 1 2 3 4 5; do
+# Give axum-server a beat to bind, then sanity-check. Window doubled
+# from 5×2s=10s to 10×2s=20s — cold-start with a fresh ACME challenge
+# can easily take 15-30s on first boot of a redeployed binary, and
+# false-failing the smoke check leaves an otherwise healthy server
+# looking broken to the operator.
+for i in 1 2 3 4 5 6 7 8 9 10; do
   sleep 2
-  if curl -fsS -m 5 https://emem.dev/health >/dev/null 2>&1; then
+  if curl -fsS -m 10 https://emem.dev/health >/dev/null 2>&1; then
     echo "==> live at https://emem.dev/health (after ${i}x2s)"
     curl -sS https://emem.dev/health | head -c 200; echo
     exit 0
   fi
-  echo "  waiting for HTTPS to come up... ($i/5)"
+  echo "  waiting for HTTPS to come up... ($i/10)"
 done
 
 echo "FAIL: https://emem.dev/health did not come up; tail logs:" >&2

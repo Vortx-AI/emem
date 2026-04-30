@@ -1,3 +1,8 @@
+// Box-Muller, Gram-Schmidt, and several tests are inherent index-keyed
+// linear-algebra loops; rewriting them with iterators would hide the
+// matrix structure that's the point of the file.
+#![allow(clippy::needless_range_loop)]
+
 //! Binary-quantized embeddings for fast triage k-NN.
 //!
 //! The protocol's default foundation embedding (`geotessera`) is a
@@ -163,7 +168,8 @@ fn build_rotation() -> [[f32; BIN_DIMS]; BIN_DIMS] {
             // Box-Muller transform: two uniform → one Gaussian.
             // We discard the second output (sin component) — it'd be
             // correlated with future cells of the same row otherwise.
-            let g = (-2.0_f64 * u1.max(1e-300).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
+            let g =
+                (-2.0_f64 * u1.max(1e-300).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
             a[i][j] = g;
         }
     }

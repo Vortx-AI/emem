@@ -440,10 +440,7 @@ async fn find_similar_binary(
         started,
         None,
     );
-    Ok(FindSimilarResp {
-        neighbors,
-        receipt,
-    })
+    Ok(FindSimilarResp { neighbors, receipt })
 }
 
 /// Coerce a CBOR value to a 16-byte binary embedding. The
