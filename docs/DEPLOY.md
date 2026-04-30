@@ -42,9 +42,26 @@ dig +short www.emem.dev A
 In your cloud's Security Group / firewall, allow TCP `:443` ingress from
 `0.0.0.0/0` (and `::/0` if you serve IPv6).
 
-### 3. setcap (one-time)
+### 3. setcap (every rebuild) — use `scripts/redeploy.sh`
 
-Lets the binary bind low-numbered ports without running as root:
+Every `cargo build --release` replaces the `emem-server` binary on disk,
+which silently drops the file capability set by `setcap`. The binary
+then can't bind `:443` and the systemd unit crash-loops with
+`Permission denied (os error 13)`. We hit exactly this regression on
+2026-04-30 — restart counter reached 1560 in 30 minutes after a
+smoke-test rebuild round, and `https://emem.dev/mcp` was unreachable
+the entire time.
+
+Use `scripts/redeploy.sh` instead of bare `cargo build` for any
+production push — it bundles build + setcap + restart + health check
+into one atomic step that fails loudly if any link breaks:
+
+```bash
+/home/ubuntu/emem/scripts/redeploy.sh
+```
+
+For a one-off setcap (e.g. after a manual rebuild), the underlying
+command is:
 
 ```bash
 sudo setcap 'cap_net_bind_service=+ep' \
@@ -53,8 +70,10 @@ getcap /home/ubuntu/emem/target/release/emem-server
 # → cap_net_bind_service=ep
 ```
 
-Re-run `setcap` after every `cargo build --release` because the binary is
-replaced. Or, automate it via a `cargo run` wrapper / build script.
+Diagnosing a failing 443: `journalctl --user -u emem-server -n 5`. If
+you see `Error: Permission denied (os error 13)` immediately after the
+"emem listening (HTTPS, ACME via TLS-ALPN-01)" line, run
+`scripts/redeploy.sh`.
 
 ### 4. systemd unit
 
@@ -69,7 +88,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/ubuntu/emem
-Environment=EMEM_BIND=0.0.0.0:5051
+# Plain HTTP listener is loopback-only — emem.dev is HTTPS-EXCLUSIVE
+# externally. Port 80 on this host is owned by an unrelated project
+# and exposing 5051 publicly would silently route around TLS.
+Environment=EMEM_BIND=127.0.0.1:5051
 Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
 Environment=EMEM_DEMOS_DIR=/home/ubuntu/emem/var/demos
 Environment=EMEM_TLS_DOMAINS=emem.dev,www.emem.dev
