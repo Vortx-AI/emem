@@ -1377,6 +1377,226 @@
       "primitive": "POST /v1/recall_polygon {place:<country>, bands:['modis.burned_area_monthly','indices.nbr']} → carbon.fire_emissions_co2_proxy@1 → sum",
       "deterministic": true,
       "citation": "UNFCCC SDG 13.2.2 metadata. IPCC 2019 Refinement Vol 4 Ch 2. GFED4s methodology, van der Werf et al. 2017. Earth System Science Data 9:697–720."
+    },
+
+    {
+      "key": "soil_moisture_sar@1",
+      "kind": "combined",
+      "domain": "soil",
+      "inputs": [
+        { "band": "sentinel1_raw",            "role": "sigma0_vv_db", "unit": "dB",
+          "explanation": "Sentinel-1 RTC γ⁰ VV in dB. Soil moisture relates monotonically to backscatter once vegetation and roughness effects are removed." },
+        { "band": "copdem30m.elevation_mean", "role": "terrain_correction",
+          "explanation": "Used only to gate steep-slope cells (slope > 15°) where SAR backscatter is dominated by topography, not moisture." },
+        { "band": "indices.ndvi",             "role": "vegetation_mask",
+          "explanation": "Dense canopy (NDVI > 0.6) attenuates the soil-surface signal — the algorithm reports lower confidence in that regime." },
+        { "band": "weather.precipitation_mm", "role": "context",
+          "explanation": "Recent rainfall raises the prior on high SM and is used to flag inversion-failure cells." }
+      ],
+      "formula": "let s = sentinel1_raw_db; if NDVI > 0.6 -> confidence:'low'; sm_pct = clamp(((s - sigma0_dry) / (sigma0_wet - sigma0_dry)) * 100, 0, 100) where sigma0_dry, sigma0_wet are per-cell long-term percentiles (5th, 95th) over a 24-month sentinel1 history; SSM_TUWien-style change-detection",
+      "output": { "kind": "scalar", "unit": "percent", "range": [0, 100], "explanation": "Surface (top ~5 cm) volumetric soil moisture saturation [0,100]%. Calibrated per cell against its own long-term γ⁰ envelope (TU Wien change-detection paradigm). NOT a direct VWC measurement; pair with `weather.precipitation_mm` for sanity. Reports `confidence:'low'` when NDVI > 0.6 (canopy-blocked) or slope > 15° (terrain-dominated). For root-zone moisture, use a soil-water-balance model on top of this surface estimate." },
+      "when_to_use": "All-weather plot soil-moisture under cloud (monsoon, winter fog). Do NOT use on dense forest, urban cores, or steep slopes — `indices.ndmi` is the right choice for canopy water content. Calibrate against in-situ probes on ~5% of plots if you want to claim absolute VWC.",
+      "primitive": "POST /v1/trajectory {band:'sentinel1_raw', from:t-24mo, to:t} → percentile envelope; POST /v1/recall {bands:['sentinel1_raw','indices.ndvi','copdem30m.elevation_mean']} → apply formula",
+      "deterministic": true,
+      "citation": "Wagner, W., Lemoine, G. & Rott, H. 1999. A method for estimating soil moisture from ERS scatterometer and soil data. Remote Sensing of Environment 70:191–207. Bauer-Marschallinger, B. et al. 2018. Toward global soil moisture monitoring with Sentinel-1: harmonising assets and analysing data with TU Wien algorithm. Remote Sensing of Environment 213:1–18.",
+      "frequency_of_calculation": "every Sentinel-1 revisit (~6 d in Europe / ~12 d elsewhere). Trajectory window of 24 mo gives a stable percentile envelope; rebuild every quarter.",
+      "accuracy_band": "R² 0.50–0.70 vs in-situ probes on bare/sparse fields (Bauer-Marschallinger 2018). Drops to R² ~0.3 under dense canopy — surface as `confidence:'low'`."
+    },
+    {
+      "key": "soc_estimate_s2_dem@1",
+      "kind": "combined",
+      "domain": "soil",
+      "inputs": [
+        { "band": "indices.bsi",              "role": "bare_soil_index",
+          "explanation": "Bare-soil index — SOC retrieval works only on visible bare soil; vegetation hides the SOC absorption features." },
+        { "band": "s2.B11",                   "role": "swir1_1610nm",
+          "explanation": "Sentinel-2 SWIR1 (1610 nm) — clay/Fe-oxide absorption window, partial SOC contribution." },
+        { "band": "s2.B12",                   "role": "swir2_2200nm",
+          "explanation": "Sentinel-2 SWIR2 (2190 nm) — strongest single-band SOC predictor in S2 (Vaudour et al. 2022)." },
+        { "band": "indices.ndmi",             "role": "moisture_correction",
+          "explanation": "Wet soil reflectance suppresses SWIR — algorithm masks NDMI > 0.2 or applies a moisture-correction term." },
+        { "band": "copdem30m.elevation_mean", "role": "topography_prior",
+          "explanation": "Elevation + slope are top-3 covariates in SoilGrids 2.0 random-forest (Hengl et al. 2017)." },
+        { "band": "soilgrids.v2.soc",         "role": "global_prior",
+          "explanation": "ISRIC SoilGrids 2.0 global prior at 250 m, 0–30 cm depth. The algorithm Bayesian-blends this with the S2-derived residual when both are available; falls back to prior-only if S2 is cloud-blocked." }
+      ],
+      "formula": "if NDMI > 0.2 or BSI < 0.05 -> tier:'A_prior_only'; soc_est = soilgrids.v2.soc; else { ndvi_bare_score = clamp01((bsi - 0.05)/0.20); s2_residual = α0 + α1*B11 + α2*B12 + α3*elevation; soc_est = (1-w)*soilgrids.v2.soc + w*(soilgrids.v2.soc + s2_residual) where w = 0.5 * ndvi_bare_score; tier:'B_s2_blend' }; tier:'C_lab_calibrated' is reserved for receipts that cite a lab-measurement attestation_cid",
+      "output": { "kind": "scalar", "unit": "g_kg", "range": [0, 600], "explanation": "Topsoil (0–30 cm) Soil Organic Carbon concentration in g C / kg soil. Three-tier confidence label (A_prior_only / B_s2_blend / C_lab_calibrated) MUST be surfaced — DO NOT use tier-B for carbon-credit certification. Tier-A R² ~0.4 (global), tier-B R² ~0.65 (in-region with calibration), tier-C R² > 0.85 (lab samples). Multiply by bulk_density × depth_m × 100 to convert g/kg → t SOC / ha." },
+      "when_to_use": "Plot-level SOC screening, agronomic carbon stocktake, baseline for credit projects (tier-C ONLY). Tier-B is suitable for change-detection between two well-separated dates (≥1 yr) but NOT for absolute claims at certification grade.",
+      "primitive": "POST /v1/recall {bands:['indices.bsi','s2.B11','s2.B12','indices.ndmi','copdem30m.elevation_mean','soilgrids.v2.soc']} → apply tiered logic",
+      "deterministic": true,
+      "citation": "Hengl, T. et al. 2017. SoilGrids250m: Global gridded soil information based on machine learning. PLoS ONE 12(2):e0169748. Castaldi, F. et al. 2018. Mapping SOC at European scale by integrating Sentinel-2 imagery with European LUCAS data. Geoderma 327:153–165. Vaudour, E. et al. 2022. Sentinel-2 image capacities to predict common topsoil properties of temperate and Mediterranean agro-ecosystems. RSE 273:112978. Stevens, A. et al. 2008. Laboratory, field and airborne spectroscopy for monitoring SOC: state-of-the-art. Geoderma 144:395–404.",
+      "frequency_of_calculation": "annual (post-harvest, bare-soil window). Sub-annual updates ARE NOT defensible — SOC stocks change <1%/yr in undisturbed soils; instrument noise dominates inside that interval.",
+      "accuracy_band": "tier-A R² ~0.40 (global SoilGrids prior alone); tier-B R² 0.55–0.70 (S2 + DEM blended, in-region); tier-C R² > 0.85 (lab-calibrated). NEVER advertise tier-B at tier-C accuracy."
+    },
+    {
+      "key": "soc_change_credit@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "<composite>", "role": "soc_t0",          "explanation": "soc_estimate_s2_dem@1 evaluated at baseline date t0 (project crediting period start)." },
+        { "band": "<composite>", "role": "soc_t1",          "explanation": "soc_estimate_s2_dem@1 evaluated at monitoring date t1; (t1 - t0) MUST be ≥ 1 yr per VM0042 v2.0." },
+        { "band": "soilgrids.v2.soc", "role": "depth_context",
+          "explanation": "Used to infer the depth fraction the topsoil concentration applies to; default 0–30 cm consistent with VM0042 standard depth." }
+      ],
+      "formula": "if (t1 - t0) < 1.0 yr -> reject:'insufficient_separation'; tCO2e_per_ha = (soc_t1 - soc_t0)[g/kg] × bulk_density[1.3 t/m³ default] × depth[0.30 m] × 100[ha→m² scaler] × (44/12)[CO₂/C molar ratio] × buffer_pool_discount[default 0.20] × uncertainty_discount[VCS Tool VT0006 deduction at the t0/t1 confidence tier]",
+      "output": { "kind": "scalar", "unit": "tCO2e_per_ha", "range": [-100, 100], "explanation": "Issuable VM0042 v2.0 soil-carbon credit per hectare, after IPCC stoichiometric conversion (44/12 CO₂/C), default 20% buffer pool deduction (VCS AFOLU non-permanence buffer), and a confidence-tier-driven uncertainty discount. NEGATIVE values mean SOC loss = a credit DEBIT, not a credit. NEVER compute on tier-A or tier-B inputs without a calibration receipt — the result has no defensible confidence interval." },
+      "when_to_use": "Voluntary soil-carbon project MRV (Verra VM0042, Gold Standard SustainCERT, CAR Soil Enrichment Protocol). The receipt MUST cite both soc_t0 and soc_t1 fact_cids AND a lab-calibration attestation_cid for tier-C use; Verra auditors will reject otherwise.",
+      "primitive": "soc_estimate_s2_dem@1 at t0 → soc_t0; soc_estimate_s2_dem@1 at t1 → soc_t1; apply formula. For polygon aggregation use /v1/recall_polygon at both dates.",
+      "deterministic": true,
+      "citation": "Verra Verified Carbon Standard. 2023. VM0042 — Methodology for Improved Agricultural Land Management v2.0. IPCC 2019 Refinement to the 2006 Guidelines for National GHG Inventories, Vol 4 Ch 5 (Soil Carbon). Smith, P. et al. 2020. How to measure, report and verify soil carbon change. Global Change Biology 26:219–241. Paustian, K. et al. 2019. Soil C sequestration as a biological negative emission strategy. Frontiers in Climate 1:8.",
+      "frequency_of_calculation": "annual, anchored to project crediting period (typically t0 + Nyr where N ∈ [5,40]). Cannot be claimed sub-annually — VM0042 v2.0 §6.2 requires ≥1 yr separation between baseline and monitoring measurements.",
+      "accuracy_band": "uncertainty discount per VCS Tool VT0006: tier-A: 50% deduction, tier-B: 30% deduction, tier-C: 10% deduction. Surface BOTH the gross ΔSOC and the net issuable credit so auditors can verify the discount."
+    },
+    {
+      "key": "typed_stress_attribution@1",
+      "kind": "combined",
+      "domain": "vegetation",
+      "inputs": [
+        { "band": "indices.ndvi",            "role": "greenness_anomaly",
+          "explanation": "Z-score of current NDVI vs the cell's long-term mean for the same DOY ±15 d (multi-year baseline). Negative anomaly = generic stress flag." },
+        { "band": "indices.ndmi",            "role": "canopy_water_anomaly",
+          "explanation": "Negative NDMI anomaly correlates with water stress — the discriminator for `water` vs other stress types." },
+        { "band": "indices.ndre",            "role": "nitrogen_anomaly",
+          "explanation": "NDRE drops 1–2 weeks before NDVI under N deficiency (Gitelson 2003). The discriminator for `nitrogen` stress." },
+        { "band": "modis.lst_day_8day",      "role": "land_surface_temp",
+          "explanation": "Crop heat-tolerance: lst_day_8day > crop-specific threshold drives the `heat` attribution." },
+        { "band": "weather.temperature_2m",  "role": "air_temp" }
+      ],
+      "formula": "z_ndvi  = (ndvi - μ_ndvi)  / σ_ndvi;  z_ndmi = (ndmi - μ_ndmi)/σ_ndmi; z_ndre = (ndre - μ_ndre)/σ_ndre; z_lst = (lst - μ_lst)/σ_lst; if z_ndvi >= -0.5 -> 'healthy'; else attribute = argmax over { 'water': clamp01(-z_ndmi), 'nitrogen': clamp01(-z_ndre - max(0,-z_ndmi)), 'heat': clamp01(z_lst), 'unexplained': 0.5 } subject to argmax_score >= 0.3 else 'unexplained'",
+      "output": { "kind": "classification", "values": ["healthy", "water", "nitrogen", "heat", "unexplained"], "explanation": "Single dominant stress type per cell. `unexplained` is a deliberate routing signal — it should trigger a field-officer photo + CV pathogen ID rather than be hidden behind a generic 'stress' flag. Confidence is the gap between the top-1 and top-2 attribution scores; surface < 0.15 as low-confidence." },
+      "when_to_use": "Action-taking workflows where the type drives the recommendation (irrigate vs fertilise vs heat-stress mitigation vs scout for disease). REQUIRES per-cell, per-crop, per-phenology-stage z-score baselines built from at least 3 years of NASA POWER + Sentinel-2 history; without that calibration the attribution collapses to noise.",
+      "primitive": "POST /v1/trajectory for ndvi/ndmi/ndre/lst over 3-yr DOY±15d window → μ,σ; POST /v1/recall current bands; apply formula",
+      "deterministic": true,
+      "citation": "Sandholt, I., Rasmussen, K. & Andersen, J. 2002. A simple interpretation of the surface temperature/vegetation index space for assessment of surface moisture status. RSE 79:213–224. Gitelson, A.A., Gritz, Y. & Merzlyak, M.N. 2003. Relationships between leaf chlorophyll content and spectral reflectance. Journal of Plant Physiology 160:271–282. Anderegg, W.R.L. et al. 2019. Climate-driven risks to forest carbon. Science 368:1327.",
+      "frequency_of_calculation": "every Sentinel-2 cloud-free observation (~5–10 d non-monsoon, weekly composite during monsoon with SAR-fill). Stress classification updates faster than yield models because field response windows are <2 weeks.",
+      "accuracy_band": "70–90% precision per stress class once per-crop baselines exist (typed precision of `unexplained` is by definition a referral signal, not a measurement)."
+    },
+    {
+      "key": "n_uptake_ndre@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "indices.ndre",      "role": "ndre",       "unit": "ratio",
+          "explanation": "Sentinel-2 NDRE = (B8A − B5)/(B8A + B5). Red-edge absorption tracks chlorophyll/N concentration in canopy leaves." },
+        { "band": "modis.lai_8day",    "role": "lai",        "unit": "m2_m2",
+          "explanation": "MODIS Leaf Area Index 500 m. Coarse for sub-half-acre plots — fall back to a Sentinel-2 LAI head when materialised." },
+        { "band": "indices.ndvi",      "role": "ndvi_gate",
+          "explanation": "Gate: NDVI < 0.3 means no canopy yet — N-uptake is meaningless on bare soil; algorithm returns Absence in that regime." }
+      ],
+      "formula": "if NDVI < 0.3 -> Absence{reason:'pre_canopy'}; N_concentration_pct = clamp(0.50 + 4.50 * NDRE, 1.0, 5.5);  N_uptake_kg_ha = N_concentration_pct * 0.01 * (LAI * specific_leaf_mass_g_m2[default 50]) * 10  // kg/ha = mass(g/m²) × area(m²/ha) × 1e-1; default specific_leaf_mass per crop class",
+      "output": { "kind": "scalar", "unit": "kg_N_ha", "range": [0, 350], "explanation": "Above-ground nitrogen uptake at the time of observation, in kg N / ha. Driver for top-dressing-fertiliser recommendation. Calibrate `specific_leaf_mass` per crop and per phenology stage; the SPAD-leaf-tissue ground-truth set is what closes the loop. Output of <30 kg N/ha mid-season on a high-input crop = strong N-deficit signal." },
+      "when_to_use": "Mid-season N-deficit detection on cereals (wheat, rice, maize) and high-N horticulture. Pair with NDRE temporal trajectory (drop > 0.05 in 7 d = active deficit) to surface 'apply N within 7 days' recommendations. NOT for legumes — they fix atmospheric N and the canopy-N relationship inverts.",
+      "primitive": "POST /v1/recall {bands:['indices.ndre','modis.lai_8day','indices.ndvi']} → apply formula",
+      "deterministic": true,
+      "citation": "Gitelson, A.A., Gritz, Y. & Merzlyak, M.N. 2003. Relationships between leaf chlorophyll content and spectral reflectance. Journal of Plant Physiology 160:271–282. Cao, Q. et al. 2017. Active canopy sensing of winter wheat nitrogen status: an evaluation of two sensors, NDRE-based VIs, and a soil reflectance NIR-based VI. Field Crops Research 154:133–144. Clevers, J.G.P.W. & Kooistra, L. 2012. Using hyperspectral remote sensing data for retrieving canopy chlorophyll and nitrogen content. IEEE JSTARS 5:574–583.",
+      "frequency_of_calculation": "every Sentinel-2 cloud-free pass (5-day revisit cadence, ~8–14 d cloud-permitting in non-monsoon). Sub-weekly updates not informative — leaf-N changes on ~3-day timescale at most.",
+      "accuracy_band": "NDRE→leaf-N R²~0.77 (Gitelson 2003); NDRE×LAI→kg N/ha R²~0.85 with crop-specific SPAD calibration on ≥200 plots; without SPAD calibration treat as relative ranking only, not absolute kg/ha."
+    },
+    {
+      "key": "eudr_compliance@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "hansen.tree_cover_2000", "role": "baseline_cover",
+          "explanation": "Hansen Global Forest Change v1.11 baseline tree-cover percentage at year 2000. Cell qualifies as 'forest' if ≥30% per FAO definition." },
+        { "band": "hansen.loss_year",      "role": "loss_year",
+          "explanation": "Year of the FIRST Hansen-detected tree-cover loss event (2001–2024, encoded 1–24). Year ≥ 21 (i.e. 2021 or later) → fail per EUDR cut-off date 31 Dec 2020." },
+        { "band": "esa.worldcover.lc_2021", "role": "current_lc",
+          "explanation": "ESA WorldCover 2021 — confirms current land-cover; cropland/built/etc. on a former-forest pixel = converted commodity land = EUDR fail." }
+      ],
+      "formula": "if tree_cover_2000 < 30 -> 'not_in_scope'; if loss_year >= 21 -> 'fail'; if tree_cover_2000 >= 30 and loss_year < 21 -> 'pass'; aggregate over polygon: any cell == 'fail' -> polygon FAIL with cell-area % deforested reported",
+      "output": { "kind": "classification", "values": ["pass", "fail", "not_in_scope", "indeterminate"], "explanation": "EU Regulation 2023/1115 plot-level compliance verdict. The signed receipt cites hansen.tree_cover_2000 and hansen.loss_year fact_cids = audit-grade evidence accepted by EU Due Diligence Information System. ALWAYS print the % polygon area in 'fail' alongside the verdict; one bad pixel shouldn't disqualify a 100-ha plot if the loss footprint is 0.01 ha edge-effect." },
+      "when_to_use": "EUDR Due Diligence Statements for the seven controlled commodities (cattle, cocoa, coffee, oil palm, rubber, soy, wood and their derivatives). Pair with a polygon (`/v1/recall_polygon`) — never run on a single point; EUDR requires geolocation polygons ≥4 ha or all parcel coordinates for smaller plots.",
+      "primitive": "POST /v1/recall_polygon {polygon, bands:['hansen.tree_cover_2000','hansen.loss_year','esa.worldcover.lc_2021']} → apply formula → emit signed verdict",
+      "deterministic": true,
+      "citation": "European Union. 2023. Regulation (EU) 2023/1115 of 31 May 2023 on the making available on the Union market and the export from the Union of certain commodities and products associated with deforestation and forest degradation. Hansen, M.C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850–853 (annual updates v1.11 = 2024 release). FAO 2020. Global Forest Resources Assessment 2020 (forest-definition >30% canopy cover).",
+      "frequency_of_calculation": "annual at minimum (Hansen GFC publishes a new vintage each year, typically April). For active commodity supply chains, re-run on every Hansen v1.x release AND on every RADD/GLAD near-real-time alert (when wired) to detect new losses inside the EUDR cut-off window.",
+      "accuracy_band": "Hansen GFC user's accuracy 87% for 2000 cover ≥ 25%, 73% for cover 0–25% (Hansen et al. 2013, supplementary). EU Joint Research Centre validation on EUDR-relevant commodities reports ≥ 90% producer's accuracy at ≥ 0.5 ha minimum mapping unit. Surface a `false_positive_risk` flag for fail-verdicts < 0.5 ha total."
+    },
+    {
+      "key": "residue_burn_multisensor@1",
+      "kind": "combined",
+      "domain": "fire",
+      "inputs": [
+        { "band": "indices.nbr",                "role": "nbr_drop",
+          "explanation": "Pre-vs-post Normalized Burn Ratio drop ≥ 0.20 = burn-severity signature (Key & Benson 2006)." },
+        { "band": "indices.ndti",               "role": "ndti_drop",
+          "explanation": "Pre-vs-post Normalized Difference Tillage Index drop = residue removal/destruction signal (van Deventer 1997)." },
+        { "band": "modis.burned_area_monthly",  "role": "modis_ba",
+          "explanation": "MODIS MCD64A1 monthly burned-area boolean, 500 m. Independent confirmation." },
+        { "band": "cams.aod_550",               "role": "aod_spike",
+          "explanation": "CAMS aerosol optical depth at 550 nm — smoke plumes spike AOD by ≥0.30 over baseline (Chen et al. 2017)." },
+        { "band": "cams.pm25",                  "role": "pm25_spike",
+          "explanation": "Surface PM₂.₅ spike — anchors public-health framing for state pollution boards." }
+      ],
+      "formula": "let s_nbr = step(dnbr >= 0.20); s_ndti = step(dndti >= 0.10); s_modis = step(modis.burned_area_monthly >= 0.5); s_aod = step(cams.aod_550 >= baseline + 0.30); s_pm25 = step(cams.pm25 >= baseline + 50 ug/m³); agreement = s_nbr + s_ndti + s_modis + s_aod + s_pm25; verdict = if agreement >= 3 -> 'high_confidence_burn'; else if agreement == 2 -> 'likely_burn'; else if agreement == 1 -> 'single_sensor_signal'; else 'no_burn'",
+      "output": { "kind": "classification", "values": ["no_burn", "single_sensor_signal", "likely_burn", "high_confidence_burn"], "explanation": "Multi-sensor burn-detection consensus, designed for forensic-grade evidence (>95% precision when 3+ sensors agree per Punjab/Haryana paddy-burn validation studies). The receipt cites all five fact_cids; agencies (Punjab Pollution Control Board, NABARD residue-management subsidies) accept this as legal evidence. NDTI temporal pattern is what separates BURN from MULCH/TILLAGE — surface that distinction in the explanation." },
+      "when_to_use": "Post-harvest residue-burn enforcement (paddy in Punjab/Haryana Oct–Nov, wheat in Mar–Apr); state air-quality dashboards; insurance subrogation for downstream PM₂.₅-related claims. Always pair with VIIRS active fire (when wired) for sub-day detection — MODIS burned-area is monthly composite, lags by up to 30 d.",
+      "primitive": "POST /v1/trajectory for indices.nbr, indices.ndti over a 14-day window straddling the suspected burn date; POST /v1/recall {bands:['modis.burned_area_monthly','cams.aod_550','cams.pm25']}; apply formula",
+      "deterministic": true,
+      "citation": "Key, C.H. & Benson, N.C. 2006. Landscape Assessment: Sampling and Analysis Methods. USDA-FS RMRS-GTR-164. van Deventer, A.P. et al. 1997. Using thematic mapper data to identify contrasting soil plains and tillage practices. PE&RS 63(1):87–93. Giglio, L. et al. 2018. The Collection 6 MODIS burned area mapping algorithm and product. RSE 217:72–85. Liu, T. et al. 2019. Crop residue burning practices across north India inferred from household survey data: bridging gaps in satellite observations. Atmospheric Environment 6:100091.",
+      "frequency_of_calculation": "every Sentinel-2 pass during burn season (Oct–Nov, Mar–Apr in north-Indian Indo-Gangetic plain). Outside burn season, weekly suffices. For NRT enforcement, drop in VIIRS active-fire (375 m, ~3 hr latency) and run hourly.",
+      "accuracy_band": ">95% precision for `high_confidence_burn` (≥3-sensor agreement) in validation studies of Punjab/Haryana paddy stubble. `likely_burn` ~85% precision; `single_sensor_signal` ~60% — useful as a triage/scout signal only."
+    },
+    {
+      "key": "rice_methane_awd_modeled@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        { "band": "indices.ndwi",            "role": "flooding_optical",
+          "explanation": "NDWI > 0.0 across rice-canopy phenology = continuous flooding signal; oscillation = AWD (Alternate Wetting and Drying)." },
+        { "band": "sentinel1_raw",           "role": "flooding_radar",
+          "explanation": "Sentinel-1 γ⁰ VV < -17 dB under canopy = standing-water signature (Bouvet et al. 2018) — all-weather confirmation under monsoon cloud." },
+        { "band": "weather.temperature_2m",  "role": "temp_modifier",
+          "explanation": "Methanogen activity scales with paddy-water temperature (Q10 ≈ 2.5); IPCC 2019 EF baseline is at 25 °C." },
+        { "band": "indices.ndvi",            "role": "biomass_proxy",
+          "explanation": "Cumulative NDVI over the season scales with rice biomass and substrate availability for methanogens." }
+      ],
+      "formula": "regime = if mean(ndwi) > 0.0 over season AND oscillation_count(ndwi crossing 0.0) <= 1 -> 'continuous_flood'; else if oscillation_count >= 3 -> 'AWD'; else if mean(ndwi) > 0.0 AND oscillation_count == 2 -> 'mid_season_drainage'; else 'upland_or_dry_seeded'; EF_kg_CH4_ha_day = lookup(IPCC 2019 Table 5.11) where { 'continuous_flood': 1.30, 'mid_season_drainage': 1.30 * 0.71, 'AWD': 1.30 * 0.52, 'upland_or_dry_seeded': 0.0 }; T_mod = exp(0.0917 * (T_paddy - 25));  CH4_kg_ha_season = EF_kg_CH4_ha_day * season_days * T_mod * (1.0 + 0.5 * (cumNDVI - 25)/25)",
+      "output": { "kind": "scalar", "unit": "kg_CH4_ha_season", "range": [0, 800], "explanation": "Modelled seasonal CH₄ emission per hectare. Convert to CO₂e by × 27.9 (IPCC AR6 100-yr GWP). Multiply (continuous_flood − AWD) × project area to derive Verra VM0042 / Gold Standard MMM-PRA AWD credit volume. NOT a measurement — explicitly labelled `model:'IPCC_2019_Tier2'` in the receipt; ground-truth on ≥1 eddy-covariance flux tower is REQUIRED before claiming credit issuance." },
+      "when_to_use": "Rice-paddy carbon-credit MRV (Boomitra, Nurture.farm, Varaha, Mooved); AWD adoption verification; national rice-methane inventory backfill where direct flux measurement is absent. Do NOT use on dry-seeded rice or upland rice — the model has no skill there.",
+      "primitive": "POST /v1/trajectory {bands:['indices.ndwi','sentinel1_raw','indices.ndvi'], from:sowing, to:harvest}; POST /v1/recall {bands:['weather.temperature_2m']}; classify regime; apply EF formula",
+      "deterministic": true,
+      "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Vol 4 Ch 5.5 'Rice Cultivations' (Table 5.11 baseline EF + scaling factors). Yan, X. et al. 2009. Statistical analysis of the major variables controlling methane emission from rice fields. Global Change Biology 15:1817–1819. Bouvet, A. et al. 2018. Use of the SAR shadowing effect for deforestation detection. RSE 215:228–243. Verra Verified Carbon Standard. 2024. VM0042 + AWD methodology module.",
+      "frequency_of_calculation": "once per rice season (typically 110–150 d). Mid-season interim estimates can be issued every 10 days from sowing for monitoring dashboards but credit issuance MUST anchor on the full-season trajectory.",
+      "accuracy_band": "±25–30% (IPCC Tier-2 uncertainty for rice CH₄). Eddy-covariance ground-truth lifts the AWD-vs-continuous-flood discrimination to >90% — that's the part Verra cares about, not the absolute flux magnitude."
+    },
+    {
+      "key": "gdd_phenology@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "weather.temperature_2m",   "role": "tmax_proxy",
+          "explanation": "Daily max-temperature series (NASA POWER `t2m_max` preferred when available; falls back to forecast.temperature_2m hourly max-of-day)." },
+        { "band": "weather.temperature_2m",   "role": "tmin_proxy",
+          "explanation": "Daily min-temperature series (NASA POWER `t2m_min` preferred)." }
+      ],
+      "formula": "GDD_d = max(0, ((min(Tmax_d, T_upper) + max(Tmin_d, T_base)) / 2) - T_base) where T_base, T_upper are crop-specific (e.g. maize: 10/30 °C; wheat: 0/26 °C; rice: 10/35 °C); cumulative_GDD = Σ GDD_d from sowing date to date_t",
+      "output": { "kind": "scalar", "unit": "degree_C_days", "range": [0, 5000], "explanation": "Cumulative growing degree-days from sowing. Crop-specific phenology thresholds (e.g. maize tasseling ~ 750 GDD, wheat anthesis ~ 1100 GDD) drive the 'what stage is this plot at?' answer that EVERY downstream stress / yield / N-uptake algorithm depends on. McMaster-Wilhelm modified algorithm (clamp Tmin to T_base, Tmax to T_upper) prevents over-counting on cold nights and heat-stress days." },
+      "when_to_use": "Phenology-aware everything: stress-baseline windowing, irrigation scheduling, fertiliser-application timing, harvest-date forecasting. Surface alongside any crop_stress / n_uptake / yield call so the downstream agent knows whether the plot is at vegetative / reproductive / grain-fill stage.",
+      "primitive": "POST /v1/backfill {cell, band:'weather.temperature_2m', from:sowing, to:date_t} → daily Tmax/Tmin → apply McMaster-Wilhelm formula",
+      "deterministic": true,
+      "citation": "McMaster, G.S. & Wilhelm, W.W. 1997. Growing degree-days: one equation, two interpretations. Agricultural and Forest Meteorology 87:291–300. Miller, P., Lanier, W. & Brandt, S. 2001. Using growing degree days to predict plant stages. MSU Extension MT200103AG. Snyder, R.L. 1985. Hand calculating degree days. Agricultural and Forest Meteorology 35:353–358.",
+      "frequency_of_calculation": "daily, anchored to user-supplied sowing date. Required as a phenology input by typed_stress_attribution@1, n_uptake_ndre@1, and crop_yield_proxy@1.",
+      "accuracy_band": "±50 GDD per ±1 °C systematic bias in the temperature inputs. NASA POWER vs in-situ stations: RMSE ~1.2 °C → ~50 GDD/season uncertainty over a 1500 GDD season ≈ 3% — well inside crop-stage-detection tolerance."
+    },
+    {
+      "key": "spi_meteorological_drought@1",
+      "kind": "solo",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.precipitation_mm", "role": "precip_window",
+          "explanation": "Cumulative precipitation over the SPI window (default 90 d for agricultural drought; SPI-1 for monthly anomalies; SPI-12 for hydrological drought). NASA POWER 1981→ or CHIRPS 1981→ are the recommended sources because both have ≥30 yr of record needed for the gamma fit." }
+      ],
+      "formula": "let X = Σ precipitation_mm over window of length n_days; fit Γ(α,β) parameters to the cell's same-window same-DOY historical samples (≥30 yr required); transform_to_normal: SPI = Φ⁻¹(Γ_cdf(X | α,β)); interpretation = if SPI <= -2.0 -> 'extreme_drought'; <= -1.5 -> 'severe_drought'; <= -1.0 -> 'moderate_drought'; <= -0.5 -> 'mild_drought'; <= 0.5 -> 'near_normal'; <= 1.0 -> 'mildly_wet'; <= 1.5 -> 'moderately_wet'; <= 2.0 -> 'very_wet'; else 'extremely_wet'",
+      "output": { "kind": "scalar", "unit": "z_score", "range": [-4, 4], "explanation": "Standardized Precipitation Index. Z-score of gamma-fitted accumulated precipitation. Agricultural drought monitoring uses SPI-3 (90 d) for cropping-season screening; SPI-12 for hydrological/reservoir context. McKee 1993 thresholds are the WMO-endorsed reference; surface BOTH the numeric SPI and the categorical class so an agent can either chart it or trigger a workflow. Window MUST be declared in the receipt — SPI-1 and SPI-12 on the same date can disagree by a category." },
+      "when_to_use": "Agricultural-drought monitoring, parametric-payout insurance triggers (PMFBY, ARC), reservoir-management context. Pair with `precip_intensity_class@1` for short-duration severity AND with NDMI-anomaly for crop response. SPI is precipitation-only — for full agricultural drought use SPEI (precipitation − PET) when ET is wired.",
+      "primitive": "POST /v1/backfill {cell, band:'weather.precipitation_mm', from:date - 30yr, to:date} → window-sum → fit Gamma → SPI",
+      "deterministic": true,
+      "citation": "McKee, T.B., Doesken, N.J. & Kleist, J. 1993. The relationship of drought frequency and duration to time scales. 8th Conf. on Applied Climatology, AMS, 179–184. WMO. 2012. Standardized Precipitation Index User Guide. WMO-No.1090. Guttman, N.B. 1999. Accepting the SPI: a calculation algorithm. JAWRA 35(2):311–322. Stagge, J.H. et al. 2015. Candidate distributions for climatological drought indices (SPI and SPEI). Int. J. Climatol. 35:4027–4040.",
+      "frequency_of_calculation": "monthly for SPI-1 / SPI-3; quarterly for SPI-6 / SPI-12. Re-fit the gamma parameters every 5 yr to incorporate climate-change non-stationarity (use a moving 30-yr reference window per WMO guidance).",
+      "accuracy_band": "Gamma-fit standard error < 0.1 SPI units when ≥30 yr of complete record is available. With NASA POWER (1981→) every cell on Earth has ≥40 yr by 2026 = sound footing. Reduce confidence below SPI ±2 if record-length < 30 yr (e.g. local stations)."
     }
   ]
 }

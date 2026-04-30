@@ -131,6 +131,21 @@ pub struct Algorithm {
     pub deterministic_note: Option<String>,
     /// Citation — preferred peer-reviewed source for the underlying math.
     pub citation: String,
+    /// Recommended re-computation cadence for this algorithm. Typed as a
+    /// free-form string so editorial entries can be specific (e.g.
+    /// `"5-day cloud-permitting (Sentinel-2 revisit)"`,
+    /// `"annual; carbon-credit baselines require ≥1 yr separation"`).
+    /// Optional — older entries that pre-date the field stay valid.
+    /// Surfaced via `/v1/algorithms` so an agent can pick a sensible
+    /// re-query interval rather than hammering the cache or, worse,
+    /// reporting yesterday's stale answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequency_of_calculation: Option<String>,
+    /// Editorial accuracy band — `"R²~0.4-0.7 (S2 alone)"` etc. Lets a
+    /// downstream UI declare confidence honestly rather than presenting
+    /// every algorithm at the same fidelity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accuracy_band: Option<String>,
 }
 
 fn default_true() -> bool {

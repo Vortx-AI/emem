@@ -491,6 +491,118 @@
       ],
       "tempo": "static",
       "native_resolution_m": 10
+    },
+    {
+      "scheme": "chirps.daily.v2",
+      "_note": "UCSB Climate Hazards Group InfraRed Precipitation with Station data v2.0 — daily 0.05° tropical-rainfall blend back to 1981. Reference standard for Indian/African monsoon agronomy because ERA5 underestimates tropical convective tails. Funk et al. 2015, Sci. Data 2:150066.",
+      "providers": [
+        {
+          "id": "chc.ucsb",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_daily/cogs/p05/{year}/chirps-v2.0.{year}.{month}.{day}.cog",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "Public domain (USGS / UCSB CHC)"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 5566
+    },
+    {
+      "scheme": "viirs.fire.nrt",
+      "_note": "NOAA-20/Suomi-NPP VIIRS 375 m active-fire detections, near-real-time (<3 hr latency). Pairs with NBR temporal drop for residue-burn confirmation. Schroeder et al. 2014, RSE 143:85–96.",
+      "providers": [
+        {
+          "id": "firms.nasa",
+          "kind": "https_json_api",
+          "url_template": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{api_key}/VIIRS_NOAA20_NRT/{lat_min},{lon_min},{lat_max},{lon_max}/{day_range}",
+          "auth": "firms_map_key",
+          "rate_limit_qps": 5,
+          "license": "Public domain (NASA FIRMS)"
+        }
+      ],
+      "tempo": "ultra_fast",
+      "native_resolution_m": 375
+    },
+    {
+      "scheme": "openet.30m.daily",
+      "_note": "OpenET ensemble evapotranspiration over CONUS at 30 m daily — six-model mean (DisALEXI, eeMETRIC, geeSEBAL, PT-JPL, SIMS, SSEBop). Direct irrigation-efficiency driver where coverage exists; outside CONUS fall back to MODIS et_8day. Melton et al. 2022, JAWRA 58(6):971–994.",
+      "providers": [
+        {
+          "id": "openet.dri",
+          "kind": "https_cog_vsicurl",
+          "url_template": "https://openetcoldata.s3-us-west-2.amazonaws.com/ensemble/conus/gridmet/daily/asset_v0_{year}/{year}{month}{day}.tif",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0 (OpenET / NASA / DRI)"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "tropomi.s5p.ch4",
+      "_note": "Sentinel-5P TROPOMI methane column, ~5.5×7 km. Coarse for plot scale (∼70 football-field pixel) but useful for basin/cluster-level methane context. Hu et al. 2018, Geophys. Res. Lett. 45:3682–3689.",
+      "providers": [
+        {
+          "id": "earthdata.s5p",
+          "kind": "stac_pc",
+          "url_template": "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter=Collection/Name%20eq%20%27SENTINEL-5P%27%20and%20Attributes/OData.CSC.StringAttribute/any(att:att/Name%20eq%20%27productType%27%20and%20att/OData.CSC.StringAttribute/Value%20eq%20%27L2__CH4___%27)",
+          "auth": "anonymous",
+          "rate_limit_qps": 5,
+          "license": "Copernicus open data"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 7000
+    },
+    {
+      "scheme": "tropomi.s5p.no2",
+      "_note": "Sentinel-5P TROPOMI NO₂ tropospheric column, ~5.5×3.5 km nadir. Surface-traffic + power-plant proxy. Veefkind et al. 2012, RSE 120:70–83.",
+      "providers": [
+        {
+          "id": "earthdata.s5p",
+          "kind": "stac_pc",
+          "url_template": "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$filter=Collection/Name%20eq%20%27SENTINEL-5P%27%20and%20Attributes/OData.CSC.StringAttribute/any(att:att/Name%20eq%20%27productType%27%20and%20att/OData.CSC.StringAttribute/Value%20eq%20%27L2__NO2___%27)",
+          "auth": "anonymous",
+          "rate_limit_qps": 5,
+          "license": "Copernicus open data"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 5500
+    },
+    {
+      "scheme": "sentinel1.grd.iw.vh",
+      "_note": "Sentinel-1 GRD-IW VH cross-polarisation. Combined with VV (already wired) VH lifts crop-classification and soil-moisture R² by ~0.10–0.15 (Bauer-Marschallinger et al. 2018, RSE 213:1–18). Same provider catalog as VV; only the band channel differs.",
+      "providers": [
+        {
+          "id": "planetarycomputer.microsoft",
+          "kind": "stac_pc",
+          "url_template": "https://planetarycomputer.microsoft.com/api/stac/v1/search?collections=sentinel-1-grd&bbox={bbox_csv}&datetime={iso_date}&query=%7B%22sar:polarizations%22:%7B%22eq%22:%5B%22VV%22,%22VH%22%5D%7D%7D&limit=1",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "Copernicus open data"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "dynamic_world.v1",
+      "_note": "Google Dynamic World v1 — 10 m, 9-class probabilistic land cover, refreshed every Sentinel-2 revisit (~2–5 d). Beats static ESA WorldCover for crop/forest confusion in monsoon belts. Brown et al. 2022, Sci. Data 9:251.",
+      "providers": [
+        {
+          "id": "gee.dynamicworld",
+          "kind": "stac_pc",
+          "url_template": "https://earthengine-highvolume.googleapis.com/v1/projects/earthengine-public/assets/GOOGLE/DYNAMICWORLD/V1?bbox={bbox_csv}&datetime={iso_date}",
+          "auth": "anonymous",
+          "rate_limit_qps": 30,
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "tempo": "fast",
+      "native_resolution_m": 10
     }
   ]
 }
