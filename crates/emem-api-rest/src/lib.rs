@@ -1570,6 +1570,7 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
             "registry_cid": s.manifests.registry_cid.as_str(),
             "schema_cid": s.manifests.schema_cid.as_str(),
             "algorithms_cid": ALGORITHMS_CID.clone(),
+            "topics_cid": TOPICS_CID.clone(),
         },
         "responder": {
             "pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
@@ -1612,6 +1613,7 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
 
 async fn manifests(State(s): State<AppState>) -> Json<JsonValue> {
     let algorithms_cid = ALGORITHMS_CID.clone();
+    let topics_cid = TOPICS_CID.clone();
     Json(json!({
         "bands_cid":     &s.manifests.bands_cid,
         // Spec name. The earlier `functions_cid` alias is kept below for
@@ -1621,6 +1623,7 @@ async fn manifests(State(s): State<AppState>) -> Json<JsonValue> {
         "sources_cid":   &s.manifests.sources_cid,
         "schema_cid":    s.manifests.schema_cid.as_str(),
         "algorithms_cid": algorithms_cid,
+        "topics_cid":    topics_cid,
     }))
 }
 
@@ -2635,6 +2638,14 @@ async fn sources() -> Json<JsonValue> {
 static ALGORITHMS_CID: LazyLock<Option<String>> =
     LazyLock::new(|| emem_core::manifest::manifest_cid(&*emem_core::algorithms::DEFAULT).ok());
 
+/// Process-wide cached topics_cid — the topic registry (`topics-v0.json`)
+/// is content-addressed and immutable for the life of the process. The
+/// CID is surfaced on `/v1/manifests` so an agent can pin which routing
+/// taxonomy was active when its receipt was issued, and dual-write a
+/// new taxonomy without breaking older receipts.
+static TOPICS_CID: LazyLock<Option<String>> =
+    LazyLock::new(|| emem_core::manifest::manifest_cid(&*emem_core::topics::DEFAULT).ok());
+
 async fn algorithms() -> Json<JsonValue> {
     let reg = &*emem_core::algorithms::DEFAULT;
     let cid = ALGORITHMS_CID.clone();
@@ -2852,6 +2863,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "sources_cid": &s.manifests.sources_cid,
             "schema_cid": s.manifests.schema_cid.as_str(),
             "algorithms_cid": ALGORITHMS_CID.clone(),
+            "topics_cid": TOPICS_CID.clone(),
         },
         // Reconciles the four band counts agents see across surfaces so
         // they don't have to guess which one is authoritative. The
@@ -5850,6 +5862,7 @@ async fn mcp_tool_call(
             "sources_cid": &s.manifests.sources_cid,
             "schema_cid": s.manifests.schema_cid.as_str(),
             "algorithms_cid": ALGORITHMS_CID.clone(),
+            "topics_cid": TOPICS_CID.clone(),
         })),
         "emem_errors" => Ok(errors_payload()),
         "emem_fetch" => {
