@@ -976,7 +976,8 @@ impl From<StorageError> for ApiError {
             | ErrorCode::BandNotInRegistry
             | ErrorCode::FunctionNotInRegistry
             | ErrorCode::SchemaCidUnknown
-            | ErrorCode::RegistryCidUnknown => StatusCode::NOT_FOUND,
+            | ErrorCode::RegistryCidUnknown
+            | ErrorCode::NoGeocoderMatch => StatusCode::NOT_FOUND,
             ErrorCode::BadSignature | ErrorCode::BadMerkleProof => StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::Unauthorized | ErrorCode::AttesterRevoked => StatusCode::UNAUTHORIZED,
             ErrorCode::PrivacyRefused | ErrorCode::LevelTooLow => StatusCode::FORBIDDEN,
@@ -2712,6 +2713,10 @@ fn errors_payload() -> JsonValue {
          "GET /v1/sources for the active connector list. Self-hosters can add via the source manifest."),
         ("cid_not_found",                "fact CID exists but no matching object on disk",
          "The fact may have been pruned, or the CID is from a different responder. Verify `responder_pubkey_b32` matches between the receipt and /health."),
+        ("no_geocoder_match",            "place name did not resolve in any geocoder tier (Photon + Nominatim both said 'no such place')",
+         "Refine the query (more specific name; add country / region / admin level), pass `lat`+`lng` coordinates directly, or call POST /v1/locate first to inspect alternatives."),
+        ("invalid_argument",             "syntactically valid but semantically invalid request field (e.g. unparseable timestamp, out-of-range numeric, malformed enum)",
+         "Re-read /openapi.json for the field's accepted shape. Common causes: ISO 8601 missing 'Z' for UTC; max_cells > 1024; band key with wrong namespace prefix."),
         ("registry_cid_unknown",         "the bound registry_cid isn't recognised",
          "Receipts pin manifest CIDs at issue time; if the responder rotated manifests, check /v1/manifests for the current `registry_cid`."),
         ("schema_cid_unknown",           "fact's schema_cid isn't loaded",
@@ -6350,8 +6355,10 @@ pub enum ResolvedRef {
 
 /// Resolve a cell-typed field. If the string is already shaped like a
 /// cell64 we keep it; otherwise we treat it as a place name and run
-/// `locate_inner`. Geocoding failures bubble up as 400 / 502 from
-/// locate so the agent can correct the call without a second round-trip.
+/// `locate_inner`. Geocoder errors bubble up verbatim — `locate_inner`
+/// emits 404/`no_geocoder_match` for "place not found" and 502/
+/// `source_fetch_failed` for transport failures, so the caller sees the
+/// honest status without this wrapper rewriting the code.
 pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef), ApiError> {
     if emem_codec::is_cell64_shape(s) {
         return Ok((s.to_string(), ResolvedRef::Cell));
@@ -6364,9 +6371,9 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
     let resp = locate_inner(lr).await?;
     let body = &resp.0;
     let cell = body.get("cell64").and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
-            message: format!("could not resolve '{s}' to a cell64; pass a cell64 string or a recognisable place name"),
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, ErrorBody {
+            code: ErrorCode::NoGeocoderMatch,
+            message: format!("locate succeeded for '{s}' but the response had no cell64 — pass a cell64 string or a recognisable place name, or supply lat+lng directly"),
         }))?
         .to_string();
     let label = body
@@ -13301,62 +13308,98 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // node, which Photon finds). Nominatim remains as the
                 // fallback because its structured address parser
                 // occasionally disambiguates dense street names better.
+                // Geocoder cascade: Photon (primary) → Nominatim (fallback).
+                // Adapter contract: Ok(empty) means "transport succeeded,
+                // place not in this tier"; Err means "transport failed".
+                // Mapping these to HTTP correctly is the difference between
+                // an honest 404 (refine the query) and a 502 (responder /
+                // upstream is down) — see SPEC §11.3.
                 let photon_result = photon_lookup_candidates(p, 5).await;
-                let hits = match photon_result {
-                    Ok(h) if !h.is_empty() => h,
-                    Ok(_empty) => {
-                        match nominatim_lookup_candidates(p, 5).await {
-                            Ok(n) => {
-                                via = "nominatim";
-                                n
-                            }
-                            Err(_) => {
-                                // Both succeeded-with-zero. Return 404.
-                                return Err(ApiError(
-                                    StatusCode::NOT_FOUND,
-                                    ErrorBody {
-                                        code: ErrorCode::Internal,
-                                        message: format!(
-                                            "no geocoder match for '{p}' (tried Photon + Nominatim)"
-                                        ),
-                                    },
-                                ));
-                            }
-                        }
-                    }
-                    Err(ph_err) => {
-                        // Photon transport failure: try Nominatim; if it
-                        // also fails, surface BOTH errors so an operator can
-                        // tell whether it's a network blip or a real miss.
-                        match nominatim_lookup_candidates(p, 5).await {
-                            Ok(n) => {
-                                via = "nominatim";
-                                n
-                            }
-                            Err(nom_err) => {
-                                return Err(ApiError(
-                                    StatusCode::BAD_GATEWAY,
-                                    ErrorBody {
-                                        code: ErrorCode::Internal,
-                                        message: format!(
-                                            "place lookup failed: photon={ph_err}; nominatim={nom_err}"
-                                        ),
-                                    },
-                                ));
-                            }
-                        }
-                    }
+                let nom_needed = matches!(&photon_result, Ok(h) if h.is_empty()) || photon_result.is_err();
+                let nominatim_result = if nom_needed {
+                    Some(nominatim_lookup_candidates(p, 5).await)
+                } else {
+                    None
                 };
-                let hit = hits.first().cloned().ok_or_else(|| {
-                    // Defensive: hits is non-empty by construction above.
-                    ApiError(
-                        StatusCode::NOT_FOUND,
-                        ErrorBody {
-                            code: ErrorCode::Internal,
-                            message: format!("no geocoder match for '{p}'"),
-                        },
-                    )
-                })?;
+
+                let hits: Vec<NominatimHit> = match (&photon_result, &nominatim_result) {
+                    (Ok(h), _) if !h.is_empty() => h.clone(),
+                    (Ok(_empty), Some(Ok(n))) if !n.is_empty() => {
+                        via = "nominatim";
+                        n.clone()
+                    }
+                    (Err(_ph), Some(Ok(n))) if !n.is_empty() => {
+                        via = "nominatim";
+                        n.clone()
+                    }
+                    (Ok(_empty), Some(Ok(_n_empty))) => {
+                        // Both transports succeeded; both said "no such
+                        // place". This is a clean 404 — the agent should
+                        // refine the query or pass coordinates directly.
+                        return Err(ApiError(
+                            StatusCode::NOT_FOUND,
+                            ErrorBody {
+                                code: ErrorCode::NoGeocoderMatch,
+                                message: format!(
+                                    "no geocoder match for '{p}' (Photon + Nominatim both returned zero results — try a more specific name, or pass lat+lng directly)"
+                                ),
+                            },
+                        ));
+                    }
+                    (Err(ph_err), Some(Ok(_n_empty))) => {
+                        // Photon transport failed but Nominatim returned
+                        // zero. The honest reading is "the one transport
+                        // that worked says this place doesn't exist", so
+                        // 404 is the right code. Mention the Photon
+                        // transport miss in the message so an operator
+                        // sees the upstream blip.
+                        return Err(ApiError(
+                            StatusCode::NOT_FOUND,
+                            ErrorBody {
+                                code: ErrorCode::NoGeocoderMatch,
+                                message: format!(
+                                    "no geocoder match for '{p}' (Nominatim returned zero results; Photon transport failed: {ph_err})"
+                                ),
+                            },
+                        ));
+                    }
+                    (Ok(_empty), Some(Err(nom_err))) => {
+                        // Photon said "no such place" but Nominatim's
+                        // transport failed. We can't be certain Nominatim
+                        // wouldn't have found it, so 502 is the honest
+                        // code: the agent should retry rather than refine.
+                        return Err(ApiError(
+                            StatusCode::BAD_GATEWAY,
+                            ErrorBody {
+                                code: ErrorCode::SourceFetchFailed,
+                                message: format!(
+                                    "Nominatim fallback transport failed (Photon returned zero results for '{p}'): {nom_err}"
+                                ),
+                            },
+                        ));
+                    }
+                    (Err(ph_err), Some(Err(nom_err))) => {
+                        // Both transports failed. 502 with both error
+                        // strings so an operator can tell whether it's
+                        // one provider or the network.
+                        return Err(ApiError(
+                            StatusCode::BAD_GATEWAY,
+                            ErrorBody {
+                                code: ErrorCode::SourceFetchFailed,
+                                message: format!(
+                                    "geocoder cascade failed for '{p}': photon={ph_err}; nominatim={nom_err}"
+                                ),
+                            },
+                        ));
+                    }
+                    // Defensive: nominatim_result is None only when
+                    // Photon returned a non-empty Ok, which is matched
+                    // by the first arm.
+                    _ => unreachable!(
+                        "nominatim_result is None ⇒ photon_result is Ok(non-empty), already matched"
+                    ),
+                };
+                let hit = hits.first().cloned().expect("hits is non-empty by construction above");
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
                 nominatim_cache_put(p, hit.lat, hit.lng, &hit.label, hit_bbox_arr);
                 if polygon_bbox.is_none() {
@@ -13926,16 +13969,6 @@ fn nominatim_cache_put(
 }
 
 #[allow(dead_code)]
-async fn nominatim_lookup(q: &str) -> Result<NominatimHit, String> {
-    // Single-best-match wrapper around the multi-candidate fetch. Keeps
-    // the callsite simple while the candidate variant is exposed via
-    // `nominatim_lookup_candidates` for disambiguation use.
-    let hits = nominatim_lookup_candidates(q, 1).await?;
-    hits.into_iter()
-        .next()
-        .ok_or_else(|| "no results".to_string())
-}
-
 /// Fetch up to `limit` candidates from Nominatim. Used by `/v1/locate`
 /// to return ranked alternatives when a place name is ambiguous
 /// ("Springfield", "San José", "Bristol") so the agent can disambiguate
@@ -13989,9 +14022,10 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
             importance,
         });
     }
-    if out.is_empty() {
-        return Err("no results".into());
-    }
+    // Zero results is a normal outcome (the place isn't in OSM, or the
+    // query is too vague); it's not a transport failure. Return Ok(vec![])
+    // so the caller can fall through to the next tier without conflating
+    // "geocoder said no such place" with "geocoder is down".
     Ok(out)
 }
 
@@ -14117,9 +14151,10 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             importance,
         });
     }
-    if out.is_empty() {
-        return Err("photon: zero results".into());
-    }
+    // Zero results is a normal outcome — the place isn't in Photon's OSM
+    // index. Return Ok(vec![]) so locate_inner can try Nominatim before
+    // declaring "place not found", and so transport failures (Err) stay
+    // distinct from "no such place" (Ok empty).
     out.sort_by(|a, b| {
         b.importance
             .partial_cmp(&a.importance)

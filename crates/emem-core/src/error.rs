@@ -25,6 +25,15 @@ pub enum ErrorCode {
     SourceSchemeUnknown,
     /// CID could not be dereferenced.
     CidNotFound,
+    /// A place / address lookup string did not resolve to a cell64 in
+    /// any tier of the geocoder cascade (embedded → cache → Photon →
+    /// Nominatim). Distinct from `SourceFetchFailed`, which means the
+    /// upstream geocoder transport itself failed; this code means the
+    /// transports succeeded but unanimously returned zero results.
+    /// Maps to HTTP 404. The agent should refine the query (more
+    /// specific name, add country / region) or pass coordinates
+    /// directly via `lat` + `lng`.
+    NoGeocoderMatch,
     /// The referenced registry CID is unknown to this responder.
     RegistryCidUnknown,
     /// The referenced schema CID is unknown to this responder.
