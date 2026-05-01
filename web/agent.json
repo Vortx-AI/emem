@@ -1,8 +1,8 @@
 {
   "name": "emem",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "protocol": "emem-earth-memory",
-  "description": "Agent-native, content-addressed, signed Earth memory protocol. 101 materializable bands across Sentinel-1/2, MODIS, Landsat (target), Tessera, NASA POWER, ERA5, CAMS, Open-Meteo Marine, JRC Global Surface Water, Hansen GFC, ESA WorldCover, SoilGrids 2.0, Overture. 101 composition algorithms (carbon MRV, VM0042, EUDR, RUSLE, SoilGrids SOC, IPCC Tier-2 rice CH₄, SDG indicators, parametric insurance, climate-risk). Multimodal-fusion: every algorithm anchored on S1/S2/Landsat consumes the upstream sensor pitch natively (10 m for S1/S2 indices, 30 m Landsat target); the value returned is the real upstream pixel sample. cell64 is a square ~10 m × ~10 m grid at the equator, matching S1/S2 native pitch — two queries 12 m apart land in distinct cells; two within the same cell share the cached 10 m sample (full fidelity).",
+  "description": "Agent-native, content-addressed, signed Earth memory protocol. 33 materializable bands across Sentinel-1/2, MODIS, Landsat (target), Tessera, NASA POWER, ERA5, CAMS, Open-Meteo Marine, JRC Global Surface Water, Hansen GFC, ESA WorldCover, SoilGrids 2.0, Overture. 102 composition algorithms (carbon MRV, VM0042, EUDR, RUSLE, SoilGrids SOC, IPCC Tier-2 rice CH₄, SDG indicators, parametric insurance, climate-risk, flood_risk@2 with DEM agreement weighting and a temporal_recipe of antecedent rainfall + recent radar water + optical water). Multimodal-fusion: every algorithm anchored on S1/S2/Landsat consumes the upstream sensor pitch natively (10 m for S1/S2 indices, 30 m Landsat target); the value returned is the real upstream pixel sample. cell64 is a square ~10 m × ~10 m grid at the equator, matching S1/S2 native pitch — two queries 12 m apart land in distinct cells; two within the same cell share the cached 10 m sample (full fidelity). Live geocoder chain: embedded gazetteer → Photon (komoot.io) → Nominatim fallback (Photon is primary because of stronger recall on rural OSM features).",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",

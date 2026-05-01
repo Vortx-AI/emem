@@ -9,7 +9,7 @@
     "type": "openapi",
     "url": "/openapi.json"
   },
-  "logo_url": "/favicon.svg",
+  "logo_url": "/logo.png",
   "contact_email": "avijeet@vortx.ai",
   "legal_info_url": "/terms"
 }

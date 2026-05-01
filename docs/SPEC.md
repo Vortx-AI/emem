@@ -1,7 +1,14 @@
-# emem Protocol — Specification v0.0.2-draft
+# emem Protocol — Specification v0.0.3-draft
 
-> Status: draft · 2026-04-27 · Editor: Vortx-AI
-> Supersedes: `docs/SPEC.md@v0.0.1-draft`, `docs/PROPOSAL_v2.archive.md`, `docs/product-memory.md`
+> Status: draft · 2026-05-01 · Editor: Vortx-AI
+> Supersedes: `docs/SPEC.md@v0.0.2-draft`, `docs/PROPOSAL_v2.archive.md`, `docs/product-memory.md`
+>
+> 0.0.3 changes vs 0.0.2: temporal_composition/temporal_recipe (new
+> additive surface), flood_risk@2 with DEM-agreement weighting,
+> Photon-primary live geocoder cascade (Overpass removed),
+> Sentinel-2/-1 cloud / latency fallback ladders, adaptive polygon
+> density on `/v1/recall_polygon`. See `CHANGELOG.md` and
+> `docs/MILESTONE_v0.0.4.md` for the next-milestone backlog.
 
 ## Abstract
 
@@ -907,7 +914,7 @@ All seven OQs from v0.0.1 are resolved in this draft.
 | OQ-6 | licence | SPEC: **CC-BY-SA-4.0** · Rust ref impl: **Apache-2.0** · SDKs (py/ts): **MIT**. |
 | OQ-7 | vision band reproducibility | Vision bands admissible at L2 only. Source.cid of model checkpoint MUST be present. L0/L1 nodes do not serve vision bands. |
 
-New open questions for v0.0.3:
+New open questions for v0.0.4:
 
 | # | Question | Status |
 |---|---|---|
@@ -915,6 +922,9 @@ New open questions for v0.0.3:
 | OQ-9 | lcv-1 learned taxonomy methodology | Proposed: HDBSCAN over (AlphaEarth-9yr ⊕ S2-monthly ⊕ Köppen ⊕ ecoregions) at res-9 cell centroids. |
 | OQ-10 | derivative fact composition limits | Proposed: max derivative depth = 4 to keep verification cost bounded; revisit after derivative-of-derivative use cases emerge. |
 | OQ-11 | intent grammar extensibility | Proposed: registry-style; new intent types ship under semver; v0.1 introduces a learned planner that can dispatch arbitrary structured intents. |
+| OQ-12 | temporal_recipe canonicalisation | 0.0.3 ships per-algorithm `temporal_recipe { windows[], aggregator }` as additive metadata; canonical receipt format for `temporal_composition[]` (Merkle root over per-window fact CIDs?) is open. |
+| OQ-13 | Photon hosted-instance dependency | 0.0.3 made Photon (komoot.io) the primary live geocoder. Open: do we self-host a Photon mirror to avoid soft-dependency on the public komoot endpoint? Trade-off is ~6 GB of OSM index storage per instance. |
+| OQ-14 | Overture Places as third geocoder tier | Reserved slot below Nominatim. Open: do we add it once Overture Places parquet partitions are S3-anonymous-readable for arbitrary `name LIKE` predicates? |
 
 ---
 

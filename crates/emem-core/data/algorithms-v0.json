@@ -69,6 +69,58 @@
           { "band": "sentinel1_raw",            "lookback_days": 14, "aggregator": "latest", "purpose": "current_radar_water" },
           { "band": "indices.mndwi",            "lookback_days": 30, "aggregator": "median", "purpose": "current_optical_water" }
         ]
+      },
+      "evaluation": {
+        "op": "clamp",
+        "lo": 0.0,
+        "hi": 1.0,
+        "inner": {
+          "op": "add",
+          "terms": [
+            {
+              "op": "mul",
+              "terms": [
+                { "op": "const", "value": 0.55 },
+                { "op": "div",
+                  "a": { "op": "band", "band": "surface_water.recurrence" },
+                  "b": { "op": "const", "value": 100.0 } }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                { "op": "const", "value": 0.25 },
+                { "op": "where",
+                  "cond": {
+                    "op": "abs",
+                    "inner": { "op": "sub",
+                      "a": { "op": "band", "band": "copdem30m.elevation_mean" },
+                      "b": { "op": "band", "band": "gmrt.topobathy_mean" } } },
+                  "gt": 5.0,
+                  "then_": { "op": "const", "value": 0.5 },
+                  "else_": { "op": "const", "value": 1.0 } },
+                { "op": "div",
+                  "a": { "op": "relu", "inner": {
+                    "op": "sub",
+                    "a": { "op": "const", "value": 50.0 },
+                    "b": { "op": "band", "band": "copdem30m.elevation_mean" } } },
+                  "b": { "op": "const", "value": 50.0 } }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                { "op": "const", "value": 0.20 },
+                { "op": "sigmoid", "inner": {
+                  "op": "div",
+                  "a": { "op": "sub",
+                    "a": { "op": "const", "value": -15.0 },
+                    "b": { "op": "band", "band": "sentinel1_raw" } },
+                  "b": { "op": "const", "value": 2.0 } } }
+              ]
+            }
+          ]
+        }
       }
     },
     {

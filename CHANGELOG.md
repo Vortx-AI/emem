@@ -7,7 +7,164 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 
 ## [Unreleased]
 
+## [0.0.3] — 2026-05-01
+
+This release closes the gaps surfaced by the Katihar (Bihar) man-made-lake
+test report — placeholders, hardcodes, and silent fallbacks that turned
+honest geospatial questions into wrong-but-confident answers. It also
+tightens every protocol surface that an external agent touches: the
+geocoder cascade, the temporal composition vocabulary, the algorithm
+registry, the multimodal scene path, and the brand identity.
+
 ### Added
+- **Topic registry + transformer router** —
+  `crates/emem-core/data/topics-v0.json` is a content-addressed
+  `TopicRegistry` (manifest topic `emem-topics`) of 25 hand-authored
+  topics, each declaring `{ key, description, aliases[], bands[],
+  algorithms[] }`. The new `topic_router` module in `emem-api-rest`
+  embeds each topic's description + aliases with model2vec-rs
+  (`minishlab/potion-base-8M`, ~32 MB, sub-ms inference, pure-Rust,
+  no ONNX/C++) and routes a free-text question to topics by cosine
+  similarity ≥ 0.35. If the model fails to load (no HF_HOME, no
+  network on first run, etc.) the router transparently falls back to
+  alias keyword matching — the surface contract is identical.
+  Replaces ~639 lines of static `TOPIC_BANDS` / `TOPIC_ALGORITHMS` /
+  `TOPIC_KEYWORDS` tables that were previously hardcoded in
+  `lib.rs`. (Phase B of the "scientific routing" scan.)
+- **Formula-AST evaluator + composite dispatcher** — `Expr` enum in
+  `emem-core::algorithms` (`Band`, `Const`, `Add`, `Sub`, `Mul`,
+  `Div`, `Linear`, `WeightedBlend`, `Clamp`, `Where`, `Abs`,
+  `Sigmoid`, `Relu`, `Max`, `Min`) with `Expr::evaluate(samples) ->
+  Option<f64>` and `Expr::referenced_bands()`. Algorithms now carry
+  an optional `evaluation: Expr` field that turns a human-readable
+  `formula: String` into a byte-stable executable AST. `flood_risk@2`
+  is the proof-of-concept: its `0.55*(swr/100) +
+  0.25*dem_agreement*(relu(50-cop)/50) + 0.20*sigmoid((-15-s1)/2)`
+  formula round-trips through canonical-CBOR JSON to the dispatcher
+  and produces 0.4836 byte-stably (test:
+  `flood_risk_v2_evaluates_to_a_real_number_from_dispatcher`). The
+  new `dispatch_algorithms(matched_keys, recall)` helper in
+  `emem-api-rest` runs every matched algorithm whose evaluation block
+  is satisfied by the recall samples and emits an
+  `algorithm_outcomes[]` array on `/v1/ask` (additive sibling, empty
+  when no algorithm has an `evaluation` block yet). (Phase C of the
+  "scientific routing" scan; M-13 / M-14 carryforward to v0.0.4 to
+  migrate the remaining 101 algorithms.)
+- **Temporal composition** — `Algorithm.temporal_recipe { windows[], label,
+  note }` in `emem-core::algorithms`. Each window declares
+  `{ band, lookback_days, aggregator, purpose, trigger_threshold? }` so a
+  composite score can express "antecedent rainfall (7 d, sum) → recent
+  radar water (14 d, max) → optical water (30 d, baseline)" without
+  hardcoding the cadence in the responder.
+- `/v1/ask` and `/v1/intent` responses now carry an additive
+  `temporal_composition[]` field (sibling to `facts`/`results`,
+  not a replacement) — empty array when no matched algorithm declares
+  a recipe. Each entry surfaces the algorithm key, the recipe label, and
+  per-window fact CIDs + scalar values + an aggregator summary so the
+  agent can compose a real flood / drought / wildfire answer in one
+  round-trip instead of a hand-rolled fan-out.
+- `flood_risk@2` algorithm — adds GMRT topo input and a
+  `dem_agreement` weighting term (factor 0.5 when |Cop-DEM − GMRT| > 5 m)
+  on top of `flood_risk@1`, plus a temporal_recipe for antecedent
+  rainfall + recent radar water + optical water. `flood_risk@1` is
+  retained for backwards compatibility.
+- `temporal_recipe` blocks on `water_consensus@1`,
+  `wildfire_exposure_score@1`, and `spi_meteorological_drought@1`.
+- **Sentinel-2/Sentinel-1 fallback ladders** — `s2_search_with_fallback`
+  (40 % cloud / 30 d → 60 % / 60 d → 80 % / 90 d) and
+  `s1_search_with_fallback` (15 d → 30 d → 60 d) so cloudy / rainy
+  regions still return a real scene rather than degrading to a
+  placeholder. Used by the rainy-day flood path the Katihar report
+  asked for.
+- **Adaptive polygon density** — `RecallPolygonReq.cells_per_sqkm` and
+  `drill_on_water` parameters; max-cells cap raised from 256 to 1024.
+  Two-stage drill now adds `hot_centres` around recurrence > 25 % cells
+  so a polygon recall over a water body returns the wet pixels at high
+  density instead of being blurred by a uniform sweep.
+- **Lake / pond / reservoir keywords** in `TOPIC_KEYWORDS["flood_water_event_window"]`
+  — `lake`, `pond`, `reservoir`, `manmade lake`, `tank`, `water body`,
+  `lagoon`, `wetland`, `marsh` — so a "is the lake flooded" question
+  actually routes to the flood/water topic instead of falling through.
+- **Photon (komoot.io) geocoder** as the primary live fallback when the
+  embedded gazetteer and TTL cache miss. Fast (~100 ms typical),
+  Elasticsearch-indexed OSM with strong recall on rural villages /
+  tanks / water bodies (Katihar test: `Laliyahi` resolves via Photon
+  but returned no results from Nominatim). Nominatim is now the
+  secondary fallback. Configurable via `EMEM_PHOTON_BASE`.
+- **Overture release auto-discovery** — `latest_release()` walks the
+  Overture S3 bucket via ListObjectsV2 + XML parse, with a 24 h cached
+  ReleaseCache and `EMEM_OVERTURE_RELEASE` env override so an operator
+  can pin a specific release for repro builds.
+- `/v1/materializers` now exposes `overture_release` so an agent can
+  see which release will be served without an Overture round-trip.
+- `temporal_recipe` is also surfaced inline on each
+  `/v1/intent → composite_suggestions.applicable[]` entry so an agent
+  planning a follow-up `/v1/ask` sees the lookback windows without a
+  second `GET /v1/algorithms/<key>` round-trip.
+- **Brand identity refresh** — new `/logo.png`, `/logo-mark.png`,
+  `/logo-300w.png`, `/logo-600w.png`, `/logo-1200w.png`,
+  `/favicon.png`, `/apple-touch-icon.png`, `/icon-192.png`,
+  `/icon-512.png` (PNG variants of the new mark) plus a refreshed
+  `favicon.svg` and `og-image.svg` carrying the new
+  indigo→purple gradient palette. `index.html`, `agent.json`,
+  `ai-plugin.json`, and `gemini-extension.json` now reference
+  `/logo.png` for organization-logo schema.
+
+### Changed
+- Live geocoder priority is now Photon → Nominatim (was: Nominatim → Overpass).
+  The `via` field in `/v1/locate` reports `embedded` / `cache` /
+  `photon` / `nominatim` / `direct`.
+- `build_cell_scene_rgb` percentile helper now returns `Option<f64>`
+  and filters non-finite / non-positive samples up front, so a tile
+  with no surface reflectance no longer renders as a black scene.
+- `algorithms_for_topic[flood_*]` now points at `flood_risk@2`.
+  `flood_risk@1` is retained in the registry so existing receipts
+  still resolve.
+- `/v1/recall_polygon`'s `max_cells` cap raised 256 → 1024 to support
+  the new dense / drilled fan-outs without forcing the agent to
+  manually slice the polygon.
+- Bumped HTTP request timeouts to give cold materializers room to
+  fan out on first hit (per `docs/CLIENTS.md` guidance).
+
+### Removed
+- **Static topic-routing tables** — the ~639-line
+  `TOPIC_BANDS` / `TOPIC_ALGORITHMS` / `TOPIC_KEYWORDS`
+  `LazyLock` blocks in `crates/emem-api-rest/src/lib.rs` are gone.
+  The same data now lives in `topics-v0.json` and is consumed
+  through the `TopicRouter` (transformer-backed cosine match,
+  alias-keyword fallback). The four call sites
+  (`live_bands_for_topic`, `algorithms_keys_for_topic`,
+  `route_question_to_topics`, `matched_keywords`) are now thin
+  registry queries.
+- **Overpass geocoder fallback** — the public Overpass instance
+  routinely returns 503 under rate limits and a global
+  name-regex query takes ~30 s on a synchronous request path. Photon
+  serves the same OSM corpus via Elasticsearch in ~100 ms with better
+  recall, so Overpass has been removed from the live cascade.
+  `EMEM_OVERPASS_BASE` is no longer consulted.
+
+### Fixed
+- `/v1/locate` for rural OSM places (e.g. `Laliyahi` / Katihar) — the
+  embedded → cache → Photon → Nominatim cascade now resolves these
+  reliably; the old chain timed out on Overpass.
+- `/v1/cells/{cell}/scene.png` no longer returns a uniformly black
+  PNG when a Sentinel-2 tile has scattered reflectance (percentile
+  helper was returning 0 instead of `None`).
+- Three Overture client `cli.release().to_string()` callsites were
+  silently fire-and-forgetting an unawaited future; now `.await`ed
+  with `map_err`.
+
+### Migration notes
+- **No breaking changes.** `temporal_composition` and
+  `temporal_recipe` are additive sibling fields; existing readers
+  that parse `facts[]` only continue to work.
+- `flood_risk@1` is still in the registry, so receipts that cite the
+  v1 algorithm key continue to verify. New flood questions
+  automatically route to `flood_risk@2`.
+- If you hardcoded `via == "overpass"` anywhere, change it to
+  `via == "photon"`.
+
+### Also added (carryover from the post-0.0.2 development cycle)
 - `PRIVACY.md` "Your rights" section enumerating GDPR / CCPA / CPRA data-
   subject rights (access, erasure, rectification, objection, opt-out of
   sale/sharing, non-discrimination) and how to exercise them.
@@ -39,7 +196,7 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
   GA4 (`G-RBLXX5LR9L`), favicon, OG image, IndexNow key endpoint,
   `/.well-known/security.txt`.
 
-### Changed
+### Also changed (carryover from the post-0.0.2 development cycle)
 - Cell64 codec now exposes a stable `cell_from_latlng` / `latlng_from_cell64`
   pair in `emem-codec::geo`, with a documented bit layout
   (`mode|res|base|hilbert_d`).
@@ -50,7 +207,7 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 - `serve_llms_full` actually serves a comprehensive LLM-targeted text
   rather than the whitepaper.
 
-### Removed
+### Also removed (carryover from the post-0.0.2 development cycle)
 - The third-party `r.jina.ai` external-probe dependency. We use
   `curl --resolve` for direct external connectivity tests now.
 

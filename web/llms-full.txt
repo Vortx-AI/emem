@@ -5,16 +5,28 @@
 > No API keys for L0/L1 reads. Apache-2.0. Pure Rust + open data only.
 > github.com/Vortx-AI/emem  •  https://emem.dev
 >
-> Counts (101 materializable bands, 28 MCP tools / 30 primitives,
-> 101 algorithms) are the live values at time of last refresh; the
+> Counts (33 canonical bands in the 1792-D voxel layout, 25 wired
+> auto-materializers, 28 MCP tools / 30 primitives across REST + MCP,
+> 102 algorithms) are the live values at time of last refresh; the
 > wire-stable source of truth is `/v1/manifests`,
-> `/v1/data_availability`, `/v1/algorithms`, and `/v1/tools`.
+> `/v1/materializers`, `/v1/data_availability`, `/v1/algorithms`,
+> and `/v1/tools`.
+>
+> 0.0.3 highlights — `temporal_composition[]` (additive sibling on
+> `/v1/ask` and `/v1/intent` results), `Algorithm.temporal_recipe`
+> (declared lookback windows so the responder can compose
+> "rained-recently + radar-water + optical-water" without hardcoding),
+> `flood_risk@2` (DEM-agreement weighting + recipe), Photon-primary
+> geocoder (Overpass removed), Sentinel-2/-1 fallback ladders for
+> cloudy regions, adaptive polygon density on `/v1/recall_polygon`
+> (`cells_per_sqkm`, `drill_on_water`, max 1024 cells), Overture
+> release auto-discovery.
 >
 > Multimodal-fusion policy (docs/MULTIMODAL.md): sensor priority
 > S1 > S2 > Landsat > IoT > OtherSat > Static. Algorithms that claim
 > a delivery resolution of ≤10 m are mechanically validated to anchor
 > on S1/S2/Landsat. The validator (rules R1–R4) blocks over-claim at
-> compile time. 17 of the 101 algorithms carry an explicit
+> compile time. 17 of the 102 algorithms carry an explicit
 > `multimodal` block today; the rest declare their inputs only.
 
 This file is the single-call agent context dump for emem. It includes

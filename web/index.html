@@ -4,8 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>emem, Earth memory for AI agents</title>
-<meta name="description" content="Cite-able, content-addressed, signed memory of every place on Earth. 101 materializable bands and 28 MCP tools across Sentinel-2, Sentinel-1, Landsat (target), MODIS LST/ET/GPP/LAI, NASA POWER reanalysis, CAMS air quality (PM2.5/NO2/O3), ERA5, Tessera embeddings, JRC Global Surface Water, Hansen GFC v1.11, ESA WorldCover, SoilGrids 2.0 (SOC, pH, clay, sand, BDOD, nitrogen at 0–30 cm). 101 composition algorithms (carbon MRV, VM0042 carbon credits, EUDR compliance, parametric insurance, SDG indicators, walkability, heat-vulnerability). Multimodal-fusion policy: S1 > S2 > Landsat > IoT > OtherSat > Static priority chain, ≤10 m delivery anchored on S1/S2/Landsat. All anonymous, all signed. Built for AI agents.">
+<meta name="description" content="Cite-able, content-addressed, signed memory of every place on Earth. 33 canonical bands in the 1792-D voxel layout (25 wired auto-materializers) and 28 MCP tools / 30 primitives across Sentinel-2, Sentinel-1, Landsat (target), MODIS LST/ET/GPP/LAI, NASA POWER reanalysis, CAMS air quality (PM2.5/NO2/O3), ERA5, Tessera embeddings, JRC Global Surface Water, Hansen GFC v1.11, ESA WorldCover, SoilGrids 2.0 (SOC, pH, clay, sand, BDOD, nitrogen at 0–30 cm). 102 composition algorithms (carbon MRV, VM0042 carbon credits, EUDR compliance, parametric insurance, SDG indicators, walkability, heat-vulnerability, flood_risk@2 with a temporal_recipe of antecedent rainfall + recent radar water + optical water). Multimodal-fusion policy: S1 > S2 > Landsat > IoT > OtherSat > Static priority chain, ≤10 m delivery anchored on S1/S2/Landsat. Live geocoder cascade Photon → Nominatim. All anonymous, all signed. Built for AI agents.">
 <link rel="canonical" href="https://emem.dev/">
+
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 
 <meta name="ai-plugin" content="/.well-known/ai-plugin.json">
 <meta name="agent-protocol" content="/.well-known/agent.json">
@@ -59,7 +65,7 @@
     "@type": "Organization",
     "name": "Vortx",
     "url": "https://vortx.ai",
-    "logo": "https://emem.dev/favicon.svg",
+    "logo": "https://emem.dev/logo.png",
     "sameAs": ["https://github.com/Vortx-AI"]
   },
   {
@@ -336,7 +342,7 @@
 <p style="font-size:.88rem; color:var(--mut)">
   Group your user's question by intent, not by satellite. Each entry names the
   bands to recall and the algorithm CID (when one exists) to compose them. All
-  101 algorithms are listed at <a href="/v1/algorithms"><code>/v1/algorithms</code></a>;
+  102 algorithms are listed at <a href="/v1/algorithms"><code>/v1/algorithms</code></a>;
   every one carries a peer-reviewed citation and a <code>when_to_use</code>
   field so an agent can verify a recipe is real before quoting it. Honest
   gaps are listed at the bottom of this section.

@@ -321,6 +321,17 @@ pub struct Algorithm {
     /// the latest static recurrence value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temporal_recipe: Option<TemporalRecipe>,
+    /// Optional evaluable formula — see [`Expr`]. When present, the
+    /// responder can evaluate the algorithm in-process: walk the AST,
+    /// recall each referenced band, plug the values in, and return the
+    /// scalar result alongside the input fact CIDs. The composite is
+    /// then verifiable end-to-end (a third party with the same inputs
+    /// + algorithm CID re-executes and gets the same number).
+    /// Algorithms without an `evaluation` continue to be advertised
+    /// only — the agent reads the human-readable `formula` string and
+    /// composes itself. Added in 0.0.3 alongside `temporal_recipe`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation: Option<Expr>,
 }
 
 /// One temporal lookback window an algorithm wants alongside the snapshot.
@@ -349,6 +360,320 @@ pub struct TemporalWindow {
     /// Encoded as f64; the field name in formulas is the literal string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_threshold: Option<f64>,
+}
+
+/// Evaluable formula for a composite algorithm.
+///
+/// Stored alongside the human-readable `formula: String` so a downstream
+/// verifier can re-execute the composition exactly. Each variant maps to
+/// one well-tested arithmetic primitive — the union covers every
+/// composition pattern present in `algorithms-v0.json` at 0.0.3:
+///
+///   - `Band` / `Const`           — leaves
+///   - `Add` / `Sub` / `Mul` / `Div` — pointwise arithmetic
+///   - `Linear { weights, bias }` — Σ wᵢ·xᵢ + b (the workhorse for
+///     weighted-mean composites: flood_risk, water_consensus,
+///     parametric_trigger, walkability)
+///   - `Clamp { lo, hi }`         — saturate output range
+///   - `Where { cond, gt, lo, then, else_ }` — threshold-gated branch
+///     (used by `flood_risk@2`'s DEM-agreement weighting)
+///   - `WeightedBlend { primary, alt, alt_weight_when }` — primary +
+///     alt-weighted residual (Bayesian-blend pattern)
+///
+/// Encoded in JSON via serde's tag-internal-with-content shape so an
+/// algorithm's `evaluation: Expr` field reads as readable JSON:
+///
+/// ```json
+/// {"op":"linear","weights":{"surface_water.recurrence":0.5,
+///                            "copdem30m.elevation_mean":-0.0001,
+///                            "indices.ndwi":0.3},"bias":0.0}
+/// ```
+///
+/// Evaluation is pure: given a `samples: HashMap<band_key, f64>`, the
+/// formula reduces to a single `Option<f64>` deterministically. Missing
+/// bands cause `None` (the responder logs and returns
+/// `algorithm_outcomes[].skip_reason: "missing_input:<band>"`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Expr {
+    /// Look up a band's scalar value from the sample map.
+    Band {
+        /// The band key — must match an entry in
+        /// `algorithm.inputs[].band` for the dispatcher to fetch it.
+        band: String,
+    },
+    /// A literal numeric constant.
+    Const {
+        /// The constant value.
+        value: f64,
+    },
+    /// Pointwise sum of every operand.
+    Add {
+        /// Operands to sum.
+        terms: Vec<Expr>,
+    },
+    /// Pointwise difference: `a - b`.
+    Sub {
+        /// Left operand (minuend).
+        a: Box<Expr>,
+        /// Right operand (subtrahend).
+        b: Box<Expr>,
+    },
+    /// Pointwise product of every operand.
+    Mul {
+        /// Operands to multiply.
+        terms: Vec<Expr>,
+    },
+    /// Pointwise quotient: `a / b`. Returns `None` when `b == 0.0`.
+    Div {
+        /// Numerator.
+        a: Box<Expr>,
+        /// Denominator.
+        b: Box<Expr>,
+    },
+    /// Linear combination: `Σ weights[band_i] · samples[band_i] + bias`.
+    /// The workhorse for every weighted-mean composite. Bands not
+    /// present in `weights` contribute `0`. Bands listed but missing
+    /// from `samples` collapse the whole expression to `None` (so a
+    /// missing required input is never silently treated as zero).
+    Linear {
+        /// Per-band weights.
+        weights: std::collections::BTreeMap<String, f64>,
+        /// Optional bias / intercept.
+        #[serde(default)]
+        bias: f64,
+    },
+    /// Clamp the inner expression to `[lo, hi]`.
+    Clamp {
+        /// Inner expression to clamp.
+        inner: Box<Expr>,
+        /// Lower bound.
+        lo: f64,
+        /// Upper bound.
+        hi: f64,
+    },
+    /// Threshold branch: `if cond > gt then then_ else else_`. `cond`
+    /// is evaluated; if it exceeds `gt`, return the `then_` branch's
+    /// value, otherwise the `else_` branch. The 0.0.3 use case is
+    /// `flood_risk@2`'s DEM-agreement gate (factor 0.5 when
+    /// `|cop-dem - gmrt| > 5m`).
+    Where {
+        /// Condition expression.
+        cond: Box<Expr>,
+        /// Threshold the condition must exceed.
+        gt: f64,
+        /// Branch taken when `cond > gt`.
+        then_: Box<Expr>,
+        /// Branch taken otherwise.
+        else_: Box<Expr>,
+    },
+    /// Weighted blend of a primary + alternative term, with the
+    /// alternative's weight controlled by a third expression. Useful
+    /// for "primary + αᵢ·residual" patterns where αᵢ depends on data
+    /// quality (Bayesian / Kalman blends).
+    WeightedBlend {
+        /// Primary term.
+        primary: Box<Expr>,
+        /// Alternative / residual term.
+        alt: Box<Expr>,
+        /// Weight applied to `alt` (in `[0, 1]`; values outside that
+        /// range are clamped). Often a `Where` branch on a quality
+        /// indicator.
+        alt_weight: Box<Expr>,
+    },
+    /// Take the absolute value of the inner expression.
+    Abs {
+        /// Inner expression.
+        inner: Box<Expr>,
+    },
+    /// Logistic sigmoid: `1 / (1 + exp(-inner))`. Maps R → (0, 1).
+    /// Used pervasively for "soft threshold" terms in the algorithm
+    /// registry (S1 dB → P(water), temperature → heat-stress, etc.).
+    Sigmoid {
+        /// Inner expression.
+        inner: Box<Expr>,
+    },
+    /// Rectified linear unit: `max(0, inner)`. Used for "asymmetric
+    /// penalty" terms (low elevation → flood penalty, missing canopy
+    /// → urban-heat penalty).
+    Relu {
+        /// Inner expression.
+        inner: Box<Expr>,
+    },
+    /// Pointwise maximum across operands.
+    Max {
+        /// Operands; result is `f64::NEG_INFINITY` over an empty
+        /// vector and that propagates through downstream arithmetic
+        /// the same as `None` would.
+        terms: Vec<Expr>,
+    },
+    /// Pointwise minimum across operands.
+    Min {
+        /// Operands; result is `f64::INFINITY` over an empty vector.
+        terms: Vec<Expr>,
+    },
+}
+
+impl Expr {
+    /// Evaluate the expression against a sample map.
+    /// Returns `None` if any required band is absent or any
+    /// arithmetic step is undefined (division by zero).
+    pub fn evaluate(&self, samples: &std::collections::HashMap<String, f64>) -> Option<f64> {
+        match self {
+            Expr::Band { band } => samples.get(band).copied(),
+            Expr::Const { value } => Some(*value),
+            Expr::Add { terms } => {
+                let mut s = 0.0_f64;
+                for t in terms {
+                    s += t.evaluate(samples)?;
+                }
+                Some(s)
+            }
+            Expr::Sub { a, b } => Some(a.evaluate(samples)? - b.evaluate(samples)?),
+            Expr::Mul { terms } => {
+                let mut p = 1.0_f64;
+                for t in terms {
+                    p *= t.evaluate(samples)?;
+                }
+                Some(p)
+            }
+            Expr::Div { a, b } => {
+                let av = a.evaluate(samples)?;
+                let bv = b.evaluate(samples)?;
+                if bv == 0.0 {
+                    None
+                } else {
+                    Some(av / bv)
+                }
+            }
+            Expr::Linear { weights, bias } => {
+                let mut acc = *bias;
+                for (band, w) in weights {
+                    let v = samples.get(band)?;
+                    acc += w * v;
+                }
+                Some(acc)
+            }
+            Expr::Clamp { inner, lo, hi } => {
+                let v = inner.evaluate(samples)?;
+                Some(v.max(*lo).min(*hi))
+            }
+            Expr::Where {
+                cond,
+                gt,
+                then_,
+                else_,
+            } => {
+                let c = cond.evaluate(samples)?;
+                if c > *gt {
+                    then_.evaluate(samples)
+                } else {
+                    else_.evaluate(samples)
+                }
+            }
+            Expr::WeightedBlend {
+                primary,
+                alt,
+                alt_weight,
+            } => {
+                let p = primary.evaluate(samples)?;
+                let a = alt.evaluate(samples)?;
+                let mut w = alt_weight.evaluate(samples)?;
+                if !w.is_finite() {
+                    return None;
+                }
+                w = w.clamp(0.0, 1.0);
+                Some((1.0 - w) * p + w * a)
+            }
+            Expr::Abs { inner } => Some(inner.evaluate(samples)?.abs()),
+            Expr::Sigmoid { inner } => {
+                let x = inner.evaluate(samples)?;
+                Some(1.0 / (1.0 + (-x).exp()))
+            }
+            Expr::Relu { inner } => Some(inner.evaluate(samples)?.max(0.0)),
+            Expr::Max { terms } => {
+                if terms.is_empty() {
+                    return Some(f64::NEG_INFINITY);
+                }
+                let mut best = f64::NEG_INFINITY;
+                for t in terms {
+                    let v = t.evaluate(samples)?;
+                    if v > best {
+                        best = v;
+                    }
+                }
+                Some(best)
+            }
+            Expr::Min { terms } => {
+                if terms.is_empty() {
+                    return Some(f64::INFINITY);
+                }
+                let mut best = f64::INFINITY;
+                for t in terms {
+                    let v = t.evaluate(samples)?;
+                    if v < best {
+                        best = v;
+                    }
+                }
+                Some(best)
+            }
+        }
+    }
+
+    /// Walk the expression and collect every `Band` leaf's key.
+    /// Used by the dispatcher to know which bands to recall before
+    /// evaluating.
+    pub fn referenced_bands(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.walk_bands(&mut out);
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    fn walk_bands(&self, out: &mut Vec<String>) {
+        match self {
+            Expr::Band { band } => out.push(band.clone()),
+            Expr::Const { .. } => {}
+            Expr::Add { terms }
+            | Expr::Mul { terms }
+            | Expr::Max { terms }
+            | Expr::Min { terms } => {
+                for t in terms {
+                    t.walk_bands(out);
+                }
+            }
+            Expr::Sub { a, b } | Expr::Div { a, b } => {
+                a.walk_bands(out);
+                b.walk_bands(out);
+            }
+            Expr::Linear { weights, .. } => {
+                for k in weights.keys() {
+                    out.push(k.clone());
+                }
+            }
+            Expr::Clamp { inner, .. }
+            | Expr::Abs { inner }
+            | Expr::Sigmoid { inner }
+            | Expr::Relu { inner } => inner.walk_bands(out),
+            Expr::Where {
+                cond, then_, else_, ..
+            } => {
+                cond.walk_bands(out);
+                then_.walk_bands(out);
+                else_.walk_bands(out);
+            }
+            Expr::WeightedBlend {
+                primary,
+                alt,
+                alt_weight,
+            } => {
+                primary.walk_bands(out);
+                alt.walk_bands(out);
+                alt_weight.walk_bands(out);
+            }
+        }
+    }
 }
 
 /// Per-algorithm temporal recipe.
@@ -516,6 +841,36 @@ impl AlgorithmRegistry {
         self.algorithms.iter().filter(move |a| a.kind == kind)
     }
 
+    /// Evaluate the algorithm in-process. Returns `Ok(value)` when the
+    /// algorithm has an `evaluation` AST and every required band is
+    /// present in `samples`, `Ok(None)` when the algorithm has no
+    /// evaluation (an `Algorithm` that only ships a human-readable
+    /// formula), and `Err(missing_band)` when an evaluation expects a
+    /// band that is absent from `samples`.
+    ///
+    /// The dispatcher in `emem-api-rest` wraps this with the recall
+    /// step: walk `evaluation.referenced_bands()`, materialize each
+    /// one for the cell, drop the resulting scalars into a sample
+    /// map, and call back here.
+    pub fn evaluate(
+        &self,
+        key: &str,
+        samples: &std::collections::HashMap<String, f64>,
+    ) -> Result<Option<f64>, String> {
+        let alg = self
+            .lookup(key)
+            .ok_or_else(|| format!("unknown algorithm: {key}"))?;
+        let Some(expr) = alg.evaluation.as_ref() else {
+            return Ok(None);
+        };
+        for b in expr.referenced_bands() {
+            if !samples.contains_key(&b) {
+                return Err(format!("missing input band for {key}: {b}"));
+            }
+        }
+        Ok(expr.evaluate(samples))
+    }
+
     /// Every key that this algorithm reads from. Useful for an agent
     /// that wants to assemble the right `/v1/recall` body in one shot.
     /// Filters out the `<composite>` placeholder used in `algorithms-v0.json`
@@ -569,6 +924,157 @@ mod tests {
         assert!(r.by_kind(AlgorithmKind::Solo).count() >= 1);
         assert!(r.by_kind(AlgorithmKind::Combined).count() >= 1);
         assert!(r.by_kind(AlgorithmKind::Embedding).count() >= 1);
+    }
+
+    #[test]
+    fn expr_evaluates_linear_with_bias() {
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("a".to_string(), 2.0);
+        samples.insert("b".to_string(), 3.0);
+        let mut weights = std::collections::BTreeMap::new();
+        weights.insert("a".to_string(), 0.5);
+        weights.insert("b".to_string(), 1.5);
+        let e = Expr::Linear {
+            weights,
+            bias: 10.0,
+        };
+        assert_eq!(e.evaluate(&samples), Some(0.5 * 2.0 + 1.5 * 3.0 + 10.0));
+    }
+
+    #[test]
+    fn expr_returns_none_on_missing_band() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Band {
+            band: "missing".into(),
+        };
+        assert_eq!(e.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn expr_where_branches_on_threshold() {
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("dem_diff".to_string(), 7.0);
+        let e = Expr::Where {
+            cond: Box::new(Expr::Band {
+                band: "dem_diff".into(),
+            }),
+            gt: 5.0,
+            then_: Box::new(Expr::Const { value: 0.5 }),
+            else_: Box::new(Expr::Const { value: 1.0 }),
+        };
+        assert_eq!(e.evaluate(&samples), Some(0.5));
+        samples.insert("dem_diff".to_string(), 2.0);
+        assert_eq!(e.evaluate(&samples), Some(1.0));
+    }
+
+    #[test]
+    fn expr_sigmoid_is_centered_at_zero() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Sigmoid {
+            inner: Box::new(Expr::Const { value: 0.0 }),
+        };
+        assert!((e.evaluate(&samples).unwrap() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn expr_relu_is_zero_for_negative() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let neg = Expr::Relu {
+            inner: Box::new(Expr::Const { value: -3.0 }),
+        };
+        let pos = Expr::Relu {
+            inner: Box::new(Expr::Const { value: 4.0 }),
+        };
+        assert_eq!(neg.evaluate(&samples), Some(0.0));
+        assert_eq!(pos.evaluate(&samples), Some(4.0));
+    }
+
+    #[test]
+    fn expr_div_returns_none_for_zero_denominator() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Div {
+            a: Box::new(Expr::Const { value: 1.0 }),
+            b: Box::new(Expr::Const { value: 0.0 }),
+        };
+        assert_eq!(e.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn flood_risk_v2_evaluates_to_a_real_number_from_dispatcher() {
+        // Register a sample for every band the v2 evaluator needs.
+        // Picked to fall in plausible mid-range values: the cell has
+        // some historical recurrence, low elevation, DEM agreement
+        // within tolerance, and very negative S1 backscatter
+        // (= probable open water).
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("surface_water.recurrence".to_string(), 40.0); // 40% recurrence
+        samples.insert("copdem30m.elevation_mean".to_string(), 30.0); // 30 m amsl
+        samples.insert("gmrt.topobathy_mean".to_string(), 28.0); // close to Cop-DEM
+        samples.insert("sentinel1_raw".to_string(), -18.0); // wet-ish backscatter
+
+        let r = &*DEFAULT;
+        let v = r
+            .evaluate("flood_risk@2", &samples)
+            .expect("flood_risk@2 evaluation must succeed with all bands present")
+            .expect("flood_risk@2 must have an evaluation Expr (added in 0.0.3)");
+        // history term: 0.55 * 0.4 = 0.22
+        // dem-agreement: |30-28|=2, NOT > 5, so factor = 1.0
+        // elevation term: 1.0 * relu(50-30)/50 = 20/50 = 0.4 -> 0.25 * 0.4 = 0.10
+        // radar term: sigmoid((-15 - -18)/2) = sigmoid(1.5) ≈ 0.818
+        //              -> 0.20 * 0.818 ≈ 0.1636
+        // total ≈ 0.4836
+        assert!(
+            (v - 0.4836_f64).abs() < 0.005,
+            "flood_risk@2 numeric ≠ expected 0.4836: got {v}"
+        );
+    }
+
+    #[test]
+    fn algorithm_evaluate_returns_err_on_missing_input() {
+        let samples = std::collections::HashMap::new();
+        let r = &*DEFAULT;
+        let err = r
+            .evaluate("flood_risk@2", &samples)
+            .expect_err("missing inputs must error, not silently return None");
+        assert!(err.contains("missing input band for flood_risk@2"));
+    }
+
+    #[test]
+    fn algorithm_evaluate_returns_ok_none_when_no_evaluation_field() {
+        let r = &*DEFAULT;
+        // flood_risk@1 stays as a no-evaluation algorithm so the agent
+        // composes the formula itself; the dispatcher MUST return
+        // Ok(None), not an error.
+        let samples = std::collections::HashMap::new();
+        let v = r
+            .evaluate("flood_risk@1", &samples)
+            .expect("v1 has no evaluation but should not error");
+        assert!(v.is_none());
+    }
+
+    #[test]
+    fn expr_referenced_bands_walks_the_tree() {
+        let e = Expr::Add {
+            terms: vec![
+                Expr::Band { band: "a".into() },
+                Expr::Mul {
+                    terms: vec![
+                        Expr::Band { band: "b".into() },
+                        Expr::Sigmoid {
+                            inner: Box::new(Expr::Band { band: "c".into() }),
+                        },
+                    ],
+                },
+                Expr::Where {
+                    cond: Box::new(Expr::Band { band: "d".into() }),
+                    gt: 0.0,
+                    then_: Box::new(Expr::Const { value: 1.0 }),
+                    else_: Box::new(Expr::Band { band: "a".into() }),
+                },
+            ],
+        };
+        let bands = e.referenced_bands();
+        assert_eq!(bands, vec!["a", "b", "c", "d"]);
     }
 
     #[test]

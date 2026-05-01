@@ -1,0 +1,409 @@
+{
+  "schema": "emem.topics.v0",
+  "_doc": "Topic registry — the routing brain of /v1/ask. Each topic carries (a) `description` — a short paragraph used to compute a sentence-transformer embedding for semantic routing of free-text questions, (b) `bands[]` — canonical bands the topic concerns, served by /v1/recall, (c) `algorithms[]` — composition recipes from algorithms-v0.json applied on top of those bands, (d) `aliases[]` — short example phrases that frequently appear in real questions for this topic; useful both as additional embedding-side training data and as a substring fallback when the transformer is offline. Routing is by cosine similarity (transformer mode) or substring search over `aliases[]` + `key` (keyword fallback mode). New topics land here, not in code. Replaces the static TOPIC_KEYWORDS / TOPIC_BANDS / TOPIC_ALGORITHMS tables that lived in crates/emem-api-rest/src/lib.rs through 0.0.2; shipped as a content-addressed registry in 0.0.3.",
+  "_routing": {
+    "transformer_model": "minishlab/potion-base-8M",
+    "embedding_dims": 256,
+    "similarity": "cosine",
+    "threshold": 0.35,
+    "max_topics_per_question": 5,
+    "fallback_when_offline": "substring search over aliases[] and key",
+    "env_overrides": {
+      "EMEM_TOPIC_MODEL": "override the model id (default minishlab/potion-base-8M)",
+      "EMEM_TOPIC_THRESHOLD": "override the cosine threshold (default 0.35)",
+      "EMEM_TOPIC_BACKEND": "transformer | keyword (default transformer; set to keyword to disable model load)"
+    }
+  },
+  "topics": [
+    {
+      "key": "flood_history_long_term",
+      "description": "Whether a place has flooded in the past — long-term flood history from satellite-observed surface water occurrence over decades. Answers questions about a location's historical flood record, not present or future risk.",
+      "aliases": [
+        "flood history",
+        "has this area ever flooded",
+        "past floods here",
+        "did this place flood before",
+        "flood record",
+        "historical flooding"
+      ],
+      "bands": ["surface_water.recurrence"],
+      "algorithms": ["flood_history_class@1"]
+    },
+    {
+      "key": "flood_water_event_window",
+      "description": "Whether a place is wet, flooded, or under standing water right now or in the last few days, observed via radar (Sentinel-1) and optical water indices (NDWI, MNDWI). Answers acute event-window questions about lakes, ponds, reservoirs, tanks, wetlands, marshes, lagoons, and current flood inundation.",
+      "aliases": [
+        "is the lake flooded",
+        "is this lake at risk",
+        "is this man-made lake at risk",
+        "manmade lake hazard",
+        "manmade lake",
+        "man-made lake",
+        "is this place under water",
+        "current flood",
+        "lake water level",
+        "pond level",
+        "reservoir level",
+        "is the tank full",
+        "status of the tank",
+        "tank near",
+        "is the wetland inundated",
+        "standing water",
+        "is it flooded right now",
+        "flooded today"
+      ],
+      "bands": ["indices.ndwi", "indices.mndwi", "sentinel1_raw"],
+      "algorithms": ["water_consensus@1", "water_likelihood_from_vv@1"]
+    },
+    {
+      "key": "flood_risk_composite",
+      "description": "Forward-looking flood-risk question for a place — will this area flood, is it flood-prone, should I buy a flat or build here given flood exposure, monsoon waterlogging risk, real-estate flood due-diligence. Composes long-term water occurrence, elevation, and recent radar water into a probability of future flooding. Distinct from flood history (past) and event window (now).",
+      "aliases": [
+        "will it flood",
+        "is this flood-prone",
+        "flood risk",
+        "is this area at risk of flooding",
+        "buying a flat is it flood-prone",
+        "buying a home in this area",
+        "is it safe to buy",
+        "purchasing an apartment",
+        "should I buy property here flood",
+        "is it safe to invest in property",
+        "invest in property here",
+        "monsoon waterlogging",
+        "waterlogging issues",
+        "flood likelihood",
+        "is this place going to flood"
+      ],
+      "bands": ["surface_water.recurrence", "copdem30m.elevation_mean", "sentinel1_raw"],
+      "algorithms": ["flood_risk@2", "route_flood_exposure@1"]
+    },
+    {
+      "key": "vegetation_condition",
+      "description": "Plant health, greenness, canopy water content, and stress at a place — leaf-area, biomass, photosynthetic activity. Answers questions about vegetation, crops, forest condition, NDVI/EVI, and plant stress.",
+      "aliases": [
+        "how green is this place",
+        "vegetation",
+        "plant health",
+        "is the crop healthy",
+        "ndvi",
+        "ndvi here",
+        "what's the ndvi",
+        "biomass",
+        "canopy condition",
+        "is the forest stressed"
+      ],
+      "bands": ["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "modis.ndvi_mean"],
+      "algorithms": ["vegetation_class_from_ndvi@1", "crop_stress_score@1"]
+    },
+    {
+      "key": "fire_burn_severity",
+      "description": "Whether a place burned recently, how severely, and post-fire recovery. Uses the Normalized Burn Ratio (NBR) and dNBR for burn-scar detection and severity classification. Answers questions about wildfire, burn scars, fire damage, and post-fire vegetation.",
+      "aliases": [
+        "did this area burn",
+        "burn severity",
+        "wildfire scar",
+        "fire damage here",
+        "is there a burn scar",
+        "post-fire recovery",
+        "how badly did it burn",
+        "stubble burning"
+      ],
+      "bands": ["indices.nbr"],
+      "algorithms": ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "residue_burn_multisensor@1"]
+    },
+    {
+      "key": "soil_bare",
+      "description": "Whether the surface is exposed bare soil vs. vegetated or built-up. Uses the Bare Soil Index. Answers questions about exposed earth, fallow land, post-harvest fields, and bare-soil cover.",
+      "aliases": [
+        "is the soil exposed",
+        "bare soil",
+        "fallow",
+        "exposed earth",
+        "no vegetation",
+        "post-harvest"
+      ],
+      "bands": ["indices.bsi"],
+      "algorithms": ["bare_soil_class@1"]
+    },
+    {
+      "key": "built_up_human_geography",
+      "description": "Whether a place is urbanized — building footprints, road network, point-of-interest density, and built-up index. Answers questions about urbanization, settlement, infrastructure, building density, and transportation networks.",
+      "aliases": [
+        "is this urbanized",
+        "built-up",
+        "buildings here",
+        "how dense is this neighborhood",
+        "infrastructure",
+        "roads in this area",
+        "settlement"
+      ],
+      "bands": ["indices.ndbi", "overture.buildings.count", "overture.places.count", "overture.transportation.road_length_m"],
+      "algorithms": ["built_up_from_ndbi@1", "urban_density_score@1", "noise_exposure_proxy@1"]
+    },
+    {
+      "key": "weather_now",
+      "description": "Present-time weather at a place — temperature, cloud cover, precipitation, wind. Live nowcast from numerical weather prediction. Answers questions about current weather, what's the temperature, is it raining, wind speed, cloud cover.",
+      "aliases": [
+        "weather right now",
+        "current temperature",
+        "is it raining",
+        "wind speed",
+        "humidity",
+        "what's the weather",
+        "is it cloudy",
+        "live weather"
+      ],
+      "bands": ["weather.temperature_2m", "weather.cloud_cover", "weather.precipitation_mm", "weather.wind_speed_10m"],
+      "algorithms": ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1"]
+    },
+    {
+      "key": "elevation_global_topobathy",
+      "description": "Elevation including ocean depth (bathymetry) and land topography from a global merged dataset. Answers questions about depth, bathymetry, ocean floor, and land elevation in a single layer.",
+      "aliases": [
+        "how deep is the ocean here",
+        "bathymetry",
+        "ocean depth",
+        "topobathy",
+        "depth offshore"
+      ],
+      "bands": ["gmrt.topobathy_mean"],
+      "algorithms": []
+    },
+    {
+      "key": "elevation_land_only",
+      "description": "Land-surface elevation above sea level from Copernicus DEM (Cop-DEM GLO-30). Answers questions about altitude, height above sea level, and terrain elevation on land.",
+      "aliases": [
+        "how high is this place",
+        "altitude",
+        "elevation",
+        "above sea level",
+        "height of this terrain"
+      ],
+      "bands": ["copdem30m.elevation_mean"],
+      "algorithms": []
+    },
+    {
+      "key": "topography",
+      "description": "Terrain shape derived from elevation — slope, ruggedness, topographic position, distance to coast. Answers questions about terrain steepness, mountainousness, ridge-vs-valley position, coastal proximity.",
+      "aliases": [
+        "slope here",
+        "is this terrain steep",
+        "ruggedness",
+        "mountainous",
+        "near the coast",
+        "ridge or valley"
+      ],
+      "bands": ["copdem30m.elevation_mean"],
+      "algorithms": ["slope_from_dem_neighborhood@1", "ruggedness_index@1", "topo_position_index@1", "coastal_proximity@1"]
+    },
+    {
+      "key": "public_health",
+      "description": "Air quality, heat exposure, and environmental health risks at a place. Air quality (PM2.5, NO2, O3, CO, AOD), land surface temperature, and humidity. Answers questions about whether the air is safe, if it's dangerously hot, heat-vulnerability, and outdoor exposure for vulnerable groups (kids, elderly, pregnant women).",
+      "aliases": [
+        "is the air safe",
+        "air quality here",
+        "pm2.5",
+        "is it dangerously hot",
+        "heatwave",
+        "safe to play outside",
+        "asthma trigger",
+        "ozone level"
+      ],
+      "bands": ["cams.pm25", "cams.pm10", "cams.no2", "cams.o3", "cams.so2", "cams.co", "cams.aod_550", "modis.lst_day_8day", "modis.lst_night_8day", "weather.temperature_2m", "weather.relative_humidity_2m"],
+      "algorithms": ["heat_vulnerability_index@1"]
+    },
+    {
+      "key": "agriculture",
+      "description": "Crop and pasture monitoring at a place — vegetation indices for crop type, growth stage, stress, yield proxy, sowing/harvest detection, growing degree days, nitrogen uptake. Answers questions about farming, agriculture, crops, yield, planting, harvest, and pasture management.",
+      "aliases": [
+        "crop yield here",
+        "is the crop stressed",
+        "when did they plant",
+        "harvest date",
+        "growing season",
+        "pasture quality",
+        "vineyard",
+        "orchard health"
+      ],
+      "bands": ["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "indices.ndre", "indices.ndti", "modis.ndvi_mean", "modis.lai_8day", "modis.gpp_8day", "power.t2m", "power.t2m_min", "power.t2m_max", "power.precip", "sentinel1_raw"],
+      "algorithms": ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1"]
+    },
+    {
+      "key": "soil_intelligence",
+      "description": "Soil properties at a place from SoilGrids 2.0 — soil organic carbon, pH, clay, sand, bulk density, nitrogen at the topsoil layer, plus soil moisture, salinity, and erosion proxies. Answers questions about soil quality, fertility, salinity, erosion risk, and land degradation.",
+      "aliases": [
+        "soil quality here",
+        "soil organic carbon",
+        "soc",
+        "soil ph",
+        "clay content",
+        "soil salinity",
+        "erosion risk",
+        "land degradation"
+      ],
+      "bands": ["soilgrids.soc_0_30cm", "soilgrids.phh2o_0_30cm", "soilgrids.clay_0_30cm", "soilgrids.sand_0_30cm", "soilgrids.bdod_0_30cm", "soilgrids.nitrogen_0_30cm", "indices.bsi", "s2.B11", "s2.B12", "sentinel1_raw", "copdem30m.elevation_mean"],
+      "algorithms": ["soil_moisture_sar@1", "soc_estimate_s2_dem@1", "soil_salinity_index@1", "rusle_soil_erosion@1", "land_degradation_trend@1"]
+    },
+    {
+      "key": "carbon_credits",
+      "description": "Carbon-stock change for credit issuance at a place — VM0042 carbon credits, EUDR compliance, soil organic carbon change, rice-methane reduction, forest cover loss. Answers questions about carbon farming, MRV, voluntary carbon market, EUDR deforestation due-diligence, and rice methane offsets.",
+      "aliases": [
+        "carbon credits here",
+        "vm0042",
+        "eudr",
+        "deforestation due diligence",
+        "soc change",
+        "rice methane",
+        "carbon farming",
+        "carbon mrv"
+      ],
+      "bands": ["soilgrids.soc_0_30cm", "soilgrids.bdod_0_30cm", "indices.ndvi", "indices.ndwi", "sentinel1_raw", "hansen.tree_cover_2000", "hansen.loss_year", "modis.gpp_8day", "modis.burned_area_monthly"],
+      "algorithms": ["soc_change_credit@1", "eudr_compliance@1", "rice_methane_awd_modeled@1", "carbon_sink_score@1"]
+    },
+    {
+      "key": "parametric_insurance",
+      "description": "Parametric weather/climate triggers and crop-loss assessment at a place — drought (SPI), excess rainfall, heat events, cyclone exposure for parametric insurance products. Answers questions about insurance triggers, parametric payouts, drought events, crop loss after a weather event.",
+      "aliases": [
+        "drought here",
+        "spi index",
+        "parametric insurance",
+        "weather trigger",
+        "crop loss event",
+        "cyclone exposure",
+        "rainfall trigger",
+        "heat event"
+      ],
+      "bands": ["power.precip", "era5.precip", "era5.t2m", "weather.temperature_2m", "weather.precipitation_mm", "indices.ndvi", "indices.nbr", "indices.ndwi", "sentinel1_raw", "surface_water.recurrence"],
+      "algorithms": ["parametric_trigger@1", "spi_meteorological_drought@1", "crop_loss_event_assessment@1", "carbon.drought_carbon_stress@1", "physical_climate_risk_index@1"]
+    },
+    {
+      "key": "snow",
+      "description": "Snow cover at a place from the Normalized Difference Snow Index (NDSI). Answers questions about snowpack, snow cover, ski conditions, and tick-season delay due to lingering snow.",
+      "aliases": [
+        "snow cover",
+        "is there snow here",
+        "snowpack",
+        "ski conditions",
+        "snow line",
+        "ndsi"
+      ],
+      "bands": ["indices.ndsi"],
+      "algorithms": ["snow_likelihood_from_ndsi@1"]
+    },
+    {
+      "key": "esg",
+      "description": "Environmental, social, and governance signals at a place — carbon sink, biodiversity proxy, deforestation, fire frequency, air pollution exposure, land cover change. Answers ESG due-diligence questions about a property, supply-chain location, or operational site.",
+      "aliases": [
+        "esg score here",
+        "biodiversity",
+        "deforestation in this area",
+        "supply chain due diligence",
+        "carbon sink",
+        "operational site environmental risk"
+      ],
+      "bands": ["indices.ndvi", "modis.gpp_8day", "modis.burned_area_monthly", "hansen.loss_year", "esa_worldcover.lc_2021", "cams.pm25", "cams.no2"],
+      "algorithms": ["carbon_sink_score@1", "biodiversity_proxy@1", "physical_climate_risk_index@1"]
+    },
+    {
+      "key": "real_estate",
+      "description": "Property climate-risk and physical-hazard score for a place — flood, heat, coastal erosion, urban canopy, walkability for real-estate buying, valuation, or insurance. Answers questions about whether a property is climate-safe, physical risk score, insurance premium proxy.",
+      "aliases": [
+        "buying a property here",
+        "property climate risk",
+        "real estate risk",
+        "flood risk for this address",
+        "house hazard score",
+        "is this neighborhood safe to live in",
+        "insurance premium for this property"
+      ],
+      "bands": ["surface_water.recurrence", "copdem30m.elevation_mean", "indices.ndvi", "modis.lst_day_8day", "indices.urban_canopy_index", "overture.transportation.road_length_m"],
+      "algorithms": ["property_climate_risk_score@1", "insurance_premium_proxy@1", "coastal_erosion_proxy@1", "multi_peril_score@1"]
+    },
+    {
+      "key": "urban_livability",
+      "description": "How livable an urban neighborhood is at a place — walkability, bike-friendliness, green-space access, urban tree canopy, outdoor comfort. Answers questions about neighborhood quality, daily-life quality, walkability, parks nearby, livability ranking.",
+      "aliases": [
+        "is this neighborhood walkable",
+        "bike-friendly",
+        "parks nearby",
+        "urban tree canopy",
+        "urban heat island",
+        "uhi intensity",
+        "livability of this area",
+        "is it pleasant to live here",
+        "outdoor comfort"
+      ],
+      "bands": ["indices.urban_canopy_index", "indices.ndvi", "modis.lst_day_8day", "overture.places.count", "overture.transportation.road_length_m"],
+      "algorithms": ["walkability_score@1", "bikeability_score@1", "green_space_access@1", "outdoor_comfort_score@1", "livability_index@1"]
+    },
+    {
+      "key": "foundation_embedding",
+      "description": "Foundation-model embedding of a place — Tessera or AlphaEarth-class universal place vector for similarity, novelty, and archetype matching. Answers questions about places similar to this place, find lookalikes, novel/anomalous regions.",
+      "aliases": [
+        "places like this one",
+        "find similar places",
+        "is this place unusual",
+        "place archetype",
+        "embedding similarity",
+        "what does this place look like geographically"
+      ],
+      "bands": ["geotessera", "geotessera.multi_year", "geotessera.bin128"],
+      "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1"]
+    },
+    {
+      "key": "optical_raw_reflectance",
+      "description": "Raw Sentinel-2 reflectance bands at a place for users who want to do their own band math (NDVI, custom indices). Returns blue, green, red, near-infrared, SWIR-1, SWIR-2 surface reflectance values.",
+      "aliases": [
+        "raw sentinel-2 bands",
+        "blue green red nir",
+        "surface reflectance",
+        "spectral bands",
+        "give me the raw bands"
+      ],
+      "bands": ["s2.B02", "s2.B03", "s2.B04", "s2.B08", "s2.B11", "s2.B12"],
+      "algorithms": []
+    },
+    {
+      "key": "scene_classification",
+      "description": "Sentinel-2 Scene Classification Layer at a place — categorical class per pixel: cloud, cloud shadow, vegetation, bare soil, water, snow. Answers questions about pixel-level scene type and cloud masking.",
+      "aliases": [
+        "scene classification",
+        "is this pixel a cloud",
+        "cloud shadow mask",
+        "scl",
+        "pixel class"
+      ],
+      "bands": ["s2.scl"],
+      "algorithms": []
+    },
+    {
+      "key": "radar_all_weather_sar",
+      "description": "Sentinel-1 C-band SAR backscatter at a place — works at night and through clouds. Answers questions about radar imagery, all-weather monitoring, deformation, soil moisture proxy.",
+      "aliases": [
+        "sentinel-1",
+        "radar at this place",
+        "sar backscatter",
+        "all-weather monitoring",
+        "vv polarisation"
+      ],
+      "bands": ["sentinel1_raw"],
+      "algorithms": []
+    },
+    {
+      "key": "analytics",
+      "description": "Time-series analytics over a place — volatility, trend strength, anomaly detection, change-point detection on the foundation embedding or NDVI history. Answers questions about whether this place is changing, is it a hotspot, is there a recent regime shift.",
+      "aliases": [
+        "is this place changing",
+        "trend over time",
+        "anomaly detection",
+        "volatility",
+        "hotspot",
+        "regime shift",
+        "change-point"
+      ],
+      "bands": ["geotessera", "modis.ndvi_mean", "indices.ndvi"],
+      "algorithms": ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1"]
+    }
+  ]
+}

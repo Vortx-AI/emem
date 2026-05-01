@@ -47,7 +47,7 @@ def emem_compare(a: str, b: str, family: str | None = None) -> dict:
     return _post("/v1/compare", body)
 
 @tool
-def emem_find_similar(key: str, k: int = 10, band: str = "alphaearth") -> dict:
+def emem_find_similar(key: str, k: int = 10, band: str = "geotessera") -> dict:
     """k-NN over the corpus. key = cell64 or 'inline:[x,y,...]'."""
     return _post("/v1/find_similar", {"key": key, "k": k, "band": band})
 

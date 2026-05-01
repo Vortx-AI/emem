@@ -18,7 +18,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -27,19 +27,19 @@ authors = ["Vortx-AI"]
 description = "emem — agent-native, content-addressed, lazy-materialization spatial memory protocol"
 
 [workspace.dependencies]
-emem-core       = { path = "crates/emem-core",       version = "0.0.2" }
-emem-codec      = { path = "crates/emem-codec",      version = "0.0.2" }
-emem-fact       = { path = "crates/emem-fact",       version = "0.0.2" }
-emem-claim      = { path = "crates/emem-claim",      version = "0.0.2" }
-emem-cache      = { path = "crates/emem-cache",      version = "0.0.2" }
-emem-fetch      = { path = "crates/emem-fetch",      version = "0.0.2" }
-emem-storage    = { path = "crates/emem-storage",    version = "0.0.2" }
-emem-cubes      = { path = "crates/emem-cubes",      version = "0.0.2" }
-emem-primitives = { path = "crates/emem-primitives", version = "0.0.2" }
-emem-attest     = { path = "crates/emem-attest",     version = "0.0.2" }
-emem-intent     = { path = "crates/emem-intent",     version = "0.0.2" }
-emem-mcp        = { path = "crates/emem-mcp",        version = "0.0.2" }
-emem-api-rest   = { path = "crates/emem-api-rest",   version = "0.0.2" }
+emem-core       = { path = "crates/emem-core",       version = "0.0.3" }
+emem-codec      = { path = "crates/emem-codec",      version = "0.0.3" }
+emem-fact       = { path = "crates/emem-fact",       version = "0.0.3" }
+emem-claim      = { path = "crates/emem-claim",      version = "0.0.3" }
+emem-cache      = { path = "crates/emem-cache",      version = "0.0.3" }
+emem-fetch      = { path = "crates/emem-fetch",      version = "0.0.3" }
+emem-storage    = { path = "crates/emem-storage",    version = "0.0.3" }
+emem-cubes      = { path = "crates/emem-cubes",      version = "0.0.3" }
+emem-primitives = { path = "crates/emem-primitives", version = "0.0.3" }
+emem-attest     = { path = "crates/emem-attest",     version = "0.0.3" }
+emem-intent     = { path = "crates/emem-intent",     version = "0.0.3" }
+emem-mcp        = { path = "crates/emem-mcp",        version = "0.0.3" }
+emem-api-rest   = { path = "crates/emem-api-rest",   version = "0.0.3" }
 
 # crypto
 blake3        = "1.5"

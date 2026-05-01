@@ -34,3 +34,14 @@ sled            = { workspace = true }
 # PNG encoder for the multimodal RGB-scene tool
 # (/v1/cells/{cell64}/scene.png + emem_cell_scene_rgb MCP).
 png             = "0.17"
+# Static-distillation sentence embedder for the topic router
+# (`/v1/ask` semantic dispatch, replaces the hardcoded
+# TOPIC_KEYWORDS / TOPIC_BANDS / TOPIC_ALGORITHMS tables shipped
+# through 0.0.2). model2vec compresses a sentence-transformer to a
+# token-level lookup table: pure Rust inference, ~17–32 MB model on
+# disk, sub-millisecond per query, no ONNX or torch C++ dep. Default
+# model `minishlab/potion-base-8M` is downloaded on first call to
+# `<EMEM_DATA>/models/`. Override via `EMEM_TOPIC_MODEL` env var.
+# `fancy-regex` instead of the default `onig` to keep the build pure
+# Rust (avoids the libonig C dep which fails on minimal builders).
+model2vec-rs    = { version = "0.1", default-features = false, features = ["fancy-regex"] }

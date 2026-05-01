@@ -207,6 +207,101 @@ to satisfy the crop-yield intent. Each entry carries the `kernel`,
 
 ---
 
+## Algorithm-declared temporal recipes (0.0.3+)
+
+The router above answers the *general* question — given a cell and a
+query time, which bands are still cite-able under the appropriate
+PDE? A composite question (`is this place flooded right now?`,
+`is the wildfire risk acute today?`) needs more than one band, each
+queried over a *specific* lookback. 0.0.3 adds an additive surface
+for that.
+
+### `Algorithm.temporal_recipe`
+
+Each algorithm in `crates/emem-core/data/algorithms-v0.json` may
+declare a `temporal_recipe` block:
+
+```json
+"temporal_recipe": {
+  "label": "antecedent-rainfall + recent-radar-water + optical-water",
+  "windows": [
+    {
+      "band": "weather.precipitation_mm",
+      "lookback_days": 7,
+      "aggregator": "sum",
+      "purpose": "antecedent_rainfall",
+      "trigger_threshold": 50.0
+    },
+    {
+      "band": "indices.ndwi",
+      "lookback_days": 14,
+      "aggregator": "max",
+      "purpose": "recent_radar_water"
+    },
+    {
+      "band": "water.recurrence",
+      "lookback_days": 30,
+      "aggregator": "max",
+      "purpose": "optical_water_baseline"
+    }
+  ]
+}
+```
+
+Live examples (0.0.3): `flood_risk@2`, `water_consensus@1`,
+`wildfire_exposure_score@1`, `spi_meteorological_drought@1`. List
+via `GET /v1/algorithms?has_temporal_recipe=true`.
+
+### `temporal_composition[]` on `/v1/ask` and `/v1/intent`
+
+When the matched topic routes to an algorithm carrying a
+`temporal_recipe`, the responder runs each window and returns an
+additive sibling array under `temporal_composition`:
+
+```json
+{
+  "facts": [...],            // unchanged: the snapshot recall
+  "temporal_composition": [   // NEW in 0.0.3, additive
+    {
+      "algorithm_key": "flood_risk@2",
+      "label": "antecedent-rainfall + recent-radar-water + optical-water",
+      "windows": [
+        {
+          "band": "weather.precipitation_mm",
+          "lookback_days": 7,
+          "aggregator": "sum",
+          "samples": [
+            {"tslot": 19873, "value": 12.4, "fact_cid": "..."},
+            {"tslot": 19874, "value": 18.1, "fact_cid": "..."}
+          ],
+          "aggregate_value": 87.3,
+          "trigger_threshold": 50.0,
+          "trigger_fired":     true
+        }
+      ]
+    }
+  ]
+}
+```
+
+`facts[]` keeps the snapshot. `temporal_composition[]` is empty
+when no matched algorithm declares a recipe. Existing readers that
+parse `facts[]` only continue to work unchanged. The recipe is also
+mirrored inline on each `/v1/intent → composite_suggestions.applicable[]`
+entry, so an agent planning the follow-up `/v1/ask` sees the
+windows without a second `GET /v1/algorithms/<key>` round-trip.
+
+### Open question (OQ-12)
+
+The per-window fact CIDs are signed individually today. A
+`composition_cid` (Merkle root over per-window CIDs + recipe CID +
+aggregator output) is on the v0.0.4 backlog so a downstream
+verifier can re-execute the recipe and audit the aggregator output
+without re-fetching every input. See
+`docs/MILESTONE_v0.0.4.md` §M4.
+
+---
+
 ## References
 
 - [I-JEPA paper (Meta, CVPR 2023)](https://arxiv.org/abs/2301.08243)

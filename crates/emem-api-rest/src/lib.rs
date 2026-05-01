@@ -38,6 +38,8 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod topic_router;
+
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
@@ -89,6 +91,15 @@ const TERMS_MD: &str = include_str!("../../../TERMS.md");
 const SUPPORT_MD: &str = include_str!("../../../SUPPORT.md");
 const SITEMAP_XML: &str = include_str!("../../../web/sitemap.xml");
 const FAVICON_SVG: &str = include_str!("../../../web/favicon.svg");
+const FAVICON_PNG: &[u8] = include_bytes!("../../../web/favicon.png");
+const APPLE_TOUCH_ICON_PNG: &[u8] = include_bytes!("../../../web/apple-touch-icon.png");
+const ICON_192_PNG: &[u8] = include_bytes!("../../../web/icon-192.png");
+const ICON_512_PNG: &[u8] = include_bytes!("../../../web/icon-512.png");
+const LOGO_PNG: &[u8] = include_bytes!("../../../web/logo.png");
+const LOGO_MARK_PNG: &[u8] = include_bytes!("../../../web/logo-mark.png");
+const LOGO_300W_PNG: &[u8] = include_bytes!("../../../web/logo-300w.png");
+const LOGO_600W_PNG: &[u8] = include_bytes!("../../../web/logo-600w.png");
+const LOGO_1200W_PNG: &[u8] = include_bytes!("../../../web/logo-1200w.png");
 const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 
@@ -134,6 +145,15 @@ pub fn router(state: AppState) -> Router {
         .route("/sitemap.xml", get(serve_sitemap))
         .route("/favicon.svg", get(serve_favicon))
         .route("/favicon.ico", get(serve_favicon))
+        .route("/favicon.png", get(serve_favicon_png))
+        .route("/apple-touch-icon.png", get(serve_apple_touch_icon))
+        .route("/icon-192.png", get(serve_icon_192))
+        .route("/icon-512.png", get(serve_icon_512))
+        .route("/logo.png", get(serve_logo_png))
+        .route("/logo-mark.png", get(serve_logo_mark_png))
+        .route("/logo-300w.png", get(serve_logo_300))
+        .route("/logo-600w.png", get(serve_logo_600))
+        .route("/logo-1200w.png", get(serve_logo_1200))
         .route("/og-image.svg", get(serve_og_image))
         .route(
             "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
@@ -528,9 +548,20 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/agent_stats"
         | "/v1/reviews" => Some("public, max-age=300, stale-while-revalidate=900"),
         // Static assets.
-        "/favicon.svg" | "/favicon.ico" | "/og-image.svg" | "/robots.txt" | "/sitemap.xml" => {
-            Some("public, max-age=86400")
-        }
+        "/favicon.svg"
+        | "/favicon.ico"
+        | "/favicon.png"
+        | "/apple-touch-icon.png"
+        | "/icon-192.png"
+        | "/icon-512.png"
+        | "/logo.png"
+        | "/logo-mark.png"
+        | "/logo-300w.png"
+        | "/logo-600w.png"
+        | "/logo-1200w.png"
+        | "/og-image.svg"
+        | "/robots.txt"
+        | "/sitemap.xml" => Some("public, max-age=86400"),
         _ => None,
     }
 }
@@ -848,6 +879,16 @@ async fn rate_limit_layer(
             | "/sitemap.xml"
             | "/favicon.svg"
             | "/favicon.ico"
+            | "/favicon.png"
+            | "/apple-touch-icon.png"
+            | "/icon-192.png"
+            | "/icon-512.png"
+            | "/logo.png"
+            | "/logo-mark.png"
+            | "/logo-300w.png"
+            | "/logo-600w.png"
+            | "/logo-1200w.png"
+            | "/og-image.svg"
     );
     if bypass {
         return next.run(req).await;
@@ -949,7 +990,8 @@ impl From<StorageError> for ApiError {
             | ErrorCode::InvalidResolution
             | ErrorCode::TslotMismatch
             | ErrorCode::SourceSchemeUnknown
-            | ErrorCode::ClaimUndecidable => StatusCode::BAD_REQUEST,
+            | ErrorCode::ClaimUndecidable
+            | ErrorCode::InvalidArgument => StatusCode::BAD_REQUEST,
             ErrorCode::CanonicalEncodingDivergence
             | ErrorCode::CacheError
             | ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
@@ -1099,6 +1141,44 @@ async fn serve_sitemap() -> Response {
 }
 async fn serve_favicon() -> Response {
     text_response("image/svg+xml; charset=utf-8", FAVICON_SVG)
+}
+fn png_response(bytes: &'static [u8]) -> Response {
+    // Long max-age — these are content-addressed by URL filename and only
+    // change when the brand asset is regenerated, which busts the
+    // include_bytes! buffer at build time anyway.
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "image/png")
+        .header("cache-control", "public, max-age=86400, must-revalidate")
+        .body(axum::body::Body::from(bytes))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+async fn serve_favicon_png() -> Response {
+    png_response(FAVICON_PNG)
+}
+async fn serve_apple_touch_icon() -> Response {
+    png_response(APPLE_TOUCH_ICON_PNG)
+}
+async fn serve_icon_192() -> Response {
+    png_response(ICON_192_PNG)
+}
+async fn serve_icon_512() -> Response {
+    png_response(ICON_512_PNG)
+}
+async fn serve_logo_png() -> Response {
+    png_response(LOGO_PNG)
+}
+async fn serve_logo_mark_png() -> Response {
+    png_response(LOGO_MARK_PNG)
+}
+async fn serve_logo_300() -> Response {
+    png_response(LOGO_300W_PNG)
+}
+async fn serve_logo_600() -> Response {
+    png_response(LOGO_600W_PNG)
+}
+async fn serve_logo_1200() -> Response {
+    png_response(LOGO_1200W_PNG)
 }
 async fn serve_og_image() -> Response {
     text_response("image/svg+xml; charset=utf-8", OG_IMAGE_SVG)
@@ -3872,7 +3952,7 @@ async fn post_recall_polygon(
             "embedded" => "embedded",
             "cache" => "cache",
             "nominatim" => "nominatim",
-            "overpass" => "overpass",
+            "photon" => "photon",
             "direct" => "direct",
             _ => "unknown",
         };
@@ -3939,12 +4019,29 @@ async fn post_recall_polygon(
         || bbox.2 > bbox.3
     {
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
+            code: ErrorCode::InvalidArgument,
             message: format!("recall_polygon: degenerate bbox {bbox:?}; need min_lat ≤ max_lat and min_lng ≤ max_lng with finite values"),
         }));
     }
 
-    let max_cells = req.max_cells.unwrap_or(64).clamp(1, 1024);
+    // 0.0.3 fix: previously `req.max_cells` was silently clamped, so a
+    // caller that asked for 100_000 cells got 1024 with no error and a
+    // caller that asked for 0 got 1 with no error. Surface the
+    // out-of-range case as 400 so the agent learns its own bug. The
+    // 1024 cap matches the documented hard limit (CLIENTS.md §recall).
+    let max_cells = match req.max_cells {
+        None => 64,
+        Some(n) if (1..=1024).contains(&n) => n,
+        Some(n) => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("recall_polygon: max_cells must be in 1..=1024 (got {n})"),
+                },
+            ));
+        }
+    };
     // Polygon area in km² — for `cells_per_sqkm` density target and for
     // the hint string we surface in the response.
     let area_km2 = {
@@ -3960,7 +4057,7 @@ async fn post_recall_polygon(
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::InvalidArgument,
                     message: format!("recall_polygon: cells_per_sqkm must be > 0, got {d}"),
                 },
             ));
@@ -4443,12 +4540,19 @@ fn suggest_algorithms_for_intent(intent: &Intent) -> JsonValue {
         "_purpose": "Composition recipes the agent should apply AFTER `plan` executes — the planner returns raw fact-fetching primitives; these algorithms turn those facts into derived scores / classifications / similarities. Cite the chosen algorithm key + algorithms_cid alongside the input fact_cids in the receipt.",
         "algorithms_cid": alg_cid,
         "applicable": hits.iter().map(|a| json!({
-            "key":         a.key,
-            "kind":        a.kind,
-            "domain":      a.domain,
-            "input_bands": a.inputs.iter().filter_map(|i| i.band.clone()).collect::<Vec<_>>(),
-            "when_to_use": a.when_to_use.chars().take(180).collect::<String>(),
-            "fetch_url":   format!("/v1/algorithms/{}", a.key),
+            "key":             a.key,
+            "kind":            a.kind,
+            "domain":          a.domain,
+            "input_bands":     a.inputs.iter().filter_map(|i| i.band.clone()).collect::<Vec<_>>(),
+            "when_to_use":     a.when_to_use.chars().take(180).collect::<String>(),
+            "fetch_url":       format!("/v1/algorithms/{}", a.key),
+            // Additive: surface the temporal recipe inline so an agent
+            // planning a follow-up /v1/ask can see the lookback windows
+            // (e.g. flood_risk@2 wants 7-day antecedent rainfall + 14-day
+            // radar water + 30-day optical water) without a second
+            // GET /v1/algorithms/<key> round-trip. Null when the
+            // algorithm has no recipe — existing readers ignore it.
+            "temporal_recipe": a.temporal_recipe,
         })).collect::<Vec<_>>(),
         "_note_for_more_specific": match intent {
             Intent::WhatIsHere { .. } | Intent::Ask { .. } => "If the user's question is COMPOSITE (flood risk, walkability, climate exposure), look up `data_at_this_cell.algorithms_for_topic` from a fresh /v1/locate at this cell — that is the topic→recipe map.",
@@ -12433,702 +12537,70 @@ async fn get_cell_scene_png(
 // `/v1/ask` collapses the locate → topic-route → recall → algorithm chain
 // into one round-trip so an LLM with emem connected can forward a
 // free-text place question and receive packaged signed evidence — instead
-// of refusing with "I can't access live data". The routing here is
-// keyword-based and structural (deterministic, reproducible), not LLM-
-// generated: the LLM at the top of the call stack does no protocol-
-// reasoning, it just relays the user's question.
+// of refusing with "I can't access live data".
 //
-// `TOPIC_BANDS` and `TOPIC_ALGORITHMS` mirror what /v1/locate's
-// `data_at_this_cell` block exposes today; the duplication is editorial
-// (kept here so /v1/ask is self-contained at code review). The unit
-// test `topic_route_matches_locate_inventory` keeps them in sync.
+// Routing through 0.0.2 lived in three hardcoded `&'static str` tables
+// (`TOPIC_BANDS`, `TOPIC_ALGORITHMS`, `TOPIC_KEYWORDS`) — ~700 lines that
+// had to be hand-edited every time a new algorithm or keyword landed.
+// In 0.0.3 they moved into `crates/emem-core/data/topics-v0.json` (a
+// content-addressed manifest) and routing became a transformer-cosine
+// match against per-topic centroids. New topics now ship as JSON, not
+// code. See `crates/emem-api-rest/src/topic_router.rs` for the router
+// itself and `crates/emem-core/src/topics.rs` for the registry types.
 
-const TOPIC_BANDS: &[(&str, &[&str])] = &[
-    ("flood_history_long_term", &["surface_water.recurrence"]),
-    (
-        "flood_water_event_window",
-        &["indices.ndwi", "indices.mndwi", "sentinel1_raw"],
-    ),
-    (
-        "vegetation_condition",
-        &[
-            "indices.ndvi",
-            "indices.evi",
-            "indices.savi",
-            "indices.ndmi",
-            "modis.ndvi_mean",
-        ],
-    ),
-    ("fire_burn_severity", &["indices.nbr"]),
-    ("soil_bare", &["indices.bsi"]),
-    (
-        "built_up_human_geography",
-        &[
-            "indices.ndbi",
-            "overture.buildings.count",
-            "overture.places.count",
-            "overture.transportation.road_length_m",
-        ],
-    ),
-    (
-        "weather_now",
-        &[
-            "weather.temperature_2m",
-            "weather.cloud_cover",
-            "weather.precipitation_mm",
-            "weather.wind_speed_10m",
-        ],
-    ),
-    ("elevation_global_topobathy", &["gmrt.topobathy_mean"]),
-    ("elevation_land_only", &["copdem30m.elevation_mean"]),
-    // Direct-band rows for the topics that previously had only an
-    // algorithm composite. Without these, `emem_ask "air quality at X"`
-    // would compose `heat_vulnerability_index@1` (a composite-of-composites
-    // with no auto-materializer) instead of recalling the live cams.*
-    // bands the user actually asked for, and return zero facts.
-    (
-        "public_health",
-        &[
-            "cams.pm25",
-            "cams.pm10",
-            "cams.no2",
-            "cams.o3",
-            "cams.so2",
-            "cams.co",
-            "cams.aod_550",
-            "modis.lst_day_8day",
-            "modis.lst_night_8day",
-            "weather.temperature_2m",
-            "weather.relative_humidity_2m",
-        ],
-    ),
-    (
-        "agriculture",
-        &[
-            "indices.ndvi",
-            "indices.evi",
-            "indices.savi",
-            "indices.ndmi",
-            "indices.ndre",
-            "indices.ndti",
-            "modis.ndvi_mean",
-            "modis.lai_8day",
-            "modis.gpp_8day",
-            "power.t2m",
-            "power.t2m_min",
-            "power.t2m_max",
-            "power.precip",
-            "sentinel1_raw",
-        ],
-    ),
-    (
-        "soil_intelligence",
-        &[
-            "soilgrids.soc_0_30cm",
-            "soilgrids.phh2o_0_30cm",
-            "soilgrids.clay_0_30cm",
-            "soilgrids.sand_0_30cm",
-            "soilgrids.bdod_0_30cm",
-            "soilgrids.nitrogen_0_30cm",
-            "indices.bsi",
-            "s2.B11",
-            "s2.B12",
-            "sentinel1_raw",
-            "copdem30m.elevation_mean",
-        ],
-    ),
-    (
-        "carbon_credits",
-        &[
-            "soilgrids.soc_0_30cm",
-            "soilgrids.bdod_0_30cm",
-            "indices.ndvi",
-            "indices.ndwi",
-            "sentinel1_raw",
-            "hansen.tree_cover_2000",
-            "hansen.loss_year",
-            "modis.gpp_8day",
-            "modis.burned_area_monthly",
-        ],
-    ),
-    (
-        "parametric_insurance",
-        &[
-            "power.precip",
-            "era5.precip",
-            "era5.t2m",
-            "weather.temperature_2m",
-            "weather.precipitation_mm",
-            "indices.ndvi",
-            "indices.nbr",
-            "indices.ndwi",
-            "sentinel1_raw",
-            "surface_water.recurrence",
-        ],
-    ),
-    (
-        "esg",
-        &[
-            "indices.ndvi",
-            "modis.gpp_8day",
-            "modis.burned_area_monthly",
-            "hansen.loss_year",
-            "esa_worldcover.lc_2021",
-            "cams.pm25",
-            "cams.no2",
-        ],
-    ),
-    (
-        "real_estate",
-        &[
-            "surface_water.recurrence",
-            "copdem30m.elevation_mean",
-            "indices.ndvi",
-            "modis.lst_day_8day",
-            "indices.urban_canopy_index",
-            "overture.transportation.road_length_m",
-        ],
-    ),
-    (
-        "urban_livability",
-        &[
-            "indices.urban_canopy_index",
-            "indices.ndvi",
-            "modis.lst_day_8day",
-            "overture.places.count",
-            "overture.transportation.road_length_m",
-        ],
-    ),
-    (
-        "flood_risk_composite",
-        &[
-            "surface_water.recurrence",
-            "copdem30m.elevation_mean",
-            "sentinel1_raw",
-        ],
-    ),
-    (
-        "optical_raw_reflectance",
-        &["s2.B02", "s2.B03", "s2.B04", "s2.B08", "s2.B11", "s2.B12"],
-    ),
-    ("scene_classification", &["s2.scl"]),
-    (
-        "foundation_embedding",
-        &["geotessera", "geotessera.multi_year", "geotessera.bin128"],
-    ),
-    ("radar_all_weather_sar", &["sentinel1_raw"]),
-    // Analytics is a universal topic — its algorithms (spatial_volatility,
-    // trend_strength, anomaly_zscore) compose other algorithms' outputs
-    // and so reference `<composite>` placeholders, not raw bands. The
-    // structural router needs *something* to feed /v1/recall, so we
-    // anchor the topic on two universally-available bands: the
-    // foundation embedding (universal place vector for novelty / outlier
-    // detection) and the long MODIS NDVI time series (decade-scale
-    // trend / volatility). Without this, /v1/ask on an analytics
-    // question would return zero facts even though the algorithms are
-    // declared.
-    (
-        "analytics",
-        &["geotessera", "modis.ndvi_mean", "indices.ndvi"],
-    ),
-];
-
-const TOPIC_ALGORITHMS: &[(&str, &[&str])] = &[
-    ("flood_history_long_term", &["flood_history_class@1"]),
-    (
-        "flood_water_event_window",
-        &["water_consensus@1", "water_likelihood_from_vv@1"],
-    ),
-    (
-        "flood_risk_composite",
-        // @2 adds DEM-agreement weighting (Cop-DEM vs GMRT cross-check).
-        // @1 retained in the registry for back-compat citations.
-        &["flood_risk@2", "route_flood_exposure@1"],
-    ),
-    (
-        "vegetation_condition",
-        &["vegetation_class_from_ndvi@1", "crop_stress_score@1"],
-    ),
-    (
-        "fire_burn_severity",
-        &[
-            "burn_likelihood_from_nbr@1",
-            "burn_severity_from_dnbr@1",
-            "wildfire_exposure_score@1",
-            "residue_burn_multisensor@1",
-        ],
-    ),
-    ("soil_bare", &["bare_soil_class@1"]),
-    (
-        "soil_intelligence",
-        &[
-            "soil_moisture_sar@1",
-            "soc_estimate_s2_dem@1",
-            "soil_salinity_index@1",
-            "rusle_soil_erosion@1",
-            "land_degradation_trend@1",
-        ],
-    ),
-    (
-        "carbon_credits",
-        &[
-            "soc_change_credit@1",
-            "eudr_compliance@1",
-            "rice_methane_awd_modeled@1",
-            "carbon_sink_score@1",
-        ],
-    ),
-    (
-        "parametric_insurance",
-        &[
-            "parametric_trigger@1",
-            "spi_meteorological_drought@1",
-            "crop_loss_event_assessment@1",
-            "carbon.drought_carbon_stress@1",
-            "physical_climate_risk_index@1",
-        ],
-    ),
-    ("snow", &["snow_likelihood_from_ndsi@1"]),
-    (
-        "built_up_human_geography",
-        &[
-            "built_up_from_ndbi@1",
-            "urban_density_score@1",
-            "noise_exposure_proxy@1",
-        ],
-    ),
-    (
-        "weather_now",
-        &[
-            "heat_index@2",
-            "heat_health_risk@2",
-            "wind_chill@1",
-            "outdoor_comfort_score@1",
-            "precip_intensity_class@1",
-        ],
-    ),
-    (
-        "topography",
-        &[
-            "slope_from_dem_neighborhood@1",
-            "ruggedness_index@1",
-            "topo_position_index@1",
-            "coastal_proximity@1",
-        ],
-    ),
-    (
-        "foundation_embedding",
-        &[
-            "embedding_cosine@1",
-            "embedding_l2_distance@1",
-            "embedding_change_score@1",
-            "region_similarity@1",
-            "place_archetype_match@1",
-        ],
-    ),
-    (
-        "real_estate",
-        &[
-            "property_climate_risk_score@1",
-            "insurance_premium_proxy@1",
-            "coastal_erosion_proxy@1",
-            "multi_peril_score@1",
-        ],
-    ),
-    (
-        "esg",
-        &[
-            "carbon_sink_score@1",
-            "biodiversity_proxy@1",
-            "physical_climate_risk_index@1",
-        ],
-    ),
-    (
-        "agriculture",
-        &[
-            "crop_yield_proxy@1",
-            "vineyard_terroir_score@1",
-            "crop_stress_score@1",
-            "typed_stress_attribution@1",
-            "n_uptake_ndre@1",
-            "sowing_date_detection@1",
-            "harvest_date_detection@1",
-            "gdd_phenology@1",
-        ],
-    ),
-    ("public_health", &["heat_vulnerability_index@1"]),
-    (
-        "urban_livability",
-        &[
-            "walkability_score@1",
-            "bikeability_score@1",
-            "green_space_access@1",
-            "outdoor_comfort_score@1",
-            "livability_index@1",
-        ],
-    ),
-    (
-        "analytics",
-        &[
-            "spatial_volatility_index@1",
-            "trend_strength@1",
-            "anomaly_zscore@1",
-        ],
-    ),
-];
-
-// Keyword routing. Order matters: composite/lifestyle topics come first
-// so a question like "buy a flat in Ashok Nagar Ranchi, is it flood-
-// prone" routes to flood_risk_composite (which composes
-// surface_water.recurrence + Cop-DEM + S1 via flood_risk@1) instead of
-// stopping at the single-band flood_history_long_term.
-const TOPIC_KEYWORDS: &[(&str, &[&str])] = &[
-    (
-        "flood_risk_composite",
-        &[
-            // Forward-looking flood-risk phrases. The earlier list keyed
-            // on bare "flood" — that swept up pure-history queries
-            // ("flood history of this place", "has this area ever
-            // flooded") which should route to flood_history_long_term,
-            // not the forward-risk composite. Be specific about the
-            // intent (will / going to / risk / prone).
-            "will it flood",
-            "will this flood",
-            "will the area flood",
-            "could this flood",
-            "going to flood",
-            "is it going to flood",
-            "flood likelihood",
-            "flood likely",
-            "flood-prone",
-            "flood prone",
-            "floodprone",
-            "flood risk",
-            // Word-ordering variants — agents and users alternate between
-            // "buy a flat" / "purchase a flat" / "purchasing a flat" / "buying
-            // an apartment" freely; match any of them so a real-estate
-            // question always routes to the composite recipe.
-            "buy a flat",
-            "buying a flat",
-            "purchase a flat",
-            "purchasing a flat",
-            "flat purchase",
-            "flat to buy",
-            "buy an apartment",
-            "purchase an apartment",
-            "buy a house",
-            "buying a house",
-            "purchase a house",
-            "purchasing a house",
-            "buy a home",
-            "buying a home",
-            "purchase a home",
-            "buy property",
-            "buying property",
-            "purchase property",
-            "invest in property",
-            "real estate purchase",
-            "safe to live",
-            "safe to buy",
-            "should i live",
-            "should i buy",
-            "is it safe",
-            "is this safe",
-            "monsoon flooding",
-            "monsoon water",
-            "monsoon waterlogging",
-            "drainage",
-            "floodplain",
-        ],
-    ),
-    (
-        "real_estate",
-        &[
-            "insurance premium",
-            "property risk",
-            "real estate risk",
-            "climate risk score",
-            "physical climate risk",
-        ],
-    ),
-    (
-        "urban_livability",
-        &[
-            "walkable",
-            "walkability",
-            "bikeability",
-            "livable",
-            "livability",
-            "heat island",
-            "green space",
-            "outdoor comfort",
-            "quality of life",
-        ],
-    ),
-    (
-        "flood_history_long_term",
-        &[
-            "flood history",
-            "historical flood",
-            "ever flooded",
-            "past flood",
-            "flooded before",
-            "flooded in",
-            "long-term flood",
-        ],
-    ),
-    (
-        "flood_water_event_window",
-        &[
-            "water now",
-            "standing water",
-            "puddle",
-            "waterlogged",
-            "is there water",
-            "wet right now",
-            "current water",
-            // Water-body questions: "is this lake flooded?", "is the
-            // village pond overflowing?", "did the reservoir spill?"
-            // are operationally current-water questions — the correct
-            // routing is the event window (NDWI / MNDWI / S1) plus
-            // history (recurrence). The Katihar test (May 2026) showed
-            // a man-made-lake query falling through to the inventory
-            // page because none of these words matched.
-            "lake",
-            "pond",
-            "reservoir",
-            "tank",
-            "water body",
-            "waterbody",
-            "man-made lake",
-            "manmade lake",
-            "man made lake",
-            "village tank",
-            "village pond",
-            "lagoon",
-            "wetland",
-            "marsh",
-        ],
-    ),
-    (
-        "vegetation_condition",
-        &[
-            "vegetation",
-            "ndvi",
-            "greenness",
-            "green cover",
-            "tree cover",
-            "forest cover",
-            "crop health",
-            "biomass",
-        ],
-    ),
-    (
-        "fire_burn_severity",
-        &[
-            "fire",
-            "burn",
-            "wildfire",
-            "burned",
-            "scorched",
-            "burn severity",
-        ],
-    ),
-    (
-        "built_up_human_geography",
-        &[
-            "urban density",
-            "developed",
-            "city density",
-            "building",
-            "road length",
-            "built up",
-            "built-up",
-            "ndbi",
-        ],
-    ),
-    (
-        "weather_now",
-        &[
-            "weather",
-            "temperature now",
-            "rain now",
-            "precipitation",
-            "wind speed",
-            "humidity",
-            "current heat",
-        ],
-    ),
-    (
-        "elevation_land_only",
-        &[
-            "elevation",
-            "altitude",
-            "how high",
-            "metres above",
-            "meters above",
-            "above sea level",
-        ],
-    ),
-    (
-        "topography",
-        &["slope", "terrain", "ruggedness", "ridge", "valley"],
-    ),
-    (
-        "agriculture",
-        &[
-            "crop yield",
-            "farm yield",
-            "agricultural",
-            "wheat",
-            "rice yield",
-            "maize",
-            "vineyard",
-            "ndre",
-            "nitrogen uptake",
-            "fertili",
-            "sowing date",
-            "harvest date",
-            "phenology",
-            "growing degree",
-            "gdd",
-            "stress attribution",
-            "crop stress",
-        ],
-    ),
-    (
-        "soil_intelligence",
-        &[
-            "soil organic carbon",
-            "soil carbon",
-            "soil ph",
-            "soil texture",
-            "soil moisture",
-            "soil salinity",
-            "salinity",
-            "soilgrids",
-            "erosion",
-            "rusle",
-            "land degradation",
-            "ldn",
-            "soc",
-        ],
-    ),
-    (
-        "carbon_credits",
-        &[
-            "carbon credit",
-            "carbon credits",
-            "vm0042",
-            "verra",
-            "gold standard",
-            "eudr",
-            "deforestation regulation",
-            "carbon mrv",
-            "soil carbon credit",
-            "rice methane",
-            "awd",
-            "methane credit",
-            "agroforestry mrv",
-            "redd+",
-        ],
-    ),
-    (
-        "parametric_insurance",
-        &[
-            "parametric insurance",
-            "parametric trigger",
-            "pmfby",
-            "spi",
-            "drought index",
-            "drought severity",
-            "spei",
-            "weather index insurance",
-            "agri insurance",
-            "claim assessment",
-            "crop loss",
-        ],
-    ),
-    (
-        "esg",
-        &[
-            "carbon sink",
-            "biodiversity",
-            "esg",
-            "environmental pressure",
-            "transition risk",
-        ],
-    ),
-    (
-        "public_health",
-        &[
-            "air quality",
-            "air pollution",
-            "vector-borne",
-            "mosquito",
-            "heat vulnerability",
-        ],
-    ),
-    (
-        "foundation_embedding",
-        &[
-            "similar to",
-            "like this place",
-            "find places like",
-            "compare to",
-            "embedding",
-        ],
-    ),
-    (
-        "analytics",
-        &["volatility", "trend", "anomaly", "outlier", "z-score"],
-    ),
-];
-
-fn live_bands_for_topic(topic: &str) -> &'static [&'static str] {
-    TOPIC_BANDS
-        .iter()
-        .find(|(k, _)| *k == topic)
-        .map(|(_, v)| *v)
-        .unwrap_or(&[])
+/// Bands a topic concerns. Pulled from the topic registry
+/// (`crates/emem-core/data/topics-v0.json`) — replaces the
+/// hardcoded `TOPIC_BANDS` table that lived here through 0.0.2.
+fn live_bands_for_topic(topic: &str) -> Vec<String> {
+    topic_router::TopicRouter::global().bands_for_topic(topic)
 }
 
-fn algorithms_keys_for_topic(topic: &str) -> &'static [&'static str] {
-    TOPIC_ALGORITHMS
-        .iter()
-        .find(|(k, _)| *k == topic)
-        .map(|(_, v)| *v)
-        .unwrap_or(&[])
+/// Algorithm keys a topic should compose. Pulled from the topic
+/// registry — replaces the hardcoded `TOPIC_ALGORITHMS` table.
+fn algorithms_keys_for_topic(topic: &str) -> Vec<String> {
+    topic_router::TopicRouter::global().algorithms_for_topic(topic)
 }
 
 /// Map the user's free-text question to the set of topic keys that
-/// match. Pure structural routing (lower-case substring containment),
-/// not LLM-generated — so the same question always routes the same way
-/// and the receipt is reproducible. Topics are returned in TOPIC_KEYWORDS
-/// declaration order, which puts composite/lifestyle topics first.
-pub fn route_question_to_topics(q: &str) -> Vec<&'static str> {
-    let q_lc = q.to_ascii_lowercase();
-    let mut hits: Vec<&'static str> = Vec::new();
-    for (topic, kws) in TOPIC_KEYWORDS {
-        if kws.iter().any(|k| q_lc.contains(*k)) {
-            hits.push(*topic);
-        }
-    }
-    hits
+/// match. Routing is content-addressed: every topic's
+/// `description` + `aliases[]` is embedded once at startup using a
+/// distilled sentence transformer (`minishlab/potion-base-8M`,
+/// 256-D, sub-millisecond inference), and a query is matched by
+/// cosine similarity against the per-topic centroid. Same question
+/// always routes the same way as long as the topic registry CID
+/// and model file are pinned, so the receipt is still reproducible.
+///
+/// Falls back to substring search over the same `aliases[]` when
+/// the model cannot be loaded (offline build, deliberate disable
+/// via `EMEM_TOPIC_BACKEND=keyword`). The substring backend is
+/// what the 0.0.2 implementation did inline; it's now in the same
+/// router behind a single API.
+///
+/// Topics are returned in descending similarity (transformer) or
+/// descending alias-coverage (keyword) order, capped at the
+/// topic-registry's `max_topics_per_question` (default 5).
+pub fn route_question_to_topics(q: &str) -> Vec<String> {
+    topic_router::TopicRouter::global()
+        .route(q)
+        .into_iter()
+        .map(|m| m.key)
+        .collect()
 }
 
-/// Per-topic matched keyword breakdown for the response envelope.
+/// Per-topic match-detail breakdown for the response envelope.
+/// In transformer mode each entry carries the similarity score; in
+/// keyword mode it carries the matched alias substrings.
 fn matched_keywords(q: &str) -> Vec<JsonValue> {
-    let q_lc = q.to_ascii_lowercase();
-    TOPIC_KEYWORDS
-        .iter()
-        .filter_map(|(topic, kws)| {
-            let m: Vec<&str> = kws.iter().copied().filter(|k| q_lc.contains(*k)).collect();
-            if m.is_empty() {
-                None
-            } else {
-                Some(json!({"topic": topic, "matched": m}))
-            }
+    let router = topic_router::TopicRouter::global();
+    router
+        .route(q)
+        .into_iter()
+        .map(|m| {
+            json!({
+                "topic": m.key,
+                "score": m.score,
+                "via":   m.via,
+            })
         })
         .collect()
 }
@@ -13332,7 +12804,11 @@ async fn dispatch_temporal_recipes(
 /// temporal-window aggregator to compute sum/mean/etc without a
 /// downstream GET round-trip.
 async fn lookup_fact_value_by_cid(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> {
-    let facts = s.storage.get_facts_many(std::slice::from_ref(cid)).await.ok()?;
+    let facts = s
+        .storage
+        .get_facts_many(std::slice::from_ref(cid))
+        .await
+        .ok()?;
     let fact = facts.into_iter().next()??;
     match fact {
         emem_fact::Fact::Primary(p) => match p.value {
@@ -13341,6 +12817,117 @@ async fn lookup_fact_value_by_cid(s: &AppState, cid: &emem_fact::FactCid) -> Opt
         },
         _ => None,
     }
+}
+
+/// Build a per-band → scalar value sample map from a RecallResp.
+///
+/// Used by `dispatch_algorithm`: each Primary fact whose value is a
+/// `Float` lands in the map keyed on its band; Absences and non-scalar
+/// Primaries (vectors, classifications) are skipped silently — those
+/// algorithms whose AST references them will return `Err(missing_band)`
+/// downstream, surfaced as `algorithm_outcomes[].skip_reason`.
+fn samples_from_recall(
+    recall: &emem_primitives::recall::RecallResp,
+) -> std::collections::HashMap<String, f64> {
+    let mut out: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    for f in &recall.facts {
+        if let emem_fact::Fact::Primary(p) = f {
+            if let ciborium::Value::Float(v) = p.value {
+                out.insert(p.band.clone(), v);
+            }
+        }
+    }
+    out
+}
+
+/// 0.0.3 — formula AST dispatcher.
+///
+/// For every algorithm with a matched `evaluation: Expr`, walk the
+/// AST, plug in the values that the snapshot recall already
+/// materialized, and return the composite scalar — alongside the
+/// algorithm key, formula text, and the input fact CIDs the agent
+/// can quote in its receipt. The dispatcher does **not** attest the
+/// composite as a `DerivativeFact` yet (that's M14 in
+/// `MILESTONE_v0.0.4.md`); 0.0.3 ships the evaluator and the
+/// response surface so an agent can rely on byte-stable composite
+/// values immediately.
+///
+/// One outcome JSON object per algorithm:
+///
+/// ```json
+/// {
+///   "algorithm_key":   "flood_risk@2",
+///   "value":           0.4836,
+///   "input_fact_cids": ["...", "...", "..."],
+///   "evaluation_via":  "ast"
+/// }
+/// ```
+///
+/// Algorithms without an `evaluation` field are skipped (not an
+/// error) — `algorithms_for_question[]` already advertises them so
+/// the agent can compose locally.
+fn dispatch_algorithms(
+    matched_keys: &[String],
+    recall: &emem_primitives::recall::RecallResp,
+) -> Vec<JsonValue> {
+    let alg_reg = &*emem_core::algorithms::DEFAULT;
+    let samples = samples_from_recall(recall);
+    let mut out: Vec<JsonValue> = Vec::new();
+    let mut seen: std::collections::HashSet<&str> = Default::default();
+    for key in matched_keys {
+        if !seen.insert(key.as_str()) {
+            continue;
+        }
+        let Some(alg) = alg_reg.lookup(key) else {
+            continue;
+        };
+        let Some(expr) = alg.evaluation.as_ref() else {
+            continue;
+        };
+        // Find the input fact CIDs the AST consumed (so the agent
+        // can cite them in its reply alongside the composite value).
+        // recall.facts and recall.receipt.fact_cids are aligned by
+        // position when every requested CID resolved; if some
+        // dropped to None during get_facts_many, facts is shorter,
+        // so we zip up to the shorter of the two.
+        let referenced: std::collections::HashSet<String> =
+            expr.referenced_bands().into_iter().collect();
+        let mut input_cids: Vec<String> = Vec::new();
+        let receipt_cids = &recall.receipt.fact_cids;
+        for (idx, f) in recall.facts.iter().enumerate() {
+            if let emem_fact::Fact::Primary(p) = f {
+                if referenced.contains(&p.band) {
+                    if let Some(cid) = receipt_cids.get(idx) {
+                        input_cids.push(cid.as_str().to_string());
+                    }
+                }
+            }
+        }
+        match alg_reg.evaluate(key, &samples) {
+            Ok(Some(v)) if v.is_finite() => out.push(json!({
+                "algorithm_key":   key,
+                "value":           v,
+                "input_fact_cids": input_cids,
+                "evaluation_via":  "ast",
+            })),
+            Ok(Some(_v_nonfinite)) => out.push(json!({
+                "algorithm_key": key,
+                "value":         JsonValue::Null,
+                "skip_reason":   "evaluation produced non-finite value (overflow / nan)",
+            })),
+            Ok(None) => out.push(json!({
+                "algorithm_key": key,
+                "value":         JsonValue::Null,
+                "skip_reason":   "expression evaluated to None (likely division by zero)",
+            })),
+            Err(missing) => out.push(json!({
+                "algorithm_key": key,
+                "value":         JsonValue::Null,
+                "skip_reason":   missing,
+            })),
+        }
+    }
+    out
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
@@ -13460,10 +13047,10 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     let mut want_bands: std::collections::BTreeSet<String> = Default::default();
     for t in &topics {
         for b in live_bands_for_topic(t) {
-            want_bands.insert((*b).into());
+            want_bands.insert(b);
         }
         for alg_key in algorithms_keys_for_topic(t) {
-            for b in alg_reg.input_bands(alg_key) {
+            for b in alg_reg.input_bands(&alg_key) {
                 want_bands.insert(b.into());
             }
         }
@@ -13490,7 +13077,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     let mut algorithm_keys_with_recipe: Vec<String> = Vec::new();
     for t in &topics {
         for alg_key in algorithms_keys_for_topic(t) {
-            if let Some(a) = alg_reg.lookup(alg_key) {
+            if let Some(a) = alg_reg.lookup(&alg_key) {
                 let inputs: Vec<&str> = a.inputs.iter().filter_map(|i| i.band.as_deref()).collect();
                 if a.temporal_recipe.is_some() {
                     algorithm_keys_with_recipe.push(a.key.clone());
@@ -13519,6 +13106,18 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     } else {
         dispatch_temporal_recipes(&cell, &algorithm_keys_with_recipe, &recall_resp, &s).await
     };
+
+    // 0.0.3 Phase C — formula-AST evaluation. For every matched
+    // algorithm that ships an `evaluation: Expr` in the registry,
+    // walk the AST against the snapshot recall and return a
+    // byte-stable composite scalar. Algorithms without an evaluation
+    // are skipped (the agent still sees the human-readable formula
+    // in `algorithms_for_question[]` and can compose itself).
+    let all_matched_keys: Vec<String> = algorithms_for_question
+        .iter()
+        .filter_map(|v| v.get("key").and_then(|k| k.as_str()).map(String::from))
+        .collect();
+    let algorithm_outcomes = dispatch_algorithms(&all_matched_keys, &recall_resp);
 
     // Optional Sentinel-2 RGB scene. Default off — the scene fetch is
     // ~1-2 s on first call (STAC search + COG range reads + PNG encode)
@@ -13566,7 +13165,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             "matched_topics":   topics,
             "matched_keywords": matched_keywords(&req.q),
             "out_of_scope":     topics_empty,
-            "_explanation":     "Topics are matched by lower-cased substring presence against TOPIC_KEYWORDS. The match is structural, not LLM-generated, so the routing is reproducible. Composite topics (flood_risk_composite, urban_livability, real_estate) get priority over single-band topics so a lifestyle question routes to the algorithm recipe, not just one band.",
+            "_explanation":     "Topics route via the topic registry (`crates/emem-core/data/topics-v0.json`). Default backend is the static-distillation sentence-transformer (`minishlab/potion-base-8M`) — each topic's `description + aliases` is embedded once at startup; the question is embedded at query time and matched by cosine similarity above the registry's configured threshold (default 0.35). Falls back to substring search over `aliases[] + key` when the model can't be loaded (offline / `EMEM_TOPIC_BACKEND=keyword`). Reproducible: same model file + same topic registry CID = same routing across responders.",
         },
         "facts":                   serde_json::to_value(&recall_resp).unwrap_or(json!({})),
         "algorithms_for_question": algorithms_for_question,
@@ -13578,6 +13177,15 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         // summary. Additive to .facts[] (which stays the snapshot) so
         // an existing reader doesn't break.
         "temporal_composition":    temporal_composition,
+        // 0.0.3 — composite values produced by evaluating each
+        // matched algorithm's `evaluation: Expr` AST against the
+        // snapshot recall. Empty array when no matched algorithm
+        // ships an `evaluation` field. Each entry carries
+        // `algorithm_key`, `value` (or `null` + `skip_reason`),
+        // `input_fact_cids[]`, and `evaluation_via: "ast"`.
+        // Additive sibling — readers that ignore this field
+        // continue to work.
+        "algorithm_outcomes":      algorithm_outcomes,
         "scene":                   scene,
         "caveats":                 caveats,
     });
@@ -13589,10 +13197,27 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             );
         }
         if topics_empty {
+            // Pull the topic→bands and topic→algorithms maps from
+            // the registry rather than the old hardcoded tables.
+            // Same shape, but new topics added in topics-v0.json
+            // appear here automatically.
+            let topic_reg = topic_router::TopicRouter::global().registry();
+            let bands_by_topic: std::collections::BTreeMap<String, Vec<String>> = topic_reg
+                .topics
+                .iter()
+                .filter(|t| !t.bands.is_empty())
+                .map(|t| (t.key.clone(), t.bands.clone()))
+                .collect();
+            let algos_by_topic: std::collections::BTreeMap<String, Vec<String>> = topic_reg
+                .topics
+                .iter()
+                .filter(|t| !t.algorithms.is_empty())
+                .map(|t| (t.key.clone(), t.algorithms.clone()))
+                .collect();
             map.insert("inventory".into(), json!({
                 "_purpose":              "Topic-grouped roster of every band/algorithm at this cell. Use this when no topic auto-routed — pick the topic whose name best matches the user's question and call /v1/recall directly.",
-                "live_bands_by_topic":   TOPIC_BANDS.iter().map(|(k,v)| (*k, *v)).collect::<std::collections::BTreeMap<&str, &[&str]>>(),
-                "algorithms_for_topic":  TOPIC_ALGORITHMS.iter().map(|(k,v)| (*k, *v)).collect::<std::collections::BTreeMap<&str, &[&str]>>(),
+                "live_bands_by_topic":   bands_by_topic,
+                "algorithms_for_topic":  algos_by_topic,
             }));
         }
     }
@@ -13602,10 +13227,16 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
 async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // Provenance of the (lat,lng) returned to the agent. "direct" — caller
     // supplied coordinates; "embedded" — hit our compiled-in gazetteer
-    // (no upstream network call); "cache" — Nominatim/Overpass TTL cache
-    // hit; "nominatim" — live Nominatim call; "overpass" — live OSM
-    // Overpass call (geocoder fallback when Nominatim returns zero hits,
-    // typical for rural Indian villages and water bodies).
+    // (no upstream network call); "cache" — Photon/Nominatim TTL cache
+    // hit; "photon" — live Photon (komoot.io, primary live geocoder —
+    // Elasticsearch index of OSM, ~100 ms typical, strong recall on
+    // rural villages and water bodies); "nominatim" — live Nominatim
+    // fallback (when Photon returns zero or transports fail; Nominatim
+    // is slower and weaker on the rural-OSM corpus but its structured
+    // address parser is occasionally a better disambiguator on dense
+    // street names). Overpass was tried earlier but routinely 503s
+    // under rate limits and a global regex takes ~30 s on the public
+    // instance, so it is unfit for a synchronous geocoder fallback.
     let mut via = "direct";
     let mut polygon_bbox: Option<(f64, f64, f64, f64)> = None;
     let mut polygon_source: Option<&'static str> = None;
@@ -13642,27 +13273,29 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 }
                 (la, lo, Some(lab))
             } else {
-                via = "nominatim";
+                via = "photon";
                 // Fetch up to 5 candidates so we can surface alternatives
                 // for ambiguous names ("Springfield", "San José"). Picking
                 // the first match silently is what produced the worst kind
                 // of place-name drift in earlier trials.
-                let nom_result = nominatim_lookup_candidates(p, 5).await;
-                // Geocoder fallback chain: Nominatim → Overpass.
-                // Nominatim's full-text index misses rural Indian villages,
-                // tanks, and water bodies that are nonetheless mapped in OSM
-                // (Katihar test, May 2026: `Laliyahi` returned no_results
-                // from Nominatim but the village is on OSM as a node). When
-                // Nominatim succeeds with zero hits — or when its HTTP call
-                // itself fails — try Overpass before giving up. PR-2 will
-                // add Overture Places as a third tier.
-                let hits = match nom_result {
+                //
+                // Geocoder chain: Photon (primary) → Nominatim (fallback).
+                // Photon (komoot.io) indexes OSM via Elasticsearch — ~100 ms
+                // typical latency and stronger recall on rural-Indian /
+                // tank / water-body names than Nominatim's PostgreSQL
+                // full-text index (Katihar test, May 2026: `Laliyahi`
+                // returned no_results from Nominatim but is in OSM as a
+                // node, which Photon finds). Nominatim remains as the
+                // fallback because its structured address parser
+                // occasionally disambiguates dense street names better.
+                let photon_result = photon_lookup_candidates(p, 5).await;
+                let hits = match photon_result {
                     Ok(h) if !h.is_empty() => h,
                     Ok(_empty) => {
-                        match overpass_lookup_candidates(p, 5).await {
-                            Ok(o) => {
-                                via = "overpass";
-                                o
+                        match nominatim_lookup_candidates(p, 5).await {
+                            Ok(n) => {
+                                via = "nominatim";
+                                n
                             }
                             Err(_) => {
                                 // Both succeeded-with-zero. Return 404.
@@ -13671,29 +13304,29 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     ErrorBody {
                                         code: ErrorCode::Internal,
                                         message: format!(
-                                            "no geocoder match for '{p}' (tried Nominatim + Overpass)"
+                                            "no geocoder match for '{p}' (tried Photon + Nominatim)"
                                         ),
                                     },
                                 ));
                             }
                         }
                     }
-                    Err(nom_err) => {
-                        // Nominatim transport failure: try Overpass; if it
+                    Err(ph_err) => {
+                        // Photon transport failure: try Nominatim; if it
                         // also fails, surface BOTH errors so an operator can
                         // tell whether it's a network blip or a real miss.
-                        match overpass_lookup_candidates(p, 5).await {
-                            Ok(o) => {
-                                via = "overpass";
-                                o
+                        match nominatim_lookup_candidates(p, 5).await {
+                            Ok(n) => {
+                                via = "nominatim";
+                                n
                             }
-                            Err(over_err) => {
+                            Err(nom_err) => {
                                 return Err(ApiError(
                                     StatusCode::BAD_GATEWAY,
                                     ErrorBody {
                                         code: ErrorCode::Internal,
                                         message: format!(
-                                            "place lookup failed: nominatim={nom_err}; overpass={over_err}"
+                                            "place lookup failed: photon={ph_err}; nominatim={nom_err}"
                                         ),
                                     },
                                 ));
@@ -14349,148 +13982,131 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
     Ok(out)
 }
 
-/// OSM Overpass fallback when Nominatim returns zero hits. Hand-tuned for
-/// the case the Katihar test exposed: rural Indian villages, tanks, and
-/// water bodies that have entries in OSM (often added by Bihar revenue-
-/// record imports or HOT mapathons) but are below Nominatim's full-text
-/// index threshold. Matches case-insensitively on the `name` tag across
-/// nodes, ways, and relations and returns up to `limit` hits.
+/// Photon (komoot.io) geocoder — Elasticsearch-backed OSM full-text search.
 ///
-/// Returns `NominatimHit` so the locate handler treats overpass results
-/// the same as Nominatim ones (cache, alternatives, polygon_bbox if any).
-async fn overpass_lookup_candidates(q: &str, limit: usize) -> Result<Vec<NominatimHit>, String> {
-    let base = std::env::var("EMEM_OVERPASS_BASE")
-        .unwrap_or_else(|_| "https://overpass-api.de/api/interpreter".into());
+/// Used as the *primary* fallback when Nominatim returns zero hits. Photon
+/// indexes the same OSM corpus as Overpass but with an inverted-text index,
+/// so a rural-village lookup returns in ~100 ms instead of ~30 s and
+/// without the regex-injection escaping Overpass demands.
+///
+/// API: `GET https://photon.komoot.io/api/?q=<query>&limit=<n>` returning a
+/// GeoJSON FeatureCollection. Each feature carries:
+///   - `geometry.coordinates` `[lng, lat]`
+///   - `properties.name`, `properties.osm_key`, `properties.osm_value`
+///   - `properties.extent` `[minLon, maxLat, maxLon, minLat]` (note ordering)
+///   - `properties.country`, `properties.state`, `properties.city`
+///
+/// Importance is synthesised from `osm_key` because Photon does not expose
+/// Nominatim's `importance` field directly.
+async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<NominatimHit>, String> {
+    let base =
+        std::env::var("EMEM_PHOTON_BASE").unwrap_or_else(|_| "https://photon.komoot.io".into());
     let limit = limit.clamp(1, 10);
-    // Overpass QL: case-insensitive regex on `name`, across nodes/ways/
-    // relations, with `out center` so ways/relations return a centroid.
-    // Pre-trim and escape regex special chars in the query — a user
-    // typing "St. Mary's" would otherwise inject a regex anchor.
-    let q_re = q.trim().replace('\\', "\\\\").replace('"', "\\\"").replace(
-        [
-            '.', '(', ')', '[', ']', '{', '}', '+', '*', '?', '|', '^', '$',
-        ],
-        "",
-    );
-    if q_re.is_empty() {
-        return Err("overpass: query empty after sanitisation".into());
+    let q_trim = q.trim();
+    if q_trim.is_empty() {
+        return Err("photon: query empty".into());
     }
-    let body = format!(
-        "[out:json][timeout:15];(node[\"name\"~\"{q_re}\",i];way[\"name\"~\"{q_re}\",i];relation[\"name\"~\"{q_re}\",i];);out center {limit};"
+    let url = format!(
+        "{}/api/?q={}&limit={}",
+        base.trim_end_matches('/'),
+        urlencoding(q_trim),
+        limit
     );
     let cli = reqwest_client();
     let resp = cli
-        .post(&base)
+        .get(&url)
         .header("user-agent", nominatim_user_agent())
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(format!("data={}", urlencoding(&body)))
         .send()
         .await
-        .map_err(|e| format!("overpass http: {e}"))?;
+        .map_err(|e| format!("photon http: {e}"))?;
     let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("overpass body: {e}"))?;
+    let text = resp.text().await.map_err(|e| format!("photon body: {e}"))?;
     if !status.is_success() {
         return Err(format!(
-            "overpass {status}: {}",
+            "photon {status}: {}",
             text.chars().take(200).collect::<String>()
         ));
     }
-    let v: JsonValue = serde_json::from_str(&text).map_err(|e| format!("overpass json: {e}"))?;
-    let elements = v["elements"]
+    let v: JsonValue = serde_json::from_str(&text).map_err(|e| format!("photon json: {e}"))?;
+    let features = v["features"]
         .as_array()
-        .ok_or("overpass response missing elements[]")?;
-    let mut out = Vec::with_capacity(elements.len());
-    for el in elements {
-        let osm_type = el["type"].as_str().unwrap_or("").to_string();
-        // Nodes carry lat/lon directly; ways/relations carry it under
-        // `center` because we asked for `out center`.
-        let (lat, lng) = if osm_type == "node" {
-            let la = el["lat"].as_f64();
-            let lo = el["lon"].as_f64();
-            match (la, lo) {
-                (Some(a), Some(b)) => (a, b),
-                _ => continue,
-            }
-        } else {
-            let la = el["center"]["lat"].as_f64();
-            let lo = el["center"]["lon"].as_f64();
-            match (la, lo) {
-                (Some(a), Some(b)) => (a, b),
-                _ => continue,
-            }
+        .ok_or("photon response missing features[]")?;
+    let mut out = Vec::with_capacity(features.len());
+    for feat in features {
+        let coords = match feat["geometry"]["coordinates"].as_array() {
+            Some(c) if c.len() == 2 => c,
+            _ => continue,
         };
-        let tags = &el["tags"];
-        let name = tags["name"].as_str().unwrap_or("").to_string();
-        // Cheap human label: "<name> (<place|natural|water|leisure>, <state>)".
-        let class_kind = tags["place"]
-            .as_str()
-            .or_else(|| tags["natural"].as_str())
-            .or_else(|| tags["water"].as_str())
-            .or_else(|| tags["leisure"].as_str())
-            .or_else(|| tags["amenity"].as_str())
-            .unwrap_or("");
-        let admin_state = tags["addr:state"]
-            .as_str()
-            .or_else(|| tags["is_in:state"].as_str())
-            .unwrap_or("");
-        let label = match (class_kind, admin_state) {
+        let lng = match coords[0].as_f64() {
+            Some(x) => x,
+            None => continue,
+        };
+        let lat = match coords[1].as_f64() {
+            Some(x) => x,
+            None => continue,
+        };
+        let props = &feat["properties"];
+        let name = props["name"].as_str().unwrap_or("").to_string();
+        let osm_type = props["osm_type"].as_str().unwrap_or("").to_string();
+        let osm_key = props["osm_key"].as_str().unwrap_or("");
+        let osm_value = props["osm_value"].as_str().unwrap_or("");
+        let country = props["country"].as_str().unwrap_or("");
+        let state = props["state"].as_str().unwrap_or("");
+        let city = props["city"].as_str().unwrap_or("");
+        // Human-readable label: "<name> (<osm_value>), <state>, <country>".
+        let admin = match (city, state, country) {
+            ("", "", "") => String::new(),
+            ("", "", c) => c.to_string(),
+            ("", s, "") => s.to_string(),
+            ("", s, c) => format!("{s}, {c}"),
+            (ci, "", "") => ci.to_string(),
+            (ci, "", c) => format!("{ci}, {c}"),
+            (ci, s, "") => format!("{ci}, {s}"),
+            (ci, s, c) => format!("{ci}, {s}, {c}"),
+        };
+        let label = match (osm_value, admin.as_str()) {
             ("", "") => name.clone(),
-            (c, "") => format!("{name} ({c})"),
-            ("", s) => format!("{name}, {s}"),
-            (c, s) => format!("{name} ({c}), {s}"),
+            (k, "") => format!("{name} ({k})"),
+            ("", a) => format!("{name}, {a}"),
+            (k, a) => format!("{name} ({k}), {a}"),
         };
-        // Class/type fields: route OSM tags into Nominatim's
-        // class_/type_ shape so the alternatives surface looks the
-        // same regardless of which path served the hit.
-        let class_ = if !class_kind.is_empty() {
-            tags.as_object()
-                .and_then(|m| {
-                    for k in ["place", "natural", "water", "leisure", "amenity"] {
-                        if m.contains_key(k) {
-                            return Some(k.to_string());
-                        }
-                    }
-                    None
-                })
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let type_ = class_kind.to_string();
-        // Bounds (ways/relations only). Overpass returns these in `bounds`.
-        let bbox = el["bounds"].as_object().and_then(|m| {
-            let s = m.get("minlat")?.as_f64()?;
-            let n = m.get("maxlat")?.as_f64()?;
-            let w = m.get("minlon")?.as_f64()?;
-            let e = m.get("maxlon")?.as_f64()?;
-            Some((s, n, w, e))
+        // Photon's `extent` is [minLon, maxLat, maxLon, minLat]. Convert to
+        // our (min_lat, max_lat, min_lng, max_lng) tuple.
+        let bbox = props["extent"].as_array().and_then(|arr| {
+            if arr.len() != 4 {
+                return None;
+            }
+            let min_lon = arr[0].as_f64()?;
+            let max_lat = arr[1].as_f64()?;
+            let max_lon = arr[2].as_f64()?;
+            let min_lat = arr[3].as_f64()?;
+            Some((min_lat, max_lat, min_lon, max_lon))
         });
+        // Importance heuristic by osm_key: places (villages, towns, hamlets)
+        // outrank water/leisure features when the user types a bare name.
+        // Boundary outranks everything because admin polygons are usually
+        // the unambiguous match for a rural-village query.
+        let importance = match osm_key {
+            "boundary" => 0.55,
+            "place" => 0.6,
+            "natural" | "water" => 0.5,
+            "leisure" | "amenity" => 0.4,
+            _ => 0.3,
+        };
         out.push(NominatimHit {
             lat,
             lng,
             label,
             bbox,
             osm_type,
-            class_,
-            type_,
-            // No native importance score in Overpass; rank ways/relations
-            // (named features) above bare nodes (POIs) by giving them a
-            // small bump.
-            importance: if matches!(el["type"].as_str(), Some("way") | Some("relation")) {
-                0.4
-            } else {
-                0.2
-            },
+            class_: osm_key.to_string(),
+            type_: osm_value.to_string(),
+            importance,
         });
     }
     if out.is_empty() {
-        return Err("overpass: zero results".into());
+        return Err("photon: zero results".into());
     }
-    // Stable rank: ways/relations first (they tend to be named features
-    // like villages, water bodies, parks), then nodes.
     out.sort_by(|a, b| {
         b.importance
             .partial_cmp(&a.importance)
@@ -15406,8 +15022,24 @@ async fn temporal_route_inner(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    // 0.0.3 fix: previously we silently substituted `now_unix` when
+    // `query_time` failed to parse, which masked agent input mistakes
+    // (e.g. "2026-13-01" would route as if the user asked about now).
+    // Surface the parse error as 400 so the agent sees its own bug
+    // instead of a confidently-wrong answer.
     let query_unix: i64 = match req.query_time.as_deref() {
-        Some(qt) => parse_iso8601_unix(qt).unwrap_or(now_unix),
+        Some(qt) if qt.trim().is_empty() => now_unix,
+        Some(qt) => parse_iso8601_unix(qt).ok_or_else(|| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "query_time '{qt}' is not a valid RFC 3339 / ISO 8601 timestamp"
+                    ),
+                },
+            )
+        })?,
         None => now_unix,
     };
 
@@ -16237,10 +15869,7 @@ mod tests {
         // topic must catch lake / pond / reservoir / tank / manmade
         // lake / water body so a real water-body question always
         // routes somewhere actionable.
-        (
-            "is this lake flooded right now",
-            "flood_water_event_window",
-        ),
+        ("is this lake flooded right now", "flood_water_event_window"),
         (
             "is the village pond overflowing",
             "flood_water_event_window",
@@ -16253,10 +15882,7 @@ mod tests {
             "status of the tank near the school",
             "flood_water_event_window",
         ),
-        (
-            "is this man-made lake at risk",
-            "flood_water_event_window",
-        ),
+        ("is this man-made lake at risk", "flood_water_event_window"),
         (
             "manmade lake hazard in this village",
             "flood_water_event_window",
@@ -16265,13 +15891,17 @@ mod tests {
 
     #[test]
     fn route_question_corpus_hits_expected_topic() {
-        let mut misses: Vec<(&str, &str, Vec<&'static str>)> = Vec::new();
+        let mut misses: Vec<(&str, &str, Vec<String>)> = Vec::new();
         for (q, expected) in SHOULD_BE_EMEM_ASK {
+            // The router can be in transformer mode (model loaded)
+            // or keyword mode (substring match over topic aliases).
+            // We accept either: as long as the *expected* topic is
+            // present in the matched set, the test passes — neither
+            // backend guarantees position-1 ranking for every
+            // corpus phrase, but both must agree the topic is in
+            // scope.
             let hits = route_question_to_topics(q);
-            // The first matched topic is the highest-priority match —
-            // composite topics declared early in TOPIC_KEYWORDS win
-            // over single-band topics, which is the desired behaviour.
-            if hits.first().copied() != Some(*expected) {
+            if !hits.iter().any(|h| h == expected) {
                 misses.push((q, expected, hits));
             }
         }
@@ -16292,16 +15922,17 @@ mod tests {
     fn topic_keys_all_have_either_bands_or_algorithms() {
         // Every topic the router can match must resolve to at least one
         // band-or-algorithm — otherwise /v1/ask would return an empty
-        // recall and the agent would have nothing to cite.
+        // recall and the agent would have nothing to cite. Pulled from
+        // the topic registry now that the static TOPIC_KEYWORDS table
+        // has been retired in favour of topics-v0.json.
         let alg_reg = &*emem_core::algorithms::DEFAULT;
-        for (topic, _) in TOPIC_KEYWORDS {
+        let topic_reg = &*emem_core::topics::DEFAULT;
+        for t in &topic_reg.topics {
+            let topic = t.key.as_str();
             let bands_count = live_bands_for_topic(topic).len();
-            let alg_count = algorithms_keys_for_topic(topic).len();
-            // Walk the algorithm registry to count bands those algorithms read.
-            let alg_band_count: usize = algorithms_keys_for_topic(topic)
-                .iter()
-                .map(|k| alg_reg.input_bands(k).len())
-                .sum();
+            let alg_keys = algorithms_keys_for_topic(topic);
+            let alg_count = alg_keys.len();
+            let alg_band_count: usize = alg_keys.iter().map(|k| alg_reg.input_bands(k).len()).sum();
             assert!(
                 bands_count > 0 || alg_count > 0,
                 "topic {topic} has no live_bands AND no algorithms — router would route to nothing"
@@ -16310,7 +15941,7 @@ mod tests {
                 assert!(
                     alg_band_count > 0,
                     "topic {topic} has algorithms {:?} but the registry knows no input bands for any of them",
-                    algorithms_keys_for_topic(topic)
+                    alg_keys
                 );
             }
         }
@@ -16329,9 +15960,9 @@ mod tests {
             "wildfire_exposure_score@1",
             "spi_meteorological_drought@1",
         ] {
-            let alg = reg.lookup(key).unwrap_or_else(|| {
-                panic!("algorithm {key} missing from registry — PR-1 contract")
-            });
+            let alg = reg
+                .lookup(key)
+                .unwrap_or_else(|| panic!("algorithm {key} missing from registry — PR-1 contract"));
             let recipe = alg.temporal_recipe.as_ref().unwrap_or_else(|| {
                 panic!(
                     "{key} dropped its temporal_recipe — PR-1 wired it explicitly so /v1/ask backfills the right windows"

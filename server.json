@@ -3,7 +3,7 @@
   "name": "io.github.Vortx-AI/emem",
   "title": "emem — Earth memory protocol",
   "description": "Content-addressed, ed25519-signed memory of every place on Earth. Apache-2.0, no keys for reads.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "websiteUrl": "https://emem.dev",
   "repository": {
     "url": "https://github.com/Vortx-AI/emem",

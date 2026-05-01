@@ -65,6 +65,14 @@ pub enum ErrorCode {
     // ── Internal ──────────────────────────────────────────────────────
     /// Cache backend reported an error.
     CacheError,
+    /// Caller supplied a syntactically valid but semantically invalid
+    /// argument (e.g. unparseable timestamp, out-of-range numeric
+    /// parameter, malformed enum value). Distinct from
+    /// `InvalidCell` / `InvalidResolution`, which are address-shape
+    /// failures. Use this when you can attribute the failure to one
+    /// specific request field; pair the message with the field name
+    /// so an agent can self-correct.
+    InvalidArgument,
     /// Any other failure (responder MUST include a free-form message).
     Internal,
 }

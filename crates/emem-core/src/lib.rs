@@ -33,6 +33,7 @@ pub mod privacy;
 pub mod schema;
 pub mod sources;
 pub mod taxonomy;
+pub mod topics;
 pub mod tslot;
 
 pub use algorithms::{Algorithm, AlgorithmInput, AlgorithmKind, AlgorithmRegistry};
@@ -47,4 +48,5 @@ pub use privacy::PrivacyClass;
 pub use schema::{SchemaFragment, SchemaRegistry};
 pub use sources::{ConnectorKind, Provider, SourceRegistry, SourceScheme};
 pub use taxonomy::{Lcv1, LcvFamily};
+pub use topics::{Topic, TopicRegistry, TopicRoutingPolicy};
 pub use tslot::{Tempo, Tslot};

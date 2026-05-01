@@ -26,6 +26,11 @@ pub const MANIFEST_CELL64_ALPHABET: &str = "emem-cell64-alphabet";
 /// Algorithm registry manifest identifier — composition recipes that
 /// fuse multiple band facts (and embeddings) into derived scores.
 pub const MANIFEST_ALGORITHM_REG: &str = "emem-algorithms";
+/// Topic registry manifest identifier — keywords / aliases / descriptions
+/// used to route a free-text question to a topic, plus the bands and
+/// algorithms each topic concerns. Replaces the pre-0.0.3 hardcoded
+/// `TOPIC_KEYWORDS` / `TOPIC_BANDS` / `TOPIC_ALGORITHMS` tables.
+pub const MANIFEST_TOPIC_REG: &str = "emem-topics";
 
 /// Errors that can occur loading or validating a manifest.
 #[derive(Debug, thiserror::Error)]

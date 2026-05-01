@@ -159,10 +159,12 @@ Suggested PR body (copy-paste ready):
 ```
 emem is an Apache-2.0 Rust MCP server (also on GHCR + HuggingFace
 Space) that gives AI agents content-addressed, ed25519-signed memory
-of every place on Earth. 26 tools, 47 read primitives, 68 algorithms
-implementing real published formulas (NWS Rothfusz heat-index,
-Fosberg FFWI, FAO-56 vapour-pressure deficit, Imhoff UHI regression,
-GHSL dasymetric population, Haurwitz/Kasten clear-sky GHI). Reads
+of every place on Earth. 28 MCP tools, 30 primitives across REST + MCP,
+102 algorithms implementing real published formulas (NWS Rothfusz
+heat-index, Fosberg FFWI, FAO-56 vapour-pressure deficit, Imhoff UHI
+regression, GHSL dasymetric population, Haurwitz/Kasten clear-sky GHI,
+flood_risk@2 with DEM-agreement weighting and a temporal_recipe of
+antecedent rainfall + recent radar water + optical water). Reads
 from open data only — Copernicus DEM, JRC Surface Water, Sentinel-2
 L2A, OSM, Overture Maps, MET Norway. Hosted at https://emem.dev/mcp,
 GHCR at ghcr.io/vortx-ai/emem, source at
