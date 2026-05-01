@@ -1558,6 +1558,36 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
     let pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
+    // Resolve the active Overture release tag once per call so the
+    // three `overture.*` materializer entries below quote the currently
+    // cached release in their `coverage` and `upstream_endpoint` fields
+    // rather than an immutable literal baked in at compile time. On a
+    // discovery failure the field reads `"unavailable"` (observably
+    // distinct from a real tag) — no silent stale fallback.
+    let overture_release = match emem_fetch::overture::OvertureClient::shared()
+        .release()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(
+                target: "emem_api_rest::materializers",
+                "could not resolve Overture release for /v1/materializers: {e}"
+            );
+            "unavailable".to_string()
+        }
+    };
+    let overture_buildings_endpoint = format!(
+        "s3://overturemaps-us-west-2/release/{overture_release}/theme=buildings/type=building/"
+    );
+    let overture_places_endpoint =
+        format!("s3://overturemaps-us-west-2/release/{overture_release}/theme=places/type=place/");
+    let overture_segments_endpoint = format!(
+        "s3://overturemaps-us-west-2/release/{overture_release}/theme=transportation/type=segment/"
+    );
+    let overture_coverage = format!(
+        "global vector; Overture Maps Foundation {overture_release} release (auto-discovered, refreshed every 24h)"
+    );
     let mut payload = json!({
         "schema": "emem.materializers.v1",
         "responder_pubkey_b32": pubkey_b32.clone(),
@@ -1751,23 +1781,25 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "band":              "overture.buildings.count",
                 "unit":              null,
                 "value_kind":        "primary",
-                "coverage":          "global vector; Overture Maps Foundation 2026-04-15 release",
+                "coverage":          overture_coverage,
                 "upstream_scheme":   "overture.maps.foundation.v1",
-                "upstream_endpoint": "s3://overturemaps-us-west-2/release/2026-04-15.0/theme=buildings/type=building/",
+                "upstream_endpoint": overture_buildings_endpoint,
+                "active_release":    overture_release,
                 "derivation_fn_key": "overture_buildings_count@1",
                 "confidence":        0.95,
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
                 "fetch_strategy":    "anonymous_s3 + parquet_row_group_pruning + wkb_polygon_centroid",
-                "notes":             "Count of building footprints whose vertex-mean centroid falls inside the cell bbox. Pure-Rust path: object_store anonymous AWS S3 + parquet 55 async reader + WKB decode. No GDAL, no Python, no API key. Per-file parquet footers cached in process memory; first-call to a region warms the cache."
+                "notes":             "Count of building footprints whose vertex-mean centroid falls inside the cell bbox. Pure-Rust path: object_store anonymous AWS S3 + parquet 55 async reader + WKB decode. No GDAL, no Python, no API key. Per-file parquet footers cached in process memory; first-call to a region warms the cache. Release tag is auto-discovered from the public bucket on startup and refreshed every 24h."
             },
             {
                 "band":              "overture.places.count",
                 "unit":              null,
                 "value_kind":        "primary",
-                "coverage":          "global vector; Overture Maps Foundation 2026-04-15 release",
+                "coverage":          overture_coverage,
                 "upstream_scheme":   "overture.maps.foundation.v1",
-                "upstream_endpoint": "s3://overturemaps-us-west-2/release/2026-04-15.0/theme=places/type=place/",
+                "upstream_endpoint": overture_places_endpoint,
+                "active_release":    overture_release,
                 "derivation_fn_key": "overture_places_count@1",
                 "confidence":        0.90,
                 "tempo":             "slow",
@@ -1779,9 +1811,10 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
                 "band":              "overture.transportation.road_length_m",
                 "unit":              "m",
                 "value_kind":        "primary",
-                "coverage":          "global vector; Overture Maps Foundation 2026-04-15 release",
+                "coverage":          overture_coverage,
                 "upstream_scheme":   "overture.maps.foundation.v1",
-                "upstream_endpoint": "s3://overturemaps-us-west-2/release/2026-04-15.0/theme=transportation/type=segment/",
+                "upstream_endpoint": overture_segments_endpoint,
+                "active_release":    overture_release,
                 "derivation_fn_key": "overture_road_length_m@1",
                 "confidence":        0.85,
                 "tempo":             "slow",
@@ -3761,10 +3794,30 @@ struct RecallPolygonReq {
     /// Optional uniform tslot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tslot: Option<u64>,
-    /// Cap on cells sampled from the polygon. Default 64; max 256 (the
-    /// recall_many ceiling).
+    /// Cap on cells sampled from the polygon. Default 64; hard max 1024
+    /// (raised from 256 in May 2026 — Katihar test showed a 2 km stride
+    /// at 64 cells over a 100 km² PIN-code polygon misses sub-200 m
+    /// features like village tanks). The default stays low so naive
+    /// callers don't accidentally fan out 1024 materializer fetches.
     #[serde(default)]
     max_cells: Option<usize>,
+    /// Target sample density in cells per square kilometre. When set,
+    /// the actual cells sampled is `round(cells_per_sqkm × area_km²)`,
+    /// clamped to `[1, max_cells]`. Use this for hazard-sweep workflows
+    /// where you want a *uniform* spatial resolution regardless of
+    /// polygon size: e.g. `cells_per_sqkm=1.0` gives ~1 km stride;
+    /// `cells_per_sqkm=4.0` gives ~500 m stride.
+    #[serde(default)]
+    cells_per_sqkm: Option<f64>,
+    /// Two-stage scan: after the coarse fan-out, drill 9-cell sub-grids
+    /// centred on each cell whose `surface_water.recurrence` returns
+    /// above 25 % (i.e. JRC-classed seasonal/permanent water). Total
+    /// cells is still capped at `max_cells`, so the coarse pass uses
+    /// `max_cells / 4` budget. Designed for the Katihar use case:
+    /// finding sub-cell water bodies missed by uniform sampling. Costs
+    /// up to 2x the upstream fetches of a flat scan.
+    #[serde(default)]
+    drill_on_water: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -3819,6 +3872,7 @@ async fn post_recall_polygon(
             "embedded" => "embedded",
             "cache" => "cache",
             "nominatim" => "nominatim",
+            "overpass" => "overpass",
             "direct" => "direct",
             _ => "unknown",
         };
@@ -3890,8 +3944,40 @@ async fn post_recall_polygon(
         }));
     }
 
-    let max_cells = req.max_cells.unwrap_or(64).clamp(1, 256);
-    let cells = sample_cells_in_bbox(bbox, max_cells);
+    let max_cells = req.max_cells.unwrap_or(64).clamp(1, 1024);
+    // Polygon area in km² — for `cells_per_sqkm` density target and for
+    // the hint string we surface in the response.
+    let area_km2 = {
+        let mid_lat = (bbox.0 + bbox.1) / 2.0;
+        let lat_km = (bbox.1 - bbox.0) * 111.0;
+        let lng_km = (bbox.3 - bbox.2) * 111.0 * mid_lat.to_radians().cos().abs();
+        (lat_km * lng_km).max(0.0)
+    };
+    // If the caller supplied `cells_per_sqkm`, derive n_cells from it
+    // (clamped to [1, max_cells]). Otherwise use max_cells directly.
+    let target_cells = if let Some(d) = req.cells_per_sqkm {
+        if !d.is_finite() || d <= 0.0 {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("recall_polygon: cells_per_sqkm must be > 0, got {d}"),
+                },
+            ));
+        }
+        ((d * area_km2).round() as usize).clamp(1, max_cells)
+    } else {
+        max_cells
+    };
+    let drill = req.drill_on_water.unwrap_or(false);
+    // Two-stage scan budget: coarse pass gets max(8, target_cells/4),
+    // leaving room for the drill phase to fan out.
+    let coarse_n = if drill {
+        (target_cells / 4).clamp(8, target_cells)
+    } else {
+        target_cells
+    };
+    let mut cells = sample_cells_in_bbox(bbox, coarse_n);
     if cells.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -3912,6 +3998,7 @@ async fn post_recall_polygon(
     let mut merged_facts: Vec<JsonValue> = Vec::new();
     let mut total_facts = 0usize;
     let mut materialize_notes_all: Vec<JsonValue> = Vec::new();
+    let mut drill_added: Vec<String> = Vec::new();
     for cell in &cells {
         let r = RecallReq {
             cell: cell.clone(),
@@ -3942,6 +4029,109 @@ async fn post_recall_polygon(
         }
     }
 
+    // Two-stage drill on water: re-fan around each coarse-pass cell
+    // whose surface_water.recurrence > 25 %. The Katihar test (May
+    // 2026) showed a 200 m manmade lake fell entirely between the
+    // 2 km uniform-stride samples; a coarse-then-drill scan around any
+    // recurrence-positive cell catches sub-stride water bodies.
+    if drill && total_facts > 0 {
+        let coarse_stride_km = if cells.len() > 1 {
+            (area_km2 / cells.len() as f64).sqrt()
+        } else {
+            // Single coarse cell: stride is the bbox side length.
+            let mid_lat = (bbox.0 + bbox.1) / 2.0;
+            let lat_km = (bbox.1 - bbox.0) * 111.0;
+            let lng_km = (bbox.3 - bbox.2) * 111.0 * mid_lat.to_radians().cos().abs();
+            lat_km.max(lng_km)
+        };
+        // Build the list of "hot" coarse cells from the recurrence facts.
+        let mut hot_centres: Vec<(f64, f64)> = Vec::new();
+        for (cell_str, cell_value) in by_cell.iter() {
+            let recurrence = cell_value
+                .get("facts")
+                .and_then(|f| f.as_array())
+                .and_then(|arr| {
+                    arr.iter().find_map(|fact| {
+                        let band = fact.get("band").and_then(|b| b.as_str())?;
+                        if band != "surface_water.recurrence" {
+                            return None;
+                        }
+                        fact.get("value").and_then(|v| v.as_f64())
+                    })
+                });
+            if let Some(rec) = recurrence {
+                if rec > 25.0 {
+                    if let Ok(info) = emem_codec::latlng_from_cell64(cell_str) {
+                        hot_centres.push((info.lat_deg, info.lng_deg));
+                    }
+                }
+            }
+        }
+        // Drill stride: 1/4 the coarse stride, floor 0.05 km (~50 m).
+        let drill_stride_km = (coarse_stride_km / 4.0).max(0.05);
+        let mut budget = target_cells.saturating_sub(cells.len());
+        let mut new_cells: Vec<String> = Vec::new();
+        let mut seen: std::collections::BTreeSet<String> = cells.iter().cloned().collect();
+        'drill: for (lat0, lng0) in hot_centres {
+            let mid_lat = lat0;
+            let lat_step_deg = drill_stride_km / 111.0;
+            let lng_step_deg =
+                drill_stride_km / (111.0 * mid_lat.to_radians().cos().abs().max(1e-6));
+            for di in -2i32..=2 {
+                for dj in -2i32..=2 {
+                    if di == 0 && dj == 0 {
+                        continue;
+                    }
+                    if budget == 0 {
+                        break 'drill;
+                    }
+                    let la = lat0 + (di as f64) * lat_step_deg;
+                    let ln = lng0 + (dj as f64) * lng_step_deg;
+                    if la < bbox.0 || la > bbox.1 || ln < bbox.2 || ln > bbox.3 {
+                        continue;
+                    }
+                    let s = emem_codec::to_cell64(emem_codec::cell_from_latlng(la, ln));
+                    if seen.insert(s.clone()) {
+                        new_cells.push(s);
+                        budget -= 1;
+                    }
+                }
+            }
+        }
+        // Recall the drill cells.
+        for cell in &new_cells {
+            let r = RecallReq {
+                cell: cell.clone(),
+                bands: req.bands.clone(),
+                tslot: req.tslot,
+            };
+            match recall_with_auto_materialize(&r, &s).await {
+                Ok((resp, notes)) => {
+                    total_facts += resp.facts.len();
+                    materialize_notes_all.extend(notes);
+                    if let Ok(j) = serde_json::to_value(&resp) {
+                        if let Some(JsonValue::Array(facts)) = j.get("facts").cloned() {
+                            merged_facts.extend(facts);
+                        }
+                        by_cell.insert(cell.clone(), j);
+                    }
+                }
+                Err(e) => {
+                    by_cell.insert(
+                        cell.clone(),
+                        json!({
+                            "error":  e.1.message,
+                            "code":   format!("{:?}", e.1.code),
+                            "status": e.0.as_u16(),
+                        }),
+                    );
+                }
+            }
+        }
+        drill_added = new_cells.clone();
+        cells.extend(new_cells);
+    }
+
     let mut out = json!({
         "schema": "emem.recall_polygon.v1",
         "polygon_bbox": {
@@ -3952,17 +4142,22 @@ async fn post_recall_polygon(
         "place": req.place,
         "place_label": place_label,
         "via": via,
+        "area_km2": area_km2,
+        "cells_per_sqkm_effective": if area_km2 > 0.0 { cells.len() as f64 / area_km2 } else { 0.0 },
         "cells_sampled": cells.len(),
         "cells": cells,
+        "drill_on_water": drill,
+        "drill_cells_added": drill_added.len(),
         "facts_returned": total_facts,
         "merged_facts": merged_facts,
         "by_cell": JsonValue::Object(by_cell),
         "next": [
             "Each cell.receipt is independently signed; verify any cell's receipt via POST /v1/verify_receipt.",
             "For region statistics over the merged_facts, POST /v1/query_region with `geometry: \"cells:c1,c2,...\"` and the same bands.",
-            "If you need a finer scan, raise `max_cells` (capped at 256) or split the bbox client-side.",
+            "If a sub-cell water body was missed (Katihar lesson), pass `cells_per_sqkm: 4.0` for ~500 m stride, or `drill_on_water: true` for a coarse-then-drill scan around recurrence-positive cells.",
+            "max_cells hard-cap is 1024 (raised May 2026); default stays 64.",
         ],
-        "agent_hint": "POST /v1/recall_polygon collapses /v1/locate → polygon_sample_cells → /v1/recall_many into one call. The bbox source is declared so an agent can detect when the geocoder fell back from polygon (Nominatim bbox) to a single-cell centroid (place-name drift mitigation: fail loud, not silent).",
+        "agent_hint": "POST /v1/recall_polygon collapses /v1/locate → polygon_sample_cells → /v1/recall_many into one call. The bbox source is declared so an agent can detect when the geocoder fell back from polygon (Nominatim bbox) to a single-cell centroid (place-name drift mitigation: fail loud, not silent). Set `cells_per_sqkm` for a uniform spatial resolution; set `drill_on_water: true` to find sub-stride water features.",
     });
     if !materialize_notes_all.is_empty() {
         if let Some(m) = out.as_object_mut() {
@@ -8511,6 +8706,131 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
     }
 }
 
+/// Sentinel-2 search with cloudy-region fallback ladder.
+///
+/// Tries (cloud_pct, lookback_days) in escalating tiers and returns the
+/// first STAC item that satisfies the *easiest* successful tier. The
+/// (used_cloud, used_days) we ended up with is returned so the caller
+/// can record it in the fact's source `notes` — the agent then sees an
+/// honest "we relaxed to 80% cloud / 60 days" instead of either getting
+/// false `Absence` (the old behaviour) or silently using a stale scene
+/// without flagging it.
+///
+/// Tier defaults:
+///
+///   1. `EMEM_S2_MAX_CLOUD` %  /  `EMEM_S2_LOOKBACK_DAYS` d  (default 40, 30)
+///   2. `min(60, base_cloud * 1.5)` / `base_days * 2`
+///   3. `min(80, base_cloud * 2.0)` / `base_days * 3`
+///
+/// Hard cap: 80 % cloud / 90 days. Beyond that, return Err so the caller
+/// signs an honest Absence.
+async fn s2_search_with_fallback(
+    cli: &reqwest::Client,
+    lng: f64,
+    lat: f64,
+    target_unix: Option<i64>,
+    now_unix: i64,
+) -> Result<(emem_fetch::stac::StacItem, f64, i64), String> {
+    let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=100.0).contains(v))
+        .unwrap_or(40.0);
+    let base_days: i64 = std::env::var("EMEM_S2_LOOKBACK_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|d| (1..=365).contains(d))
+        .unwrap_or(30);
+    let tiers: [(f64, i64); 3] = [
+        (base_cloud, base_days),
+        ((base_cloud * 1.5).min(60.0), base_days * 2),
+        ((base_cloud * 2.0).min(80.0), base_days * 3),
+    ];
+    let mut last_err: Option<String> = None;
+    for (cloud, days) in tiers {
+        let (lo_unix, hi_unix) = match target_unix {
+            Some(t) => {
+                let lo = (t - days * 86400).max(0);
+                let hi = (t + days * 86400).min(now_unix);
+                (lo, hi.max(lo + 86400))
+            }
+            None => (now_unix - days * 86400, now_unix),
+        };
+        let datetime = format!(
+            "{}/{}",
+            iso8601_utc(lo_unix as u64),
+            iso8601_utc(hi_unix as u64)
+        );
+        match emem_fetch::stac::search_one(cli, "sentinel-2-l2a", lng, lat, &datetime, Some(cloud))
+            .await
+        {
+            Ok(Some(item)) => return Ok((item, cloud, days)),
+            Ok(None) => {
+                last_err = Some(format!(
+                    "no Sentinel-2 L2A scene under {cloud}% cloud in ±{days}d"
+                ));
+                continue;
+            }
+            Err(e) => return Err(format!("stac: {e}")),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "no Sentinel-2 L2A scene found".into()))
+}
+
+/// Sentinel-1 RTC search with widening-window fallback. No cloud filter
+/// (radar sees through cloud), but revisit gaps still happen — pole
+/// crossings, sensor outages, polar darkness for ascending orbits — so
+/// the same ladder pattern applies. Defaults: 15 d → 30 d → 60 d.
+async fn s1_search_with_fallback(
+    cli: &reqwest::Client,
+    lng: f64,
+    lat: f64,
+    target_unix: Option<i64>,
+    now_unix: i64,
+) -> Result<(emem_fetch::stac::StacItem, i64), String> {
+    let base_days: i64 = std::env::var("EMEM_S1_LOOKBACK_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|d| (1..=365).contains(d))
+        .unwrap_or(15);
+    let tiers: [i64; 3] = [base_days, base_days * 2, base_days * 4];
+    let mut last_err: Option<String> = None;
+    for days in tiers {
+        let (lo_unix, hi_unix) = match target_unix {
+            Some(t) => {
+                let lo = (t - days * 86400).max(0);
+                let hi = (t + days * 86400).min(now_unix);
+                (lo, hi.max(lo + 86400))
+            }
+            None => (now_unix - days * 86400, now_unix),
+        };
+        let datetime = format!(
+            "{}/{}",
+            iso8601_utc(lo_unix as u64),
+            iso8601_utc(hi_unix as u64)
+        );
+        match emem_fetch::stac::search_one_at(
+            cli,
+            emem_fetch::stac::STAC_MPC_V1,
+            "sentinel-1-rtc",
+            lng,
+            lat,
+            &datetime,
+            None,
+        )
+        .await
+        {
+            Ok(Some(item)) => return Ok((item, days)),
+            Ok(None) => {
+                last_err = Some(format!("no Sentinel-1 RTC scene in ±{days}d"));
+                continue;
+            }
+            Err(e) => return Err(format!("stac: {e}")),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "no Sentinel-1 RTC scene found".into()))
+}
+
 /// Generic Sentinel-2 L2A point sampler. Handles every `s2.*` raw-reflectance
 /// band and every `indices.*` derived index from the same one-scene path:
 ///
@@ -8542,31 +8862,16 @@ async fn materialize_sentinel2_band(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    // Backfill window: ±30d around target_unix (covers ≥4 revisits at most
-    // latitudes); current-mode is "last 30d up to now".
-    let (lo_unix, hi_unix) = match target_unix {
-        Some(t) => {
-            let lo = (t - 30 * 86400).max(0);
-            let hi = (t + 30 * 86400).min(now_unix);
-            (lo, hi.max(lo + 86400))
-        }
-        None => (now_unix - 30 * 86400, now_unix),
-    };
-    let datetime = format!(
-        "{}/{}",
-        iso8601_utc(lo_unix as u64),
-        iso8601_utc(hi_unix as u64)
-    );
 
     let cli = s2_http_client();
-    let item =
-        emem_fetch::stac::search_one(&cli, "sentinel-2-l2a", lng, lat, &datetime, Some(40.0))
-            .await
-            .map_err(|e| format!("stac: {e}"))?
-            .ok_or_else(|| match target_unix {
-                Some(t) => format!("no Sentinel-2 L2A scene under 40% cloud within ±30d of {t}"),
-                None => "no Sentinel-2 L2A scene under 40% cloud in last 30 days".to_string(),
-            })?;
+    // Cloudy-region fallback ladder. The Katihar test (May 2026) showed
+    // a hard 40 %/30 d cap returns false Absence for monsoon regions
+    // where the latest clear scene is 45-60 days back. We climb the
+    // ladder until a scene is found or the widest window also returns
+    // empty. The values used are surfaced in `notes` so the agent can
+    // see we relaxed. Override base via EMEM_S2_MAX_CLOUD / EMEM_S2_LOOKBACK_DAYS.
+    let (item, used_cloud, used_days) =
+        s2_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?;
     let epsg = item
         .epsg
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
@@ -8843,6 +9148,11 @@ async fn materialize_sentinel2_band(
         }],
         derivation: Derivation {
             fn_key,
+            // Args end with (used_max_cloud_pct, used_lookback_days) so a
+            // downstream attester can see exactly which fallback tier we
+            // landed on. Tier 1 = (40, 30) is the strict default; tier 3 =
+            // (80, 90) is the relaxed worst case. If both are wider than
+            // tier-1, monsoon/polar coverage was tight at this cell.
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -8853,6 +9163,8 @@ async fn materialize_sentinel2_band(
                     samples.iter().map(|v| ciborium::Value::Float(*v)).collect(),
                 ),
                 ciborium::Value::Float(item.cloud_cover.unwrap_or(-1.0)),
+                ciborium::Value::Float(used_cloud),
+                ciborium::Value::Integer(used_days.into()),
             ])),
         },
         privacy_class: "public".into(),
@@ -8886,38 +9198,12 @@ async fn materialize_sentinel1_vv(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    // Backfill window: ±15d around target_unix (S1A+B revisit ~6d at most
-    // latitudes); current-mode is "last 30d up to now".
-    let (lo_unix, hi_unix) = match target_unix {
-        Some(t) => {
-            let lo = (t - 15 * 86400).max(0);
-            let hi = (t + 15 * 86400).min(now_unix);
-            (lo, hi.max(lo + 86400))
-        }
-        None => (now_unix - 30 * 86400, now_unix),
-    };
-    let datetime = format!(
-        "{}/{}",
-        iso8601_utc(lo_unix as u64),
-        iso8601_utc(hi_unix as u64)
-    );
 
     let cli = s2_http_client();
-    let item = emem_fetch::stac::search_one_at(
-        &cli,
-        emem_fetch::stac::STAC_MPC_V1,
-        "sentinel-1-rtc",
-        lng,
-        lat,
-        &datetime,
-        None,
-    )
-    .await
-    .map_err(|e| format!("stac: {e}"))?
-    .ok_or_else(|| match target_unix {
-        Some(t) => format!("no Sentinel-1 RTC scene within ±15d of {t}"),
-        None => "no Sentinel-1 RTC scene in last 30 days".to_string(),
-    })?;
+    // Widening-window fallback (Katihar lesson — radar revisit gaps
+    // happen even though clouds don't). Override base via
+    // EMEM_S1_LOOKBACK_DAYS. Tiers: 15d → 30d → 60d.
+    let (item, used_days) = s1_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?;
     let vv_url_raw = item
         .assets
         .get("vv")
@@ -8972,12 +9258,15 @@ async fn materialize_sentinel1_vv(
         }],
         derivation: Derivation {
             fn_key: "sentinel1_rtc_vv_db@1".into(),
+            // Args end with `used_lookback_days` (S1 fallback ladder
+            // tier — 15 / 30 / 60 — see s1_search_with_fallback).
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
                 ciborium::Value::Text(item.id.clone()),
                 ciborium::Value::Integer((epsg as i64).into()),
                 ciborium::Value::Float(vv_lin),
+                ciborium::Value::Integer(used_days.into()),
             ])),
         },
         privacy_class: "public".into(),
@@ -9138,7 +9427,10 @@ async fn materialize_overture_buildings_count(
         .await
         .map_err(|e| format!("overture buildings: {e}"))?;
     let signed_at = chrono_iso8601_utc();
-    let release = cli.release().to_string();
+    let release = cli
+        .release()
+        .await
+        .map_err(|e| format!("overture release discovery: {e}"))?;
     let upstream =
         format!("s3://overturemaps-us-west-2/release/{release}/theme=buildings/type=building/");
     let upstream_url = format!(
@@ -9190,7 +9482,10 @@ async fn materialize_overture_places_count(
         .await
         .map_err(|e| format!("overture places: {e}"))?;
     let signed_at = chrono_iso8601_utc();
-    let release = cli.release().to_string();
+    let release = cli
+        .release()
+        .await
+        .map_err(|e| format!("overture release discovery: {e}"))?;
     let upstream =
         format!("s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/");
     let upstream_url = format!(
@@ -9242,7 +9537,10 @@ async fn materialize_overture_road_length_m(
         .await
         .map_err(|e| format!("overture transportation: {e}"))?;
     let signed_at = chrono_iso8601_utc();
-    let release = cli.release().to_string();
+    let release = cli
+        .release()
+        .await
+        .map_err(|e| format!("overture release discovery: {e}"))?;
     let upstream =
         format!("s3://overturemaps-us-west-2/release/{release}/theme=transportation/type=segment/");
     let upstream_url = format!(
@@ -12017,25 +12315,40 @@ async fn build_cell_scene_rgb(
     .map_err(|e| format!("sample blue: {e}"))?;
 
     // Per-channel 2nd–98th percentile stretch, then gamma 1/2.2.
-    fn percentile(values: &[f64], p: f64) -> f64 {
+    // Returns None when the channel has no valid (finite, > 0) samples —
+    // either the COG is off-coverage, the cell is over deep water (which
+    // saturates to zero in S2 L2A surface-reflectance), or the cell sits
+    // under a cloud the STAC search didn't catch. Earlier this function
+    // returned 0.0 on empty input, which silently produced an all-black
+    // PNG and signed it as a real scene — the caller had no way to tell
+    // a real dark scene from "all my pixels were invalid."
+    fn percentile(values: &[f64], p: f64) -> Option<f64> {
         let mut v: Vec<f64> = values
             .iter()
             .copied()
             .filter(|x| x.is_finite() && *x > 0.0)
             .collect();
         if v.is_empty() {
-            return 0.0;
+            return None;
         }
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let idx = ((v.len() as f64 - 1.0) * p).round() as usize;
-        v[idx.min(v.len() - 1)]
+        Some(v[idx.min(v.len() - 1)])
     }
-    let r_lo = percentile(&red_pix, 0.02);
-    let r_hi = percentile(&red_pix, 0.98).max(r_lo + 1.0);
-    let g_lo = percentile(&green_pix, 0.02);
-    let g_hi = percentile(&green_pix, 0.98).max(g_lo + 1.0);
-    let b_lo = percentile(&blue_pix, 0.02);
-    let b_hi = percentile(&blue_pix, 0.98).max(b_lo + 1.0);
+    let stretch = |chan: &[f64], name: &str| -> Result<(f64, f64), String> {
+        let lo = percentile(chan, 0.02).ok_or_else(|| {
+            format!(
+                "scene has no valid {name} pixels in the 256×256 window — \
+                 cloud, water, or off-coverage; try a different datetime_window or raise max_cloud"
+            )
+        })?;
+        let hi = percentile(chan, 0.98)
+            .ok_or_else(|| format!("scene has no valid {name} pixels (p98)"))?;
+        Ok((lo, hi.max(lo + 1.0)))
+    };
+    let (r_lo, r_hi) = stretch(&red_pix, "red")?;
+    let (g_lo, g_hi) = stretch(&green_pix, "green")?;
+    let (b_lo, b_hi) = stretch(&blue_pix, "blue")?;
 
     let mut rgb = vec![0u8; (W as usize) * (H as usize) * 3];
     for i in 0..(W * H) as usize {
@@ -12328,7 +12641,9 @@ const TOPIC_ALGORITHMS: &[(&str, &[&str])] = &[
     ),
     (
         "flood_risk_composite",
-        &["flood_risk@1", "route_flood_exposure@1"],
+        // @2 adds DEM-agreement weighting (Cop-DEM vs GMRT cross-check).
+        // @1 retained in the registry for back-compat citations.
+        &["flood_risk@2", "route_flood_exposure@1"],
     ),
     (
         "vegetation_condition",
@@ -12572,6 +12887,27 @@ const TOPIC_KEYWORDS: &[(&str, &[&str])] = &[
             "is there water",
             "wet right now",
             "current water",
+            // Water-body questions: "is this lake flooded?", "is the
+            // village pond overflowing?", "did the reservoir spill?"
+            // are operationally current-water questions — the correct
+            // routing is the event window (NDWI / MNDWI / S1) plus
+            // history (recurrence). The Katihar test (May 2026) showed
+            // a man-made-lake query falling through to the inventory
+            // page because none of these words matched.
+            "lake",
+            "pond",
+            "reservoir",
+            "tank",
+            "water body",
+            "waterbody",
+            "man-made lake",
+            "manmade lake",
+            "man made lake",
+            "village tank",
+            "village pond",
+            "lagoon",
+            "wetland",
+            "marsh",
         ],
     ),
     (
@@ -12825,6 +13161,188 @@ async fn post_ask(
     ask_inner(s, req).await.map(Json)
 }
 
+/// Materialize one temporal-recipe window: fetch up to 8 evenly-spaced
+/// samples across the lookback range. The number of samples is capped to
+/// keep cold-start cost bounded (8 fetches × 4 windows × few algorithms ≈
+/// O(100) calls in the worst case; subsequent calls hit the lazy cache).
+/// `lookback_days = 0` means "static — fetch tslot=0 once".
+///
+/// Returns a JSON description of the window with each sample's tslot +
+/// fact_cid + value (when available) and an `aggregator_summary` if the
+/// recipe declared one of `sum / mean / median / max / min / latest /
+/// first` and we successfully extracted scalar numerics.
+async fn run_temporal_window(
+    cell64: &str,
+    window: &emem_core::algorithms::TemporalWindow,
+    s: &AppState,
+    now_unix: i64,
+) -> JsonValue {
+    let n_samples: usize = if window.lookback_days == 0 {
+        1
+    } else {
+        (window.lookback_days as usize).clamp(1, 8)
+    };
+    let span_secs: i64 = window.lookback_days as i64 * 86400;
+    let start_unix = now_unix - span_secs;
+    let mut samples_out: Vec<JsonValue> = Vec::with_capacity(n_samples);
+    let mut numeric_values: Vec<f64> = Vec::with_capacity(n_samples);
+    for i in 0..n_samples {
+        let target_unix = if window.lookback_days == 0 {
+            0
+        } else {
+            // Centre each sample inside its sub-window so endpoints don't
+            // collide with the snapshot or with a tslot boundary.
+            let frac = (i as f64 + 0.5) / n_samples as f64;
+            start_unix + (span_secs as f64 * frac) as i64
+        };
+        match materialize_band_at(cell64, &window.band, target_unix, s).await {
+            Ok(cid) => {
+                // Best-effort value lookup so the agent can read aggregates
+                // without a follow-up GET. Failure here is non-fatal — the
+                // CID alone is enough to dereference later.
+                let val = lookup_fact_value_by_cid(s, &cid).await;
+                if let Some(v) = val {
+                    numeric_values.push(v);
+                }
+                samples_out.push(json!({
+                    "tslot_target_unix": target_unix,
+                    "fact_cid":          cid.0,
+                    "value":             val,
+                }));
+            }
+            Err(e) => {
+                samples_out.push(json!({
+                    "tslot_target_unix": target_unix,
+                    "error":             e,
+                }));
+            }
+        }
+    }
+    let summary = if !numeric_values.is_empty() {
+        let agg = window.aggregator.as_deref().unwrap_or("");
+        let n = numeric_values.len() as f64;
+        let value: Option<f64> = match agg {
+            "sum" => Some(numeric_values.iter().sum::<f64>()),
+            "mean" => Some(numeric_values.iter().sum::<f64>() / n),
+            "median" => {
+                let mut v = numeric_values.clone();
+                v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                Some(v[v.len() / 2])
+            }
+            "max" => numeric_values.iter().cloned().reduce(f64::max),
+            "min" => numeric_values.iter().cloned().reduce(f64::min),
+            "latest" => numeric_values.last().copied(),
+            "first" => numeric_values.first().copied(),
+            _ => None,
+        };
+        json!({
+            "aggregator":    agg,
+            "value":         value,
+            "n_facts":       numeric_values.len(),
+        })
+    } else {
+        JsonValue::Null
+    };
+    json!({
+        "band":            window.band,
+        "purpose":         window.purpose,
+        "lookback_days":   window.lookback_days,
+        "aggregator":      window.aggregator,
+        "samples":         samples_out,
+        "aggregator_summary": summary,
+    })
+}
+
+/// Walk every algorithm in `algs` that declares a `temporal_recipe`,
+/// run each window, and return the per-algorithm composition. The
+/// snapshot `recall_resp` is consulted for `trigger_threshold` gating
+/// (skip a window when its anchor band's snapshot value is below
+/// the threshold — keeps dry-day flood checks cheap).
+async fn dispatch_temporal_recipes(
+    cell64: &str,
+    algorithm_keys: &[String],
+    snapshot: &emem_primitives::recall::RecallResp,
+    s: &AppState,
+) -> Vec<JsonValue> {
+    let reg = &*emem_core::algorithms::DEFAULT;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let snapshot_value_for = |band: &str| -> Option<f64> {
+        for f in &snapshot.facts {
+            if let emem_fact::Fact::Primary(p) = f {
+                if p.band == band {
+                    if let ciborium::Value::Float(v) = &p.value {
+                        return Some(*v);
+                    }
+                }
+            }
+        }
+        None
+    };
+    let mut out: Vec<JsonValue> = Vec::new();
+    let mut seen_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for k in algorithm_keys {
+        if !seen_keys.insert(k.clone()) {
+            continue;
+        }
+        let alg = match reg.lookup(k) {
+            Some(a) => a,
+            None => continue,
+        };
+        let recipe = match alg.temporal_recipe.as_ref() {
+            Some(r) => r,
+            None => continue,
+        };
+        let mut windows_out: Vec<JsonValue> = Vec::with_capacity(recipe.windows.len());
+        for w in &recipe.windows {
+            // Trigger gate: skip the window when the snapshot value for
+            // the anchor band is below `trigger_threshold`. The snapshot
+            // is already in `snapshot` so this is free.
+            if let Some(t) = w.trigger_threshold {
+                if let Some(snap) = snapshot_value_for(&w.band) {
+                    if snap < t {
+                        windows_out.push(json!({
+                            "band":          w.band,
+                            "purpose":       w.purpose,
+                            "lookback_days": w.lookback_days,
+                            "aggregator":    w.aggregator,
+                            "skipped":       true,
+                            "skip_reason":   format!("snapshot value {snap} below trigger_threshold {t}"),
+                        }));
+                        continue;
+                    }
+                }
+            }
+            windows_out.push(run_temporal_window(cell64, w, s, now_unix).await);
+        }
+        out.push(json!({
+            "algorithm_key": alg.key,
+            "label":         recipe.label,
+            "note":          recipe.note,
+            "windows":       windows_out,
+        }));
+    }
+    out
+}
+
+/// Tiny helper: dereference a fact_cid → scalar Float value. Returns
+/// None on storage miss or non-Primary / non-Float fact. Used by the
+/// temporal-window aggregator to compute sum/mean/etc without a
+/// downstream GET round-trip.
+async fn lookup_fact_value_by_cid(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> {
+    let facts = s.storage.get_facts_many(std::slice::from_ref(cid)).await.ok()?;
+    let fact = facts.into_iter().next()??;
+    match fact {
+        emem_fact::Fact::Primary(p) => match p.value {
+            ciborium::Value::Float(v) => Some(v),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
@@ -12969,23 +13487,38 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // algorithm key + algorithms_cid alongside the input fact_cids.
     let alg_cid = emem_core::manifest::manifest_cid(alg_reg).ok();
     let mut algorithms_for_question: Vec<JsonValue> = Vec::new();
+    let mut algorithm_keys_with_recipe: Vec<String> = Vec::new();
     for t in &topics {
         for alg_key in algorithms_keys_for_topic(t) {
             if let Some(a) = alg_reg.lookup(alg_key) {
                 let inputs: Vec<&str> = a.inputs.iter().filter_map(|i| i.band.as_deref()).collect();
+                if a.temporal_recipe.is_some() {
+                    algorithm_keys_with_recipe.push(a.key.clone());
+                }
                 algorithms_for_question.push(json!({
-                    "topic":       t,
-                    "key":         a.key,
-                    "kind":        a.kind,
-                    "input_bands": inputs,
-                    "formula":     a.formula,
-                    "output":      a.output,
-                    "citation":    a.citation,
-                    "fetch_url":   format!("/v1/algorithms/{}", a.key),
+                    "topic":            t,
+                    "key":              a.key,
+                    "kind":             a.kind,
+                    "input_bands":      inputs,
+                    "formula":          a.formula,
+                    "output":           a.output,
+                    "citation":         a.citation,
+                    "fetch_url":        format!("/v1/algorithms/{}", a.key),
+                    "temporal_recipe":  a.temporal_recipe,
                 }));
             }
         }
     }
+    // Run any temporal recipes — Katihar lesson: a snapshot recall by
+    // itself can't answer "is this place flooded right now". The recipe
+    // backfills antecedent rainfall + recent radar water + NDVI baseline
+    // alongside the snapshot, and the agent reads `temporal_composition`
+    // to compose a real flood answer.
+    let temporal_composition = if algorithm_keys_with_recipe.is_empty() {
+        Vec::new()
+    } else {
+        dispatch_temporal_recipes(&cell, &algorithm_keys_with_recipe, &recall_resp, &s).await
+    };
 
     // Optional Sentinel-2 RGB scene. Default off — the scene fetch is
     // ~1-2 s on first call (STAC search + COG range reads + PNG encode)
@@ -13038,6 +13571,13 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         "facts":                   serde_json::to_value(&recall_resp).unwrap_or(json!({})),
         "algorithms_for_question": algorithms_for_question,
         "algorithms_cid":          alg_cid,
+        // Per-algorithm temporal composition. Empty array when no
+        // matched algorithm declares a `temporal_recipe`. Each entry
+        // carries the algorithm key, the recipe label/note, and per-
+        // window per-sample fact CIDs + scalar values + an aggregator
+        // summary. Additive to .facts[] (which stays the snapshot) so
+        // an existing reader doesn't break.
+        "temporal_composition":    temporal_composition,
         "scene":                   scene,
         "caveats":                 caveats,
     });
@@ -13062,8 +13602,10 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
 async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // Provenance of the (lat,lng) returned to the agent. "direct" — caller
     // supplied coordinates; "embedded" — hit our compiled-in gazetteer
-    // (no upstream network call); "cache" — Nominatim TTL cache hit;
-    // "nominatim" — live Nominatim call.
+    // (no upstream network call); "cache" — Nominatim/Overpass TTL cache
+    // hit; "nominatim" — live Nominatim call; "overpass" — live OSM
+    // Overpass call (geocoder fallback when Nominatim returns zero hits,
+    // typical for rural Indian villages and water bodies).
     let mut via = "direct";
     let mut polygon_bbox: Option<(f64, f64, f64, f64)> = None;
     let mut polygon_source: Option<&'static str> = None;
@@ -13105,16 +13647,62 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // for ambiguous names ("Springfield", "San José"). Picking
                 // the first match silently is what produced the worst kind
                 // of place-name drift in earlier trials.
-                let hits = nominatim_lookup_candidates(p, 5).await.map_err(|e| {
-                    ApiError(
-                        StatusCode::BAD_GATEWAY,
-                        ErrorBody {
-                            code: ErrorCode::Internal,
-                            message: format!("place lookup failed: {e}"),
-                        },
-                    )
-                })?;
+                let nom_result = nominatim_lookup_candidates(p, 5).await;
+                // Geocoder fallback chain: Nominatim → Overpass.
+                // Nominatim's full-text index misses rural Indian villages,
+                // tanks, and water bodies that are nonetheless mapped in OSM
+                // (Katihar test, May 2026: `Laliyahi` returned no_results
+                // from Nominatim but the village is on OSM as a node). When
+                // Nominatim succeeds with zero hits — or when its HTTP call
+                // itself fails — try Overpass before giving up. PR-2 will
+                // add Overture Places as a third tier.
+                let hits = match nom_result {
+                    Ok(h) if !h.is_empty() => h,
+                    Ok(_empty) => {
+                        match overpass_lookup_candidates(p, 5).await {
+                            Ok(o) => {
+                                via = "overpass";
+                                o
+                            }
+                            Err(_) => {
+                                // Both succeeded-with-zero. Return 404.
+                                return Err(ApiError(
+                                    StatusCode::NOT_FOUND,
+                                    ErrorBody {
+                                        code: ErrorCode::Internal,
+                                        message: format!(
+                                            "no geocoder match for '{p}' (tried Nominatim + Overpass)"
+                                        ),
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                    Err(nom_err) => {
+                        // Nominatim transport failure: try Overpass; if it
+                        // also fails, surface BOTH errors so an operator can
+                        // tell whether it's a network blip or a real miss.
+                        match overpass_lookup_candidates(p, 5).await {
+                            Ok(o) => {
+                                via = "overpass";
+                                o
+                            }
+                            Err(over_err) => {
+                                return Err(ApiError(
+                                    StatusCode::BAD_GATEWAY,
+                                    ErrorBody {
+                                        code: ErrorCode::Internal,
+                                        message: format!(
+                                            "place lookup failed: nominatim={nom_err}; overpass={over_err}"
+                                        ),
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                };
                 let hit = hits.first().cloned().ok_or_else(|| {
+                    // Defensive: hits is non-empty by construction above.
                     ApiError(
                         StatusCode::NOT_FOUND,
                         ErrorBody {
@@ -13267,7 +13855,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             "algorithms_for_topic": {
                 "flood_history_long_term":    ["flood_history_class@1"],
                 "flood_water_event_window":   ["water_consensus@1", "water_likelihood_from_vv@1"],
-                "flood_risk_composite":       ["flood_risk@1", "route_flood_exposure@1"],
+                "flood_risk_composite":       ["flood_risk@2", "route_flood_exposure@1"],
                 "vegetation_condition":       ["vegetation_class_from_ndvi@1", "crop_stress_score@1", "agb_ndvi_powerlaw@1"],
                 "fire_burn_severity":         ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "fosberg_fire_weather_index@1"],
                 "soil_bare":                  ["bare_soil_class@1"],
@@ -13758,6 +14346,156 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
     if out.is_empty() {
         return Err("no results".into());
     }
+    Ok(out)
+}
+
+/// OSM Overpass fallback when Nominatim returns zero hits. Hand-tuned for
+/// the case the Katihar test exposed: rural Indian villages, tanks, and
+/// water bodies that have entries in OSM (often added by Bihar revenue-
+/// record imports or HOT mapathons) but are below Nominatim's full-text
+/// index threshold. Matches case-insensitively on the `name` tag across
+/// nodes, ways, and relations and returns up to `limit` hits.
+///
+/// Returns `NominatimHit` so the locate handler treats overpass results
+/// the same as Nominatim ones (cache, alternatives, polygon_bbox if any).
+async fn overpass_lookup_candidates(q: &str, limit: usize) -> Result<Vec<NominatimHit>, String> {
+    let base = std::env::var("EMEM_OVERPASS_BASE")
+        .unwrap_or_else(|_| "https://overpass-api.de/api/interpreter".into());
+    let limit = limit.clamp(1, 10);
+    // Overpass QL: case-insensitive regex on `name`, across nodes/ways/
+    // relations, with `out center` so ways/relations return a centroid.
+    // Pre-trim and escape regex special chars in the query — a user
+    // typing "St. Mary's" would otherwise inject a regex anchor.
+    let q_re = q.trim().replace('\\', "\\\\").replace('"', "\\\"").replace(
+        [
+            '.', '(', ')', '[', ']', '{', '}', '+', '*', '?', '|', '^', '$',
+        ],
+        "",
+    );
+    if q_re.is_empty() {
+        return Err("overpass: query empty after sanitisation".into());
+    }
+    let body = format!(
+        "[out:json][timeout:15];(node[\"name\"~\"{q_re}\",i];way[\"name\"~\"{q_re}\",i];relation[\"name\"~\"{q_re}\",i];);out center {limit};"
+    );
+    let cli = reqwest_client();
+    let resp = cli
+        .post(&base)
+        .header("user-agent", nominatim_user_agent())
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(format!("data={}", urlencoding(&body)))
+        .send()
+        .await
+        .map_err(|e| format!("overpass http: {e}"))?;
+    let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("overpass body: {e}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "overpass {status}: {}",
+            text.chars().take(200).collect::<String>()
+        ));
+    }
+    let v: JsonValue = serde_json::from_str(&text).map_err(|e| format!("overpass json: {e}"))?;
+    let elements = v["elements"]
+        .as_array()
+        .ok_or("overpass response missing elements[]")?;
+    let mut out = Vec::with_capacity(elements.len());
+    for el in elements {
+        let osm_type = el["type"].as_str().unwrap_or("").to_string();
+        // Nodes carry lat/lon directly; ways/relations carry it under
+        // `center` because we asked for `out center`.
+        let (lat, lng) = if osm_type == "node" {
+            let la = el["lat"].as_f64();
+            let lo = el["lon"].as_f64();
+            match (la, lo) {
+                (Some(a), Some(b)) => (a, b),
+                _ => continue,
+            }
+        } else {
+            let la = el["center"]["lat"].as_f64();
+            let lo = el["center"]["lon"].as_f64();
+            match (la, lo) {
+                (Some(a), Some(b)) => (a, b),
+                _ => continue,
+            }
+        };
+        let tags = &el["tags"];
+        let name = tags["name"].as_str().unwrap_or("").to_string();
+        // Cheap human label: "<name> (<place|natural|water|leisure>, <state>)".
+        let class_kind = tags["place"]
+            .as_str()
+            .or_else(|| tags["natural"].as_str())
+            .or_else(|| tags["water"].as_str())
+            .or_else(|| tags["leisure"].as_str())
+            .or_else(|| tags["amenity"].as_str())
+            .unwrap_or("");
+        let admin_state = tags["addr:state"]
+            .as_str()
+            .or_else(|| tags["is_in:state"].as_str())
+            .unwrap_or("");
+        let label = match (class_kind, admin_state) {
+            ("", "") => name.clone(),
+            (c, "") => format!("{name} ({c})"),
+            ("", s) => format!("{name}, {s}"),
+            (c, s) => format!("{name} ({c}), {s}"),
+        };
+        // Class/type fields: route OSM tags into Nominatim's
+        // class_/type_ shape so the alternatives surface looks the
+        // same regardless of which path served the hit.
+        let class_ = if !class_kind.is_empty() {
+            tags.as_object()
+                .and_then(|m| {
+                    for k in ["place", "natural", "water", "leisure", "amenity"] {
+                        if m.contains_key(k) {
+                            return Some(k.to_string());
+                        }
+                    }
+                    None
+                })
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let type_ = class_kind.to_string();
+        // Bounds (ways/relations only). Overpass returns these in `bounds`.
+        let bbox = el["bounds"].as_object().and_then(|m| {
+            let s = m.get("minlat")?.as_f64()?;
+            let n = m.get("maxlat")?.as_f64()?;
+            let w = m.get("minlon")?.as_f64()?;
+            let e = m.get("maxlon")?.as_f64()?;
+            Some((s, n, w, e))
+        });
+        out.push(NominatimHit {
+            lat,
+            lng,
+            label,
+            bbox,
+            osm_type,
+            class_,
+            type_,
+            // No native importance score in Overpass; rank ways/relations
+            // (named features) above bare nodes (POIs) by giving them a
+            // small bump.
+            importance: if matches!(el["type"].as_str(), Some("way") | Some("relation")) {
+                0.4
+            } else {
+                0.2
+            },
+        });
+    }
+    if out.is_empty() {
+        return Err("overpass: zero results".into());
+    }
+    // Stable rank: ways/relations first (they tend to be named features
+    // like villages, water bodies, parks), then nodes.
+    out.sort_by(|a, b| {
+        b.importance
+            .partial_cmp(&a.importance)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(out)
 }
 
@@ -15493,6 +16231,36 @@ mod tests {
             "similar to this place, find lookalikes",
             "foundation_embedding",
         ),
+        // Water-body keywords (Katihar test, May 2026): the user's
+        // "is this lake flooded" prior failed to match any topic and
+        // returned the inventory page. The flood_water_event_window
+        // topic must catch lake / pond / reservoir / tank / manmade
+        // lake / water body so a real water-body question always
+        // routes somewhere actionable.
+        (
+            "is this lake flooded right now",
+            "flood_water_event_window",
+        ),
+        (
+            "is the village pond overflowing",
+            "flood_water_event_window",
+        ),
+        (
+            "did the reservoir reach full capacity",
+            "flood_water_event_window",
+        ),
+        (
+            "status of the tank near the school",
+            "flood_water_event_window",
+        ),
+        (
+            "is this man-made lake at risk",
+            "flood_water_event_window",
+        ),
+        (
+            "manmade lake hazard in this village",
+            "flood_water_event_window",
+        ),
     ];
 
     #[test]
@@ -15546,6 +16314,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The four algorithms the Katihar PR wired temporal_recipe into
+    /// must keep their recipes — a registry edit dropping the field
+    /// silently degrades back to snapshot-only behaviour, which is
+    /// exactly the bug PR-1 was meant to kill.
+    #[test]
+    fn target_algorithms_carry_temporal_recipe() {
+        let reg = &*emem_core::algorithms::DEFAULT;
+        for key in [
+            "flood_risk@2",
+            "water_consensus@1",
+            "wildfire_exposure_score@1",
+            "spi_meteorological_drought@1",
+        ] {
+            let alg = reg.lookup(key).unwrap_or_else(|| {
+                panic!("algorithm {key} missing from registry — PR-1 contract")
+            });
+            let recipe = alg.temporal_recipe.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "{key} dropped its temporal_recipe — PR-1 wired it explicitly so /v1/ask backfills the right windows"
+                )
+            });
+            assert!(
+                !recipe.windows.is_empty(),
+                "{key} temporal_recipe.windows is empty — must carry at least one lookback window"
+            );
+        }
+    }
+
+    /// flood_risk@1 must stay in the registry alongside @2 so existing
+    /// receipts citing the older formula still dereference. PR-1
+    /// switched topic-routing to @2 for new callers; @1 is back-compat.
+    #[test]
+    fn flood_risk_v1_retained_alongside_v2() {
+        let reg = &*emem_core::algorithms::DEFAULT;
+        assert!(
+            reg.lookup("flood_risk@1").is_some(),
+            "flood_risk@1 was removed but receipts referencing it across the network would break — keep both"
+        );
+        assert!(reg.lookup("flood_risk@2").is_some(), "flood_risk@2 missing");
     }
 
     #[test]

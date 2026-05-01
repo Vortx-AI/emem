@@ -33,6 +33,7 @@
 #![allow(clippy::result_large_err)]
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use arrow::array::{Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, StructArray};
 use arrow::datatypes::DataType;
@@ -48,16 +49,21 @@ use parquet::file::statistics::Statistics;
 use std::sync::OnceLock;
 use tokio::sync::Mutex;
 
-/// Default Overture release. Each release is immutable; we pin the stable
-/// vintage so derivation hashes stay reproducible. Override with the env
-/// var `EMEM_OVERTURE_RELEASE` if a downstream pipeline needs a different
-/// snapshot.
-pub const DEFAULT_RELEASE: &str = "2026-04-15.0";
-
 /// S3 bucket Overture publishes to. Anonymous access; same bucket the
 /// `overturemaps` CLI uses by default.
 pub const BUCKET: &str = "overturemaps-us-west-2";
 pub const REGION: &str = "us-west-2";
+
+/// Public HTTPS list endpoint for the bucket (used for ListObjectsV2 XML).
+/// Anonymous read — no signing, no key. Same surface a browser hits when
+/// fetching `https://overturemaps-us-west-2.s3.amazonaws.com/?...`.
+pub const LIST_ENDPOINT: &str = "https://overturemaps-us-west-2.s3.amazonaws.com/";
+
+/// How long an auto-discovered release tag stays valid before we
+/// re-list the bucket. Releases are published roughly monthly, so a
+/// 24-hour TTL keeps us within one calendar day of "latest" while
+/// keeping the cold-path S3 list off every cell call.
+pub const RELEASE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Errors surfaced by the Overture materializer.
 #[derive(Debug, thiserror::Error)]
@@ -79,6 +85,15 @@ pub enum OvertureError {
 /// In-process cache of decoded parquet footers, keyed by S3 key.
 type FooterCache = std::collections::HashMap<String, Arc<ParquetMetaData>>;
 
+/// Cache key for the per-(release, theme, type) parquet file list. The
+/// release component is owned `String` so a TTL-driven release flip
+/// (auto-discovery picks up a new monthly release) cleanly invalidates
+/// the file list without us having to manually evict.
+type FileListKey = (String, &'static str, &'static str);
+
+/// In-process cache of parquet file lists per `FileListKey`.
+type FileListCache = std::collections::HashMap<FileListKey, Vec<String>>;
+
 /// Theme + type pair Overture organises files under.
 #[derive(Debug, Clone, Copy)]
 struct ThemeType {
@@ -99,23 +114,44 @@ const SEGMENTS: ThemeType = ThemeType {
     typ: "segment",
 };
 
-/// Anonymous S3 reader for one Overture release.
-pub struct OvertureClient {
-    /// Release tag, e.g. "2026-04-15.0".
+/// In-process snapshot of the auto-discovered release tag plus the
+/// monotonic clock instant we fetched it at. `None` means "never fetched
+/// successfully yet" — a recall on the cold path will block briefly on
+/// the S3 list call.
+#[derive(Clone, Debug)]
+struct ReleaseCache {
     release: String,
+    fetched_at: Instant,
+}
+
+/// Anonymous S3 reader for the latest Overture release. The release tag
+/// is auto-discovered on first use and re-checked every `RELEASE_TTL`.
+/// On a refresh failure we log + reuse the cached value (the only
+/// non-silent fallback path). On a *cold-start* failure (no cached
+/// value yet) we surface the error so the caller can decide.
+pub struct OvertureClient {
     /// Anonymous S3 store (no signing, no key).
     store: Arc<dyn ObjectStore>,
-    /// File list per (theme, type), populated lazily.
-    file_lists: Mutex<std::collections::HashMap<(&'static str, &'static str), Vec<String>>>,
+    /// Auto-discovered release tag + 24h TTL guard. Keyed by the
+    /// optional `EMEM_OVERTURE_RELEASE` override: when the env var is
+    /// set we pin to that value and skip the S3 list entirely.
+    release_cache: Mutex<Option<ReleaseCache>>,
+    /// File list per (release, theme, type), populated lazily. Keyed by
+    /// release so that a TTL-driven release flip cleanly invalidates
+    /// the file list (we don't want to serve "buildings" from the old
+    /// release once we've seen a newer one).
+    file_lists: Mutex<FileListCache>,
     /// Decoded parquet footers per S3 key.
     footers: Mutex<FooterCache>,
 }
 
 impl OvertureClient {
-    /// Build an anonymous S3 reader for the configured release.
+    /// Build an anonymous S3 reader. The release tag is *not* resolved
+    /// here — it is fetched lazily on first use via [`active_release`].
+    /// This keeps the constructor sync-safe (no Tokio required at boot)
+    /// and lets cold-start failures surface as proper `Result`s through
+    /// the recall path instead of panicking the process.
     pub fn new() -> Result<Self, OvertureError> {
-        let release =
-            std::env::var("EMEM_OVERTURE_RELEASE").unwrap_or_else(|_| DEFAULT_RELEASE.to_string());
         let store = AmazonS3Builder::new()
             .with_region(REGION)
             .with_bucket_name(BUCKET)
@@ -124,8 +160,8 @@ impl OvertureClient {
             .build()
             .map_err(|e| OvertureError::Init(format!("AmazonS3Builder: {e}")))?;
         Ok(Self {
-            release,
             store: Arc::new(store),
+            release_cache: Mutex::new(None),
             file_lists: Mutex::new(Default::default()),
             footers: Mutex::new(Default::default()),
         })
@@ -142,23 +178,67 @@ impl OvertureClient {
         })
     }
 
-    /// Public release tag the client is reading from.
-    pub fn release(&self) -> &str {
-        &self.release
+    /// Resolve the release tag the client should currently use.
+    ///
+    /// Resolution order:
+    ///   1. `EMEM_OVERTURE_RELEASE` env var — pinned override, no S3 call.
+    ///   2. Cached value younger than `RELEASE_TTL` — returned as-is.
+    ///   3. Cached value older than TTL — refresh; on success replace
+    ///      cache, on failure log + reuse the stale value (the *only*
+    ///      acceptable non-silent fallback because we logged it).
+    ///   4. No cached value at all — refresh; on failure return Err.
+    pub async fn release(&self) -> Result<String, OvertureError> {
+        if let Ok(pinned) = std::env::var("EMEM_OVERTURE_RELEASE") {
+            if !pinned.is_empty() {
+                return Ok(pinned);
+            }
+        }
+        let mut g = self.release_cache.lock().await;
+        let now = Instant::now();
+        if let Some(c) = g.as_ref() {
+            if now.duration_since(c.fetched_at) < RELEASE_TTL {
+                return Ok(c.release.clone());
+            }
+        }
+        // Either cold start or TTL expired. Refresh.
+        match latest_release().await {
+            Ok(rel) => {
+                *g = Some(ReleaseCache {
+                    release: rel.clone(),
+                    fetched_at: now,
+                });
+                Ok(rel)
+            }
+            Err(e) => {
+                if let Some(c) = g.as_ref() {
+                    tracing::warn!(
+                        target: "emem_fetch::overture",
+                        "Overture release refresh failed: {e}; reusing cached value {} (age {:?})",
+                        c.release,
+                        now.duration_since(c.fetched_at)
+                    );
+                    Ok(c.release.clone())
+                } else {
+                    tracing::error!(
+                        target: "emem_fetch::overture",
+                        "Overture release cold-start discovery failed: {e}; no cached value to fall back on"
+                    );
+                    Err(e)
+                }
+            }
+        }
     }
 
     /// List parquet files under `release/<theme>/<typ>/`, caching the result.
     async fn list_files(&self, tt: ThemeType) -> Result<Vec<String>, OvertureError> {
+        let release = self.release().await?;
         {
             let g = self.file_lists.lock().await;
-            if let Some(v) = g.get(&(tt.theme, tt.typ)) {
+            if let Some(v) = g.get(&(release.clone(), tt.theme, tt.typ)) {
                 return Ok(v.clone());
             }
         }
-        let prefix = format!(
-            "release/{}/theme={}/type={}/",
-            self.release, tt.theme, tt.typ
-        );
+        let prefix = format!("release/{}/theme={}/type={}/", release, tt.theme, tt.typ);
         let prefix_path = ObjectPath::from(prefix.clone());
         let mut out = Vec::new();
         let mut stream = self.store.list(Some(&prefix_path));
@@ -178,7 +258,7 @@ impl OvertureClient {
             )));
         }
         let mut g = self.file_lists.lock().await;
-        g.insert((tt.theme, tt.typ), out.clone());
+        g.insert((release, tt.theme, tt.typ), out.clone());
         Ok(out)
     }
 
@@ -555,6 +635,110 @@ impl OvertureClient {
         }
         Ok(count)
     }
+}
+
+/// Discover the latest Overture release tag by listing the public bucket.
+///
+/// Hits `https://overturemaps-us-west-2.s3.amazonaws.com/?list-type=2&prefix=release/&delimiter=/`
+/// (anonymous, no signing) and parses the `CommonPrefixes` entries from
+/// the ListBucketResult XML. Each entry looks like
+/// `<CommonPrefixes><Prefix>release/2026-04-15.0/</Prefix></CommonPrefixes>`.
+/// We strip the `release/` prefix and trailing `/`, then sort descending.
+///
+/// Lexicographic sort is correct because every release tag has the form
+/// `YYYY-MM-DD.N` (zero-padded month/day, integer revision N). String
+/// comparison therefore matches chronological + revision order.
+///
+/// Returns the highest tag (e.g. `2026-04-15.1` over `2026-04-15.0`).
+/// Returns `Err(OvertureError::S3List)` on any HTTP / parse failure —
+/// the caller (typically `OvertureClient::release`) decides whether to
+/// fall back to a cached value or surface the error.
+pub async fn latest_release() -> Result<String, OvertureError> {
+    let url = format!("{LIST_ENDPOINT}?list-type=2&prefix=release/&delimiter=/");
+    let client = reqwest::Client::builder()
+        .user_agent("emem-fetch/overture (+https://emem.dev)")
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| OvertureError::S3List(format!("reqwest client: {e}")))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| OvertureError::S3List(format!("GET {url}: {e}")))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(OvertureError::S3List(format!(
+            "list bucket returned {status} for {url}"
+        )));
+    }
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| OvertureError::S3List(format!("read body: {e}")))?;
+    parse_latest_release_from_xml(&body)
+}
+
+/// Pure parser: given a ListObjectsV2 XML body, return the lex-max
+/// release tag (date + revision). Public so tests + external tooling
+/// can exercise it without an S3 round-trip.
+pub fn parse_latest_release_from_xml(body: &str) -> Result<String, OvertureError> {
+    // Tiny inline XML scanner — we only need the contents of every
+    // `<Prefix>...</Prefix>` element nested inside `<CommonPrefixes>`.
+    // Pulling in a full XML parser for one element would be overkill
+    // and `quick-xml` is not yet a workspace dep. The bucket response
+    // is well-formed S3 output (no comments, no CDATA, no namespaces
+    // on these tags), so a strict tag scan is sufficient and correct.
+    let mut releases: Vec<String> = Vec::new();
+    let mut rest = body;
+    while let Some(open_idx) = rest.find("<Prefix>") {
+        let after_open = &rest[open_idx + "<Prefix>".len()..];
+        let Some(close_idx) = after_open.find("</Prefix>") else {
+            break;
+        };
+        let inner = &after_open[..close_idx];
+        // Expect `release/<TAG>/`. Be defensive: anything else is ignored.
+        if let Some(stripped) = inner
+            .strip_prefix("release/")
+            .and_then(|s| s.strip_suffix('/'))
+        {
+            // The top-level prefix `release/` itself appears as
+            // `<Prefix>release/</Prefix>` in some responses — `stripped`
+            // will be empty there. Skip it.
+            if !stripped.is_empty() && !stripped.contains('/') {
+                releases.push(stripped.to_string());
+            }
+        }
+        rest = &after_open[close_idx + "</Prefix>".len()..];
+    }
+    if releases.is_empty() {
+        return Err(OvertureError::S3List(
+            "no <CommonPrefixes><Prefix>release/.../</Prefix></CommonPrefixes> entries in list response".into(),
+        ));
+    }
+    // Lex-descending sort works because every tag is `YYYY-MM-DD.N`
+    // with zero-padded numeric components. We additionally split on
+    // '.' and compare the revision as an integer so `2026-04-15.10`
+    // would sort above `2026-04-15.2` if Overture ever ships a
+    // double-digit revision.
+    releases.sort_by(|a, b| compare_release_tags(b, a));
+    Ok(releases.into_iter().next().unwrap())
+}
+
+/// Compare two `YYYY-MM-DD.N` release tags. Date-part lex-compares
+/// correctly because of zero-padding; revision is numeric to survive
+/// a future double-digit `.10` revision.
+fn compare_release_tags(a: &str, b: &str) -> std::cmp::Ordering {
+    let split = |s: &str| -> (String, u32) {
+        if let Some((date, rev)) = s.rsplit_once('.') {
+            let n = rev.parse::<u32>().unwrap_or(0);
+            (date.to_string(), n)
+        } else {
+            (s.to_string(), 0)
+        }
+    };
+    let (da, na) = split(a);
+    let (db, nb) = split(b);
+    da.cmp(&db).then(na.cmp(&nb))
 }
 
 /// File-scan parallelism: high enough to overlap S3 RTT, low enough not to
@@ -1050,6 +1234,61 @@ mod tests {
         ]]);
         assert!(wkb_polygon_centroid_inside(&poly, 0.4, 0.6, 0.4, 0.6));
         assert!(!wkb_polygon_centroid_inside(&poly, 2.0, 3.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn parses_latest_release_from_list_xml() {
+        // Stub of the real `?list-type=2&prefix=release/&delimiter=/`
+        // response shape. Multiple releases on the same date check that
+        // we sort by revision *as a number*, not just lexicographically.
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>overturemaps-us-west-2</Name>
+  <Prefix>release/</Prefix>
+  <Delimiter>/</Delimiter>
+  <KeyCount>3</KeyCount>
+  <CommonPrefixes><Prefix>release/2026-03-15.0/</Prefix></CommonPrefixes>
+  <CommonPrefixes><Prefix>release/2026-04-15.0/</Prefix></CommonPrefixes>
+  <CommonPrefixes><Prefix>release/2026-04-15.1/</Prefix></CommonPrefixes>
+</ListBucketResult>"#;
+        let got = parse_latest_release_from_xml(xml).expect("parses");
+        assert_eq!(got, "2026-04-15.1");
+    }
+
+    #[test]
+    fn parser_revision_is_numeric_not_lex() {
+        // Synthetic future case: revision `.10` must beat `.2` even
+        // though `.10` < `.2` under naive string comparison.
+        let xml = r#"<ListBucketResult>
+  <CommonPrefixes><Prefix>release/2026-04-15.2/</Prefix></CommonPrefixes>
+  <CommonPrefixes><Prefix>release/2026-04-15.10/</Prefix></CommonPrefixes>
+</ListBucketResult>"#;
+        let got = parse_latest_release_from_xml(xml).expect("parses");
+        assert_eq!(got, "2026-04-15.10");
+    }
+
+    #[test]
+    fn parser_errors_on_empty_list() {
+        let xml = "<ListBucketResult></ListBucketResult>";
+        let err = parse_latest_release_from_xml(xml).unwrap_err();
+        match err {
+            OvertureError::S3List(msg) => assert!(msg.contains("no <CommonPrefixes")),
+            other => panic!("expected S3List error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parser_skips_unrelated_prefix_lines() {
+        // `<Prefix>release/</Prefix>` (the request echo) and any
+        // nested-deeper prefix must be ignored — only direct
+        // `release/<TAG>/` children count.
+        let xml = r#"<ListBucketResult>
+  <Prefix>release/</Prefix>
+  <CommonPrefixes><Prefix>release/2026-04-15.0/</Prefix></CommonPrefixes>
+  <CommonPrefixes><Prefix>release/2026-04-15.0/theme=foo/</Prefix></CommonPrefixes>
+</ListBucketResult>"#;
+        let got = parse_latest_release_from_xml(xml).expect("parses");
+        assert_eq!(got, "2026-04-15.0");
     }
 
     #[test]

@@ -311,6 +311,63 @@ pub struct Algorithm {
     /// large resolutions and stay valid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multimodal: Option<Multimodal>,
+    /// Optional temporal recipe — see [`TemporalRecipe`]. Per-algorithm
+    /// declaration of which lookback windows to materialize alongside the
+    /// snapshot recall. The intent dispatcher reads this and emits a
+    /// `temporal_composition` block in `/v1/ask` and `/v1/intent`
+    /// responses. Algorithms without a recipe behave as before
+    /// (snapshot-only). Added 2026-05 in response to the Katihar test:
+    /// flood-risk needs antecedent rainfall and current radar, not just
+    /// the latest static recurrence value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_recipe: Option<TemporalRecipe>,
+}
+
+/// One temporal lookback window an algorithm wants alongside the snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemporalWindow {
+    /// Band to materialize over the window (must be a real band key).
+    pub band: String,
+    /// How many days back from `now` to look. `0` means "static — fetch
+    /// once at tslot=0" (e.g. JRC GSW recurrence; the lookback is
+    /// historically aggregated by the source itself).
+    pub lookback_days: u32,
+    /// Optional aggregator the agent should apply to the per-tslot facts:
+    /// `"sum"`, `"mean"`, `"median"`, `"max"`, `"min"`, `"latest"`, or
+    /// `"first"`. Empty / unrecognised values mean "return the raw
+    /// per-tslot facts and let the caller aggregate". The dispatcher
+    /// always returns the raw facts; the aggregator is a hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregator: Option<String>,
+    /// Editorial purpose tag, e.g. `"baseline_water"`,
+    /// `"antecedent_rain"`, `"ndvi_baseline"`. Surfaced verbatim in the
+    /// response so an agent can map facts to roles without inferring.
+    pub purpose: String,
+    /// Optional trigger threshold — only materialize this window if the
+    /// snapshot recall's value for `band` is >= this number. Lets a
+    /// flood algorithm skip the antecedent-rain backfill on a dry day.
+    /// Encoded as f64; the field name in formulas is the literal string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_threshold: Option<f64>,
+}
+
+/// Per-algorithm temporal recipe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemporalRecipe {
+    /// Lookback windows. Each is materialized via `/v1/backfill` (or
+    /// equivalent in-process) and surfaced under
+    /// `temporal_composition.windows[]` in the response.
+    pub windows: Vec<TemporalWindow>,
+    /// Editorial label for the temporal pattern, e.g.
+    /// `"flood_event_window"`, `"drought_compounding"`. Surfaced in the
+    /// response so the agent has a single phrase to use in its reply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// One-sentence operator note — *why* these windows, in plain math
+    /// rather than code. Goes verbatim into the response so the agent
+    /// can quote it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 fn default_true() -> bool {

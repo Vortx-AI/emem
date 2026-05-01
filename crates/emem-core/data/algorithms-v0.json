@@ -38,10 +38,38 @@
       ],
       "formula": "0.55*(surface_water.recurrence/100) + 0.25*(relu(50 - copdem30m.elevation_mean)/50) + 0.20*sigmoid((-15 - sentinel1_raw)/2)",
       "output": { "kind": "scalar", "unit": "risk_index", "range": [0, 1], "explanation": "Composite flood-risk index. Historical recurrence dominates (long-term truth); low elevation and current-radar water signal pull the score up. Thresholds: 0–0.2 low, 0.2–0.5 moderate, >0.5 high." },
-      "when_to_use": "Canonical 'should I worry about flooding at this site?' answer. Cite algorithm_cid alongside the three input fact_cids in the receipt so the score is reproducible.",
+      "when_to_use": "Canonical 'should I worry about flooding at this site?' answer. Cite algorithm_cid alongside the three input fact_cids in the receipt so the score is reproducible. Pinned for back-compat; new callers should prefer flood_risk@2 (adds GMRT-vs-Cop-DEM agreement weighting + temporal_recipe).",
       "primitive": "POST /v1/recall {bands:['surface_water.recurrence','copdem30m.elevation_mean','sentinel1_raw']}",
       "deterministic": true,
       "citation": "Composite of Pekel 2016 (recurrence), GLO-30 Cop-DEM (elevation), Manfreda et al. 2014 (low-elevation hydro proxy). Weights are editorial v0; updates bump @2."
+    },
+    {
+      "key": "flood_risk@2",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "surface_water.recurrence", "role": "history",      "weight": 0.55, "transform": "x / 100" },
+        { "band": "copdem30m.elevation_mean", "role": "elevation",    "weight": 0.25, "transform": "relu(50 - x) / 50",
+          "explanation": "Low-lying-terrain proxy (penalty below 50 m absolute elevation, saturates at 0 above). Multiplied by `dem_agreement` so cells where Cop-DEM and GMRT disagree by > 5 m (typically dense forest, urban canyon, or near-water canopy) downweight the elevation term." },
+        { "band": "gmrt.topobathy_mean",      "role": "elevation_alt","weight": 0.0,  "transform": "x",
+          "explanation": "Used only as a cross-check against Cop-DEM. Drives `dem_agreement = 1 if |cop - gmrt| <= 5 m else 0.5`. Captures the Katihar finding (2026-05-01): Cop-DEM 31 m vs GMRT 25 m at the same lat/lng — 6 m drift propagated into the elevation term unweighted in @1." },
+        { "band": "sentinel1_raw",            "role": "current_radar","weight": 0.20, "transform": "sigmoid((-15 - x) / 2)" }
+      ],
+      "formula": "let dem_agreement = if abs(copdem30m.elevation_mean - gmrt.topobathy_mean) <= 5 then 1.0 else 0.5; 0.55*(surface_water.recurrence/100) + 0.25*dem_agreement*(relu(50 - copdem30m.elevation_mean)/50) + 0.20*sigmoid((-15 - sentinel1_raw)/2)",
+      "output": { "kind": "scalar", "unit": "risk_index", "range": [0, 1], "explanation": "Same risk index as flood_risk@1 plus DEM-agreement weighting. When Cop-DEM and GMRT diverge by more than 5 m at a cell, the elevation term is halved, so the historical-recurrence and current-radar terms dominate. Surface `dem_agreement` in the receipt's `composition_inputs` so a downstream reader can audit the weight." },
+      "when_to_use": "Default 'flood risk at this site' answer in the post-2026-05 build. The DEM-agreement gate prevents one stale or biased DEM tile from skewing the score.",
+      "primitive": "POST /v1/recall {bands:['surface_water.recurrence','copdem30m.elevation_mean','gmrt.topobathy_mean','sentinel1_raw']}",
+      "deterministic": true,
+      "citation": "Pekel et al. 2016 (recurrence); Copernicus GLO-30 (Cop-DEM); GMRT Synthesis (Lamont-Doherty Earth Observatory); Manfreda et al. 2014 (low-elevation hydro proxy). DEM-agreement rule is editorial; the 5 m boundary is the typical Cop-DEM CE90 vertical accuracy on flat terrain (ESA Cop-DEM PSD §5.4).",
+      "temporal_recipe": {
+        "label": "flood_event_window",
+        "note": "Flood risk has both a slow term (historical recurrence, decadal) and a fast term (antecedent rainfall + current radar water, days). The snapshot recall covers the slow term; this recipe backfills the fast terms so a real flood event is visible in the response.",
+        "windows": [
+          { "band": "weather.precipitation_mm", "lookback_days": 7,  "aggregator": "sum",    "purpose": "antecedent_rainfall" },
+          { "band": "sentinel1_raw",            "lookback_days": 14, "aggregator": "latest", "purpose": "current_radar_water" },
+          { "band": "indices.mndwi",            "lookback_days": 30, "aggregator": "median", "purpose": "current_optical_water" }
+        ]
+      }
     },
     {
       "key": "water_consensus@1",
@@ -57,7 +85,15 @@
       "when_to_use": "'Is there water here right now?'. Prefer this over a single-band readout so the answer hedges across cloud/illumination conditions.",
       "primitive": "POST /v1/recall {bands:['indices.ndwi','indices.mndwi','sentinel1_raw']}",
       "deterministic": true,
-      "citation": "McFeeters 1996 (NDWI); Xu 2006 (MNDWI); Bioresita et al. 2018 (SAR water). Weights chosen so SWIR optical dominates when available."
+      "citation": "McFeeters 1996 (NDWI); Xu 2006 (MNDWI); Bioresita et al. 2018 (SAR water). Weights chosen so SWIR optical dominates when available.",
+      "temporal_recipe": {
+        "label": "current_water_state",
+        "note": "Three independent observations of the same instant give a robust 'water now?' answer. Including a 14-day antecedent rainfall lookback lets a downstream caller distinguish event-water (post-rain) from baseline-water (river/lake).",
+        "windows": [
+          { "band": "weather.precipitation_mm", "lookback_days": 14, "aggregator": "sum",    "purpose": "antecedent_rainfall" },
+          { "band": "sentinel1_raw",            "lookback_days": 14, "aggregator": "latest", "purpose": "current_radar_water" }
+        ]
+      }
     },
     {
       "key": "water_likelihood_from_vv@1",
@@ -833,7 +869,17 @@
       "when_to_use": "Insurance and infrastructure screens during fire season. Pair with `burn_severity_from_dnbr@1` for post-event damage assessment.",
       "primitive": "Compose fosberg_fire_weather_index@1 + agb_ndvi_powerlaw@1 + slope + precip",
       "deterministic": true,
-      "citation": "Rothermel, R.C. 1972. A mathematical model for predicting fire spread in wildland fuels. USDA INT-115. Van Wagner 1987 (FWI)."
+      "citation": "Rothermel, R.C. 1972. A mathematical model for predicting fire spread in wildland fuels. USDA INT-115. Van Wagner 1987 (FWI).",
+      "temporal_recipe": {
+        "label": "fire_weather_window",
+        "note": "Fire risk depends on antecedent dryness (no rain in last week → fuel is cured) and current heat/wind. NBR delta over 30 days catches recent burn-scars that lower the score (already burned, less fuel left).",
+        "windows": [
+          { "band": "weather.precipitation_mm", "lookback_days": 7,  "aggregator": "sum",    "purpose": "antecedent_dryness" },
+          { "band": "weather.temperature_2m",   "lookback_days": 3,  "aggregator": "max",    "purpose": "recent_heat" },
+          { "band": "weather.wind_speed_10m",   "lookback_days": 1,  "aggregator": "max",    "purpose": "current_wind" },
+          { "band": "indices.nbr",              "lookback_days": 30, "aggregator": "median", "purpose": "fuel_state_baseline" }
+        ]
+      }
     },
     {
       "key": "multi_peril_score@1",
@@ -1918,6 +1964,15 @@
       "citation": "McKee, T.B., Doesken, N.J. & Kleist, J. 1993. The relationship of drought frequency and duration to time scales. 8th Conf. on Applied Climatology, AMS, 179–184. WMO. 2012. Standardized Precipitation Index User Guide. WMO-No.1090. Guttman, N.B. 1999. Accepting the SPI: a calculation algorithm. JAWRA 35(2):311–322. Stagge, J.H. et al. 2015. Candidate distributions for climatological drought indices (SPI and SPEI). Int. J. Climatol. 35:4027–4040.",
       "frequency_of_calculation": "monthly for SPI-1 / SPI-3; quarterly for SPI-6 / SPI-12. Re-fit the gamma parameters every 5 yr to incorporate climate-change non-stationarity (use a moving 30-yr reference window per WMO guidance).",
       "accuracy_band": "Gamma-fit standard error < 0.1 SPI units when ≥30 yr of complete record is available. With NASA POWER (1981→) every cell on Earth has ≥40 yr by 2026 = sound footing. Reduce confidence below SPI ±2 if record-length < 30 yr (e.g. local stations).",
+      "temporal_recipe": {
+        "label": "drought_compounding",
+        "note": "SPI itself reads a precipitation aggregate vs the 30-yr gamma fit; the recipe here adds NDVI and NDMI lookbacks so a downstream agent can see the crop-side response (vegetation + moisture) alongside the meteorological signal.",
+        "windows": [
+          { "band": "weather.precipitation_mm", "lookback_days": 90, "aggregator": "sum",    "purpose": "precip_window" },
+          { "band": "indices.ndvi",             "lookback_days": 30, "aggregator": "median", "purpose": "vegetation_response" },
+          { "band": "indices.ndmi",             "lookback_days": 30, "aggregator": "median", "purpose": "moisture_response" }
+        ]
+      },
       "multimodal": {
         "delivery_resolution_m": 5500,
         "baseline_sources": ["weather.precipitation_mm"],
