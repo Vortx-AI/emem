@@ -1,5 +1,13 @@
 # emem v2 — Spatial Memory for AI Agents
 
+> **ARCHIVED** — frozen 2026-04-26 design proposal kept for historical
+> context only. The implemented protocol is in `docs/SPEC.md` and the
+> shipped feature set is in `CHANGELOG.md`. Anything in this file that
+> refers to "v2.5", staking, slashing, on-chain anchoring, contribution
+> credits, IPLD/Filecoin replication, or any token economy is
+> **aspirational and is not implemented in 0.0.x**. Read for context;
+> do not cite as a feature contract.
+>
 > Status: proposal · Author: 2026-04-26 · Supersedes: `docs/product-memory.md`
 
 ## TL;DR

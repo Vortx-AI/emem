@@ -14,7 +14,7 @@
 
 **emem** is an open, content-addressed, agent-native protocol for representing, exchanging, and verifying claims about places on Earth. It is engineered exclusively for AI-agent consumption — it does not retrofit human cartography conventions, gazetteer norms, or browser-era APIs. emem operates as a **global lazy memory**: agents recall `(cell, band, tslot)` triples; the protocol either returns a cached fact or fetches the canonical upstream sources, computes the band value, attests, caches forever, and returns. Coverage is the whole Earth, not a precomputed corpus.
 
-The protocol defines: (a) a custom recursive cell tessellation (`emem cells`) and a token-economical, locality-preserving, self-decoding cell codec (`cell64`); (b) an epoch-relative integer temporal grid (`tslot`) replacing ISO 8601 in the canonical channel; (c) a vector-as-address scheme (`vec64`) that makes embedding space directly dereferenceable; (d) a 1792-dimensional band ontology — published as a **content-addressed manifest**, not a hardcoded constant — that fuses leading geospatial foundation embeddings (AlphaEarth, Sentinel-2/1, terrain, climate, soil, vision) with explicit per-band provenance, tempo, and privacy class; (e) a deterministic content-addressed fact format (`blake3(canonical_cbor(fact)) → CID`) supporting **primary**, **derivative**, and **negative** fact variants, each carrying a `schema_cid` for self-description; (f) signed attestation envelopes and proof-carrying receipts with cost/latency self-declaration; (g) a content-addressed function registry plus a swappable source-connector manifest that maps abstract source schemes to fetch templates (operators add mirrors, auth, regions without touching the protocol); and (h) MCP-first transport with a normative tool inventory and self-describing introspection tools so agents discover the active manifests at runtime, with REST and IPLD as compatibility adapters. The reference implementation is a Rust crate workspace.
+The protocol defines: (a) a custom recursive cell tessellation (`emem cells`) and a token-economical, locality-preserving, self-decoding cell codec (`cell64`); (b) an epoch-relative integer temporal grid (`tslot`) replacing ISO 8601 in the canonical channel; (c) a vector-as-address scheme (`vec64`) that makes embedding space directly dereferenceable; (d) a 1792-dimensional band ontology — published as a **content-addressed manifest**, not a hardcoded constant — that fuses leading geospatial foundation embeddings (AlphaEarth, Sentinel-2/1, terrain, climate, soil, vision) with explicit per-band provenance, tempo, and privacy class; (e) a deterministic content-addressed fact format (`blake3(canonical_cbor(fact)) → CID`) supporting **primary**, **derivative**, and **negative** fact variants, each carrying a `schema_cid` for self-description; (f) signed attestation envelopes and proof-carrying receipts with cost/latency self-declaration; (g) a content-addressed function registry plus a swappable source-connector manifest that maps abstract source schemes to fetch templates (operators add mirrors, auth, regions without touching the protocol); and (h) MCP-first transport with a normative tool inventory and self-describing introspection tools so agents discover the active manifests at runtime, with REST as the compatibility adapter the reference build also serves natively. (IPLD blocks are used as the canonical CID format — every `fact_cid` is a valid IPLD CID for downstream interop — but no IPLD/IPFS retrieval client is wired in 0.0.x.) The reference implementation is a Rust crate workspace.
 
 The protocol is built on five constraints unique to agent consumption — **token economy, deterministic re-execution, append-only persistence, honest absence, zero-trust verification** — plus three architectural commitments that move the surface beyond what existing geospatial protocols offer: **lazy global materialization, vector-as-address, intent-routed planning**.
 
@@ -55,7 +55,7 @@ The gap nobody fills: **a cryptographically verifiable, token-economical, agent-
 
 - **MCP momentum**: 1,412 servers as of Feb 2026, 232% growth in 6 months, 97M monthly downloads [10]. The agent ecosystem has converged on a discovery+invocation surface; new protocols can ride that rail.
 - **zkML reaches production**: Lagrange DeepProve-1 cryptographically proved a full LLAMA inference [11]; cost-of-proof is forecast to drop below $0.01/call in 2026, the threshold at which proof-carrying inference becomes default.
-- **Content-addressed scientific data is mature**: IPLD + Filecoin Saturn provides a verifiable, cached retrieval substrate for content-addressed blobs [12]. emem facts can be IPLD blocks, inheriting persistence and CDN for free.
+- **Content-addressed scientific data is mature**: IPLD + Filecoin Saturn proves the substrate works for content-addressed blobs [12]. The reference responder in 0.0.x ships a local sled hot cache + append-only Merkle log only — no IPFS / IPLD / Filecoin client is wired in this release. Cold-tier replication is a v0.1 design problem, not a current feature.
 - **Foundation embeddings have stabilized**: AlphaEarth's 64D × 9 years format has held since mid-2025, and the 1792D fusion has been validated across 56 sites and three biomes.
 
 The window to define the protocol is now, before incumbents (Google, Mapbox, ESA) ossify proprietary layers.
@@ -370,7 +370,7 @@ Attestation = {
   attester_key_epoch: uint,           ; key rotation epoch
   registry_cid: text,                 ; CID of function registry version in force
   schema_cid:   text,                 ; CID of the CDDL profile in force
-  stake:        ? uint,               ; credits committed (v2.5)
+  stake:        ? uint,               ; passthrough only — see §6.3
   signature:    bytes .size 64,       ; ed25519(blake3(batch_root || registry_cid || schema_cid))
   attested_at:  text,                 ; ISO 8601
 }
@@ -385,9 +385,11 @@ Attestation = {
 5. For each new `fact_cid`: if absent, store; if present, deduplicate (and credit attester for novelty == 0).
 6. Returns per-fact CID list, batch acceptance receipt, attester credit delta.
 
-### 6.3 Stake & slashing — v2.5
+### 6.3 Stake field — passthrough only
 
-In v2.0 only protocol-issued attester keys (operated by Vortx) may successfully attest. In v2.5, third-party attesters stake protocol credits; a successful `challenge` (§8.4) slashes the attester's stake and rewards the challenger. Stake economics, slashing fractions, and challenge windows are deferred to a separate `STAKE.md` companion spec.
+The `Attestation.stake` field is reserved space for an out-of-band economic commitment (bonded reputation, slashable deposit on a sidechain, x402 / LSP escrow id, etc.). The reference responder **stores it verbatim** in the merkle log and on the attester's record. The protocol itself does not mint, transfer, escrow, or slash anything based on this field — there is no protocol-issued credit, no on-chain anchor, no challenge-driven slashing logic in the 0.0.x reference build.
+
+Operators who want to layer a payment / reputation / slashing economy on top can do so via x402, LSP, or any other rail and use this field to surface the commitment to other agents reading from `/v1/contributors`.
 
 ---
 
@@ -412,7 +414,7 @@ Receipt = {
 }
 
 Cost = {
-  credits:             uint,          ; protocol credits charged
+  credits:             uint,          ; reserved — see note below
   latency_p50_ms:      uint,          ; observed latency, this primitive class
   latency_p99_ms:      uint,
   source_freshness_s:  uint,          ; age of stalest source, seconds
@@ -423,6 +425,8 @@ Cost = {
 Receipts are byte-stable: two responders serving the same fact under the same protocol version produce signatures that differ only in `responder`, `responder_key_epoch`, `signature`, `served_at`, and `cost`. The agent can hand the receipt to its caller as cryptographic evidence — and the caller can independently re-verify against the protocol's published attester pubkeys.
 
 **Why `cost` is in the receipt.** Agent planners need to make local decisions about which primitives to call. Surfacing real cost+latency+freshness in the receipt lets the agent build an empirical model of primitive costs without a separate metering API.
+
+**What's actually populated in 0.0.x.** `was_cached` and `source_freshness_s` are real. `latency_p50_ms` and `latency_p99_ms` both echo the observed `elapsed_ms` of the single served call (the histogram naming anticipates a future per-primitive aggregate). `credits` is **always `0`** — no protocol credit ledger exists in the reference build (see §6.3 for the matching position on `Attestation.stake`). Agents should not branch on `credits`; treat it as a wire-stable placeholder.
 
 **Key rotation.** Each attester/responder publishes pubkeys with `epoch` numbers. Receipts cite the epoch used. Compromised keys are revoked by publishing `revoked_at` for that epoch in `/.well-known/emem.json`; receipts signed pre-revocation remain valid; receipts signed post-revocation are invalid.
 
@@ -474,9 +478,11 @@ Default mode is `"fast"`. `"resolve"` is metered (triggers compute). `"zk"` is p
 
 For `mode=resolve` and `mode=zk`, the protocol uses an **optimistic ML** workflow modeled on zk-OPML [15]: the responder produces a result with cheap Merkle commitments to intermediate states; challengers may dispute by demanding ZKP for any operator. This achieves proof-carrying inference at near-opML cost in the common case, and zkML cost only on dispute.
 
-### 8.4 Challenge
+### 8.4 Challenge — not implemented
 
-A `challenge(attestation_id, counter_evidence)` primitive (L2 only) disputes a fact. `counter_evidence` is itself an attestation with a conflicting value + sources. Triggers protocol-level re-execution from sources; if the original attestation is refuted, its stake is slashed and challenger is rewarded. Stubbed in v2.0; activated in v2.5 alongside the staking economy.
+The wire format reserves `challenge(attestation_id, counter_evidence)` as a future primitive for disputing a fact: the counter-attestation would carry a conflicting value plus sources, the responder would re-execute from sources, and a refuted attestation would be marked superseded.
+
+The reference build in 0.0.x does **not** implement `challenge` — there is no `/v1/challenge` endpoint, no slashing logic, and no responder-side re-execution path. Disputes today happen out-of-band: a contributor submits a fresh attestation with the corrected value and the older fact is superseded by the canonical (cell × band × tslot) → cid index.
 
 ---
 
@@ -533,7 +539,7 @@ A `GET /.well-known/emem.json` example:
 
 ```json
 {
-  "protocol":  "emem/v0.0.2",
+  "protocol":  "emem/v0.0.3",
   "levels":    ["L0", "L1"],
   "attesters": [
     { "key": "ed25519:base32...", "epoch": 1, "operator": "Vortx-AI",
@@ -562,7 +568,7 @@ A `GET /.well-known/emem.json` example:
 
 ## §11 Transport — MCP-first tool inventory
 
-MCP is the **primary** transport. REST and gRPC are compatibility adapters; IPLD is a storage adapter.
+MCP is the **primary** transport. REST is the compatibility adapter the reference build serves natively (`/v1/*`). gRPC and an IPLD storage adapter are reserved in the design — no gRPC server, no IPLD client are wired in 0.0.x; every fact CID is a valid IPLD CID for downstream interop, but the responder does not fetch from IPFS.
 
 ### 11.1 MCP tools (normative)
 
@@ -648,7 +654,7 @@ Servers MUST also expose this catalog at `emem.errors` (MCP) and `GET /v0/errors
 |---|---|---|
 | **L0** | Read-only: `recall`, `query_region`, `compare`, `find_similar`, `diff`, `trajectory`, `intent`. Receipts MUST be served. Privacy-snapping enforced. opML/zkML not required. | hosted Vortx node; agent SDKs |
 | **L1** | L0 + `verify` (fast & resolve modes), full Merkle inclusion proofs, signed attestation log replay, content-addressed registry+coverage manifests | self-hosted nodes; auditors |
-| **L2** | L1 + `attest` (third-party), `challenge`, `verify(mode=zk)`, on-chain anchoring, vision bands admissible | the open protocol; v2.5+ |
+| **L2** | L1 + `attest` (third-party). `challenge`, `verify(mode=zk)`, on-chain anchoring, and vision-band attestation are reserved in the wire format but **not implemented in 0.0.x** (see §6.3, §8.4). | open contributor protocol |
 
 A conforming implementation MUST publish its level in `/.well-known/emem.json` and MUST enforce per-band privacy class (§13) at every level.
 
@@ -691,8 +697,8 @@ crates/
   emem-codec/        ; cell64 + tslot text + vec64 + cid64 codecs, alphabet data
   emem-fact/         ; Fact/Attestation/Receipt types, canonical CBOR, typed CIDs
   emem-claim/        ; claim algebra + evaluator
-  emem-cache/        ; multi-tier cache (Hot sled / Warm parquet / Cold IPLD)
-  emem-fetch/        ; source-connector framework + dispatcher (HTTPS, GCS, IPLD)
+  emem-cache/        ; sled hot cache (warm parquet / cold content-addressed tiers reserved in trait, not wired)
+  emem-fetch/        ; source-connector framework + dispatcher (HTTPS, GCS — IPLD/IPFS reserved, not wired)
   emem-storage/      ; composite: cache + fetch + materializer + Merkle log
   emem-cubes/        ; AgriSynth cube loader (reference; not on the hot path)
   emem-primitives/   ; recall, query_region, compare, find_similar, verify, diff, trajectory
@@ -714,10 +720,10 @@ tools/
 
 - **Hot tier — `sled`** (~30 days, sub-ms point lookups). The CID → fact KV plus the `(cell, band, tslot) → fact_cid` canonical index.
 - **Warm tier — Parquet** (~90 days). Columnar scans for `query_region`; promoted out of Hot on age.
-- **Cold tier — IPLD/IPFS** (forever). Content-addressed; addressed by CID; Filecoin Saturn caching.
+- **Cold tier — design pending.** Content-addressed durable storage (IPLD blocks behind CIDs; Filecoin Saturn caching as one option) is on the roadmap but **not implemented in 0.0.x**. The reference build keeps everything in the local sled hot tier and the Merkle log on disk; operators back up by snapshotting the data directory.
 - **Append-only Merkle log — segment files of 1 GiB**, format `[u32 LE: cbor_len][cbor_bytes][32 bytes: blake3(cbor_bytes)]`, trailing per-segment hash, fsync MUST happen before receipt is signed.
-- **Backup / replication.** Sealed segment files snapshot to S3/IPFS every N segments; `SegmentManifest{index, hash, bytes}` is published into the coverage manifest. Restore = pull segments in order, verify trailing hash per segment, replay attestations.
-- **Multi-node.** Operators shard by H3 res-7 parent (≈1.22 km tiles). Cross-shard reads are stitched at the primitive layer; gossip-dedupe between nodes is deferred to v2.5 federation.
+- **Backup / replication.** Sealed segment files can be copied to any object store (S3, GCS, B2, …) — restore = pull segments in order, verify trailing hash per segment, replay attestations. The IPFS / Filecoin replication path is design-pending and is not gated by this spec.
+- **Multi-node.** Operators shard by H3 res-7 parent (≈1.22 km tiles). Cross-shard reads are stitched at the primitive layer; gossip-dedupe between responders is a v0.1 design problem and is **not implemented in 0.0.x**.
 - **Vector index — Lance** (hierarchical: index res-7 cell *centroids* of attested cubes, drill down on demand to bound RAM).
 
 Choice of Rust is normative for the reference implementation but NOT for conforming implementations; alternative implementations (Go, TypeScript, C++, Python) are welcome and MUST pass the test vector suite.
@@ -808,17 +814,9 @@ Throughput targets:
 
 ---
 
-## §18 TS → Rust migration plan
+## §18 Reference implementation status
 
-The repository currently contains a v1 TypeScript implementation (`src/`, `server/index.ts`, `tests/`). Migration is staged so the TS layer never silently rots:
-
-1. **Phase A — Spec freeze.** v0.0.2-draft (this document) ratifies the new band+codec+fact decisions.
-2. **Phase B — Rust core.** `crates/emem-core`, `emem-codec`, `emem-fact`, `emem-fetch`, `emem-cache`, `emem-storage` ship with golden test vectors. The TS `src/lib/bands.ts` becomes a thin loader over the same `data/bands-v0.json` manifest the Rust core consumes — both implementations validate against the same manifest CID; neither hand-edits the band table.
-3. **Phase C — TS clients port.** `tests/bands.test.ts`, `tests/geotessera.test.ts`, `tests/providers.test.ts` are ported into `spec/test_vectors/` so they keep gating CI against both implementations.
-4. **Phase D — Server cutover.** `server/index.ts` is replaced by `crates/emem-cli serve`; the TS dev playground in `src/App.tsx` is repointed at the Rust server's REST adapter.
-5. **Phase E — SDK rebuild.** `sdks/emem-ts` is published as a thin wrapper over the Rust REST adapter; `sdks/emem-py` ships ctypes bindings to `emem-core`.
-
-The TS code is not deleted in v0.0.2 — it remains the developer playground until the Rust REST adapter is at parity.
+The canonical reference implementation is the **Rust workspace** (`crates/*`) at version 0.0.3. It is what `emem.dev` runs and what every conformance test gates against. The TypeScript playground (`src/`, `server/index.ts`, `sdks/emem-ts`) is legacy from the v1 design and is **not** kept in lock-step with the Rust core; an agent that needs to inter-op should read from the Rust REST adapter (`/v1/*`) or use the Python SDK shim (`sdks/emem-py`). The TS playground will be retired once it has no remaining demos that the Rust adapter doesn't already serve.
 
 ---
 
@@ -830,7 +828,7 @@ The TS code is not deleted in v0.0.2 — it remains the developer playground unt
 {
   "id":       "cell.cell64.roundtrip.0001",
   "kind":     "cell64",
-  "spec":     "v0.0.2",
+  "spec":     "v0.0.3",
   "input":    { "lat": 12.9716, "lng": 77.5946, "res": 13 },
   "expected": { "cell64": "ento.bria.calo.tris", "h3_equivalent": "8d2a1072b59afff" },
   "notes":    "Bengaluru anchor; verifies round-trip and H3 backend equivalence."
@@ -909,8 +907,8 @@ All seven OQs from v0.0.1 are resolved in this draft.
 | OQ-1 | cell64 alphabet source | Empirical intersection of cl100k/o200k/llama-3/claude tokenizers; Hilbert-ordered for spatial locality. Implemented by `tools/measure_alphabet.py`; pinned in `crates/emem-codec/data/cell64-alphabet-v0.bin`. |
 | OQ-2 | gazetteer authority | **Dropped.** No gazetteer in v0. Agent-derived region naming deferred to v0.2; will not block ratification. |
 | OQ-3 | function registry governance | IETF-style RFC + reference Rust impl + golden test vectors required at merge. Registry is content-addressed (CID, not URL). |
-| OQ-4 | on-chain anchoring | **Base L2** (cheapest finality, EVM-compatible). Trait surface activated v2.0; on-chain writes deferred to v2.5. |
-| OQ-5 | stake currency | Native off-chain protocol credit ledger with redemption hook. Avoids token-regulatory exposure through v2.0/v2.5; trait-swappable. |
+| OQ-4 | on-chain anchoring | **Open.** Reference build does not anchor anywhere; receipt verification is pure ed25519 + Merkle. A v0.1 design will choose one rail (candidate: Base L2 for finality + EVM compat) once a concrete need lands. |
+| OQ-5 | stake currency | **Open.** No protocol-issued credits in 0.0.x. The `Attestation.stake` field is a passthrough (§6.3) so external economies (x402, LSP) can layer on top without forcing one in-protocol. |
 | OQ-6 | licence | SPEC: **CC-BY-SA-4.0** · Rust ref impl: **Apache-2.0** · SDKs (py/ts): **MIT**. |
 | OQ-7 | vision band reproducibility | Vision bands admissible at L2 only. Source.cid of model checkpoint MUST be present. L0/L1 nodes do not serve vision bands. |
 
@@ -948,4 +946,4 @@ New open questions for v0.0.4:
 
 ---
 
-*End of emem Protocol Specification v0.0.2-draft.*
+*End of emem Protocol Specification v0.0.3-draft.*

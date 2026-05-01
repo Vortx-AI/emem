@@ -42,8 +42,10 @@ layer, every "what is at place X?" answer is unauditable. emem fixes this by:
 - giving every spatial fact a **cid** that two parties recompute byte-for-byte,
 - signing every read with **ed25519**, including the responder's pubkey, so
   the receipt is offline-verifiable,
-- covering the whole Earth with a Hilbert-ordered **cell64** address that
-  costs ≤ 4 BPE tokens per cell.
+- covering the whole Earth with a square **cell64** address (~10 m × ~10 m at
+  the equator, lat 21 bits × lng 22 bits — matches Sentinel-1/-2 native
+  pitch). The codec's bigram alphabet is Hilbert-ordered so neighbouring
+  cells get visually similar strings, but the geometry is a square grid.
 
 ## Quickstart
 

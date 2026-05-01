@@ -27,7 +27,7 @@ curl -s https://emem.dev/health
   "schema_cid":           "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
   "bands_cid":            "qasn3xlystdrb4aefh6axpbb737frentzpqevvr6jrisqkwq5weq",
   "sources_cid":          "hpzan5yznnmazryeoedbfy2u2mgfti6adrs7gwcpe37cpo3f42uq",
-  "version":              "0.0.2"
+  "version":              "0.0.3"
 }
 ```
 

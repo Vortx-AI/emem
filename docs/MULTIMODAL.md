@@ -293,7 +293,7 @@ endpoint.
 - emem source-tier ordering: `crates/emem-core/src/algorithms.rs` (`SourceTier`)
 - Validator rules R1–R4: `AlgorithmRegistry::validate` in same file
 - Multimodal block schema: `pub struct Multimodal` in same file
-- Topic routing dispatch: `TOPIC_BANDS` / `TOPIC_ALGORITHMS` in `crates/emem-api-rest/src/lib.rs`
+- Topic routing dispatch: `TopicRegistry` (`crates/emem-core/data/topics-v0.json`, content-addressed via the `Manifest` trait, CID surfaced as `topics_cid` on `/v1/manifests`) consumed by `TopicRouter` (`crates/emem-api-rest/src/topic_router.rs`). The router uses model2vec-rs (`minishlab/potion-base-8M`, sub-ms inference, pure-Rust, no ONNX/C++) for cosine similarity against per-topic centroids built from each topic's description + aliases, with an alias-keyword backend as transparent fallback when the model can't load.
 - Live algorithms catalog: `https://emem.dev/v1/algorithms`
 - Live source registry: `https://emem.dev/v1/sources`
 - Wagner et al. 1999 — SAR change-detection paradigm for soil moisture

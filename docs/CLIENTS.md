@@ -270,7 +270,7 @@ curl -sX POST https://emem.dev/mcp -H 'content-type: application/json' \
        "protocolVersion":"2024-11-05","capabilities":{},
        "clientInfo":{"name":"curl-test","version":"0.0"}}}' \
   | jq .result.serverInfo
-# → { "name": "emem", "version": "0.0.2" }
+# → { "name": "emem", "version": "0.0.3" }
 
 # tools/list
 curl -sX POST https://emem.dev/mcp -H 'content-type: application/json' \

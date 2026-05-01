@@ -63,6 +63,11 @@ user wants a region summary
 user's ask is underspecified
    └─ POST /v1/intent {type:"what_is_here|where_is|is_like|...", ...}
 
+user types a freeform question about a place
+   └─ POST /v1/ask {q, lat, lng | cell | place}  →  facts + topic_routing
+                                                    + algorithm_outcomes[]
+                                                    + temporal_composition[]
+
 user wants to know "which dataset answers X right now"
    └─ GET /v1/coverage_matrix
    └─ GET /v1/fleet  (for satellite/sensor lineage)
@@ -71,6 +76,32 @@ user wants to know "which dataset answers X right now"
 
 In every reply: cite `receipt.fact_cids[0]` (truncated 13-char `cid64`
 prefix) and mention `responder_pubkey_b32` once per session.
+
+### What `/v1/ask` (and `/v1/intent`) carry beyond raw facts
+
+Two additive sibling arrays sit alongside `facts` and let an agent skip
+a hand-rolled fan-out:
+
+- **`algorithm_outcomes[]`** — one entry per matched algorithm whose
+  registry entry carries an `evaluation: Expr` block. Each entry is
+  `{ algorithm_key, evaluation_via: "ast", input_fact_cids[], value }`.
+  Empty when no matched algorithm has been migrated to the AST yet.
+  In 0.0.3 only `flood_risk@2` is migrated; the other 101 algorithms
+  still ship a human-readable `formula: String` only and require the
+  caller to evaluate. M-13 in `docs/MILESTONE_v0.0.4.md` tracks the
+  rest.
+- **`temporal_composition[]`** — one entry per matched algorithm
+  whose registry entry carries a `temporal_recipe`. Each entry is
+  `{ algorithm_key, recipe_label, windows: [{ band, lookback_days,
+  aggregator, fact_cid, value, ... }], aggregator_summary }`. Lets a
+  single round-trip yield "antecedent rainfall (7 d sum) → recent
+  radar water (14 d max) → optical water (30 d baseline)" without
+  the agent issuing 3 follow-up calls.
+
+Topic routing for the natural-language `q` field uses a content-
+addressed `TopicRegistry` (`topics_cid` on `/v1/manifests`) with
+sub-millisecond cosine match via model2vec-rs. Pin the `topics_cid`
+in your receipt if you need to reproduce the routing decision later.
 
 ---
 
@@ -215,8 +246,10 @@ Example reply:
   find_similar + diff + trajectory + query_region + introspection.
   No write, no keys.
 - **L1** — adds `verify` (claim eval with evidence CIDs).
-- **L2** — adds `attest` and `challenge` (signed writes, staked
-  disputes).
+- **L2** — adds `attest` (signed writes from any contributor with an
+  ed25519 keypair). `challenge` and stake-based slashing are reserved
+  in the wire format but are **not implemented in 0.0.x** — see
+  `docs/SPEC.md` §6.3 and §8.4.
 
 The `level` field on every tool descriptor at `/v1/tools` declares what
 this responder serves.

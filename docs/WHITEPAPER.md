@@ -1,6 +1,6 @@
 # emem — the Earth Memory Protocol
 
-**Version 0.0.2-alpha** · Vortx-AI · Apache-2.0
+**Version 0.0.3** · Vortx-AI · Apache-2.0
 github.com/Vortx-AI/emem
 
 emem is an agent-native, content-addressed, lazy-materialization protocol
@@ -187,8 +187,12 @@ The hot tier is a sled DB with two trees:
 - `emem.canonical_index` — `(cell ‖ 0x00 ‖ band ‖ 0x00 ‖ tslot_be8)` → fact CID.
 - `emem.facts` — fact CID → canonical CBOR bytes.
 
-Warm (parquet) and cold (IPLD/IPFS) tiers extend the same `Cache`
-trait; eviction never deletes, only re-tiers.
+The `Cache` trait reserves space for warm (parquet) and cold
+(content-addressed, IPLD-style) tiers, but the 0.0.3 reference build
+ships only the sled hot tier and the on-disk Merkle log — no
+parquet, no IPFS, no Filecoin client. Multi-tier eviction is part of
+the v0.1 roadmap; until then, operators back up by snapshotting the
+data directory.
 
 The Merkle attestation log is append-only with 1 GiB segments and
 trailing per-segment blake3 hashes. Replay-restore is "for each
@@ -323,8 +327,11 @@ adjacent tokens.
 
 - **L0** — read-only, public-band recall (every emem build serves L0).
 - **L1** — verified claims (`/v1/verify mode=fast`).
-- **L2** — write (`/v1/attest`) and challenge (`/v1/challenge`),
-  staked.
+- **L2** — write (`/v1/attest`). Any contributor with an ed25519 keypair
+  can attest; the responder accepts on canonical-CBOR + signature
+  verification. `/v1/challenge` and stake-based slashing are reserved
+  in the wire format but are **not implemented in 0.0.x** — see
+  SPEC §6.3 and §8.4.
 
 Every receipt declares the active level and registry/schema CIDs.
 
@@ -420,14 +427,13 @@ mean" a hash comparison, not an English-language SLA.
 
 Cost-of-access varies by five orders of magnitude across (RAM hot →
 local SSD warm → remote object store cold). A single tier optimizes
-for one regime and pays for it in the others. The hot tier (sled,
-content-addressed) optimizes for sub-millisecond reads of the working
-set; the warm tier (parquet, columnar, range-readable) optimizes for
-sweeping queries over months of `tslot` history at a single cell;
-the cold tier (IPLD/IPFS) optimizes for durability and inter-responder
-sharing without any one host paying the bandwidth. The tiers are not
-features — they are what falls out of treating storage as a function
-of access pattern.
+for one regime and pays for it in the others. The 0.0.3 reference
+build ships only the hot tier (sled, content-addressed,
+sub-millisecond reads of the working set); a warm parquet tier for
+month-scale `tslot` sweeps and a cold content-addressed tier for
+inter-responder durability are described in the design but are not
+yet wired. The tiers are not features — they are what falls out of
+treating storage as a function of access pattern.
 
 ### What this implies for the agent
 
