@@ -2869,6 +2869,13 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "schema_cid": s.manifests.schema_cid.as_str(),
             "algorithms_cid": ALGORITHMS_CID.clone(),
             "topics_cid": TOPICS_CID.clone(),
+            // Which routing backend the topic_router actually loaded at
+            // startup. "transformer" = model2vec-rs cosine match (the
+            // happy path); "keyword" = alias-keyword fallback because
+            // the model could not be fetched / loaded. Surfaced so an
+            // agent debugging routing quality can tell at a glance
+            // whether the responder is in degraded mode.
+            "topic_router_backend": topic_router::TopicRouter::global().backend_name(),
         },
         // Reconciles the four band counts agents see across surfaces so
         // they don't have to guess which one is authoritative. The
@@ -7706,7 +7713,14 @@ async fn materialize_weather_current(
     );
     let resp = reqwest_client()
         .get(&url)
-        .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+        .header(
+            "user-agent",
+            concat!(
+                "emem.dev/",
+                env!("CARGO_PKG_VERSION"),
+                " (avijeet@vortx.ai)"
+            ),
+        )
         .send()
         .await
         .map_err(|e| format!("met.no https: {e}"))?;
@@ -7864,7 +7878,14 @@ async fn materialize_power_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .header(
+                "user-agent",
+                concat!(
+                    "emem.dev/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (avijeet@vortx.ai)"
+                ),
+            )
             .send(),
     )
     .await
@@ -8012,7 +8033,14 @@ async fn materialize_cams_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .header(
+                "user-agent",
+                concat!(
+                    "emem.dev/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (avijeet@vortx.ai)"
+                ),
+            )
             .send(),
     )
     .await
@@ -8129,7 +8157,14 @@ async fn materialize_era5_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .header(
+                "user-agent",
+                concat!(
+                    "emem.dev/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (avijeet@vortx.ai)"
+                ),
+            )
             .send(),
     )
     .await
@@ -8244,7 +8279,14 @@ async fn materialize_marine_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .header(
+                "user-agent",
+                concat!(
+                    "emem.dev/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (avijeet@vortx.ai)"
+                ),
+            )
             .send(),
     )
     .await
@@ -9935,7 +9977,14 @@ async fn materialize_soilgrids_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+            .header(
+                "user-agent",
+                concat!(
+                    "emem.dev/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (avijeet@vortx.ai)"
+                ),
+            )
             .send(),
     )
     .await
@@ -13315,7 +13364,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // an honest 404 (refine the query) and a 502 (responder /
                 // upstream is down) — see SPEC §11.3.
                 let photon_result = photon_lookup_candidates(p, 5).await;
-                let nom_needed = matches!(&photon_result, Ok(h) if h.is_empty()) || photon_result.is_err();
+                let nom_needed =
+                    matches!(&photon_result, Ok(h) if h.is_empty()) || photon_result.is_err();
                 let nominatim_result = if nom_needed {
                     Some(nominatim_lookup_candidates(p, 5).await)
                 } else {
@@ -13399,7 +13449,10 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         "nominatim_result is None ⇒ photon_result is Ok(non-empty), already matched"
                     ),
                 };
-                let hit = hits.first().cloned().expect("hits is non-empty by construction above");
+                let hit = hits
+                    .first()
+                    .cloned()
+                    .expect("hits is non-empty by construction above");
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
                 nominatim_cache_put(p, hit.lat, hit.lng, &hit.label, hit_bbox_arr);
                 if polygon_bbox.is_none() {

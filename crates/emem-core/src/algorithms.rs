@@ -327,6 +327,7 @@ pub struct Algorithm {
     /// scalar result alongside the input fact CIDs. The composite is
     /// then verifiable end-to-end (a third party with the same inputs
     /// + algorithm CID re-executes and gets the same number).
+    ///
     /// Algorithms without an `evaluation` continue to be advertised
     /// only — the agent reads the human-readable `formula` string and
     /// composes itself. Added in 0.0.3 alongside `temporal_recipe`.

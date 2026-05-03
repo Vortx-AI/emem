@@ -37,7 +37,11 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| PathBuf::from(format!("var/demos/realdata_{stamp}")));
     std::fs::create_dir_all(&out_dir)?;
     let http = reqwest::Client::builder()
-        .user_agent("emem-realdemo/0.0.2 (+https://emem.dev)")
+        .user_agent(concat!(
+            "emem-realdemo/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://emem.dev)"
+        ))
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
     let mut trace = TraceIndex::new(&base, &out_dir);

@@ -95,7 +95,14 @@ pub async fn search_one_at(
     let resp = client
         .post(search_url)
         .header("content-type", "application/json")
-        .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+        .header(
+            "user-agent",
+            concat!(
+                "emem.dev/",
+                env!("CARGO_PKG_VERSION"),
+                " (avijeet@vortx.ai)"
+            ),
+        )
         .json(&body)
         .send()
         .await
@@ -172,7 +179,14 @@ pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, 
     let url = format!("https://planetarycomputer.microsoft.com/api/sas/v1/token/{collection}");
     let resp = client
         .get(&url)
-        .header("user-agent", "emem.dev/0.0.2 (avijeet@vortx.ai)")
+        .header(
+            "user-agent",
+            concat!(
+                "emem.dev/",
+                env!("CARGO_PKG_VERSION"),
+                " (avijeet@vortx.ai)"
+            ),
+        )
         .send()
         .await
         .map_err(|e| format!("mpc sas http: {e}"))?;

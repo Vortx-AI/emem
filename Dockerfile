@@ -6,13 +6,16 @@ FROM rust:1.88-slim-bookworm AS build
 ARG TARGETARCH
 WORKDIR /usr/src/emem
 
-# OpenSSL is *not* needed (we use rustls-acme), but build tools and a
-# few tiny C deps for sled/blake3-asm are.
+# OpenSSL is *not* needed (we use rustls-acme), but build tools are.
+# g++ is required by transitive C++ deps that came in with the
+# 0.0.3 transformer router (model2vec-rs → tokenizers → esaxx-rs);
+# the runtime stage is a fresh debian:bookworm-slim so it does not
+# inherit g++ — this only adds ~50 MB to the build stage.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        pkg-config ca-certificates && \
+        pkg-config ca-certificates g++ && \
     rm -rf /var/lib/apt/lists/*
 
 # Cache `cargo fetch` against the workspace manifest before pulling in
