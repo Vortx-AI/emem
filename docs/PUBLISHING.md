@@ -49,11 +49,12 @@ CI pushes `huggingface-space/` to the Space on every `main` push.
 
 ## 4. MCP registry metadata
 
-`mcp-server.json` at the repo root is the machine-readable manifest
-crawled by MCP registries (e.g. the [official MCP servers
-list](https://github.com/modelcontextprotocol/servers)). Keep it in
-sync with the tool list in `crates/emem-mcp/src/lib.rs`; CI verifies
-the tool names line up via a unit test.
+`server.json` at the repo root is the machine-readable manifest the
+official [MCP Registry](https://registry.modelcontextprotocol.io/) reads
+when `mcp-publisher publish` runs. Keep its `version` and tool inventory
+in sync with `crates/emem-mcp/src/lib.rs`; ownership is verified through
+the `io.modelcontextprotocol.server.name` LABEL on the GHCR image (set
+in `Dockerfile`).
 
 ## 5. Verifying a release
 

@@ -245,21 +245,19 @@ POST   /v1/attest_cbor   (signed canonical CBOR — preferred for byte-exact mer
 GET    /v1/facts/{cid}
 ```
 
-### 9.2 MCP JSON-RPC 2.0 (in-loop agent)
+### 9.2 MCP Streamable HTTP (in-loop agent)
 
 ```
 POST   /mcp
    method: initialize              → { protocolVersion, serverInfo, capabilities }
-   method: tools/list              → [ emem.recall, emem.compare, … ]
+   method: tools/list              → 28 tools spanning recall, multimodal, introspection
    method: tools/call              → invoke any primitive
 ```
 
-The MCP tool inventory matches the REST primitives; all 16 tools
-(`emem.recall`, `emem.query_region`, `emem.compare`, `emem.find_similar`,
-`emem.trajectory`, `emem.diff`, `emem.verify`, `emem.attest`,
-`emem.challenge`, `emem.bands`, `emem.functions`, `emem.sources`,
-`emem.schema`, `emem.errors`, `emem.manifests`, `emem.intent`) are
-agent-discoverable through `tools/list`.
+The MCP surface mirrors the REST primitives one-for-one and adds
+introspection tools (`emem_bands`, `emem_manifests`, `emem_errors`, …).
+Authoritative count + names come from `tools/list`; `docs/AGENTS.md §10`
+has paste-ready configs for every supporting host.
 
 ### 9.3 OpenAPI 3.1 (LLM tool discovery)
 
@@ -271,8 +269,6 @@ without bespoke glue.
 ---
 
 ## 10. Mathematics
-
-This is the part the hardware-level reader cares about.
 
 ### 10.1 Hashing
 

@@ -1,7 +1,7 @@
 # emem Protocol — Specification v0.0.3-draft
 
 > Status: draft · 2026-05-01 · Editor: Vortx-AI
-> Supersedes: `docs/SPEC.md@v0.0.2-draft`, `docs/PROPOSAL_v2.archive.md`, `docs/product-memory.md`
+> Supersedes: `docs/SPEC.md@v0.0.2-draft`, `docs/PROPOSAL_v2.archive.md`
 >
 > 0.0.3 changes vs 0.0.2: temporal_composition/temporal_recipe (new
 > additive surface), flood_risk@2 with DEM-agreement weighting,

@@ -1,13 +1,15 @@
 # Multimodal cross-sensor architecture
 
-emem.dev is a **multi-sensor** Earth-memory protocol. Every algorithm
-that claims a fine-grained delivery resolution must earn it by
-anchoring on at least one S1 / S2 / Landsat input on its variance side;
-coarse-physics products (SPI on POWER precip, GDD on weather t2m)
-declare their honest native resolution and stay valid by symmetry.
-This document describes the policy, the registry validator that
-enforces it, and the cross-modality test methodology used to verify it
-on the live emem.dev responder.
+The rule: an algorithm that claims a fine-grained `delivery_resolution_m`
+must anchor at least one variance input on S1, S2, or Landsat. Algorithms
+on coarser inputs (SPI from POWER precipitation, GDD from weather t2m)
+declare their honest native resolution and pass on the same symmetry. The
+load-time validator (R1–R4 below) refuses to start the responder when
+this is broken.
+
+Sections that follow: the resolution-truth callout, sensor tiers, the
+validator rules, fusion methods, the live algorithm list, the live test
+methodology, the timeout matrix, and source pointers.
 
 > **Resolution truth (read first).** Three different "resolutions"
 > sit behind the multimodal block — distinguish them carefully.
@@ -43,28 +45,20 @@ on the live emem.dev responder.
 
 ---
 
-## 1. The principle
+## 1. Baseline vs variance
 
-> Earth observation is a game of precision, resolution, and repetition.
-> The protocol's commitment is to deliver answers at 10 m where physics
-> allows. Sentinel-1 and Sentinel-2 are the only free, open, daily-ish
-> sources that hit that grid; coarser sources (MODIS, ERA5, NASA POWER,
-> SoilGrids, Hansen, ESA WorldCover) provide the climatology, prior, or
-> regulatory baseline an algorithm reasons against, but they cannot
-> carry the variance signal an agent's question depends on at plot
-> scale.
+Sentinel-1 and Sentinel-2 are the only free open daily-ish sources at
+~10 m. Coarser sources (MODIS, ERA5, POWER, SoilGrids, Hansen,
+WorldCover) carry climatology and priors but can't supply per-plot
+variance. The protocol splits an algorithm's inputs accordingly:
 
-Concretely:
-
-- **Baseline** = the slow / climatological / prior term: per-cell
-  multi-year DOY-windowed mean, depth-static raster, regulatory cut-off.
-  May come from any tier (POWER, ERA5, SoilGrids, Hansen, GSW).
-- **Variance** = the fast / event / current term: a current observation
-  that produces the *anomaly* the algorithm reports on. Must come from
-  S1, S2, or Landsat when the algorithm claims ≤10 m delivery.
-- **Anchor band** = the single input that defines the algorithm's
-  declared `delivery_resolution_m`. Its tier must lead the
-  `priority_chain`.
+- **Baseline** — slow / climatological / prior term (multi-year DOY
+  mean, static raster, regulatory cut-off). Any tier.
+- **Variance** — current observation producing the anomaly the
+  algorithm reports on. Must come from S1, S2, or Landsat when the
+  algorithm claims `delivery_resolution_m ≤ 10`.
+- **Anchor band** — the single input that sets the declared
+  `delivery_resolution_m`. Its tier leads `priority_chain`.
 
 ## 2. Sensor tiers
 

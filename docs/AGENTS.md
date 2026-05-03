@@ -304,8 +304,7 @@ Every host that speaks MCP Streamable HTTP points at the same URL
 
 ## 11. Common mistakes
 
-These are the failure modes that show up most often in agent traces.
-Each comes with the fix.
+The failure modes that show up most often in agent traces, with the fix.
 
 **Mistake 1: Using a band key that isn't in the active manifest.**
 The responder returns `band_not_in_registry`. Fix: call `GET /v1/bands`
@@ -364,11 +363,10 @@ its own key. Surface the fn_key when accuracy matters.
 
 ---
 
-## 12. The agent's bargain
+## 12. What you get
 
-emem makes answers about places **citable**, **reproducible**, and
-**cheap to read**. Quote a fact and prove it with a CID + receipt.
-Compare two places without holding their embeddings in context. Recall
-what was true *yesterday* — emem is append-only. Compose chains
-(locate → recall → verify → diff → present) with every step signed by
-the responder's epoch key. Use it whenever a question has a `where`.
+Citable answers (`receipt.fact_cids[0]` + responder pubkey verify
+offline), reproducible reads (same `(cell, band, tslot)` → same CID
+on any responder), and cheap composition (locate → recall → verify →
+diff is one chain of signed steps). Recall what was true yesterday —
+the log is append-only. Use it whenever a question has a `where`.

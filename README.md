@@ -1,8 +1,11 @@
 # emem — Earth memory protocol for AI agents
 
-**Cite-able, content-addressed, signed memory of every place on Earth.**
-1 protocol. 8 read primitives. ed25519 receipts. No keys for L0/L1.
-Apache-2.0. Pure Rust + open data only.
+Signed, content-addressed, cite-able memory of every place on Earth.
+Eight read primitives, ed25519 receipts, no keys for reads. Apache-2.0,
+pure Rust, open data only.
+
+Live at [emem.dev](https://emem.dev) — `GET /health`, `POST /v1/recall`,
+or paste `https://emem.dev/mcp` into any MCP client.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
@@ -25,27 +28,21 @@ GET   /v1/demos                  POST  /v1/attest          POST  /mcp
 
 ## What it is
 
-emem is a protocol — not a service — for **content-addressed Earth memory**.
-Every fact about every place gets a stable CID derived from the canonical CBOR
-of its `(cell × band × tslot)` payload. Every read is a signed receipt that
-any client can verify offline with the responder's ed25519 public key.
+A protocol, not a service. Every fact about every place is a tuple
+`(cell, band, tslot)`; the canonical CBOR of that tuple hashes to a stable
+CID. Every read is signed with the responder's ed25519 key, so any client
+can verify offline against the pubkey at `/.well-known/emem.json`.
 
-emem is built **for AI agents**: when a user mentions a place, the agent
-should call emem and cite `receipt.fact_cids[0]`. The protocol works equally
-well over plain REST, MCP JSON-RPC 2.0, and OpenAPI 3.1 custom actions.
+LLMs confabulate spatial facts. emem gives them something to cite:
 
-## Why agents need it
+- a **CID** any two parties recompute byte-for-byte from the same fact,
+- a signed **receipt** verifiable without calling back to the responder,
+- a **cell64** address (~10 m × ~10 m square at the equator; lat 21 bits ×
+  lng 22 bits, matching Sentinel-1/-2 native pitch) whose Hilbert-ordered
+  alphabet makes neighbouring cells share string prefixes.
 
-LLMs confabulate spatial facts. Without a verifiable, content-addressed memory
-layer, every "what is at place X?" answer is unauditable. emem fixes this by:
-
-- giving every spatial fact a **cid** that two parties recompute byte-for-byte,
-- signing every read with **ed25519**, including the responder's pubkey, so
-  the receipt is offline-verifiable,
-- covering the whole Earth with a square **cell64** address (~10 m × ~10 m at
-  the equator, lat 21 bits × lng 22 bits — matches Sentinel-1/-2 native
-  pitch). The codec's bigram alphabet is Hilbert-ordered so neighbouring
-  cells get visually similar strings, but the geometry is a square grid.
+Agents talk to it over plain REST, MCP Streamable HTTP, or OpenAPI 3.1.
+All three are the same wire — pick whichever your host already speaks.
 
 ## Quickstart
 
@@ -79,9 +76,10 @@ curl -s -X POST http://localhost:5051/v1/recall \
   -d '{"cell":"damO.zb000.xUti.zde78"}'   # Mt Fuji
 ```
 
-### MCP / Claude Desktop / Cursor / Cline
+### MCP — Claude Desktop, Cursor, Cline, Codex, Antigravity
 
-Paste-ready configs live under `examples/`:
+The hosted endpoint is `https://emem.dev/mcp` — Streamable HTTP, no auth,
+28 tools. Paste-ready configs live under `examples/`:
 
 | platform        | file                                |
 |-----------------|-------------------------------------|
@@ -93,19 +91,23 @@ Paste-ready configs live under `examples/`:
 | LangChain       | `examples/langchain.py`             |
 | LlamaIndex      | `examples/llamaindex.py`            |
 
-The full agent integration walkthrough is at [docs/AGENTS.md](docs/AGENTS.md).
+Per-client wiring + smoke tests in [docs/CLIENTS.md](docs/CLIENTS.md);
+agent loop guide in [docs/AGENTS.md](docs/AGENTS.md).
 
 ### Live end-to-end demos
 
-Two CLI binaries exercise the full protocol against a running server and
-write per-step request + response + receipt files to `var/demos/<UTC>/`:
+Two CLI binaries exercise every primitive end-to-end and dump per-step
+request + response + receipt files to `var/demos/<UTC>/`:
 
 ```bash
 ./target/release/emem-livedemo        # synthetic data, every primitive
 ./target/release/emem-realdemo        # real Copernicus DEM 30m S3 tiles
 ```
 
-The server exposes the trace artifacts at `GET /v1/demos`.
+Trace artifacts surface at `GET /v1/demos`. Two trial reports against
+the live endpoint live at [docs/AGENT_TRIAL.md](docs/AGENT_TRIAL.md)
+(single-agent loop) and [docs/GLOBAL_TRIAL.md](docs/GLOBAL_TRIAL.md)
+(43 fixtures across nine place-types; both run with `scripts/global_trial.py`).
 
 ## How it works
 

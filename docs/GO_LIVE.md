@@ -1,20 +1,24 @@
 # Go-live checklist
 
-Everything I (Claude / agent) could prepare from inside the repo is
-done. The remaining steps are clicks on github.com / huggingface.co /
-hub.docker.com that need a human session. Follow them in order — each
-step is independently safe and idempotent.
+The clicks on github.com / huggingface.co / hub.docker.com that move emem
+from "code in a repo" to "discoverable by an agent". Each step is
+independently safe and idempotent; skip the ones already done.
 
-## Status snapshot (when this doc was written)
+## Current state
 
-| channel                  | state             | gate                                                       |
-|--------------------------|-------------------|------------------------------------------------------------|
-| `github.com/Vortx-AI/emem` | pushed (private) | needs visibility flip                                      |
-| `ghcr.io/vortx-ai/emem`  | image not built   | needs publish.yml workflow run on a public repo            |
-| `docker.io/vortxai/emem` | not published     | needs `PUBLISH_DOCKERHUB=true` + DH credentials secrets    |
-| HuggingFace Space         | does not exist    | needs Space creation + `PUBLISH_HF_SPACE=true` + token     |
-| MCP Server Registry       | not submitted     | needs `mcp-publisher publish` after image is public        |
-| awesome-mcp-servers       | not submitted     | needs PR (patch ready)                                     |
+The repo is public at github.com/Vortx-AI/emem and `cargo test` is green
+in CI. The hosted instance runs at emem.dev (HTTPS via in-process
+rustls-acme). What's already on (✓) and what still needs a human:
+
+| channel                       | state |
+|-------------------------------|-------|
+| `github.com/Vortx-AI/emem`    | ✓ public |
+| `ghcr.io/vortx-ai/emem:latest`| ✓ multi-arch image, every push to main |
+| `emem.dev`                    | ✓ live, 0.0.3 |
+| `docker.io/vortxai/emem`      | opt-in: `PUBLISH_DOCKERHUB=true` + DH PAT |
+| HuggingFace Space             | opt-in: create space + `PUBLISH_HF_SPACE=true` + HF token |
+| MCP Server Registry           | run `mcp-publisher publish` after server.json bumps |
+| awesome-mcp-servers           | one-off PR, patch in `docs/registries/` |
 
 ## Step 1 — flip the GitHub repo to public
 
@@ -200,17 +204,6 @@ curl -sf -X POST "https://emem.dev/mcp" -H 'content-type: application/json' \
 
 Each line should print a check / count. Anything that errors tells
 you which step still needs flipping.
-
-## Step 9 — rotate the leaked HuggingFace token
-
-The token sent earlier in cleartext is in
-`~/.config/emem/secrets.env` (mode 600). After Step 5 succeeds with a
-fresh token, revoke the old one:
-
-```
-huggingface.co/settings/tokens →
-  find the leaked token → "Manage" → "Revoke"
-```
 
 ## Why we don't need a `modelcontextprotocol/servers` PR
 

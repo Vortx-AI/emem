@@ -8,11 +8,11 @@
 
 ---
 
-## TL;DR
+## What `/v1/temporal_route` returns
 
-The endpoint `POST /v1/temporal_route` (also `GET` with query params)
-takes a cell, a query time, and an optional intent string, then
-returns two ranked lists:
+`POST /v1/temporal_route` (also `GET` with query params) takes a cell,
+a query time, and an optional intent string, then returns two ranked
+lists:
 
 1. **`cite_now`** — bands with the highest cite-able quality at the
    query time, given the existing attestations on this cell. Static
@@ -109,12 +109,12 @@ implement its own routing should drop the intent table and use
 
 ---
 
-## JEPA inspiration: predicting the missing observation
+## JEPA — predicting a missing observation (research direction)
 
-The router answers "which band is freshest?" but a more interesting
-question is "what would the value *be* at this (cell, time) pair if
-no one has attested it?". That's where JEPA-style architectures
-come in.
+The router answers "which band is freshest?". A separate question —
+"what *would* the value be at this `(cell, time)` if no one has
+attested it?" — is where JEPA-style architectures come in. Not shipped
+in 0.0.x; this section is the design.
 
 ### What JEPA does
 

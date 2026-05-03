@@ -1,20 +1,15 @@
 # Client integration guide for emem.dev
 
-This guide is the user-facing test report for connecting **emem** — the
-content-addressed, signed Earth-memory protocol — to popular AI clients.
-Every command below was run live against `https://emem.dev` on
-2026-04-30. We document **what works, what fails, and the resolution
-truth** before we hand it to your agent.
+How to plug emem into Claude (Web / Desktop / Code), Cursor, Cline,
+Gemini, Antigravity, ChatGPT Custom GPTs, and the Codex CLI. The public
+default build needs no keys. Every command below was run live against
+`https://emem.dev`; the failures we hit (and the fix for each) are
+listed alongside the working calls.
 
-> Audience: a developer or AI-power-user who wants to plug emem into
-> Claude (Web / Desktop / Code), Cursor, Cline, Gemini, Anthropic
-> Antigravity, OpenAI ChatGPT (Custom GPTs / Actions), or the OpenAI
-> Codex CLI. No API keys are required for the public default build.
-
-> If you spot a discrepancy with the live server, file an issue at
-> github.com/Vortx-AI/emem — wire-stable counts come from
-> `/v1/manifests`, `/v1/data_availability`, `/v1/algorithms`, and
-> `/v1/tools`, not from this doc.
+Counts that drift (band totals, tool counts, algorithm counts) come
+from the live server (`/v1/manifests`, `/v1/data_availability`,
+`/v1/algorithms`, `/v1/tools`) rather than from this doc — file an
+issue at github.com/Vortx-AI/emem if you spot a mismatch.
 
 ---
 
@@ -590,24 +585,19 @@ Reality: same 28-tool surface; no Codex-specific friction observed.
 
 ---
 
-## 11. The benefits, in one paragraph
+## 11. What you actually get
 
-- **No keys.** No OAuth dance. No pricing dashboard. The hosted
-  server is anonymous-by-default; bring your own ed25519 keypair only
-  if you want to *contribute* facts (CoIL).
-- **Receipts.** Every read is a signed Merkle leaf you can paste into
-  a citation, dereference at `/v1/facts/{cid}`, and verify offline
-  with `/v1/verify_receipt`.
-- **One protocol, many clients.** MCP for Claude Desktop / Code /
-  Cursor / Cline / Codex / Antigravity; OpenAPI for ChatGPT Custom
-  GPTs and Gemini; bare HTTPS for any LLM that can `curl`.
-- **Honest gaps.** When a cell has no Sentinel-1 scene, you get a
-  signed `Absence`, not a hallucinated zero. When the soil model
-  doesn't apply over urban pixels, you get a signed `Absence`, not
-  silence.
-- **Open data.** Copernicus DEM, JRC GSW, Hansen GFC, ESA WorldCover,
-  Sentinel-1/2, MODIS, NASA POWER, ERA5, CAMS, met.no, SoilGrids 2.0,
-  Overture — every materializer reads from no-key public sources.
+No OAuth, no pricing dashboard — the hosted server is anonymous; bring
+an ed25519 keypair only if you want to contribute (see CoIL in
+[CONTRIBUTORS.md](CONTRIBUTORS.md)). Every read is a signed Merkle leaf
+you can dereference at `/v1/facts/{cid}` and verify offline with
+`/v1/verify_receipt`. The same wire serves MCP (Claude Desktop / Code /
+Cursor / Cline / Codex / Antigravity), OpenAPI (ChatGPT Custom GPTs,
+Gemini), and bare HTTPS for anything that can `curl`. Empty cells return
+a signed `Absence` rather than a hallucinated zero. Materializers read
+only from no-key open data — Copernicus DEM, JRC GSW, Hansen GFC, ESA
+WorldCover, Sentinel-1/2, MODIS, NASA POWER, ERA5, CAMS, met.no,
+SoilGrids 2.0, Overture.
 
 ---
 
