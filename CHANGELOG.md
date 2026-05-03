@@ -7,6 +7,75 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 
 ## [Unreleased]
 
+### Added
+- **`/v1/{ndvi,air,lst,soil,water,forest,weather,at}`** — convenience
+  POST handlers accepting `{place: "..."}` (geocode→cell) or
+  `{lat, lng}`; matching `?place=` and `?lat=&lng=` GET forms. Each
+  returns a single signed scalar plus receipt. Closes the gap where
+  only `/v1/elevation` was wired despite the eight sister endpoints
+  being documented.
+- **`GET /v1/cells/:cell64/scene.rgb`** — raw `application/octet-stream`
+  RGB bytes (with `x-emem-scene-{format,width,height,channels,...}`
+  headers), sibling to the existing `scene.png` route. Matches the MCP
+  `emem_cell_scene_rgb` tool.
+- **`GET /security`** — fourth policy page, served as
+  `text/markdown` from `SECURITY.md` alongside the existing
+  `/privacy`, `/terms`, `/support` routes; required for marketplace
+  listings.
+- **`POST /v1/fetch`** — REST mirror of the MCP `emem_fetch` tool.
+  Accepts either `{cid}` (lookup-only) or `{cell, band, [tslot]}`
+  (materialize-then-persist), returning the fact + signed receipt.
+- **`bands_cid` in `/v1/bands` response root** — agents reading
+  `/v1/bands` alone can now pin the manifest CID without a separate
+  `/v1/manifests` call.
+- **`open_meteo_copdem90m@1` and `met_no_locationforecast_compact@1`**
+  registered in `/v1/functions` so the derivation-function registry
+  matches the materializer registry. Function count: 17 → 19.
+- **`place_not_found` and `geocoder_transport_down` error codes**
+  exposed in `/v1/errors` alongside the legacy `no_geocoder_match`,
+  documenting the runtime distinction wired in commit `02e4c5e`.
+- **`/v1/query_region` accepts `bbox: [west, south, east, north]`**
+  in addition to the cell64 `geometry` form, matching the documented
+  examples in `examples/agent-walkthroughs.md`.
+- **`emem verify <receipt-path|->`** subcommand on the `emem` CLI —
+  offline ed25519 verification of a receipt against either the
+  embedded responder pubkey, an explicit `--pubkey b32`, or
+  `/.well-known/emem.json` via `--base-url`/`EMEM_BASE_URL`. Calls the
+  same blake3 preimage path as `POST /v1/verify_receipt`. Exits 0 on
+  valid, 1 on invalid.
+- **`EMEM_BASE_URL` defaults to `http://localhost:5051`** in
+  `emem-demo`, `emem-livedemo`, `emem-realdemo`, matching the
+  emem-server default bind. Emits a one-line stderr note when the
+  default fires.
+- Updated `emem_grid_info` MCP tool description to the active
+  `~9.54 m × 9.55 m` grid (was stale `~305 m × 611 m` text from the
+  legacy v0.0.0 layout). The response payload itself was always
+  correct; only the catalog description string was stale.
+
+- **Parallel temporal recipes** — `/v1/temporal_route` and
+  algorithm temporal-window materialization now fan out across
+  windows via `tokio::task::JoinSet`, removing the previous serial
+  60-s timeout bottleneck. Snapshot path (`try_materialize_bands`)
+  remains serial; parallelization is currently temporal-only.
+- **Transparent `algorithm_outcomes[]`** — algorithm responses now
+  carry `formula`, `inputs: {band_key: value}`, and `citation`
+  alongside the computed value, so any agent can recompute the
+  outcome locally and verify it. Outcomes are unsigned JSON in
+  0.0.x; signed `DerivativeFact` wrapping is targeted for 0.0.4.
+- **Deeper `/v1/bands`** — band manifest extended with
+  `description`, `units`, `value_range`, `interpretation`,
+  `pitfalls`, `references`, `dimensions[]`, `scalar_keys[]` for
+  the top 11 bands.
+- **MCP resource templates** — `emem://band/{band_key}`,
+  `emem://algorithm/{algorithm_key}`, `emem://fact/{fact_cid}`,
+  `emem://cell/{cell64}/...` exposed via MCP resource discovery.
+
+### Fixed
+- **Dockerfile**: added `g++` to the build stage so the
+  `model2vec-rs` C++ dependency compiles cleanly in CI.
+- **0.0.3 sweep**: aligned `0.0.2 → 0.0.3` in user-agent strings,
+  exposed `topicRouter` backend in introspection.
+
 ## [0.0.3] — 2026-05-01
 
 This release closes the gaps surfaced by the Katihar (Bihar) man-made-lake

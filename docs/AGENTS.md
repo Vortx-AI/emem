@@ -26,7 +26,7 @@ no "chat session"; emem is global, append-only memory of place.
 |---------|-------------------|------------------------|--------|
 | `cell`  | 64-bit cell ID    | `cell64` 4 base-1024 bigrams | ≤ 4 |
 | `tslot` | u64 time slot     | `t.<base32>`           | ≤ 2    |
-| `vec`   | 1792-D fp16 vector | `vec64` 12-byte prefix | ≤ 3    |
+| `vec`   | 128-D (geotessera) or 1024-D (geotessera.multi_year) fp16 vector | `vec64` 12-byte prefix | ≤ 3    |
 | `cid`   | 32-byte fact CID  | `cid64` 8-byte prefix  | ≤ 3    |
 
 Reference any of these in chat using the short form. Full CIDs are for

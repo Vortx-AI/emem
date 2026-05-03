@@ -89,6 +89,7 @@ const MULTIMODAL_MD: &str = include_str!("../../../docs/MULTIMODAL.md");
 const PRIVACY_MD: &str = include_str!("../../../PRIVACY.md");
 const TERMS_MD: &str = include_str!("../../../TERMS.md");
 const SUPPORT_MD: &str = include_str!("../../../SUPPORT.md");
+const SECURITY_MD: &str = include_str!("../../../SECURITY.md");
 const SITEMAP_XML: &str = include_str!("../../../web/sitemap.xml");
 const FAVICON_SVG: &str = include_str!("../../../web/favicon.svg");
 const FAVICON_PNG: &[u8] = include_bytes!("../../../web/favicon.png");
@@ -220,6 +221,9 @@ pub fn router(state: AppState) -> Router {
         .route("/support", get(serve_support_md))
         .route("/support.md", get(serve_support_md))
         .route("/docs/SUPPORT.md", get(serve_support_md))
+        .route("/security", get(serve_security_md))
+        .route("/security.md", get(serve_security_md))
+        .route("/docs/SECURITY.md", get(serve_security_md))
         .route("/global-trial.md", get(serve_global_trial))
         .route("/docs/GLOBAL_TRIAL.md", get(serve_global_trial))
         .route("/materializers.md", get(serve_materializers_md))
@@ -232,6 +236,17 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/discover", get(discover))
         .route("/v1/grid_info", get(grid_info))
         .route("/v1/elevation", post(post_elevation))
+        // Sister POST handlers — accept `{place}` (geocoded) or
+        // `{lat,lng}` (direct) so an agent that already has a place
+        // name doesn't have to round-trip through /v1/locate first.
+        .route("/v1/at", post(post_v1_at))
+        .route("/v1/ndvi", post(post_v1_ndvi))
+        .route("/v1/air", post(post_v1_air))
+        .route("/v1/lst", post(post_v1_lst))
+        .route("/v1/soil", post(post_v1_soil))
+        .route("/v1/water", post(post_v1_water))
+        .route("/v1/forest", post(post_v1_forest))
+        .route("/v1/weather", post(post_v1_weather))
         .route("/v1/coverage_map.svg", get(coverage_map_svg))
         .route("/v1/coverage", get(coverage_json))
         .route("/v1/recall_many", post(post_recall_many))
@@ -264,6 +279,7 @@ pub fn router(state: AppState) -> Router {
             get(get_cell_recall_geojson),
         )
         .route("/v1/cells/:cell64/scene.png", get(get_cell_scene_png))
+        .route("/v1/cells/:cell64/scene.rgb", get(get_cell_scene_rgb))
         .route("/v1/locate", post(post_locate))
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
@@ -293,6 +309,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/attest_cbor", post(post_attest_cbor))
         .route("/v1/verify_receipt", post(post_verify_receipt))
         .route("/v1/facts/:cid", get(get_fact))
+        .route("/v1/fetch", post(post_fetch))
         .route("/v1/demos", get(list_demos))
         .route("/v1/demos/:run", get(get_demo_index))
         .route("/v1/demos/:run/:file", get(get_demo_file))
@@ -528,6 +545,9 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/support"
         | "/support.md"
         | "/docs/SUPPORT.md"
+        | "/security"
+        | "/security.md"
+        | "/docs/SECURITY.md"
         | "/global-trial.md"
         | "/materializers.md"
         | "/spaces.md"
@@ -1123,6 +1143,9 @@ async fn serve_terms_md() -> Response {
 async fn serve_support_md() -> Response {
     text_response("text/markdown; charset=utf-8", SUPPORT_MD)
 }
+async fn serve_security_md() -> Response {
+    text_response("text/markdown; charset=utf-8", SECURITY_MD)
+}
 async fn serve_global_trial() -> Response {
     text_response("text/markdown; charset=utf-8", GLOBAL_TRIAL_MD)
 }
@@ -1629,8 +1652,21 @@ async fn manifests(State(s): State<AppState>) -> Json<JsonValue> {
     }))
 }
 
-async fn bands() -> Json<JsonValue> {
-    Json(serde_json::to_value(&*emem_core::bands::DEFAULT).unwrap_or(json!({})))
+async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
+    // Hoist the registry's existing fields into the response root and
+    // graft `bands_cid` next to them so an agent reading /v1/bands can
+    // see the same content-address /v1/manifests publishes — without
+    // having to call /v1/manifests separately. The registry's existing
+    // shape (`manifest`, `version`, `bands`, `_note`) is preserved
+    // verbatim; we just add the `bands_cid` field at the root.
+    let mut payload = serde_json::to_value(&*emem_core::bands::DEFAULT).unwrap_or(json!({}));
+    if let Some(map) = payload.as_object_mut() {
+        map.insert(
+            "bands_cid".into(),
+            JsonValue::String(s.manifests.bands_cid.clone()),
+        );
+    }
+    Json(payload)
 }
 
 /// `GET /v1/materializers` — declare which bands this responder will
@@ -2716,6 +2752,10 @@ fn errors_payload() -> JsonValue {
          "The fact may have been pruned, or the CID is from a different responder. Verify `responder_pubkey_b32` matches between the receipt and /health."),
         ("no_geocoder_match",            "place name did not resolve in any geocoder tier (Photon + Nominatim both said 'no such place')",
          "Refine the query (more specific name; add country / region / admin level), pass `lat`+`lng` coordinates directly, or call POST /v1/locate first to inspect alternatives."),
+        ("place_not_found",              "all upstream geocoders responded successfully but unanimously returned zero results — the place name is genuinely not in any layer of the cascade (embedded gazetteer, cache, Photon, Nominatim). Distinct from `geocoder_transport_down`, which means the upstream HTTP/JSON layer itself failed.",
+         "Refine the query: add country/region disambiguation (e.g. 'Springfield, IL, USA'), use the official local-language spelling, or pass `lat`+`lng` directly. /v1/locate's response surfaces `via` so an agent can see which tier rejected the query."),
+        ("geocoder_transport_down",      "the upstream geocoder transport failed (HTTP 5xx, DNS, timeout, malformed JSON) before a real not-found verdict could be issued. Distinct from `place_not_found` (transports succeeded but returned zero results) and from `no_geocoder_match` (the legacy code that conflated both — kept for backwards compatibility).",
+         "Retry with backoff (Photon and Nominatim are public services and occasionally rate-limit). If persistent, pass `lat`+`lng` directly to bypass the geocoder. Operators can switch the primary geocoder via env."),
         ("invalid_argument",             "syntactically valid but semantically invalid request field (e.g. unparseable timestamp, out-of-range numeric, malformed enum)",
          "Re-read /openapi.json for the field's accepted shape. Common causes: ISO 8601 missing 'Z' for UTC; max_cells > 1024; band key with wrong namespace prefix."),
         ("registry_cid_unknown",         "the bound registry_cid isn't recognised",
@@ -3333,11 +3373,21 @@ async fn post_recall(
 
 #[derive(Deserialize)]
 struct LatLngQ {
-    lat: f64,
+    /// Optional so the query can fall back to `place` (free-text place
+    /// name resolved through the standard locate path). When `place` is
+    /// absent, `lat` is required — `resolve_lat_lng` enforces that.
+    #[serde(default)]
+    lat: Option<f64>,
     #[serde(default)]
     lon: Option<f64>,
     #[serde(default)]
     lng: Option<f64>,
+    /// Free-text place name. Aliases match `/v1/locate` so an agent
+    /// transferring patterns from another geocoder lands on the right
+    /// field. When set, the boring handler runs `locate_inner` and uses
+    /// the resulting lat/lng — same provenance string is surfaced.
+    #[serde(default, alias = "q", alias = "query", alias = "name")]
+    place: Option<String>,
     #[serde(default)]
     band: Option<String>,
     #[serde(default)]
@@ -3357,6 +3407,69 @@ impl LatLngQ {
                 },
             )
         })
+    }
+
+    /// Resolve the request's (lat, lng). Three accepted shapes, in
+    /// preference order:
+    ///   1. explicit `lat` + `lon`/`lng` — direct
+    ///   2. `place` free-text — geocoded via `locate_inner` (embedded →
+    ///      cache → Photon → Nominatim)
+    ///   3. neither — `BAD_REQUEST` with the hint that one is required
+    ///
+    /// Returns the resolved coordinates plus the `via` provenance
+    /// string ("input_latlng" for direct, the locate path string
+    /// otherwise) so the handler can surface it on the response.
+    async fn resolve_lat_lng(&self) -> Result<(f64, f64, String), ApiError> {
+        if let Some(la) = self.lat {
+            let lo = self.longitude()?;
+            return Ok((la, lo, "input_latlng".to_string()));
+        }
+        if let Some(p) = self.place.as_deref() {
+            let lr = LocateReq {
+                lat: None,
+                lng: None,
+                place: Some(p.to_string()),
+            };
+            let resp = locate_inner(lr).await?;
+            let body = &resp.0;
+            let la = body
+                .get("lat_input")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    ApiError(
+                        StatusCode::NOT_FOUND,
+                        ErrorBody {
+                            code: ErrorCode::NoGeocoderMatch,
+                            message: format!("locate succeeded for '{p}' but no lat_input"),
+                        },
+                    )
+                })?;
+            let lo = body
+                .get("lng_input")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    ApiError(
+                        StatusCode::NOT_FOUND,
+                        ErrorBody {
+                            code: ErrorCode::NoGeocoderMatch,
+                            message: format!("locate succeeded for '{p}' but no lng_input"),
+                        },
+                    )
+                })?;
+            let via = body
+                .get("via")
+                .and_then(|v| v.as_str())
+                .unwrap_or("locate")
+                .to_string();
+            return Ok((la, lo, format!("locate:{via}")));
+        }
+        Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "supply (lat, lon|lng) or place".into(),
+            },
+        ))
     }
 }
 
@@ -3578,7 +3691,7 @@ async fn get_v1_at(
     State(s): State<AppState>,
     Query(q): Query<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let lng = q.longitude()?;
+    let (lat, lng, _via) = q.resolve_lat_lng().await?;
     let mut bands: Vec<String> = Vec::new();
     if let Some(b) = &q.band {
         bands.push(b.clone());
@@ -3590,10 +3703,27 @@ async fn get_v1_at(
             }
         }
     }
-    Ok(Json(
-        boring_recall_at(&s, q.lat, lng, &bands, q.tslot).await?,
-    ))
+    // Default band-set for /v1/at when neither `band` nor `bands` is
+    // supplied — gives an agent that doesn't know what to ask for a
+    // useful at-this-point bundle. Mirrors the documented MCP
+    // `emem_locate` follow-up suggestions.
+    if bands.is_empty() {
+        for b in DEFAULT_AT_BANDS {
+            bands.push((*b).to_string());
+        }
+    }
+    Ok(Json(boring_recall_at(&s, lat, lng, &bands, q.tslot).await?))
 }
+
+/// Default multi-band bundle for `/v1/at` when the caller omits both
+/// `band` and `bands`. Picks the cheapest-cold-start, best-coverage
+/// bands across the registry so a naked `?lat=&lon=` answers
+/// something useful instead of an empty hash.
+const DEFAULT_AT_BANDS: &[&str] = &[
+    "copdem30m.elevation_mean",
+    "esa_worldcover.lc_2021",
+    "weather.temperature_2m",
+];
 
 /// Build a fixed-bands boring GET. Used by every named shorthand
 /// below (/v1/ndvi, /v1/elevation, …).
@@ -3602,10 +3732,10 @@ async fn boring_named(
     q: LatLngQ,
     bands: &[&str],
 ) -> Result<Json<JsonValue>, ApiError> {
-    let lng = q.longitude()?;
+    let (lat, lng, _via) = q.resolve_lat_lng().await?;
     let bands_owned: Vec<String> = bands.iter().map(|s| (*s).to_string()).collect();
     Ok(Json(
-        boring_recall_at(s, q.lat, lng, &bands_owned, q.tslot).await?,
+        boring_recall_at(s, lat, lng, &bands_owned, q.tslot).await?,
     ))
 }
 
@@ -3690,6 +3820,120 @@ async fn get_v1_forest(
 async fn get_v1_weather(
     State(s): State<AppState>,
     Query(q): Query<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(
+        &s,
+        q,
+        &[
+            "weather.temperature_2m",
+            "weather.precipitation_mm",
+            "weather.wind_speed_10m",
+            "weather.relative_humidity_2m",
+        ],
+    )
+    .await
+}
+
+// ── POST counterparts to the boring GETs ────────────────────────────────
+//
+// Each `/v1/{ndvi,air,lst,soil,water,forest,weather,at}` accepts a
+// JSON body with the same fields the GET takes via query params:
+// `{place}` (geocoded through the standard locate path), `{lat, lng}`
+// (direct), and optionally `band`, `bands`, `tslot`. POST is the
+// shape an LLM/agent reaches for when it has a place name in its
+// context — saves it from constructing a percent-encoded query
+// string and round-tripping through /v1/locate first.
+
+async fn post_v1_at(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let (lat, lng, _via) = q.resolve_lat_lng().await?;
+    let mut bands: Vec<String> = Vec::new();
+    if let Some(b) = &q.band {
+        bands.push(b.clone());
+    }
+    if let Some(csv) = &q.bands {
+        for tok in csv.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if !bands.iter().any(|b| b == tok) {
+                bands.push(tok.to_string());
+            }
+        }
+    }
+    if bands.is_empty() {
+        for b in DEFAULT_AT_BANDS {
+            bands.push((*b).to_string());
+        }
+    }
+    Ok(Json(boring_recall_at(&s, lat, lng, &bands, q.tslot).await?))
+}
+
+async fn post_v1_ndvi(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["indices.ndvi"]).await
+}
+
+async fn post_v1_air(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["cams.pm25", "cams.no2", "cams.o3"]).await
+}
+
+async fn post_v1_lst(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["modis.lst_day_8day", "modis.lst_night_8day"]).await
+}
+
+async fn post_v1_soil(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(
+        &s,
+        q,
+        &[
+            "soilgrids.soc_0_30cm",
+            "soilgrids.phh2o_0_30cm",
+            "soilgrids.clay_0_30cm",
+            "soilgrids.sand_0_30cm",
+            "soilgrids.bdod_0_30cm",
+            "soilgrids.nitrogen_0_30cm",
+        ],
+    )
+    .await
+}
+
+async fn post_v1_water(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(&s, q, &["surface_water.recurrence", "sentinel1_raw"]).await
+}
+
+async fn post_v1_forest(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
+) -> Result<Json<JsonValue>, ApiError> {
+    boring_named(
+        &s,
+        q,
+        &[
+            "hansen.tree_cover_2000",
+            "hansen.loss_year",
+            "esa_worldcover.lc_2021",
+        ],
+    )
+    .await
+}
+
+async fn post_v1_weather(
+    State(s): State<AppState>,
+    Json(q): Json<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     boring_named(
         &s,
@@ -4295,11 +4539,93 @@ async fn post_recall_polygon(
     Ok(Json(out))
 }
 
+/// Loose body for `POST /v1/query_region`. Accepts the protocol's
+/// canonical `geometry` shape (cell64 string or `cells:c1,c2,...`)
+/// AND a `bbox` shape (`[west, south, east, north]` in WGS-84
+/// degrees) for parity with /v1/recall_polygon and the documented
+/// agent-walkthroughs examples. When `bbox` is present we sample it
+/// to a cell list via the same `sample_cells_in_bbox` helper
+/// /v1/recall_polygon uses, then pass to the canonical primitive
+/// under `cells:` notation. Either `geometry` or `bbox` is required.
+#[derive(Deserialize)]
+struct QueryRegionRestReq {
+    #[serde(default)]
+    geometry: Option<String>,
+    /// `[west, south, east, north]` (WGS-84 degrees). Mutually
+    /// exclusive with `geometry`; if both are supplied, `geometry`
+    /// wins (so the canonical-shape contract is unchanged).
+    #[serde(default)]
+    bbox: Option<[f64; 4]>,
+    #[serde(default)]
+    bands: Option<Vec<String>>,
+    #[serde(default)]
+    agg: Option<String>,
+    /// Optional cap on cells materialized from a bbox, to keep a wide
+    /// region from blowing the request budget. Defaults to 256 (the
+    /// same cap /v1/recall_many enforces).
+    #[serde(default)]
+    max_cells: Option<usize>,
+}
+
 async fn post_query_region(
     State(s): State<AppState>,
-    Json(req): Json<QueryRegionReq>,
+    Json(req): Json<QueryRegionRestReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let resp = query_region(&req, &s).await?;
+    // Convert the loose REST shape into the canonical primitive shape.
+    let geometry = if let Some(g) = req.geometry.as_deref().filter(|s| !s.is_empty()) {
+        g.to_string()
+    } else if let Some(bb) = req.bbox {
+        // bbox is `[west, south, east, north]` (longitude first, the
+        // GeoJSON convention `examples/agent-walkthroughs.md` uses).
+        // sample_cells_in_bbox takes `(min_lat, max_lat, min_lng, max_lng)`.
+        let (west, south, east, north) = (bb[0], bb[1], bb[2], bb[3]);
+        if !west.is_finite() || !south.is_finite() || !east.is_finite() || !north.is_finite() {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: "bbox values must be finite (got NaN/Inf)".into(),
+                },
+            ));
+        }
+        if west > east || south > north {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "bbox must be [west, south, east, north] with west<=east and south<=north; got {bb:?}"
+                    ),
+                },
+            ));
+        }
+        let cap = req.max_cells.unwrap_or(256).clamp(1, 1024);
+        let cells = sample_cells_in_bbox((south, north, west, east), cap);
+        if cells.is_empty() {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: "bbox sampled to zero cells; widen the bbox or check axis order ([west, south, east, north])".into(),
+                },
+            ));
+        }
+        format!("cells:{}", cells.join(","))
+    } else {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "POST /v1/query_region requires `geometry` (cell64 or `cells:c1,c2,...`) OR `bbox` ([west, south, east, north] in WGS-84 degrees)".into(),
+            },
+        ));
+    };
+    let inner = QueryRegionReq {
+        geometry,
+        bands: req.bands,
+        agg: req.agg,
+    };
+    let resp = query_region(&inner, &s).await?;
     Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
 }
 
@@ -4809,6 +5135,159 @@ async fn get_fact(
         .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
         .body(axum::body::Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Body for `POST /v1/fetch` — REST mirror of MCP `emem_fetch`.
+/// Two shapes accepted:
+///   1. `{cid}` — resolve a fact by content-address (same as
+///      `GET /v1/facts/{cid}`).
+///   2. `{cell, band, [tslot]}` — fetch / materialize that band at
+///      that cell (read-through to upstream sources for any of the
+///      auto-materializable bands; signed Primary or Absence persisted
+///      so future calls hit the hot cache). `cell` may be a cell64 or
+///      a free-text place name resolved via the standard locate path.
+#[derive(Deserialize)]
+struct FetchReq {
+    #[serde(default)]
+    cid: Option<String>,
+    #[serde(default)]
+    cell: Option<String>,
+    #[serde(default)]
+    band: Option<String>,
+    #[serde(default)]
+    tslot: Option<u64>,
+}
+
+/// `POST /v1/fetch` — REST surface that mirrors the MCP tool
+/// `emem_fetch` and adds the (cell, band) materialize shape an agent
+/// reaches for when it doesn't yet have a CID. Returns the fact body,
+/// its CID, and (for the materialize shape) a signed receipt over the
+/// fetched fact so the agent can cite it.
+async fn post_fetch(
+    State(s): State<AppState>,
+    Json(req): Json<FetchReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    if let Some(cid_in) = req.cid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        // Shape 1: resolve by CID. Same shape-validation as MCP
+        // `emem_fetch` so an agent gets the same error code on a
+        // malformed CID across both surfaces.
+        let shape_ok = cid_in.len() >= 32
+            && cid_in.len() <= 96
+            && cid_in.bytes().all(|c| c.is_ascii_alphanumeric());
+        if !shape_ok {
+            return Err(ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("cid '{cid_in}' is not a well-formed content address"),
+                },
+            ));
+        }
+        let cid_obj = emem_fact::FactCid::new(cid_in.to_string());
+        let facts = s.storage.get_facts_many(&[cid_obj]).await?;
+        let fact = facts.into_iter().next().flatten().ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("no fact for cid={cid_in}"),
+                },
+            )
+        })?;
+        return Ok(Json(json!({
+            "schema": "emem.fetch.v1",
+            "cid": cid_in,
+            "fact": serde_json::to_value(&fact).unwrap_or(JsonValue::Null),
+            "rest_url": format!("/v1/facts/{cid_in}"),
+            "agent_hint": "Fact bytes are byte-identical across responders for the same CID; the CID itself is the validator. Verify the responder's signature with /v1/verify_receipt.",
+        })));
+    }
+
+    // Shape 2: (cell, band[, tslot]) materialize.
+    let cell_in = req.cell.as_deref().ok_or_else(|| ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::Internal,
+            message: "POST /v1/fetch requires either {cid} (resolve fact by content-address) or {cell, band [, tslot]} (materialize band at cell)".into(),
+        },
+    ))?;
+    let band = req.band.as_deref().ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message:
+                    "POST /v1/fetch with `cell` requires `band` — see /v1/bands for the registry"
+                        .into(),
+            },
+        )
+    })?;
+
+    // Allow `cell` to be a place name; resolve through the standard
+    // geocoder layering used by every other place-accepting handler.
+    let (cell64, resolved) = resolve_cell_field(cell_in).await?;
+
+    // Default tslot: 0 for static bands, current unix-aligned-to-tempo
+    // for time-series bands. `materialize_band_at` is target_unix-driven,
+    // not tslot-driven, so we just pass the corresponding unix; the
+    // band's materializer snaps to its native tempo grid.
+    let target_unix: i64 = match req.tslot {
+        Some(t) => t as i64,
+        None => std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+    };
+
+    let fact_cid = materialize_band_at(&cell64, band, target_unix, &s)
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                ErrorBody {
+                    code: ErrorCode::SourceFetchFailed,
+                    message: format!("materialize {band} at {cell64}: {e}"),
+                },
+            )
+        })?;
+
+    // Re-fetch the freshly-signed fact so we can hand it back inline,
+    // matching the {cid}-shape's `fact` field.
+    let facts = s
+        .storage
+        .get_facts_many(std::slice::from_ref(&fact_cid))
+        .await?;
+    let fact = facts.into_iter().next().flatten().ok_or_else(|| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!(
+                    "materialize_band_at returned cid={} but storage has no fact for it",
+                    fact_cid.0
+                ),
+            },
+        )
+    })?;
+
+    let mut out = json!({
+        "schema": "emem.fetch.v1",
+        "cid": fact_cid.0,
+        "cell64": cell64,
+        "band": band,
+        "fact": serde_json::to_value(&fact).unwrap_or(JsonValue::Null),
+        "rest_url": format!("/v1/facts/{}", fact_cid.0),
+        "agent_hint": "Materialized via the responder's auto-materialize loop and persisted; subsequent /v1/recall on this (cell, band) hits the hot cache.",
+    });
+    if matches!(resolved, ResolvedRef::Place { .. }) {
+        if let Some(map) = out.as_object_mut() {
+            map.insert(
+                "resolved_from".into(),
+                json!({ "cell": serde_json::to_value(&resolved).unwrap_or(JsonValue::Null) }),
+            );
+        }
+    }
+    Ok(Json(out))
 }
 
 // ── MCP JSON-RPC 2.0 ──────────────────────────────────────────────────────
@@ -6104,6 +6583,7 @@ async fn openapi() -> Json<JsonValue> {
             // the duplicate. Keep the ETag/304-aware shape, expose both
             // operationIds via tags so the legacy clients still resolve.
             "/v1/facts/{cid}":       {"get":{"summary":"fact dereference by CID (immutable, ETag-tagged)","operationId":"emem_fetch","tags":["fetch","get_fact"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_etag,"304":json_unchanged,"404":json_not_found}}},
+            "/v1/fetch":             {"post":{"summary":"REST mirror of MCP `emem_fetch`. Resolve a fact by `{cid}` OR materialize `{cell, band[, tslot]}` (cell may be place name).","operationId":"emem_fetch_post","tags":["fetch"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FetchReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt","operationId":"emem_verify_receipt","responses":{"200":json_ok}}},
             "/v1/intent":            {"post":{"summary":"intent → plan","operationId":"emem_intent","responses":{"200":json_ok}}},
@@ -6130,20 +6610,45 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":png_ok}}},
+            "/v1/cells/{cell64}/scene.rgb":{"get":{"summary":"Sentinel-2 true-colour thumbnail as raw 8-bit RGB pixel buffer (no PNG framing). Width/height returned via x-emem-scene-width/x-emem-scene-height headers.","operationId":"emem_cell_scene_rgb","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"max_cloud","in":"query","required":false,"schema":{"type":"number","default":20.0}}],"responses":{"200":{"description":"raw rgb8 plane (w*h*3 bytes)","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}}}}},
             "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property — paste straight into Mapbox/Leaflet/Deck.gl","operationId":"emem_cell_recall_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":json_ok}}},
             "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent","operationId":"emem_temporal_route_post","responses":{"200":json_ok}}},
             "/v1/elevation":         {
-                "get":{"summary":"GET /v1/elevation?lat=&lon= — boring lat/lng lookup, returns Cop-DEM elevation (signed)","operationId":"emem_elevation_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}},
-                "post":{"summary":"convenience elevation lookup (legacy POST; uses copdem30m / gmrt fallback)","operationId":"emem_elevation","responses":{"200":json_ok}}
+                "get":{"summary":"GET /v1/elevation?lat=&lon= — boring lat/lng lookup, returns Cop-DEM elevation (signed). Also accepts ?place=…","operationId":"emem_elevation_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/elevation {place|lat,lng|cell64} → Cop-DEM elevation read-through","operationId":"emem_elevation","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
             },
-            "/v1/at":                {"get":{"summary":"GET /v1/at?lat=&lon=&band= — boring lat/lng lookup of any of the 101 materializable bands","operationId":"emem_at_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}},{"name":"band","in":"query","required":false,"schema":{"type":"string","description":"e.g. indices.ndvi, soilgrids.soc_0_30cm, weather.temperature_2m"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"CSV of bands, applied alongside `band`"}},{"name":"tslot","in":"query","required":false,"schema":{"type":"integer"}}],"responses":{"200":json_ok}}},
-            "/v1/ndvi":              {"get":{"summary":"GET /v1/ndvi?lat=&lon= — Sentinel-2 NDVI at a point (signed)","operationId":"emem_ndvi_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
-            "/v1/air":               {"get":{"summary":"GET /v1/air?lat=&lon= — CAMS PM2.5 + NO2 + O3 bundle (signed)","operationId":"emem_air_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
-            "/v1/lst":               {"get":{"summary":"GET /v1/lst?lat=&lon= — MODIS LST day + night 8-day composite (signed)","operationId":"emem_lst_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
-            "/v1/soil":              {"get":{"summary":"GET /v1/soil?lat=&lon= — SoilGrids 2.0 0–30 cm topsoil pack (SOC, pH, clay, sand, BDOD, N) (signed)","operationId":"emem_soil_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
-            "/v1/water":             {"get":{"summary":"GET /v1/water?lat=&lon= — JRC Global Surface Water recurrence + Sentinel-1 VV (signed)","operationId":"emem_water_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
-            "/v1/forest":            {"get":{"summary":"GET /v1/forest?lat=&lon= — Hansen tree_cover_2000 + loss_year + ESA WorldCover class (signed)","operationId":"emem_forest_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
-            "/v1/weather":           {"get":{"summary":"GET /v1/weather?lat=&lon= — met.no nowcast (t2m + precip + wind + RH) (signed)","operationId":"emem_weather_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":true,"schema":{"type":"number"}},{"name":"lon","in":"query","required":true,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/at":                {
+                "get":{"summary":"GET /v1/at?lat=&lon=&band= — boring lat/lng lookup of any of the 101 materializable bands. Also accepts ?place=…","operationId":"emem_at_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string","description":"e.g. indices.ndvi, soilgrids.soc_0_30cm, weather.temperature_2m"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"CSV of bands, applied alongside `band`"}},{"name":"tslot","in":"query","required":false,"schema":{"type":"integer"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/at {place|lat,lng[,band|bands,tslot]} → multi-band at a point","operationId":"emem_at_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
+            "/v1/ndvi":              {
+                "get":{"summary":"GET /v1/ndvi?lat=&lon= — Sentinel-2 NDVI at a point (signed). Also accepts ?place=…","operationId":"emem_ndvi_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/ndvi {place|lat,lng}","operationId":"emem_ndvi_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
+            "/v1/air":               {
+                "get":{"summary":"GET /v1/air?lat=&lon= — CAMS PM2.5 + NO2 + O3 bundle (signed). Also accepts ?place=…","operationId":"emem_air_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/air {place|lat,lng}","operationId":"emem_air_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
+            "/v1/lst":               {
+                "get":{"summary":"GET /v1/lst?lat=&lon= — MODIS LST day + night 8-day composite (signed). Also accepts ?place=…","operationId":"emem_lst_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/lst {place|lat,lng}","operationId":"emem_lst_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
+            "/v1/soil":              {
+                "get":{"summary":"GET /v1/soil?lat=&lon= — SoilGrids 2.0 0–30 cm topsoil pack (SOC, pH, clay, sand, BDOD, N) (signed). Also accepts ?place=…","operationId":"emem_soil_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/soil {place|lat,lng}","operationId":"emem_soil_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
+            "/v1/water":             {
+                "get":{"summary":"GET /v1/water?lat=&lon= — JRC Global Surface Water recurrence + Sentinel-1 VV (signed). Also accepts ?place=…","operationId":"emem_water_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/water {place|lat,lng}","operationId":"emem_water_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
+            "/v1/forest":            {
+                "get":{"summary":"GET /v1/forest?lat=&lon= — Hansen tree_cover_2000 + loss_year + ESA WorldCover class (signed). Also accepts ?place=…","operationId":"emem_forest_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/forest {place|lat,lng}","operationId":"emem_forest_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
+            "/v1/weather":           {
+                "get":{"summary":"GET /v1/weather?lat=&lon= — met.no nowcast (t2m + precip + wind + RH) (signed). Also accepts ?place=…","operationId":"emem_weather_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "post":{"summary":"POST /v1/weather {place|lat,lng}","operationId":"emem_weather_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
+            },
             "/v1/agent_quickref":    {"get":{"summary":"agent-targeted intent map: which endpoint to call for which user intent, with usage priority + trust language","operationId":"emem_agent_quickref","tags":["boring"],"responses":{"200":json_ok}}},
             "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","operationId":"emem_discover","responses":{"200":json_ok}}},
             "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject","operationId":"emem_reviews_post","responses":{"200":json_ok}}},
@@ -6156,14 +6661,16 @@ async fn openapi() -> Json<JsonValue> {
         "components": {
             "schemas": {
                 "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}},
-                "QueryRegionReq":  {"type":"object","required":["geometry"],"properties":{"geometry":{"type":"string"},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
+                "QueryRegionReq":  {"type":"object","description":"Either `geometry` (cell64 or 'cells:c1,c2,...') or `bbox` ([west, south, east, north] WGS-84 degrees) is required. When `bbox` is given the responder samples it to up to `max_cells` cells (default 256, max 1024) and runs the canonical primitive over the cell list.","properties":{"geometry":{"type":"string","description":"cell64 or `cells:c1,c2,...`"},"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first)"},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":256,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied."},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D fp16). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
                 "DiffReq":         {"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}},
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
                 "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false}}},
-                "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}}
+                "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
+                "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"}}},
+                "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}}
             }
         }
     }))
@@ -6319,7 +6826,7 @@ fn canonical_places() -> Vec<(&'static str, f64, f64)> {
 async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
     let card = agent_card(State(s.clone())).await;
     let manifests = manifests(State(s.clone())).await;
-    let bands = bands().await;
+    let bands = bands(State(s.clone())).await;
     // Surface a slim algorithm-registry summary inline so the cold-start
     // bootstrap is genuinely one-call. Full bodies live at /v1/algorithms.
     let alg_reg = &*emem_core::algorithms::DEFAULT;
@@ -6592,12 +7099,22 @@ struct ElevationReq {
     /// Either `cell64` or `cell` accepted; decoded via emem_codec.
     #[serde(default, alias = "cell")]
     cell64: Option<String>,
+    /// Free-text place name. When set we resolve through the standard
+    /// locate path (embedded → cache → Photon → Nominatim) and use the
+    /// resulting (lat, lng). Aliases match `/v1/locate`.
+    #[serde(default, alias = "q", alias = "query", alias = "name")]
+    place: Option<String>,
 }
 
 async fn post_elevation(Json(req): Json<ElevationReq>) -> Result<Json<JsonValue>, ApiError> {
-    let (lat, lng, source_kind) = match (req.lat, req.lng, req.cell64.as_deref()) {
-        (Some(la), Some(lo), _) => (la, lo, "input_latlng"),
-        (_, _, Some(c)) => {
+    let (lat, lng, source_kind): (f64, f64, String) = match (
+        req.lat,
+        req.lng,
+        req.cell64.as_deref(),
+        req.place.as_deref(),
+    ) {
+        (Some(la), Some(lo), _, _) => (la, lo, "input_latlng".to_string()),
+        (_, _, Some(c), _) => {
             let info = emem_codec::latlng_from_cell64(c).map_err(|e| {
                 ApiError(
                     StatusCode::BAD_REQUEST,
@@ -6607,14 +7124,49 @@ async fn post_elevation(Json(req): Json<ElevationReq>) -> Result<Json<JsonValue>
                     },
                 )
             })?;
-            (info.lat_deg, info.lng_deg, "cell64_centre")
+            (info.lat_deg, info.lng_deg, "cell64_centre".to_string())
+        }
+        (_, _, _, Some(p)) => {
+            let lr = LocateReq {
+                lat: None,
+                lng: None,
+                place: Some(p.to_string()),
+            };
+            let resp = locate_inner(lr).await?;
+            let body = &resp.0;
+            let la = body
+                .get("lat_input")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    ApiError(
+                        StatusCode::NOT_FOUND,
+                        ErrorBody {
+                            code: ErrorCode::NoGeocoderMatch,
+                            message: format!("locate succeeded for '{p}' but no lat_input"),
+                        },
+                    )
+                })?;
+            let lo = body
+                .get("lng_input")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| {
+                    ApiError(
+                        StatusCode::NOT_FOUND,
+                        ErrorBody {
+                            code: ErrorCode::NoGeocoderMatch,
+                            message: format!("locate succeeded for '{p}' but no lng_input"),
+                        },
+                    )
+                })?;
+            let via = body.get("via").and_then(|v| v.as_str()).unwrap_or("locate");
+            (la, lo, format!("locate:{via}"))
         }
         _ => {
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
                     code: ErrorCode::Internal,
-                    message: "supply (lat,lng) or cell64".into(),
+                    message: "supply (lat,lng), cell64, or place".into(),
                 },
             ))
         }
@@ -12442,6 +12994,12 @@ async fn coverage_map_svg(State(s): State<AppState>) -> Response {
 struct SceneRgb {
     /// PNG bytes — RGB 8-bit, default 256×256.
     png: Vec<u8>,
+    /// Raw 8-bit RGB plane (`w * h * 3` bytes), interleaved R,G,B per
+    /// pixel in row-major order. Same buffer the PNG encoder consumed,
+    /// surfaced separately so `/v1/cells/{cell64}/scene.rgb` can serve
+    /// the unencoded pixels for downstream image-pipelines that don't
+    /// want to decode PNG.
+    rgb: Vec<u8>,
     /// Image width in pixels.
     w: u32,
     /// Image height in pixels.
@@ -12625,6 +13183,7 @@ async fn build_cell_scene_rgb(
 
     Ok(SceneRgb {
         png: png_bytes,
+        rgb,
         w: W,
         h: H,
         item_id: item.id,
@@ -12633,6 +13192,56 @@ async fn build_cell_scene_rgb(
         epsg,
         stretch_p2_p98: ((r_lo, r_hi), (g_lo, g_hi), (b_lo, b_hi)),
     })
+}
+
+/// `GET /v1/cells/{cell64}/scene.rgb` — raw 8-bit RGB pixel buffer
+/// (no PNG framing). Same pipeline as `scene.png` — STAC search,
+/// HTTP-Range COG reads, 2-98 percentile stretch — but the response
+/// body is the raw `w * h * 3` interleaved RGB plane. Width/height
+/// are surfaced via the `x-emem-scene-width` / `x-emem-scene-height`
+/// response headers so a downstream image pipeline (numpy, OpenCV)
+/// can reshape without a PNG decode dependency. Mirrors the MCP
+/// tool `emem_cell_scene_rgb`.
+async fn get_cell_scene_rgb(
+    axum::extract::Path(cell64): axum::extract::Path<String>,
+    axum::extract::Query(qs): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let cell = cell64.trim_end_matches(".rgb").to_string();
+    let max_cloud = qs
+        .get("max_cloud")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(20.0);
+    let datetime_window = qs.get("datetime").cloned();
+    let scene = match build_cell_scene_rgb(&cell, max_cloud, datetime_window.as_deref()).await {
+        Ok(s) => s,
+        Err(e) => {
+            return (StatusCode::NOT_FOUND, format!("scene unavailable: {e}")).into_response()
+        }
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        // application/octet-stream is the safe choice — image/x-rgb is
+        // a Silicon Graphics legacy MIME type many clients reject as
+        // "unknown" — and we surface dimensions in headers so the
+        // raw byte stream is unambiguously parseable.
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .header(CACHE_CONTROL, "public, max-age=3600")
+        .header("x-emem-scene-format", "rgb8")
+        .header("x-emem-scene-width", scene.w.to_string())
+        .header("x-emem-scene-height", scene.h.to_string())
+        .header("x-emem-scene-channels", "3")
+        .header("x-emem-scene-item-id", &scene.item_id)
+        .header("x-emem-scene-datetime", &scene.item_datetime)
+        .header(
+            "x-emem-scene-cloud-cover",
+            scene
+                .cloud_cover
+                .map(|c| format!("{c:.2}"))
+                .unwrap_or_default(),
+        )
+        .header("x-emem-scene-epsg", scene.epsg.to_string())
+        .body(axum::body::Body::from(scene.rgb))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 /// `GET /v1/cells/{cell64}/scene.png` — true-colour Sentinel-2 RGB
@@ -16352,17 +16961,19 @@ mod tests {
     #[test]
     fn latlng_query_accepts_both_lon_and_lng_spellings() {
         let q1 = LatLngQ {
-            lat: 30.5,
+            lat: Some(30.5),
             lon: Some(75.85),
             lng: None,
+            place: None,
             band: None,
             bands: None,
             tslot: None,
         };
         let q2 = LatLngQ {
-            lat: 30.5,
+            lat: Some(30.5),
             lon: None,
             lng: Some(75.85),
+            place: None,
             band: None,
             bands: None,
             tslot: None,
@@ -16370,9 +16981,10 @@ mod tests {
         assert!(q1.longitude().ok() == Some(75.85));
         assert!(q2.longitude().ok() == Some(75.85));
         let q_missing = LatLngQ {
-            lat: 30.5,
+            lat: Some(30.5),
             lon: None,
             lng: None,
+            place: None,
             band: None,
             bands: None,
             tslot: None,

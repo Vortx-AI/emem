@@ -174,7 +174,7 @@ Schemas are stricter than the homepage suggests. Crib:
 | Primitive | Body that worked for me |
 |---|---|
 | `/v1/diff` | `{cell, band, tslot_a:<u64>, tslot_b:<u64>}` (not `t1/t2`) |
-| `/v1/intent` | `{type: "what_is_here"\|"where_is"\|"is_like"\|"did_change"\|"find_like"\|"confirm", cell, …}` |
+| `/v1/intent` | `{type: "what_is_here"\|"where_is"\|"is_like"\|"did_change"\|"find_like"\|"confirm"\|"ask", cell, …}` |
 | `/v1/trajectory` | `{cell, band, window:[<u64>,<u64>]}` |
 
 `/v1/intent` with `{type:"what_is_here", cell:"damO.zb000.xUto.sisA"}`

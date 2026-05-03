@@ -158,9 +158,15 @@ mod tests {
     #[test]
     fn default_loads_and_validates() {
         let r = &*DEFAULT;
-        assert!(r.functions.len() >= 17);
+        assert!(r.functions.len() >= 19);
         assert!(r.lookup("nv.l2a@1").is_some());
         assert!(r.lookup("gt.slice@1").is_some());
         assert!(r.lookup("abs.s1.water@1").is_some());
+        // Auto-materialize derivation_fn_keys must appear in the
+        // registry — /v1/materializers references both, so an agent
+        // walking the function manifest from a Primary fact's
+        // `derivation.fn_key` must be able to look them up here.
+        assert!(r.lookup("open_meteo_copdem90m@1").is_some());
+        assert!(r.lookup("met_no_locationforecast_compact@1").is_some());
     }
 }

@@ -100,16 +100,16 @@ Wire the response with `POST /v1/recall {cell, bands: ["modis.ndvi_mean"]}`.
 
 ### `weather.{temperature_2m,cloud_cover,precipitation_mm,wind_speed_10m}` — geostationary-fed 15-minute weather
 
-- **Upstream**: [Open-Meteo Forecast API](https://api.open-meteo.com/v1/forecast)
-  `current=...`. Open-Meteo blends HRRR (NOAA), ICON (DWD), GFS
-  (NOAA), and ECMWF runs that ingest GOES-16/17/18, Himawari-9, and
-  Meteosat-9/11 every ~15 min. The wire format is JSON, but the
-  *cadence* is the geostationary fleet — see `/v1/fleet` for the
-  per-platform lineage.
-- **Coverage**: global; 15-minute updates.
+- **Upstream**: [MET Norway Locationforecast 2.0/compact](https://api.met.no/weatherapi/locationforecast/2.0/compact).
+  MET Norway's NWP blend is sat-fed via ECMWF runs that ingest the
+  EUMETSAT geostationary fleet (Meteosat-9/11) plus GOES-16/17/18 and
+  Himawari-9. JSON wire format; no API key, no per-IP rate limit;
+  TOS asks only for an identifying User-Agent. See `/v1/fleet` for
+  the per-platform lineage.
+- **Coverage**: global; hourly point forecast updates.
 - **Cite-ability**: Primary fact, signed by the responder.
-  `derivation.fn_key = "open_meteo_forecast_current@1"`,
-  source scheme `"open_meteo"`.
+  `derivation.fn_key = "met_no_locationforecast_compact@1"`,
+  source scheme `"met_no"`.
 - **Tempo class**: `ultra_fast` → advection kernel
   `Q = max(0, 1 − Δt/H)` with H ≈ 6 hourly slots — matches how
   weather is *transported* much faster than created.

@@ -25,9 +25,7 @@ use emem_fact::{Attestation, Derivation, Fact, PrimaryFact, RegistryCid, SchemaC
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let base = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "http://localhost:5051".into());
+    let base = resolve_base_url();
     let stamp = utc_stamp();
     let out_dir: PathBuf = std::env::args()
         .nth(2)
@@ -669,4 +667,22 @@ fn render_markdown(t: &TraceIndex) -> String {
         s.push_str(&format!("- repro: `{}`\n\n", st.curl_repro));
     }
     s
+}
+
+/// Resolve the server base URL with this precedence: positional CLI arg →
+/// `EMEM_BASE_URL` → `http://localhost:5051` (the emem-server default bind
+/// per `crates/emem-cli/src/bin/emem-server.rs`). When the default fires,
+/// emit a one-line stderr note so the behavior is visible in CI logs.
+fn resolve_base_url() -> String {
+    const DEFAULT_BASE: &str = "http://localhost:5051";
+    if let Some(arg) = std::env::args().nth(1) {
+        return arg;
+    }
+    if let Ok(env_base) = std::env::var("EMEM_BASE_URL") {
+        if !env_base.is_empty() {
+            return env_base;
+        }
+    }
+    eprintln!("note: using default base url {DEFAULT_BASE}; set EMEM_BASE_URL to override");
+    DEFAULT_BASE.to_string()
 }

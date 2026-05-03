@@ -20,7 +20,9 @@ GET   /health                    POST  /v1/recall          POST  /v1/find_simila
 GET   /v1/agent_card             POST  /v1/compare         POST  /v1/diff
 GET   /openapi.json              POST  /v1/query_region    POST  /v1/trajectory
 GET   /.well-known/emem.json     POST  /v1/verify          POST  /v1/intent
-GET   /v1/demos                  POST  /v1/attest          POST  /mcp
+GET   /v1/demos                  POST  /v1/attest          GET   /mcp  (discover)
+GET   /v1/grid_info              POST  /v1/recall_many     POST  /mcp  (jsonrpc)
+GET   /v1/bands                  POST  /v1/recall_polygon  POST  /v1/locate
                                  POST  /v1/verify_receipt  GET   /v1/facts/:cid
 ```
 

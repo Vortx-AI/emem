@@ -447,8 +447,13 @@ not provide. The shape of the API is the shape of the problem.
 - `crates/emem-core` — type identities, manifest loaders.
 - `crates/emem-codec` — agent-native string codecs.
 - `crates/emem-fact` — fact / attestation / receipt types.
+- `crates/emem-attest` — attestation envelopes and Merkle batching.
+- `crates/emem-claim` — claim structures for the verify primitive.
 - `crates/emem-cache`, `crates/emem-storage` — hot cache + materializer + log.
+- `crates/emem-cubes` — 1792-D voxel cube layout and band-cube indexing.
 - `crates/emem-primitives` — read primitives over `&Server`.
 - `crates/emem-fetch` — anonymous HTTPS / GCS / vsicurl connectors.
+- `crates/emem-intent` — intent-routed planner backing the `emem_intent` tool.
 - `crates/emem-api-rest` — HTTP surface (REST + MCP + OpenAPI).
+- `crates/emem-mcp` — MCP transport adapter (JSON-RPC 2.0 streamable HTTP).
 - `crates/emem-cli` — `emem` (introspection) and `emem-server` (HTTP) binaries.

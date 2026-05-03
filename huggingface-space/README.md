@@ -35,7 +35,7 @@ verifiable receipts.
 
 - A live MCP JSON-RPC 2.0 endpoint at `${SPACE_URL}/mcp`.
 - A REST + OpenAPI 3.1 surface at `${SPACE_URL}/v1/...`.
-- The same 26 tools / 47 read primitives / 68 algorithms as
+- The same 28 MCP tools / 33 bands / 102 algorithms as
   [emem.dev](https://emem.dev).
 - Multimodal MCP content blocks: true-colour Sentinel-2 RGB scenes,
   GeoJSON cell polygons, live SVG coverage maps.

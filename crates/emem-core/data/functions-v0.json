@@ -169,6 +169,25 @@
       "formula": "vv_max_below_threshold(-17_db)_implies_absence",
       "deterministic": true,
       "reason_template": "absence.confirmed_by:s1_scene_cid:{scene_cid}"
+    },
+    {
+      "key": "open_meteo_copdem90m@1",
+      "kind": "primary",
+      "out_band": "cop_dem",
+      "out_index": 0,
+      "out_unit": "meters",
+      "sources": [{ "scheme": "open_meteo", "channels": ["elevation"], "tempo": "static" }],
+      "formula": "open_meteo_elevation_endpoint(latitude,longitude) → first_value; ocean (==0m) and upstream-no-coverage signed as Absence (scalar_key copdem30m.elevation_mean)",
+      "deterministic": true
+    },
+    {
+      "key": "met_no_locationforecast_compact@1",
+      "kind": "primary",
+      "out_band": "climate",
+      "out_unit": "celsius/percent/mm/m_per_s",
+      "sources": [{ "scheme": "met_no", "channels": ["air_temperature","cloud_area_fraction","precipitation_amount","wind_speed"], "tempo": "fast" }],
+      "formula": "met_no_locationforecast_compact(lat,lng) → properties.timeseries[nearest_to(target_unix)].data.instant.details[field] for {temperature_2m, cloud_cover, precipitation_mm, wind_speed_10m}; one fact per scalar_key",
+      "deterministic": true
     }
   ]
 }

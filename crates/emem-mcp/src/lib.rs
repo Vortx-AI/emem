@@ -434,7 +434,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_grid_info",
         title: "Active grid encoding",
         description: "Active grid encoding: cell64 ground resolution, lat/lng axis sizes, DGGS lineage.",
-        when_to_use: "Call once at session start (or when the user asks about cell resolution / 'how big is a cell'). Returns the actual ground resolution today (~305 m × 611 m at the equator) and the spec target. Useful before you reason about whether one cell is enough or whether you need `emem_recall_polygon`.",
+        when_to_use: "Call once at session start (or when the user asks about cell resolution / 'how big is a cell'). Returns the actual ground resolution today (~9.54 m × 9.55 m square at the equator (lat 21 bits × lng 22 bits, matching Sentinel-1/Sentinel-2 native pixel pitch). The cell64 bit layout reserves a resolution-tag field for future hierarchical refinement targeting H3-equivalent res-13 (~3.4 m) cells in v0.1.) and the spec target. Useful before you reason about whether one cell is enough or whether you need `emem_recall_polygon`.",
         input_schema: SCHEMA_GRID_INFO,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
