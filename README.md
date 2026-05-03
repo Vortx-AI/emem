@@ -48,11 +48,32 @@ All three are the same wire — pick whichever your host already speaks.
 
 ### Option A — Docker (no Rust toolchain needed)
 
+The canonical image lives at `ghcr.io/vortx-ai/emem:latest` (multi-arch
+`linux/amd64` + `linux/arm64`, anonymously pullable, ~30 MB compressed).
+Tags: `latest`, `<short-sha>`, `<vX.Y.Z>` on releases.
+
 ```bash
+# Pull (verifies image exists + caches it).
+docker pull ghcr.io/vortx-ai/emem:latest
+
+# Run with a persistent volume so attestations survive restarts.
 docker run --rm -p 5051:5051 -v emem-data:/var/emem \
   ghcr.io/vortx-ai/emem:latest
-curl -s http://localhost:5051/health
+
+# Smoke-check from another shell.
+curl -s http://localhost:5051/health | jq .
+curl -s http://localhost:5051/v1/agent_card | jq '.serverInfo, .runtime'
 ```
+
+Or pin to a specific release:
+
+```bash
+docker pull ghcr.io/vortx-ai/emem:v0.0.3
+```
+
+The image is built by `.github/workflows/publish.yml` on every push to
+`main`. Provenance and SBOM are attached — verify with
+`cosign verify-attestation` (see `docs/PUBLISHING.md`).
 
 ### Option B — HuggingFace Space
 

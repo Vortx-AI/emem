@@ -190,6 +190,70 @@ items below are everything else the codebase or docs still owe.
   derived fact?). The `temporal_composition[]` block has the
   same question — both should land at the same answer.
 
+### M15. Multimodal upload surface — POST /v1/contribute
+
+- **Where we are today (0.0.3):** every fact in the corpus is materialized
+  by the responder from open upstream sources (Sentinel-2, Cop-DEM, JRC
+  GSW, …). Agents *cannot contribute* their own observations: there's no
+  `/v1/contribute`, no GeoJSON upload, no signed-claim ingestion path.
+  `/v1/agent_card` already declares this honestly under
+  `multimodal_io._status_summary`: "INGESTION is JSON/CBOR only — no
+  image upload or binary-vector-as-payload endpoint yet."
+- **Target:** add `POST /v1/contribute` accepting one of:
+  1. **Tabular observation** — `{cell, band, value, observed_at_unix,
+     attester_pubkey, attester_sig, evidence_uri?}`. The responder
+     verifies the ed25519 signature, validates `band` is in the
+     manifest + `value` is in `value_range`, persists as a
+     `Fact::Primary` with the *attester's* signature (not the
+     responder's), and adds to the per-cell append-log.
+  2. **GeoJSON polygon batch** — `{features: [{geometry, properties:
+     {band, value, observed_at_unix}}]}`. Each feature's centroid
+     resolves to a cell64; the responder fans out one signed fact per
+     cell × per band. Cap at 1024 features per call.
+  3. **Image upload** — `multipart/form-data` with `file` (PNG/JPG/
+     GeoTIFF) + `cell` + `tag`. The responder stores the bytes under
+     a content-addressed CID, returns the CID, and emits a
+     `Fact::Evidence` referencing it — *not* a Primary fact (image
+     interpretation is left to downstream tooling). 50 MB per upload
+     cap.
+- **Why this matters for agents:** lets them turn user-provided GeoJSON
+  ("here's the field boundary") or photo evidence ("here's what the
+  flood looked like") into signed facts the next call can recall + cite.
+  Closes the loop — emem stops being read-only.
+- **Open question:** rate-limiting and abuse model for an unauthenticated
+  `/v1/contribute`. Likely answer: require ed25519-signed envelope from
+  day one, treat any unsigned upload as a 401. The signed claim then
+  carries the attester's identity into the receipt; downstream readers
+  can choose whether to trust that pubkey.
+
+### M16. Snapshot-band materialization parallelism
+
+- **Where we are today (0.0.3):** `dispatch_temporal_recipes` and
+  `run_temporal_window` parallelise temporal samples and per-window
+  fetches via `tokio::task::JoinSet` (added 2026-05-03 after observing
+  flood-risk /v1/ask hit the 60 s gateway timeout). The bumped 180 s
+  default keeps cold calls successful.
+- **Remaining bottleneck:** `try_materialize_bands` (the snapshot-mode
+  per-band materializer used by `recall_with_auto_materialize`) is
+  still a `for b in bands` serial loop covering ~30 match arms across
+  Open-Meteo / STAC / SoilGrids / Hansen / NASA POWER. A 15-band
+  flood-risk question pays serial 15 × 1–5 s on cold cells. Net
+  observable: a warm /v1/ask still lands at ~10 s; a cold one at
+  60 s+ (the temporal recipes now go fast, but the snapshot is the
+  long pole).
+- **Target:** refactor `try_materialize_bands` so each iteration spawns
+  via `JoinSet`. Either extract a `materialize_one_band(cell, band, s)`
+  helper containing the ~660-line match (mechanical), or unify with
+  `materialize_band_at` (already a parallel-safe dispatcher used by
+  the temporal layer) by routing snapshot mode through it with
+  `target_unix = now`. The unification cuts the dispatcher count from
+  two to one and avoids the ~659-line copy.
+- **Risk:** `materialize_band_at` currently returns
+  `"no historical materializer registered"` for some bands the
+  snapshot path handles directly (e.g. Overture themes that only
+  have a "now" semantic). A test sweep across all bands listed in
+  `/v1/materializers` is the gate.
+
 ---
 
 ## Pointers

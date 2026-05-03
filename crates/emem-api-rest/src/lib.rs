@@ -347,19 +347,20 @@ fn body_limit_bytes() -> usize {
     mb.clamp(1, 256) * 1024 * 1024
 }
 
-/// HTTP request gateway timeout. Defaults to **60 s**; tunable via
-/// `EMEM_TIMEOUT_SECS` (clamped to 1..=600). Doubled from the previous
-/// 30 s default after a 41-band multimodal recall test hit a 504 on
-/// the public host — agents that ask one composite question routinely
-/// trigger 8-12 cross-modal materializers in parallel, and SoilGrids
-/// REST + STAC PC + ORNL DAAC all have ~5 s p99 on cold paths. 60 s
-/// keeps the cumulative miss path comfortably under the cap while
-/// still being short enough to surface a stuck upstream.
+/// HTTP request gateway timeout. Defaults to **180 s**; tunable via
+/// `EMEM_TIMEOUT_SECS` (clamped to 1..=600). Bumped from 60 s on
+/// 2026-05-03 after observing /v1/ask flood-risk calls take ~70 s
+/// even after parallelising temporal-window materialisation: a cold
+/// flood_risk@2 fans out 3 temporal windows × ~8 samples each, and
+/// per-sample S1/S2 STAC + COG fetches sit at 5–15 s p95 on cold
+/// cells. The agent-card and OpenAPI both quote this number so
+/// clients can set their own per-request timeout coherently —
+/// surfaced under `runtime.gateway_timeout_secs`.
 fn timeout_seconds() -> u64 {
     std::env::var("EMEM_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(60u64)
+        .unwrap_or(180u64)
         .clamp(1, 600)
 }
 
@@ -3020,6 +3021,9 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "cog_reader":     "pure-Rust HTTPS-range TIFF/IFD parser + Deflate + Predictor 2 (no GDAL, no rasterio)",
             "weather_source": "MET Norway api.met.no (no API key, no per-IP rate limit)",
             "stac_search":    "Element84 earth-search (anonymous; AWS Open Data backed)",
+            "gateway_timeout_secs":      timeout_seconds(),
+            "materializer_timeout_secs": materializer_timeout_secs(),
+            "client_timeout_advice":     "Set your HTTP client read timeout to gateway_timeout_secs + 5 s. /v1/ask on a cold cell can fan out 8–24 parallel materialisations whose worst-case is bounded by materializer_timeout_secs; /v1/recall and /v1/locate complete in <2 s when warm. If you need a hard upper bound, request `cell` + a single concrete `band` to skip the temporal_recipe expansion.",
         },
         "tools": descriptors,
     }))
@@ -5270,9 +5274,14 @@ fn mcp_static_resources() -> Vec<JsonValue> {
 }
 
 fn mcp_resource_templates() -> Vec<JsonValue> {
-    // Templated URIs that the host can fill in (cell64 / fact CID) and
-    // dereference via resources/read. Useful for "show me this place's
-    // polygon" / "show me the bytes behind this CID" without a tool call.
+    // Templated URIs that the host can fill in (cell64 / fact CID / band /
+    // algorithm key) and dereference via resources/read. Useful for "show
+    // me this place's polygon" / "what does this band carry?" / "spell out
+    // this algorithm's formula" / "show me the bytes behind this CID"
+    // without a tool call. Each template is bidirectional: an agent can
+    // *cite* a band or algorithm in its reply by emitting the URI string,
+    // and a multimodal host (Claude Desktop, Inspector) auto-resolves it
+    // to a rendered card via resources/read.
     vec![
         json!({
             "uriTemplate": "emem://cell/{cell64}/geojson",
@@ -5285,6 +5294,24 @@ fn mcp_resource_templates() -> Vec<JsonValue> {
             "name":        "cell.scene.png",
             "mimeType":    "image/png",
             "description": "Sentinel-2 L2A true-colour 256×256 thumbnail centred on the cell. Use the emem_cell_scene_rgb tool to actually fetch it (resources/read returns a pointer; the tool returns the bytes).",
+        }),
+        json!({
+            "uriTemplate": "emem://band/{band_key}",
+            "name":        "band.detail",
+            "mimeType":    "application/json",
+            "description": "One band's full record from the active manifest — description, units, value_range, interpretation, pitfalls, references, dimensions[], scalar_keys[]. Lets an agent cite a band by URI (e.g. `emem://band/indices`) and have the host auto-render its docs without a tool call.",
+        }),
+        json!({
+            "uriTemplate": "emem://algorithm/{algorithm_key}",
+            "name":        "algorithm.detail",
+            "mimeType":    "application/json",
+            "description": "One algorithm's full record from the algorithm registry — formula text, inputs[], evaluation AST, citation, accuracy_band, when_to_use, temporal_recipe. e.g. `emem://algorithm/flood_risk@2`. Use to cite the math behind an algorithm_outcomes[] entry without re-fetching /v1/algorithms.",
+        }),
+        json!({
+            "uriTemplate": "emem://fact/{fact_cid}",
+            "name":        "fact.cbor",
+            "mimeType":    "application/cbor",
+            "description": "Raw signed Fact bytes for a content-addressed fact CID. Returned as base64 inside a single resource block — reproducible byte-stable input to verify(receipt) against the responder's pubkey.",
         }),
     ]
 }
@@ -5309,19 +5336,66 @@ fn mcp_read_resource(uri: &str) -> Result<JsonValue, (i64, String)> {
         "emem://docs/terms.md" => Some((TERMS_MD, "text/markdown")),
         _ => None,
     };
-    match body {
-        Some((text, mime)) => Ok(json!({
+    if let Some((text, mime)) = body {
+        return Ok(json!({
             "uri":      uri,
             "mimeType": mime,
             "text":     text,
-        })),
-        None => Err((
-            -32602,
-            format!(
-                "unknown resource uri '{uri}': call resources/list for the catalog. Templated URIs (emem://cell/...) need to go through the matching tool: emem_cell_geojson / emem_cell_scene_rgb."
-            ),
-        )),
+        }));
     }
+    // Templated URIs: emem://band/{key} and emem://algorithm/{key}.
+    // Fact / cell URIs route through their matching tools (emem_cell_geojson,
+    // emem_cell_scene_rgb, /v1/facts/{cid}) — resources/read on those would
+    // require holding AppState here, which we don't, so we surface a 1-line
+    // pointer instead of a 404 to keep the host's resource picker honest.
+    if let Some(key) = uri.strip_prefix("emem://band/") {
+        let reg = &*emem_core::bands::DEFAULT;
+        if let Some(b) = reg.bands.iter().find(|b| b.key == key) {
+            let json = serde_json::to_string(b).unwrap_or_else(|_| "{}".to_string());
+            return Ok(json!({
+                "uri":      uri,
+                "mimeType": "application/json",
+                "text":     json,
+            }));
+        }
+        return Err((
+            -32602,
+            format!("unknown band '{key}': call /v1/bands or resources/read on emem://docs/llms.txt for the catalog"),
+        ));
+    }
+    if let Some(key) = uri.strip_prefix("emem://algorithm/") {
+        let reg = &*emem_core::algorithms::DEFAULT;
+        if let Some(a) = reg.lookup(key) {
+            let json = serde_json::to_string(a).unwrap_or_else(|_| "{}".to_string());
+            return Ok(json!({
+                "uri":      uri,
+                "mimeType": "application/json",
+                "text":     json,
+            }));
+        }
+        return Err((
+            -32602,
+            format!("unknown algorithm '{key}': call /v1/algorithms for the catalog (algorithm keys carry an @version suffix, e.g. flood_risk@2)"),
+        ));
+    }
+    if let Some(cid) = uri.strip_prefix("emem://fact/") {
+        return Err((
+            -32602,
+            format!("emem://fact/{cid} resolves through the REST endpoint /v1/facts/{cid} — resources/read would require AppState. Use the REST URL for now; structured fact dereference via MCP is on MILESTONE_v0.0.4."),
+        ));
+    }
+    if let Some(rest) = uri.strip_prefix("emem://cell/") {
+        return Err((
+            -32602,
+            format!("emem://cell/{rest} routes through a tool — call emem_cell_geojson or emem_cell_scene_rgb with cell={{the cell64 in the path}}. resources/read returns the URI as a pointer; the tool returns the bytes."),
+        ));
+    }
+    Err((
+        -32602,
+        format!(
+            "unknown resource uri '{uri}': call resources/list for the catalog. Templated URIs (emem://cell/..., emem://band/..., emem://algorithm/..., emem://fact/...) follow `resources/templates/list`."
+        ),
+    ))
 }
 
 // ── MCP Prompts ──────────────────────────────────────────────────────────
@@ -12708,6 +12782,14 @@ async fn post_ask(
 /// O(100) calls in the worst case; subsequent calls hit the lazy cache).
 /// `lookback_days = 0` means "static — fetch tslot=0 once".
 ///
+/// Samples within a window run concurrently via `tokio::task::JoinSet` —
+/// each `materialize_band_at` is an independent network fetch, and a
+/// 7-day window with 7 sequential 5-second cold-fetches was the dominant
+/// bottleneck in `/v1/ask` flood-risk calls (observed 2026-05-03: a
+/// 14-sample S1 window held the request for ~70 s, tripping the
+/// gateway timeout). Parallelising here drops the same window to
+/// ~max(samples) instead of sum(samples).
+///
 /// Returns a JSON description of the window with each sample's tslot +
 /// fact_cid + value (when available) and an `aggregator_summary` if the
 /// recipe declared one of `sum / mean / median / max / min / latest /
@@ -12725,8 +12807,8 @@ async fn run_temporal_window(
     };
     let span_secs: i64 = window.lookback_days as i64 * 86400;
     let start_unix = now_unix - span_secs;
-    let mut samples_out: Vec<JsonValue> = Vec::with_capacity(n_samples);
-    let mut numeric_values: Vec<f64> = Vec::with_capacity(n_samples);
+    let mut set: tokio::task::JoinSet<(usize, i64, Result<emem_fact::FactCid, String>)> =
+        tokio::task::JoinSet::new();
     for i in 0..n_samples {
         let target_unix = if window.lookback_days == 0 {
             0
@@ -12736,11 +12818,35 @@ async fn run_temporal_window(
             let frac = (i as f64 + 0.5) / n_samples as f64;
             start_unix + (span_secs as f64 * frac) as i64
         };
-        match materialize_band_at(cell64, &window.band, target_unix, s).await {
+        let cell = cell64.to_string();
+        let band = window.band.clone();
+        let s = s.clone();
+        set.spawn(async move {
+            let r = materialize_band_at(&cell, &band, target_unix, &s).await;
+            (i, target_unix, r)
+        });
+    }
+    // Collect in completion order, then re-sort by sample index so the
+    // wire shape is deterministic and the aggregator below sees facts in
+    // chronological order regardless of which network call returned first.
+    let mut indexed: Vec<(usize, i64, Result<emem_fact::FactCid, String>)> =
+        Vec::with_capacity(n_samples);
+    while let Some(j) = set.join_next().await {
+        match j {
+            Ok(triple) => indexed.push(triple),
+            Err(e) => {
+                // tokio task panic — surface as a per-sample error rather
+                // than aborting the whole window; the agent can retry.
+                indexed.push((indexed.len(), 0, Err(format!("worker panicked: {e}"))));
+            }
+        }
+    }
+    indexed.sort_by_key(|(i, _, _)| *i);
+    let mut samples_out: Vec<JsonValue> = Vec::with_capacity(n_samples);
+    let mut numeric_values: Vec<f64> = Vec::with_capacity(n_samples);
+    for (_i, target_unix, r) in indexed {
+        match r {
             Ok(cid) => {
-                // Best-effort value lookup so the agent can read aggregates
-                // without a follow-up GET. Failure here is non-fatal — the
-                // CID alone is enough to dereference later.
                 let val = lookup_fact_value_by_cid(s, &cid).await;
                 if let Some(v) = val {
                     numeric_values.push(v);
@@ -12836,15 +12942,18 @@ async fn dispatch_temporal_recipes(
             Some(r) => r,
             None => continue,
         };
-        let mut windows_out: Vec<JsonValue> = Vec::with_capacity(recipe.windows.len());
-        for w in &recipe.windows {
-            // Trigger gate: skip the window when the snapshot value for
-            // the anchor band is below `trigger_threshold`. The snapshot
-            // is already in `snapshot` so this is free.
+        // Run windows concurrently — they're independent network fetches,
+        // and a flood_risk@2 recipe with 3 windows × ~8 samples each
+        // becomes the dominant /v1/ask latency when serialised. We still
+        // do the cheap trigger-threshold gate up front so dry-day flood
+        // checks stay free.
+        let mut window_set: tokio::task::JoinSet<(usize, JsonValue)> = tokio::task::JoinSet::new();
+        let mut prefilled: Vec<Option<JsonValue>> = vec![None; recipe.windows.len()];
+        for (idx, w) in recipe.windows.iter().enumerate() {
             if let Some(t) = w.trigger_threshold {
                 if let Some(snap) = snapshot_value_for(&w.band) {
                     if snap < t {
-                        windows_out.push(json!({
+                        prefilled[idx] = Some(json!({
                             "band":          w.band,
                             "purpose":       w.purpose,
                             "lookback_days": w.lookback_days,
@@ -12856,8 +12965,20 @@ async fn dispatch_temporal_recipes(
                     }
                 }
             }
-            windows_out.push(run_temporal_window(cell64, w, s, now_unix).await);
+            let cell = cell64.to_string();
+            let w = w.clone();
+            let s = s.clone();
+            window_set.spawn(async move {
+                let v = run_temporal_window(&cell, &w, &s, now_unix).await;
+                (idx, v)
+            });
         }
+        while let Some(j) = window_set.join_next().await {
+            if let Ok((idx, v)) = j {
+                prefilled[idx] = Some(v);
+            }
+        }
+        let windows_out: Vec<JsonValue> = prefilled.into_iter().flatten().collect();
         out.push(json!({
             "algorithm_key": alg.key,
             "label":         recipe.label,
@@ -12927,10 +13048,18 @@ fn samples_from_recall(
 /// {
 ///   "algorithm_key":   "flood_risk@2",
 ///   "value":           0.4836,
-///   "input_fact_cids": ["...", "...", "..."],
+///   "formula":         "let dem_agreement = ...; ...",
+///   "inputs":          { "topo.dem_m": 73.4, "water.recurrence": 41.0, ... },
+///   "input_fact_cids": ["bafy...", "bafy...", "bafy..."],
+///   "citation":        "Copernicus DEM ...; JRC GSW ...; ...",
 ///   "evaluation_via":  "ast"
 /// }
 /// ```
+///
+/// `inputs` is the subset of recalled samples the AST actually
+/// referenced — keyed by band so the agent can plug them back into
+/// `formula` and reproduce `value` byte-stably. `input_fact_cids` are
+/// the same values' content-addressed receipts.
 ///
 /// Algorithms without an `evaluation` field are skipped (not an
 /// error) — `algorithms_for_question[]` already advertises them so
@@ -12972,26 +13101,44 @@ fn dispatch_algorithms(
                 }
             }
         }
+        // Named inputs map: only the bands the AST actually referenced,
+        // with their snapshot values. Lets an agent reproduce `value` by
+        // hand-evaluating `formula` — no black box.
+        let mut named_inputs: serde_json::Map<String, JsonValue> = serde_json::Map::new();
+        for band in &referenced {
+            if let Some(v) = samples.get(band) {
+                named_inputs.insert(band.clone(), json!(v));
+            }
+        }
         match alg_reg.evaluate(key, &samples) {
             Ok(Some(v)) if v.is_finite() => out.push(json!({
                 "algorithm_key":   key,
                 "value":           v,
+                "formula":         alg.formula,
+                "inputs":          JsonValue::Object(named_inputs),
                 "input_fact_cids": input_cids,
+                "citation":        alg.citation,
                 "evaluation_via":  "ast",
             })),
             Ok(Some(_v_nonfinite)) => out.push(json!({
                 "algorithm_key": key,
                 "value":         JsonValue::Null,
+                "formula":       alg.formula,
+                "inputs":        JsonValue::Object(named_inputs),
                 "skip_reason":   "evaluation produced non-finite value (overflow / nan)",
             })),
             Ok(None) => out.push(json!({
                 "algorithm_key": key,
                 "value":         JsonValue::Null,
+                "formula":       alg.formula,
+                "inputs":        JsonValue::Object(named_inputs),
                 "skip_reason":   "expression evaluated to None (likely division by zero)",
             })),
             Err(missing) => out.push(json!({
                 "algorithm_key": key,
                 "value":         JsonValue::Null,
+                "formula":       alg.formula,
+                "inputs":        JsonValue::Object(named_inputs),
                 "skip_reason":   missing,
             })),
         }

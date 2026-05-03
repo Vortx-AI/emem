@@ -51,6 +51,30 @@ pub enum BandFamily {
     Reserved,
 }
 
+/// One named scalar slot inside a multi-dim band (e.g. `indices` carries
+/// NDVI, NDRE, NDMI as three named slots). Editorial — present only on
+/// bands where individual dimensions have distinct semantic meaning.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BandDimension {
+    /// 0-indexed offset inside the band (NOT inside the 1792D cube).
+    pub index: u16,
+    /// Short stable name for this slot (e.g. `"ndvi"`, `"elevation_mean"`).
+    pub name: String,
+    /// One-line description of what this scalar represents.
+    pub description: String,
+    /// Physical units (e.g. `"unitless"`, `"meters"`, `"dB"`, `"percent"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units: Option<String>,
+    /// Inclusive admissible range as `[min, max]`. Use `null` on either
+    /// side for half-open. Editorial — meant for sanity-checking values
+    /// that came back from `/v1/recall`, not for hard validation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_range: Option<serde_json::Value>,
+    /// Optional plain-math formula (e.g. `"NDVI = (B08 − B04) / (B08 + B04)"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
+}
+
 /// A single band record loaded from the manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Band {
@@ -66,6 +90,43 @@ pub struct Band {
     pub tempo: Tempo,
     /// Privacy class.
     pub privacy: PrivacyClass,
+    /// One-paragraph editorial description of what the band carries and
+    /// why an agent would pull it. Optional so the legacy short-form
+    /// manifest stays valid; populated progressively per band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Physical units when the band is a scalar (vector bands list units
+    /// per `dimensions[]` instead).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units: Option<String>,
+    /// Inclusive admissible range for scalar bands (`[min, max]`, `null`
+    /// for half-open).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_range: Option<serde_json::Value>,
+    /// Editorial guide on how to read the value (e.g. NDVI thresholds for
+    /// bare soil / vegetation / dense canopy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interpretation: Option<String>,
+    /// Common gotchas an agent should know before relying on the band
+    /// (cloud contamination, snow seasonality, etc).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitfalls: Option<String>,
+    /// Citations / canonical doc URLs (newline-joined string for compact
+    /// JSON readability).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references: Option<String>,
+    /// Per-slot breakdown for multi-dim bands. Optional — when present,
+    /// `dimensions.len()` SHOULD equal `dims`. Lets `/v1/bands` answer
+    /// "what is dimension 1 of `indices`?" without external docs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dimensions: Vec<BandDimension>,
+    /// Materializer scalar names that read from this cube band, in
+    /// `family.field` form (e.g. `["indices.ndvi", "indices.ndre",
+    /// "indices.ndmi"]`). Lets an agent jump from `/v1/bands` straight to
+    /// the dotted keys it can use in `/v1/recall` without consulting
+    /// `/v1/materializers` separately.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scalar_keys: Vec<String>,
 }
 
 /// The full band-ontology manifest.
