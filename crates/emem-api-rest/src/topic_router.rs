@@ -211,11 +211,35 @@ impl TopicRouter {
     /// Route a free-text question to the matching topics. Returns
     /// matches sorted by descending score, capped at `max_topics`,
     /// each above the configured threshold.
+    ///
+    /// **Hybrid scoring** (since 2026-05-04). Even in transformer mode
+    /// we run the keyword exact-match pass first as a high-precision
+    /// pre-pass: if the question contains an exact alias substring
+    /// (case-folded), tag those topics with `via: "keyword"` and
+    /// score 1.0 so they always surface above the transformer
+    /// threshold. The transformer pass then runs to add semantically
+    /// related topics the keyword pass missed (paraphrases,
+    /// synonyms). Final result is the keyword hits first (sorted
+    /// by alias length / question length so the most specific match
+    /// wins), then any transformer hits not already covered, all
+    /// truncated to `max_topics`.
+    ///
+    /// Why this exists: `model2vec/potion-base-8M` is a ~32 MB
+    /// static-lookup distillation of MiniLM. Cosine quality is good
+    /// for paraphrase but degrades on questions where the topical
+    /// noun is a small fraction of the embedding pool (e.g.
+    /// "show me NDVI for Bengaluru" — "Bengaluru" dominates the
+    /// embedding and the cosine to `vegetation_condition` falls
+    /// below the 0.35 threshold). The keyword pre-pass gives us
+    /// BM25-grade precision on known nouns at zero extra cost.
     pub fn route(&self, question: &str) -> Vec<TopicMatch> {
         let q = question.trim();
         if q.is_empty() {
             return Vec::new();
         }
+        // Always run the keyword exact-match pass — it's pure substring
+        // search over <100 short aliases per topic and costs <1 µs.
+        let keyword_hits = self.keyword_match(q);
         match &self.inner.backend {
             Backend::Transformer { model, centroids } => {
                 let q_vec = embed_one(model, q);
@@ -226,51 +250,91 @@ impl TopicRouter {
                     .filter(|(_, s)| *s >= self.inner.threshold)
                     .collect();
                 scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                scored.truncate(self.inner.max_topics);
-                scored
+                let mut transformer_hits: Vec<TopicMatch> = scored
                     .into_iter()
                     .map(|(i, score)| TopicMatch {
                         key: self.inner.registry.topics[i].key.clone(),
                         score,
                         via: "transformer",
                     })
-                    .collect()
-            }
-            Backend::Keyword { aliases_per_topic } => {
-                let q_low = q.to_lowercase();
-                let mut hits: Vec<TopicMatch> = Vec::new();
-                for (i, aliases) in aliases_per_topic.iter().enumerate() {
-                    // Score = longest matched alias / question length,
-                    // bounded to [0, 1]. Stable, deterministic, fast.
-                    let mut best: f32 = 0.0;
-                    for a in aliases {
-                        if a.is_empty() {
-                            continue;
-                        }
-                        if q_low.contains(a) {
-                            let s = (a.len() as f32) / (q_low.len() as f32).max(1.0);
-                            if s > best {
-                                best = s;
-                            }
-                        }
-                    }
-                    if best > 0.0 {
-                        hits.push(TopicMatch {
-                            key: self.inner.registry.topics[i].key.clone(),
-                            score: best,
-                            via: "keyword",
-                        });
+                    .collect();
+                // Merge: keyword hits first (high precision), then
+                // transformer hits not already in the keyword list.
+                let mut out: Vec<TopicMatch> = Vec::new();
+                let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for h in keyword_hits.into_iter().chain(transformer_hits.drain(..)) {
+                    if seen.insert(h.key.clone()) {
+                        out.push(h);
                     }
                 }
-                hits.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                out.truncate(self.inner.max_topics);
+                out
+            }
+            Backend::Keyword { .. } => {
+                let mut hits = keyword_hits;
                 hits.truncate(self.inner.max_topics);
                 hits
             }
         }
+    }
+
+    /// Pure substring scoring against `aliases[]` + the topic key.
+    /// Builds the alias table on the fly when the active backend is
+    /// Transformer mode (where the table isn't pre-cached). Returns
+    /// matches sorted by score (longest matched alias / question
+    /// length) descending.
+    fn keyword_match(&self, q: &str) -> Vec<TopicMatch> {
+        let q_low = q.to_lowercase();
+        let aliases_iter: Vec<(usize, Vec<String>)> = match &self.inner.backend {
+            Backend::Keyword { aliases_per_topic } => aliases_per_topic
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (i, v.clone()))
+                .collect(),
+            Backend::Transformer { .. } => self
+                .inner
+                .registry
+                .topics
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let mut all: Vec<String> = Vec::with_capacity(t.aliases.len() + 1);
+                    all.push(t.key.replace('_', " ").to_lowercase());
+                    for a in &t.aliases {
+                        all.push(a.to_lowercase());
+                    }
+                    (i, all)
+                })
+                .collect(),
+        };
+        let mut hits: Vec<TopicMatch> = Vec::new();
+        for (i, aliases) in aliases_iter.iter() {
+            let mut best: f32 = 0.0;
+            for a in aliases {
+                if a.is_empty() {
+                    continue;
+                }
+                if q_low.contains(a) {
+                    let s = (a.len() as f32) / (q_low.len() as f32).max(1.0);
+                    if s > best {
+                        best = s;
+                    }
+                }
+            }
+            if best > 0.0 {
+                hits.push(TopicMatch {
+                    key: self.inner.registry.topics[*i].key.clone(),
+                    score: best,
+                    via: "keyword",
+                });
+            }
+        }
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        hits
     }
 
     /// Look up the canonical bands for a routed topic.

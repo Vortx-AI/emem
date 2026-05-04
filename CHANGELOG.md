@@ -8,6 +8,54 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 ## [Unreleased]
 
 ### Added
+- **Hybrid topic routing — keyword exact-match boost + transformer
+  semantic fallback.** Even in transformer mode the router now runs
+  the keyword-substring pass first; if a question contains an exact
+  alias (case-folded), those topics surface ahead of the transformer
+  hits with `via: "keyword"` and a length-based score. The transformer
+  pass still runs to add semantically related topics the keyword pass
+  missed (paraphrases / synonyms). Closes the 2026-05-04 routing gap
+  where `model2vec/potion-base-8M`'s 256-D static-lookup embeddings
+  scored common Qwen-style questions ("show me NDVI for Bengaluru",
+  "satellite imagery of Mumbai") below the 0.35 threshold because the
+  place noun ("Bengaluru") dominated the embedding pool. Pure
+  substring search costs <1 µs per question over <100 short aliases
+  per topic — zero latency overhead.
+- **Aggressive alias enrichment** — `vegetation_condition` (NDVI map/
+  value/for/at/of/in, EVI, SAVI, NDMI, LAI, photosynthesis,
+  greenness, vegetation/crop health, plant vigour),
+  `optical_raw_reflectance` (satellite imagery / picture / image /
+  photo, show me satellite, show me a picture of, S2 scene, true
+  color, RGB image, multispectral, what does this place look like),
+  `radar_all_weather_sar` (show me radar, S1 scene, SAR image,
+  radar imagery, cloud-penetrating, through clouds, night imagery),
+  `public_health` (air quality in / of / at / for, pollution in,
+  smog in, AQI in / for, PM10, particulate matter, no2 level,
+  heat vulnerability / exposure / stress, how polluted is). Targets
+  the question framings agents most commonly use that previously
+  scored below 0.35 cosine.
+- **`/v1/ask imagery_hint` block** — when the matched topics include
+  one of `optical_raw_reflectance`, `radar_all_weather_sar`,
+  `scene_classification` (i.e. the user wants imagery), promote the
+  Sentinel-2 RGB scene URL from the buried `scene` block to a
+  top-level `imagery_hint` block and add a `render_image_for_imagery_topic`
+  caveat telling the agent to render or link to the image instead of
+  (or alongside) the raw band values. Closes the gap where Qwen
+  reading "satellite imagery of Mumbai" returned 7 numeric S2 bands
+  and missed the actual viewable PNG buried in a 15-key response.
+- **Inventory-based algorithm dispatch tightened** — the inventory
+  fall-through I added earlier (so `aqi_class@1` would fire for
+  air-quality questions even when topic_router missed) was too greedy:
+  it dispatched any algorithm whose AST inputs were all in the recall
+  cache, which fired `flood_risk@2` and `aqi_class@1` for "show me
+  NDVI for Bengaluru" because their inputs (cams.pm25,
+  surface_water.recurrence, copdem30m.elevation_mean, sentinel1_raw)
+  all happened to be cached at Bengaluru. Now requires (a) at least
+  one topic was matched, AND (b) every input the AST reads is also
+  in `want_bands` (the bands the matched topics wanted). Air-quality
+  routing now goes through the proper topic_router path (after the
+  alias enrichment), so removing the inventory dispatch for empty-
+  topic queries doesn't regress that case.
 - **`air_quality` band entry + per-scalar dimension overlay** —
   carved 7 dims off the front of `_reserved_512` (offset 192,
   shrunk from 512 → 505 dims) to give CAMS air-quality scalars

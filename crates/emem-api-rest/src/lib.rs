@@ -16293,18 +16293,26 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         .iter()
         .filter_map(|v| v.get("key").and_then(|k| k.as_str()).map(String::from))
         .collect();
-    // Inventory-based algorithm fall-through. When the topic router
-    // misses (e.g. transformer scores below threshold for "air quality
-    // in Delhi") but the recall snapshot still owns every input an
-    // algorithm needs, fire the algorithm anyway. This closes the
-    // 2026-05-04 gap where `aqi_class@1` was registered + bound to
-    // `public_health` but the topic_router didn't tag the question
-    // `public_health` so the algorithm never dispatched. Walks the
-    // registry once, keeps any algorithm whose `evaluation`-AST
-    // referenced bands are all present in `recall_resp.facts[]`,
-    // and appends to `all_matched_keys`. De-dup happens inside
-    // `dispatch_algorithms` via its `seen` HashSet.
-    {
+    // Inventory-based algorithm fall-through. When at least one topic
+    // matched AND the recall snapshot owns every input an algorithm's
+    // `evaluation`-AST needs AND every input is also a band the matched
+    // topics wanted (`want_bands`), fire the algorithm. This closes the
+    // 2026-05-04 gap where an algorithm bound to a matched topic still
+    // didn't dispatch because the topic registry's `algorithms[]` array
+    // hadn't been updated to include it — yet keeps off-topic algorithms
+    // (e.g. `aqi_class@1` firing for "show me NDVI for Bengaluru" because
+    // CAMS PM2.5 happened to be cached at the cell) suppressed.
+    //
+    // Two gates that must both hold:
+    //   1. `!topics.is_empty()` — when zero topics matched, we have no
+    //      signal about what the user wants. Returning algorithm outputs
+    //      from arbitrary inventory bands is noise; let the caller see
+    //      raw `band_observations[]` only.
+    //   2. `referenced ⊆ want_bands` — every input the AST reads must be
+    //      a band the matched topics wanted. Stops cross-domain leakage
+    //      where one topic's band incidentally satisfies a foreign
+    //      algorithm's inputs.
+    if !topics.is_empty() {
         let alg_reg = &*emem_core::algorithms::DEFAULT;
         let recall_bands: std::collections::HashSet<&str> = recall_resp
             .facts
@@ -16330,7 +16338,9 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             if referenced.is_empty() {
                 continue;
             }
-            if referenced.iter().all(|b| recall_bands.contains(b.as_str())) {
+            let all_in_recall = referenced.iter().all(|b| recall_bands.contains(b.as_str()));
+            let all_topic_relevant = referenced.iter().all(|b| want_bands.contains(b));
+            if all_in_recall && all_topic_relevant {
                 to_add.push(alg.key.clone());
             }
         }
@@ -16438,6 +16448,28 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             "data_url":      format!("{origin_for_links}/v1/cells/{cell}"),
         }));
     }
+    // When the matched topics are imagery topics, the user almost
+    // certainly wants to *see* a picture, not read 15 numeric facts.
+    // Surface the Sentinel-2 RGB scene URL prominently with a caveat
+    // so the agent renders the image inline. The `imagery_hint` block
+    // also lands as a top-level field below for agents that ignore
+    // caveats[].
+    let imagery_topics: &[&str] = &[
+        "optical_raw_reflectance",
+        "radar_all_weather_sar",
+        "scene_classification",
+    ];
+    let imagery_intent = topics
+        .iter()
+        .any(|t| imagery_topics.iter().any(|it| t == *it));
+    if imagery_intent {
+        caveats.push(json!({
+            "type":          "render_image_for_imagery_topic",
+            "human_message": "The user asked for satellite imagery / radar / a picture. The Sentinel-2 RGB scene URL is in `imagery_hint.scene_png_url` below — render or link to that image in the reply instead of (or alongside) the raw band values. For SAR (cloud-penetrating) ask for `sentinel1_raw` separately via /v1/recall.",
+            "data_present":  true,
+            "data_url":      scene_url.clone(),
+        }));
+    }
 
     // Topic-routing envelope — surfaces the full routing fan-out per
     // topic (score + via + bands + algorithms). Per max-data: do NOT
@@ -16525,6 +16557,29 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         "scene":                   scene,
         "caveats":                 caveats,
     });
+    // Promote scene_url into a top-level `imagery_hint` block when the
+    // matched topics indicate the user wants imagery. Cheaper for an
+    // agent to pick up than digging through `scene` (which carries
+    // STAC metadata + the full URL but is structured as fetched-or-not
+    // and can be confused for a nullable optional). The hint block is
+    // additive so existing readers ignore it cleanly.
+    if imagery_intent {
+        if let Some(map) = body.as_object_mut() {
+            map.insert(
+                "imagery_hint".into(),
+                json!({
+                    "user_intent":    "satellite_imagery",
+                    "scene_png_url":  scene_url,
+                    "matched_topics": topics
+                        .iter()
+                        .filter(|t| imagery_topics.iter().any(|it| *t == *it))
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    "render_advice":  "Render or link to scene_png_url in your reply. The PNG is a 256×256 Sentinel-2 true-colour thumbnail at the cell's location, fetched lazily on the first GET. For wider area coverage call /v1/places/scene_overlay.svg with `place=` and `n_cells=`. For radar (works through clouds and at night) call /v1/recall {bands:[\"sentinel1_raw\"]} — sentinel1_raw is dB backscatter, not an image, but renderable as a single-band greyscale overlay.",
+                }),
+            );
+        }
+    }
     if let Some(map) = body.as_object_mut() {
         if !materialize_notes.is_empty() {
             map.insert(
