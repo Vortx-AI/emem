@@ -223,6 +223,26 @@ const SCHEMA_BACKFILL: &str = r#"{"type":"object","required":["cell","band"],"pr
 "max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on number of facts materialized in one call."}
 }}"#;
 
+const SCHEMA_HEAT_SOLVE: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 string. Forecast LST evolution at this cell."},
+"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours; capped at 168 (one week)."},
+"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default urban surface (Oke 2017 §2.3); use ~5e-7 for vegetation, ~1.4e-7 for water."}
+}}"#;
+
+const SCHEMA_WAVE_SOLVE: &str = r#"{"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{
+"coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},
+"offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},
+"period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); typical wind-wave + swell envelope is 6-18 s."},
+"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Cells to sample seaward when building the bathymetric profile."}
+}}"#;
+
+const SCHEMA_JEPA_PREDICT: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 to forecast at."},
+"band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},
+"lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},
+"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1 only."}
+}}"#;
+
 /// Normative tool inventory, with rich agent-facing metadata.
 pub const TOOLS: &[ToolDescriptor] = &[
     // ── Geocoder (must be first — every other primitive needs cell64) ──
@@ -344,6 +364,38 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user wants HISTORY for a fast/medium-tempo band and `emem_trajectory` returned only the latest point. The responder iterates the tslot range derived from the band's tempo, calls the per-tslot historical materializer, signs each result, and persists. After completion `emem_trajectory` over the same window returns the full series. Bands without a historical materializer (e.g. `weather.*` from met.no's nowcast) return `status: \"present_only\"` for past tslots — check `emem_coverage_matrix.history_available_from`/`history_available_to` to see how far back each band can be backfilled. Prefer this over staking an attestation when the upstream is publicly fetchable.",
         input_schema: SCHEMA_BACKFILL,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"modis.ndvi_mean","start_unix":1640995200,"end_unix":1735689600,"max_facts":24}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+
+    // ── Physics primitives — explicit-FD PDE solvers + JEPA-pattern predictor ──
+    ToolDescriptor {
+        name: "emem_heat_solve",
+        title: "2-D heat-equation forecast (urban LST evolution)",
+        description: "Forward-step 2-D explicit finite-difference solver for the heat equation ∂u/∂t = α∇²u over a 3×3 cell stencil centred on `cell`. Reads `modis.lst_day_8day` (Land Surface Temperature) at the centre and 8 cell64 neighbours, integrates N hours ahead under a CFL-stable timestep, returns a signed forecast. Real PDE rollout — not a decay-scoring heuristic.",
+        when_to_use: "Use when the user wants a short-horizon LST forecast (urban heat island, surface-temperature evolution, heatwave onset modelling) at a specific cell. Default α=1e-6 m²/s matches urban surface diffusivity (Oke 2017); pass a smaller α for water bodies or higher for vegetated surfaces. The solver caps at one-week horizons because the 8-day MODIS composite stops being a representative initial condition past that. Each call materialises 9 MODIS facts (one per neighbour) on miss — first call ~5 s cold, ~30 ms warm. Receipt cites all 9 input fact CIDs.",
+        input_schema: SCHEMA_HEAT_SOLVE,
+        example_args: r#"{"cell":"damO.zb000.xUti.zde78","hours_ahead":6}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_wave_solve",
+        title: "1-D shallow-water swell propagation to coast",
+        description: "Forward-step 1-D explicit finite-difference solver for the shallow-water wave equation ∂²u/∂t² = c²∂²u/∂x² with c² = g·h, where depth h comes from `gmrt.topobathy_mean` along the seaward gradient. Models how an offshore swell of height H_s and period T propagates toward `coastal_cell`. Returns arrival height + time + depth + phase-speed profiles, all under a CFL-stable timestep.",
+        when_to_use: "Use when the user wants to predict swell arrival at a coast (storm-surge planning, shoreline-impact assessment, surf forecasting). The solver walks `n_offshore_cells` cells seaward from `coastal_cell` along the bathymetric gradient (default 8 cells = 80 m of profile at the active 10 m grid), samples GMRT depth at each, and integrates the wave equation forward until the wavefront reaches the coast plus one period. Receipt cites every depth fact CID along the profile. Returns 422 with a clear message if `coastal_cell` is land-locked.",
+        input_schema: SCHEMA_WAVE_SOLVE,
+        example_args: r#"{"coastal_cell":"damO.zb000.xUti.zde78","offshore_height_m":2.0,"period_s":8.0}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_jepa_predict",
+        title: "Constrained JEPA-pattern next-month NDVI predictor",
+        description: "Predict next-month NDVI at a cell using a constrained JEPA-pattern AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI's physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned — they're fixed from the agricultural-NDVI literature. v2 (future) will train an actual encoder + predictor on the geotessera embedding pool.",
+        when_to_use: "Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation). Lookback defaults to 6 months; if fewer monthly tslots are attested at this cell, the predictor uses what's there and surfaces the count in `lookback_months_used`. Returns 422 if no NDVI history exists at the cell — chain to `emem_backfill` first to seed history. Receipt cites every input NDVI fact CID.",
+        input_schema: SCHEMA_JEPA_PREDICT,
+        example_args: r#"{"cell":"damO.zb000.xUti.zde78","lookback_months":6}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },

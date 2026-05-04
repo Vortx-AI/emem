@@ -2,16 +2,23 @@
   "schema": "emem.topics.v0",
   "_doc": "Topic registry — the routing brain of /v1/ask. Each topic carries (a) `description` — a short paragraph used to compute a sentence-transformer embedding for semantic routing of free-text questions, (b) `bands[]` — canonical bands the topic concerns, served by /v1/recall, (c) `algorithms[]` — composition recipes from algorithms-v0.json applied on top of those bands, (d) `aliases[]` — short example phrases that frequently appear in real questions for this topic; useful both as additional embedding-side training data and as a substring fallback when the transformer is offline. Routing is by cosine similarity (transformer mode) or substring search over `aliases[]` + `key` (keyword fallback mode). New topics land here, not in code. Replaces the static TOPIC_KEYWORDS / TOPIC_BANDS / TOPIC_ALGORITHMS tables that lived in crates/emem-api-rest/src/lib.rs through 0.0.2; shipped as a content-addressed registry in 0.0.3.",
   "_routing": {
-    "transformer_model": "minishlab/potion-base-8M",
-    "embedding_dims": 256,
+    "transformer_model": "BAAI/bge-base-en-v1.5",
+    "embedding_dims": 768,
     "similarity": "cosine",
     "threshold": 0.35,
     "max_topics_per_question": 5,
     "fallback_when_offline": "substring search over aliases[] and key",
+    "_backends": {
+      "fastembed": "default. ONNX-runtime sentence transformer (BAAI/bge-base-en-v1.5, 110 M params, 768-D, MTEB ~63). Loads CUDA EP on the A100 via ORT_DYLIB_PATH if libonnxruntime is CUDA-enabled (~1-2 ms per query); CPU EP otherwise (~12-18 ms).",
+      "model2vec": "fallback. Static-distillation token-lookup embedder (minishlab/potion-base-8M, 256-D, ~32 MB, sub-µs per query, no ONNX dep). Selected automatically when fastembed cannot load.",
+      "keyword": "deterministic substring search over aliases[] + key. No model. Selected by EMEM_TOPIC_BACKEND=keyword for unit tests / air-gapped builds."
+    },
     "env_overrides": {
-      "EMEM_TOPIC_MODEL": "override the model id (default minishlab/potion-base-8M)",
+      "EMEM_TOPIC_MODEL": "override the model id (default BAAI/bge-base-en-v1.5; alternates: BAAI/bge-{small,large}-en-v1.5, nomic-ai/nomic-embed-text-v1.5, intfloat/multilingual-e5-small, sentence-transformers/all-MiniLM-L6-v2)",
       "EMEM_TOPIC_THRESHOLD": "override the cosine threshold (default 0.35)",
-      "EMEM_TOPIC_BACKEND": "transformer | keyword (default transformer; set to keyword to disable model load)"
+      "EMEM_TOPIC_BACKEND": "fastembed (default) | model2vec | keyword",
+      "ORT_DYLIB_PATH": "path to the libonnxruntime.so the fastembed backend dlopen()s; the systemd unit ships /opt/onnxruntime-1.22.0-cuda12 (CUDA-enabled, A100)",
+      "EMEM_DATA": "fastembed cache root (model files land at <EMEM_DATA>/models/fastembed/<model-id>/)"
     }
   },
   "topics": [

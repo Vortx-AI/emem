@@ -38,6 +38,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod physics;
 mod topic_router;
 
 use axum::body::Bytes;
@@ -313,6 +314,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/diff", post(post_diff))
         .route("/v1/trajectory", post(post_trajectory))
         .route("/v1/backfill", post(post_backfill))
+        // Physics primitives — explicit-FD heat / wave PDE solvers and a
+        // constrained JEPA-pattern NDVI predictor. See crates/emem-api-rest/src/physics.rs.
+        .route("/v1/heat_solve", post(physics::post_heat_solve))
+        .route("/v1/wave_solve", post(physics::post_wave_solve))
+        .route("/v1/jepa_predict", post(physics::post_jepa_predict))
         .route("/v1/schema", get(get_schema))
         .route("/v1/verify", post(post_verify))
         .route("/v1/intent", post(post_intent))
@@ -4440,8 +4446,13 @@ async fn get_places_scene_overlay_svg(
             Some(JsonValue::Null) | None => "absence".to_string(),
             Some(other) => other.to_string(),
         };
+        // Title carries the cell64 + recalled value so a hover tooltip
+        // in any standards-compliant SVG viewer (browsers, geojson.io,
+        // Mapbox vector layers) reveals the per-cell datum without
+        // needing a second call. Use a literal " | " separator — SVG
+        // <title> renders text-only with no newline expansion.
         svg.push_str(&format!(
-            r##"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}" stroke="#0b0d12" stroke-width="0.5"><title>{}\nvalue: {}</title></rect>
+            r##"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}" stroke="#0b0d12" stroke-width="0.5"><title>{} | value: {}</title></rect>
 "##,
             x0, y0, cw, ch, fill, cell, value_label,
         ));
@@ -8027,6 +8038,27 @@ async fn mcp_tool_call(
                 .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))
         }
+        "emem_heat_solve" => {
+            let req: physics::HeatSolveReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            physics::heat_solve(req, s)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "emem_wave_solve" => {
+            let req: physics::WaveSolveReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            physics::wave_solve(req, s)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "emem_jepa_predict" => {
+            let req: physics::JepaPredictReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            physics::jepa_predict(req, s)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
         // MCP spec: unknown TOOL names are tool-runtime failures, not
         // protocol errors — surface them through the CallToolResult
         // envelope (`isError: true`) so the host treats it as an
@@ -8120,6 +8152,9 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/diff":              {"post":{"summary":"derivative fact between two tslots","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":json_ok}}},
             "/v1/trajectory":        {"post":{"summary":"time series","operationId":"emem_trajectory","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TrajectoryReq"}}}},"responses":{"200":json_ok}}},
             "/v1/backfill":          {"post":{"summary":"materialize history in a window","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/heat_solve":        {"post":{"summary":"2-D explicit-FD heat-equation solver (forecast LST N hours ahead from a 3×3 cell stencil)","operationId":"emem_heat_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HeatSolveReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/wave_solve":        {"post":{"summary":"1-D explicit-FD shallow-water wave-equation solver (propagate offshore swell to the coast along a bathymetric profile)","operationId":"emem_wave_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WaveSolveReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/jepa_predict":      {"post":{"summary":"constrained JEPA-pattern AR(2) seasonal NDVI predictor (closed-form coefficients, NOT a learned MLP)","operationId":"emem_jepa_predict","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/JepaPredictReq"}}}},"responses":{"200":json_ok}}},
             "/v1/schema":            {"get":{"summary":"active CDDL/JSON schema bundle (REST mirror of emem_schema)","operationId":"emem_schema","responses":{"200":json_ok}}},
             // Single canonical /v1/facts/{cid} — earlier we listed it twice
             // with different operationIds (emem_fetch and emem_get_fact);
@@ -8214,6 +8249,9 @@ async fn openapi() -> Json<JsonValue> {
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
                 "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false}}},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
+                "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
+                "WaveSolveReq":    {"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{"coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},"offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},"period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); 6–18 s is the typical wind-wave + swell envelope."},"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Number of seaward cells to sample for the bathymetric profile."}}},
+                "JepaPredictReq":  {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 to forecast at."},"band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},"lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1; multi-step rollout lands in @2."}}},
                 "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively. When `place` resolves to an OSM feature with extent (airport, park, lake, region) the response includes a `polygon` block + per-band `stats` (mean/median/min/max/std for numeric bands, mode + class distribution for categorical bands like esa_worldcover.lc_2021); pass `n_cells: 1` to force point behaviour at the centroid instead. Single-band endpoints default to 16 sample cells when polygon detected; /v1/at defaults to 1 (multi-band × multi-cell explodes upstream fetch count). Use POST /v1/recall_polygon for raw per-cell facts.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"},"n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon-aggregation knob. When `place` resolves to a feature with extent and `n_cells` is unset, single-band endpoints fan out to 16 sample cells; /v1/at defaults to 1. `n_cells: 1` forces point behaviour at the centroid; values in 2..=64 are honoured. Anything else returns 400 — heavy queries belong on POST /v1/recall_polygon."}}},
                 "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}}
             }
@@ -9220,6 +9258,58 @@ async fn elevation_coherent_polygon(
     } else {
         json!(ocean_depths.iter().sum::<f64>() / ocean_depths.len() as f64)
     };
+    // Build per-cell scene_thumbs[] (one PNG/GeoJSON URL per sampled
+    // cell, capped at 16 for chat-grid layout) and a server-rendered
+    // value-painted SVG overlay URL — same shape `boring_recall_aggregated`
+    // exposes so multimodal LLMs can render a polygon-aware visual answer
+    // for elevation queries identically to NDVI / LST / etc.
+    let scene_thumbs: Vec<JsonValue> = cells
+        .iter()
+        .take(16)
+        .map(|c| {
+            let (lat_c, lng_c) = match emem_codec::latlng_from_cell64(c) {
+                Ok(ll) => (ll.lat_deg, ll.lng_deg),
+                Err(_) => (f64::NAN, f64::NAN),
+            };
+            json!({
+                "cell":         c,
+                "lat":          lat_c,
+                "lng":          lng_c,
+                "scene_png":    format!("/v1/cells/{}/scene.png", c),
+                "scene_rgb":    format!("/v1/cells/{}/scene.rgb", c),
+                "geojson":      format!("/v1/cells/{}/geojson",   c),
+                "info":         format!("/v1/cells/{}/info",      c),
+            })
+        })
+        .collect();
+    let scene_overlay_url = polygon
+        .place_label
+        .as_deref()
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(|label| {
+            let encoded = label.replace(' ', "%20");
+            json!(format!(
+                "/v1/places/scene_overlay.svg?place={encoded}&band=copdem30m.elevation_mean&n_cells={}",
+                cells.len()
+            ))
+        })
+        .unwrap_or(JsonValue::Null);
+    // Polygon outline GeoJSON (same shape boring endpoints emit) so an
+    // agent can render the bbox in geojson.io / Mapbox without a second
+    // call. Area km² mirrors the boring code path's mid-lat formula.
+    let area_km2 = {
+        let mid_lat = (polygon.bbox.0 + polygon.bbox.1) / 2.0;
+        let lat_km = (polygon.bbox.1 - polygon.bbox.0) * 111.0;
+        let lng_km = (polygon.bbox.3 - polygon.bbox.2) * 111.0 * mid_lat.to_radians().cos().abs();
+        (lat_km * lng_km).max(0.0)
+    };
+    let polygon_geojson = polygon_outline_geojson(
+        &polygon.bbox,
+        polygon.place_label.as_deref(),
+        area_km2,
+        cells.len(),
+    );
     let mut body = json!({
         "schema": "emem.elevation.v1",
         "lat": target.lat,
@@ -9231,9 +9321,13 @@ async fn elevation_coherent_polygon(
                 "min_lat": polygon.bbox.0, "max_lat": polygon.bbox.1,
                 "min_lng": polygon.bbox.2, "max_lng": polygon.bbox.3,
             },
-            "sample_cells": cells,
-            "n_sample_cells": total,
-            "source": polygon.source,
+            "area_km2":          area_km2,
+            "sample_cells":      cells,
+            "n_sample_cells":    total,
+            "source":            polygon.source,
+            "geojson":           polygon_geojson,
+            "scene_thumbs":      JsonValue::Array(scene_thumbs),
+            "scene_overlay_url": scene_overlay_url,
         },
         "polygon_validity": polygon_validity,
         "validity_distribution": {
@@ -16648,6 +16742,24 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             // Layer 1: embedded gazetteer (no network).
             if let Some((la, lo, lab)) = embedded_gazetteer_lookup(p) {
                 via = "embedded";
+                // Enrich with a polygon bbox when the embedded entry is
+                // a city/region (no bbox embedded for these — entries are
+                // (key, lat, lng, label) tuples). Without this, "Mumbai"
+                // resolved via the embedded gazetteer falls back to a
+                // single-cell point query because the boring endpoints'
+                // polygon fan-out keys off `polygon_bbox`. One Nominatim
+                // call is cheap (cached afterwards by the next call's
+                // wide-bbox / Nominatim path) and only fires when the
+                // wide_bbox table didn't already cover the place.
+                if polygon_bbox.is_none() {
+                    if let Some(bb) = nominatim_bbox_for(p).await {
+                        polygon_bbox = Some(bb);
+                        polygon_source = Some("nominatim_boundingbox");
+                        // Persist into the geocoder cache so the next
+                        // call short-circuits without re-hitting Nominatim.
+                        nominatim_cache_put(p, la, lo, &lab, Some([bb.0, bb.1, bb.2, bb.3]));
+                    }
+                }
                 (la, lo, Some(lab))
             } else if let Some((la, lo, lab, bb_cached)) = nominatim_cache_get(p) {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
@@ -16660,6 +16772,18 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     if let Some(arr) = bb_cached {
                         polygon_bbox = Some((arr[0], arr[1], arr[2], arr[3]));
                         polygon_source = Some("nominatim_boundingbox");
+                    } else {
+                        // Cache hit but no bbox stored (entry pre-dates the
+                        // polygon fix, or Photon returned a Point with no
+                        // extent at insertion time). Enrich now so the
+                        // boring polygon fan-out kicks in instead of
+                        // falling back to a single-cell point query.
+                        // Re-cache with the bbox for future hits.
+                        if let Some(bb) = nominatim_bbox_for(p).await {
+                            polygon_bbox = Some(bb);
+                            polygon_source = Some("nominatim_boundingbox");
+                            nominatim_cache_put(p, la, lo, &lab, Some([bb.0, bb.1, bb.2, bb.3]));
+                        }
                     }
                 }
                 (la, lo, Some(lab))
@@ -16771,10 +16895,23 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         "nominatim_result is None ⇒ photon_result is Ok(non-empty), already matched"
                     ),
                 };
-                let hit = hits
+                let mut hit = hits
                     .first()
                     .cloned()
                     .expect("hits is non-empty by construction above");
+                // Photon's per-feature index frequently returns Point
+                // geometry without an `extent` for dense-city features
+                // (e.g. "Mumbai") even when Nominatim has the
+                // boundingbox. When the chosen hit lacks bbox, query
+                // Nominatim once to enrich. Without this, /v1/ndvi
+                // place="Mumbai" resolved to a single 10 m cell at the
+                // centroid instead of fanning out to the metropolitan
+                // extent.
+                if hit.bbox.is_none() {
+                    if let Some(bb) = nominatim_bbox_for(p).await {
+                        hit.bbox = Some(bb);
+                    }
+                }
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
                 nominatim_cache_put(p, hit.lat, hit.lng, &hit.label, hit_bbox_arr);
                 if polygon_bbox.is_none() {
@@ -17629,6 +17766,42 @@ fn nominatim_user_agent() -> String {
         })
         .unwrap_or_default();
     format!("{base}{contact}")
+}
+
+/// Lightweight Nominatim lookup that returns ONLY the bounding box for
+/// a place query. Used to enrich centroids that came from a path which
+/// doesn't carry extent — embedded gazetteer (centroid only), TTL cache
+/// hits stored before bbox was tracked, and Photon hits that returned
+/// no `extent` (Photon's per-feature index frequently lacks it for
+/// dense-city Point features even when Nominatim's record has the
+/// boundingbox field). Returns `(min_lat, max_lat, min_lng, max_lng)`
+/// when Nominatim returns at least one hit with a `boundingbox`; `None`
+/// otherwise. Errors fail soft — caller continues without enrichment.
+async fn nominatim_bbox_for(query: &str) -> Option<(f64, f64, f64, f64)> {
+    let q = query.trim();
+    if q.is_empty() {
+        return None;
+    }
+    let base = std::env::var("EMEM_NOMINATIM_BASE")
+        .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
+    let base = base.trim_end_matches('/');
+    let url = format!(
+        "{base}/search?q={}&format=json&limit=1&addressdetails=0&extratags=0",
+        urlencoding(q),
+    );
+    let body = nominatim_get(&url).await.ok()?;
+    let v: JsonValue = serde_json::from_str(&body).ok()?;
+    let arr = v.as_array()?;
+    let item = arr.first()?;
+    let bbox = item.get("boundingbox")?.as_array()?;
+    if bbox.len() != 4 {
+        return None;
+    }
+    let s: f64 = bbox[0].as_str()?.parse().ok()?;
+    let n: f64 = bbox[1].as_str()?.parse().ok()?;
+    let w: f64 = bbox[2].as_str()?.parse().ok()?;
+    let e: f64 = bbox[3].as_str()?.parse().ok()?;
+    Some((s, n, w, e))
 }
 
 async fn nominatim_get(url: &str) -> Result<String, String> {

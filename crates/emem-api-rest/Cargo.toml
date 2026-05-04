@@ -34,14 +34,37 @@ sled            = { workspace = true }
 # PNG encoder for the multimodal RGB-scene tool
 # (/v1/cells/{cell64}/scene.png + emem_cell_scene_rgb MCP).
 png             = "0.17"
-# Static-distillation sentence embedder for the topic router
-# (`/v1/ask` semantic dispatch, replaces the hardcoded
-# TOPIC_KEYWORDS / TOPIC_BANDS / TOPIC_ALGORITHMS tables shipped
-# through 0.0.2). model2vec compresses a sentence-transformer to a
-# token-level lookup table: pure Rust inference, ~17–32 MB model on
-# disk, sub-millisecond per query, no ONNX or torch C++ dep. Default
-# model `minishlab/potion-base-8M` is downloaded on first call to
-# `<EMEM_DATA>/models/`. Override via `EMEM_TOPIC_MODEL` env var.
-# `fancy-regex` instead of the default `onig` to keep the build pure
-# Rust (avoids the libonig C dep which fails on minimal builders).
+# Sentence embedder for the topic router (`/v1/ask` semantic dispatch,
+# replaces the hardcoded TOPIC_KEYWORDS / TOPIC_BANDS / TOPIC_ALGORITHMS
+# tables shipped through 0.0.2).
+#
+# Two backends, switchable at runtime via `EMEM_TOPIC_BACKEND`:
+#
+#   1. `fastembed` (default, recommended) — full ONNX-runtime sentence
+#      transformer. Ships `BAAI/bge-base-en-v1.5` (110 M params,
+#      768-D, MTEB ~63), the model that gets the cosine quality the
+#      Qwen-style "show me NDVI for X" / "satellite imagery of X"
+#      questions need. Loads CUDA execution provider on hosts with an
+#      NVIDIA GPU + a CUDA-capable libonnxruntime.so at the
+#      `ORT_DYLIB_PATH` env var (~1–2 ms / question on A100), falls
+#      back to CPU EP when CUDA is unavailable (~12–18 ms / question).
+#      Lazy-downloads the ONNX file to `<EMEM_DATA>/models/fastembed/`
+#      on first call.
+#
+#   2. `model2vec` (fallback) — static-distillation token-lookup
+#      embedder, `minishlab/potion-base-8M`, 256-D, ~32 MB, sub-µs
+#      inference, no ONNX dep, pure Rust. Used as the offline /
+#      no-GPU fallback when fastembed cannot load.
+#
+# `fancy-regex` on `model2vec-rs` to keep the build pure Rust (avoids
+# the libonig C dep which fails on minimal builders).
+#
+# `ort-load-dynamic` on fastembed: the libonnxruntime.so is loaded at
+# runtime from `ORT_DYLIB_PATH` rather than statically linked. Lets a
+# single Rust binary support CUDA EP (when libonnxruntime is built
+# with CUDA support, e.g. the Microsoft 1.22.0 GPU release at
+# /opt/onnxruntime-1.22.0-cuda12) AND CPU-only deployments without a
+# rebuild. `hf-hub-rustls-tls` matches emem's existing rustls TLS
+# stack instead of pulling native-tls.
+fastembed       = { version = "5", default-features = false, features = ["ort-load-dynamic", "hf-hub-rustls-tls"] }
 model2vec-rs    = { version = "0.1", default-features = false, features = ["fancy-regex"] }

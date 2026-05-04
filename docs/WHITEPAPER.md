@@ -240,6 +240,7 @@ GET    /v1/manifests | /v1/bands | /v1/functions | /v1/sources | /v1/errors | /v
 GET    /v1/cells/{cell64}
 POST   /v1/recall | /v1/query_region | /v1/compare | /v1/find_similar
 POST   /v1/diff   | /v1/trajectory  | /v1/verify   | /v1/intent
+POST   /v1/temporal_route   (decay-scoring band ranker — see §10.7 and docs/TEMPORAL.md)
 POST   /v1/attest        (signed JSON)
 POST   /v1/attest_cbor   (signed canonical CBOR — preferred for byte-exact merkle)
 GET    /v1/facts/{cid}
@@ -316,6 +317,68 @@ neighbours through the cell ID's own bit structure. Cells in a
 sub-tree share string-prefix in cell64, which is exactly what an LLM
 sees when an agent quotes a cell in chat — adjacent cells share
 adjacent tokens.
+
+### 10.7 Temporal-routing kernels (decay scores, not PDE solvers)
+
+`POST /v1/temporal_route` ranks bands at a cell by a per-band
+*staleness score* `Q ∈ [0, 1]` evaluated at the temporal lag
+`Δt = |τ_query − t_obs|`. Each band's `tempo` class picks one of
+five closed-form kernels, each motivated by the analytical solution
+of a PDE in time:
+
+| tempo        | kernel name        | formula                                | inspiration                                 |
+| ------------ | ------------------ | -------------------------------------- | ------------------------------------------- |
+| `static`     | `identity`         | `Q = 1`                                | constant in time                            |
+| `slow`       | `linear_ar1`       | `Q = max(0, 1 − Δt/T)`                 | AR-1 / first-order Markov                   |
+| `medium`     | `heat_gaussian`    | `Q = exp(−(Δt/σ)²)`                    | 1-D heat Green's function                   |
+| `fast`       | `wave_seasonal`    | `Q = max(0, ½ + ½·cos(2π·Δt/T))`       | sinusoidal traveling-wave solution          |
+| `ultra_fast` | `advection_linear` | `Q = max(0, 1 − Δt/H)`                 | 1-D advection over a short horizon          |
+
+The Gaussian kernel *is* the analytical fundamental solution of
+`∂u/∂t = D∇²u` collapsed to time only — that math is correct. The
+half-cosine kernel is *motivated* by the wave equation's traveling-
+wave family but is not a wave-equation solver: there is no second-
+order time derivative, no spatial Laplacian, no characteristic-line
+solver. The same caveat applies to `advection_linear` (no `v·∇u`
+term, no velocity field, no grid).
+
+**What `/v1/temporal_route` is**: a constant-time per-band staleness
+ranker over already-attested facts, plus a small (≤ 1.5×) intent-
+keyword multiplier for usability. Code is in `quality_kernel`,
+`crates/emem-api-rest/src/lib.rs`. The kernels are honest about this
+in their `derivation` strings; this section makes it explicit at the
+spec level too.
+
+**What it is not**: a 2-D spatiotemporal predictor. The router is
+the staleness-ranker. The actual PDE solvers ship as separate
+endpoints — see §10.8.
+
+### 10.8 Real PDE primitives (shipped 2026-05)
+
+Three real explicit-finite-difference solvers run alongside the
+router. Each evaluates an actual PDE discretisation under a CFL
+stability check, signs the result with the responder identity, and
+cites every input fact CID in the receipt.
+
+| primitive | endpoint | equation | inputs | scheme |
+| --- | --- | --- | --- | --- |
+| `heat_equation_2d@1` | `POST /v1/heat_solve` | `∂u/∂t = α∇²u` | 9 × `modis.lst_day_8day` (3×3 stencil) | explicit FTCS, CFL `α·Δt/Δx² ≤ 0.20` |
+| `wave_equation_1d@1` | `POST /v1/wave_solve` | `∂²u/∂t² = c²∂²u/∂x²`, `c² = g·h` | N × `gmrt.topobathy_mean` along seaward gradient | explicit CTCS, sinusoidal forcing offshore + hard-wall coast, CFL `c·Δt/Δx ≤ 0.5` |
+| `jepa_temporal_predictor@1` | `POST /v1/jepa_predict` | `y_{t+1} = α·(lag-12 NDVI ∨ recent_mean) + β·(last + slope) + γ·recent_mean` | N × `indices.ndvi` (monthly) | constrained AR(2) seasonal predictor, closed-form coefficients (NOT learned) |
+
+The first two are full PDE rollouts on a real cell-grid stencil;
+the third is the honest constrained version of the JEPA pattern
+(closed-form coefficients calibrated from the agricultural-NDVI
+literature — `jepa_temporal_predictor@2` will train an actual
+encoder + predictor on the geotessera embedding pool).
+
+Each primitive is also registered in the algorithms manifest
+(`/v1/algorithms`) with its formula, citation, and CFL bound; an
+agent that wants the full math can read the registry entry instead
+of inventing thresholds itself. The Rust math is in
+`crates/emem-api-rest/src/physics.rs` (pure functions
+`heat_step_2d`, `wave_step_1d`, `jepa_predict_ar2_seasonal` are
+unit-tested without storage).
 
 ---
 

@@ -72,6 +72,22 @@ user wants to know "which dataset answers X right now"
    └─ GET /v1/coverage_matrix
    └─ GET /v1/fleet  (for satellite/sensor lineage)
    └─ POST /v1/temporal_route  (PDE-based band scoring vs query time)
+
+user wants a short-horizon LST forecast (urban heat island, etc)
+   └─ POST /v1/heat_solve {cell, hours_ahead, diffusivity_m2_per_s}
+        2-D explicit-FD heat solver (∂u/∂t = α∇²u) over a 3×3 cell stencil
+        of MODIS LST_Day_1km. Signed forecast + CFL diagnostics.
+
+user wants offshore swell propagation to a coast
+   └─ POST /v1/wave_solve {coastal_cell, offshore_height_m, period_s, n_offshore_cells}
+        1-D explicit-FD shallow-water wave solver (∂²u/∂t² = c²∂²u/∂x²,
+        c² = g·h) along the GMRT bathymetric profile. Signed arrival.
+
+user wants next-month NDVI prediction at an agriculture cell
+   └─ POST /v1/jepa_predict {cell, band, lookback_months}
+        Constrained JEPA-pattern AR(2) seasonal predictor (closed-form
+        coefficients, NOT a learned MLP). Returns the prediction plus
+        the cited monthly fact CIDs.
 ```
 
 In every reply: cite `receipt.fact_cids[0]` (truncated 13-char `cid64`
@@ -170,6 +186,70 @@ curl -s -X POST https://emem.dev/v1/recall \
 Each response returns `facts: [...]` plus a `receipt` carrying
 `fact_cids`, `responder` pubkey bytes, `signature` (64-byte ed25519),
 `request_id`, `served_at`, and the manifest CIDs the responder used.
+
+---
+
+## 4½. Polygon-aware boring endpoints (regions, parks, airports)
+
+Every `POST /v1/{ndvi,air,lst,soil,water,forest,weather,elevation,at}`
+accepts `{place: "<text>"}`. When the place geocodes to a feature with
+extent — a city, an admin boundary, a park, an airport, a lake, a
+protected area — the responder fans out to `n_cells` (default 16,
+cap 64) sample cells inside the bbox in parallel and returns:
+
+| field | shape | what it is |
+| --- | --- | --- |
+| `polygon.bbox` | `{min_lat, max_lat, min_lng, max_lng}` | The OSM/Nominatim/wide-table bounding box used for sampling. |
+| `polygon.area_km2` | number | Mid-latitude approx so an LLM can sanity-check. |
+| `polygon.n_sample_cells` | int | How many cells were actually queried (deduped post-sampling). |
+| `polygon.source` | string | `wide_bbox_table` / `nominatim_boundingbox` — where the bbox came from. |
+| `polygon.geojson` | FeatureCollection | One Polygon Feature for the bbox outline; renders directly in geojson.io. |
+| `polygon.scene_thumbs[]` | array | One entry per sampled cell with `{cell, lat, lng, scene_png, scene_rgb, geojson, info}` URLs — pick the first 9 for a 3×3 multimodal grid. |
+| `polygon.scene_overlay_url` | URL | Server-rendered `image/svg+xml` viridis-painted heatmap of the band over the polygon, with the place label as caption. |
+| `stats` (single-band) | `{mean, median, min, max, std, n, n_missing}` for numeric bands; `{mode, n_classes, n, n_missing}` + `class_distribution` for categorical (ESA WorldCover, JRC GSW). | Headline aggregate. |
+| `bands.<key>.stats` (multi-band) | same | Per-band stats for the multi-band envelope (`/v1/at`, `/v1/soil`, `/v1/forest`, `/v1/water`, `/v1/lst`, `/v1/air`, `/v1/weather`). |
+| `value_per_cell[]` | array | Per-cell `{cell, lat, lng, value, kind: "primary"|"absence", fact_cid}`. Cite individual `fact_cid` for the verifiable raw values. |
+| `geojson` (single-band) / `bands.<key>.geojson` | FeatureCollection | Per-cell Polygon features each carrying the recalled value as a property — drop into Mapbox/Leaflet/Deck.gl/QGIS without further processing. |
+| `partial`, `coverage_fraction` | bool, fraction in [0,1] | Honesty flags: `partial: true` flips when ANY band has a missing cell across the polygon sample (cell error / materializer skip / signed Absence). |
+
+Force point behaviour with `n_cells: 1` — the response degrades to the
+legacy single-cell shape (no `polygon` block, no `stats`).
+
+Geocoder cascade for the polygon: embedded gazetteer + wide-bbox table
+(zero network) → persistent TTL cache (sled) → Photon (komoot.io) live
+→ Nominatim live. When any of these returns a centroid without a bbox
+(common: dense-city Photon Point features, embedded-gazetteer entries
+that pre-date polygon tracking), `locate_inner` enriches via a single
+Nominatim `/search` lookup and re-caches the result.
+
+```bash
+curl -s -X POST https://emem.dev/v1/ndvi \
+  -H 'content-type: application/json' \
+  -d '{"place":"Miami International Airport","n_cells":9}' \
+  | jq '{place_label, value, stats, polygon: (.polygon | {bbox, area_km2, n_sample_cells, scene_overlay_url, n_thumbs:(.scene_thumbs|length)})}'
+```
+
+```json
+{
+  "place_label": "Miami International Airport (aerodrome), Miami, FL, United States",
+  "value": 0.184,
+  "stats": {
+    "mean": 0.184, "median": 0.137, "min": 0.035, "max": 0.409, "std": 0.139,
+    "n": 9, "n_missing": 0
+  },
+  "polygon": {
+    "bbox": {"min_lat":25.78, "max_lat":25.81, "min_lng":-80.32, "max_lng":-80.26},
+    "area_km2": 14.8,
+    "n_sample_cells": 9,
+    "scene_overlay_url": "/v1/places/scene_overlay.svg?place=Miami%20International%20Airport%20(aerodrome)&band=indices.ndvi&n_cells=9",
+    "n_thumbs": 9
+  }
+}
+```
+
+For raw per-cell facts (one signed receipt per cell, ≤256 cells),
+use `POST /v1/recall_polygon` instead — it skips aggregation and
+returns the full fact list.
 
 ---
 

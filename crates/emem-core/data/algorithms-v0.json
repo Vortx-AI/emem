@@ -2121,6 +2121,65 @@
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.precipitation_mm','weather.wind_speed_10m']} → concatenate per formula",
       "deterministic": true,
       "citation": "Editorial. The cloud-cover thresholds follow the Met Office plain-language convention (`<25% clear, 25–75% partly cloudy, >75% overcast`); the precipitation classes follow the WMO convention used in METAR (`light <2.5 mm/h, moderate 2.5–7.5, heavy >7.5`); the wind threshold (17 m/s ≈ Beaufort 8 'fresh gale') is when wind starts to become operationally noteworthy."
+    },
+
+    {
+      "key": "heat_equation_2d@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "modis.lst_day_8day", "role": "initial_condition_centre",
+          "explanation": "Land Surface Temperature (Kelvin) at the cell of interest — the centre of the 3×3 explicit-FD stencil." },
+        { "band": "modis.lst_day_8day", "role": "initial_condition_neighbours",
+          "explanation": "Same band recalled at each of the 8 cell64 neighbours surrounding the centre. Per-neighbour fact CIDs are surfaced in `neighborhood_signed_at` so a verifier can re-fetch any one of them. Boundary cells are held at their initial values (Dirichlet BC) for the duration of the rollout." }
+      ],
+      "formula": "u[i,j]^{n+1} = u[i,j]^n + α·Δt·(u[i+1,j] + u[i-1,j] + u[i,j+1] + u[i,j-1] − 4·u[i,j]) / Δx² ; subject to CFL: α·Δt/Δx² ≤ 0.25 (we run at 0.20 of the bound for round-off margin)",
+      "output": { "kind": "scalar", "unit": "K", "range": [200, 360], "explanation": "Forecast Land Surface Temperature at the centre cell after the requested horizon, in Kelvin. The response also surfaces `delta_k` (final − initial) and the full `neighborhood_initial_k` so an agent can plot the local stencil." },
+      "when_to_use": "Use when the user wants a short-horizon LST forecast (urban heat island propagation, surface-temperature evolution under heatwave conditions) at a specific cell. Default α=1e-6 m²/s matches urban surfaces (Oke 2017 §2.3 Table 2.4). Capped at 168 h (one week) — past that the 8-day MODIS composite stops being a representative initial condition.",
+      "primitive": "POST /v1/heat_solve {cell, hours_ahead, diffusivity_m2_per_s} → 9-cell stencil → explicit FTCS rollout → signed forecast",
+      "deterministic": true,
+      "_deterministic_note": "Fully deterministic given the 9 input fact CIDs + the request body. There is intentionally NO `evaluation` AST entry — the AST evaluator is f64→f64 and the heat solver is a many-step PDE rollout with neighbour state. The dispatcher is the REST handler at /v1/heat_solve, which signs the forecast with the responder identity and cites all 9 input fact CIDs in the receipt.",
+      "citation": "Crank, J. & Nicolson, P. 1947. A practical method for numerical evaluation of solutions of partial differential equations of the heat-conduction type. Proc. Camb. Philos. Soc. 43:50–67. Oke, T.R. 2017. Urban Climates §2.3 (urban surface diffusivity ≈1×10⁻⁶ m²/s). Courant, Friedrichs & Lewy 1928 (the 0.25 CFL bound for 2-D explicit FTCS).",
+      "frequency_of_calculation": "On demand — the 8-day MODIS composite refreshes every 8 days, so a re-call after the next composite drops gives an updated initial condition.",
+      "accuracy_band": "First-order in time, second-order in space. Forecast skill drops with horizon; sub-hour horizons are well-resolved, multi-day horizons depend on whether the surface diffusivity assumption (urban vs vegetation vs water) matches the local cover."
+    },
+
+    {
+      "key": "wave_equation_1d@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "gmrt.topobathy_mean", "role": "depth_profile",
+          "explanation": "Topo-bathymetric elevation along the seaward profile from `coastal_cell`. We negate to get positive depth (m below sea level) and compute the local phase speed c = √(g·h) at each cell. GMRT covers any global cell — including the open ocean — at a single signed value, which is what makes this primitive globally addressable." }
+      ],
+      "formula": "u[i]^{n+1} = 2·u[i]^n − u[i]^{n-1} + (c[i]·Δt/Δx)²·(u[i+1]^n − 2·u[i]^n + u[i-1]^n) ; offshore BC = H_s·sin(2π·t/T) ; coastal BC = 0 (hard wall, arrival height read from u[N-2]) ; subject to CFL: c·Δt/Δx ≤ 1 (we run at 0.5)",
+      "output": { "kind": "scalar", "unit": "m", "range": [0, 30], "explanation": "Maximum wave amplitude reached at the coast over the integration window. Surfaces the full `depth_profile_m` and `phase_speed_profile_m_per_s` arrays so a verifier can re-derive c² = g·h at every step." },
+      "when_to_use": "Use for short-fetch swell-arrival prediction (storm-surge front, tsunami refraction warm-up, surf forecasting). The solver walks N cells seaward from the coastal cell (default 8 → 80 m profile at the active 10 m grid) along the GMRT bathymetric gradient. Returns 422 with a clear message if the coast is land-locked or the profile crosses onto land within 3 cells.",
+      "primitive": "POST /v1/wave_solve {coastal_cell, offshore_height_m, period_s, n_offshore_cells} → seaward bathymetric walk → explicit CTCS wave rollout → signed arrival",
+      "deterministic": true,
+      "_deterministic_note": "Fully deterministic given the depth-profile fact CIDs + the request body. There is intentionally NO `evaluation` AST entry — the AST evaluator is f64→f64 and the wave solver is a many-step PDE rollout with previous-step state. The dispatcher is the REST handler at /v1/wave_solve, which signs the arrival with the responder identity and cites every depth fact CID along the profile in the receipt.",
+      "citation": "Lighthill, J. 1978. Waves in Fluids §3.1 (linear shallow-water wave). Holthuijsen, L.H. 2007. Waves in Oceanic and Coastal Waters §5.3 (refraction-free 1-D propagation). Courant, Friedrichs & Lewy 1928 (the c·Δt/Δx ≤ 1 bound for explicit CTCS).",
+      "frequency_of_calculation": "On demand — GMRT depths are static, so the only inputs that change between calls are H_s and T from the user's offshore forcing. A typical operational use re-runs the solver each time a new offshore buoy report drops.",
+      "accuracy_band": "Linear shallow-water approximation — reliable for h ≫ H_s (deep-water limit) and breaks down in the surf zone where wave breaking + steepening dominate. The 1-D refraction-free assumption ignores cross-shore refraction; for that, the @2 version will sample a 2-D bathymetric patch."
+    },
+
+    {
+      "key": "jepa_temporal_predictor@1",
+      "kind": "combined",
+      "domain": "vegetation",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "monthly_history",
+          "explanation": "Past `lookback_months` months of NDVI at the target cell. `indices.ndvi` is Tempo::Medium (~30-day slot), so each fact corresponds to one calendar month. The predictor uses the literal monthly values; if a 12-month lag is available in the lookback it dominates the seasonal carryover term, otherwise α's contribution falls back to the lookback mean (degraded gracefully)." }
+      ],
+      "formula": "y_{t+1} = α·(lag-12 NDVI or recent_mean if unavailable) + β·(last + slope) + γ·recent_mean, clamped to [-1, 1] ; α=0.6 (year-over-year carryover), β=0.3 (recent slope), γ=0.1 (long-term mean reversion). Coefficients are CLOSED-FORM, not learned.",
+      "output": { "kind": "scalar", "unit": "ndvi", "range": [-1, 1], "explanation": "Predicted NDVI for the next monthly tslot. Clamped to NDVI's physical range. Surfaces `predictor_coefficients`, `lag_12_used`, and `lag_12_fallback_to_recent_mean` so an agent can audit which terms drove the prediction." },
+      "when_to_use": "Use for one-month-ahead NDVI forecasting at a single agricultural / vegetation cell. Designed for crop-stress monitoring, growing-season tracking, and vegetation-anomaly anticipation. Returns 422 if no NDVI history exists at the cell — chain to `emem_backfill` first to seed history.",
+      "primitive": "POST /v1/jepa_predict {cell, band, lookback_months, forecast_horizon_months} → recall the lookback → AR(2) seasonal predictor → signed scalar",
+      "deterministic": true,
+      "_deterministic_note": "Fully deterministic given the input fact CIDs and the closed-form coefficients. The honest framing in the response says this is a CONSTRAINED JEPA-pattern predictor — closed-form AR(2), NOT a learned encoder/predictor MLP. v2 will train an actual encoder + predictor on the geotessera embedding pool.",
+      "citation": "Assran, M. et al. 2023. Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture (JEPA). CVPR. Pettorelli, N. et al. 2005. Using the satellite-derived NDVI to assess ecological responses to environmental change. Trends Ecol. Evol. 20:503–510. Tucker, C.J. 1979. Red and photographic infrared linear combinations for monitoring vegetation. Remote Sens. Environ. 8:127–150. The α=0.6, β=0.3, γ=0.1 weights are editorial v1 — they reflect the seasonal-dominance, short-term-trend, and long-term-mean structure that the agricultural-NDVI literature consistently reports.",
+      "frequency_of_calculation": "Monthly — there is one new NDVI tslot per calendar month in the active Tempo::Medium grid, so a re-call after the next monthly composite drops gives an updated forecast.",
+      "accuracy_band": "Closed-form AR(2) with seasonal lag has been the baseline for NDVI forecasting for two decades; reported skill scores in the literature land in the ρ=0.65–0.85 range over agricultural cropland with adequate lookback (≥18 months). Below 6 months of lookback the lag-12 term is unavailable and skill drops to ρ≈0.5 — surface this honestly via `lag_12_used`."
     }
   ]
 }

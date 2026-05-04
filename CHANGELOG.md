@@ -8,6 +8,79 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 ## [Unreleased]
 
 ### Added
+- **Three real physics primitives — heat / wave PDE solvers + constrained
+  JEPA-pattern NDVI predictor.** Closes the 2026-05 audit-found gap that
+  the existing temporal-routing kernels were closed-form decay scores
+  motivated by PDE Green's functions, **not** PDE solvers. The new
+  primitives all evaluate actual finite-difference discretisations under
+  CFL stability checks, sign their output with the responder identity,
+  and cite every input fact CID in the receipt:
+  - `POST /v1/heat_solve {cell, hours_ahead, diffusivity_m2_per_s}` —
+    2-D explicit FTCS solver for `∂u/∂t = α∇²u` over a 3×3 cell stencil
+    centred on `cell`. Reads `modis.lst_day_8day` at the centre and 8
+    cell64 neighbours, integrates forward under `α·Δt/Δx² ≤ 0.20` (the
+    2-D stability bound is 0.25; we keep 20 % round-off margin), and
+    returns a Kelvin forecast with the full 9-cell initial condition,
+    the chosen `(n_steps, dt_seconds)`, and the active CFL factor.
+    Default α=1e-6 m²/s matches urban surface diffusivity (Oke 2017
+    §2.3 Table 2.4); horizon capped at 168 h.
+  - `POST /v1/wave_solve {coastal_cell, offshore_height_m, period_s, n_offshore_cells}` —
+    1-D explicit CTCS solver for `∂²u/∂t² = c²∂²u/∂x²` with `c² = g·h`
+    from `gmrt.topobathy_mean` along the seaward bathymetric gradient.
+    Walks N cells offshore from the coastal cell (default 8 → 80 m
+    profile at the active 10 m grid), integrates under
+    `c·Δt/Δx ≤ 0.5`, with sinusoidal forcing at the offshore boundary
+    `H_s·sin(2π·t/T)` and a hard wall at the coast. Returns the
+    arrival height + arrival time + depth and phase-speed profiles.
+  - `POST /v1/jepa_predict {cell, band, lookback_months}` — constrained
+    JEPA-pattern AR(2) seasonal next-month NDVI predictor. Reads up to
+    24 past months of `indices.ndvi` at the cell, fits the closed-form
+    predictor `y_{t+1} = α·(lag-12 NDVI ∨ recent_mean) + β·(last + slope) + γ·recent_mean`,
+    clamps to `[-1, 1]`. **Coefficients (α=0.6, β=0.3, γ=0.1) are fixed
+    from the agricultural-NDVI literature — NOT a learned MLP.**
+    `jepa_temporal_predictor@2` will train an actual encoder + predictor
+    on the geotessera embedding pool. Surfaces `lag_12_used` so an
+    agent can audit which terms drove the prediction.
+  - All three primitives are wired through MCP (`emem_heat_solve`,
+    `emem_wave_solve`, `emem_jepa_predict`), advertised in
+    `/openapi.json`, and registered in the algorithms manifest with
+    formula + citation + CFL bound. Receipts verify offline via
+    `POST /v1/verify_receipt`. Pure math (`heat_step_2d`,
+    `wave_step_1d`, `jepa_predict_ar2_seasonal`) is unit-tested without
+    storage.
+
+### Fixed
+- **Polygon fan-out for embedded-gazetteer + cached places.** Boring
+  endpoints (`POST /v1/{ndvi,air,lst,soil,water,forest,weather,
+  elevation,at}`) silently fell back to a single 10 m centroid pixel
+  for places resolved via the embedded gazetteer (e.g. `place="Mumbai"`
+  → `via: "embedded"`) or via a stale TTL cache row that pre-dated the
+  polygon-bbox tracking. The wide_bbox table only covers ~14
+  region-scale features (Sahara, Amazon, Alps, …) so the rest of the
+  embedded gazetteer landed in the no-polygon path. Photon also
+  returns Point geometry without an `extent` for many dense-city
+  features even when Nominatim's record carries the boundingbox.
+  `locate_inner` now enriches missing polygon bboxes via a single
+  Nominatim `/search?q=…&limit=1` lookup at three sites — embedded-
+  gazetteer hit, cache hit with no stored bbox, and Photon hit with
+  no extent — and re-caches the result so subsequent calls short-
+  circuit. Net effect: `POST /v1/ndvi {place:"Mumbai"}` now fans out
+  across the metropolitan extent (16-cell sample, mean+median+min+
+  max+std + scene_thumbs[16] + scene_overlay.svg URL) instead of
+  reporting one centroid pixel; `POST /v1/lst {place:"Vatican City"}`
+  carries the boundary polygon; etc.
+- **Polygon visual deliverables on `POST /v1/elevation`.** The
+  elevation polygon path (`elevation_coherent_polygon`) carried per-
+  cell sub-facts and a polygon-level validity vote but no
+  `polygon.scene_thumbs[]`, `polygon.scene_overlay_url`, or
+  `polygon.geojson` outline — agents querying elevation over a region
+  couldn't render a multimodal answer the way NDVI / LST / soil
+  responses already supported. Now exposes the same shape: 16-cap
+  per-cell PNG/RGB/GeoJSON URLs, a server-rendered viridis SVG of the
+  polygon's elevation surface, and an outline FeatureCollection with
+  `area_km2`.
+
+### Added
 - **Hybrid topic routing — keyword exact-match boost + transformer
   semantic fallback.** Even in transformer mode the router now runs
   the keyword-substring pass first; if a question contains an exact
@@ -340,6 +413,29 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 - **MCP resource templates** — `emem://band/{band_key}`,
   `emem://algorithm/{algorithm_key}`, `emem://fact/{fact_cid}`,
   `emem://cell/{cell64}/...` exposed via MCP resource discovery.
+
+### Changed
+- **Docs honesty pass on temporal-routing kernels** — clarify that
+  `/v1/temporal_route`'s `heat_gaussian`, `wave_seasonal`, and
+  `advection_linear` kernels are decay-scoring heuristics motivated
+  by the analytical solutions of the corresponding PDEs, not full
+  PDE solvers. The math is correct (the Gaussian *is* the 1-D heat
+  Green's function; the half-cosine is a one-period truncation of a
+  sinusoidal traveling wave) but applied to per-band staleness
+  ranking, not 2-D spatiotemporal prediction. `docs/TEMPORAL.md`
+  rewrites the "Why these specific PDEs" section, retitles the
+  table column to "PDE inspiration / shipped kernel (decay score)",
+  tightens the JEPA section's "research direction, NOT shipped"
+  framing, and adds a "What v0.1 will add" subsection naming the
+  three real implementations queued: `heat_equation_2d@1` (real 2-D
+  finite-difference heat solver for urban heat island propagation),
+  `wave_equation_1d@1` (real shallow-water wave solver for ocean
+  swell along bathymetry), `jepa_temporal_predictor@1` (small MLP
+  next-NDVI forecaster on the geotessera embedding). `docs/WHITEPAPER.md`
+  gains §10.7 covering the same kernels with the same honesty
+  framing, and `/v1/temporal_route` is added to the REST routes
+  list it had previously omitted. No code changes; no behavior
+  changes; only docs.
 
 ### Fixed
 - **Dockerfile**: added `g++` to the build stage so the

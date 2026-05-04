@@ -97,6 +97,9 @@ guide is at `/agents.md` §5 (Anatomy of a numeric response).
 - "Which dataset answers X right now?" → GET `/v1/coverage_matrix` (now carries `tempo_seconds`, `history_available_from_unix`/`to_unix`, and per-band `responder_pubkey_b32`)
 - "Which satellite is behind this band?" → GET `/v1/fleet`
 - "What band given query time + intent?" → POST `/v1/temporal_route`
+- "Forecast LST N hours ahead" (urban heat island, surface-temperature evolution) → POST `/v1/heat_solve` (2-D explicit-FD solver for `∂u/∂t = α∇²u`; signed forecast cites the 9 input MODIS LST CIDs)
+- "Will the offshore swell make it to the coast?" (storm-surge planning, surf forecasting) → POST `/v1/wave_solve` (1-D explicit-FD shallow-water solver for `∂²u/∂t² = c²∂²u/∂x²` along the GMRT bathymetric profile; signed arrival)
+- "What's the next-month NDVI here?" (crop-stress monitoring, vegetation-anomaly anticipation) → POST `/v1/jepa_predict` (constrained JEPA-pattern AR(2) seasonal predictor; closed-form coefficients, NOT a learned MLP — see honesty note in response)
 
 Cite `receipt.fact_cids[0]` (cid64 short form) in the reply.
 Mention `responder_pubkey_b32` once per session.

@@ -92,14 +92,29 @@ struct TopicRouterInner {
 }
 
 enum Backend {
-    /// Transformer-routed: per-topic centroid in the embedding pool.
-    /// `centroids[i]` corresponds to `registry.topics[i]`.
+    /// Full ONNX-runtime sentence transformer (default backend since
+    /// 2026-05-04). Loads `BAAI/bge-base-en-v1.5` (110 M params,
+    /// 768-D, MTEB ~63) via fastembed-rs. Tries the CUDA execution
+    /// provider first when an NVIDIA GPU is reachable through
+    /// libonnxruntime at `ORT_DYLIB_PATH`; falls back to CPU EP
+    /// otherwise. Centroid + per-query inference take ~1-2 ms on the
+    /// A100, ~12-18 ms on CPU.
+    Fastembed {
+        model: std::sync::Arc<std::sync::Mutex<fastembed::TextEmbedding>>,
+        centroids: Vec<Vec<f32>>,
+        model_id: String,
+    },
+    /// Static-distillation token-lookup fallback: `model2vec` /
+    /// `potion-base-8M`, 256-D, ~32 MB, sub-µs per question, pure
+    /// Rust. Used when fastembed cannot load (no GPU + no CPU ORT
+    /// binary, or when `EMEM_TOPIC_BACKEND=model2vec`).
     Transformer {
         model: std::sync::Arc<model2vec_rs::model::StaticModel>,
         centroids: Vec<Vec<f32>>,
     },
     /// Substring-search fallback: pre-lowercased aliases + key per
-    /// topic. Used when the model load fails or `EMEM_TOPIC_BACKEND=keyword`.
+    /// topic. Used when both fastembed and model2vec load fail, or
+    /// when `EMEM_TOPIC_BACKEND=keyword`.
     Keyword { aliases_per_topic: Vec<Vec<String>> },
 }
 
@@ -127,8 +142,12 @@ impl TopicRouter {
             .unwrap_or(0.35);
         let max_topics: usize = policy.and_then(|p| p.max_topics_per_question).unwrap_or(5);
 
+        // Default = fastembed (ONNX runtime sentence transformer);
+        // `transformer` kept as an alias for the legacy model2vec
+        // path; `keyword` skips both for unit tests / air-gapped
+        // builds.
         let want_backend =
-            std::env::var("EMEM_TOPIC_BACKEND").unwrap_or_else(|_| "transformer".into());
+            std::env::var("EMEM_TOPIC_BACKEND").unwrap_or_else(|_| "fastembed".into());
 
         if want_backend == "keyword" {
             tracing::info!(
@@ -136,6 +155,19 @@ impl TopicRouter {
                 "EMEM_TOPIC_BACKEND=keyword — skipping transformer load"
             );
             return TopicRouter::keyword_only(registry, threshold, max_topics);
+        }
+
+        if want_backend == "fastembed" {
+            match TopicRouter::try_fastembed(&registry, threshold, max_topics) {
+                Ok(r) => return r,
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::topic_router",
+                        error = %e,
+                        "topic router: fastembed load failed; falling back to model2vec"
+                    );
+                }
+            }
         }
 
         let model_id = std::env::var("EMEM_TOPIC_MODEL").unwrap_or_else(|_| {
@@ -183,6 +215,77 @@ impl TopicRouter {
                 TopicRouter::keyword_only(registry, threshold, max_topics)
             }
         }
+    }
+
+    /// Build a fastembed-backed router. Tries CUDA EP first when
+    /// `ORT_DYLIB_PATH` resolves to a CUDA-enabled libonnxruntime,
+    /// falls back to CPU EP. Caches the ONNX model under
+    /// `<EMEM_DATA>/models/fastembed/` (or HF default cache when
+    /// `EMEM_DATA` is unset). Errors propagate so the caller can
+    /// drop to the model2vec backend.
+    fn try_fastembed(
+        registry: &TopicRegistry,
+        threshold: f32,
+        max_topics: usize,
+    ) -> Result<TopicRouter, Box<dyn std::error::Error>> {
+        use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+
+        // Pick the model: env override wins, else registry policy,
+        // else BGE-base-en-v1.5 (the 0.0.5 default).
+        let model_id = std::env::var("EMEM_TOPIC_MODEL").unwrap_or_else(|_| {
+            registry
+                .routing
+                .as_ref()
+                .and_then(|p| p.transformer_model.clone())
+                .unwrap_or_else(|| "BAAI/bge-base-en-v1.5".into())
+        });
+        let em = match model_id.as_str() {
+            "BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
+            "BAAI/bge-small-en-v1.5" => EmbeddingModel::BGESmallENV15,
+            "BAAI/bge-large-en-v1.5" => EmbeddingModel::BGELargeENV15,
+            "nomic-ai/nomic-embed-text-v1.5" => EmbeddingModel::NomicEmbedTextV15,
+            "intfloat/multilingual-e5-small" => EmbeddingModel::MultilingualE5Small,
+            "sentence-transformers/all-MiniLM-L6-v2" => EmbeddingModel::AllMiniLML6V2,
+            other => {
+                return Err(format!(
+                    "EMEM_TOPIC_MODEL={other:?} is not a fastembed-supported model id; \
+                     pick one of BAAI/bge-{{small,base,large}}-en-v1.5, \
+                     nomic-ai/nomic-embed-text-v1.5, intfloat/multilingual-e5-small, \
+                     sentence-transformers/all-MiniLM-L6-v2 — or set \
+                     EMEM_TOPIC_BACKEND=model2vec to use the legacy backend"
+                )
+                .into());
+            }
+        };
+        let mut init = InitOptions::new(em).with_show_download_progress(false);
+        if let Ok(emem_data) = std::env::var("EMEM_DATA") {
+            let cache = std::path::PathBuf::from(emem_data)
+                .join("models")
+                .join("fastembed");
+            std::fs::create_dir_all(&cache).ok();
+            init = init.with_cache_dir(cache);
+        }
+        let mut model = TextEmbedding::try_new(init)?;
+        let centroids = compute_centroids_fastembed(&mut model, registry)?;
+        tracing::info!(
+            target: "emem::topic_router",
+            model = %model_id,
+            threshold = threshold,
+            n_topics = registry.topics.len(),
+            "topic router: fastembed loaded; topic centroids embedded"
+        );
+        Ok(TopicRouter {
+            inner: std::sync::Arc::new(TopicRouterInner {
+                backend: Backend::Fastembed {
+                    model: std::sync::Arc::new(std::sync::Mutex::new(model)),
+                    centroids,
+                    model_id,
+                },
+                registry: registry.clone(),
+                threshold,
+                max_topics,
+            }),
+        })
     }
 
     fn keyword_only(registry: TopicRegistry, threshold: f32, max_topics: usize) -> TopicRouter {
@@ -241,6 +344,35 @@ impl TopicRouter {
         // search over <100 short aliases per topic and costs <1 µs.
         let keyword_hits = self.keyword_match(q);
         match &self.inner.backend {
+            Backend::Fastembed {
+                model, centroids, ..
+            } => {
+                let q_vec = embed_one_fastembed(model, q).unwrap_or_default();
+                let mut scored: Vec<(usize, f32)> = centroids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| (i, cosine(&q_vec, c)))
+                    .filter(|(_, s)| *s >= self.inner.threshold)
+                    .collect();
+                scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let mut transformer_hits: Vec<TopicMatch> = scored
+                    .into_iter()
+                    .map(|(i, score)| TopicMatch {
+                        key: self.inner.registry.topics[i].key.clone(),
+                        score,
+                        via: "transformer",
+                    })
+                    .collect();
+                let mut out: Vec<TopicMatch> = Vec::new();
+                let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for h in keyword_hits.into_iter().chain(transformer_hits.drain(..)) {
+                    if seen.insert(h.key.clone()) {
+                        out.push(h);
+                    }
+                }
+                out.truncate(self.inner.max_topics);
+                out
+            }
             Backend::Transformer { model, centroids } => {
                 let q_vec = embed_one(model, q);
                 let mut scored: Vec<(usize, f32)> = centroids
@@ -291,7 +423,10 @@ impl TopicRouter {
                 .enumerate()
                 .map(|(i, v)| (i, v.clone()))
                 .collect(),
-            Backend::Transformer { .. } => self
+            // Fastembed and Transformer don't pre-cache the alias
+            // table; build it on the fly from the registry. Cheap —
+            // ~25 topics × ~20 aliases × `to_lowercase()`.
+            Backend::Fastembed { .. } | Backend::Transformer { .. } => self
                 .inner
                 .registry
                 .topics
@@ -365,8 +500,21 @@ impl TopicRouter {
     /// Which backend is currently serving routes.
     pub fn backend_name(&self) -> &'static str {
         match &self.inner.backend {
-            Backend::Transformer { .. } => "transformer",
+            Backend::Fastembed { .. } => "fastembed",
+            Backend::Transformer { .. } => "model2vec",
             Backend::Keyword { .. } => "keyword",
+        }
+    }
+
+    /// The HF model id that's actually loaded. Returns `None` for the
+    /// keyword-only backend (no model). Surfaced in `/v1/topics` so
+    /// operators can verify which model the live router uses.
+    #[allow(dead_code)]
+    pub fn model_id(&self) -> Option<&str> {
+        match &self.inner.backend {
+            Backend::Fastembed { model_id, .. } => Some(model_id),
+            Backend::Transformer { .. } => Some("minishlab/potion-base-8M"),
+            Backend::Keyword { .. } => None,
         }
     }
 }
@@ -374,6 +522,58 @@ impl TopicRouter {
 fn embed_one(model: &model2vec_rs::model::StaticModel, text: &str) -> Vec<f32> {
     let v = model.encode(&[text.to_string()]);
     v.into_iter().next().unwrap_or_default()
+}
+
+/// Embed a single short string with fastembed. Acquires the
+/// `Mutex<TextEmbedding>` for the duration of the inference (the
+/// underlying ORT session is `!Sync`). On a 25-topic registry this
+/// is fine — `/v1/ask` is not a high-fan-out endpoint.
+fn embed_one_fastembed(
+    model: &std::sync::Arc<std::sync::Mutex<fastembed::TextEmbedding>>,
+    text: &str,
+) -> Result<Vec<f32>, String> {
+    let mut guard = model.lock().map_err(|e| format!("model mutex: {e}"))?;
+    let mut v = guard
+        .embed(vec![text.to_string()], None)
+        .map_err(|e| format!("fastembed embed: {e}"))?;
+    Ok(v.pop().unwrap_or_default())
+}
+
+/// Per-topic centroid via fastembed: embed (description + aliases)
+/// for every topic, average to a single vector, L2-normalise. fastembed
+/// already L2-normalises per-text outputs but the average drifts off
+/// the unit sphere, so re-normalise to make cosine identity-comparable.
+fn compute_centroids_fastembed(
+    model: &mut fastembed::TextEmbedding,
+    registry: &TopicRegistry,
+) -> Result<Vec<Vec<f32>>, String> {
+    let mut centroids = Vec::with_capacity(registry.topics.len());
+    for t in &registry.topics {
+        let mut texts: Vec<String> = Vec::with_capacity(t.aliases.len() + 1);
+        texts.push(t.description.clone());
+        texts.extend(t.aliases.iter().cloned());
+        let vecs = model
+            .embed(texts, None)
+            .map_err(|e| format!("fastembed embed (topic {}): {e}", t.key))?;
+        if vecs.is_empty() {
+            centroids.push(Vec::new());
+            continue;
+        }
+        let dim = vecs[0].len();
+        let mut c = vec![0.0_f32; dim];
+        for v in &vecs {
+            for (i, x) in v.iter().enumerate().take(dim) {
+                c[i] += x;
+            }
+        }
+        let n = vecs.len() as f32;
+        for x in &mut c {
+            *x /= n;
+        }
+        l2_normalise(&mut c);
+        centroids.push(c);
+    }
+    Ok(centroids)
 }
 
 fn compute_centroids(
