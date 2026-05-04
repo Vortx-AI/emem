@@ -23,6 +23,26 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
   goes 33 → 34; `total_dims` stays 1792; `bands_cid` regenerates
   on next manifest read. The `cams.*` cube-band map updated from
   → `climate` (wrong) to → `air_quality` (correct).
+- **`/v1/ask` inventory-based algorithm fall-through** — when the
+  topic router misses (e.g. transformer scores below threshold for
+  "air quality in Delhi") but the recall snapshot owns every input
+  an algorithm needs, fire the algorithm anyway. Walks
+  `algorithms[]`, keeps any whose `evaluation: Expr`-referenced
+  bands are all present in `recall.facts[]`, appends to the dispatch
+  list. Closes the matching gap where `aqi_class@1` was registered
+  + bound to `public_health` but the topic_router didn't tag the
+  question `public_health`, so the algorithm never dispatched.
+  Live verified: `air quality in Delhi` now returns
+  `algorithm_outcomes:[{algorithm_key:"aqi_class@1", value:4.0}]`
+  for PM2.5 = 83.8 µg/m³ (Unhealthy per EPA).
+- **`/v1/ask` per-fact `band_metadata` enrichment** — the inner
+  `facts.facts[]` of every /v1/ask response now carries the same
+  `band_metadata` + `value_decoded` blocks that `/v1/recall` and
+  `/v1/cells/:cell64` already shipped, so an LLM consuming an ask
+  response gets units + interpretation + per-scalar dimension
+  overlay + categorical-class labels without a second /v1/bands
+  round-trip. `/v1/ask` was previously the one path that emitted
+  raw signed facts without the band-metadata enrichment.
 - **Three new algorithm registry entries** — `aqi_class@1`,
   `weather_summary@1`, and `precip_intensity_class@1` was already
   present; **`aqi_class@1`** is solo, AST-evaluable (chained

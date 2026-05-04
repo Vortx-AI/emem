@@ -183,6 +183,10 @@ pub fn router(state: AppState) -> Router {
         .route("/openapi.json", get(openapi))
         // Curated 28-op subset for OpenAI Custom GPT Actions (30-op cap).
         // Filtered live from the full spec — single source of truth.
+        // Both the root and /v1 path resolve to the same handler so that
+        // copies of the URL pasted into Custom GPT builders / docs that
+        // dropped the `/v1` prefix still work.
+        .route("/openapi.action.json", get(openapi_action_json))
         .route("/v1/openapi.action.json", get(openapi_action_json))
         // Examples
         .route(
@@ -560,6 +564,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/spaces.md"
         | "/temporal.md"
         | "/openapi.json"
+        | "/openapi.action.json"
         | "/v1/openapi.action.json" => Some("public, max-age=86400, stale-while-revalidate=604800"),
         // Changes on manifest rotation (hours), not seconds.
         "/.well-known/emem.json"
@@ -904,6 +909,7 @@ async fn rate_limit_layer(
             | "/.well-known/oauth-protected-resource"
             | "/gemini-extension.json"
             | "/openapi.json"
+            | "/openapi.action.json"
             | "/v1/openapi.action.json"
             | "/robots.txt"
             | "/sitemap.xml"
@@ -16285,10 +16291,54 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // byte-stable composite scalar. Algorithms without an evaluation
     // are skipped (the agent still sees the human-readable formula
     // in `algorithms_for_question[]` and can compose itself).
-    let all_matched_keys: Vec<String> = algorithms_for_question
+    let mut all_matched_keys: Vec<String> = algorithms_for_question
         .iter()
         .filter_map(|v| v.get("key").and_then(|k| k.as_str()).map(String::from))
         .collect();
+    // Inventory-based algorithm fall-through. When the topic router
+    // misses (e.g. transformer scores below threshold for "air quality
+    // in Delhi") but the recall snapshot still owns every input an
+    // algorithm needs, fire the algorithm anyway. This closes the
+    // 2026-05-04 gap where `aqi_class@1` was registered + bound to
+    // `public_health` but the topic_router didn't tag the question
+    // `public_health` so the algorithm never dispatched. Walks the
+    // registry once, keeps any algorithm whose `evaluation`-AST
+    // referenced bands are all present in `recall_resp.facts[]`,
+    // and appends to `all_matched_keys`. De-dup happens inside
+    // `dispatch_algorithms` via its `seen` HashSet.
+    {
+        let alg_reg = &*emem_core::algorithms::DEFAULT;
+        let recall_bands: std::collections::HashSet<&str> = recall_resp
+            .facts
+            .iter()
+            .filter_map(|f| {
+                if let emem_fact::Fact::Primary(p) = f {
+                    Some(p.band.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let already: std::collections::HashSet<String> =
+            all_matched_keys.iter().cloned().collect();
+        let mut to_add: Vec<String> = Vec::new();
+        for alg in &alg_reg.algorithms {
+            if already.contains(&alg.key) {
+                continue;
+            }
+            let Some(expr) = alg.evaluation.as_ref() else {
+                continue;
+            };
+            let referenced = expr.referenced_bands();
+            if referenced.is_empty() {
+                continue;
+            }
+            if referenced.iter().all(|b| recall_bands.contains(b.as_str())) {
+                to_add.push(alg.key.clone());
+            }
+        }
+        all_matched_keys.extend(to_add);
+    }
     let algorithm_outcomes = dispatch_algorithms(&all_matched_keys, &recall_resp);
 
     // Per-band raw observations. Built unconditionally (per the
@@ -16433,6 +16483,13 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // re-encoding the raw 32-byte arrays. Bytes are kept for
     // byte-for-byte verification.
     let mut facts_json = serde_json::to_value(&recall_resp).unwrap_or(json!({}));
+    // Same per-fact metadata enrichment (`band_metadata`,
+    // `value_decoded`) the bare `/v1/recall` and
+    // `/v1/cells/:cell64` paths apply, so an LLM consuming the inner
+    // `facts.facts[]` of an /v1/ask response gets units +
+    // interpretation + per-scalar dimension overlay without a second
+    // /v1/bands round-trip. Walks the `facts` array in place.
+    enrich_facts_with_metadata(&mut facts_json);
     enrich_recall_signer_b32(&mut facts_json);
 
     let mut body = json!({
