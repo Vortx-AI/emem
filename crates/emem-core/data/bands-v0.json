@@ -64,15 +64,47 @@
       "_source_note": "Overture Maps Foundation per-cell aggregate vector. 64 dims: [0..1] buildings.count_log, [1..2] buildings.area_m2_log, [2..3] buildings.height_mean, [3..4] buildings.height_p95, [4..16] buildings.class_freq[12], [16..17] places.count_log, [17..18] places.operating_open_pct, [18..38] places.category_freq[20], [38..39] transportation.road_length_m_log, [39..51] transportation.class_freq[12], [51..52] addresses.count_log, [52..53] base.water_area_m2_log, [53..54] base.land_use_diversity, [54..64] reserved_within_overture[10]. Source: anonymous S3 overturemaps-us-west-2; pure-Rust parquet + WKB read."
     },
     {
+      "key": "air_quality",
+      "family": "climate",
+      "offset": 192,
+      "dims": 7,
+      "tempo": "fast",
+      "privacy": {"class": "public"},
+      "description": "Surface air-quality scalars sourced from Copernicus Atmosphere Monitoring Service (CAMS) via the Open-Meteo Air Quality API. Hourly forecasts at ~11 km native resolution, free with no API key. Coverage 2013-08 onward.",
+      "units": "see scalar_keys (mostly µg/m³ pollutant mass concentrations; AOD-550 is unitless)",
+      "interpretation": "PM2.5 / PM10 / NO2 / O3 are the canonical four pollutants used by US EPA and EEA AQI calculators — see `aqi_class@1` for a cite-able 'Good / Moderate / Unhealthy' classification. AOD-550 is column-integrated aerosol optical depth at 550 nm; values >0.4 indicate hazy conditions, >1.0 indicate dust storm or wildfire smoke. SO2 and CO are useful for pinpoint industrial / biomass burning sources.",
+      "pitfalls": "CAMS is a global model assimilating satellite + ground stations — local hot-spots (a single industrial stack, a busy intersection) won't appear at ~11 km. For US/EU regulatory monitoring use the local agency feed instead. Forecast horizon is +96h; older tslots fall back to ERA5-CAMS reanalysis with weaker recent coverage.",
+      "references": "https://atmosphere.copernicus.eu / https://open-meteo.com/en/docs/air-quality-api",
+      "scalar_keys": [
+        "cams.pm25",
+        "cams.pm10",
+        "cams.no2",
+        "cams.o3",
+        "cams.so2",
+        "cams.co",
+        "cams.aod_550"
+      ],
+      "dimensions": [
+        {"index": 0, "name": "pm25",    "description": "Particulate matter ≤2.5 µm aerodynamic diameter — the dominant health-relevant pollutant.",          "units": "µg/m³",   "value_range": [0, 1000]},
+        {"index": 1, "name": "pm10",    "description": "Particulate matter ≤10 µm — coarser dust + sea spray + pollen.",                                       "units": "µg/m³",   "value_range": [0, 2000]},
+        {"index": 2, "name": "no2",     "description": "Nitrogen dioxide — traffic + combustion marker. WHO 24-hour guideline 25 µg/m³.",                       "units": "µg/m³",   "value_range": [0, 600]},
+        {"index": 3, "name": "o3",      "description": "Surface ozone — secondary photochemical pollutant, peaks midday in summer downwind of NOx + VOCs.",     "units": "µg/m³",   "value_range": [0, 600]},
+        {"index": 4, "name": "so2",     "description": "Sulphur dioxide — coal/biomass/volcanic marker. Spikes near heavy industry.",                            "units": "µg/m³",   "value_range": [0, 1000]},
+        {"index": 5, "name": "co",      "description": "Carbon monoxide — incomplete combustion marker (vehicles, household burning, wildfires).",              "units": "µg/m³",   "value_range": [0, 50000]},
+        {"index": 6, "name": "aod_550", "description": "Aerosol optical depth at 550 nm — column-integrated aerosol load. Unitless; >0.4 = hazy, >1 = severe.", "units": "unitless", "value_range": [0, 5]}
+      ],
+      "_source_note": "Pollutant scalars in µg/m³ — CAMS native units. AOD-550 is unitless. All seven exposed via the unified Open-Meteo air-quality endpoint, which avoids the CDS API key required by the upstream CAMS ECMWF endpoint. Hourly cadence; tempo:fast."
+    },
+    {
       "key": "_reserved_512",
       "family": "foundation",
-      "offset": 192,
-      "dims": 512,
+      "offset": 199,
+      "dims": 505,
       "tempo": "slow",
       "privacy": {"class": "public"},
       "description": "Forward-compatibility reservation slot, currently zero-padded. Reserved for a future no-key foundation embedding to claim without shifting any subsequent offset.",
       "interpretation": "Recall on this band returns Absence facts today. Do not include it in similarity queries.",
-      "_source_note": "Foundation-embedding reservation slot, 512 dims. Currently unattested — kept zero-padded so subsequent band offsets stay byte-stable."
+      "_source_note": "Foundation-embedding reservation slot, 505 dims (was 512 before air_quality carved 7 dims at offset 192). Currently unattested — kept zero-padded so subsequent band offsets stay byte-stable."
     },
     {
       "key": "sentinel2_raw",

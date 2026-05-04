@@ -24,6 +24,28 @@
 | "How did this farm change between 2020 and 2024?"   | `emem_diff({cell, t1, t2, bands:["indices.ndvi"]})`                                      | diff fact_cid                   |
 | "Average PM2.5 across this city"                    | `emem_recall_polygon({place:"Lagos", bands:["cams.pm25"]})` then `emem_query_region`     | aggregated + per-cell receipts  |
 
+## What every numeric response carries (no second round-trip needed)
+
+Every signed fact in a `/v1/recall`, `/v1/ask`, `/v1/cells/:cell64`,
+`/v1/recall_polygon`, or boring-endpoint response now ships these
+sibling fields. Quote them verbatim — you do not need a second
+`/v1/bands` call to interpret or cite the value.
+
+- `value` + `unit` — the number and its physical unit.
+- `band_metadata.interpretation` — editorial guidance (e.g. "PM2.5 / PM10 / NO2 / O3 are the canonical four pollutants used by US EPA AQI calculators — see aqi_class@1"). Quote instead of re-inventing thresholds.
+- `band_metadata.pitfalls` — only mention when the user's question intersects (e.g. "CAMS is a ~11 km global model so a single industrial stack won't show up").
+- `band_metadata.dimension_description` + `dimension_index` — surfaces the per-scalar slot info (so `weather.temperature_2m` carries "Air temperature at 2 m above ground" not "see scalar_keys").
+- `value_decoded` — for categorical bands (ESA WorldCover, JRC Surface Water transition class, S2 SCL): the human label.
+- `signer_pubkey_b32` (sibling to raw `signer` bytes) — quote in cid64-short form. Lets the user paste into `/v1/verify`.
+- `fact_cid` — quote (first 13 chars). Lets the user replay with `GET /v1/cells/:cell/facts/:cid`.
+- `receipt.responder_pubkey_b32` — mention once per session.
+
+For the live derived classifications (e.g. AQI category, precipitation
+intensity), `/v1/ask` populates `algorithm_outcomes[]` — quote
+`algorithm_key` + `value` + look up the human label in
+`/v1/algorithms[key].output.values[value-1]`. The full integration
+guide is at `/agents.md` §5 (Anatomy of a numeric response).
+
 ## Tools (MCP — see /mcp tools/list for the live catalog)
 
 - `emem_locate(q)` — place name or lat/lng → cell64 + bbox + neighbours.

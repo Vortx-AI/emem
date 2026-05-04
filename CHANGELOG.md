@@ -8,6 +8,59 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 ## [Unreleased]
 
 ### Added
+- **`air_quality` band entry + per-scalar dimension overlay** —
+  carved 7 dims off the front of `_reserved_512` (offset 192,
+  shrunk from 512 → 505 dims) to give CAMS air-quality scalars
+  (`cams.pm25`, `cams.pm10`, `cams.no2`, `cams.o3`, `cams.so2`,
+  `cams.co`, `cams.aod_550`) a proper band-registry home with
+  description / interpretation / pitfalls / references / per-scalar
+  dimension records (units + value_range + description per
+  pollutant). `band_metadata_for_response` now overlays the matched
+  `dimensions[]` entry over the cube-band fields when a dotted
+  scalar key resolves, so `weather.temperature_2m` now surfaces
+  units `°C` (was "see scalar_keys") and the per-dim
+  description ("Air temperature at 2 m above ground"). Bands count
+  goes 33 → 34; `total_dims` stays 1792; `bands_cid` regenerates
+  on next manifest read. The `cams.*` cube-band map updated from
+  → `climate` (wrong) to → `air_quality` (correct).
+- **Three new algorithm registry entries** — `aqi_class@1`,
+  `weather_summary@1`, and `precip_intensity_class@1` was already
+  present; **`aqi_class@1`** is solo, AST-evaluable (chained
+  `Where` ops on `cams.pm25` → integer 1–6 indexing the US EPA AQI
+  category names in `output.values[]` — quote as
+  "aqi_class@1 = 4 / Unhealthy"), with the EPA breakpoints for
+  PM2.5 (12 / 35.4 / 55.4 / 150.4 / 250.4 µg/m³). **`weather_summary@1`**
+  is combined, formula-only (no AST today — Expr is f64-typed),
+  outputs a sky/precip/temperature/wind one-liner with thresholds
+  matching Met Office, WMO METAR, and Beaufort 8 conventions.
+  Both wired into the matching topics (`public_health` →
+  `aqi_class@1`; `weather_now` → `weather_summary@1`) so
+  `/v1/ask {q:"air quality in Delhi"}` now returns
+  `algorithm_outcomes[{algorithm_key:"aqi_class@1", value: 4, ...}]`
+  alongside the raw CAMS facts. Total algorithms 102 → 105.
+- **`/agents.md` integration guide updates** —
+  - New §5 **"Anatomy of a numeric response"** with a complete
+    annotated example of every sibling field 0.0.4 ships
+    (`band_metadata`, `signer_pubkey_b32`, `value_decoded`,
+    `responder_pubkey_b32`, `inherited_from_cube_band`,
+    `dimension_description`, `dimension_index`) plus a field-by-field
+    table of what an agent does with each, plus a 3-sentence reply
+    skeleton an agent can re-use verbatim.
+  - §3 `algorithm_outcomes[]` description bumped to reflect
+    `aqi_class@1` migration + the new `band_observations[]` inventory
+    fall-through path that lets `/v1/ask` come back with raw CAMS
+    facts even before any algorithm fires.
+  - §6 trust-model manifest CIDs replaced with a "fetch from
+    `/v1/manifests`" instruction (the hardcoded CIDs were stale
+    every release; the air_quality band carve regenerated the
+    bands_cid as expected).
+  - Sections 6–12 renumbered to 7–13 to fit the new §5.
+  - Homepage promotes `/agents.md` from the discover-surface block
+    (where it was buried at line 613) to a callout right under the
+    prompt table, paired with `/llms.txt` and `/llms-full.txt`.
+  - `/llms.txt` adds a "What every numeric response carries"
+    section listing the same sibling fields so an agent reading
+    only llms.txt knows to quote them.
 - **Embedded band metadata in numeric responses** — every fact
   returned by `/v1/recall`, `/v1/cells/:cell64`, `/v1/recall_polygon`,
   `/v1/ask`, and the `boring` endpoints now carries a sibling

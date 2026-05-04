@@ -2034,6 +2034,93 @@
         "anchor_band": "weather.precipitation_mm",
         "fallback_strategy": "absence"
       }
+    },
+
+    {
+      "key": "aqi_class@1",
+      "kind": "solo",
+      "domain": "climate",
+      "inputs": [
+        { "band": "cams.pm25", "role": "scalar_in", "unit": "µg/m³", "explanation": "PM2.5 24-hour-average proxy. CAMS hourly forecasts approximate the 24-hour average that the US EPA AQI breakpoint table is defined against — adequate for a 'roughly Good / Moderate / Unhealthy' classification, not for regulatory reporting." }
+      ],
+      "formula": "let p = cams.pm25; if p > 250.4 -> 6 (Hazardous); else if p > 150.4 -> 5 (Very Unhealthy); else if p > 55.4 -> 4 (Unhealthy); else if p > 35.4 -> 3 (Unhealthy for Sensitive Groups); else if p > 12.0 -> 2 (Moderate); else -> 1 (Good)",
+      "output": {
+        "kind": "scalar",
+        "unit": "aqi_category_index",
+        "range": [1, 6],
+        "values": ["Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"],
+        "explanation": "Integer 1–6 indexing the US EPA AQI category names in `output.values` (1-based). The integer is what the AST evaluates to so an agent can quote 'aqi_class@1 = 4' and look up 'Unhealthy' in the same registry record. Defined on PM2.5 alone — for full multi-pollutant AQI take the max of `aqi_class@1`, `aqi_pm10@1`, `aqi_no2@1`, etc. (registry will grow as those subindices land)."
+      },
+      "when_to_use": "Use when an agent has already pulled `cams.pm25` and wants a stable, cite-able AQI category instead of inventing thresholds. Pair with the pollutant value itself in the answer (`PM2.5 = 142 µg/m³, AQI category 4 / Unhealthy`).",
+      "primitive": "POST /v1/recall {bands:['cams.pm25']} → evaluate `aqi_class@1` Expr → integer 1–6 → look up label in output.values[index-1]",
+      "deterministic": true,
+      "citation": "US EPA. Technical Assistance Document for the Reporting of Daily Air Quality — the Air Quality Index (AQI). EPA 454/B-18-007, Sep 2018, Table 2 (PM2.5 breakpoints, 24-hour averaging period).",
+      "evaluation": {
+        "op": "where",
+        "cond": { "op": "band", "band": "cams.pm25" },
+        "gt": 250.4,
+        "then_": { "op": "const", "value": 6.0 },
+        "else_": {
+          "op": "where",
+          "cond": { "op": "band", "band": "cams.pm25" },
+          "gt": 150.4,
+          "then_": { "op": "const", "value": 5.0 },
+          "else_": {
+            "op": "where",
+            "cond": { "op": "band", "band": "cams.pm25" },
+            "gt": 55.4,
+            "then_": { "op": "const", "value": 4.0 },
+            "else_": {
+              "op": "where",
+              "cond": { "op": "band", "band": "cams.pm25" },
+              "gt": 35.4,
+              "then_": { "op": "const", "value": 3.0 },
+              "else_": {
+                "op": "where",
+                "cond": { "op": "band", "band": "cams.pm25" },
+                "gt": 12.0,
+                "then_": { "op": "const", "value": 2.0 },
+                "else_": { "op": "const", "value": 1.0 }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "key": "weather_summary@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        { "band": "weather.temperature_2m",  "role": "scalar_in", "unit": "°C",     "explanation": "Air temperature at 2 m." },
+        { "band": "weather.cloud_cover",     "role": "scalar_in", "unit": "percent","explanation": "Total cloud cover, 0–100." },
+        { "band": "weather.precipitation_mm","role": "scalar_in", "unit": "mm",     "explanation": "Precipitation accumulated over the current tslot." },
+        { "band": "weather.wind_speed_10m",  "role": "scalar_in", "unit": "m/s",    "explanation": "Wind speed at 10 m above ground." }
+      ],
+      "formula": "let sky = if cloud_cover < 25 then 'clear' else if cloud_cover < 75 then 'partly cloudy' else 'overcast'; let precip = if precipitation_mm > 7.5 then ' with heavy rain' else if precipitation_mm > 2.5 then ' with rain' else if precipitation_mm > 0.1 then ' with light rain' else ''; let wind = if wind_speed_10m > 17 then ', windy' else ''; concat(sky, precip, ', ', round(temperature_2m), '°C', wind)",
+      "output": {
+        "kind": "classification",
+        "values": [
+          "clear",
+          "partly cloudy",
+          "overcast",
+          "clear with light rain",
+          "partly cloudy with light rain",
+          "overcast with light rain",
+          "partly cloudy with rain",
+          "overcast with rain",
+          "overcast with heavy rain",
+          "clear, windy",
+          "partly cloudy, windy",
+          "overcast with rain, windy"
+        ],
+        "explanation": "Human-readable one-liner. The `values[]` list illustrates representative outputs; the actual return string concatenates `<sky>` + optional `<rain>` + temperature suffix + optional `, windy`. Deterministic given the four inputs. Currently formula-only (no Expr AST) because the AST evaluator is f64→f64 today; a future `String`-typed Expr op would let `algorithm_outcomes[]` fire it."
+      },
+      "when_to_use": "Use when an agent wants a short natural-language weather sentence to echo to a user, instead of dumping four numeric scalars. Pair with the underlying numbers in `inputs[]` so the user can drill in.",
+      "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.precipitation_mm','weather.wind_speed_10m']} → concatenate per formula",
+      "deterministic": true,
+      "citation": "Editorial. The cloud-cover thresholds follow the Met Office plain-language convention (`<25% clear, 25–75% partly cloudy, >75% overcast`); the precipitation classes follow the WMO convention used in METAR (`light <2.5 mm/h, moderate 2.5–7.5, heavy >7.5`); the wind threshold (17 m/s ≈ Beaufort 8 'fresh gale') is when wind starts to become operationally noteworthy."
     }
   ]
 }

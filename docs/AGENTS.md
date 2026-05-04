@@ -84,12 +84,20 @@ a hand-rolled fan-out:
 
 - **`algorithm_outcomes[]`** — one entry per matched algorithm whose
   registry entry carries an `evaluation: Expr` block. Each entry is
-  `{ algorithm_key, evaluation_via: "ast", input_fact_cids[], value }`.
-  Empty when no matched algorithm has been migrated to the AST yet.
-  In 0.0.3 only `flood_risk@2` is migrated; the other 101 algorithms
-  still ship a human-readable `formula: String` only and require the
-  caller to evaluate. M-13 in `docs/MILESTONE_v0.0.4.md` tracks the
-  rest.
+  `{ algorithm_key, evaluation_via: "ast", input_fact_cids[], value,
+  inputs, inputs_with_provenance, formula, citation }` so the agent
+  can recompute the value from the named inputs and verify each input
+  fact independently. As of 0.0.4: `flood_risk@2`, `aqi_class@1` (PM2.5
+  → 1–6 EPA category, look up label via `/v1/algorithms`'s
+  `output.values[index-1]`); the rest still ship `formula: String`
+  only.
+- **`band_observations[]`** — fall-through path for when topic-router
+  returns zero topics but the cell still owns signed bundle facts.
+  Two-pass: topic-router first, then a second pass walks
+  `recall.facts[]` and emits an entry per band not yet represented,
+  tagged `routing_via: "inventory"`. This is the "raw bands fallback"
+  that lets `/v1/ask {q:"air quality in Delhi"}` come back with 17
+  cite-able CAMS observations even before any algorithm fires.
 - **`temporal_composition[]`** — one entry per matched algorithm
   whose registry entry carries a `temporal_recipe`. Each entry is
   `{ algorithm_key, recipe_label, windows: [{ band, lookback_days,
@@ -165,7 +173,77 @@ Each response returns `facts: [...]` plus a `receipt` carrying
 
 ---
 
-## 5. Trust model
+## 5. Anatomy of a numeric response (everything an agent needs to cite)
+
+As of 0.0.4 every signed fact in a `/v1/recall`, `/v1/ask`,
+`/v1/cells/:cell64`, `/v1/recall_polygon`, or boring-endpoint response
+carries the following sibling fields **in addition** to the core
+`{cell, band, value, signed_at, signer, signature, sources}` an agent
+already knows about. No second `/v1/bands` call is needed to interpret
+or quote the value.
+
+```json
+{
+  "band":               "cams.aod_550",
+  "value":              0.87,
+  "unit":               null,
+  "signed_at":          "2026-05-04T06:00:29Z",
+  "signer":             [231, 254, ...],
+  "signer_pubkey_b32":  "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+  "fact_cid":           "i2wrnw4rywqvliu3blzpz2hrgn33horfbb5twn6jo7xctzwlm6jq",
+  "value_decoded":      "Built-up",
+  "band_metadata": {
+    "description":              "Surface air-quality scalars sourced from CAMS via Open-Meteo …",
+    "interpretation":           "PM2.5 / PM10 / NO2 / O3 are the canonical four pollutants used by US EPA and EEA AQI calculators — see aqi_class@1 …",
+    "pitfalls":                 "CAMS is a global model assimilating satellite + ground stations — local hot-spots …",
+    "references":               "https://atmosphere.copernicus.eu / https://open-meteo.com/en/docs/air-quality-api",
+    "units":                    "unitless",
+    "value_range":              [0, 5],
+    "dimension_description":    "Aerosol optical depth at 550 nm — column-integrated …",
+    "dimension_index":          6,
+    "inherited_from_cube_band": "air_quality"
+  }
+}
+```
+
+And on the receipt itself:
+
+```json
+{
+  "responder":             [231, 254, ...],
+  "responder_pubkey_b32":  "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+  "fact_cids":             ["i2wrnw4rywqvliu3blzpz2hrgn33horfbb5twn6jo7xctzwlm6jq", ...],
+  "signature":             [...]
+}
+```
+
+Field-by-field, what an agent does with each:
+
+| field                                | what to do                                                                                                                                                                  |
+|--------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `value`                              | Quote the number. Pair with `unit` from `band_metadata.units` (or `band_metadata.dimension_description` for richer context).                                                    |
+| `band_metadata.interpretation`       | Use to translate the raw number into user-facing language (e.g. "AOD 0.87 = hazy, > 1 would be severe smoke"). Don't re-invent thresholds — quote ours.                       |
+| `band_metadata.pitfalls`             | Mention only when the user's question intersects a pitfall (e.g. "CAMS is a ~11 km global model so a single industrial stack won't show up").                                  |
+| `band_metadata.references`           | Cite as the upstream source URL.                                                                                                                                              |
+| `value_decoded`                      | For categorical bands (ESA WorldCover, JRC GSW transition class, S2 SCL): the human label. Quote this directly instead of the integer class ID.                              |
+| `signer_pubkey_b32`                  | Quote (truncated to first 8 chars + ellipsis is fine). Lets the user paste it into `/v1/verify` to confirm the responder.                                                     |
+| `fact_cid`                           | Quote (cid64 prefix — first 13 chars). Lets the user replay the exact same fact later via `GET /v1/cells/:cell/facts/:fact_cid`.                                                |
+| `receipt.responder_pubkey_b32`       | Mention once per session. Same b32 string as `signer_pubkey_b32` when the responder produced the fact directly (vs. relayed from another attester).                            |
+
+### Reply skeleton an agent can re-use verbatim
+
+> AOD-550 over Delhi is **0.87** (hazy; CAMS via Open-Meteo, ~11 km
+> resolution). Cite-able as `cid64 i2wrnw4rywqvl…` signed by
+> responder `777er3yi…`. Caveat: CAMS is a global model so this is a
+> regional, not point, value.
+
+Three sentences, one number, one CID, one pubkey. The user can
+verify offline via `POST /v1/verify_receipt`; the agent does not have
+to re-fetch anything to write the reply.
+
+---
+
+## 6. Trust model
 
 emem facts are content-addressed; receipts are signed. Verification is
 deterministic and offline-capable.
@@ -178,11 +256,12 @@ deterministic and offline-capable.
 - **Responder pubkey** (hosted instance):
   `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`. Available at
   `/health` and `/.well-known/emem.json`.
-- **Manifest CIDs** (paste once per session for reproducibility):
-  - `bands_cid=dhimsuf325dd23viqmfh55rf24d33pwz5gfpxnl2rdyf3d4ly2zq`
-  - `functions_cid=hcbqrsck4sobm3s4uocsrf45ucl7ckyh2n4ma6fckdvf7qkexsza`
-  - `schema_cid=d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq`
-  - `sources_cid=2nwvbnvltilyxah6e2e3xadxgjkicvomdrdvshcpv6wh556blrxa`
+- **Manifest CIDs** — fetch live from `GET /v1/manifests` (or
+  `GET /.well-known/emem.json`) and pin in the receipt. The CIDs evolve
+  every release as bands / algorithms / functions land — anything
+  pasted into a prompt goes stale within weeks. The current set is
+  always in `/v1/manifests.{bands_cid, algorithms_cid, functions_cid,
+  schema_cid, sources_cid, topics_cid}`.
 
 Verify any responder's receipt offline:
 
@@ -201,7 +280,7 @@ Contributor-of-Intelligence Layer (CoIL); see `/v1/contributors`.
 
 ---
 
-## 6. How emem differs from a vector DB
+## 7. How emem differs from a vector DB
 
 | concern               | vector DB                  | emem                                   |
 |-----------------------|----------------------------|----------------------------------------|
@@ -220,7 +299,7 @@ satellite covers this) you want emem's typed primitives.
 
 ---
 
-## 7. Reply formatting that doesn't waste tokens
+## 8. Reply formatting that doesn't waste tokens
 
 When the agent answers with emem facts:
 
@@ -240,7 +319,7 @@ Example reply:
 
 ---
 
-## 8. Conformance levels
+## 9. Conformance levels
 
 - **L0** — every emem responder serves recall + recall_many + compare +
   find_similar + diff + trajectory + query_region + introspection.
@@ -256,7 +335,7 @@ this responder serves.
 
 ---
 
-## 9. Errors that mean something
+## 10. Errors that mean something
 
 The wire-stable error catalog at `/v1/errors` is what agents branch on:
 
@@ -275,7 +354,7 @@ to the user.
 
 ---
 
-## 10. MCP / Cursor / Claude Code / OpenAI GPT setup
+## 11. MCP / Cursor / Claude Code / OpenAI GPT setup
 
 Every host that speaks MCP Streamable HTTP points at the same URL
 (`https://emem.dev/mcp`); paste-ready configs ship under `/examples/`.
@@ -302,7 +381,7 @@ Every host that speaks MCP Streamable HTTP points at the same URL
 
 ---
 
-## 11. Common mistakes
+## 12. Common mistakes
 
 The failure modes that show up most often in agent traces, with the fix.
 
@@ -363,7 +442,7 @@ its own key. Surface the fn_key when accuracy matters.
 
 ---
 
-## 12. What you get
+## 13. What you get
 
 Citable answers (`receipt.fact_cids[0]` + responder pubkey verify
 offline), reproducible reads (same `(cell, band, tslot)` → same CID

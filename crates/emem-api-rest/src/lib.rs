@@ -3803,7 +3803,12 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
         b if b.starts_with("hansen.") => "forest_change",
         b if b.starts_with("modis.lst_") || b.starts_with("modis.ndvi") => "indices",
         b if b.starts_with("soilgrids.") => "soilgrids",
-        b if b.starts_with("cams.") => "climate",
+        // CAMS scalars now have a dedicated `air_quality` band entry
+        // (carved 7 dims off the front of `_reserved_512` in
+        // bands-v0.json on 2026-05-04). Per-pollutant units +
+        // value_range live in dimensions[]; the dimension lookup
+        // below pulls the right one by name.
+        b if b.starts_with("cams.") => "air_quality",
         _ => band_key,
     };
     let band_entry = registry
@@ -3829,7 +3834,37 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
         if let Some(r) = &b.references {
             map.insert("references".into(), json!(r));
         }
+        // Per-scalar dimension overlay: when the dotted `band_key`
+        // suffix matches a `dimensions[].name`, surface ITS units +
+        // value_range + description so an LLM doesn't read
+        // "see scalar_keys" as a unit. Top-level fields stay as the
+        // band-wide context (description / pitfalls / references) while
+        // the per-dim record overrides the value-shape fields.
         if cube_band != band_key {
+            if let Some(suffix) = band_key.split('.').next_back() {
+                // Some scalar names embed array notation
+                // (e.g. "buildings.class_freq[12]"); strip the bracket
+                // tail before comparing so a `.class_freq` request
+                // still resolves.
+                let suffix_norm = suffix.split('[').next().unwrap_or(suffix);
+                if let Some(dim) = b
+                    .dimensions
+                    .iter()
+                    .find(|d| d.name == suffix || d.name.split('[').next().unwrap_or(&d.name) == suffix_norm)
+                {
+                    if let Some(u) = &dim.units {
+                        map.insert("units".into(), json!(u));
+                    }
+                    if let Some(vr) = &dim.value_range {
+                        map.insert("value_range".into(), vr.clone());
+                    }
+                    map.insert("dimension_description".into(), json!(dim.description));
+                    map.insert("dimension_index".into(), json!(dim.index));
+                    if let Some(f) = &dim.formula {
+                        map.insert("formula".into(), json!(f));
+                    }
+                }
+            }
             map.insert("inherited_from_cube_band".into(), json!(cube_band));
         }
     }

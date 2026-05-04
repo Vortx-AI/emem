@@ -218,7 +218,7 @@ mod tests {
     fn default_loads_and_validates() {
         let r = &*DEFAULT;
         assert_eq!(r.total_dims, 1792);
-        assert_eq!(r.bands.len(), 33);
+        assert_eq!(r.bands.len(), 34);
     }
 
     #[test]
@@ -247,8 +247,10 @@ mod tests {
         assert_eq!(idx["geotessera"].offset, 0);
         assert_eq!(idx["overture"].offset, 128);
         assert_eq!(idx["overture"].dims, 64);
-        assert_eq!(idx["_reserved_512"].offset, 192);
-        assert_eq!(idx["_reserved_512"].dims, 512);
+        assert_eq!(idx["air_quality"].offset, 192);
+        assert_eq!(idx["air_quality"].dims, 7);
+        assert_eq!(idx["_reserved_512"].offset, 199);
+        assert_eq!(idx["_reserved_512"].dims, 505);
         assert_eq!(idx["sentinel2_raw"].offset, 704);
         assert_eq!(idx["sam3_visual"].offset, 894);
         assert_eq!(idx["qwen_visual"].offset, 1086);

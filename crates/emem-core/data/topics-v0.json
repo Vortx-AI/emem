@@ -155,7 +155,7 @@
         "live weather"
       ],
       "bands": ["weather.temperature_2m", "weather.cloud_cover", "weather.precipitation_mm", "weather.wind_speed_10m"],
-      "algorithms": ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1"]
+      "algorithms": ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1", "weather_summary@1"]
     },
     {
       "key": "elevation_global_topobathy",
@@ -211,7 +211,7 @@
         "ozone level"
       ],
       "bands": ["cams.pm25", "cams.pm10", "cams.no2", "cams.o3", "cams.so2", "cams.co", "cams.aod_550", "modis.lst_day_8day", "modis.lst_night_8day", "weather.temperature_2m", "weather.relative_humidity_2m"],
-      "algorithms": ["heat_vulnerability_index@1"]
+      "algorithms": ["heat_vulnerability_index@1", "aqi_class@1"]
     },
     {
       "key": "agriculture",
