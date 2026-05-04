@@ -170,11 +170,18 @@ impl TopicRouter {
             }
         }
 
-        let model_id = std::env::var("EMEM_TOPIC_MODEL").unwrap_or_else(|_| {
-            policy
-                .and_then(|p| p.transformer_model.clone())
-                .unwrap_or_else(|| "minishlab/potion-base-8M".into())
-        });
+        // For the model2vec backend the model id is hardcoded —
+        // `policy.transformer_model` in topics-v0.json points at the
+        // fastembed default (e.g. `BAAI/bge-base-en-v1.5`), which
+        // model2vec_rs can't load (it expects a static-distillation
+        // tokenizer + embedding table, not an ONNX file). Use the
+        // registry policy ONLY when an env override forces a
+        // model2vec-compatible repo; otherwise fall back to the only
+        // model2vec we ship.
+        let model_id = std::env::var("EMEM_TOPIC_MODEL")
+            .ok()
+            .filter(|m| m.starts_with("minishlab/"))
+            .unwrap_or_else(|| "minishlab/potion-base-8M".into());
 
         // Note: we *don't* set HF_HOME here even when EMEM_DATA is
         // configured — modifying process env from a multi-threaded

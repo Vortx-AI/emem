@@ -82,6 +82,48 @@ async fn main() -> anyhow::Result<()> {
 
     let app = emem_api_rest::router(server);
 
+    // Force the topic router (sentence-transformer) to load BEFORE we
+    // start accepting requests. The router uses a `OnceLock` that
+    // synchronously runs the model load inside whichever thread first
+    // calls `global()` — when that thread is an axum handler and the
+    // load takes >RST/keepalive timeouts (or hangs on CUDA EP init),
+    // every subsequent request that touches the router is wedged for
+    // the rest of the process lifetime. Loading it here on the
+    // dedicated blocking thread pool with a hard 90-second timeout
+    // keeps that path off the live request handlers — if it hangs or
+    // exceeds the budget we abort, log, and let the in-process
+    // fallback (`Backend::Keyword`) take over for `/v1/ask` until the
+    // operator investigates.
+    {
+        let warmup = tokio::task::spawn_blocking(|| {
+            let t0 = std::time::Instant::now();
+            let r = emem_api_rest::topic_router::TopicRouter::global();
+            let backend = r.backend_name();
+            tracing::info!(
+                target: "emem::topic_router",
+                backend = backend,
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "topic router warmup complete"
+            );
+            backend
+        });
+        match tokio::time::timeout(std::time::Duration::from_secs(90), warmup).await {
+            Ok(Ok(backend)) => {
+                eprintln!("topic router ready ({backend})");
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "topic router warmup task panicked");
+                eprintln!("topic router warmup panicked: {e}");
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "topic router warmup exceeded 90s — server will start, /v1/ask may stall on first call until OnceLock initializer returns"
+                );
+                eprintln!("warning: topic router warmup exceeded 90s; continuing");
+            }
+        }
+    }
+
     eprintln!("  GET  /health");
     eprintln!("  GET  /openapi.json");
     eprintln!("  GET  /.well-known/emem.json");

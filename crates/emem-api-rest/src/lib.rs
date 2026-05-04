@@ -39,7 +39,7 @@
 use std::sync::{Arc, LazyLock};
 
 mod physics;
-mod topic_router;
+pub mod topic_router;
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -14810,7 +14810,47 @@ async fn try_materialize_bands(
                 }
             },
             _ => {
-                let e = format!("no_auto_materializer_registered: no upstream connector wired for band={b}; submit a signed Attestation via /v1/attest_cbor to seed it");
+                // Distinguish topic-as-band confusion from a truly unknown
+                // band. Agents (esp. those reading /v1/topics) sometimes
+                // pass a topic key like `vegetation_condition.ndvi`
+                // verbatim as a band — but that's a topic plus a
+                // dimension, not a band. Map the prefix back through the
+                // topic registry and suggest the canonical bands.
+                let prefix = b.split('.').next().unwrap_or("");
+                let topic_bands =
+                    topic_router::TopicRouter::global().bands_for_topic(prefix);
+                let e = if !topic_bands.is_empty() {
+                    let dim = b.strip_prefix(prefix).and_then(|s| s.strip_prefix('.'));
+                    let suggestions: Vec<String> = if let Some(dim) = dim {
+                        // Prefer bands whose name ends in the requested
+                        // dimension (e.g. `indices.ndvi`, `modis.ndvi_mean`
+                        // both end in/contain `ndvi`).
+                        let dim_lc = dim.to_lowercase();
+                        let mut matches: Vec<String> = topic_bands
+                            .iter()
+                            .filter(|tb| {
+                                let tb_lc = tb.to_lowercase();
+                                tb_lc.ends_with(&format!(".{dim_lc}"))
+                                    || tb_lc.contains(&format!(".{dim_lc}"))
+                                    || tb_lc.contains(&dim_lc)
+                            })
+                            .cloned()
+                            .collect();
+                        if matches.is_empty() {
+                            matches = topic_bands.clone();
+                        }
+                        matches
+                    } else {
+                        topic_bands.clone()
+                    };
+                    format!(
+                        "topic_name_used_as_band: '{b}' looks like topic.dimension, not a real band. '{prefix}' is a TOPIC; its bands are [{all}]. Did you mean: [{sug}]? Recall any of these directly, or call /v1/ask which routes topics → bands automatically.",
+                        all = topic_bands.join(", "),
+                        sug = suggestions.join(", "),
+                    )
+                } else {
+                    format!("no_auto_materializer_registered: no upstream connector wired for band={b}; submit a signed Attestation via /v1/attest_cbor to seed it. Call GET /v1/bands to see all known band keys.")
+                };
                 out.push(MaterializeOutcome {
                     band: b.clone(),
                     fact_cid: None,
