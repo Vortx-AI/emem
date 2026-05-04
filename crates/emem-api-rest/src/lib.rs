@@ -280,6 +280,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/cells/:cell64/scene.png", get(get_cell_scene_png))
         .route("/v1/cells/:cell64/scene.rgb", get(get_cell_scene_rgb))
+        .route(
+            "/v1/places/scene_overlay.svg",
+            get(get_places_scene_overlay_svg),
+        )
         .route("/v1/locate", post(post_locate))
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
@@ -3375,7 +3379,7 @@ async fn post_recall(
 struct LatLngQ {
     /// Optional so the query can fall back to `place` (free-text place
     /// name resolved through the standard locate path). When `place` is
-    /// absent, `lat` is required — `resolve_lat_lng` enforces that.
+    /// absent, `lat` is required — `resolve_target` enforces that.
     #[serde(default)]
     lat: Option<f64>,
     #[serde(default)]
@@ -3394,6 +3398,16 @@ struct LatLngQ {
     bands: Option<String>,
     #[serde(default)]
     tslot: Option<u64>,
+    /// Polygon-aggregation knob for boring endpoints. When `place`
+    /// resolves to an OSM feature with extent (airport, park, lake,
+    /// region) and `n_cells` is unset, single-band endpoints fan out to
+    /// 16 sample cells inside the bbox and aggregate (mean/median/mode);
+    /// `/v1/at` defaults to 1 to keep its multi-band cost cheap.
+    /// `n_cells: 1` forces point behaviour at the centroid; values in
+    /// `2..=64` are honoured. Anything else returns 400 — heavy queries
+    /// belong on POST /v1/recall_polygon.
+    #[serde(default)]
+    n_cells: Option<usize>,
 }
 
 impl LatLngQ {
@@ -3409,71 +3423,217 @@ impl LatLngQ {
         })
     }
 
-    /// Resolve the request's (lat, lng). Three accepted shapes, in
-    /// preference order:
-    ///   1. explicit `lat` + `lon`/`lng` — direct
-    ///   2. `place` free-text — geocoded via `locate_inner` (embedded →
-    ///      cache → Photon → Nominatim)
-    ///   3. neither — `BAD_REQUEST` with the hint that one is required
+    /// Validate `n_cells` against the boring-endpoint contract: must be
+    /// `1..=64` when supplied. The hard cap distinguishes the boring
+    /// surface (snappy default-of-16, cap 64) from POST /v1/recall_polygon
+    /// (raw per-cell, cap 1024). Returns 400 on out-of-range so an agent
+    /// learns its own bug instead of silently getting a wrong answer.
+    fn validate_n_cells(&self) -> Result<(), ApiError> {
+        if let Some(n) = self.n_cells {
+            if !(1..=64).contains(&n) {
+                return Err(ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!("n_cells must be in 1..=64 (got {n}). For larger fan-outs use POST /v1/recall_polygon."),
+                    },
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolve to a `ResolvedTarget`. When the request supplied direct
+    /// `lat`/`lng`, the polygon is `None` (the user gave us a point —
+    /// no geocoder, no polygon to inherit). When `place` was given, runs
+    /// `locate_inner` and surfaces `polygon_bbox` + `polygon_sample_cells`
+    /// from the locate response; the sample list is downsampled to
+    /// `default_n` (or `n_cells` when supplied) via `sample_cells_in_bbox`
+    /// so the same uniform-stride logic the polygon endpoint uses applies
+    /// here too.
     ///
-    /// Returns the resolved coordinates plus the `via` provenance
-    /// string ("input_latlng" for direct, the locate path string
-    /// otherwise) so the handler can surface it on the response.
-    async fn resolve_lat_lng(&self) -> Result<(f64, f64, String), ApiError> {
+    /// `default_n` is the fan-out an endpoint wants when polygon is
+    /// detected and `n_cells` is unset (16 for single-band, 1 for
+    /// `/v1/at`). `n_cells = 1` forces point behaviour even when a
+    /// polygon is present — caller wants a single value at the centroid.
+    async fn resolve_target(&self, default_n: usize) -> Result<ResolvedTarget, ApiError> {
+        self.validate_n_cells()?;
+        // Direct lat/lng: no geocoder, no polygon. Behaviour identical
+        // to the pre-polygon code path so existing point-callers don't
+        // see any envelope drift.
         if let Some(la) = self.lat {
             let lo = self.longitude()?;
-            return Ok((la, lo, "input_latlng".to_string()));
+            return Ok(ResolvedTarget {
+                lat: la,
+                lng: lo,
+                via: "input_latlng".to_string(),
+                polygon: None,
+            });
         }
-        if let Some(p) = self.place.as_deref() {
-            let lr = LocateReq {
-                lat: None,
-                lng: None,
-                place: Some(p.to_string()),
-            };
-            let resp = locate_inner(lr).await?;
-            let body = &resp.0;
-            let la = body
-                .get("lat_input")
-                .and_then(|v| v.as_f64())
-                .ok_or_else(|| {
-                    ApiError(
-                        StatusCode::NOT_FOUND,
-                        ErrorBody {
-                            code: ErrorCode::NoGeocoderMatch,
-                            message: format!("locate succeeded for '{p}' but no lat_input"),
-                        },
-                    )
-                })?;
-            let lo = body
-                .get("lng_input")
-                .and_then(|v| v.as_f64())
-                .ok_or_else(|| {
-                    ApiError(
-                        StatusCode::NOT_FOUND,
-                        ErrorBody {
-                            code: ErrorCode::NoGeocoderMatch,
-                            message: format!("locate succeeded for '{p}' but no lng_input"),
-                        },
-                    )
-                })?;
-            let via = body
-                .get("via")
-                .and_then(|v| v.as_str())
-                .unwrap_or("locate")
-                .to_string();
-            return Ok((la, lo, format!("locate:{via}")));
+        let p = self.place.as_deref().ok_or_else(|| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: "supply (lat, lon|lng) or place".into(),
+                },
+            )
+        })?;
+        let lr = LocateReq {
+            lat: None,
+            lng: None,
+            place: Some(p.to_string()),
+        };
+        let resp = locate_inner(lr).await?;
+        let body = &resp.0;
+        let la = body
+            .get("lat_input")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::NOT_FOUND,
+                    ErrorBody {
+                        code: ErrorCode::NoGeocoderMatch,
+                        message: format!("locate succeeded for '{p}' but no lat_input"),
+                    },
+                )
+            })?;
+        let lo = body
+            .get("lng_input")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::NOT_FOUND,
+                    ErrorBody {
+                        code: ErrorCode::NoGeocoderMatch,
+                        message: format!("locate succeeded for '{p}' but no lng_input"),
+                    },
+                )
+            })?;
+        let via = body
+            .get("via")
+            .and_then(|v| v.as_str())
+            .unwrap_or("locate")
+            .to_string();
+        let via = format!("locate:{via}");
+
+        // n_cells == 1 forces point mode even if a polygon is available.
+        // Same envelope as a direct-lat/lng call (no polygon block).
+        let want_n = self.n_cells.unwrap_or(default_n);
+        if want_n <= 1 {
+            return Ok(ResolvedTarget {
+                lat: la,
+                lng: lo,
+                via,
+                polygon: None,
+            });
         }
-        Err(ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody {
-                code: ErrorCode::Internal,
-                message: "supply (lat, lon|lng) or place".into(),
-            },
-        ))
+
+        // Pull the polygon out of the locate response. Same shape the
+        // /v1/recall_polygon handler reads.
+        let polygon = if let Some(JsonValue::Object(m)) = body.get("polygon_bbox") {
+            let g = |k: &str| m.get(k).and_then(|v| v.as_f64());
+            match (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")) {
+                (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) => {
+                    let bbox = (min_lat, max_lat, min_lng, max_lng);
+                    let source = m
+                        .get("source")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("nominatim_boundingbox")
+                        .to_string();
+                    // locate_inner returns up to 64 cells; downsample to
+                    // `want_n` via the same uniform-stride helper so the
+                    // grid is honest at the requested granularity.
+                    let sample_cells = sample_cells_in_bbox(bbox, want_n);
+                    let place_label = body
+                        .get("place_label")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    Some(ResolvedPolygon {
+                        bbox,
+                        sample_cells,
+                        place_label,
+                        source,
+                    })
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        Ok(ResolvedTarget {
+            lat: la,
+            lng: lo,
+            via,
+            polygon,
+        })
     }
 }
 
-/// Native pixel pitch of the upstream sensor, in metres. None when
+/// Resolved target for a boring-endpoint call. When `polygon` is
+/// `Some`, the geocoder returned an OSM feature with extent and the
+/// handler should fan out to `polygon.sample_cells` and aggregate;
+/// when `None`, behave exactly like the legacy single-cell path.
+#[derive(Clone)]
+struct ResolvedTarget {
+    lat: f64,
+    lng: f64,
+    via: String,
+    polygon: Option<ResolvedPolygon>,
+}
+
+#[derive(Clone)]
+struct ResolvedPolygon {
+    /// `(min_lat, max_lat, min_lng, max_lng)` — same axis order
+    /// `sample_cells_in_bbox` consumes.
+    bbox: (f64, f64, f64, f64),
+    sample_cells: Vec<String>,
+    place_label: Option<String>,
+    /// Mirrors the `polygon_bbox.source` string the geocoder emits:
+    /// `wide_bbox_table`, `nominatim_boundingbox`, etc. Surfaced so
+    /// agents can detect when the geocoder fell back to a coarser
+    /// extent — same place-name-drift mitigation /v1/recall_polygon
+    /// uses.
+    source: String,
+}
+
+/// Per-band aggregation kind. Inferred from the band key the same way
+/// `band_input_resolution_m` is. Drives which aggregator the polygon
+/// fan-out uses (mean/median for numeric, mode for categorical, vector
+/// centroid for embeddings, per-component for multidim). Distinct
+/// from `BandKind` (the temporal cadence enum further down) — this one
+/// is purely about how to reduce N per-cell values to a headline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AggKind {
+    NumericScalar,
+    Categorical,
+    VectorEmbedding,
+    Multidim,
+}
+
+fn band_agg_kind(band: &str) -> AggKind {
+    // Categorical: integer class IDs. Mode + class distribution makes
+    // sense; mean does not.
+    if matches!(
+        band,
+        "esa_worldcover.lc_2021" | "landcover" | "ecoregions" | "koppen" | "admin"
+    ) {
+        return AggKind::Categorical;
+    }
+    // Vector embedding: per-cell array of floats. Centroid (mean per
+    // dim) is the natural aggregate; fall back to first cell when the
+    // value isn't actually an array.
+    if band.starts_with("geotessera") {
+        return AggKind::VectorEmbedding;
+    }
+    // Multidim scalar bands — small fixed-length vectors of named
+    // components. Treat as per-component numeric. (Today: `dem`,
+    // phenology triples; bands-v0 metadata keys this off `scalar_keys`.)
+    if matches!(band, "dem" | "phenology") {
+        return AggKind::Multidim;
+    }
+    AggKind::NumericScalar
+}
 /// the band has no single defensible figure (e.g. embedding bands).
 fn band_input_resolution_m(band: &str) -> Option<u32> {
     match band {
@@ -3684,6 +3844,913 @@ async fn boring_recall_at(
     Ok(envelope)
 }
 
+/// Polygon-aware boring recall. When `target.polygon` is `None`,
+/// delegates to `boring_recall_at` for byte-identical legacy
+/// behaviour. When polygon is detected, fans out to
+/// `polygon.sample_cells` in parallel (tokio JoinSet — same pattern
+/// /v1/temporal_route uses) and aggregates per band: mean/median for
+/// numeric scalars, mode + class distribution for categorical bands,
+/// vector centroid for embeddings, per-component for multidim.
+///
+/// The single-band case still hoists `value` to the top level so
+/// existing clients reading `body.value` get the headline aggregate
+/// (mean for numeric, mode for categorical) without a band lookup —
+/// `polygon` and `stats` are added alongside it.
+/// FeatureCollection containing one Polygon for the resolved place's
+/// bbox. Includes area + place label as Feature properties so a chat
+/// client can render the outline with a label without a second call.
+fn polygon_outline_geojson(
+    bbox: &(f64, f64, f64, f64),
+    place_label: Option<&str>,
+    area_km2: f64,
+    n_sample_cells: usize,
+) -> JsonValue {
+    let (min_lat, max_lat, min_lng, max_lng) = *bbox;
+    // GeoJSON winds CCW exterior; coords are [lng, lat].
+    json!({
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [min_lng, min_lat],
+                    [max_lng, min_lat],
+                    [max_lng, max_lat],
+                    [min_lng, max_lat],
+                    [min_lng, min_lat],
+                ]],
+            },
+            "properties": {
+                "kind":           "place_bbox",
+                "place_label":    place_label,
+                "area_km2":       area_km2,
+                "n_sample_cells": n_sample_cells,
+            },
+        }],
+    })
+}
+
+/// FeatureCollection of per-cell sample Polygons, each carrying the
+/// recalled value for `band` as a Feature property. Renders directly
+/// in geojson.io / Mapbox / Leaflet without further processing.
+/// Cell bbox is the cell64 quantum (~10 m at the equator) — easily
+/// fits an airport-scale or larger feature with ≤64 sample cells.
+fn cells_geojson_with_values(value_per_cell: &[JsonValue], band: &str) -> JsonValue {
+    let mut features: Vec<JsonValue> = Vec::with_capacity(value_per_cell.len());
+    for entry in value_per_cell {
+        let cell = entry.get("cell").and_then(|v| v.as_str()).unwrap_or("");
+        if cell.is_empty() {
+            continue;
+        }
+        let bbox = match emem_codec::latlng_from_cell64(cell) {
+            Ok(ll) => ll.bbox_deg,
+            Err(_) => continue,
+        };
+        let value = entry.get("value").cloned().unwrap_or(JsonValue::Null);
+        let kind = entry
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("primary");
+        features.push(json!({
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [bbox.min_lng, bbox.min_lat],
+                    [bbox.max_lng, bbox.min_lat],
+                    [bbox.max_lng, bbox.max_lat],
+                    [bbox.min_lng, bbox.max_lat],
+                    [bbox.min_lng, bbox.min_lat],
+                ]],
+            },
+            "properties": {
+                "cell":  cell,
+                "band":  band,
+                "value": value,
+                "kind":  kind,
+            },
+        }));
+    }
+    json!({"type": "FeatureCollection", "features": features})
+}
+
+/// Query-string body for `GET /v1/places/scene_overlay.svg`.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PlacesOverlayQ {
+    place: String,
+    band: String,
+    #[serde(default)]
+    n_cells: Option<usize>,
+    #[serde(default)]
+    width: Option<u32>,
+    #[serde(default)]
+    height: Option<u32>,
+    #[serde(default)]
+    tslot: Option<u64>,
+}
+
+/// Render an SVG value-painted overlay of the resolved place's polygon.
+/// One band, sample-cell density driven by `n_cells` (default 16,
+/// max 64). Numeric bands → viridis-like colormap stretched across
+/// the actual min/max of the recalled values; categorical bands →
+/// fixed palette keyed off the integer class id; embedding bands →
+/// outline only with a "no value to colour" note.
+async fn get_places_scene_overlay_svg(
+    State(s): State<AppState>,
+    Query(q): Query<PlacesOverlayQ>,
+) -> Result<axum::response::Response, ApiError> {
+    let n_cells = q.n_cells.map(|n| n.clamp(1, 64)).unwrap_or(16);
+    let lq = LatLngQ {
+        lat: None,
+        lng: None,
+        lon: None,
+        place: Some(q.place.clone()),
+        band: Some(q.band.clone()),
+        bands: None,
+        tslot: q.tslot,
+        n_cells: Some(n_cells),
+    };
+    let target = lq.resolve_target(n_cells).await?;
+    let polygon = match target.polygon.as_ref() {
+        Some(p) => p.clone(),
+        None => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "scene_overlay: place '{}' resolved to a point (no polygon_bbox); use /v1/cells/<cell>/scene.png for point queries",
+                        q.place
+                    ),
+                },
+            ));
+        }
+    };
+    let cells: Vec<String> = polygon.sample_cells.iter().take(n_cells).cloned().collect();
+    if cells.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "scene_overlay: bbox produced no sample cells".into(),
+            },
+        ));
+    }
+
+    // Fan out per-cell recalls in parallel — same pattern as
+    // boring_recall_aggregated.
+    let bands_for_recall = Some(vec![q.band.clone()]);
+    let mut set: tokio::task::JoinSet<(String, Option<JsonValue>)> = tokio::task::JoinSet::new();
+    for cell in &cells {
+        let req = RecallReq {
+            cell: cell.clone(),
+            bands: bands_for_recall.clone(),
+            tslot: q.tslot,
+        };
+        let cell = cell.clone();
+        let st = s.clone();
+        set.spawn(async move {
+            let v = recall_with_auto_materialize(&req, &st)
+                .await
+                .ok()
+                .and_then(|(resp, _)| {
+                    resp.facts.into_iter().find_map(|f| match f {
+                        emem_fact::Fact::Primary(p) => Some(ciborium_to_json(&p.value)),
+                        _ => None,
+                    })
+                });
+            (cell, v)
+        });
+    }
+    let mut per_cell: Vec<(String, Option<JsonValue>)> = Vec::with_capacity(cells.len());
+    while let Some(j) = set.join_next().await {
+        if let Ok(pair) = j {
+            per_cell.push(pair);
+        }
+    }
+
+    // Collect numeric values for stretch. Multidim values reduce to
+    // their first scalar; categorical and missing skip into n_missing.
+    let nums: Vec<f64> = per_cell
+        .iter()
+        .filter_map(|(_, v)| v.as_ref().and_then(scalar_for_overlay))
+        .filter(|x| x.is_finite())
+        .collect();
+    let (vmin, vmax) = if nums.is_empty() {
+        (0.0, 1.0)
+    } else {
+        let mut s = nums.clone();
+        s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        (*s.first().unwrap(), *s.last().unwrap())
+    };
+
+    // SVG canvas. Default 512x512; preserve bbox aspect ratio.
+    let (bbox_w_deg, bbox_h_deg) = (
+        polygon.bbox.3 - polygon.bbox.2,
+        polygon.bbox.1 - polygon.bbox.0,
+    );
+    let aspect = if bbox_h_deg > 0.0 {
+        bbox_w_deg / bbox_h_deg
+    } else {
+        1.0
+    };
+    let w = q.width.unwrap_or(512).clamp(64, 2048);
+    let h = q
+        .height
+        .unwrap_or(((w as f64) / aspect.max(0.1)).round() as u32)
+        .clamp(64, 2048);
+
+    let project = |lat: f64, lng: f64| -> (f64, f64) {
+        let x = ((lng - polygon.bbox.2) / bbox_w_deg.max(1e-9)) * (w as f64);
+        let y = (1.0 - (lat - polygon.bbox.0) / bbox_h_deg.max(1e-9)) * (h as f64);
+        (x, y)
+    };
+
+    let mut svg = String::with_capacity(8192);
+    svg.push_str(&format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">
+  <title>{} — {}</title>
+  <desc>emem.dev value-painted polygon overlay; band={}, n_cells={}, vmin={:.4}, vmax={:.4}</desc>
+  <rect width="{w}" height="{h}" fill="#0b0d12"/>
+"##,
+        polygon
+            .place_label
+            .as_deref()
+            .unwrap_or(&q.place)
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('&', "&amp;"),
+        q.band,
+        q.band,
+        cells.len(),
+        vmin,
+        vmax,
+    ));
+
+    // Per-cell rectangles, viridis-mapped fill.
+    for (cell, val) in &per_cell {
+        let cb = match emem_codec::latlng_from_cell64(cell) {
+            Ok(ll) => ll.bbox_deg,
+            Err(_) => continue,
+        };
+        let (x0, y1) = project(cb.max_lat, cb.min_lng);
+        let (x1, y0) = project(cb.min_lat, cb.max_lng);
+        let cw = (x1 - x0).abs().max(1.0);
+        let ch = (y1 - y0).abs().max(1.0);
+        let scalar = val.as_ref().and_then(scalar_for_overlay);
+        let fill = match scalar {
+            Some(v) if v.is_finite() && vmax > vmin => {
+                let t = ((v - vmin) / (vmax - vmin)).clamp(0.0, 1.0);
+                viridis_hex(t)
+            }
+            Some(_) => "#444".to_string(),
+            None => "#222".to_string(),
+        };
+        let value_label = match val {
+            Some(JsonValue::Number(n)) => n.to_string(),
+            Some(JsonValue::Array(a)) => format!("[{} dims]", a.len()),
+            Some(JsonValue::Null) | None => "absence".to_string(),
+            Some(other) => other.to_string(),
+        };
+        svg.push_str(&format!(
+            r##"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}" stroke="#0b0d12" stroke-width="0.5"><title>{}\nvalue: {}</title></rect>
+"##,
+            x0, y0, cw, ch, fill, cell, value_label,
+        ));
+    }
+
+    // Outer bbox outline.
+    svg.push_str(&format!(
+        r##"  <rect x="0" y="0" width="{w}" height="{h}" fill="none" stroke="#7af" stroke-width="2"/>
+"##
+    ));
+
+    // Caption strip.
+    let caption = polygon
+        .place_label
+        .as_deref()
+        .unwrap_or(&q.place)
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('&', "&amp;");
+    let strip_h = 36u32;
+    svg.push_str(&format!(
+        r##"  <rect x="0" y="{}" width="{w}" height="{strip_h}" fill="#0b0d12" opacity="0.85"/>
+  <text x="8" y="{}" fill="#eaecef" font-family="Inter, ui-sans-serif, system-ui" font-size="12">{}  ·  {}  ·  n={}  ·  [{:.4}, {:.4}]</text>
+"##,
+        h.saturating_sub(strip_h),
+        h.saturating_sub(12),
+        caption,
+        q.band,
+        nums.len(),
+        vmin,
+        vmax,
+    ));
+
+    svg.push_str("</svg>\n");
+
+    let mut resp = axum::response::Response::new(axum::body::Body::from(svg));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("image/svg+xml; charset=utf-8"),
+    );
+    resp.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("public, max-age=60"),
+    );
+    Ok(resp)
+}
+
+/// Reduce a value JSON to a single scalar for the overlay colormap.
+/// Numbers pass through; arrays use their first finite numeric entry
+/// (multidim bands like `dem` triple); everything else returns None.
+fn scalar_for_overlay(v: &JsonValue) -> Option<f64> {
+    match v {
+        JsonValue::Number(n) => n.as_f64(),
+        JsonValue::Array(a) => a.iter().find_map(|x| x.as_f64()),
+        _ => None,
+    }
+}
+
+/// Fast, dependency-free viridis approximation. Input t ∈ [0,1].
+/// Fitted from the canonical viridis stops (8 control points, linear
+/// interpolation between the nearest two).
+fn viridis_hex(t: f64) -> String {
+    const STOPS: [(f64, [u8; 3]); 8] = [
+        (0.0, [68, 1, 84]),
+        (0.143, [72, 35, 116]),
+        (0.286, [64, 67, 135]),
+        (0.429, [52, 94, 141]),
+        (0.571, [41, 120, 142]),
+        (0.714, [32, 144, 140]),
+        (0.857, [34, 167, 132]),
+        (1.0, [253, 231, 36]),
+    ];
+    let t = t.clamp(0.0, 1.0);
+    let (mut lo, mut hi) = (&STOPS[0], &STOPS[STOPS.len() - 1]);
+    for w in STOPS.windows(2) {
+        if t >= w[0].0 && t <= w[1].0 {
+            lo = &w[0];
+            hi = &w[1];
+            break;
+        }
+    }
+    let span = (hi.0 - lo.0).max(1e-9);
+    let f = (t - lo.0) / span;
+    let mix = |a: u8, b: u8| -> u8 {
+        ((a as f64) * (1.0 - f) + (b as f64) * f)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    let r = mix(lo.1[0], hi.1[0]);
+    let g = mix(lo.1[1], hi.1[1]);
+    let b = mix(lo.1[2], hi.1[2]);
+    format!("#{:02x}{:02x}{:02x}", r, g, b)
+}
+
+async fn boring_recall_aggregated(
+    state: &AppState,
+    target: ResolvedTarget,
+    bands: &[String],
+    tslot: Option<u64>,
+) -> Result<JsonValue, ApiError> {
+    // Point query: zero behaviour change vs the legacy code path.
+    let polygon = match target.polygon.as_ref() {
+        None => {
+            return boring_recall_at(state, target.lat, target.lng, bands, tslot).await;
+        }
+        Some(p) => p.clone(),
+    };
+
+    // Sanity-bound the cell list. `resolve_target` already capped, but
+    // double-check to keep the upstream-fetch budget defensible.
+    let cells: Vec<String> = polygon.sample_cells.iter().take(64).cloned().collect();
+    if cells.is_empty() {
+        // No cells — fall back to the centroid so we always serve
+        // something (matches /v1/recall_polygon's degenerate-bbox path).
+        return boring_recall_at(state, target.lat, target.lng, bands, tslot).await;
+    }
+
+    // Fan out per-cell recalls concurrently. Without this a 16-cell
+    // cold polygon = 16 sequential Open-Meteo / met.no fetches → 8-15s
+    // per request. Mirrors commit 29f02e6 (parallel temporal recipes).
+    type CellRecall = (String, Result<(RecallResp, Vec<JsonValue>), ApiError>);
+    let mut set: tokio::task::JoinSet<CellRecall> = tokio::task::JoinSet::new();
+    let bands_for_recall: Option<Vec<String>> = if bands.is_empty() {
+        None
+    } else {
+        Some(bands.to_vec())
+    };
+    for cell in &cells {
+        let req = RecallReq {
+            cell: cell.clone(),
+            bands: bands_for_recall.clone(),
+            tslot,
+        };
+        let cell = cell.clone();
+        let s = state.clone();
+        set.spawn(async move {
+            let r = recall_with_auto_materialize(&req, &s).await;
+            (cell, r)
+        });
+    }
+    let mut per_cell: Vec<(String, RecallResp)> = Vec::with_capacity(cells.len());
+    let mut materialize_notes_all: Vec<JsonValue> = Vec::new();
+    let mut errors: Vec<JsonValue> = Vec::new();
+    while let Some(j) = set.join_next().await {
+        if let Ok((cell, r)) = j {
+            match r {
+                Ok((resp, notes)) => {
+                    materialize_notes_all.extend(notes);
+                    per_cell.push((cell, resp));
+                }
+                Err(e) => {
+                    errors.push(json!({
+                        "cell": cell,
+                        "code": format!("{:?}", e.1.code),
+                        "message": e.1.message,
+                        "status": e.0.as_u16(),
+                    }));
+                }
+            }
+        }
+    }
+
+    // Group facts by band across all cells. Track per-cell fact_cid +
+    // signed_at + responder so the aggregated envelope can carry the
+    // citation surface ({fact_cids: [...], captured_at_range: [...]}).
+    use std::collections::BTreeMap;
+    #[derive(Clone)]
+    #[allow(dead_code)]
+    struct PerCellFact {
+        cell: String,
+        fact: emem_fact::Fact,
+        fact_cid: Option<String>,
+        signed_at: String,
+    }
+    let mut by_band: BTreeMap<String, Vec<PerCellFact>> = BTreeMap::new();
+    let mut latest_served_at = String::new();
+    for (cell, resp) in &per_cell {
+        if resp.receipt.served_at > latest_served_at {
+            latest_served_at = resp.receipt.served_at.clone();
+        }
+        for (idx, fact) in resp.facts.iter().enumerate() {
+            let (band, signed_at) = match fact {
+                emem_fact::Fact::Primary(p) => (p.band.clone(), p.signed_at.clone()),
+                emem_fact::Fact::Absence(a) => (a.band.clone(), a.signed_at.clone()),
+                _ => continue,
+            };
+            let fact_cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
+            by_band.entry(band).or_default().push(PerCellFact {
+                cell: cell.clone(),
+                fact: fact.clone(),
+                fact_cid,
+                signed_at,
+            });
+        }
+    }
+
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&state.identity.pubkey.0)
+        .to_lowercase();
+
+    // Bands the caller asked for. Use this as the iteration set so
+    // requested-but-empty bands surface with `n_missing == n_cells`
+    // instead of vanishing silently.
+    let band_iter: Vec<String> = if bands.is_empty() {
+        by_band.keys().cloned().collect()
+    } else {
+        bands.to_vec()
+    };
+
+    let mut bands_out = serde_json::Map::new();
+    for band in &band_iter {
+        let entries = by_band.get(band).cloned().unwrap_or_default();
+        let kind = band_agg_kind(band);
+        let n_total = cells.len();
+        let n_present = entries.len();
+        let n_missing = n_total.saturating_sub(n_present);
+        // Split Primary vs Absence — only Primary feeds numeric stats.
+        let mut primary_values: Vec<JsonValue> = Vec::with_capacity(entries.len());
+        let mut fact_cids: Vec<String> = Vec::with_capacity(entries.len());
+        let mut signed_ats: Vec<String> = Vec::with_capacity(entries.len());
+        let mut absence_count = 0usize;
+        let mut sample_unit: Option<String> = None;
+        let mut sample_source: Option<String> = None;
+        // value_per_cell carries a tuple (cell64, lat, lng, value-or-null,
+        // kind: "primary"|"absence") per sample cell so an agent can plot
+        // its own histogram, identify outliers, render its own choropleth,
+        // or persist for downstream analysis without re-fetching.
+        let mut value_per_cell: Vec<JsonValue> = Vec::with_capacity(entries.len());
+        for e in &entries {
+            let (lat_c, lng_c) = match emem_codec::latlng_from_cell64(&e.cell) {
+                Ok(ll) => (ll.lat_deg, ll.lng_deg),
+                Err(_) => (f64::NAN, f64::NAN),
+            };
+            let (val_json, kind_str): (JsonValue, &str) = match &e.fact {
+                emem_fact::Fact::Primary(p) => (ciborium_to_json(&p.value), "primary"),
+                emem_fact::Fact::Absence(_) => (JsonValue::Null, "absence"),
+                _ => (JsonValue::Null, "other"),
+            };
+            value_per_cell.push(json!({
+                "cell":  e.cell,
+                "lat":   lat_c,
+                "lng":   lng_c,
+                "value": val_json,
+                "kind":  kind_str,
+                "fact_cid": e.fact_cid,
+            }));
+            match &e.fact {
+                emem_fact::Fact::Primary(p) => {
+                    primary_values.push(ciborium_to_json(&p.value));
+                    if sample_unit.is_none() {
+                        sample_unit = p.unit.clone();
+                    }
+                    if sample_source.is_none() {
+                        sample_source = p.sources.first().map(|s| s.scheme.clone());
+                    }
+                }
+                emem_fact::Fact::Absence(_) => absence_count += 1,
+                _ => {}
+            }
+            if let Some(c) = &e.fact_cid {
+                fact_cids.push(c.clone());
+            }
+            signed_ats.push(e.signed_at.clone());
+        }
+        let n_missing_eff = n_missing + absence_count;
+
+        let (aggregator, headline, stats, kind_str, extra) =
+            aggregate_band(kind, &primary_values, n_present, n_missing_eff);
+
+        let captured_at_range = if signed_ats.is_empty() {
+            JsonValue::Null
+        } else {
+            let mut s = signed_ats.clone();
+            s.sort();
+            json!([s.first(), s.last()])
+        };
+
+        let mut block = json!({
+            "aggregator":            aggregator,
+            "value":                 headline,
+            "stats":                 stats,
+            "kind":                  kind_str,
+            "fact_cids":             fact_cids,
+            "data_resolution_m":     band_input_resolution_m(band),
+            "cell_dedupe_m":         RESOLUTION_M_GRID,
+            "n":                     n_present,
+            "n_missing":             n_missing_eff,
+            "unit":                  sample_unit,
+            "source":                sample_source,
+            "captured_at_range":     captured_at_range,
+            "responder_pubkey_b32":  pubkey_b32,
+            "value_per_cell":        JsonValue::Array(value_per_cell.clone()),
+            "geojson":               cells_geojson_with_values(&value_per_cell, band),
+        });
+        if let Some(map) = block.as_object_mut() {
+            for (k, v) in extra {
+                map.insert(k, v);
+            }
+        }
+        bands_out.insert(band.clone(), block);
+    }
+
+    // Area in km², same midlat formula /v1/recall_polygon uses.
+    let area_km2 = {
+        let mid_lat = (polygon.bbox.0 + polygon.bbox.1) / 2.0;
+        let lat_km = (polygon.bbox.1 - polygon.bbox.0) * 111.0;
+        let lng_km = (polygon.bbox.3 - polygon.bbox.2) * 111.0 * mid_lat.to_radians().cos().abs();
+        (lat_km * lng_km).max(0.0)
+    };
+    // Per-cell scene/geojson URL pointers — agents can render their own
+    // grid in a chat / report without re-querying. Overlay URL is a
+    // server-side value-painted SVG of the polygon for the first band
+    // (single-band hot path); multi-band callers can swap `?band=` to
+    // get per-band overlays.
+    let scene_thumbs: Vec<JsonValue> = cells
+        .iter()
+        .map(|c| {
+            let (lat_c, lng_c) = match emem_codec::latlng_from_cell64(c) {
+                Ok(ll) => (ll.lat_deg, ll.lng_deg),
+                Err(_) => (f64::NAN, f64::NAN),
+            };
+            json!({
+                "cell":         c,
+                "lat":          lat_c,
+                "lng":          lng_c,
+                "scene_png":    format!("/v1/cells/{}/scene.png", c),
+                "scene_rgb":    format!("/v1/cells/{}/scene.rgb", c),
+                "geojson":      format!("/v1/cells/{}/geojson",   c),
+                "info":         format!("/v1/cells/{}/info",      c),
+            })
+        })
+        .collect();
+    let overlay_band = bands.first().cloned().unwrap_or_default();
+    let overlay_url = if !overlay_band.is_empty() {
+        let label_for_url = polygon
+            .place_label
+            .as_deref()
+            .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+            .unwrap_or_default();
+        if label_for_url.is_empty() {
+            json!(null)
+        } else {
+            // Percent-encode just spaces — full encoding via urlencoding
+            // crate would pull in another dep; simple replace covers the
+            // overwhelming majority of place labels.
+            let encoded = label_for_url.replace(' ', "%20");
+            json!(format!(
+                "/v1/places/scene_overlay.svg?place={encoded}&band={overlay_band}&n_cells={}",
+                cells.len()
+            ))
+        }
+    } else {
+        json!(null)
+    };
+    let polygon_block = json!({
+        "bbox": {
+            "min_lat": polygon.bbox.0, "max_lat": polygon.bbox.1,
+            "min_lng": polygon.bbox.2, "max_lng": polygon.bbox.3,
+        },
+        "area_km2":         area_km2,
+        "sample_cells":     cells.clone(),
+        "n_sample_cells":   cells.len(),
+        "source":           polygon.source,
+        "geojson":          polygon_outline_geojson(&polygon.bbox, polygon.place_label.as_deref(), area_km2, cells.len()),
+        "scene_thumbs":     JsonValue::Array(scene_thumbs),
+        "scene_overlay_url": overlay_url,
+    });
+
+    let single = bands.len() == 1;
+    let mut envelope = if single {
+        // Backward-compat: hoist the single band's headline so existing
+        // clients reading `body.value` keep working. Polygon block +
+        // stats are layered alongside.
+        let band = &bands[0];
+        let band_block = bands_out
+            .get(band)
+            .cloned()
+            .unwrap_or(JsonValue::Object(Default::default()));
+        let mut env = band_block;
+        if let Some(map) = env.as_object_mut() {
+            map.insert("band".into(), json!(band));
+        }
+        env
+    } else {
+        json!({
+            "bands":                JsonValue::Object(bands_out),
+            "responder_pubkey_b32": pubkey_b32.clone(),
+            "cell_dedupe_m":        RESOLUTION_M_GRID,
+        })
+    };
+
+    if let Some(map) = envelope.as_object_mut() {
+        map.insert("lat".into(), json!(target.lat));
+        map.insert("lon".into(), json!(target.lng));
+        map.insert("via".into(), json!(target.via));
+        map.insert("polygon".into(), polygon_block);
+        if let Some(label) = polygon.place_label {
+            map.insert("place_label".into(), json!(label));
+        }
+        map.insert("n_cells_queried".into(), json!(cells.len()));
+        map.insert("n_cells_returned".into(), json!(per_cell.len()));
+        map.insert("served_at".into(), json!(latest_served_at));
+        if !materialize_notes_all.is_empty() {
+            map.insert(
+                "materialize_notes".into(),
+                JsonValue::Array(materialize_notes_all),
+            );
+        }
+        if !errors.is_empty() {
+            map.insert("cell_errors".into(), JsonValue::Array(errors));
+        }
+        let bbox = polygon.bbox;
+        map.insert(
+            "next".into(),
+            json!({
+                "raw_per_cell":     format!("POST /v1/recall_polygon {{polygon_bbox:{{min_lat:{},max_lat:{},min_lng:{},max_lng:{}}}, bands:[…]}}", bbox.0, bbox.1, bbox.2, bbox.3),
+                "deep_recall":      "POST /v1/recall {cell:'<cell64>', bands:[…]}",
+                "fact_dereference": "GET /v1/facts/{fact_cid}",
+                "verify_offline":   "POST /v1/verify_receipt {receipt}",
+            }),
+        );
+        map.insert(
+            "agent_hint".into(),
+            json!("Polygon aggregation: when a place name resolves to a feature with extent (airport, park, lake, region), the boring endpoint fans out to `polygon.sample_cells` and returns mean/median/min/max/std per band (mode + class distribution for categorical bands like esa_worldcover.lc_2021). Pass `n_cells:1` to force a single-cell read at the centroid; use POST /v1/recall_polygon for raw per-cell facts."),
+        );
+    }
+    Ok(envelope)
+}
+
+/// Numeric / categorical / vector / multidim aggregator. Returns
+/// `(aggregator_name, headline_value, stats_block, kind_string, extra_kv)`.
+/// Extra fields (e.g. `class_distribution`) are merged into the band
+/// block; keeps the caller flat.
+fn aggregate_band(
+    kind: AggKind,
+    values: &[JsonValue],
+    n_present: usize,
+    n_missing_eff: usize,
+) -> (
+    &'static str,
+    JsonValue,
+    JsonValue,
+    &'static str,
+    Vec<(String, JsonValue)>,
+) {
+    let mut extra: Vec<(String, JsonValue)> = Vec::new();
+    match kind {
+        AggKind::NumericScalar => {
+            let mut nums: Vec<f64> = values.iter().filter_map(|v| v.as_f64()).collect();
+            nums.retain(|x| x.is_finite());
+            if nums.is_empty() {
+                return (
+                    "mean",
+                    JsonValue::Null,
+                    json!({
+                        "mean":  null, "median": null, "min": null, "max": null,
+                        "std":   null, "n": n_present, "n_missing": n_missing_eff,
+                    }),
+                    "numeric_scalar",
+                    extra,
+                );
+            }
+            let n = nums.len() as f64;
+            let mean = nums.iter().sum::<f64>() / n;
+            let var = nums.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+            let std = var.sqrt();
+            let mut sorted = nums.clone();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let median = if sorted.len() % 2 == 1 {
+                sorted[sorted.len() / 2]
+            } else {
+                (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+            };
+            let min = *sorted.first().unwrap();
+            let max = *sorted.last().unwrap();
+            (
+                "mean",
+                json!(mean),
+                json!({
+                    "mean":  mean, "median": median, "min": min, "max": max,
+                    "std":   std, "n": nums.len(), "n_missing": n_missing_eff,
+                }),
+                "numeric_scalar",
+                extra,
+            )
+        }
+        AggKind::Categorical => {
+            use std::collections::BTreeMap;
+            let mut hist: BTreeMap<i64, usize> = BTreeMap::new();
+            for v in values {
+                if let Some(i) = v.as_i64() {
+                    *hist.entry(i).or_insert(0) += 1;
+                } else if let Some(f) = v.as_f64() {
+                    *hist.entry(f as i64).or_insert(0) += 1;
+                }
+            }
+            let mode = hist.iter().max_by_key(|(_, c)| **c).map(|(k, _)| *k);
+            let dist: serde_json::Map<String, JsonValue> = hist
+                .iter()
+                .map(|(k, v)| (k.to_string(), json!(v)))
+                .collect();
+            extra.push(("class_distribution".into(), JsonValue::Object(dist)));
+            let total: usize = hist.values().sum();
+            (
+                "mode",
+                mode.map(|m| json!(m)).unwrap_or(JsonValue::Null),
+                json!({
+                    "mode":      mode,
+                    "n_classes": hist.len(),
+                    "n":         total,
+                    "n_missing": n_missing_eff,
+                }),
+                "categorical",
+                extra,
+            )
+        }
+        AggKind::VectorEmbedding => {
+            // Coerce each value to Vec<f64>; skip non-arrays.
+            let mut vecs: Vec<Vec<f64>> = Vec::new();
+            for v in values {
+                if let Some(arr) = v.as_array() {
+                    let row: Vec<f64> = arr.iter().filter_map(|x| x.as_f64()).collect();
+                    if !row.is_empty() {
+                        vecs.push(row);
+                    }
+                }
+            }
+            if vecs.is_empty() {
+                // First value (likely fp16/bytes); embedding aggregation
+                // not applicable — surface a note rather than guessing.
+                return (
+                    "first",
+                    values.first().cloned().unwrap_or(JsonValue::Null),
+                    json!({
+                        "n":          n_present,
+                        "n_missing":  n_missing_eff,
+                        "note":       "embedding aggregation not applicable for this band (per-cell value isn't a JSON array of floats)",
+                    }),
+                    "vector_embedding",
+                    extra,
+                );
+            }
+            let dim = vecs.iter().map(|v| v.len()).min().unwrap_or(0);
+            let n = vecs.len() as f64;
+            let mut centroid = vec![0.0f64; dim];
+            for v in &vecs {
+                for (i, x) in v.iter().take(dim).enumerate() {
+                    centroid[i] += x;
+                }
+            }
+            for x in &mut centroid {
+                *x /= n;
+            }
+            (
+                "vector_centroid",
+                json!(centroid),
+                json!({
+                    "dim":        dim,
+                    "n":          vecs.len(),
+                    "n_missing":  n_missing_eff,
+                }),
+                "vector_embedding",
+                extra,
+            )
+        }
+        AggKind::Multidim => {
+            // Per-component mean/median/min/max for an array-of-floats band.
+            let mut rows: Vec<Vec<f64>> = Vec::new();
+            for v in values {
+                if let Some(arr) = v.as_array() {
+                    let row: Vec<f64> = arr.iter().filter_map(|x| x.as_f64()).collect();
+                    if !row.is_empty() {
+                        rows.push(row);
+                    }
+                }
+            }
+            if rows.is_empty() {
+                return (
+                    "first",
+                    values.first().cloned().unwrap_or(JsonValue::Null),
+                    json!({
+                        "n":          n_present,
+                        "n_missing":  n_missing_eff,
+                        "note":       "multidim aggregation not applicable for this band (per-cell value isn't an array of floats)",
+                    }),
+                    "multidim",
+                    extra,
+                );
+            }
+            let dim = rows.iter().map(|r| r.len()).min().unwrap_or(0);
+            let mut components: Vec<JsonValue> = Vec::with_capacity(dim);
+            let mut means: Vec<f64> = Vec::with_capacity(dim);
+            for d in 0..dim {
+                let col: Vec<f64> = rows
+                    .iter()
+                    .filter_map(|r| r.get(d).copied().filter(|x| x.is_finite()))
+                    .collect();
+                if col.is_empty() {
+                    components.push(JsonValue::Null);
+                    means.push(0.0);
+                    continue;
+                }
+                let n_d = col.len() as f64;
+                let mean = col.iter().sum::<f64>() / n_d;
+                let mut sorted = col.clone();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let median = if sorted.len() % 2 == 1 {
+                    sorted[sorted.len() / 2]
+                } else {
+                    (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+                };
+                let min = *sorted.first().unwrap();
+                let max = *sorted.last().unwrap();
+                components.push(json!({
+                    "mean": mean, "median": median, "min": min, "max": max,
+                    "n": col.len(),
+                }));
+                means.push(mean);
+            }
+            (
+                "per_component_mean",
+                json!(means),
+                json!({
+                    "components": components,
+                    "n":          rows.len(),
+                    "n_missing":  n_missing_eff,
+                    "dim":        dim,
+                }),
+                "multidim",
+                extra,
+            )
+        }
+    }
+}
+
 /// `GET /v1/at?lat=&lon=&band=…&tslot=…`
 /// Generic single-or-multi-band lat/lng lookup. CSV-or-repeated
 /// `band` accepted via the `bands` field too.
@@ -3691,7 +4758,10 @@ async fn get_v1_at(
     State(s): State<AppState>,
     Query(q): Query<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let (lat, lng, _via) = q.resolve_lat_lng().await?;
+    // Multi-band /v1/at defaults to point (n_cells=1) to keep cost
+    // bounded — multi-band × multi-cell explodes the upstream fetch
+    // count. Caller can opt in with `n_cells: <n>`.
+    let target = q.resolve_target(1).await?;
     let mut bands: Vec<String> = Vec::new();
     if let Some(b) = &q.band {
         bands.push(b.clone());
@@ -3712,7 +4782,9 @@ async fn get_v1_at(
             bands.push((*b).to_string());
         }
     }
-    Ok(Json(boring_recall_at(&s, lat, lng, &bands, q.tslot).await?))
+    Ok(Json(
+        boring_recall_aggregated(&s, target, &bands, q.tslot).await?,
+    ))
 }
 
 /// Default multi-band bundle for `/v1/at` when the caller omits both
@@ -3725,17 +4797,22 @@ const DEFAULT_AT_BANDS: &[&str] = &[
     "weather.temperature_2m",
 ];
 
-/// Build a fixed-bands boring GET. Used by every named shorthand
-/// below (/v1/ndvi, /v1/elevation, …).
+/// Build a fixed-bands boring response. Used by every named shorthand
+/// (/v1/ndvi, /v1/elevation, …). Single-band endpoints default to a
+/// 16-cell polygon fan-out when `place` resolves to an OSM feature
+/// with extent; the caller can opt out via `n_cells: 1`.
 async fn boring_named(
     s: &AppState,
     q: LatLngQ,
     bands: &[&str],
 ) -> Result<Json<JsonValue>, ApiError> {
-    let (lat, lng, _via) = q.resolve_lat_lng().await?;
+    // Single-band endpoints default to 16 sample cells when polygon
+    // detected (one upstream fetch × 16 cells fits comfortably under
+    // the boring-endpoint latency budget once parallelised).
+    let target = q.resolve_target(16).await?;
     let bands_owned: Vec<String> = bands.iter().map(|s| (*s).to_string()).collect();
     Ok(Json(
-        boring_recall_at(s, lat, lng, &bands_owned, q.tslot).await?,
+        boring_recall_aggregated(s, target, &bands_owned, q.tslot).await?,
     ))
 }
 
@@ -3848,7 +4925,11 @@ async fn post_v1_at(
     State(s): State<AppState>,
     Json(q): Json<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let (lat, lng, _via) = q.resolve_lat_lng().await?;
+    // /v1/at multi-band default: point (n_cells=1). Multi-band ×
+    // multi-cell explodes the upstream fetch count and /v1/at is the
+    // cheap default. Agents that want polygon aggregation on /v1/at
+    // pass `n_cells: <n>` explicitly.
+    let target = q.resolve_target(1).await?;
     let mut bands: Vec<String> = Vec::new();
     if let Some(b) = &q.band {
         bands.push(b.clone());
@@ -3865,7 +4946,9 @@ async fn post_v1_at(
             bands.push((*b).to_string());
         }
     }
-    Ok(Json(boring_recall_at(&s, lat, lng, &bands, q.tslot).await?))
+    Ok(Json(
+        boring_recall_aggregated(&s, target, &bands, q.tslot).await?,
+    ))
 }
 
 async fn post_v1_ndvi(
@@ -6669,7 +7752,7 @@ async fn openapi() -> Json<JsonValue> {
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
                 "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false}}},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
-                "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"}}},
+                "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively. When `place` resolves to an OSM feature with extent (airport, park, lake, region) the response includes a `polygon` block + per-band `stats` (mean/median/min/max/std for numeric bands, mode + class distribution for categorical bands like esa_worldcover.lc_2021); pass `n_cells: 1` to force point behaviour at the centroid instead. Single-band endpoints default to 16 sample cells when polygon detected; /v1/at defaults to 1 (multi-band × multi-cell explodes upstream fetch count). Use POST /v1/recall_polygon for raw per-cell facts.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"},"n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon-aggregation knob. When `place` resolves to a feature with extent and `n_cells` is unset, single-band endpoints fan out to 16 sample cells; /v1/at defaults to 1. `n_cells: 1` forces point behaviour at the centroid; values in 2..=64 are honoured. Anything else returns 400 — heavy queries belong on POST /v1/recall_polygon."}}},
                 "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}}
             }
         }
@@ -16968,6 +18051,7 @@ mod tests {
             band: None,
             bands: None,
             tslot: None,
+            n_cells: None,
         };
         let q2 = LatLngQ {
             lat: Some(30.5),
@@ -16977,6 +18061,7 @@ mod tests {
             band: None,
             bands: None,
             tslot: None,
+            n_cells: None,
         };
         assert!(q1.longitude().ok() == Some(75.85));
         assert!(q2.longitude().ok() == Some(75.85));
@@ -16988,6 +18073,7 @@ mod tests {
             band: None,
             bands: None,
             tslot: None,
+            n_cells: None,
         };
         assert!(q_missing.longitude().is_err());
     }

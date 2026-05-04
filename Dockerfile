@@ -29,7 +29,7 @@ COPY docs/ docs/
 COPY examples/ examples/
 # Root-level markdown is include_str!'d directly by emem-api-rest.
 # Without these the build fails with `couldn't read PRIVACY.md`.
-COPY PRIVACY.md TERMS.md SUPPORT.md ./
+COPY PRIVACY.md TERMS.md SUPPORT.md SECURITY.md ./
 # BuildKit cache-mount IDs are scoped by ${TARGETARCH} so the parallel
 # linux/amd64 + linux/arm64 build jobs don't race each other unpacking
 # the same crate into a shared cache (`File exists (os error 17)` on

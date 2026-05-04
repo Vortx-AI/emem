@@ -8,6 +8,47 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 ## [Unreleased]
 
 ### Added
+- **Polygon-aware boring endpoints** — when `POST /v1/{ndvi,elevation,
+  air,lst,soil,water,forest,weather,at}` resolves a place name to an
+  OSM feature with extent (airports, parks, lakes, regions, universities
+  — anything Nominatim/Photon returns a `polygon_bbox` for), the handler
+  now fans out to up to 64 sample cells across the bbox in parallel
+  (`tokio::task::JoinSet`) and returns mean/median/min/max/std per band
+  (mode + class distribution for categorical bands, centroid for vector
+  embeddings). Headline `value` for single-band requests stays at the
+  top level for backward-compat; the new `polygon` and `stats` blocks
+  layer alongside. Point queries (raw `lat,lng` body, or place names
+  the geocoder returns as a centroid) keep their byte-identical
+  single-cell shape. Knob: `n_cells` body/query field (default 16,
+  max 64; `n_cells:1` forces point mode at the centroid). Verified
+  live: `/v1/ndvi {place:"Miami International Airport"}` previously
+  returned a single 0.022 NDVI pixel of tarmac at the centroid; now
+  returns mean=0.106, median=0.067, min=-0.002, max=0.418, std=0.118
+  across 16 cells covering the 15.1 km² polygon.
+- **Visual + structured deliverables on polygon responses** —
+  - `polygon.geojson` — FeatureCollection with one Polygon Feature for
+    the bbox outline; properties carry `place_label`, `area_km2`,
+    `n_sample_cells`. Renders directly in geojson.io / Mapbox / Leaflet.
+  - `polygon.scene_thumbs[]` — per-cell URL pointers (`scene_png`,
+    `scene_rgb`, `geojson`, `info`) so an agent can grid the per-cell
+    visuals in chat without re-querying.
+  - `polygon.scene_overlay_url` — pointer to the new
+    `GET /v1/places/scene_overlay.svg` endpoint with the band + cell
+    count pre-set; agent embeds the URL in a chat reply.
+  - Top-level `value_per_cell[]` — `{cell, lat, lng, value, kind,
+    fact_cid}` per sample cell so an agent can plot its own histogram,
+    identify outliers, or persist for downstream analysis.
+  - Top-level `geojson` — FeatureCollection of per-cell sample
+    Polygons, each carrying the recalled value as a Feature property
+    (per-band when single-band; otherwise per-band block carries its
+    own).
+- **`GET /v1/places/scene_overlay.svg?place=&band=&n_cells=&width=&height=`**
+  — server-rendered value-painted SVG of the resolved place's polygon.
+  Cells coloured via a viridis-like colormap stretched across the
+  actual recalled min/max (categorical and embedding bands fall back
+  to a fixed palette). Caption strip carries place label + band +
+  sample count + value range. Returns `image/svg+xml` with
+  `Cache-Control: public, max-age=60`.
 - **`/v1/{ndvi,air,lst,soil,water,forest,weather,at}`** — convenience
   POST handlers accepting `{place: "..."}` (geocode→cell) or
   `{lat, lng}`; matching `?place=` and `?lat=&lng=` GET forms. Each
