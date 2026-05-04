@@ -8,6 +8,55 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 ## [Unreleased]
 
 ### Added
+- **Embedded band metadata in numeric responses** — every fact
+  returned by `/v1/recall`, `/v1/cells/:cell64`, `/v1/recall_polygon`,
+  `/v1/ask`, and the `boring` endpoints now carries a sibling
+  `band_metadata` object (description, units, value_range,
+  interpretation, pitfalls, references) sourced from the same band
+  registry as `/v1/bands` — and a `value_decoded` label for the
+  three categorical bands wired today (ESA WorldCover LCCS,
+  JRC Surface Water transition class, Sentinel-2 SCL). An LLM no
+  longer has to round-trip through `/v1/bands` to translate
+  `value: 50, unit: "lccs_class"` into "Built-up". Materializer
+  scalars (e.g. `copdem30m.elevation_mean`, `surface_water.*`,
+  `s2.scl`) inherit metadata from their cube band and surface
+  `inherited_from_cube_band` so the lineage stays explicit.
+- **Sibling `signer_pubkey_b32` + `responder_pubkey_b32` on every
+  receipt** — the raw 32-byte `signer` / `responder` arrays remain
+  intact for byte-for-byte verification (every existing client
+  still works), and a sibling base32-nopad string is now emitted
+  alongside so humans + LLMs can quote / paste the pubkey directly
+  into `/v1/verify` without re-encoding 32 bytes by hand.
+- **Cross-band coherent `/v1/elevation`** — `POST /v1/elevation`
+  now routes through `post_elevation_coherent`, which always
+  recalls Cop-DEM (land), GMRT (ocean topobathy), and ESA
+  WorldCover (LC class veto) and reports a derived `validity`
+  (`land`, `ocean`, `coastline`, `unknown`). Over open ocean the
+  headline `elevation_m` is **null** and `bathymetry_m` carries
+  the GMRT signed depth (negative below sea level) — eliminating
+  the `elevation_m: 0.0` ambiguity that previously made open-Pacific
+  responses indistinguishable from honest sea-level land. All three
+  inputs surface under `sub_facts[]` so an agent can audit the
+  coherence call. The polygon variant adds a `mixed_coastline`
+  vote and partitions `mean_land_elevation_m` / `mean_ocean_depth_m`
+  by per-cell validity so a coastal city or island chain doesn't
+  blend a hilltop with an abyssal plain.
+- **`/v1/ask` band_observations[] inventory fall-through** — when
+  the topic router returns zero topics but the cell still owns a
+  full signed bundle (e.g. air-quality questions resolving against
+  pre-cached or auto-materialized cams.* facts), a second pass
+  walks `recall.facts[]` and emits an entry per band with
+  `routing_via: "inventory"`. Topic-router-derived entries carry
+  `routing_via: "topic_router"`; explicitly-requested bands carry
+  `routing_via: "explicit_band"`. Without this pass an agent
+  asking "air quality in Delhi" got `band_observations: []` even
+  though 17 signed cams.* facts were already in the response —
+  exactly the gap the 2026-05-04 user report flagged.
+- **Honest caveat suppression** — the `/v1/ask` `out_of_scope`
+  caveat now only emits when `topics_matched`, `band_observations`,
+  AND `facts.facts` are all empty. Previously an LLM saw a "topics
+  did not match" caveat next to 17 signed numeric facts, which
+  read as the model contradicting itself.
 - **Workspace bumped to 0.0.4** — incorporates polygon-aware boring
   endpoints, visual deliverables (geojson + scene_overlay_url +
   value_per_cell + scene_thumbs), curated GPT-Action OpenAPI subset,

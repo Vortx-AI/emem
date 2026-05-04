@@ -238,7 +238,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api", get(api_alias))
         .route("/v1/discover", get(discover))
         .route("/v1/grid_info", get(grid_info))
-        .route("/v1/elevation", post(post_elevation))
+        .route("/v1/elevation", post(post_elevation_coherent))
         // Sister POST handlers — accept `{place}` (geocoded) or
         // `{lat,lng}` (direct) so an agent that already has a place
         // name doesn't have to round-trip through /v1/locate first.
@@ -3244,7 +3244,12 @@ async fn get_cell(
         tslot: None,
     };
     let resp = recall(&req, &s).await?;
-    Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
+    let mut v = serde_json::to_value(resp).unwrap_or(json!({}));
+    // Same b32 enrichment as /v1/ask + /v1/recall — keeps the
+    // get-by-cell quick-look surface consistent with the rest of
+    // the API for human/LLM legibility.
+    enrich_recall_signer_b32(&mut v);
+    Ok(Json(v))
 }
 
 /// REST-side wrapper for `RecallReq` that accepts a singular `band` field
@@ -3334,6 +3339,16 @@ async fn post_recall(
     let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
     let body = {
         let mut v = serde_json::to_value(&resp).unwrap_or(json!({}));
+        // Per-fact band_metadata + value_decoded so an LLM does not have
+        // to call /v1/bands separately to interpret a numeric value.
+        // Walks the `facts[]` array in place; non-Primary entries are
+        // left untouched.
+        enrich_facts_with_metadata(&mut v);
+        // Sibling `signer_pubkey_b32` per fact and
+        // `responder_pubkey_b32` on the receipt — same enrichment
+        // /v1/ask applies, so an LLM can quote signers without
+        // touching the raw 32-byte arrays.
+        enrich_recall_signer_b32(&mut v);
         if let Some(map) = v.as_object_mut() {
             if !materialize_notes.is_empty() {
                 map.insert(
@@ -3670,6 +3685,223 @@ fn band_input_resolution_m(band: &str) -> Option<u32> {
 /// Single source of truth: `/v1/grid_info`.
 const RESOLUTION_M_GRID: u32 = 10;
 
+// =============================================================
+// Band-metadata helpers — embed interpretation/units/value_range
+// + a categorical-class decode table directly in every numeric
+// response. Without this, an LLM consuming `value: 50,
+// unit: "lccs_class"` has to make a separate `/v1/bands` call to
+// translate it to "Built-up", and the more costly cases (mistaking
+// `elevation_m: 0.0` for sea level over open ocean) never get
+// caught at all.
+// =============================================================
+
+/// Class-decode tables for categorical bands. Keyed by the dotted
+/// scalar key (e.g. `esa_worldcover.lc_2021`) as well as the cube
+/// alias (`landcover`) so both materialized and aggregated views
+/// resolve. Class IDs are signed i64 to match the JSON-decoded form
+/// of the value in the response.
+fn class_decode_for(band: &str) -> Option<&'static [(i64, &'static str)]> {
+    // ESA WorldCover 2021 v200 LCCS class codes.
+    // Source: https://esa-worldcover.org (legend appendix).
+    const WORLDCOVER: &[(i64, &str)] = &[
+        (10, "Tree cover"),
+        (20, "Shrubland"),
+        (30, "Grassland"),
+        (40, "Cropland"),
+        (50, "Built-up"),
+        (60, "Bare / sparse vegetation"),
+        (70, "Snow and ice"),
+        (80, "Permanent water bodies"),
+        (90, "Herbaceous wetland"),
+        (95, "Mangroves"),
+        (100, "Moss and lichen"),
+    ];
+    // JRC Global Surface Water transition class. 12-D `surface_water`
+    // dimension `transition_class` carries these codes.
+    const SURFACE_WATER_TRANSITION: &[(i64, &str)] = &[
+        (0, "No change"),
+        (1, "Permanent"),
+        (2, "New permanent"),
+        (3, "Lost permanent"),
+        (4, "Seasonal"),
+        (5, "New seasonal"),
+        (6, "Lost seasonal"),
+        (7, "Seasonal to permanent"),
+        (8, "Permanent to seasonal"),
+        (9, "Ephemeral permanent"),
+        (10, "Ephemeral seasonal"),
+    ];
+    // Sentinel-2 Scene Classification Layer (SCL). Per Sen2Cor / S2 L2A
+    // documentation; the only 4-bit categorical band materialized today.
+    const S2_SCL: &[(i64, &str)] = &[
+        (0, "No data"),
+        (1, "Saturated or defective"),
+        (2, "Cast shadows"),
+        (3, "Cloud shadows"),
+        (4, "Vegetation"),
+        (5, "Bare soil"),
+        (6, "Water"),
+        (7, "Cloud (low probability)"),
+        (8, "Cloud (medium probability)"),
+        (9, "Cloud (high probability)"),
+        (10, "Thin cirrus"),
+        (11, "Snow / ice"),
+    ];
+    match band {
+        "esa_worldcover.lc_2021" | "landcover" => Some(WORLDCOVER),
+        "surface_water.transition_class" => Some(SURFACE_WATER_TRANSITION),
+        "s2.scl" => Some(S2_SCL),
+        _ => None,
+    }
+}
+
+/// Decode a categorical class ID to a label. Returns `None` when the
+/// band has no decode table or the class is not in the codebook.
+fn decode_class_value(band: &str, value_json: &JsonValue) -> Option<String> {
+    let table = class_decode_for(band)?;
+    let class_id = value_json
+        .as_i64()
+        .or_else(|| value_json.as_f64().map(|f| f.round() as i64))?;
+    table
+        .iter()
+        .find(|(id, _)| *id == class_id)
+        .map(|(_, lab)| lab.to_string())
+}
+
+/// Build a `band_metadata` JSON block sourced from the cached band
+/// registry. Includes description / units / value_range / interpretation
+/// / pitfalls / references and, for categorical bands, a `class_decode`
+/// map of class_id → label. Returns `JsonValue::Null` when the band
+/// isn't in the registry AND has no class_decode table — callers can
+/// use `is_null()` to decide whether to skip the field.
+///
+/// Lookups go through `BandRegistry::lookup` which is O(n) over ~33
+/// bands, ~µs per call. Hot paths that call this in a loop should hoist
+/// the `key_index` themselves; for the boring single-fact / aggregated
+/// paths the per-call cost is dominated by the upstream materializer.
+fn band_metadata_for_response(band_key: &str) -> JsonValue {
+    let registry = &*emem_core::bands::DEFAULT;
+    // Bands with dots ("esa_worldcover.lc_2021", "copdem30m.elevation_mean")
+    // are materializer scalars that ride atop a cube band; they don't
+    // appear directly in the registry. Map them to their cube band so
+    // the editorial fields still surface. The map mirrors the
+    // `cube_aliases` table in /v1/coverage_matrix.
+    let cube_band = match band_key {
+        // Cop-DEM scalars → `cop_dem` slot.
+        b if b.starts_with("copdem30m.") => "cop_dem",
+        // GMRT bathymetry rides on the legacy `dem` slot today.
+        "gmrt.topobathy_mean" => "dem",
+        // ESA WorldCover scalar → `landcover` slot.
+        "esa_worldcover.lc_2021" => "landcover",
+        // Indices.* and s2.* → their respective family slots.
+        b if b.starts_with("indices.") => "indices",
+        b if b.starts_with("s2.") => "sentinel2_raw",
+        b if b.starts_with("geotessera") => "geotessera",
+        b if b.starts_with("overture.") => "overture",
+        b if b.starts_with("weather.") => "climate",
+        b if b.starts_with("surface_water.") => "surface_water",
+        b if b.starts_with("hansen.") => "forest_change",
+        b if b.starts_with("modis.lst_") || b.starts_with("modis.ndvi") => "indices",
+        b if b.starts_with("soilgrids.") => "soilgrids",
+        b if b.starts_with("cams.") => "climate",
+        _ => band_key,
+    };
+    let band_entry = registry
+        .lookup(cube_band)
+        .or_else(|| registry.lookup(band_key));
+    let mut map = serde_json::Map::new();
+    if let Some(b) = band_entry {
+        if let Some(d) = &b.description {
+            map.insert("description".into(), json!(d));
+        }
+        if let Some(u) = &b.units {
+            map.insert("units".into(), json!(u));
+        }
+        if let Some(vr) = &b.value_range {
+            map.insert("value_range".into(), vr.clone());
+        }
+        if let Some(it) = &b.interpretation {
+            map.insert("interpretation".into(), json!(it));
+        }
+        if let Some(p) = &b.pitfalls {
+            map.insert("pitfalls".into(), json!(p));
+        }
+        if let Some(r) = &b.references {
+            map.insert("references".into(), json!(r));
+        }
+        if cube_band != band_key {
+            map.insert("inherited_from_cube_band".into(), json!(cube_band));
+        }
+    }
+    if let Some(table) = class_decode_for(band_key) {
+        let decode: serde_json::Map<String, JsonValue> = table
+            .iter()
+            .map(|(id, lab)| (id.to_string(), json!(lab)))
+            .collect();
+        map.insert("class_decode".into(), JsonValue::Object(decode));
+    }
+    if map.is_empty() {
+        JsonValue::Null
+    } else {
+        JsonValue::Object(map)
+    }
+}
+
+/// Enrich a serialized `RecallResp.facts[]` (or any JSON object that
+/// holds a `facts` array of fact-shaped objects) in place: every fact
+/// gains a `band_metadata` block and, when the band is categorical,
+/// a `value_decoded` label. Handles objects with a top-level `facts`
+/// array as well as bare arrays of facts. Non-fact JSON is left alone.
+fn enrich_facts_with_metadata(value: &mut JsonValue) {
+    let facts_arr = match value {
+        JsonValue::Object(map) => match map.get_mut("facts") {
+            Some(JsonValue::Array(arr)) => arr,
+            _ => return,
+        },
+        JsonValue::Array(arr) => arr,
+        _ => return,
+    };
+    for fact in facts_arr.iter_mut() {
+        let Some(obj) = fact.as_object_mut() else {
+            continue;
+        };
+        // Wire format wraps the fact variant inside one of {Primary,Absence,…}
+        // OR carries `band` directly when serialized via the protocol.
+        // Handle the wrapped-variant form first, then fall through.
+        let band = obj
+            .get("band")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                obj.get("Primary")
+                    .and_then(|p| p.get("band"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .or_else(|| {
+                obj.get("Absence")
+                    .and_then(|p| p.get("band"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
+        let Some(band) = band else { continue };
+        // value_decoded for categorical bands (Primary path only).
+        let value_for_decode = obj
+            .get("value")
+            .cloned()
+            .or_else(|| obj.get("Primary").and_then(|p| p.get("value")).cloned());
+        if let Some(v) = value_for_decode {
+            if let Some(label) = decode_class_value(&band, &v) {
+                obj.insert("value_decoded".into(), json!(label));
+            }
+        }
+        let meta = band_metadata_for_response(&band);
+        if !meta.is_null() {
+            obj.insert("band_metadata".into(), meta);
+        }
+    }
+}
+
 /// Project a Fact + receipt-context into the boring response shape.
 /// Returns `(value-or-null, json blob)` so the caller can decide how
 /// to compose multi-band bundles.
@@ -3685,14 +3917,42 @@ fn boring_view(
         Fact::Primary(p) => {
             let source = p.sources.first();
             let res_in = band_input_resolution_m(&p.band);
-            json!({
+            let value_json = ciborium_to_json(&p.value);
+            let value_decoded = decode_class_value(&p.band, &value_json);
+            // Surface every source — not just the first. A composite
+            // materializer (e.g. NDVI from a S2 stack) cites multiple
+            // upstream tiles; truncating to `[0]` hides provenance.
+            // Hash is hex-encoded (32 raw bytes → 64 hex chars) so it
+            // survives the JSON round-trip.
+            let sources_full: Vec<JsonValue> = p
+                .sources
+                .iter()
+                .map(|s| {
+                    json!({
+                        "scheme": s.scheme,
+                        "id": s.id,
+                        "captured_at": s.captured_at,
+                        "url": s.url,
+                        "cid": s.cid,
+                        "hash_sha256_hex": s.hash.as_ref().map(|h| {
+                            let mut hex = String::with_capacity(64);
+                            for b in h.iter() {
+                                hex.push_str(&format!("{:02x}", b));
+                            }
+                            hex
+                        }),
+                    })
+                })
+                .collect();
+            let mut blob = json!({
                 "kind":                  "primary",
                 "band":                  p.band,
-                "value":                 ciborium_to_json(&p.value),
+                "value":                 value_json,
                 "unit":                  p.unit,
                 "confidence":            p.confidence,
                 "source":                source.map(|s| s.scheme.as_str()),
                 "source_url":            source.map(|s| s.id.as_str()),
+                "sources":               sources_full,
                 "captured_at":           source.and_then(|s| s.captured_at.as_deref()),
                 "data_resolution_m":     res_in,
                 "resolution_m_input":    res_in,
@@ -3704,24 +3964,45 @@ fn boring_view(
                 "served_at":             served_at,
                 "tslot":                 p.tslot,
                 "derivation_fn_key":     p.derivation.fn_key.as_str(),
-            })
+            });
+            if let Some(label) = value_decoded {
+                if let Some(map) = blob.as_object_mut() {
+                    map.insert("value_decoded".into(), json!(label));
+                }
+            }
+            let meta = band_metadata_for_response(&p.band);
+            if !meta.is_null() {
+                if let Some(map) = blob.as_object_mut() {
+                    map.insert("band_metadata".into(), meta);
+                }
+            }
+            blob
         }
-        Fact::Absence(a) => json!({
-            "kind":                  "absence",
-            "band":                  a.band,
-            "value":                 JsonValue::Null,
-            "reason_cid":            a.reason_cid.as_str(),
-            "data_resolution_m":     band_input_resolution_m(&a.band),
-            "resolution_m_input":    band_input_resolution_m(&a.band),
-            "cell_dedupe_m":         RESOLUTION_M_GRID,
-            "cell64":                cell64,
-            "fact_cid":              fact_cid,
-            "responder_pubkey_b32":  responder_pubkey_b32,
-            "signed_at":             a.signed_at,
-            "served_at":             served_at,
-            "tslot":                 a.tslot,
-            "advice": "signed Absence is a real answer ('tried and got no answer'); do not retry",
-        }),
+        Fact::Absence(a) => {
+            let mut blob = json!({
+                "kind":                  "absence",
+                "band":                  a.band,
+                "value":                 JsonValue::Null,
+                "reason_cid":            a.reason_cid.as_str(),
+                "data_resolution_m":     band_input_resolution_m(&a.band),
+                "resolution_m_input":    band_input_resolution_m(&a.band),
+                "cell_dedupe_m":         RESOLUTION_M_GRID,
+                "cell64":                cell64,
+                "fact_cid":              fact_cid,
+                "responder_pubkey_b32":  responder_pubkey_b32,
+                "signed_at":             a.signed_at,
+                "served_at":             served_at,
+                "tslot":                 a.tslot,
+                "advice": "signed Absence is a real answer ('tried and got no answer'); do not retry",
+            });
+            let meta = band_metadata_for_response(&a.band);
+            if !meta.is_null() {
+                if let Some(map) = blob.as_object_mut() {
+                    map.insert("band_metadata".into(), meta);
+                }
+            }
+            blob
+        }
         _ => json!({
             "kind":                  "other",
             "band":                  null,
@@ -4332,6 +4613,11 @@ async fn boring_recall_aggregated(
     };
 
     let mut bands_out = serde_json::Map::new();
+    // Roll-up of missingness across bands so the response root can carry
+    // a `partial: true` honesty flag — agents reading aggregate stats
+    // mistake an incomplete fan-out for full coverage otherwise.
+    let mut total_missing: usize = 0;
+    let mut total_attempts: usize = 0;
     for band in &band_iter {
         let entries = by_band.get(band).cloned().unwrap_or_default();
         let kind = band_agg_kind(band);
@@ -4387,6 +4673,8 @@ async fn boring_recall_aggregated(
             signed_ats.push(e.signed_at.clone());
         }
         let n_missing_eff = n_missing + absence_count;
+        total_missing += n_missing_eff;
+        total_attempts += n_total;
 
         let (aggregator, headline, stats, kind_str, extra) =
             aggregate_band(kind, &primary_values, n_present, n_missing_eff);
@@ -4399,6 +4687,22 @@ async fn boring_recall_aggregated(
             json!([s.first(), s.last()])
         };
 
+        // Decorate value_per_cell with value_decoded for categorical bands
+        // so the LLM doesn't have to consult class_decode at the band level
+        // for every cell.
+        if class_decode_for(band).is_some() {
+            for entry in value_per_cell.iter_mut() {
+                if let Some(map) = entry.as_object_mut() {
+                    if let Some(v) = map.get("value").cloned() {
+                        if let Some(label) = decode_class_value(band, &v) {
+                            map.insert("value_decoded".into(), json!(label));
+                        }
+                    }
+                }
+            }
+        }
+        // Decode the headline value when categorical (mode → label).
+        let headline_decoded = decode_class_value(band, &headline);
         let mut block = json!({
             "aggregator":            aggregator,
             "value":                 headline,
@@ -4418,7 +4722,38 @@ async fn boring_recall_aggregated(
         });
         if let Some(map) = block.as_object_mut() {
             for (k, v) in extra {
+                // For categorical bands, transform `class_distribution`
+                // from {"50":12} to {"50":{"label":"Built-up","count":12}}
+                // so the LLM doesn't have to cross-reference class IDs
+                // with the band metadata to render a histogram.
+                if k == "class_distribution" && class_decode_for(band).is_some() {
+                    if let Some(obj) = v.as_object() {
+                        let decoded: serde_json::Map<String, JsonValue> = obj
+                            .iter()
+                            .map(|(class_id_str, count)| {
+                                let label = class_id_str
+                                    .parse::<i64>()
+                                    .ok()
+                                    .and_then(|id| decode_class_value(band, &json!(id)))
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                (
+                                    class_id_str.clone(),
+                                    json!({"label": label, "count": count}),
+                                )
+                            })
+                            .collect();
+                        map.insert(k, JsonValue::Object(decoded));
+                        continue;
+                    }
+                }
                 map.insert(k, v);
+            }
+            if let Some(label) = headline_decoded {
+                map.insert("value_decoded".into(), json!(label));
+            }
+            let meta = band_metadata_for_response(band);
+            if !meta.is_null() {
+                map.insert("band_metadata".into(), meta);
             }
         }
         bands_out.insert(band.clone(), block);
@@ -4533,6 +4868,20 @@ async fn boring_recall_aggregated(
         if !errors.is_empty() {
             map.insert("cell_errors".into(), JsonValue::Array(errors));
         }
+        // Honesty: an aggregated response that summarised over a partial
+        // fan-out should not look identical to one with full coverage.
+        // `partial: true` flips when ANY band has an unfilled cell across
+        // the polygon sample (cell error, materializer skip, or signed
+        // Absence). `coverage_fraction` quantifies how close to complete.
+        let partial = total_missing > 0;
+        let coverage_fraction = if total_attempts > 0 {
+            (total_attempts - total_missing) as f64 / total_attempts as f64
+        } else {
+            0.0
+        };
+        map.insert("partial".into(), json!(partial));
+        map.insert("coverage_fraction".into(), json!(coverage_fraction));
+        map.insert("is_exhaustive".into(), json!(false));
         let bbox = polygon.bbox;
         map.insert(
             "next".into(),
@@ -4830,12 +5179,19 @@ async fn get_v1_ndvi(
     boring_named(&s, q, &["indices.ndvi"]).await
 }
 
-/// `GET /v1/elevation?lat=&lon=` → copdem30m.elevation_mean
+/// `GET /v1/elevation?lat=&lon=` — cross-band coherent elevation.
+/// Always recalls Cop-DEM (land) + GMRT (ocean bathymetry) +
+/// WorldCover (land-cover veto for the "0 m at sea" case) and reports
+/// a `validity` derived from the three. Over open ocean the headline
+/// `elevation_m` is null + `bathymetry_m` carries the GMRT depth (signed,
+/// negative below sea level); over land the headline carries Cop-DEM.
+/// All three sub-facts are exposed under `sub_facts`.
 async fn get_v1_elevation(
     State(s): State<AppState>,
     Query(q): Query<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    boring_named(&s, q, &["copdem30m.elevation_mean"]).await
+    let target = q.resolve_target(16).await?;
+    Ok(Json(elevation_coherent(&s, target).await?))
 }
 
 /// `GET /v1/air?lat=&lon=` → cams.pm25 + cams.no2 + cams.o3
@@ -5172,10 +5528,10 @@ async fn post_recall_many(
         match recall(&r, &s).await {
             Ok(resp) => {
                 total_facts += resp.facts.len();
-                by_cell.insert(
-                    cell.clone(),
-                    serde_json::to_value(&resp).unwrap_or(json!({})),
-                );
+                let mut cell_json = serde_json::to_value(&resp).unwrap_or(json!({}));
+                // Per-fact band_metadata + value_decoded.
+                enrich_facts_with_metadata(&mut cell_json);
+                by_cell.insert(cell.clone(), cell_json);
             }
             Err(e) => {
                 by_cell.insert(
@@ -5467,7 +5823,8 @@ async fn post_recall_polygon(
             Ok((resp, notes)) => {
                 total_facts += resp.facts.len();
                 materialize_notes_all.extend(notes);
-                if let Ok(j) = serde_json::to_value(&resp) {
+                if let Ok(mut j) = serde_json::to_value(&resp) {
+                    enrich_facts_with_metadata(&mut j);
                     if let Some(JsonValue::Array(facts)) = j.get("facts").cloned() {
                         merged_facts.extend(facts);
                     }
@@ -5567,7 +5924,8 @@ async fn post_recall_polygon(
                 Ok((resp, notes)) => {
                     total_facts += resp.facts.len();
                     materialize_notes_all.extend(notes);
-                    if let Ok(j) = serde_json::to_value(&resp) {
+                    if let Ok(mut j) = serde_json::to_value(&resp) {
+                        enrich_facts_with_metadata(&mut j);
                         if let Some(JsonValue::Array(facts)) = j.get("facts").cloned() {
                             merged_facts.extend(facts);
                         }
@@ -5590,6 +5948,21 @@ async fn post_recall_polygon(
         cells.extend(new_cells);
     }
 
+    // Coverage honesty. The polygon area covers `area_km2 / (cell_dedupe_m_squared)`
+    // distinct cell64 grid cells at native resolution; we sampled `cells.len()`
+    // of them. `is_exhaustive` flips true only when we hit (or exceeded) the
+    // native-grid count. `coverage_fraction` is the ratio, clamped to [0, 1].
+    // An LLM that prints "Lake Tahoe averaged 1410 m elevation" off a 16-cell
+    // sample of a 500 km² polygon should know it's working with a 0.0008
+    // coverage fraction, not a wall-to-wall scan.
+    let cell_grain_m2 = (RESOLUTION_M_GRID as f64) * (RESOLUTION_M_GRID as f64);
+    let total_native_cells = if area_km2 > 0.0 {
+        ((area_km2 * 1_000_000.0) / cell_grain_m2).max(1.0)
+    } else {
+        1.0
+    };
+    let coverage_fraction = ((cells.len() as f64) / total_native_cells).min(1.0);
+    let is_exhaustive = (cells.len() as f64) >= total_native_cells;
     let mut out = json!({
         "schema": "emem.recall_polygon.v1",
         "polygon_bbox": {
@@ -5604,6 +5977,9 @@ async fn post_recall_polygon(
         "cells_per_sqkm_effective": if area_km2 > 0.0 { cells.len() as f64 / area_km2 } else { 0.0 },
         "cells_sampled": cells.len(),
         "cells": cells,
+        "coverage_fraction": coverage_fraction,
+        "is_exhaustive": is_exhaustive,
+        "native_grid_cells_in_polygon": total_native_cells,
         "drill_on_water": drill,
         "drill_cells_added": drill_added.len(),
         "facts_returned": total_facts,
@@ -5785,12 +6161,53 @@ async fn post_find_similar(
         req.key = cell;
         env_entries.push(("key".into(), rc));
     }
+    let band_used = req.band.clone().unwrap_or_else(|| "geotessera".into());
+    let mode_str = match req.mode {
+        emem_primitives::find_similar::FindSimilarMode::Cosine => "cosine",
+        emem_primitives::find_similar::FindSimilarMode::Hamming => "hamming",
+        emem_primitives::find_similar::FindSimilarMode::HammingThenRerank => "hamming_then_rerank",
+    };
     let resp = find_similar(&req, &s).await?;
     let env = resolved_envelope(env_entries);
-    Ok(Json(attach_resolved(
-        serde_json::to_value(resp).unwrap_or(json!({})),
-        env,
-    )))
+    let mut body = serde_json::to_value(&resp).unwrap_or(json!({}));
+    // Per-neighbor decode: lat/lng + (optional) place_label_cached so an
+    // LLM can write "X is similar to Y because Z" without a follow-up
+    // call to /v1/cells/{cell}/info or a reverse-geocode round trip.
+    if let Some(map) = body.as_object_mut() {
+        if let Some(JsonValue::Array(neighbors)) = map.get_mut("neighbors") {
+            for n in neighbors.iter_mut() {
+                let Some(obj) = n.as_object_mut() else {
+                    continue;
+                };
+                let cell = obj.get("cell").and_then(|v| v.as_str()).map(String::from);
+                if let Some(c) = cell {
+                    if let Ok(info) = emem_codec::latlng_from_cell64(&c) {
+                        obj.insert("lat".into(), json!(info.lat_deg));
+                        obj.insert("lng".into(), json!(info.lng_deg));
+                        if let Some(label) =
+                            embedded_gazetteer_reverse_lookup(info.lat_deg, info.lng_deg)
+                        {
+                            obj.insert("place_label_cached".into(), json!(label));
+                        }
+                    }
+                    obj.insert("similarity_method".into(), json!(mode_str));
+                    obj.insert("band_used".into(), json!(band_used));
+                    obj.insert(
+                        "deep_recall_url".into(),
+                        json!(format!(
+                            "POST /v1/recall {{cell:'{}', bands:['{}']}}",
+                            c, band_used
+                        )),
+                    );
+                    obj.insert(
+                        "scene_png_url".into(),
+                        json!(format!("/v1/cells/{}/scene.png", c)),
+                    );
+                }
+            }
+        }
+    }
+    Ok(Json(attach_resolved(body, env)))
 }
 
 async fn post_diff(
@@ -8355,137 +8772,458 @@ struct ElevationReq {
     place: Option<String>,
 }
 
-async fn post_elevation(Json(req): Json<ElevationReq>) -> Result<Json<JsonValue>, ApiError> {
-    let (lat, lng, source_kind): (f64, f64, String) = match (
-        req.lat,
-        req.lng,
-        req.cell64.as_deref(),
-        req.place.as_deref(),
-    ) {
-        (Some(la), Some(lo), _, _) => (la, lo, "input_latlng".to_string()),
-        (_, _, Some(c), _) => {
-            let info = emem_codec::latlng_from_cell64(c).map_err(|e| {
-                ApiError(
-                    StatusCode::BAD_REQUEST,
-                    ErrorBody {
-                        code: ErrorCode::InvalidCell,
-                        message: format!("cell64 decode: {e}"),
-                    },
-                )
-            })?;
-            (info.lat_deg, info.lng_deg, "cell64_centre".to_string())
-        }
-        (_, _, _, Some(p)) => {
-            let lr = LocateReq {
-                lat: None,
-                lng: None,
-                place: Some(p.to_string()),
-            };
-            let resp = locate_inner(lr).await?;
-            let body = &resp.0;
-            let la = body
-                .get("lat_input")
-                .and_then(|v| v.as_f64())
-                .ok_or_else(|| {
-                    ApiError(
-                        StatusCode::NOT_FOUND,
-                        ErrorBody {
-                            code: ErrorCode::NoGeocoderMatch,
-                            message: format!("locate succeeded for '{p}' but no lat_input"),
-                        },
-                    )
-                })?;
-            let lo = body
-                .get("lng_input")
-                .and_then(|v| v.as_f64())
-                .ok_or_else(|| {
-                    ApiError(
-                        StatusCode::NOT_FOUND,
-                        ErrorBody {
-                            code: ErrorCode::NoGeocoderMatch,
-                            message: format!("locate succeeded for '{p}' but no lng_input"),
-                        },
-                    )
-                })?;
-            let via = body.get("via").and_then(|v| v.as_str()).unwrap_or("locate");
-            (la, lo, format!("locate:{via}"))
-        }
-        _ => {
-            return Err(ApiError(
+/// Cross-band elevation that does not lie at sea level. POST variant.
+/// Resolves the request to a target (lat/lng or polygon) and fans out
+/// across Cop-DEM (land), GMRT (ocean topobathy), and ESA WorldCover
+/// (lc class) before reporting a coherence-derived `elevation_m`.
+/// Without this, an `elevation_m: 0.0` over the open Pacific is
+/// indistinguishable from an honest 0 m above sea level.
+async fn post_elevation_coherent(
+    State(s): State<AppState>,
+    Json(req): Json<ElevationReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let q = LatLngQ {
+        lat: req.lat,
+        lon: None,
+        lng: req.lng,
+        place: req.place.clone(),
+        band: None,
+        bands: None,
+        tslot: None,
+        n_cells: None,
+    };
+    let target = if req.lat.is_some() && req.lng.is_some() {
+        q.resolve_target(1).await?
+    } else if let Some(c) = req.cell64.as_deref() {
+        let info = emem_codec::latlng_from_cell64(c).map_err(|e| {
+            ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
-                    code: ErrorCode::Internal,
-                    message: "supply (lat,lng), cell64, or place".into(),
-                },
-            ))
-        }
-    };
-    let url =
-        format!("https://api.open-meteo.com/v1/elevation?latitude={lat:.6}&longitude={lng:.6}",);
-    let cli = reqwest_client();
-    let resp = cli.get(&url).send().await.map_err(|e| {
-        ApiError(
-            StatusCode::BAD_GATEWAY,
-            ErrorBody {
-                code: ErrorCode::SourceFetchFailed,
-                message: format!("open-meteo https: {e}"),
-            },
-        )
-    })?;
-    if !resp.status().is_success() {
-        return Err(ApiError(
-            StatusCode::BAD_GATEWAY,
-            ErrorBody {
-                code: ErrorCode::SourceFetchFailed,
-                message: format!("open-meteo status {}", resp.status()),
-            },
-        ));
-    }
-    let body: JsonValue = resp.json().await.map_err(|e| {
-        ApiError(
-            StatusCode::BAD_GATEWAY,
-            ErrorBody {
-                code: ErrorCode::SourceFormatMismatch,
-                message: format!("open-meteo json: {e}"),
-            },
-        )
-    })?;
-    let elev_m = body
-        .get("elevation")
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.first())
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| {
-            ApiError(
-                StatusCode::BAD_GATEWAY,
-                ErrorBody {
-                    code: ErrorCode::SourceFormatMismatch,
-                    message: "open-meteo response missing elevation[0]".into(),
+                    code: ErrorCode::InvalidCell,
+                    message: format!("cell64 decode: {e}"),
                 },
             )
         })?;
-    let cell64 = emem_codec::cell64_from_latlng(lat, lng);
-    Ok(Json(json!({
+        ResolvedTarget {
+            lat: info.lat_deg,
+            lng: info.lng_deg,
+            via: "cell64_centre".into(),
+            polygon: None,
+        }
+    } else if req.place.is_some() {
+        q.resolve_target(16).await?
+    } else {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "supply (lat,lng), cell64, or place".into(),
+            },
+        ));
+    };
+    Ok(Json(elevation_coherent(&s, target).await?))
+}
+
+const ELEVATION_COHERENCE_BANDS: &[&str] = &[
+    "copdem30m.elevation_mean",
+    "gmrt.topobathy_mean",
+    "esa_worldcover.lc_2021",
+];
+
+/// Build the cross-band coherent elevation response. Recalls all three
+/// inputs (Cop-DEM, GMRT bathymetry, ESA WorldCover) at the target
+/// (point or polygon) and reports a `validity` derived from their
+/// agreement. Always exposes ALL three sub-facts under `sub_facts` so
+/// the LLM can audit the reasoning. The headline `elevation_m` is null
+/// over open ocean (and `bathymetry_m` carries the GMRT depth instead).
+async fn elevation_coherent(s: &AppState, target: ResolvedTarget) -> Result<JsonValue, ApiError> {
+    if !target.lat.is_finite() || !target.lng.is_finite() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "lat/lng must be finite".into(),
+            },
+        ));
+    }
+    if let Some(polygon) = target.polygon.as_ref() {
+        // Box::pin to keep the recursive async fn graph finite-sized.
+        return Box::pin(elevation_coherent_polygon(s, &target, polygon)).await;
+    }
+    let cell = emem_codec::cell_from_latlng(target.lat, target.lng);
+    let cell_str = emem_codec::to_cell64(cell);
+    let req = RecallReq {
+        cell: cell_str.clone(),
+        bands: Some(
+            ELEVATION_COHERENCE_BANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        ),
+        tslot: None,
+    };
+    let (resp, materialize_notes) = recall_with_auto_materialize(&req, s).await?;
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let served_at = resp.receipt.served_at.clone();
+
+    let mut sub_facts = serde_json::Map::new();
+    let mut cop_dem: Option<f64> = None;
+    let mut gmrt: Option<f64> = None;
+    let mut lc_class: Option<i64> = None;
+    for (idx, fact) in resp.facts.iter().enumerate() {
+        let cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
+        let view = boring_view(fact, cid.as_deref(), &pubkey_b32, &cell_str, &served_at);
+        match fact {
+            emem_fact::Fact::Primary(p) => match p.band.as_str() {
+                "copdem30m.elevation_mean" => {
+                    cop_dem = ciborium_to_json(&p.value).as_f64();
+                    sub_facts.insert("copdem30m_elevation_mean".into(), view);
+                }
+                "gmrt.topobathy_mean" => {
+                    gmrt = ciborium_to_json(&p.value).as_f64();
+                    sub_facts.insert("gmrt_topobathy_mean".into(), view);
+                }
+                "esa_worldcover.lc_2021" => {
+                    lc_class = ciborium_to_json(&p.value).as_i64().or_else(|| {
+                        ciborium_to_json(&p.value)
+                            .as_f64()
+                            .map(|f| f.round() as i64)
+                    });
+                    sub_facts.insert("esa_worldcover_lc_2021".into(), view);
+                }
+                _ => {}
+            },
+            emem_fact::Fact::Absence(a) => {
+                let key = match a.band.as_str() {
+                    "copdem30m.elevation_mean" => "copdem30m_elevation_mean",
+                    "gmrt.topobathy_mean" => "gmrt_topobathy_mean",
+                    "esa_worldcover.lc_2021" => "esa_worldcover_lc_2021",
+                    _ => continue,
+                };
+                sub_facts.insert(key.into(), view);
+            }
+            _ => {}
+        }
+    }
+
+    let (validity, headline_elev, headline_bathy, interpretation) =
+        derive_elevation_validity(cop_dem, gmrt, lc_class);
+
+    let mut body = json!({
         "schema": "emem.elevation.v1",
-        "lat": lat,
-        "lng": lng,
-        "lat_lng_source": source_kind,
-        "cell64": cell64,
-        "elevation_m": elev_m,
+        "lat": target.lat,
+        "lng": target.lng,
+        "via": target.via,
+        "cell64": cell_str,
+        "validity": validity,
+        "elevation_m": headline_elev,
+        "bathymetry_m": headline_bathy,
         "unit": "m",
-        "source": {
-            "scheme": "open_meteo",
-            "wraps":  "Copernicus DEM 90 m",
-            "url":    url,
-            "license": "Copernicus DEM is free under Copernicus Data Licence; Open-Meteo redistributes under their terms (see open-meteo.com/license).",
-        },
-        "honest_caveat": "This is a read-through pass-through, not a signed attestation. The value is not in our hot cache and is not cite-able via /v1/verify_receipt. For cite-able answers, use /v1/recall on an attested cell. To make this value cite-able, attest it yourself via /v1/attest_cbor — see /docs/ATTESTING.md.",
+        "interpretation": interpretation,
+        "lc_class": lc_class,
+        "lc_class_decoded": lc_class.and_then(|c| decode_class_value("esa_worldcover.lc_2021", &json!(c))),
+        "sub_facts": JsonValue::Object(sub_facts),
+        "responder_pubkey_b32": pubkey_b32,
+        "served_at": served_at,
+        "honest_caveat": "Headline `elevation_m` is null when WorldCover marks the cell as permanent water (class 80) AND Cop-DEM returned 0 (no-data over ocean). In that case `bathymetry_m` carries the GMRT signed depth (negative = below sea level). Every sub-fact is cite-able under its own fact_cid; verify any of them via /v1/verify_receipt.",
         "next": [
-            "POST /v1/locate    — get the cell64 + neighborhood for this place",
-            "POST /v1/recall    — see if any agent has attested this cell",
-            "POST /v1/attest_cbor — promote this read-through into a signed fact"
-        ]
-    })))
+            "POST /v1/recall {cell:'<cell64>', bands:['copdem30m.elevation_mean','gmrt.topobathy_mean','esa_worldcover.lc_2021']} — same data with full receipt envelope",
+            "POST /v1/at {place:'…', bands:['copdem30m.elevation_mean','gmrt.topobathy_mean','esa_worldcover.lc_2021']} — adds a polygon fan-out when the place has extent",
+            "GET /v1/facts/{fact_cid} — dereference any sub_fact for its raw signed CBOR",
+        ],
+    });
+    if let Some(map) = body.as_object_mut() {
+        if !materialize_notes.is_empty() {
+            map.insert(
+                "materialize_notes".into(),
+                JsonValue::Array(materialize_notes),
+            );
+        }
+    }
+    Ok(body)
+}
+
+/// Apply the validity rules across the three inputs. Returns
+/// `(validity, headline_elev_m, headline_bathy_m, interpretation)`.
+fn derive_elevation_validity(
+    cop_dem: Option<f64>,
+    gmrt: Option<f64>,
+    lc_class: Option<i64>,
+) -> (&'static str, JsonValue, JsonValue, String) {
+    let is_water = matches!(lc_class, Some(80));
+    match (cop_dem, gmrt, is_water) {
+        (Some(d), _, false) if d > 0.0 => (
+            "land_dem",
+            json!(d),
+            gmrt.map(|g| json!(g)).unwrap_or(JsonValue::Null),
+            format!("{d:.1} m above sea level (Cop-DEM 90 m, ESA WorldCover land class)"),
+        ),
+        (Some(0.0), Some(g), true) => (
+            "ocean_no_dem",
+            JsonValue::Null,
+            json!(g),
+            format!("Open ocean (ESA WorldCover class 80, permanent water bodies); GMRT bathymetry reads {g:.1} m. No DEM data here — Cop-DEM returns 0 as the no-data marker over water."),
+        ),
+        (Some(0.0), None, true) => (
+            "ocean_no_dem",
+            JsonValue::Null,
+            JsonValue::Null,
+            "Open ocean (ESA WorldCover class 80); no GMRT bathymetry returned. Headline elevation is undefined.".to_string(),
+        ),
+        (None, Some(g), _) => (
+            "bathymetry_only",
+            JsonValue::Null,
+            json!(g),
+            format!("No Cop-DEM data at this cell; GMRT bathymetry reads {g:.1} m."),
+        ),
+        (Some(d), _, false) => (
+            "land_dem",
+            json!(d),
+            gmrt.map(|g| json!(g)).unwrap_or(JsonValue::Null),
+            format!("{d:.1} m above sea level (Cop-DEM 90 m, ESA WorldCover land class — negative/zero values can indicate below-sea-level land like the Dead Sea or Death Valley)"),
+        ),
+        (None, None, _) => (
+            "no_data",
+            JsonValue::Null,
+            JsonValue::Null,
+            "No Cop-DEM, GMRT, or WorldCover data at this cell. The responder's materializers either timed out or returned signed Absence — see `sub_facts` for per-band evidence.".to_string(),
+        ),
+        (Some(_), None, _) => (
+            "ambiguous",
+            JsonValue::Null,
+            JsonValue::Null,
+            "Cop-DEM returned 0 m but ESA WorldCover did not flag this cell as water and GMRT bathymetry is unavailable. Could be a coastal pixel, a tile-border no-data zone, or a true 0 m elevation. Inspect `sub_facts` and consider POST /v1/at on neighboring cells.".to_string(),
+        ),
+        // (Some(d!=0), Some(g), true): WorldCover says water but Cop-DEM
+        // returned a non-zero value. Likely a sub-cell mixed pixel
+        // (coastal, river bend, lake shore). Trust WorldCover's water
+        // call but expose both numbers in sub_facts.
+        (Some(d), Some(g), true) => (
+            "mixed_water_pixel",
+            JsonValue::Null,
+            json!(g),
+            format!("ESA WorldCover marks this cell as permanent water (class 80) but Cop-DEM returned {d:.1} m (non-zero). Treating headline as bathymetry-only ({g:.1} m). Likely a coastal / lake-shore mixed pixel — inspect `sub_facts` for both numbers and the worldcover class evidence."),
+        ),
+    }
+}
+
+/// Polygon variant of elevation coherence: fans out across the polygon's
+/// sample cells, computes per-cell validity, and reports a polygon-level
+/// vote (`mostly_land`, `mostly_ocean`, `mixed`). Per-cell sub-facts are
+/// surfaced in `cells[]` so the LLM can audit edge effects.
+async fn elevation_coherent_polygon(
+    s: &AppState,
+    target: &ResolvedTarget,
+    polygon: &ResolvedPolygon,
+) -> Result<JsonValue, ApiError> {
+    let cells: Vec<String> = polygon.sample_cells.iter().take(64).cloned().collect();
+    if cells.is_empty() {
+        let point = ResolvedTarget {
+            lat: target.lat,
+            lng: target.lng,
+            via: target.via.clone(),
+            polygon: None,
+        };
+        return Box::pin(elevation_coherent(s, point)).await;
+    }
+    type CellRecall = (String, Result<(RecallResp, Vec<JsonValue>), ApiError>);
+    let mut set: tokio::task::JoinSet<CellRecall> = tokio::task::JoinSet::new();
+    let bands: Vec<String> = ELEVATION_COHERENCE_BANDS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for cell in &cells {
+        let req = RecallReq {
+            cell: cell.clone(),
+            bands: Some(bands.clone()),
+            tslot: None,
+        };
+        let cell = cell.clone();
+        let s2 = s.clone();
+        set.spawn(async move {
+            let r = recall_with_auto_materialize(&req, &s2).await;
+            (cell, r)
+        });
+    }
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let mut per_cell_out: Vec<JsonValue> = Vec::with_capacity(cells.len());
+    let mut materialize_notes_all: Vec<JsonValue> = Vec::new();
+    let mut land_count = 0usize;
+    let mut ocean_count = 0usize;
+    let mut bathy_only = 0usize;
+    let mut no_data_count = 0usize;
+    let mut land_elevs: Vec<f64> = Vec::new();
+    let mut ocean_depths: Vec<f64> = Vec::new();
+    let mut latest_served_at = String::new();
+    let mut cell_errors: Vec<JsonValue> = Vec::new();
+    while let Some(j) = set.join_next().await {
+        let (cell_str, result) = match j {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        match result {
+            Ok((resp, notes)) => {
+                materialize_notes_all.extend(notes);
+                if resp.receipt.served_at > latest_served_at {
+                    latest_served_at = resp.receipt.served_at.clone();
+                }
+                let mut cop_dem: Option<f64> = None;
+                let mut gmrt: Option<f64> = None;
+                let mut lc_class: Option<i64> = None;
+                let mut sub = serde_json::Map::new();
+                for (idx, fact) in resp.facts.iter().enumerate() {
+                    let cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
+                    let view = boring_view(
+                        fact,
+                        cid.as_deref(),
+                        &pubkey_b32,
+                        &cell_str,
+                        &resp.receipt.served_at,
+                    );
+                    if let emem_fact::Fact::Primary(p) = fact {
+                        match p.band.as_str() {
+                            "copdem30m.elevation_mean" => {
+                                cop_dem = ciborium_to_json(&p.value).as_f64();
+                                sub.insert("copdem30m_elevation_mean".into(), view);
+                            }
+                            "gmrt.topobathy_mean" => {
+                                gmrt = ciborium_to_json(&p.value).as_f64();
+                                sub.insert("gmrt_topobathy_mean".into(), view);
+                            }
+                            "esa_worldcover.lc_2021" => {
+                                lc_class = ciborium_to_json(&p.value).as_i64().or_else(|| {
+                                    ciborium_to_json(&p.value)
+                                        .as_f64()
+                                        .map(|f| f.round() as i64)
+                                });
+                                sub.insert("esa_worldcover_lc_2021".into(), view);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                let (validity, headline_elev, headline_bathy, interpretation) =
+                    derive_elevation_validity(cop_dem, gmrt, lc_class);
+                match validity {
+                    "land_dem" => {
+                        land_count += 1;
+                        if let Some(e) = headline_elev.as_f64() {
+                            land_elevs.push(e);
+                        }
+                    }
+                    "ocean_no_dem" => {
+                        ocean_count += 1;
+                        if let Some(b) = headline_bathy.as_f64() {
+                            ocean_depths.push(b);
+                        }
+                    }
+                    "bathymetry_only" => {
+                        bathy_only += 1;
+                        if let Some(b) = headline_bathy.as_f64() {
+                            ocean_depths.push(b);
+                        }
+                    }
+                    "no_data" => no_data_count += 1,
+                    _ => {}
+                }
+                let (lat_c, lng_c) = match emem_codec::latlng_from_cell64(&cell_str) {
+                    Ok(ll) => (ll.lat_deg, ll.lng_deg),
+                    Err(_) => (f64::NAN, f64::NAN),
+                };
+                per_cell_out.push(json!({
+                    "cell": cell_str,
+                    "lat": lat_c,
+                    "lng": lng_c,
+                    "validity": validity,
+                    "elevation_m": headline_elev,
+                    "bathymetry_m": headline_bathy,
+                    "lc_class": lc_class,
+                    "lc_class_decoded": lc_class.and_then(|c| decode_class_value("esa_worldcover.lc_2021", &json!(c))),
+                    "interpretation": interpretation,
+                    "sub_facts": JsonValue::Object(sub),
+                }));
+            }
+            Err(e) => {
+                cell_errors.push(json!({
+                    "cell": cell_str,
+                    "code": format!("{:?}", e.1.code),
+                    "message": e.1.message,
+                    "status": e.0.as_u16(),
+                }));
+            }
+        }
+    }
+    let total = per_cell_out.len();
+    let polygon_validity = if total == 0 {
+        "no_data"
+    } else if land_count * 2 >= total && ocean_count == 0 {
+        "mostly_land"
+    } else if (ocean_count + bathy_only) * 2 >= total && land_count == 0 {
+        "mostly_ocean"
+    } else if land_count > 0 && ocean_count > 0 {
+        "mixed_coastline"
+    } else if no_data_count == total {
+        "no_data"
+    } else {
+        "mixed"
+    };
+    let mean_land_elev = if land_elevs.is_empty() {
+        JsonValue::Null
+    } else {
+        json!(land_elevs.iter().sum::<f64>() / land_elevs.len() as f64)
+    };
+    let mean_ocean_depth = if ocean_depths.is_empty() {
+        JsonValue::Null
+    } else {
+        json!(ocean_depths.iter().sum::<f64>() / ocean_depths.len() as f64)
+    };
+    let mut body = json!({
+        "schema": "emem.elevation.v1",
+        "lat": target.lat,
+        "lng": target.lng,
+        "via": target.via,
+        "place_label": polygon.place_label,
+        "polygon": {
+            "bbox": {
+                "min_lat": polygon.bbox.0, "max_lat": polygon.bbox.1,
+                "min_lng": polygon.bbox.2, "max_lng": polygon.bbox.3,
+            },
+            "sample_cells": cells,
+            "n_sample_cells": total,
+            "source": polygon.source,
+        },
+        "polygon_validity": polygon_validity,
+        "validity_distribution": {
+            "land_dem": land_count,
+            "ocean_no_dem": ocean_count,
+            "bathymetry_only": bathy_only,
+            "no_data": no_data_count,
+        },
+        "mean_land_elevation_m": mean_land_elev,
+        "mean_ocean_depth_m": mean_ocean_depth,
+        "unit": "m",
+        "cells": per_cell_out,
+        "responder_pubkey_b32": pubkey_b32,
+        "served_at": latest_served_at,
+        "partial": cell_errors.len() + no_data_count > 0,
+        "honest_caveat": "Polygon-level vote derived from per-cell coherence across Cop-DEM + GMRT + ESA WorldCover. `mixed_coastline` flags polygons that span land and ocean (a coastal city, an island chain, etc.) — the headline mean_land_elevation_m and mean_ocean_depth_m partition by validity so neither blends a 100 m hilltop with a -4000 m abyssal plain.",
+    });
+    if let Some(map) = body.as_object_mut() {
+        if !materialize_notes_all.is_empty() {
+            map.insert(
+                "materialize_notes".into(),
+                JsonValue::Array(materialize_notes_all),
+            );
+        }
+        if !cell_errors.is_empty() {
+            map.insert("cell_errors".into(), JsonValue::Array(cell_errors));
+        }
+    }
+    Ok(body)
 }
 
 // ── Lazy materialization (the read → attest → cache loop) ───────────────
@@ -8902,11 +9640,22 @@ async fn materialize_modis_ndvi_window(
 
     // Pick the entry closest to target_unix (or the latest valid one for
     // the current-mode call).
+    //
+    // Scale: ORNL's MODIS subset endpoint emits the band-specific scale as
+    // a string ("0.0001" for NDVI). Silently defaulting on a parse miss
+    // (the prior code path) would produce a wildly wrong NDVI without any
+    // signal to the caller — fail loud instead, with the raw body fragment
+    // for diagnostics. Per "no silent fallbacks".
     let scale: f64 = body
         .get("scale")
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0001);
+        .ok_or_else(|| {
+            format!(
+                "modis response missing or non-parseable `scale` field (expected string like \"0.0001\"); got body fragment {:?}",
+                body.get("scale")
+            )
+        })?;
     let subset = body
         .get("subset")
         .and_then(|v| v.as_array())
@@ -14928,6 +15677,18 @@ fn dispatch_algorithms(
 ) -> Vec<JsonValue> {
     let alg_reg = &*emem_core::algorithms::DEFAULT;
     let samples = samples_from_recall(recall);
+    // Pre-index Primary facts by band → (fact, fact_cid) so per-input
+    // provenance lookup below is O(1) per band, not an O(n) walk
+    // repeated for every algorithm.
+    let mut fact_by_band: std::collections::HashMap<&str, (&emem_fact::PrimaryFact, Option<&str>)> =
+        std::collections::HashMap::new();
+    let receipt_cids = &recall.receipt.fact_cids;
+    for (idx, f) in recall.facts.iter().enumerate() {
+        if let emem_fact::Fact::Primary(p) = f {
+            let cid = receipt_cids.get(idx).map(|c| c.as_str());
+            fact_by_band.insert(p.band.as_str(), (p, cid));
+        }
+    }
     let mut out: Vec<JsonValue> = Vec::new();
     let mut seen: std::collections::HashSet<&str> = Default::default();
     for key in matched_keys {
@@ -14940,67 +15701,369 @@ fn dispatch_algorithms(
         let Some(expr) = alg.evaluation.as_ref() else {
             continue;
         };
-        // Find the input fact CIDs the AST consumed (so the agent
-        // can cite them in its reply alongside the composite value).
-        // recall.facts and recall.receipt.fact_cids are aligned by
-        // position when every requested CID resolved; if some
-        // dropped to None during get_facts_many, facts is shorter,
-        // so we zip up to the shorter of the two.
         let referenced: std::collections::HashSet<String> =
             expr.referenced_bands().into_iter().collect();
-        let mut input_cids: Vec<String> = Vec::new();
-        let receipt_cids = &recall.receipt.fact_cids;
-        for (idx, f) in recall.facts.iter().enumerate() {
-            if let emem_fact::Fact::Primary(p) = f {
-                if referenced.contains(&p.band) {
-                    if let Some(cid) = receipt_cids.get(idx) {
-                        input_cids.push(cid.as_str().to_string());
-                    }
-                }
-            }
-        }
         // Named inputs map: only the bands the AST actually referenced,
         // with their snapshot values. Lets an agent reproduce `value` by
-        // hand-evaluating `formula` — no black box.
+        // hand-evaluating `formula` — no black box. Kept for backward
+        // compat; `inputs_with_provenance` below is the richer sibling.
         let mut named_inputs: serde_json::Map<String, JsonValue> = serde_json::Map::new();
+        // Per-input full provenance — every referenced band's signed
+        // fact metadata (value + unit + cid + signed_at + sources +
+        // derivation_fn_key). Lets an agent verify each input signed
+        // fact independently against the responder pubkey instead of
+        // trusting the collapsed scalar map. Added 2026-05-04 per the
+        // max-data transparency rule.
+        let mut inputs_with_provenance: serde_json::Map<String, JsonValue> = serde_json::Map::new();
+        let mut input_cids: Vec<String> = Vec::new();
         for band in &referenced {
             if let Some(v) = samples.get(band) {
                 named_inputs.insert(band.clone(), json!(v));
             }
+            if let Some((p, cid)) = fact_by_band.get(band.as_str()) {
+                if let Some(c) = cid {
+                    input_cids.push((*c).to_string());
+                }
+                inputs_with_provenance.insert(
+                    band.clone(),
+                    json!({
+                        "value":             ciborium_to_json(&p.value),
+                        "unit":              p.unit,
+                        "fact_cid":          cid,
+                        "signed_at":         p.signed_at,
+                        "tslot":             p.tslot,
+                        "confidence":        p.confidence,
+                        "derivation_fn_key": p.derivation.fn_key,
+                        "sources":           sources_json(&p.sources),
+                    }),
+                );
+            }
         }
         match alg_reg.evaluate(key, &samples) {
             Ok(Some(v)) if v.is_finite() => out.push(json!({
-                "algorithm_key":   key,
-                "value":           v,
-                "formula":         alg.formula,
-                "inputs":          JsonValue::Object(named_inputs),
-                "input_fact_cids": input_cids,
-                "citation":        alg.citation,
-                "evaluation_via":  "ast",
+                "algorithm_key":          key,
+                "value":                  v,
+                "formula":                alg.formula,
+                "inputs":                 JsonValue::Object(named_inputs),
+                "inputs_with_provenance": JsonValue::Object(inputs_with_provenance),
+                "input_fact_cids":        input_cids,
+                "citation":               alg.citation,
+                "evaluation_via":         "ast",
             })),
             Ok(Some(_v_nonfinite)) => out.push(json!({
-                "algorithm_key": key,
-                "value":         JsonValue::Null,
-                "formula":       alg.formula,
-                "inputs":        JsonValue::Object(named_inputs),
-                "skip_reason":   "evaluation produced non-finite value (overflow / nan)",
+                "algorithm_key":          key,
+                "value":                  JsonValue::Null,
+                "formula":                alg.formula,
+                "inputs":                 JsonValue::Object(named_inputs),
+                "inputs_with_provenance": JsonValue::Object(inputs_with_provenance),
+                "skip_reason":            "evaluation produced non-finite value (overflow / nan)",
             })),
             Ok(None) => out.push(json!({
-                "algorithm_key": key,
-                "value":         JsonValue::Null,
-                "formula":       alg.formula,
-                "inputs":        JsonValue::Object(named_inputs),
-                "skip_reason":   "expression evaluated to None (likely division by zero)",
+                "algorithm_key":          key,
+                "value":                  JsonValue::Null,
+                "formula":                alg.formula,
+                "inputs":                 JsonValue::Object(named_inputs),
+                "inputs_with_provenance": JsonValue::Object(inputs_with_provenance),
+                "skip_reason":            "expression evaluated to None (likely division by zero)",
             })),
             Err(missing) => out.push(json!({
-                "algorithm_key": key,
-                "value":         JsonValue::Null,
-                "formula":       alg.formula,
-                "inputs":        JsonValue::Object(named_inputs),
-                "skip_reason":   missing,
+                "algorithm_key":          key,
+                "value":                  JsonValue::Null,
+                "formula":                alg.formula,
+                "inputs":                 JsonValue::Object(named_inputs),
+                "inputs_with_provenance": JsonValue::Object(inputs_with_provenance),
+                "skip_reason":            missing,
             })),
         }
     }
+    out
+}
+
+/// Render a 32-byte pubkey as the lowercase base32-nopad string the
+/// rest of the API uses (`/v1/verify`, `/v1/identity`, the JWKS
+/// well-known doc). Pure formatting helper — never decodes.
+fn pubkey_to_b32(bytes: &[u8; 32]) -> String {
+    data_encoding::BASE32_NOPAD.encode(bytes).to_lowercase()
+}
+
+/// Walk the JSON-serialized `RecallResp` and add a sibling
+/// `signer_pubkey_b32` next to every `signer` array, plus
+/// `responder_pubkey_b32` next to the receipt's `responder`. Keeps
+/// the raw 32-byte arrays for byte-for-byte verification (every
+/// existing client/test still works) while giving humans + LLMs a
+/// legible string they can quote or paste into /v1/verify.
+///
+/// Called once on the JSON tree right after `serde_json::to_value`
+/// — surgical mutation, no shape change beyond the additive fields.
+fn enrich_recall_signer_b32(v: &mut JsonValue) {
+    fn collect_pk(arr: &[JsonValue]) -> Option<[u8; 32]> {
+        if arr.len() != 32 {
+            return None;
+        }
+        let mut out = [0u8; 32];
+        for (i, e) in arr.iter().enumerate() {
+            let n = e.as_u64()?;
+            if n > 255 {
+                return None;
+            }
+            out[i] = n as u8;
+        }
+        Some(out)
+    }
+    if let Some(facts) = v.get_mut("facts").and_then(|f| f.as_array_mut()) {
+        for fact in facts {
+            if let Some(map) = fact.as_object_mut() {
+                let pk = map
+                    .get("signer")
+                    .and_then(|s| s.as_array())
+                    .and_then(|a| collect_pk(a));
+                if let Some(bytes) = pk {
+                    map.insert(
+                        "signer_pubkey_b32".into(),
+                        JsonValue::String(pubkey_to_b32(&bytes)),
+                    );
+                }
+            }
+        }
+    }
+    if let Some(receipt) = v.get_mut("receipt").and_then(|r| r.as_object_mut()) {
+        let pk = receipt
+            .get("responder")
+            .and_then(|s| s.as_array())
+            .and_then(|a| collect_pk(a));
+        if let Some(bytes) = pk {
+            receipt.insert(
+                "responder_pubkey_b32".into(),
+                JsonValue::String(pubkey_to_b32(&bytes)),
+            );
+        }
+    }
+}
+
+/// Serialize a `Vec<emem_fact::Source>` into a JSON array carrying
+/// every source field (scheme, id, url, captured_at, cid). Used by
+/// `dispatch_algorithms` and `band_observations_from_recall` so the
+/// response carries the **full** upstream-source list rather than
+/// just the first scheme — per the max-data transparency rule.
+fn sources_json(srcs: &[emem_fact::Source]) -> JsonValue {
+    JsonValue::Array(
+        srcs.iter()
+            .map(|s| {
+                json!({
+                    "scheme":      s.scheme,
+                    "id":          s.id,
+                    "url":         s.url,
+                    "captured_at": s.captured_at,
+                    "cid":         s.cid,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Build the per-band raw observation array for `/v1/ask`.
+///
+/// Used as the **algorithm-outcomes fallback** when matched topics
+/// own live bands but no algorithm in the registry has an
+/// `evaluation` AST (so `algorithm_outcomes` would be `[]` and the
+/// agent would have nothing quantitative to quote — the "air quality
+/// in Delhi" symptom that motivated the 2026-05-04 transparency
+/// push). One entry per (topic, band) pairing where the recall
+/// snapshot owns a fact, carrying full per-fact provenance so the
+/// LLM can cite "Delhi PM2.5 was 142 µg/m³ at 18:42 UTC (CAMS,
+/// signed)" directly.
+///
+/// Two-pass population:
+///
+/// 1. **Topic-router fan-out.** For every matched topic, every
+///    `live_bands_for_topic` band gets an entry — present-fact entries
+///    carry `routing_via: "topic_router"`, absent ones carry
+///    `status: "no_fact_at_cell"` plus a fetch URL.
+/// 2. **Inventory fall-through.** For air-quality-style questions the
+///    topic router can return zero topics while the cell still owns a
+///    full signed bundle (e.g. cams.aod_550, cams.pm25, … — pre-cached
+///    or pulled on demand by the auto-materializer). The second pass
+///    walks `recall.facts[]` and emits an entry for every band not yet
+///    represented, tagged `routing_via: "inventory"`. Without this the
+///    `/v1/ask` `band_observations[]` would silently drop signed facts
+///    that don't sit under a router-matched topic — exactly the gap
+///    the 2026-05-04 user report flagged.
+fn band_observations_from_recall(
+    matched_topics: &[String],
+    recall: &emem_primitives::recall::RecallResp,
+    materialize_notes: &[JsonValue],
+    cell64: &str,
+) -> Vec<JsonValue> {
+    // Pre-index every recalled fact by band so the topic→band fan-out
+    // below is a hash lookup. In practice scan_cell returns at most
+    // one tslot per (cell, band) so the "first fact wins" is benign.
+    let mut by_band: std::collections::HashMap<&str, (&emem_fact::Fact, Option<&str>)> =
+        std::collections::HashMap::new();
+    let receipt_cids = &recall.receipt.fact_cids;
+    for (idx, f) in recall.facts.iter().enumerate() {
+        let band = match f {
+            emem_fact::Fact::Primary(p) => p.band.as_str(),
+            emem_fact::Fact::Absence(a) => a.band.as_str(),
+            emem_fact::Fact::Derivative(d) => d.band.as_str(),
+        };
+        let cid = receipt_cids.get(idx).map(|c| c.as_str());
+        by_band.entry(band).or_insert((f, cid));
+    }
+    let notes_for = |band: &str| -> Vec<JsonValue> {
+        materialize_notes
+            .iter()
+            .filter(|n| n.get("band").and_then(|v| v.as_str()) == Some(band))
+            .cloned()
+            .collect()
+    };
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+
+    // `routing_via` discriminator. `"topic_router"` = the topic
+    // routing layer claimed this band for a matched topic.
+    // `"inventory"` = no topic claimed it but the cell already owns a
+    // signed fact for it (the air-quality / cams.* path). The
+    // `"explicit_band"` variant is reserved for a future caller that
+    // passes `bands: [...]` on /v1/ask directly — `AskReq` doesn't
+    // expose that field today, so the variant is documented here so
+    // an LLM auditing the response knows the full taxonomy and won't
+    // mistake the absence for "we just forgot a case".
+    let entry_for_band = |band: &str,
+                          fact: &emem_fact::Fact,
+                          cid: Option<&str>,
+                          topic_matched: Option<&str>,
+                          routing_via: &str|
+     -> JsonValue {
+        let data_url = format!("{origin}/v1/cells/{cell64}");
+        let recall_post = json!({
+            "method": "POST",
+            "url":    format!("{origin}/v1/recall"),
+            "body":   { "cell": cell64, "bands": [band] },
+        });
+        match fact {
+            emem_fact::Fact::Primary(p) => json!({
+                "band_key":          band,
+                "topic_matched":     topic_matched,
+                "routing_via":       routing_via,
+                "value":             ciborium_to_json(&p.value),
+                "unit":              p.unit,
+                "tslot":             p.tslot,
+                "confidence":        p.confidence,
+                "fact_cid":          cid,
+                "signed_at":         p.signed_at,
+                "derivation_fn_key": p.derivation.fn_key,
+                "sources":           sources_json(&p.sources),
+                "data_url":          data_url,
+                "recall_post":       recall_post,
+                "materialize_notes": notes_for(band),
+            }),
+            emem_fact::Fact::Absence(a) => json!({
+                "band_key":          band,
+                "topic_matched":     topic_matched,
+                "routing_via":       routing_via,
+                "value":             JsonValue::Null,
+                "kind":              "absence",
+                "tslot":             a.tslot,
+                "fact_cid":          cid,
+                "signed_at":         a.signed_at,
+                "reason_cid":        a.reason_cid.as_str(),
+                "sources":           sources_json(&a.sources),
+                "advice":            "signed Absence — upstream confirmed no value for this band at this cell at this tslot. Do not retry.",
+                "data_url":          data_url,
+                "recall_post":       recall_post,
+                "materialize_notes": notes_for(band),
+            }),
+            emem_fact::Fact::Derivative(d) => json!({
+                "band_key":          band,
+                "topic_matched":     topic_matched,
+                "routing_via":       routing_via,
+                "value":             ciborium_to_json(&d.value),
+                "kind":              "derivative",
+                "fact_cid":          cid,
+                "signed_at":         d.signed_at,
+                "derivation_fn_key": d.derivation.fn_key,
+                "tslot_window":      d.tslot_window,
+                "op":                d.op,
+                "data_url":          data_url,
+                "recall_post":       recall_post,
+                "materialize_notes": notes_for(band),
+            }),
+        }
+    };
+
+    let mut out: Vec<JsonValue> = Vec::new();
+    // Bands that have already been emitted in either pass — the
+    // inventory pass below skips anything the topic_router pass
+    // already covered, regardless of which topic owned it.
+    let mut emitted_bands: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_pairs: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+
+    // Pass 1 — topic-router fan-out.
+    for topic in matched_topics {
+        for band in live_bands_for_topic(topic) {
+            let key = (topic.clone(), band.clone());
+            if !seen_pairs.insert(key) {
+                continue;
+            }
+            // GET /v1/cells/{cell64} returns every signed fact at this
+            // cell — copy-pasteable into a browser or `curl` so an
+            // operator can independently verify what /v1/ask aggregated.
+            // For a single-band re-fetch, agents use the POST shape in
+            // `recall_post`.
+            let data_url = format!("{origin}/v1/cells/{cell64}");
+            let recall_post = json!({
+                "method": "POST",
+                "url":    format!("{origin}/v1/recall"),
+                "body":   { "cell": cell64, "bands": [band.clone()] },
+            });
+            let Some((fact, cid)) = by_band.get(band.as_str()) else {
+                // Topic claims this band but recall didn't return it
+                // on this call. Surface honestly + give the agent a
+                // fetch URL — never hide a slot that exists but
+                // didn't materialise here.
+                out.push(json!({
+                    "band_key":          band,
+                    "topic_matched":     topic,
+                    "routing_via":       "topic_router",
+                    "value":             JsonValue::Null,
+                    "status":            "no_fact_at_cell",
+                    "advice":            "no fact materialised for this band on this call. POST /v1/recall with this band to force a fresh fetch, or accept that the upstream provider has no value here.",
+                    "data_url":          data_url,
+                    "recall_post":       recall_post,
+                    "materialize_notes": notes_for(&band),
+                }));
+                continue;
+            };
+            out.push(entry_for_band(
+                &band,
+                fact,
+                *cid,
+                Some(topic),
+                "topic_router",
+            ));
+            emitted_bands.insert(band.clone());
+        }
+    }
+
+    // Pass 2 — inventory fall-through. Walk the recall snapshot in
+    // declaration order (the order facts came back from scan_cell)
+    // and emit any band the topic_router pass didn't already cover.
+    // This is what makes the air-quality / cams.* bundle visible
+    // when the topic router returns no topics.
+    for (idx, fact) in recall.facts.iter().enumerate() {
+        let band = match fact {
+            emem_fact::Fact::Primary(p) => p.band.as_str(),
+            emem_fact::Fact::Absence(a) => a.band.as_str(),
+            emem_fact::Fact::Derivative(d) => d.band.as_str(),
+        };
+        if emitted_bands.contains(band) {
+            continue;
+        }
+        let cid = receipt_cids.get(idx).map(|c| c.as_str());
+        out.push(entry_for_band(band, fact, cid, None, "inventory"));
+        emitted_bands.insert(band.to_string());
+    }
+
     out
 }
 
@@ -15193,6 +16256,17 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         .collect();
     let algorithm_outcomes = dispatch_algorithms(&all_matched_keys, &recall_resp);
 
+    // Per-band raw observations. Built unconditionally (per the
+    // max-data rule — never hide signed facts behind a caveat). When
+    // the matched topics own live bands but no algorithm has an
+    // `evaluation` AST (the "air quality in Delhi" case that motivated
+    // this fix), `algorithm_outcomes` is empty and these observations
+    // ARE the answer the agent quotes. When `algorithm_outcomes` is
+    // populated, this still ships alongside so the LLM can quote both
+    // the composite scalar and the raw signed bands that fed it.
+    let band_observations =
+        band_observations_from_recall(&topics, &recall_resp, &materialize_notes, &cell);
+
     // Optional Sentinel-2 RGB scene. Default off — the scene fetch is
     // ~1-2 s on first call (STAC search + COG range reads + PNG encode)
     // and most ask flows are decision-making, not visual.
@@ -15224,24 +16298,114 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         })
     };
 
-    let caveats = json!({
-        "grid_resolution":               "cell64 is ~10 m × ~10 m square at the equator (matching Sentinel-1/Sentinel-2 native pitch). Above the equator, lng pitch narrows with cos(lat) so cells become taller than wide. Spec target is 3.4 m equal-area H3 — declared via /v1/grid_info.",
-        "satellite_revisit_typical":     "Sentinel-1 6-12 d; Sentinel-2 5 d combined. Short-duration urban flash events between revisits are not captured by satellite bands; check `weather.precipitation_mm` for the now-cast.",
-        "out_of_scope_when_topic_null":  "If `topic_routing.matched_topics` is empty, the question class isn't covered by this responder. Topics not listed in `data_at_this_cell.live_bands_by_topic` (real-time air quality, traffic, indoor data) are out of scope today — say so honestly instead of refusing or web-searching.",
+    // Caveats — array of structured records, not a flat object.
+    // Each carries `type`, `human_message` (a one-sentence
+    // explanation an LLM can quote verbatim), `data_present` (did
+    // we have data we could have shown but suppressed?), and an
+    // optional `data_url` pointing at the endpoint where the agent
+    // can fetch any suppressed data themselves. Per the
+    // 2026-05-04 transparency rule: never hide a fact behind a
+    // caveat — give the agent a pointer instead.
+    let topics_empty = topics.is_empty();
+    let origin_for_links = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let mut caveats: Vec<JsonValue> = vec![
+        json!({
+            "type":          "grid_resolution",
+            "human_message": "cell64 is roughly 10 m by 10 m at the equator (matching Sentinel-1/Sentinel-2 native pitch). Above the equator the longitudinal pitch narrows with cos(lat) so cells become taller than wide; the spec target is a 3.4 m equal-area H3 hex which is not yet active.",
+            "data_present":  true,
+            "data_url":      format!("{origin_for_links}/v1/grid_info"),
+        }),
+        json!({
+            "type":          "satellite_revisit_typical",
+            "human_message": "Sentinel-1 has a 6-12 day revisit and Sentinel-2 about 5 days combined; short-duration urban flash events between revisits are not captured by the satellite bands. Check weather.precipitation_mm for the now-cast.",
+            "data_present":  true,
+            // /v1/cells/{cell64} returns every band including weather.*;
+            // the agent slices to weather.precipitation_mm in their reply.
+            "data_url":      format!("{origin_for_links}/v1/cells/{cell}"),
+        }),
+    ];
+    // Only emit the "out of scope" caveat when the topic router
+    // matched nothing AND no band data landed via either fall-through
+    // path (inventory walk in `band_observations[]`, raw snapshot in
+    // `facts.facts[]`). The 2026-05-04 air-quality case proved the
+    // unconditional version was misleading: cams.* facts were live
+    // and signed at the cell via the inventory path even though
+    // topic_router returned []. Suppress the caveat whenever the
+    // response actually carries data — surface only when truly empty.
+    if topics_empty && band_observations.is_empty() && recall_resp.facts.is_empty() {
+        // Topic router matched nothing. We still ship a topic→bands
+        // and topic→algorithms inventory below in `inventory` so the
+        // agent can route by hand — surface that pointer here too.
+        caveats.push(json!({
+            "type":          "out_of_scope_when_topic_null",
+            "human_message": "The topic router matched no topic for this question, so no algorithm or band fan-out ran. Pick a topic from the inventory below (or call /v1/topics) that matches the user's intent and call /v1/recall directly.",
+            "data_present":  false,
+            "data_url":      format!("{origin_for_links}/v1/topics"),
+        }));
+    }
+    if algorithm_outcomes.is_empty() && !topics_empty {
+        // Topics matched but no algorithm produced an outcome.
+        // Either no algorithm has an `evaluation` AST (the air
+        // quality / weather case) or every AST hit a missing input.
+        // Tell the agent honestly and point at where the raw
+        // observations live in the same response.
+        caveats.push(json!({
+            "type":          "no_algorithm_outcome_for_matched_topics",
+            "human_message": "The topic router matched topic(s) but no algorithm produced a quantitative outcome. Either no matched algorithm ships an `evaluation` AST yet, or every AST hit a missing input. The raw signed observations the matched topics own are available in the `band_observations[]` array below — quote those directly.",
+            "data_present":  !band_observations.is_empty(),
+            "data_url":      format!("{origin_for_links}/v1/cells/{cell}"),
+        }));
+    }
+
+    // Topic-routing envelope — surfaces the full routing fan-out per
+    // topic (score + via + bands + algorithms). Per max-data: do NOT
+    // truncate to top-K below the displayed cap; show every topic
+    // above the threshold so the agent (and humans debugging) can see
+    // the alternatives the router considered.
+    let router = topic_router::TopicRouter::global();
+    let topic_matches = router.route(&req.q);
+    let topics_matched_full: Vec<JsonValue> = topic_matches
+        .iter()
+        .map(|m| {
+            json!({
+                "key":        m.key,
+                "score":      m.score,
+                "via":        m.via,
+                "bands":      router.bands_for_topic(&m.key),
+                "algorithms": router.algorithms_for_topic(&m.key),
+            })
+        })
+        .collect();
+    let topic_routing = json!({
+        "matched_topics":   topics,
+        "matched_keywords": matched_keywords(&req.q),
+        "out_of_scope":     topics_empty,
+        "routing": {
+            "method":         router.backend_name(),
+            "threshold":      std::env::var("EMEM_TOPIC_THRESHOLD").ok()
+                                .and_then(|s| s.parse::<f32>().ok())
+                                .or_else(|| router.registry().routing.as_ref()
+                                    .and_then(|p| p.threshold))
+                                .unwrap_or(0.35),
+            "topics_matched": topics_matched_full,
+        },
+        "_explanation":     "Topics route via the topic registry (`crates/emem-core/data/topics-v0.json`). Default backend is the static-distillation sentence-transformer (`minishlab/potion-base-8M`) — each topic's `description + aliases` is embedded once at startup; the question is embedded at query time and matched by cosine similarity above the registry's configured threshold (default 0.35). Falls back to substring search over `aliases[] + key` when the model can't be loaded (offline / `EMEM_TOPIC_BACKEND=keyword`). Reproducible: same model file + same topic registry CID = same routing across responders.",
     });
 
-    let topics_empty = topics.is_empty();
+    // Serialize the recall snapshot, then enrich with
+    // `signer_pubkey_b32` (per fact) + `responder_pubkey_b32` (on
+    // the receipt) so an LLM can read/quote the signer without
+    // re-encoding the raw 32-byte arrays. Bytes are kept for
+    // byte-for-byte verification.
+    let mut facts_json = serde_json::to_value(&recall_resp).unwrap_or(json!({}));
+    enrich_recall_signer_b32(&mut facts_json);
+
     let mut body = json!({
         "schema":         "emem.ask.v1",
         "question":       req.q,
         "place_resolved": place_resolved,
-        "topic_routing": {
-            "matched_topics":   topics,
-            "matched_keywords": matched_keywords(&req.q),
-            "out_of_scope":     topics_empty,
-            "_explanation":     "Topics route via the topic registry (`crates/emem-core/data/topics-v0.json`). Default backend is the static-distillation sentence-transformer (`minishlab/potion-base-8M`) — each topic's `description + aliases` is embedded once at startup; the question is embedded at query time and matched by cosine similarity above the registry's configured threshold (default 0.35). Falls back to substring search over `aliases[] + key` when the model can't be loaded (offline / `EMEM_TOPIC_BACKEND=keyword`). Reproducible: same model file + same topic registry CID = same routing across responders.",
-        },
-        "facts":                   serde_json::to_value(&recall_resp).unwrap_or(json!({})),
+        "topic_routing":  topic_routing,
+        "facts":                   facts_json,
         "algorithms_for_question": algorithms_for_question,
         "algorithms_cid":          alg_cid,
         // Per-algorithm temporal composition. Empty array when no
@@ -15256,10 +16420,19 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         // snapshot recall. Empty array when no matched algorithm
         // ships an `evaluation` field. Each entry carries
         // `algorithm_key`, `value` (or `null` + `skip_reason`),
-        // `input_fact_cids[]`, and `evaluation_via: "ast"`.
-        // Additive sibling — readers that ignore this field
-        // continue to work.
+        // `input_fact_cids[]`, `inputs_with_provenance{}`, and
+        // `evaluation_via: "ast"`. Additive sibling — readers
+        // that ignore this field continue to work.
         "algorithm_outcomes":      algorithm_outcomes,
+        // 2026-05-04 transparency push — per-band raw signed
+        // observations for every band one of the matched topics
+        // claims. Always emitted (per the max-data rule) so an
+        // agent has a quantitative answer even when no algorithm
+        // has an `evaluation` AST. One entry per (topic, band)
+        // pairing carrying value + unit + fact_cid + signed_at +
+        // sources + derivation_fn_key, plus a `data_url` so the
+        // agent can re-fetch via /v1/recall.
+        "band_observations":       band_observations,
         "scene":                   scene,
         "caveats":                 caveats,
     });
@@ -15466,20 +16639,31 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         polygon_source = Some("nominatim_boundingbox");
                     }
                 }
-                // Build alternatives from hits[1..] so the agent can
-                // disambiguate without a second HTTP round-trip.
-                for alt in hits.iter().skip(1) {
+                // Surface the FULL ranked candidate list — including the
+                // chosen-first hit at rank 0 — so an LLM can audit which
+                // disambiguation we picked and override it cheaply when
+                // the user clarifies (e.g. "Springfield, IL not MO").
+                // Each carries osm_id + osm_type so an external client
+                // can look the feature up directly in OSM.
+                for (rank, alt) in hits.iter().enumerate() {
                     let alt_cell =
                         emem_codec::to_cell64(emem_codec::cell_from_latlng(alt.lat, alt.lng));
+                    let alt_bbox = alt.bbox.map(|(s, n, w, e)| {
+                        json!({"min_lat": s, "max_lat": n, "min_lng": w, "max_lng": e})
+                    }).unwrap_or(JsonValue::Null);
                     alternatives.push(json!({
-                        "cell64":     alt_cell,
-                        "lat":        alt.lat,
-                        "lng":        alt.lng,
-                        "label":      alt.label,
-                        "osm_type":   alt.osm_type,
-                        "class":      alt.class_,
-                        "type":       alt.type_,
-                        "importance": alt.importance,
+                        "rank":        rank,
+                        "is_selected": rank == 0,
+                        "cell64":      alt_cell,
+                        "lat":         alt.lat,
+                        "lng":         alt.lng,
+                        "label":       alt.label,
+                        "osm_type":    alt.osm_type,
+                        "osm_id":      alt.osm_id,
+                        "class":       alt.class_,
+                        "type":        alt.type_,
+                        "importance":  alt.importance,
+                        "bbox_deg":    alt_bbox,
                     }));
                 }
                 (hit.lat, hit.lng, Some(hit.label))
@@ -15655,19 +16839,25 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             "GET  /v1/grid_info  — actual vs spec-target resolution",
         ],
     });
-    // Surface alternatives only when the geocoder layer produced more
-    // than one candidate; keep the response minimal on the common
-    // unambiguous path so agents don't pay tokens for empty arrays.
-    if !alternatives.is_empty() {
+    // Surface the FULL ranked candidate list (including the chosen
+    // rank-0 hit, marked `is_selected: true`). Previous behaviour
+    // skipped index 0, leaving an LLM unable to verify which
+    // candidate the responder picked. Keep the response minimal on the
+    // unambiguous single-result path by emitting only when >1 alternative.
+    if alternatives.len() > 1 {
         if let Some(m) = body.as_object_mut() {
             m.insert("alternatives".into(), JsonValue::Array(alternatives));
-            m.insert("disambiguation_hint".into(), json!(
-                "Multiple matches for this name. The chosen result is in `cell64`/`place_label`/`centre`; \
-                 ranked alternatives (by Nominatim importance) are in `alternatives`. \
-                 If the chosen one isn't what the user meant, re-query with a more specific \
-                 string (add country, region, or feature type) or call /v1/locate with \
-                 lat/lng of the alternative you want."
-            ));
+            m.insert(
+                "disambiguation_hint".into(),
+                json!(
+                "Multiple matches for this name. The chosen result is rank 0 in `alternatives` \
+                 (also surfaced at the top level under `cell64`/`place_label`/`centre`). \
+                 Each alternative carries `osm_id` + `osm_type` for direct OSM lookup, \
+                 plus `bbox_deg` so an agent can re-query a specific candidate without a \
+                 second round-trip. To pick a different alternative, call /v1/locate again \
+                 with its `lat`/`lng` (or pass a more specific name like 'Springfield, IL')."
+            ),
+            );
         }
     }
     Ok(Json(body))
@@ -15902,6 +17092,28 @@ fn embedded_gazetteer_lookup(query: &str) -> Option<(f64, f64, String)> {
     None
 }
 
+/// Reverse-lookup the embedded gazetteer for the closest known label
+/// to a (lat, lng). Returns the label only when within ~25 km of an
+/// entry — beyond that a "place name" would be misleading. Cheap
+/// linear scan over <500 entries; called sparingly (find_similar
+/// neighbour decode, polygon centroids).
+fn embedded_gazetteer_reverse_lookup(lat: f64, lng: f64) -> Option<String> {
+    if !lat.is_finite() || !lng.is_finite() {
+        return None;
+    }
+    let mut best: Option<(f64, &str)> = None;
+    for (_, lat0, lng0, label) in GAZETTEER {
+        // Equirectangular distance; good enough for a 25 km gate.
+        let dlat = (lat - *lat0) * 111.0;
+        let dlng = (lng - *lng0) * 111.0 * lat0.to_radians().cos().abs();
+        let d = (dlat * dlat + dlng * dlng).sqrt();
+        if best.as_ref().map(|(b, _)| d < *b).unwrap_or(true) {
+            best = Some((d, label));
+        }
+    }
+    best.and_then(|(d, label)| (d <= 25.0).then(|| label.to_string()))
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct CachedPlace {
     lat: f64,
@@ -16055,6 +17267,11 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
         };
         let label = item["display_name"].as_str().unwrap_or("").to_string();
         let osm_type = item["osm_type"].as_str().unwrap_or("").to_string();
+        let osm_id = item["osm_id"]
+            .as_i64()
+            .map(|i| i.to_string())
+            .or_else(|| item["osm_id"].as_str().map(|s| s.to_string()))
+            .unwrap_or_default();
         let class_ = item["class"].as_str().unwrap_or("").to_string();
         let type_ = item["type"].as_str().unwrap_or("").to_string();
         let importance = item["importance"].as_f64().unwrap_or(0.0);
@@ -16075,6 +17292,7 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
             label,
             bbox,
             osm_type,
+            osm_id,
             class_,
             type_,
             importance,
@@ -16198,12 +17416,18 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             "leisure" | "amenity" => 0.4,
             _ => 0.3,
         };
+        let osm_id = props["osm_id"]
+            .as_i64()
+            .map(|i| i.to_string())
+            .or_else(|| props["osm_id"].as_str().map(|s| s.to_string()))
+            .unwrap_or_default();
         out.push(NominatimHit {
             lat,
             lng,
             label,
             bbox,
             osm_type,
+            osm_id,
             class_: osm_key.to_string(),
             type_: osm_value.to_string(),
             importance,
@@ -16231,6 +17455,9 @@ struct NominatimHit {
     bbox: Option<(f64, f64, f64, f64)>,
     /// "node" / "way" / "relation" — feature kind in OSM.
     osm_type: String,
+    /// OSM object id when the source provides one (Nominatim always does;
+    /// Photon does for non-synthetic features). Empty string when absent.
+    osm_id: String,
     /// OSM tag class (boundary, place, natural, leisure, …).
     class_: String,
     /// OSM tag type (administrative, peak, water, park, …).
