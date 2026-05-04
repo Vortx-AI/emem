@@ -16640,7 +16640,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
                                 .unwrap_or(0.35),
             "topics_matched": topics_matched_full,
         },
-        "_explanation":     "Topics route via the topic registry (`crates/emem-core/data/topics-v0.json`). Default backend is the static-distillation sentence-transformer (`minishlab/potion-base-8M`) — each topic's `description + aliases` is embedded once at startup; the question is embedded at query time and matched by cosine similarity above the registry's configured threshold (default 0.35). Falls back to substring search over `aliases[] + key` when the model can't be loaded (offline / `EMEM_TOPIC_BACKEND=keyword`). Reproducible: same model file + same topic registry CID = same routing across responders.",
+        "_explanation":     "Topics route via the topic registry (`crates/emem-core/data/topics-v0.json`). Default backend (since 2026-05-04) is direct `ort` 2.x + `tokenizers` BERT inference using `BAAI/bge-base-en-v1.5` (110 M params, 768-D, MTEB ~63), CLS-pooled and L2-normalised. Each topic's `description + aliases` is embedded once at startup; the question is embedded at query time and matched by cosine similarity above the registry's threshold (default 0.35). A keyword pre-pass over the same `aliases[]` runs first so exact-match nouns always surface. Fallbacks: `model2vec/potion-base-8M` (when ORT can't load), then `keyword` (substring search only). Backend in use is reported per-call as `topic_routing.routing.method`. Reproducible: same model file + same topic registry CID = same routing across responders.",
     });
 
     // Serialize the recall snapshot, then enrich with

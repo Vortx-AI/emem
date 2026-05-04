@@ -15,6 +15,48 @@
 
 ## What your user might ask → what to call → what to cite
 
+The shortest path for any free-text question is `emem_ask({q, place})`
+— it does locate → topic-route → recall → algorithm fan-out and
+returns signed `facts[]` + `algorithms_for_question[]` in one call.
+Use the explicit recall path only when you already have a cell64
+or want a specific band.
+
+These examples all PASS the live 51-question evaluation
+(`docs/EVAL_2026_05_04.md`). Topic routing is `BAAI/bge-base-en-v1.5`
+via direct `ort` 2.x — backend reported per-call as
+`topic_routing.routing.method`.
+
+| Domain      | Sample free-text question                          | One-call wrapper                                                                  | Routes to (top topics)                                |
+|-------------|----------------------------------------------------|-----------------------------------------------------------------------------------|--------------------------------------------------------|
+| health      | "air quality in new delhi today"                   | `emem_ask({q, place:"New Delhi"})`                                                | `public_health`, `weather_now`                         |
+| health      | "wildfire smoke risk los angeles"                  | `emem_ask({q, place:"Los Angeles"})`                                              | `fire_burn_severity`, `public_health`                  |
+| property    | "flood risk for a property in houston"             | `emem_ask({q, place:"Houston, Texas"})`                                           | `flood_risk_composite`, `real_estate`                  |
+| property    | "walkability score for soho manhattan"             | `emem_ask({q, place:"SoHo, Manhattan"})`                                          | `urban_livability`, `real_estate`                      |
+| calamity    | "recent flood damage pakistan sindh"               | `emem_ask({q, place:"Sindh, Pakistan"})`                                          | `flood_history_long_term`, `flood_water_event_window`  |
+| calamity    | "storm surge risk new orleans"                     | `emem_ask({q, place:"New Orleans"})`                                              | `flood_risk_composite`, `real_estate`                  |
+| carbon      | "carbon stock in the amazon basin"                 | `emem_ask({q, place:"Manaus, Brazil"})`                                           | `carbon_credits`, `esg`                                |
+| carbon      | "mangrove carbon density sundarbans"               | `emem_ask({q, place:"Sundarbans, India"})`                                        | `carbon_credits`, `esg`                                |
+| esg         | "biodiversity index western ghats india"           | `emem_ask({q, place:"Coorg, Karnataka"})`                                         | `esg`, `vegetation_condition`                          |
+| esg         | "environmental risk textile factory tirupur"       | `emem_ask({q, place:"Tirupur, Tamil Nadu"})`                                      | `esg`, `public_health`                                 |
+| agriculture | "crop stress in punjab india"                      | `emem_ask({q, place:"Ludhiana, Punjab"})`                                         | `agriculture`, `vegetation_condition`                  |
+| agriculture | "ndvi of corn fields nebraska"                     | `emem_ask({q, place:"Lincoln, Nebraska"})`                                        | `vegetation_condition`, `optical_raw_reflectance`      |
+| forest      | "tropical deforestation rate brazil"               | `emem_ask({q, place:"Rondônia, Brazil"})`                                         | `esg`, `carbon_credits`, `vegetation_condition`        |
+| forest      | "fire scars in yellowstone"                        | `emem_ask({q, place:"Yellowstone, Wyoming"})`                                     | `fire_burn_severity`, `vegetation_condition`           |
+| water       | "lake mead water level"                            | `emem_ask({q, place:"Lake Mead, Nevada"})`                                        | `flood_water_event_window`, `elevation_land_only`      |
+| water       | "surface water in chad basin"                      | `emem_ask({q, place:"Lake Chad"})`                                                | `flood_water_event_window`, `flood_history_long_term`  |
+| urban       | "urban heat island phoenix"                        | `emem_ask({q, place:"Phoenix, Arizona"})`                                         | `urban_livability`, `public_health`                    |
+| urban       | "road density central lagos"                       | `emem_ask({q, place:"Lagos Island, Nigeria"})`                                    | `built_up_human_geography`, `urban_livability`         |
+| climate     | "snow cover trend hindu kush"                      | `emem_ask({q, place:"Kabul, Afghanistan"})`                                       | `snow`, `vegetation_condition`                         |
+| climate     | "sea surface temperature off cape town"            | `emem_ask({q, place:"Cape Town"})`                                                | `weather_now`, `elevation_global_topobathy`            |
+
+In every response: cite `receipt.fact_cids[0]` (truncated 13-char prefix)
+and mention `responder_pubkey_b32` once per session. The
+`algorithms_for_question[]` array tells you which composition recipes
+fired (`crop_stress_score@1`, `flood_risk@2`, `aqi_class@1`, etc.) so
+you don't have to invent the fan-out.
+
+## Direct-recall examples (when you already have the cell64 or band)
+
 | User question                                       | Tool call                                                                                | Cite                            |
 |-----------------------------------------------------|------------------------------------------------------------------------------------------|---------------------------------|
 | "Is the air bad in Delhi right now?"                | `emem_locate({q:"Delhi"})` then `emem_recall({cell, bands:["cams.pm25"]})`               | receipt.fact_cids[0]            |

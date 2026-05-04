@@ -53,3 +53,4 @@ notes/
 
 # fastembed-rs ONNX model cache (HF hub mirror, ~400 MB)
 .fastembed_cache/
+scripts/eval/results/q*.json

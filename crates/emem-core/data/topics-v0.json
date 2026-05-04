@@ -9,16 +9,15 @@
     "max_topics_per_question": 5,
     "fallback_when_offline": "substring search over aliases[] and key",
     "_backends": {
-      "fastembed": "default. ONNX-runtime sentence transformer (BAAI/bge-base-en-v1.5, 110 M params, 768-D, MTEB ~63). Loads CUDA EP on the A100 via ORT_DYLIB_PATH if libonnxruntime is CUDA-enabled (~1-2 ms per query); CPU EP otherwise (~12-18 ms).",
-      "model2vec": "fallback. Static-distillation token-lookup embedder (minishlab/potion-base-8M, 256-D, ~32 MB, sub-µs per query, no ONNX dep). Selected automatically when fastembed cannot load.",
-      "keyword": "deterministic substring search over aliases[] + key. No model. Selected by EMEM_TOPIC_BACKEND=keyword for unit tests / air-gapped builds."
+      "ort": "default (since 2026-05-04). Direct `ort` 2.x + `tokenizers` BERT inference using BAAI/bge-base-en-v1.5 (110 M params, 768-D, MTEB ~63). Reads tokenizer.json + model.onnx from EMEM_TOPIC_MODEL_DIR (default <EMEM_DATA>/models/bge-base-en-v1.5/). CLS-pooled, L2-normalised. ~110 ms warm /v1/ask end-to-end on CPU. GPU off by default — the bundled CPU runtime is fast enough for a 25-topic registry; CUDA dylib re-enable via EMEM_TOPIC_USE_GPU=1 + a working libonnxruntime.so.",
+      "model2vec": "fallback. Static-distillation token-lookup embedder (minishlab/potion-base-8M, 256-D, ~32 MB, sub-µs per query, no ONNX dep). Selected automatically when ort cannot load. Also the EMEM_TOPIC_BACKEND=transformer alias.",
+      "keyword": "deterministic substring search over aliases[] + key. No model. Selected by EMEM_TOPIC_BACKEND=keyword for unit tests / air-gapped builds. Also runs as a precision pre-pass in front of ort and model2vec so exact-match nouns always surface even when the cosine score is below threshold."
     },
     "env_overrides": {
-      "EMEM_TOPIC_MODEL": "override the model id (default BAAI/bge-base-en-v1.5; alternates: BAAI/bge-{small,large}-en-v1.5, nomic-ai/nomic-embed-text-v1.5, intfloat/multilingual-e5-small, sentence-transformers/all-MiniLM-L6-v2)",
+      "EMEM_TOPIC_BACKEND": "ort (default) | model2vec | keyword. Legacy aliases `fastembed`→`ort` and `transformer`→`model2vec` still resolve.",
+      "EMEM_TOPIC_MODEL_DIR": "where the ort backend reads tokenizer.json and model.onnx from (default <EMEM_DATA>/models/bge-base-en-v1.5/)",
       "EMEM_TOPIC_THRESHOLD": "override the cosine threshold (default 0.35)",
-      "EMEM_TOPIC_BACKEND": "fastembed (default) | model2vec | keyword",
-      "ORT_DYLIB_PATH": "path to the libonnxruntime.so the fastembed backend dlopen()s; the systemd unit ships /opt/onnxruntime-1.22.0-cuda12 (CUDA-enabled, A100)",
-      "EMEM_DATA": "fastembed cache root (model files land at <EMEM_DATA>/models/fastembed/<model-id>/)"
+      "EMEM_TOPIC_USE_GPU": "set to 1 to attempt CUDAExecutionProvider for the ort backend; needs a working libonnxruntime.so (today the bundled CPU runtime is what we use)"
     }
   },
   "topics": [
@@ -180,7 +179,19 @@
         "humidity",
         "what's the weather",
         "is it cloudy",
-        "live weather"
+        "live weather",
+        "wind energy potential",
+        "wind power potential",
+        "renewable wind resource",
+        "temperature trend",
+        "precipitation deficit",
+        "rainfall shortage",
+        "drought conditions",
+        "sea surface temperature",
+        "groundwater depletion",
+        "groundwater table",
+        "river discharge",
+        "streamflow"
       ],
       "bands": ["weather.temperature_2m", "weather.cloud_cover", "weather.precipitation_mm", "weather.wind_speed_10m"],
       "algorithms": ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1", "weather_summary@1", "heat_equation_2d@1"]

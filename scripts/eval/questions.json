@@ -1,0 +1,62 @@
+[
+  {"id":1,"domain":"health","q":"what is the air quality in new delhi today","place":"New Delhi, India","expect":["public_health"]},
+  {"id":2,"domain":"health","q":"heat stroke risk in phoenix this week","place":"Phoenix, Arizona","expect":["public_health","weather_now","urban_livability"]},
+  {"id":3,"domain":"health","q":"pm2.5 pollution exposure beijing","place":"Beijing, China","expect":["public_health"]},
+  {"id":4,"domain":"health","q":"wildfire smoke risk los angeles","place":"Los Angeles, California","expect":["fire_burn_severity","public_health"]},
+  {"id":5,"domain":"health","q":"pm2.5 levels lahore pakistan","place":"Lahore, Pakistan","expect":["public_health"]},
+
+  {"id":6,"domain":"property","q":"flood risk for a property in houston","place":"Houston, Texas","expect":["flood_risk_composite","flood_water_event_window","flood_history_long_term","real_estate","topography"]},
+  {"id":7,"domain":"property","q":"walkability score for soho manhattan","place":"SoHo, Manhattan, New York","expect":["urban_livability","built_up_human_geography","real_estate"]},
+  {"id":8,"domain":"property","q":"land subsidence in jakarta","place":"Jakarta, Indonesia","expect":["topography","elevation_global_topobathy","elevation_land_only"]},
+  {"id":9,"domain":"property","q":"coastal erosion miami beach","place":"Miami Beach, Florida","expect":["topography","elevation_global_topobathy"]},
+  {"id":10,"domain":"property","q":"building density tokyo shibuya","place":"Shibuya, Tokyo, Japan","expect":["built_up_human_geography","urban_livability","real_estate"]},
+
+  {"id":11,"domain":"calamity","q":"recent flood damage pakistan sindh","place":"Sindh, Pakistan","expect":["flood_water_event_window","flood_history_long_term","flood_risk_composite","parametric_insurance"]},
+  {"id":12,"domain":"calamity","q":"active wildfire risk northern california","place":"Sacramento, California","expect":["fire_burn_severity","public_health"]},
+  {"id":13,"domain":"calamity","q":"drought severity cape town","place":"Cape Town, South Africa","expect":["weather_now","agriculture","parametric_insurance"]},
+  {"id":14,"domain":"calamity","q":"cyclone path bangladesh","place":"Chittagong, Bangladesh","expect":["weather_now","parametric_insurance"]},
+  {"id":15,"domain":"calamity","q":"burned area near athens greece","place":"Athens, Greece","expect":["fire_burn_severity"]},
+  {"id":16,"domain":"calamity","q":"storm surge risk new orleans","place":"New Orleans, Louisiana","expect":["topography","flood_risk_composite","flood_water_event_window","elevation_global_topobathy"]},
+
+  {"id":17,"domain":"carbon","q":"carbon stock in the amazon basin","place":"Manaus, Brazil","expect":["carbon_credits","vegetation_condition"]},
+  {"id":18,"domain":"carbon","q":"co2 emissions hotspots over shanghai","place":"Shanghai, China","expect":["public_health","esg","built_up_human_geography"]},
+  {"id":19,"domain":"carbon","q":"tree cover loss indonesia 2023","place":"Sumatra, Indonesia","expect":["carbon_credits","vegetation_condition","esg"]},
+  {"id":20,"domain":"carbon","q":"soil organic carbon great plains","place":"Lincoln, Nebraska","expect":["soil_intelligence","carbon_credits","agriculture"]},
+  {"id":21,"domain":"carbon","q":"mangrove carbon density sundarbans","place":"Sundarbans, India","expect":["carbon_credits","vegetation_condition"]},
+
+  {"id":22,"domain":"esg","q":"biodiversity index western ghats india","place":"Coorg, Karnataka, India","expect":["esg","vegetation_condition","carbon_credits"]},
+  {"id":23,"domain":"esg","q":"environmental risk textile factory tirupur","place":"Tirupur, Tamil Nadu, India","expect":["esg","public_health"]},
+  {"id":24,"domain":"esg","q":"land use change near tesla gigafactory berlin","place":"Grünheide, Brandenburg, Germany","expect":["esg","vegetation_condition","built_up_human_geography","scene_classification"]},
+  {"id":25,"domain":"esg","q":"water stress for cotton farms in punjab","place":"Bathinda, Punjab, India","expect":["agriculture","esg","weather_now"]},
+  {"id":26,"domain":"esg","q":"emissions impact zone around mumbai port","place":"Mumbai Port, India","expect":["esg","public_health"]},
+
+  {"id":27,"domain":"agriculture","q":"wheat crop health indiana","place":"Lafayette, Indiana","expect":["agriculture","vegetation_condition"]},
+  {"id":28,"domain":"agriculture","q":"irrigation demand rice paddies vietnam","place":"Mekong Delta, Vietnam","expect":["agriculture","vegetation_condition","weather_now"]},
+  {"id":29,"domain":"agriculture","q":"soil organic carbon iowa","place":"Des Moines, Iowa","expect":["soil_intelligence","agriculture","carbon_credits"]},
+  {"id":30,"domain":"agriculture","q":"crop stress in punjab india","place":"Ludhiana, Punjab, India","expect":["agriculture","vegetation_condition"]},
+  {"id":31,"domain":"agriculture","q":"ndvi of corn fields nebraska","place":"Lincoln, Nebraska","expect":["agriculture","vegetation_condition"]},
+  {"id":32,"domain":"agriculture","q":"olive grove vigor andalusia spain","place":"Sevilla, Spain","expect":["agriculture","vegetation_condition"]},
+
+  {"id":33,"domain":"forest","q":"forest canopy cover borneo","place":"Kalimantan, Indonesia","expect":["vegetation_condition","carbon_credits"]},
+  {"id":34,"domain":"forest","q":"fire scars in yellowstone","place":"Yellowstone, Wyoming","expect":["fire_burn_severity","vegetation_condition"]},
+  {"id":35,"domain":"forest","q":"tropical deforestation rate brazil","place":"Rondônia, Brazil","expect":["vegetation_condition","carbon_credits","esg"]},
+  {"id":36,"domain":"forest","q":"boreal forest health siberia","place":"Yakutsk, Russia","expect":["vegetation_condition","carbon_credits"]},
+  {"id":37,"domain":"forest","q":"reforestation progress ethiopia tigray","place":"Mekele, Ethiopia","expect":["vegetation_condition","carbon_credits"]},
+
+  {"id":38,"domain":"water","q":"lake mead water level","place":"Lake Mead, Nevada","expect":["flood_history_long_term","topography","weather_now"]},
+  {"id":39,"domain":"water","q":"groundwater depletion in punjab","place":"Patiala, Punjab, India","expect":["agriculture","weather_now"]},
+  {"id":40,"domain":"water","q":"surface water in chad basin","place":"Lake Chad, Chad","expect":["flood_history_long_term","flood_water_event_window","topography"]},
+  {"id":41,"domain":"water","q":"coastal water turbidity off mumbai","place":"Mumbai coast, India","expect":["topography","optical_raw_reflectance","scene_classification"]},
+  {"id":42,"domain":"water","q":"river discharge ganges varanasi","place":"Varanasi, India","expect":["weather_now","flood_history_long_term"]},
+
+  {"id":43,"domain":"urban","q":"urban heat island phoenix","place":"Phoenix, Arizona","expect":["urban_livability","public_health","built_up_human_geography"]},
+  {"id":44,"domain":"urban","q":"solar pv potential rooftops berlin","place":"Berlin, Germany","expect":["built_up_human_geography","weather_now","urban_livability"]},
+  {"id":45,"domain":"urban","q":"road density central lagos","place":"Lagos Island, Nigeria","expect":["built_up_human_geography","urban_livability"]},
+  {"id":46,"domain":"urban","q":"building footprints doha qatar","place":"Doha, Qatar","expect":["built_up_human_geography","urban_livability"]},
+
+  {"id":47,"domain":"climate","q":"temperature trend sahel","place":"Niamey, Niger","expect":["weather_now","agriculture"]},
+  {"id":48,"domain":"climate","q":"precipitation deficit east africa","place":"Nairobi, Kenya","expect":["weather_now","agriculture","parametric_insurance"]},
+  {"id":49,"domain":"climate","q":"wind energy potential west texas","place":"Midland, Texas","expect":["weather_now"]},
+  {"id":50,"domain":"climate","q":"snow cover trend hindu kush","place":"Kabul, Afghanistan","expect":["snow","weather_now","topography"]},
+  {"id":51,"domain":"climate","q":"sea surface temperature off cape town","place":"Cape Town, South Africa","expect":["weather_now","optical_raw_reflectance"]}
+]

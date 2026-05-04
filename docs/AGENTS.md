@@ -123,9 +123,16 @@ a hand-rolled fan-out:
   the agent issuing 3 follow-up calls.
 
 Topic routing for the natural-language `q` field uses a content-
-addressed `TopicRegistry` (`topics_cid` on `/v1/manifests`) with
-sub-millisecond cosine match via model2vec-rs. Pin the `topics_cid`
-in your receipt if you need to reproduce the routing decision later.
+addressed `TopicRegistry` (`topics_cid` on `/v1/manifests`). Backend
+since 2026-05-04 is direct `ort` 2.x + `tokenizers` BERT inference on
+`BAAI/bge-base-en-v1.5` (110 M params, 768-D, MTEB ~63), CLS-pooled
++ L2-normalised — same backend an agent can verify per-call via
+`topic_routing.routing.method` in the response. A keyword pre-pass
+runs first so exact-noun matches always surface. Falls back to
+`model2vec/potion-base-8M` (256-D, sub-µs, no ONNX) if ORT can't
+load. Pin the `topics_cid` in your receipt if you need to reproduce
+the routing decision later — same registry CID + same model file =
+same matched topics.
 
 ---
 
