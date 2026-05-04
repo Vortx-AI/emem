@@ -18,38 +18,46 @@
 //!     `lib.rs`). The router is the kind of thing that should be
 //!     data-driven, and now it is.
 //!
-//! Why **model2vec** specifically:
+//! Three switchable backends:
 //!
-//!   - Pure Rust inference (no ONNX/torch C++ runtime). The base
-//!     model is distilled into a token-level lookup table, so a
-//!     "forward pass" is sum-and-normalise over token vectors —
-//!     ~50 µs per short question on CPU. No GPU. No ort. No onnxruntime
-//!     binary.
-//!   - Tiny model (`potion-base-8M` is ~32 MB on disk, 256-D
-//!     embeddings) — comparable to a single S2 tile, much smaller
-//!     than the responder binary itself.
-//!   - Same embedding contract as a sentence-transformer: cosine on
-//!     normalised vectors. Drop-in upgrade path to a heavier model
-//!     later via `EMEM_TOPIC_MODEL`.
+//!   1. **`ort`** (default since 2026-05-04 — replacing the
+//!      fastembed-rs wrapper that deadlocked on session create on
+//!      this host) — direct `ort` 2.x + `tokenizers` BERT inference.
+//!      Loads a `tokenizer.json` + `model.onnx` pair from
+//!      `EMEM_TOPIC_MODEL_DIR` (default
+//!      `<EMEM_DATA>/models/bge-base-en-v1.5/`). Default model is
+//!      `BAAI/bge-base-en-v1.5` (110 M params, 768-D, MTEB ~63);
+//!      pooling is CLS, output is L2-normalised. Microsoft's bundled
+//!      CPU ORT (vendored via the `download-binaries` ort feature)
+//!      runs the 25-topic centroid pass in ~50 ms total. GPU re-enable
+//!      goes through a known-good libonnxruntime — the
+//!      /opt/onnxruntime-1.22.0-cuda12 build deadlocks on session
+//!      create on this host (verified with isolated /tmp/orttest).
+//!
+//!   2. **`model2vec`** — pure-Rust static-distillation token-lookup
+//!      embedder, `minishlab/potion-base-8M`, 256-D, ~32 MB, sub-µs
+//!      per question, no ONNX dep. Used as the air-gapped /
+//!      no-libonnxruntime fallback.
+//!
+//!   3. **`keyword`** — substring search over `aliases[]` + topic
+//!      key. Used in unit tests, lib-only builds, and as the last-
+//!      resort fallback when both ort and model2vec fail to load.
 //!
 //! Configuration (env vars):
 //!
-//!   - `EMEM_TOPIC_MODEL` — Hugging Face repo or local path. Default
-//!     `minishlab/potion-base-8M`.
+//!   - `EMEM_TOPIC_BACKEND` — `ort` (default), `model2vec`,
+//!     or `keyword`. The legacy alias `transformer` resolves to
+//!     `model2vec`. The legacy alias `fastembed` resolves to `ort`
+//!     (we silently swapped the backend behind the same name on
+//!     2026-05-04).
+//!   - `EMEM_TOPIC_MODEL_DIR` — where the ort backend reads
+//!     `tokenizer.json` and `model.onnx` from. Default
+//!     `<EMEM_DATA>/models/bge-base-en-v1.5/`.
 //!   - `EMEM_TOPIC_THRESHOLD` — cosine threshold below which a topic
-//!     is discarded. Default `0.35` (tuned against the topic corpus).
-//!   - `EMEM_TOPIC_BACKEND` — `transformer` (default) or `keyword`.
-//!     Set to `keyword` to skip the model load entirely (useful for
-//!     unit tests, embedded responders, or air-gapped builds). The
-//!     keyword backend does substring search over `aliases[]` + the
-//!     topic key itself.
-//!   - `EMEM_TOPIC_DATA_DIR` — where to cache the model files.
-//!     Defaults to `<EMEM_DATA>/models/` if `EMEM_DATA` is set, else
-//!     a system-default cache dir picked by `hf-hub`.
-//!
-//! The transformer load is **lazy** — the first `/v1/ask` call
-//! triggers the model download (~30 s on a fresh deploy, ~50 ms
-//! after that for warm cache). Subsequent calls are sub-millisecond.
+//!     is discarded. Default `0.35`.
+//!   - `EMEM_TOPIC_USE_GPU=1` — append `CUDAExecutionProvider` to the
+//!     ort session. Off by default because the CUDA-built
+//!     libonnxruntime on this host hangs at session create.
 
 use std::sync::OnceLock;
 
@@ -92,29 +100,30 @@ struct TopicRouterInner {
 }
 
 enum Backend {
-    /// Full ONNX-runtime sentence transformer (default backend since
-    /// 2026-05-04). Loads `BAAI/bge-base-en-v1.5` (110 M params,
-    /// 768-D, MTEB ~63) via fastembed-rs. Tries the CUDA execution
-    /// provider first when an NVIDIA GPU is reachable through
-    /// libonnxruntime at `ORT_DYLIB_PATH`; falls back to CPU EP
-    /// otherwise. Centroid + per-query inference take ~1-2 ms on the
-    /// A100, ~12-18 ms on CPU.
-    Fastembed {
-        model: std::sync::Arc<std::sync::Mutex<fastembed::TextEmbedding>>,
+    /// Direct `ort` 2.x + `tokenizers` BERT-style sentence embedder.
+    /// Loads `tokenizer.json` + `model.onnx` from a local directory.
+    /// Pooling is CLS-token (token 0 of `last_hidden_state`); output
+    /// is L2-normalised before being stored as a centroid. Default
+    /// model is `BAAI/bge-base-en-v1.5` (768-D). Centroid + per-
+    /// query inference take ~9 ms on CPU on the bundled Microsoft
+    /// ORT 1.22.
+    Ort {
+        session: std::sync::Arc<std::sync::Mutex<ort::session::Session>>,
+        tokenizer: std::sync::Arc<tokenizers::Tokenizer>,
         centroids: Vec<Vec<f32>>,
         model_id: String,
     },
     /// Static-distillation token-lookup fallback: `model2vec` /
     /// `potion-base-8M`, 256-D, ~32 MB, sub-µs per question, pure
-    /// Rust. Used when fastembed cannot load (no GPU + no CPU ORT
-    /// binary, or when `EMEM_TOPIC_BACKEND=model2vec`).
+    /// Rust. Used when ort cannot load or when
+    /// `EMEM_TOPIC_BACKEND=model2vec`.
     Transformer {
         model: std::sync::Arc<model2vec_rs::model::StaticModel>,
         centroids: Vec<Vec<f32>>,
     },
     /// Substring-search fallback: pre-lowercased aliases + key per
-    /// topic. Used when both fastembed and model2vec load fail, or
-    /// when `EMEM_TOPIC_BACKEND=keyword`.
+    /// topic. Used when both ort and model2vec load fail, or when
+    /// `EMEM_TOPIC_BACKEND=keyword`.
     Keyword { aliases_per_topic: Vec<Vec<String>> },
 }
 
@@ -142,12 +151,19 @@ impl TopicRouter {
             .unwrap_or(0.35);
         let max_topics: usize = policy.and_then(|p| p.max_topics_per_question).unwrap_or(5);
 
-        // Default = fastembed (ONNX runtime sentence transformer);
-        // `transformer` kept as an alias for the legacy model2vec
-        // path; `keyword` skips both for unit tests / air-gapped
-        // builds.
-        let want_backend =
-            std::env::var("EMEM_TOPIC_BACKEND").unwrap_or_else(|_| "fastembed".into());
+        // Default = ort (direct ort + tokenizers BERT inference).
+        // Aliases:
+        //   - `fastembed` resolves to `ort` (we replaced fastembed-rs
+        //     with direct ort calls on 2026-05-04 because the wrapper
+        //     deadlocked at session create on this host).
+        //   - `transformer` resolves to `model2vec` (legacy name).
+        //   - `keyword` skips both for unit tests / air-gapped builds.
+        let want_backend = std::env::var("EMEM_TOPIC_BACKEND").unwrap_or_else(|_| "ort".into());
+        let want_backend = match want_backend.as_str() {
+            "fastembed" => "ort".to_string(),
+            "transformer" => "model2vec".to_string(),
+            other => other.to_string(),
+        };
 
         if want_backend == "keyword" {
             tracing::info!(
@@ -157,14 +173,14 @@ impl TopicRouter {
             return TopicRouter::keyword_only(registry, threshold, max_topics);
         }
 
-        if want_backend == "fastembed" {
-            match TopicRouter::try_fastembed(&registry, threshold, max_topics) {
+        if want_backend == "ort" {
+            match TopicRouter::try_ort(&registry, threshold, max_topics) {
                 Ok(r) => return r,
                 Err(e) => {
                     tracing::warn!(
                         target: "emem::topic_router",
                         error = %e,
-                        "topic router: fastembed load failed; falling back to model2vec"
+                        "topic router: ort load failed; falling back to model2vec"
                     );
                 }
             }
@@ -224,104 +240,96 @@ impl TopicRouter {
         }
     }
 
-    /// Build a fastembed-backed router. Tries CUDA EP first when
-    /// `ORT_DYLIB_PATH` resolves to a CUDA-enabled libonnxruntime,
-    /// falls back to CPU EP. Caches the ONNX model under
-    /// `<EMEM_DATA>/models/fastembed/` (or HF default cache when
-    /// `EMEM_DATA` is unset). Errors propagate so the caller can
-    /// drop to the model2vec backend.
-    fn try_fastembed(
+    /// Build the ort-backed router. Reads `tokenizer.json` and
+    /// `model.onnx` from a local directory — defaults to
+    /// `<EMEM_DATA>/models/bge-base-en-v1.5/` and overridable via
+    /// `EMEM_TOPIC_MODEL_DIR`. The ONNX file may be at the directory
+    /// root or under an `onnx/` subdirectory (matching both
+    /// `BAAI/*` and `Xenova/*` mirror conventions). All operations
+    /// are local-only — no hf-hub, no network. Errors propagate so
+    /// the caller can drop to model2vec.
+    fn try_ort(
         registry: &TopicRegistry,
         threshold: f32,
         max_topics: usize,
     ) -> Result<TopicRouter, Box<dyn std::error::Error>> {
-        use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+        let model_id = registry
+            .routing
+            .as_ref()
+            .and_then(|p| p.transformer_model.clone())
+            .unwrap_or_else(|| "BAAI/bge-base-en-v1.5".into());
 
-        // Pick the model: env override wins, else registry policy,
-        // else BGE-base-en-v1.5 (the 0.0.5 default).
-        let model_id = std::env::var("EMEM_TOPIC_MODEL").unwrap_or_else(|_| {
-            registry
-                .routing
-                .as_ref()
-                .and_then(|p| p.transformer_model.clone())
-                .unwrap_or_else(|| "BAAI/bge-base-en-v1.5".into())
-        });
-        let em = match model_id.as_str() {
-            "BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
-            "BAAI/bge-small-en-v1.5" => EmbeddingModel::BGESmallENV15,
-            "BAAI/bge-large-en-v1.5" => EmbeddingModel::BGELargeENV15,
-            "nomic-ai/nomic-embed-text-v1.5" => EmbeddingModel::NomicEmbedTextV15,
-            "intfloat/multilingual-e5-small" => EmbeddingModel::MultilingualE5Small,
-            "sentence-transformers/all-MiniLM-L6-v2" => EmbeddingModel::AllMiniLML6V2,
-            other => {
-                return Err(format!(
-                    "EMEM_TOPIC_MODEL={other:?} is not a fastembed-supported model id; \
-                     pick one of BAAI/bge-{{small,base,large}}-en-v1.5, \
-                     nomic-ai/nomic-embed-text-v1.5, intfloat/multilingual-e5-small, \
-                     sentence-transformers/all-MiniLM-L6-v2 — or set \
-                     EMEM_TOPIC_BACKEND=model2vec to use the legacy backend"
-                )
-                .into());
-            }
+        // Resolve model directory: explicit env wins, else
+        // `<EMEM_DATA>/models/<repo-tail>/` (e.g.
+        // `/home/ubuntu/emem/var/emem/models/bge-base-en-v1.5/`).
+        let model_dir: std::path::PathBuf = if let Ok(d) = std::env::var("EMEM_TOPIC_MODEL_DIR") {
+            std::path::PathBuf::from(d)
+        } else if let Ok(d) = std::env::var("EMEM_DATA") {
+            let tail = model_id
+                .rsplit('/')
+                .next()
+                .unwrap_or("bge-base-en-v1.5")
+                .to_string();
+            std::path::PathBuf::from(d).join("models").join(tail)
+        } else {
+            return Err(format!(
+                "neither EMEM_TOPIC_MODEL_DIR nor EMEM_DATA is set — set one to point at a \
+                 directory containing tokenizer.json and model.onnx (or onnx/model.onnx) for \
+                 model {model_id}"
+            )
+            .into());
         };
-        // Offline path: when `EMEM_FASTEMBED_OFFLINE_DIR` points at a
-        // directory that already holds the four tokenizer files +
-        // model.onnx, build via `try_new_from_user_defined` which
-        // bypasses hf-hub-rs entirely. This is the production-stable
-        // path because hf-hub-rs 0.5 has no `HF_HUB_OFFLINE` flag and
-        // its sync `Api::get` performs a network probe to
-        // huggingface.co even when the file is already cached — that
-        // probe hung indefinitely on emem.dev's host on 2026-05-04
-        // and held the OnceLock initializer for >90s, wedging the
-        // whole topic router. Pre-populate the dir manually (or run
-        // `try_new` once on a host with reliable network) and then
-        // pin the env var.
-        if let Ok(dir) = std::env::var("EMEM_FASTEMBED_OFFLINE_DIR") {
-            let mut model = build_fastembed_offline(&dir, em)?;
-            let centroids = compute_centroids_fastembed(&mut model, registry)?;
-            tracing::info!(
-                target: "emem::topic_router",
-                model = %model_id,
-                offline_dir = %dir,
-                threshold = threshold,
-                n_topics = registry.topics.len(),
-                "topic router: fastembed (offline) loaded; topic centroids embedded"
-            );
-            return Ok(TopicRouter {
-                inner: std::sync::Arc::new(TopicRouterInner {
-                    backend: Backend::Fastembed {
-                        model: std::sync::Arc::new(std::sync::Mutex::new(model)),
-                        centroids,
-                        model_id,
-                    },
-                    registry: registry.clone(),
-                    threshold,
-                    max_topics,
-                }),
-            });
+        let onnx_candidates = [
+            model_dir.join("model.onnx"),
+            model_dir.join("onnx").join("model.onnx"),
+        ];
+        let onnx_path = onnx_candidates
+            .iter()
+            .find(|p| p.is_file())
+            .ok_or_else(|| {
+                format!(
+                    "no ONNX model file in {model_dir:?}: expected one of {onnx_candidates:?}. \
+                     Run scripts/install-topic-model.sh to populate it."
+                )
+            })?
+            .clone();
+        let tokenizer_json = model_dir.join("tokenizer.json");
+        if !tokenizer_json.is_file() {
+            return Err(format!(
+                "no tokenizer.json at {tokenizer_json:?} — the topic router needs both \
+                 model.onnx and tokenizer.json side by side under EMEM_TOPIC_MODEL_DIR"
+            )
+            .into());
         }
 
-        let mut init = InitOptions::new(em).with_show_download_progress(false);
-        if let Ok(emem_data) = std::env::var("EMEM_DATA") {
-            let cache = std::path::PathBuf::from(emem_data)
-                .join("models")
-                .join("fastembed");
-            std::fs::create_dir_all(&cache).ok();
-            init = init.with_cache_dir(cache);
-        }
-        let mut model = TextEmbedding::try_new(init)?;
-        let centroids = compute_centroids_fastembed(&mut model, registry)?;
+        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_json)
+            .map_err(|e| format!("load tokenizer {tokenizer_json:?}: {e}"))?;
+
+        let _ = ort::init().commit();
+
+        let session = ort::session::Session::builder()?
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
+            .with_intra_threads(2)?
+            .commit_from_file(&onnx_path)?;
+
+        let session = std::sync::Arc::new(std::sync::Mutex::new(session));
+        let tokenizer = std::sync::Arc::new(tokenizer);
+        let centroids = compute_centroids_ort(&session, &tokenizer, registry)?;
+
         tracing::info!(
             target: "emem::topic_router",
             model = %model_id,
+            model_dir = %model_dir.display(),
             threshold = threshold,
             n_topics = registry.topics.len(),
-            "topic router: fastembed loaded; topic centroids embedded"
+            "topic router: ort loaded; topic centroids embedded"
         );
+
         Ok(TopicRouter {
             inner: std::sync::Arc::new(TopicRouterInner {
-                backend: Backend::Fastembed {
-                    model: std::sync::Arc::new(std::sync::Mutex::new(model)),
+                backend: Backend::Ort {
+                    session,
+                    tokenizer,
                     centroids,
                     model_id,
                 },
@@ -388,10 +396,13 @@ impl TopicRouter {
         // search over <100 short aliases per topic and costs <1 µs.
         let keyword_hits = self.keyword_match(q);
         match &self.inner.backend {
-            Backend::Fastembed {
-                model, centroids, ..
+            Backend::Ort {
+                session,
+                tokenizer,
+                centroids,
+                ..
             } => {
-                let q_vec = embed_one_fastembed(model, q).unwrap_or_default();
+                let q_vec = embed_one_ort(session, tokenizer, q).unwrap_or_default();
                 let mut scored: Vec<(usize, f32)> = centroids
                     .iter()
                     .enumerate()
@@ -467,10 +478,10 @@ impl TopicRouter {
                 .enumerate()
                 .map(|(i, v)| (i, v.clone()))
                 .collect(),
-            // Fastembed and Transformer don't pre-cache the alias
-            // table; build it on the fly from the registry. Cheap —
+            // Ort and Transformer don't pre-cache the alias table;
+            // build it on the fly from the registry. Cheap —
             // ~25 topics × ~20 aliases × `to_lowercase()`.
-            Backend::Fastembed { .. } | Backend::Transformer { .. } => self
+            Backend::Ort { .. } | Backend::Transformer { .. } => self
                 .inner
                 .registry
                 .topics
@@ -544,7 +555,7 @@ impl TopicRouter {
     /// Which backend is currently serving routes.
     pub fn backend_name(&self) -> &'static str {
         match &self.inner.backend {
-            Backend::Fastembed { .. } => "fastembed",
+            Backend::Ort { .. } => "ort",
             Backend::Transformer { .. } => "model2vec",
             Backend::Keyword { .. } => "keyword",
         }
@@ -556,7 +567,7 @@ impl TopicRouter {
     #[allow(dead_code)]
     pub fn model_id(&self) -> Option<&str> {
         match &self.inner.backend {
-            Backend::Fastembed { model_id, .. } => Some(model_id),
+            Backend::Ort { model_id, .. } => Some(model_id),
             Backend::Transformer { .. } => Some("minishlab/potion-base-8M"),
             Backend::Keyword { .. } => None,
         }
@@ -568,79 +579,63 @@ fn embed_one(model: &model2vec_rs::model::StaticModel, text: &str) -> Vec<f32> {
     v.into_iter().next().unwrap_or_default()
 }
 
-/// Build a fastembed `TextEmbedding` directly from on-disk files,
-/// skipping hf-hub-rs entirely. Reads `model.onnx` (or
-/// `onnx/model.onnx`) plus `tokenizer.json`, `tokenizer_config.json`,
-/// `config.json`, `special_tokens_map.json` from `dir`. Picks pooling
-/// from the model's hardcoded default in fastembed (Cls for BGE,
-/// Mean for E5/MiniLM/Nomic — see fastembed::TextEmbedding::
-/// `get_default_pooling_method`). Used by the offline path triggered
-/// by `EMEM_FASTEMBED_OFFLINE_DIR`.
-fn build_fastembed_offline(
-    dir: &str,
-    em: fastembed::EmbeddingModel,
-) -> Result<fastembed::TextEmbedding, String> {
-    use fastembed::{
-        InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel,
-    };
-    let dp = std::path::Path::new(dir);
-    let onnx_candidates = [dp.join("model.onnx"), dp.join("onnx").join("model.onnx")];
-    let onnx_path = onnx_candidates
-        .iter()
-        .find(|p| p.is_file())
-        .ok_or_else(|| {
-            format!(
-                "EMEM_FASTEMBED_OFFLINE_DIR={dir} has no model.onnx or onnx/model.onnx — \
-                 expected one of {:?}",
-                onnx_candidates
-            )
-        })?
-        .clone();
-    let read = |name: &str| -> Result<Vec<u8>, String> {
-        std::fs::read(dp.join(name)).map_err(|e| format!("read {dir}/{name}: {e}"))
-    };
-    let tokenizer_files = TokenizerFiles {
-        tokenizer_file: read("tokenizer.json")?,
-        config_file: read("config.json")?,
-        special_tokens_map_file: read("special_tokens_map.json")?,
-        tokenizer_config_file: read("tokenizer_config.json")?,
-    };
-    let onnx_bytes = std::fs::read(&onnx_path)
-        .map_err(|e| format!("read {}: {e}", onnx_path.display()))?;
-    let pooling = TextEmbedding::get_default_pooling_method(&em);
-    let model_def = {
-        let m = UserDefinedEmbeddingModel::new(onnx_bytes, tokenizer_files);
-        match pooling {
-            Some(p) => m.with_pooling(p),
-            None => m,
-        }
-    };
-    let opts = InitOptionsUserDefined::new();
-    TextEmbedding::try_new_from_user_defined(model_def, opts)
-        .map_err(|e| format!("fastembed try_new_from_user_defined: {e}"))
-}
-
-/// Embed a single short string with fastembed. Acquires the
-/// `Mutex<TextEmbedding>` for the duration of the inference (the
-/// underlying ORT session is `!Sync`). On a 25-topic registry this
-/// is fine — `/v1/ask` is not a high-fan-out endpoint.
-fn embed_one_fastembed(
-    model: &std::sync::Arc<std::sync::Mutex<fastembed::TextEmbedding>>,
+/// Embed a single short string via ort + tokenizers. Acquires the
+/// session mutex for the duration of the inference (ort sessions are
+/// `Send` but their `run` takes `&mut`); a 25-topic registry serves
+/// /v1/ask comfortably under this lock.
+///
+/// Pipeline: tokenize → run BERT-style ONNX session → CLS-pool
+/// (token 0 of `last_hidden_state`) → L2 normalise.
+fn embed_one_ort(
+    session: &std::sync::Arc<std::sync::Mutex<ort::session::Session>>,
+    tokenizer: &std::sync::Arc<tokenizers::Tokenizer>,
     text: &str,
 ) -> Result<Vec<f32>, String> {
-    let mut guard = model.lock().map_err(|e| format!("model mutex: {e}"))?;
-    let mut v = guard
-        .embed(vec![text.to_string()], None)
-        .map_err(|e| format!("fastembed embed: {e}"))?;
-    Ok(v.pop().unwrap_or_default())
+    use ort::value::Tensor;
+
+    let enc = tokenizer
+        .encode(text, true)
+        .map_err(|e| format!("tokenize: {e}"))?;
+    let n = enc.get_ids().len();
+    let ids: Vec<i64> = enc.get_ids().iter().map(|&x| x as i64).collect();
+    let mask: Vec<i64> = enc.get_attention_mask().iter().map(|&x| x as i64).collect();
+    let tt: Vec<i64> = enc.get_type_ids().iter().map(|&x| x as i64).collect();
+
+    let ids_t = Tensor::from_array(([1, n], ids)).map_err(|e| format!("ids tensor: {e}"))?;
+    let mask_t = Tensor::from_array(([1, n], mask)).map_err(|e| format!("mask tensor: {e}"))?;
+    let tt_t = Tensor::from_array(([1, n], tt)).map_err(|e| format!("tt tensor: {e}"))?;
+
+    let mut guard = session.lock().map_err(|e| format!("session mutex: {e}"))?;
+    let outputs = guard
+        .run(ort::inputs![
+            "input_ids" => ids_t,
+            "attention_mask" => mask_t,
+            "token_type_ids" => tt_t,
+        ])
+        .map_err(|e| format!("ort run: {e}"))?;
+    let (_name, last_hidden) = outputs.iter().next().ok_or("ort returned no outputs")?;
+    let arr = last_hidden
+        .try_extract_array::<f32>()
+        .map_err(|e| format!("extract output: {e}"))?;
+    // Shape is [batch=1, seq=n, hidden=dim]. CLS token = token 0.
+    // Use index_axis (safe API) instead of the s![] macro because
+    // emem-api-rest sets `#![forbid(unsafe_code)]` and s![] expands
+    // to an unsafe block.
+    let batch0 = arr.index_axis(ort_ndarray::Axis(0), 0);
+    let cls = batch0.index_axis(ort_ndarray::Axis(0), 0);
+    let mut v: Vec<f32> = cls.iter().copied().collect();
+    l2_normalise(&mut v);
+    Ok(v)
 }
 
-/// Per-topic centroid via fastembed: embed (description + aliases)
-/// for every topic, average to a single vector, L2-normalise. fastembed
-/// already L2-normalises per-text outputs but the average drifts off
-/// the unit sphere, so re-normalise to make cosine identity-comparable.
-fn compute_centroids_fastembed(
-    model: &mut fastembed::TextEmbedding,
+/// Per-topic centroid via ort: embed (description + aliases) for
+/// every topic, average to a single vector, L2-normalise. Each
+/// individual embedding is already CLS-pooled + L2-normalised, but
+/// the per-topic average drifts off the unit sphere so we re-
+/// normalise to keep cosine identity-comparable across topics.
+fn compute_centroids_ort(
+    session: &std::sync::Arc<std::sync::Mutex<ort::session::Session>>,
+    tokenizer: &std::sync::Arc<tokenizers::Tokenizer>,
     registry: &TopicRegistry,
 ) -> Result<Vec<Vec<f32>>, String> {
     let mut centroids = Vec::with_capacity(registry.topics.len());
@@ -648,26 +643,30 @@ fn compute_centroids_fastembed(
         let mut texts: Vec<String> = Vec::with_capacity(t.aliases.len() + 1);
         texts.push(t.description.clone());
         texts.extend(t.aliases.iter().cloned());
-        let vecs = model
-            .embed(texts, None)
-            .map_err(|e| format!("fastembed embed (topic {}): {e}", t.key))?;
-        if vecs.is_empty() {
+        let mut sum: Vec<f32> = Vec::new();
+        let mut n = 0usize;
+        for tx in &texts {
+            let v = embed_one_ort(session, tokenizer, tx)
+                .map_err(|e| format!("ort embed (topic {}, text {tx:?}): {e}", t.key))?;
+            if sum.is_empty() {
+                sum = v;
+            } else {
+                for (i, x) in v.iter().enumerate().take(sum.len()) {
+                    sum[i] += x;
+                }
+            }
+            n += 1;
+        }
+        if n == 0 {
             centroids.push(Vec::new());
             continue;
         }
-        let dim = vecs[0].len();
-        let mut c = vec![0.0_f32; dim];
-        for v in &vecs {
-            for (i, x) in v.iter().enumerate().take(dim) {
-                c[i] += x;
-            }
+        let nf = n as f32;
+        for x in &mut sum {
+            *x /= nf;
         }
-        let n = vecs.len() as f32;
-        for x in &mut c {
-            *x /= n;
-        }
-        l2_normalise(&mut c);
-        centroids.push(c);
+        l2_normalise(&mut sum);
+        centroids.push(sum);
     }
     Ok(centroids)
 }
