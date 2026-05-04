@@ -214,7 +214,12 @@ fn cell64_neighborhood_3x3(centre_cell: &str) -> Result<[String; 9], String> {
 /// agent calling with `{cell, hours_ahead}` gets the documented behaviour.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HeatSolveReq {
-    /// Target cell64 string. We forecast LST at this cell.
+    /// Target cell64 string OR a free-text place name. When a place
+    /// name is supplied (anything that isn't shaped like a four-bigram
+    /// cell64) the handler runs `/v1/locate` first and integrates from
+    /// the resolved cell. Aliased to `place` so agent payloads of the
+    /// shape `{place: "Tokyo"}` work without a separate field.
+    #[serde(alias = "place")]
     pub cell: String,
     /// Forward integration horizon in hours. Capped at 168 (one week)
     /// because the explicit FD scheme accumulates discretisation error
@@ -338,7 +343,10 @@ fn heat_choose_timestep(alpha: f64, hours_ahead: f64) -> Result<(usize, f64), St
 
 /// Run the full heat-solve primitive. Used by both the REST handler and
 /// the MCP dispatch arm.
-pub async fn heat_solve(req: HeatSolveReq, state: &AppState) -> Result<JsonValue, ApiError> {
+pub async fn heat_solve(
+    mut req: HeatSolveReq,
+    state: &AppState,
+) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     if req.hours_ahead > 168.0 {
         return Err(bad_request(format!(
@@ -351,6 +359,11 @@ pub async fn heat_solve(req: HeatSolveReq, state: &AppState) -> Result<JsonValue
     }
     let (n_steps, dt_s) =
         heat_choose_timestep(req.diffusivity_m2_per_s, req.hours_ahead).map_err(bad_request)?;
+
+    // Resolve a place name to cell64 if needed (cell64-shaped strings
+    // pass through). Agents calling with `{place:"Tokyo"}` land here.
+    let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
+    req.cell = resolved_cell.clone();
 
     // 9 neighbouring cells in NW…SE order (centre at index 4).
     let cells = cell64_neighborhood_3x3(&req.cell)
@@ -442,6 +455,7 @@ pub async fn heat_solve(req: HeatSolveReq, state: &AppState) -> Result<JsonValue
     Ok(json!({
         "schema": "emem.heat_solve.v1",
         "cell": req.cell,
+        "resolved_from": resolved_ref,
         "neighborhood_cells": cells,
         "neighborhood_order": "NW, N, NE, W, centre, E, SW, S, SE (centre at index 4)",
         "input_band": band,
@@ -485,7 +499,11 @@ pub async fn heat_solve(req: HeatSolveReq, state: &AppState) -> Result<JsonValue
 /// `POST /v1/wave_solve` request body.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WaveSolveReq {
-    /// Coastal cell — the wavefront's destination.
+    /// Coastal cell — the wavefront's destination. Accepts a cell64
+    /// string OR a free-text place name (handler runs `/v1/locate`
+    /// first when the value isn't shaped like a cell64). Aliased to
+    /// `cell` and `place` so agent payloads with either field work.
+    #[serde(alias = "cell", alias = "place")]
     pub coastal_cell: String,
     /// Offshore wave height in metres (significant wave height H_s).
     /// Capped at 30 m (well above any recorded swell H_s) — values
@@ -687,8 +705,16 @@ async fn walk_seaward_profile(
 }
 
 /// Run the full wave-solve primitive.
-pub async fn wave_solve(req: WaveSolveReq, state: &AppState) -> Result<JsonValue, ApiError> {
+pub async fn wave_solve(
+    mut req: WaveSolveReq,
+    state: &AppState,
+) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
+    // Resolve a place name to cell64 if needed. Walking the seaward
+    // bathymetric profile only makes sense from a real coastal cell,
+    // so locate must succeed before any of the FD sanity checks below.
+    let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.coastal_cell).await?;
+    req.coastal_cell = resolved_cell;
     if !(0.0..=30.0).contains(&req.offshore_height_m) || !req.offshore_height_m.is_finite() {
         return Err(bad_request(format!(
             "offshore_height_m must be in (0, 30] m; got {}",
@@ -774,6 +800,7 @@ pub async fn wave_solve(req: WaveSolveReq, state: &AppState) -> Result<JsonValue
     Ok(json!({
         "schema": "emem.wave_solve.v1",
         "coastal_cell": req.coastal_cell,
+        "resolved_from": resolved_ref,
         "profile_cells_offshore_to_coast": profile_cells,
         "depth_profile_m": depths,
         "phase_speed_profile_m_per_s": c_profile,
@@ -809,7 +836,10 @@ pub async fn wave_solve(req: WaveSolveReq, state: &AppState) -> Result<JsonValue
 /// `POST /v1/jepa_predict` request body.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct JepaPredictReq {
-    /// Cell to forecast at.
+    /// Cell to forecast at. Accepts a cell64 string OR a free-text
+    /// place name; the handler resolves the place via `/v1/locate`
+    /// first. Aliased to `place` for agents that pass that key.
+    #[serde(alias = "place")]
     pub cell: String,
     /// Band to forecast. v1 supports `indices.ndvi` only; future
     /// versions will broaden the predictor's training surface.
@@ -892,8 +922,14 @@ pub fn jepa_predict_ar2_seasonal(history: &[f64], lag_12_value: Option<f64>) -> 
 }
 
 /// Run the JEPA-pattern predictor primitive.
-pub async fn jepa_predict(req: JepaPredictReq, state: &AppState) -> Result<JsonValue, ApiError> {
+pub async fn jepa_predict(
+    mut req: JepaPredictReq,
+    state: &AppState,
+) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
+    // Resolve a place name to cell64 if needed before the recall fan-out.
+    let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
+    req.cell = resolved_cell;
     if req.lookback_months == 0 || req.lookback_months > 24 {
         return Err(bad_request(format!(
             "lookback_months must be in 1..=24; got {}",
@@ -975,6 +1011,7 @@ pub async fn jepa_predict(req: JepaPredictReq, state: &AppState) -> Result<JsonV
     Ok(json!({
         "schema": "emem.jepa_predict.v1",
         "cell": req.cell,
+        "resolved_from": resolved_ref,
         "band": req.band,
         "lookback_months_requested": req.lookback_months,
         "lookback_months_used": history_values.len(),

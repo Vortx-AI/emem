@@ -264,6 +264,43 @@ impl TopicRouter {
                 .into());
             }
         };
+        // Offline path: when `EMEM_FASTEMBED_OFFLINE_DIR` points at a
+        // directory that already holds the four tokenizer files +
+        // model.onnx, build via `try_new_from_user_defined` which
+        // bypasses hf-hub-rs entirely. This is the production-stable
+        // path because hf-hub-rs 0.5 has no `HF_HUB_OFFLINE` flag and
+        // its sync `Api::get` performs a network probe to
+        // huggingface.co even when the file is already cached — that
+        // probe hung indefinitely on emem.dev's host on 2026-05-04
+        // and held the OnceLock initializer for >90s, wedging the
+        // whole topic router. Pre-populate the dir manually (or run
+        // `try_new` once on a host with reliable network) and then
+        // pin the env var.
+        if let Ok(dir) = std::env::var("EMEM_FASTEMBED_OFFLINE_DIR") {
+            let mut model = build_fastembed_offline(&dir, em)?;
+            let centroids = compute_centroids_fastembed(&mut model, registry)?;
+            tracing::info!(
+                target: "emem::topic_router",
+                model = %model_id,
+                offline_dir = %dir,
+                threshold = threshold,
+                n_topics = registry.topics.len(),
+                "topic router: fastembed (offline) loaded; topic centroids embedded"
+            );
+            return Ok(TopicRouter {
+                inner: std::sync::Arc::new(TopicRouterInner {
+                    backend: Backend::Fastembed {
+                        model: std::sync::Arc::new(std::sync::Mutex::new(model)),
+                        centroids,
+                        model_id,
+                    },
+                    registry: registry.clone(),
+                    threshold,
+                    max_topics,
+                }),
+            });
+        }
+
         let mut init = InitOptions::new(em).with_show_download_progress(false);
         if let Ok(emem_data) = std::env::var("EMEM_DATA") {
             let cache = std::path::PathBuf::from(emem_data)
@@ -529,6 +566,58 @@ impl TopicRouter {
 fn embed_one(model: &model2vec_rs::model::StaticModel, text: &str) -> Vec<f32> {
     let v = model.encode(&[text.to_string()]);
     v.into_iter().next().unwrap_or_default()
+}
+
+/// Build a fastembed `TextEmbedding` directly from on-disk files,
+/// skipping hf-hub-rs entirely. Reads `model.onnx` (or
+/// `onnx/model.onnx`) plus `tokenizer.json`, `tokenizer_config.json`,
+/// `config.json`, `special_tokens_map.json` from `dir`. Picks pooling
+/// from the model's hardcoded default in fastembed (Cls for BGE,
+/// Mean for E5/MiniLM/Nomic — see fastembed::TextEmbedding::
+/// `get_default_pooling_method`). Used by the offline path triggered
+/// by `EMEM_FASTEMBED_OFFLINE_DIR`.
+fn build_fastembed_offline(
+    dir: &str,
+    em: fastembed::EmbeddingModel,
+) -> Result<fastembed::TextEmbedding, String> {
+    use fastembed::{
+        InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel,
+    };
+    let dp = std::path::Path::new(dir);
+    let onnx_candidates = [dp.join("model.onnx"), dp.join("onnx").join("model.onnx")];
+    let onnx_path = onnx_candidates
+        .iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| {
+            format!(
+                "EMEM_FASTEMBED_OFFLINE_DIR={dir} has no model.onnx or onnx/model.onnx — \
+                 expected one of {:?}",
+                onnx_candidates
+            )
+        })?
+        .clone();
+    let read = |name: &str| -> Result<Vec<u8>, String> {
+        std::fs::read(dp.join(name)).map_err(|e| format!("read {dir}/{name}: {e}"))
+    };
+    let tokenizer_files = TokenizerFiles {
+        tokenizer_file: read("tokenizer.json")?,
+        config_file: read("config.json")?,
+        special_tokens_map_file: read("special_tokens_map.json")?,
+        tokenizer_config_file: read("tokenizer_config.json")?,
+    };
+    let onnx_bytes = std::fs::read(&onnx_path)
+        .map_err(|e| format!("read {}: {e}", onnx_path.display()))?;
+    let pooling = TextEmbedding::get_default_pooling_method(&em);
+    let model_def = {
+        let m = UserDefinedEmbeddingModel::new(onnx_bytes, tokenizer_files);
+        match pooling {
+            Some(p) => m.with_pooling(p),
+            None => m,
+        }
+    };
+    let opts = InitOptionsUserDefined::new();
+    TextEmbedding::try_new_from_user_defined(model_def, opts)
+        .map_err(|e| format!("fastembed try_new_from_user_defined: {e}"))
 }
 
 /// Embed a single short string with fastembed. Acquires the
