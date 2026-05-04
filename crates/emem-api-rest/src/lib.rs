@@ -3853,11 +3853,9 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
                 // tail before comparing so a `.class_freq` request
                 // still resolves.
                 let suffix_norm = suffix.split('[').next().unwrap_or(suffix);
-                if let Some(dim) = b
-                    .dimensions
-                    .iter()
-                    .find(|d| d.name == suffix || d.name.split('[').next().unwrap_or(&d.name) == suffix_norm)
-                {
+                if let Some(dim) = b.dimensions.iter().find(|d| {
+                    d.name == suffix || d.name.split('[').next().unwrap_or(&d.name) == suffix_norm
+                }) {
                     if let Some(u) = &dim.units {
                         map.insert("units".into(), json!(u));
                     }
@@ -16319,8 +16317,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
                 }
             })
             .collect();
-        let already: std::collections::HashSet<String> =
-            all_matched_keys.iter().cloned().collect();
+        let already: std::collections::HashSet<String> = all_matched_keys.iter().cloned().collect();
         let mut to_add: Vec<String> = Vec::new();
         for alg in &alg_reg.algorithms {
             if already.contains(&alg.key) {
