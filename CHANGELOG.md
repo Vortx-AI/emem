@@ -8,6 +8,66 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 ## [Unreleased]
 
 ### Added
+- **Workspace bumped to 0.0.4** — incorporates polygon-aware boring
+  endpoints, visual deliverables (geojson + scene_overlay_url +
+  value_per_cell + scene_thumbs), curated GPT-Action OpenAPI subset,
+  agent-first homepage, and a rewritten /llms.txt opening with a
+  prompt → tool-call table. `server.json` matches.
+- **Agent-first homepage rewrite** — `web/index.html` reordered so
+  the H1 + lede + four-tab install grid (Claude Code/Desktop/Cursor/
+  Cline/VS Code MCP, Claude API, Gemini CLI, OpenAI Custom GPT
+  Action) sit above the fold. Three example user-prompt → tool-call
+  rows follow. Operator/legal blockquote demoted to footer. Killed
+  the 1100-char meta description (replaced with a 95-char one),
+  removed the 2009-era `geo.region`/`ICBM`/`geo.placename` SEO meta
+  tags, removed the invented `<meta name="ai-plugin">` /
+  `agent-protocol` tags (canonical paths are
+  `/.well-known/ai-plugin.json` + `/.well-known/agent-card.json`),
+  stripped the repetitive `Just ask &mdash;` prefixes off the
+  Direct integrations table so each cell stands alone for crawler
+  quotability, deferred Google Analytics gtag to the end of `<body>`.
+  Replaced hardcoded count phrases ("102 algorithms", "90+ bands
+  total") with neutral wording — the live counts are at
+  `/v1/agent_card.band_taxonomy` and `/v1/coverage_matrix.totals`.
+  Appended a JSON-LD `@graph` with `WebAPI.potentialAction[]`
+  (`RecallPlaceFacts`, `VerifyReceipt`) and a `BreadcrumbList`
+  (homepage → OpenAPI → MCP) for AEO citation surfaces.
+- **`/llms.txt` rewrite** — new H1, install grid (4 lines per
+  client), and a prompt → tool-call → cite table covering 6 of the
+  most common agent intents (air quality, flood history, elevation,
+  similarity search, temporal diff, polygon aggregation). Operator/
+  legal blockquote moved to the very bottom under
+  `## Operator and legal`.
+- **`GET /v1/openapi.action.json`** — curated 28-operation subset of
+  the full 74-op `/openapi.json`, fitting OpenAI Custom GPT
+  Actions' hard 30-op cap that previously locked out the entire
+  OpenAI platform from importing emem. Title is "emem Earth Memory
+  — Custom GPT Action subset". `x-openai-isConsequential: false`
+  on every read; `true` only on `/v1/attest`. Operations kept:
+  `emem_locate`, `emem_recall`, `emem_recall_many`,
+  `emem_recall_polygon`, `emem_query_region`, `emem_compare`,
+  `emem_compare_bands`, `emem_find_similar`, `emem_trajectory`,
+  `emem_diff`, `emem_verify`, `emem_intent`, `emem_fetch`,
+  `emem_backfill`, `emem_bands`, `emem_coverage_matrix`,
+  `emem_data_availability`, `emem_materializers`, `emem_algorithms`,
+  `emem_grid_info`, `emem_fleet`, `emem_temporal_route`,
+  `emem_errors`, `emem_cell_geojson`, `emem_cell_scene_rgb`,
+  `emem_elevation`, `emem_verify_receipt`, `emem_attest`. Dropped:
+  18 `boring` duplicates (each redundant with `emem_recall`), 4
+  introspection duplicates (`emem_schema`, `emem_functions`,
+  `emem_sources`, `emem_manifests`), and the health/discovery
+  endpoints not relevant inside an Action.
+- **MCP registry metadata** — `server.json` adds
+  `keywords: [earth-observation, geospatial, satellite, carbon-mrv,
+  ed25519, no-api-key, mcp, model-context-protocol]` and
+  `categories: [data, geospatial, earth-observation]` so
+  registry.modelcontextprotocol.io / Smithery / mcp.so / Glama /
+  mcphub keyword-search returns emem for "geospatial" / "earth"
+  queries (previously returned zero).
+- **`surfaces.rest_openapi_action_subset`** in `/v1/agent_card`
+  pointing at `/v1/openapi.action.json` so any agent reading the
+  card knows the curated subset exists.
+
 - **Polygon-aware boring endpoints** — when `POST /v1/{ndvi,elevation,
   air,lst,soil,water,forest,weather,at}` resolves a place name to an
   OSM feature with extent (airports, parks, lakes, regions, universities

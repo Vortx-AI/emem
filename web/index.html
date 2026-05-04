@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>emem, Earth memory for AI agents</title>
-<meta name="description" content="Cite-able, content-addressed, signed memory of every place on Earth. 33 canonical bands in the 1792-D voxel layout (25 wired auto-materializers) and 28 MCP tools / 30 primitives across Sentinel-2, Sentinel-1, Landsat (target), MODIS LST/ET/GPP/LAI, NASA POWER reanalysis, CAMS air quality (PM2.5/NO2/O3), ERA5, Tessera embeddings, JRC Global Surface Water, Hansen GFC v1.11, ESA WorldCover, SoilGrids 2.0 (SOC, pH, clay, sand, BDOD, nitrogen at 0–30 cm). 102 composition algorithms (carbon MRV, VM0042 carbon credits, EUDR compliance, parametric insurance, SDG indicators, walkability, heat-vulnerability, flood_risk@2 with a temporal_recipe of antecedent rainfall + recent radar water + optical water). Multimodal-fusion policy: S1 > S2 > Landsat > IoT > OtherSat > Static priority chain, ≤10 m delivery anchored on S1/S2/Landsat. Live geocoder cascade Photon → Nominatim. All anonymous, all signed. Built for AI agents.">
+<meta name="description" content="MCP server + REST API for verifiable Earth-observation data on any place. No API keys. Every answer is signed.">
 <link rel="canonical" href="https://emem.dev/">
 
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -13,8 +13,6 @@
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 
-<meta name="ai-plugin" content="/.well-known/ai-plugin.json">
-<meta name="agent-protocol" content="/.well-known/agent.json">
 <meta name="openapi" content="/openapi.json">
 <meta name="mcp-endpoint" content="/mcp">
 
@@ -37,12 +35,6 @@
 <meta name="twitter:title" content="emem, Earth memory for AI agents">
 <meta name="twitter:description" content="Cite-able, content-addressed, signed memory of every place on Earth.">
 <meta name="twitter:image" content="https://emem.dev/og-image.svg">
-
-<meta name="geo.region" content="EARTH">
-<meta name="geo.placename" content="Earth">
-<meta name="geo.position" content="0;0">
-<meta name="ICBM" content="0, 0">
-<meta name="DC.coverage" content="The whole Earth, indexed by cell × band × tslot.">
 
 <script type="application/ld+json">
 [
@@ -107,7 +99,7 @@
       {"@type": "Question", "name": "Is emem free?",
        "acceptedAnswer": {"@type": "Answer", "text": "Yes. The protocol and reference implementation are Apache-2.0. The hosted instance at emem.dev is free for L0/L1 reads, no signup, no API keys, no rate-limit-by-credit-card. Contributors that submit signed attestations build verifiable reputation via the Contributor-of-Intelligence Layer."}},
       {"@type": "Question", "name": "What data does emem read from?",
-       "acceptedAnswer": {"@type": "Answer", "text": "Sentinel-2 L2A (12 raw bands + 19 derived indices including 10 health-relevant ones, NDTI, GNDVI, NDRE, FAI, TSS, NDSI, AFRI1.6, surface dryness, urban-canopy index), Sentinel-1 GRD VV (radar), Tessera annual snapshots 2017–2024 (each a 128-D foundation embedding; the multi-year stack fuses all 8 vintages into a 1024-D vector available via `geotessera.multi_year`), MODIS NDVI / LST day+night 8-day / ET / GPP / LAI / burned-area, JRC Global Surface Water v1.4 climatology, GMRT topo-bathy, Copernicus DEM 30 m, NASA POWER daily reanalysis (1981–present, 7 vars), Open-Meteo CAMS air quality (PM2.5/PM10/NO2/O3/SO2/CO/AOD), Open-Meteo ERA5 archive (1940–present, 7 vars), Open-Meteo Marine (waves + SST), MET Norway nowcast, ESA WorldCover 2021 (11-class 10 m landcover), Hansen Global Forest Change v1.11 (tree cover 2000 + loss year 2001-2023 + gain), Overture Maps (buildings/places/transportation), and OpenStreetMap (Nominatim geocoder). 90+ bands total. All free, all anonymous, no API keys, no signup, no per-IP rate limits at the request path."}},
+       "acceptedAnswer": {"@type": "Answer", "text": "Sentinel-2 L2A (12 raw bands + 19 derived indices including 10 health-relevant ones, NDTI, GNDVI, NDRE, FAI, TSS, NDSI, AFRI1.6, surface dryness, urban-canopy index), Sentinel-1 GRD VV (radar), Tessera annual snapshots 2017–2024 (each a 128-D foundation embedding; the multi-year stack fuses all 8 vintages into a 1024-D vector available via `geotessera.multi_year`), MODIS NDVI / LST day+night 8-day / ET / GPP / LAI / burned-area, JRC Global Surface Water v1.4 climatology, GMRT topo-bathy, Copernicus DEM 30 m, NASA POWER daily reanalysis (1981–present, 7 vars), Open-Meteo CAMS air quality (PM2.5/PM10/NO2/O3/SO2/CO/AOD), Open-Meteo ERA5 archive (1940–present, 7 vars), Open-Meteo Marine (waves + SST), MET Norway nowcast, ESA WorldCover 2021 (11-class 10 m landcover), Hansen Global Forest Change v1.11 (tree cover 2000 + loss year 2001-2023 + gain), Overture Maps (buildings/places/transportation), and OpenStreetMap (Nominatim geocoder). See the live band catalog at /v1/bands. All free, all anonymous, no API keys, no signup, no per-IP rate limits at the request path."}},
       {"@type": "Question", "name": "How can I contribute?",
        "acceptedAnswer": {"@type": "Answer", "text": "Generate an ed25519 keypair, build a signed Attestation (CBOR), POST it to /v1/attest_cbor. Your facts become part of the shared corpus, citation count accrues to your pubkey, and you climb the /v1/contributors leaderboard. See docs/CONTRIBUTORS.md."}},
       {"@type": "Question", "name": "What's an ed25519 receipt?",
@@ -168,16 +160,49 @@
 ]
 </script>
 
-<!-- Google Analytics 4 (humans only, agents fetch /llms.txt and skip the script) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-RBLXX5LR9L"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-RBLXX5LR9L', {
-    'anonymize_ip': true,
-    'transport_type': 'beacon'
-  });
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebAPI",
+      "@id": "https://emem.dev/#api",
+      "name": "emem Earth Memory API",
+      "documentation": "https://emem.dev/llms.txt",
+      "termsOfService": "https://emem.dev/terms",
+      "potentialAction": [
+        {
+          "@type": "Action",
+          "name": "RecallPlaceFacts",
+          "description": "Given a place name or lat/lng, return signed Earth-observation facts at that cell.",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://emem.dev/v1/recall_polygon",
+            "httpMethod": "POST",
+            "contentType": "application/json"
+          },
+          "object": { "@type": "Place" },
+          "result": { "@type": "Dataset", "name": "Signed Fact + Receipt" }
+        },
+        {
+          "@type": "Action",
+          "name": "VerifyReceipt",
+          "target": { "@type": "EntryPoint",
+                      "urlTemplate": "https://emem.dev/v1/verify_receipt",
+                      "httpMethod": "POST" }
+        }
+      ]
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type":"ListItem","position":1,"name":"emem","item":"https://emem.dev/"},
+        {"@type":"ListItem","position":2,"name":"OpenAPI","item":"https://emem.dev/openapi.json"},
+        {"@type":"ListItem","position":3,"name":"MCP","item":"https://emem.dev/mcp"}
+      ]
+    }
+  ]
+}
 </script>
 
 <style>
@@ -206,50 +231,60 @@
   .when code { white-space:nowrap }
   .pill { display:inline-block; padding: 1px 7px; border:1px solid var(--border); border-radius: 999px; font-size: .72rem; color: var(--mut); margin-right: .15rem; }
   blockquote { margin: 0.75rem 0; padding: .6rem 1rem; border-left: 3px solid var(--accent); background: var(--code); border-radius: 0 6px 6px 0; font-size:.9rem; }
+  .lede { font-size: 1rem; color: var(--fg); margin: .5rem 0 1.25rem; }
+  details { margin: .35rem 0; padding: .35rem .6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+  details > summary { cursor: pointer; font-size: .9rem; }
+  details > pre { margin: .5rem 0 .25rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; margin: .5rem 0 1rem; }
+  th, td { border: 1px solid var(--border); padding: .35rem .5rem; text-align: left; vertical-align: top; }
+  th { background: var(--code); }
 </style>
 </head>
 <body>
 <main>
 
-<div class="tag">Earth memory protocol · for AI agents</div>
-<h1>emem</h1>
-<p style="color:var(--mut); margin: .25rem 0 0">
-  Cite-able, content-addressed, signed memory of every place on Earth.
-  When the user asks a place-question, <em>is the air bad here? has this
-  site flooded? is this neighbourhood hot? are the lakes safe to swim in?
-  is there a pollen-season jump? what's the elevation? is this farmland?</em>,
-  your agent calls <code>emem_locate</code> then <code>emem_recall</code>,
-  gets a signed fact + receipt, and quotes the receipt. No keys, no
-  signup, no rate limits.
-</p>
-<p style="margin-top:.6rem; padding:.5rem .75rem; border:1px dashed var(--accent); border-radius:6px; font-size:.85rem">
-  <strong>Live data right now (90+ bands, all anonymous):</strong>
-  Sentinel-2 L2A (12 raw bands + 19 indices including 10 consumer-health ones:
-  turbidity, chlorophyll, floating algae, surface dryness, urban canopy),
-  Sentinel-1 RTC radar, MODIS (NDVI / LST day+night / ET / GPP / LAI / burned area),
-  Tessera 2017–2024 + multi-year embedding,
-  NASA POWER daily reanalysis (1981–present),
-  Open-Meteo CAMS air quality (PM2.5, NO2, O3, SO2, CO, AOD),
-  Open-Meteo ERA5 archive (1940–present), Open-Meteo Marine (waves + SST),
-  JRC Global Surface Water, MET Norway nowcast,
-  ESA WorldCover 2021 (10 m landcover), Hansen Global Forest Change v1.11,
-  Copernicus DEM, GMRT topo-bathy, Overture buildings/places/roads.
-  Full per-band temporal coverage at <a href="/v1/data_availability"><code>/v1/data_availability</code></a>.
-  Receipts signed by the responder pubkey at <a href="/health">/health</a>;
-  verify offline at <a href="#offline-verify"><code>POST /v1/verify_receipt</code></a>.
-</p>
-<p style="margin-top: .5rem">
-  <span class="pill">v0.0.3</span>
-  <span class="pill">Apache-2.0</span>
-  <span class="pill">Rust + axum</span>
-  <span class="pill">MCP · REST · OpenAPI</span>
+<h1>emem &mdash; Earth memory for AI agents</h1>
+<p class="lede">
+  Cite-able, signed answers about any place on Earth. Three calls:
+  <code>locate &rarr; recall &rarr; cite receipt.fact_cids[0]</code>. No API key.
 </p>
 
-<blockquote>
-  Three-call agent loop: <code>locate</code> → <code>recall</code> →
-  cite <code>receipt.fact_cids[0]</code>. Anyone can verify the
-  receipt offline with the responder pubkey alone, no callback.
-</blockquote>
+<h2 id="install">Add emem to your agent (60 seconds)</h2>
+
+<details open><summary><strong>Claude Code, Claude Desktop &ge; 0.10, Cursor, Cline, VS Code MCP</strong></summary>
+<pre><code>{
+  "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } }
+}</code></pre>
+</details>
+
+<details><summary><strong>Claude API (Messages, server-side MCP)</strong></summary>
+<pre><code>"mcp_servers": [{ "type": "url", "url": "https://emem.dev/mcp", "name": "emem" }]</code></pre>
+</details>
+
+<details><summary><strong>Gemini CLI</strong></summary>
+<pre><code>gemini extensions install https://emem.dev/gemini-extension.json</code></pre>
+</details>
+
+<details><summary><strong>OpenAI Custom GPT Action</strong> (curated 28-op subset, fits 30-op cap)</summary>
+<pre><code>Schema URL:  https://emem.dev/openapi.action.json
+Auth:        None</code></pre>
+</details>
+
+<h2 id="prompts">What your user might ask, what your agent calls</h2>
+<table>
+<tr><th>User says</th><th>Agent calls</th><th>Cite</th></tr>
+<tr><td>"Is the air bad in Delhi right now?"</td>
+    <td><code>emem_locate({q:"Delhi"}) &rarr; emem_recall({cell, bands:["cams.pm25","cams.no2"]})</code></td>
+    <td><code>receipt.fact_cids[0]</code></td></tr>
+<tr><td>"Has 23.34, 85.28 ever flooded?"</td>
+    <td><code>emem_recall({cell, bands:["surface_water.recurrence","sentinel1_raw"]})</code></td>
+    <td>two fact_cids + responder_pubkey_b32</td></tr>
+<tr><td>"Find places that look like the Sundarbans"</td>
+    <td><code>emem_find_similar({key:"&lt;cell&gt;", band:"geotessera", k:5})</code></td>
+    <td>k cell64s + cosine scores + receipt</td></tr>
+</table>
+
+<p>emem.dev served signed receipts in the last 24 h &mdash; see <a href="/v1/agent_stats"><code>/v1/agent_stats</code></a> and <a href="/v1/contributors"><code>/v1/contributors</code></a>.</p>
 
 <h2>Direct integrations (zero install)</h2>
 <p style="font-size:.88rem; color:var(--mut); margin-top:.25rem">
@@ -259,12 +294,12 @@
   challenge) or programmatic access from a CLI / IDE.
 </p>
 <div class="when">
-  <code>Claude.ai (web)</code><span style="color:var(--mut)">Just ask &mdash; <code>ClaudeBot</code> indexes emem and <code>Claude-User</code> fetches us when you cite a place. No connector needed. Power-user path: paste <code>https://emem.dev/mcp</code> as a custom MCP connector.</span>
-  <code>ChatGPT (web)</code><span style="color:var(--mut)">Just ask &mdash; <code>OAI-SearchBot</code> indexes us; <code>ChatGPT-User</code> fetches when answering. Power-user path: <a href="/openapi.json"><code>/openapi.json</code></a> pasted as a Custom GPT Action (no API key).</span>
-  <code>Google Gemini (web)</code><span style="color:var(--mut)">Just ask &mdash; <code>Googlebot</code> + <code>Google-Extended</code> index emem; AI Overviews and Vertex AI cite our facts. Power-user path: <code>gemini extensions install https://emem.dev/gemini-extension.json</code> (one command).</span>
-  <code>Perplexity</code><span style="color:var(--mut)">Just ask &mdash; <code>PerplexityBot</code> indexes; <code>Perplexity-User</code> fetches when citing. We're crawl-friendly with rich JSON-LD (<code>WebAPI</code> + <code>Dataset</code>) so Perplexity surfaces emem facts inline.</span>
+  <code>Claude.ai (web)</code><span style="color:var(--mut)"><code>ClaudeBot</code> indexes emem and <code>Claude-User</code> fetches us when you cite a place. No connector needed. Power-user path: paste <code>https://emem.dev/mcp</code> as a custom MCP connector.</span>
+  <code>ChatGPT (web)</code><span style="color:var(--mut)"><code>OAI-SearchBot</code> indexes us; <code>ChatGPT-User</code> fetches when answering. Power-user path: <a href="/openapi.json"><code>/openapi.json</code></a> pasted as a Custom GPT Action (no API key).</span>
+  <code>Google Gemini (web)</code><span style="color:var(--mut)"><code>Googlebot</code> + <code>Google-Extended</code> index emem; AI Overviews and Vertex AI cite our facts. Power-user path: <code>gemini extensions install https://emem.dev/gemini-extension.json</code> (one command).</span>
+  <code>Perplexity</code><span style="color:var(--mut)"><code>PerplexityBot</code> indexes; <code>Perplexity-User</code> fetches when citing. We're crawl-friendly with rich JSON-LD (<code>WebAPI</code> + <code>Dataset</code>) so Perplexity surfaces emem facts inline.</span>
   <code>Microsoft Copilot</code><span style="color:var(--mut)">Auto-discovered via <code>Bingbot</code> + the A2A agent card at <a href="/.well-known/agent-card.json"><code>/.well-known/agent-card.json</code></a> (consumed by Microsoft Agent Framework). Zero config on your side.</span>
-  <code>DuckAssist (DuckDuckGo)</code><span style="color:var(--mut)">Just ask &mdash; <code>DuckAssistBot</code> indexes our content for the Llama-backed answer engine. No setup.</span>
+  <code>DuckAssist (DuckDuckGo)</code><span style="color:var(--mut)"><code>DuckAssistBot</code> indexes our content for the Llama-backed answer engine. No setup.</span>
   <code>Meta AI</code><span style="color:var(--mut)">Indexed via <code>Meta-ExternalAgent</code> + <code>Meta-ExternalFetcher</code>. Just ask about a place and Meta AI can cite emem.</span>
   <code>Mistral Le Chat</code><span style="color:var(--mut)">Indexed via <code>MistralAI-User</code>. Ask about a place; Le Chat fetches and cites.</span>
   <code>Apple Intelligence</code><span style="color:var(--mut)">Indexed via <code>Applebot-Extended</code>. No tool registry yet; relies on web crawl.</span>
@@ -342,7 +377,7 @@
 <p style="font-size:.88rem; color:var(--mut)">
   Group your user's question by intent, not by satellite. Each entry names the
   bands to recall and the algorithm CID (when one exists) to compose them. All
-  102 algorithms are listed at <a href="/v1/algorithms"><code>/v1/algorithms</code></a>;
+  the registered algorithm set is listed at <a href="/v1/algorithms"><code>/v1/algorithms</code></a>;
   every one carries a peer-reviewed citation and a <code>when_to_use</code>
   field so an agent can verify a recipe is real before quoting it. Honest
   gaps are listed at the bottom of this section.
@@ -710,7 +745,25 @@ curl https://emem.dev/v1/cells/damO.zb000.xUti.zde78.geojson</code></pre>
   <a href="https://github.com/Vortx-AI/emem/blob/main/SECURITY.md">Security</a> ·
   <a href="https://github.com/Vortx-AI/emem/issues">Issues</a>
 </p>
+<p style="color:var(--mut); font-size:.78rem">
+  <span class="pill">Apache-2.0</span>
+  <span class="pill">Rust + axum</span>
+  <span class="pill">MCP &middot; REST &middot; OpenAPI</span>
+  <span class="tag" style="display:inline; margin:0 0 0 .5rem">Earth memory protocol &middot; for AI agents</span>
+</p>
 
 </main>
+
+<!-- Google Analytics 4 (humans only; agents fetch /llms.txt and skip the script) -->
+<script defer src="https://www.googletagmanager.com/gtag/js?id=G-RBLXX5LR9L"></script>
+<script defer>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-RBLXX5LR9L', {
+    'anonymize_ip': true,
+    'transport_type': 'beacon'
+  });
+</script>
 </body>
 </html>

@@ -1,69 +1,38 @@
-# emem, Earth memory protocol for AI agents
+# emem — Earth memory for AI agents
 
-> Operated by Vortx AI Private Limited (India). Contact: avijeet@vortx.ai
-> Privacy: /privacy · Terms: /terms · Support: /support · Code: github.com/Vortx-AI/emem
->
-> Cite-able, content-addressed, signed memory of every place on Earth.
-> 33 canonical bands in the 1792-D voxel layout (`/v1/bands`); 25
-> wired auto-materializers (live count via `/v1/materializers`,
-> data availability per cell via `/v1/data_availability`); all
-> anonymous: Sentinel-2 L2A (12 spectral
-> assets + 19 spectral indices, including 10 consumer-health-relevant
-> ones: turbidity, red-edge chlorophyll, floating algae, suspended
-> solids, snow cover, aerosol-resistant veg, surface dryness, urban
-> canopy, NDRE, GNDVI), Sentinel-1 GRD VV radar, Tessera 2017–2024 +
-> multi-year fused embedding, MODIS (NDVI / LST day+night 8-day / ET /
-> GPP / LAI / burned area), JRC Global Surface Water, Hansen Global
-> Forest Change v1.11, ESA WorldCover 2021 v200, Cop-DEM, GMRT, NASA
-> POWER daily (1981–present), Open-Meteo CAMS air quality
-> (PM2.5/PM10/NO2/O3/SO2/CO/AOD, hourly 2013-08+), Open-Meteo ERA5
-> archive (1940–present), Open-Meteo Marine waves+SST, MET Norway
-> nowcast, Overture Maps, SoilGrids 2.0 ISRIC topsoil 0–30 cm (SOC,
-> pH, clay, sand, bulk density, nitrogen). 28 MCP tools wired (30
-> primitives across REST + MCP — 28 read + `emem_attest` + `emem_challenge`
-> for write). 102 composition algorithms (carbon
-> MRV, VM0042 carbon credits, EUDR compliance, RUSLE soil erosion,
-> SoilGrids SOC, IPCC Tier-2 rice CH₄, parametric insurance triggers,
-> SDG indicators, real-estate climate-risk, walkability, heat-
-> vulnerability, `flood_risk@2` with DEM-agreement weighting and a
-> `temporal_recipe` of antecedent rainfall + recent radar water +
-> optical water). Algorithms can declare a `temporal_recipe` so a
-> composite question (`is this place flooded right now`) is answered
-> by the responder running the lookback windows and returning
-> `temporal_composition[]` alongside the snapshot, instead of the
-> agent fanning out by hand. Live geocoder cascade (`/v1/locate`):
-> embedded gazetteer → cache → Photon (komoot.io, primary, ~100 ms
-> Elasticsearch index of OSM, strong recall on rural villages and
-> water bodies) → Nominatim fallback. Multimodal-fusion policy (docs/MULTIMODAL.md):
-> sensor priority S1 > S2 > Landsat > IoT > OtherSat > Static; any
-> algorithm claiming ≤10 m delivery is mechanically validated to anchor
-> on S1, S2, or Landsat in its `multimodal.priority_chain`. No API
-> keys. Every answer signed ed25519 + content-addressed blake3.
+> Cite-able, signed answers about any place on Earth. Three calls:
+> locate → recall → cite receipt.fact_cids[0]. No API key, no signup.
+> Operator + legal: see end of file.
 
-## What emem is
+## Add to your agent (copy-paste)
 
-emem is a read-side memory layer for places. An agent gives it a
-`cell64` (compact 64-bit cell ID) plus a band name; emem returns the
-fact, signed by the responder's ed25519 identity, with a content
-address (CID) the agent can quote in its reply. The same query from
-any client returns the same CID, answers are reproducible.
+- Claude Code / Desktop / Cursor / Cline / VS Code MCP, drop into mcp.json:
+  `{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }`
+- Gemini CLI: `gemini extensions install https://emem.dev/gemini-extension.json`
+- OpenAI Custom GPT Action: paste `https://emem.dev/openapi.action.json`
+  (curated 28-op subset, fits the 30-op Action cap), Auth: None
+- Anthropic API: `"mcp_servers": [{"type":"url","url":"https://emem.dev/mcp","name":"emem"}]`
 
-## Canonical 1792-D voxel (per cell × tslot)
+## What your user might ask → what to call → what to cite
 
-Every cell has a canonical 1792-dimensional fp16 voxel
-(~3.5 KB) with stable byte-offset ranges per band:
-geotessera 0..128, foundation-reserved 128..704, sentinel2_raw 704..714,
-sentinel1_raw 714..716, dem, landcover, climate, indices, spatial
-Fourier, temporal Fourier, vision encoders (sam3, qwen),
-terrain_derived, temporal_diff, phenology, topology, multiscale,
-nightlights, ghsl, population, forest_change, mangrove, protected,
-surface_water, ocean_chl, koppen, terraclimate, cop_dem, soilgrids,
-ecoregions, admin, reserved. The layout is content-addressed
-(`bands_cid`), not a protocol constant, so any operator can
-publish, version, supersede. Fetch via GET `/v1/bands`, cache by CID.
-The voxel itself is addressable: `emem:vec/<vec64>` dereferences via
-`/v1/find_similar` (cosine over the 1792-D space). `Source.scheme =
-"emem.cube.v1"`.
+| User question                                       | Tool call                                                                                | Cite                            |
+|-----------------------------------------------------|------------------------------------------------------------------------------------------|---------------------------------|
+| "Is the air bad in Delhi right now?"                | `emem_locate({q:"Delhi"})` then `emem_recall({cell, bands:["cams.pm25"]})`               | receipt.fact_cids[0]            |
+| "Has lat/lng X ever flooded?"                       | `emem_recall({cell, bands:["surface_water.recurrence","sentinel1_raw"]})`                | two fact_cids                   |
+| "What's the elevation of Mount Fuji?"               | `emem_locate({q:"Mount Fuji"})` then `emem_recall({bands:["copdem30m.elevation_mean"]})` | one fact_cid                    |
+| "Find places like the Sundarbans"                   | `emem_find_similar({key:cell, band:"geotessera", k:5})`                                  | k cell64s + cosine + receipt    |
+| "How did this farm change between 2020 and 2024?"   | `emem_diff({cell, t1, t2, bands:["indices.ndvi"]})`                                      | diff fact_cid                   |
+| "Average PM2.5 across this city"                    | `emem_recall_polygon({place:"Lagos", bands:["cams.pm25"]})` then `emem_query_region`     | aggregated + per-cell receipts  |
+
+## Tools (MCP — see /mcp tools/list for the live catalog)
+
+- `emem_locate(q)` — place name or lat/lng → cell64 + bbox + neighbours.
+  When to use: any time the user mentions a place. When NOT to use: when
+  you already have a cell64.
+- `emem_recall(cell, bands[])` — fetch facts at a cell, signed. Auto-
+  materializes on miss. Returns Primary | Derivative | Absence.
+- `emem_recall_polygon(place|bbox, bands[])` — closes locate → polygon →
+  fan-out into one call. Use this for region questions.
 
 ## Trust the data
 - Every read is signed ed25519. Identical canonical facts have the
@@ -232,3 +201,8 @@ curl -X POST https://emem.dev/mcp \
 ## Source
 
 github.com/Vortx-AI/emem · Apache-2.0
+
+## Operator and legal
+
+> Operated by Vortx AI Private Limited (India). Contact: avijeet@vortx.ai
+> Privacy: /privacy · Terms: /terms · Support: /support · Code: github.com/Vortx-AI/emem

@@ -3,8 +3,23 @@
   "name": "io.github.Vortx-AI/emem",
   "title": "emem — Earth memory protocol",
   "description": "Content-addressed, ed25519-signed memory of every place on Earth. Apache-2.0, no keys for reads.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "websiteUrl": "https://emem.dev",
+  "keywords": [
+    "earth-observation",
+    "geospatial",
+    "satellite",
+    "carbon-mrv",
+    "ed25519",
+    "no-api-key",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "categories": [
+    "data",
+    "geospatial",
+    "earth-observation"
+  ],
   "repository": {
     "url": "https://github.com/Vortx-AI/emem",
     "source": "github"

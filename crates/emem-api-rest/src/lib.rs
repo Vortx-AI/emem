@@ -181,6 +181,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/agent.json", get(agent_manifest))
         .route("/openapi.json", get(openapi))
+        // Curated 28-op subset for OpenAI Custom GPT Actions (30-op cap).
+        // Filtered live from the full spec — single source of truth.
+        .route("/v1/openapi.action.json", get(openapi_action_json))
         // Examples
         .route(
             "/examples/claude-desktop.json",
@@ -556,7 +559,8 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/materializers.md"
         | "/spaces.md"
         | "/temporal.md"
-        | "/openapi.json" => Some("public, max-age=86400, stale-while-revalidate=604800"),
+        | "/openapi.json"
+        | "/v1/openapi.action.json" => Some("public, max-age=86400, stale-while-revalidate=604800"),
         // Changes on manifest rotation (hours), not seconds.
         "/.well-known/emem.json"
         | "/.well-known/ai-plugin.json"
@@ -900,6 +904,7 @@ async fn rate_limit_layer(
             | "/.well-known/oauth-protected-resource"
             | "/gemini-extension.json"
             | "/openapi.json"
+            | "/v1/openapi.action.json"
             | "/robots.txt"
             | "/sitemap.xml"
             | "/favicon.svg"
@@ -2951,6 +2956,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         },
         "surfaces": {
             "rest_openapi":     "/openapi.json",
+            "rest_openapi_action_subset": "/v1/openapi.action.json",
             "mcp_jsonrpc":      "/mcp",
             "well_known":       "/.well-known/emem.json",
             "ai_plugin":        "/.well-known/ai-plugin.json",
@@ -7757,6 +7763,166 @@ async fn openapi() -> Json<JsonValue> {
             }
         }
     }))
+}
+
+/// `GET /v1/openapi.action.json` — curated subset of `/openapi.json` sized
+/// for OpenAI Custom GPT Actions, which enforces a hard 30-operation cap.
+/// The full spec ships ~60+ operations (the 9 boring `/v1/{ndvi,air,…}`
+/// helpers each duplicate a `emem_recall(bands=…)` call, plus deep
+/// introspection routes like `/v1/schema` and `/v1/functions` that an
+/// agent never needs in a single tool-pick decision). This endpoint:
+///
+///   - keeps the 28 operationIds in `CUSTOM_GPT_KEEP_OPS`,
+///   - re-titles `info.title` so a Custom GPT operator importing the spec
+///     into ChatGPT sees a distinguishable surface name,
+///   - tags every kept op with `x-openai-isConsequential` (false for
+///     reads, true for `/v1/attest` which submits a signed write),
+///   - drops every other path so OpenAI's importer accepts it.
+///
+/// Filtering is done at request time against the live `openapi()` output
+/// — no caching, no second source of truth — so any op renamed in the
+/// hand-rolled spec automatically propagates here on the next request.
+async fn openapi_action_json() -> Json<JsonValue> {
+    // The keep-list is expressed as a set of operationId *prefixes* so
+    // that path entries with `_get` / `_post` siblings (e.g.
+    // `emem_temporal_route_get` + `emem_temporal_route_post`,
+    // `emem_elevation_get` + `emem_elevation`, `emem_fetch` +
+    // `emem_fetch_post`) all stay together. Any operationId that exactly
+    // matches a keep entry, or that strips a `_get` / `_post` suffix to
+    // match one, is kept.
+    const KEEP_OPS: &[&str] = &[
+        // Read facts (14)
+        "emem_locate",
+        "emem_recall",
+        "emem_recall_many",
+        "emem_recall_polygon",
+        "emem_query_region",
+        "emem_compare",
+        "emem_compare_bands",
+        "emem_find_similar",
+        "emem_trajectory",
+        "emem_diff",
+        "emem_verify",
+        "emem_intent",
+        "emem_fetch",
+        "emem_backfill",
+        // Discovery single-GET (9)
+        "emem_bands",
+        "emem_coverage_matrix",
+        "emem_data_availability",
+        "emem_materializers",
+        "emem_algorithms",
+        "emem_grid_info",
+        "emem_fleet",
+        "emem_temporal_route",
+        "emem_errors",
+        // Geo helpers (3)
+        "emem_cell_geojson",
+        "emem_cell_scene_rgb",
+        "emem_elevation",
+        // Verify + write (2)
+        "emem_verify_receipt",
+        "emem_attest",
+    ];
+    let keep: std::collections::HashSet<&str> = KEEP_OPS.iter().copied().collect();
+
+    // OpenAI's Custom GPT importer counts *operations*, not paths. Three
+    // keeper bases each ship two methods in the full spec — keep exactly
+    // one method per base so the curated subset stays at 28 operations
+    // (not 31). Selection rule: prefer the read-shape that maps cleanly
+    // to a Custom GPT tool call:
+    //   - `emem_fetch`         : prefer GET /v1/facts/{cid} (immutable,
+    //                            ETag-tagged) over POST /v1/fetch.
+    //   - `emem_temporal_route`: prefer GET (route is idempotent).
+    //   - `emem_elevation`     : prefer GET (?lat=&lon=).
+    const DROP_OPS: &[&str] = &[
+        "emem_fetch_post",          // POST /v1/fetch — superseded by GET /v1/facts/{cid}
+        "emem_temporal_route_post", // POST /v1/temporal_route — GET sibling kept
+        "emem_elevation",           // POST /v1/elevation — GET sibling kept
+    ];
+    let drop: std::collections::HashSet<&str> = DROP_OPS.iter().copied().collect();
+
+    fn op_matches(
+        op_id: &str,
+        keep: &std::collections::HashSet<&str>,
+        drop: &std::collections::HashSet<&str>,
+    ) -> bool {
+        if drop.contains(op_id) {
+            return false;
+        }
+        if keep.contains(op_id) {
+            return true;
+        }
+        for suffix in ["_get", "_post"] {
+            if let Some(base) = op_id.strip_suffix(suffix) {
+                if keep.contains(base) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    // Pull the full spec, then strip everything outside the keep-list.
+    let Json(mut spec) = openapi().await;
+
+    // Re-title so ChatGPT's Custom GPT importer shows a distinguishable
+    // name (otherwise both /openapi.json and this curated subset land
+    // under "emem" and the operator can't tell which they imported).
+    if let Some(info) = spec.get_mut("info").and_then(|v| v.as_object_mut()) {
+        info.insert(
+            "title".into(),
+            json!("emem Earth Memory — Custom GPT Action subset"),
+        );
+        info.insert(
+            "description".into(),
+            json!(
+                "Curated 28-operation subset of the full emem OpenAPI spec, sized for \
+                 OpenAI Custom GPT Actions (which enforces a hard 30-operation cap). \
+                 Drops the boring single-band helpers (/v1/ndvi, /v1/air, …) and \
+                 introspection-duplicate endpoints; keeps the canonical reads, \
+                 discovery, geo helpers, and the one signed-write surface (/v1/attest). \
+                 The full spec lives at /openapi.json."
+            ),
+        );
+    }
+
+    if let Some(paths) = spec.get_mut("paths").and_then(|v| v.as_object_mut()) {
+        // Walk paths; for each path, drop methods whose operationId is
+        // not in the keep list. Drop the path entirely if no methods
+        // survive.
+        let path_keys: Vec<String> = paths.keys().cloned().collect();
+        for pk in path_keys {
+            let mut keep_path = false;
+            if let Some(methods) = paths.get_mut(&pk).and_then(|v| v.as_object_mut()) {
+                let method_keys: Vec<String> = methods.keys().cloned().collect();
+                for mk in method_keys {
+                    let op_id = methods
+                        .get(&mk)
+                        .and_then(|v| v.get("operationId"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if op_matches(&op_id, &keep, &drop) {
+                        // Tag for OpenAI's importer. Writes (attest) get
+                        // `true`; everything else is a pure read.
+                        let is_consequential = op_id == "emem_attest";
+                        if let Some(op) = methods.get_mut(&mk).and_then(|v| v.as_object_mut()) {
+                            op.insert("x-openai-isConsequential".into(), json!(is_consequential));
+                        }
+                        keep_path = true;
+                    } else {
+                        methods.remove(&mk);
+                    }
+                }
+            }
+            if !keep_path {
+                paths.remove(&pk);
+            }
+        }
+    }
+
+    Json(spec)
 }
 
 /// Compute the bands_cid + sources_cid for the default in-process registries.
