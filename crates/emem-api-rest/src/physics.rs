@@ -343,10 +343,7 @@ fn heat_choose_timestep(alpha: f64, hours_ahead: f64) -> Result<(usize, f64), St
 
 /// Run the full heat-solve primitive. Used by both the REST handler and
 /// the MCP dispatch arm.
-pub async fn heat_solve(
-    mut req: HeatSolveReq,
-    state: &AppState,
-) -> Result<JsonValue, ApiError> {
+pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     if req.hours_ahead > 168.0 {
         return Err(bad_request(format!(
@@ -705,10 +702,7 @@ async fn walk_seaward_profile(
 }
 
 /// Run the full wave-solve primitive.
-pub async fn wave_solve(
-    mut req: WaveSolveReq,
-    state: &AppState,
-) -> Result<JsonValue, ApiError> {
+pub async fn wave_solve(mut req: WaveSolveReq, state: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     // Resolve a place name to cell64 if needed. Walking the seaward
     // bathymetric profile only makes sense from a real coastal cell,

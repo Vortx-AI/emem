@@ -14817,8 +14817,7 @@ async fn try_materialize_bands(
                 // dimension, not a band. Map the prefix back through the
                 // topic registry and suggest the canonical bands.
                 let prefix = b.split('.').next().unwrap_or("");
-                let topic_bands =
-                    topic_router::TopicRouter::global().bands_for_topic(prefix);
+                let topic_bands = topic_router::TopicRouter::global().bands_for_topic(prefix);
                 let e = if !topic_bands.is_empty() {
                     let dim = b.strip_prefix(prefix).and_then(|s| s.strip_prefix('.'));
                     let suggestions: Vec<String> = if let Some(dim) = dim {
