@@ -30,6 +30,7 @@ pub mod overture;
 pub mod proj;
 pub mod stac;
 pub mod template;
+pub mod terraclimate;
 
 /// A single fetch request.
 ///

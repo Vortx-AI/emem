@@ -466,7 +466,8 @@
       "description": "TerraClimate monthly climatology: temperature (min/max/mean), precipitation, PET, soil moisture, runoff, climate water deficit, plus 30-year normals and recent-decade anomalies.",
       "units": "mixed (°C, mm/month, mm/year)",
       "interpretation": "The canonical climatology for drought (climate water deficit, soil moisture), water balance (PET vs precip), and bioclimatic envelope work. Tempo `medium` because monthly updates lag ~2 months.",
-      "references": "Abatzoglou et al. 2018 (Scientific Data)"
+      "references": "Abatzoglou et al. 2018 (Scientific Data)",
+      "scalar_keys": ["terraclimate.tmean_normal_c", "terraclimate.precip_normal_mm", "terraclimate.aet_normal_mm"]
     },
     {
       "key": "cop_dem",
