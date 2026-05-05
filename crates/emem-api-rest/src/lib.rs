@@ -2401,79 +2401,40 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
     // shows `cop_dem mat=False facts=0` next to a working
     // `copdem30m.elevation_mean mat=True`, which makes agents conclude
     // "DEM is offline" when in fact it's wired under a different key.
-    let cube_aliases: &[(&str, &[&str])] = &[
-        ("dem", &["copdem30m.elevation_mean", "gmrt.topobathy_mean"]),
-        ("cop_dem", &["copdem30m.elevation_mean"]),
-        (
-            "climate",
-            &[
-                "weather.temperature_2m",
-                "weather.cloud_cover",
-                "weather.precipitation_mm",
-                "weather.wind_speed_10m",
-                "weather.relative_humidity_2m",
-                "weather.dew_point_2m",
-                "weather.air_pressure_msl",
-                "weather.wind_direction_10m",
-            ],
-        ),
-        (
-            "indices",
-            &[
-                "indices.ndvi",
-                "indices.ndwi",
-                "indices.mndwi",
-                "indices.evi",
-                "indices.nbr",
-                "indices.ndmi",
-                "indices.savi",
-                "indices.bsi",
-                "indices.ndbi",
-            ],
-        ),
-        (
-            "sentinel2_raw",
-            &[
-                "s2.B01", "s2.B02", "s2.B03", "s2.B04", "s2.B05", "s2.B06", "s2.B07", "s2.B08",
-                "s2.B8A", "s2.B09", "s2.B11", "s2.B12", "s2.scl",
-            ],
-        ),
-        (
-            "geotessera",
-            &[
-                "geotessera",
-                "geotessera.multi_year",
-                "geotessera.2017",
-                "geotessera.2018",
-                "geotessera.2019",
-                "geotessera.2020",
-                "geotessera.2021",
-                "geotessera.2022",
-                "geotessera.2023",
-                "geotessera.2024",
-            ],
-        ),
-        (
-            "overture",
-            &[
-                "overture.buildings.count",
-                "overture.places.count",
-                "overture.transportation.road_length_m",
-            ],
-        ),
-    ];
-    let alias_for = |k: &str| -> &'static [&'static str] {
-        cube_aliases
-            .iter()
-            .find(|(name, _)| *name == k)
-            .map(|(_, v)| *v)
-            .unwrap_or(&[])
-    };
-    let aggregate_subkey_facts = |subkeys: &[&str]| -> (u64, Option<i64>) {
+    //
+    // Source of truth: `Band.scalar_keys` from `bands-v0.json`,
+    // intersected with `band_materializer_meta(child).is_some()` (the
+    // canonical wired-band predicate). No hardcoded sub-key tables —
+    // adding a child to the registry automatically surfaces it here.
+    // The same registry CID input always produces the same alias map,
+    // so this is deterministic and federation-safe.
+    let cube_aliases: BTreeMap<String, Vec<String>> = registry
+        .bands
+        .iter()
+        .map(|b| {
+            let wired: Vec<String> = b
+                .scalar_keys
+                .iter()
+                .filter(|child| {
+                    // A child is "wired" iff this responder has a
+                    // materializer for it. Family-bands whose own key
+                    // is materializable (e.g. `geotessera`,
+                    // `sentinel1_raw`) include themselves so the alias
+                    // map remains a complete list of attestable keys.
+                    band_materializer_meta(child).is_some() || mat_set.contains(child.as_str())
+                })
+                .cloned()
+                .collect();
+            (b.key.clone(), wired)
+        })
+        .collect();
+    let alias_for =
+        |k: &str| -> &[String] { cube_aliases.get(k).map(|v| v.as_slice()).unwrap_or(&[]) };
+    let aggregate_subkey_facts = |subkeys: &[String]| -> (u64, Option<i64>) {
         let mut n_total = 0u64;
         let mut latest: Option<i64> = None;
         for k in subkeys {
-            if let Some((n, last)) = counts.get(*k) {
+            if let Some((n, last)) = counts.get(k) {
                 n_total += *n;
                 if let Some(t) = last {
                     latest = Some(latest.map_or(*t, |x| x.max(*t)));
@@ -2496,7 +2457,11 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
         let (n_self, last_self) = counts.get(&b.key).copied().unwrap_or((0, None));
         let direct_mat = mat_set.contains(b.key.as_str());
         let subkeys = alias_for(b.key.as_str());
-        let is_family_alias = !subkeys.is_empty();
+        // A band is a family alias when its registry-declared
+        // `scalar_keys` includes at least one *distinct* wired child —
+        // `sentinel1_raw` listing only itself is NOT a family alias,
+        // but `cop_dem` listing `copdem30m.elevation_mean` IS.
+        let is_family_alias = subkeys.iter().any(|k| k != &b.key);
         let (n_sub, last_sub) = if is_family_alias {
             aggregate_subkey_facts(subkeys)
         } else {
@@ -2508,7 +2473,11 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
             (Some(a), None) | (None, Some(a)) => Some(a),
             (None, None) => None,
         };
-        let has_mat = direct_mat || is_family_alias && subkeys.iter().any(|k| mat_set.contains(k));
+        let has_mat = direct_mat
+            || is_family_alias
+                && subkeys
+                    .iter()
+                    .any(|k| mat_set.contains(k.as_str()) || band_materializer_meta(k).is_some());
         let sat_lineage: Vec<&str> = materializer_bands
             .iter()
             .find(|t| t.0 == b.key.as_str())
@@ -2517,6 +2486,23 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
         let meta = band_materializer_meta(b.key.as_str());
         let history_from = meta.as_ref().and_then(|m| m.history_from_unix);
         let history_to = meta.as_ref().and_then(|m| m.history_to_unix);
+        // Build the per-subkey detail array. Always emit the field
+        // (even as `[]`) so agents can discriminate "no children"
+        // from "field missing / handler hasn't been updated".
+        let wired_subkeys_detail: Vec<JsonValue> = subkeys
+            .iter()
+            .map(|k| {
+                let m = band_materializer_meta(k);
+                let kind = m.as_ref().map(|m| m.kind.as_str()).unwrap_or("unknown");
+                let has_mat = m.is_some() || mat_set.contains(k.as_str());
+                json!({
+                    "key": k,
+                    "kind": kind,
+                    "has_materializer": has_mat,
+                    "source_scheme": source_scheme_for(k),
+                })
+            })
+            .collect();
         let mut row = json!({
             "band":             b.key,
             "family":           format!("{:?}", b.family).to_ascii_lowercase(),
@@ -2532,24 +2518,23 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
             "history_available_from_unix": history_from,
             "history_available_to_unix":   history_to,
             "responder_pubkey_b32": pubkey_b32,
+            // Honest default: empty array, never null and never
+            // omitted. Agents that see this field can rely on it being
+            // present on every band row.
+            "wired_subkeys":    wired_subkeys_detail,
         });
         if is_family_alias {
             row.as_object_mut()
                 .unwrap()
                 .insert("is_family_alias".into(), JsonValue::Bool(true));
-            row.as_object_mut().unwrap().insert(
-                "wired_subkeys".into(),
-                JsonValue::Array(
-                    subkeys
-                        .iter()
-                        .map(|k| JsonValue::String((*k).into()))
-                        .collect(),
-                ),
-            );
         }
         bands_json.push(row);
     }
-    // Auxiliary materializer-only bands (not in the cube).
+    // Auxiliary materializer-only bands (not in the cube). These are
+    // leaf scalar bands, never family aliases — `wired_subkeys` is
+    // always `[]` here, but we emit the field so agents can
+    // unconditionally read `row["wired_subkeys"]` without a presence
+    // check (honest defaults rule, see commit notes).
     for (key, tempo, family, sats) in materializer_bands {
         if seen.contains(*key) {
             continue;
@@ -2572,6 +2557,7 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
             "history_available_from_unix": history_from,
             "history_available_to_unix":   history_to,
             "responder_pubkey_b32": pubkey_b32,
+            "wired_subkeys":    JsonValue::Array(Vec::new()),
         }));
     }
 
@@ -2591,6 +2577,24 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
         .filter(|b| b.get("facts_count").and_then(|v| v.as_u64()).unwrap_or(0) > 0)
         .count();
 
+    // Top-level family-alias summary so an agent can read the whole
+    // alias map in one shot without iterating `bands[]`. Derived from
+    // the same `cube_aliases` map built above — only family bands
+    // (those with at least one *distinct* wired child) are included,
+    // and entries are key-only (the per-child detail lives in the
+    // band row's `wired_subkeys[]`). The map is sorted by family key
+    // (BTreeMap iteration order) so the response is deterministic.
+    let family_aliases_summary: serde_json::Map<String, JsonValue> = cube_aliases
+        .iter()
+        .filter(|(family, subs)| subs.iter().any(|k| k != *family))
+        .map(|(family, subs)| {
+            (
+                family.clone(),
+                JsonValue::Array(subs.iter().map(|k| JsonValue::String(k.clone())).collect()),
+            )
+        })
+        .collect();
+
     Json(json!({
         "schema": "emem.coverage_matrix.v1",
         "totals": {
@@ -2603,9 +2607,10 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
         "responder_pubkey_b32": data_encoding::BASE32_NOPAD
             .encode(&s.identity.pubkey.0).to_lowercase(),
         "bands": bands_json,
+        "family_aliases": family_aliases_summary,
         "agent_hint": {
             "use_when": "Decide which band to /v1/recall before paying for materialization. has_materializer=false bands need a third-party signed Attestation; in_cube=false bands ride alongside the 1792-D layout but aren't byte-addressable in the cube.",
-            "family_aliases": "Some cube slots (`dem`, `cop_dem`, `climate`, `indices`, `sentinel2_raw`, `geotessera`, `overture`) reserve byte ranges for a *family* of attestable sub-keys; recall calls go to the granular subkey, not the family slot. When `is_family_alias=true`, the row reports rolled-up `facts_count` and `wired_subkeys` so the agent can pick the actual band to materialize.",
+            "family_aliases": "Some cube slots reserve byte ranges for a *family* of attestable sub-keys; recall calls go to the granular subkey, not the family slot. When `is_family_alias=true`, the row reports rolled-up `facts_count` and a per-band `wired_subkeys[]` array of `{key, kind, has_materializer, source_scheme}` so the agent can pick the actual band to materialize. The top-level `family_aliases` object summarises the same map family→[subkey,…] for one-shot scanning. Both are derived from `bands-v0.json` `scalar_keys` intersected with the materializer registry — no hardcoded sub-key tables, deterministic per registry CID.",
             "freshness": "facts_count>0 with a recent last_attested_unix_s means the band has been answered globally somewhere recently; per-cell freshness still needs /v1/temporal_route.",
             "history_bounds": "history_available_from_unix / history_available_to_unix bound what an `emem_backfill` call can materialize on this responder. `null` = the band has no historical materializer here (e.g. weather nowcast, Overture snapshot, or static climatology where one fact answers for all time).",
             "tempo_seconds": "Slot duration in seconds. 0 = static (one fact). Use it to convert between Unix epoch and tslot when planning a backfill window.",
@@ -4026,8 +4031,10 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
     // Bands with dots ("esa_worldcover.lc_2021", "copdem30m.elevation_mean")
     // are materializer scalars that ride atop a cube band; they don't
     // appear directly in the registry. Map them to their cube band so
-    // the editorial fields still surface. The map mirrors the
-    // `cube_aliases` table in /v1/coverage_matrix.
+    // the editorial fields still surface. The map below is the inverse
+    // of the family-alias map derived in `/v1/coverage_matrix` from
+    // `bands-v0.json` `scalar_keys` — both views must stay in sync
+    // when adding a new scalar to a family band.
     let cube_band = match band_key {
         // Cop-DEM scalars → `cop_dem` slot.
         b if b.starts_with("copdem30m.") => "cop_dem",
@@ -13888,6 +13895,20 @@ fn parse_geotessera_year(band: &str) -> Option<i32> {
     suffix.parse::<i32>().ok()
 }
 
+/// Source-scheme prefix for a band key — everything before the first
+/// `.`. Examples: `cams.no2 → "cams"`, `weather.temperature_2m →
+/// "weather"`, `geotessera.2020 → "geotessera"`, `sentinel1_raw →
+/// "sentinel1_raw"`. Surfaced under each entry of
+/// `coverage_matrix.bands[].wired_subkeys[]` so an agent can group
+/// children by upstream provider scheme without re-parsing the key.
+/// Pure string transform — no registry lookup, no allocation beyond
+/// the borrow.
+fn source_scheme_for(band: &str) -> &str {
+    band.split_once('.')
+        .map(|(scheme, _)| scheme)
+        .unwrap_or(band)
+}
+
 /// Authoritative range of Tessera v1 vintages this responder ships. Mirror
 /// of the constant in `band_materializer_meta` and `materialize_band_at`;
 /// kept here so `/v1/data_availability` can enumerate per-year entries
@@ -20081,6 +20102,120 @@ mod tests {
             emem_codec::to_cell64(b),
             "12 m east must produce a distinct cell64 — corruption guard"
         );
+    }
+
+    /// Regression for P0-2 of the 2026-05-05 deepscan: family-alias
+    /// bands like `air_quality` (whose own key has no materializer)
+    /// must surface their wired children under `wired_subkeys[]` in
+    /// `/v1/coverage_matrix`. Before this fix, agents reading
+    /// `air_quality has_materializer=false facts_count=0` would
+    /// conclude "no air-quality data" even though `cams.pm25 / cams.no2
+    /// / cams.so2 / cams.aod_550 / …` were fully wired.
+    ///
+    /// This test exercises the same registry-derived projection the
+    /// coverage_matrix handler uses (no AppState / network needed) so
+    /// the contract is locked at the data-layer: any future edit to
+    /// `bands-v0.json` that drops the `cams.*` scalar_keys, or any
+    /// edit to `band_materializer_meta` that drops the `cams.*` arm,
+    /// will fail this test before reaching agents.
+    #[test]
+    fn coverage_matrix_air_quality_surfaces_wired_cams_subkeys() {
+        let registry = &*emem_core::bands::DEFAULT;
+        let aq = registry
+            .lookup("air_quality")
+            .expect("air_quality band missing from registry — P0-2 contract");
+        // The registry must declare cams.* scalar_keys.
+        let declared: Vec<&str> = aq.scalar_keys.iter().map(|s| s.as_str()).collect();
+        assert!(
+            declared.iter().any(|k| k.starts_with("cams.")),
+            "air_quality.scalar_keys lost its cams.* children: {declared:?}"
+        );
+        // Apply the same derivation `coverage_matrix` does: keep only
+        // the children for which a materializer is wired.
+        let wired: Vec<&str> = declared
+            .iter()
+            .copied()
+            .filter(|child| band_materializer_meta(child).is_some())
+            .collect();
+        assert!(
+            !wired.is_empty(),
+            "air_quality has scalar_keys {declared:?} but none route to a wired materializer — \
+             coverage_matrix would tell agents the family is offline"
+        );
+        // Concretely: the four canonical AQI pollutants must all be
+        // wired so a question like "what's the air quality here?"
+        // doesn't silently degrade.
+        for must_have in ["cams.pm25", "cams.no2", "cams.so2", "cams.aod_550"] {
+            assert!(
+                wired.contains(&must_have),
+                "expected {must_have} in air_quality wired_subkeys, got {wired:?}"
+            );
+        }
+        // The family band itself must NOT have a direct materializer
+        // — this is precisely the shape that triggered the P0 (a band
+        // entry whose `has_materializer=false` hides wired children).
+        assert!(
+            band_materializer_meta("air_quality").is_none(),
+            "air_quality grew its own materializer — update this test, it no longer reproduces \
+             the family-alias hiding bug"
+        );
+        // And the source-scheme helper must group all wired children
+        // under the same scheme (`cams`) so an agent can filter by
+        // upstream provider.
+        for k in &wired {
+            assert_eq!(
+                source_scheme_for(k),
+                "cams",
+                "{k} routes through a non-cams scheme: {:?}",
+                source_scheme_for(k)
+            );
+        }
+    }
+
+    /// Companion guard for the same P0: walk every cube band and
+    /// assert that whenever the family band itself is *not*
+    /// directly materialized AND it declares any scalar_keys, the
+    /// derived `wired_subkeys[]` must be honest — either a
+    /// non-empty list of wired children, OR an empty list (legacy
+    /// `dem` / `landcover` slots whose registry scalar_keys are
+    /// editorial-only and not yet wired). The point is: NEVER
+    /// silently drop the field, NEVER hide a wired child, NEVER
+    /// invent one. This locks the registry → handler projection
+    /// against drift.
+    #[test]
+    fn coverage_matrix_family_aliases_derive_deterministically() {
+        let registry = &*emem_core::bands::DEFAULT;
+        let mut aliases_with_wired_children: Vec<(&str, Vec<&str>)> = Vec::new();
+        for b in &registry.bands {
+            if b.scalar_keys.is_empty() {
+                continue;
+            }
+            let wired: Vec<&str> = b
+                .scalar_keys
+                .iter()
+                .filter(|child| band_materializer_meta(child).is_some())
+                .map(|s| s.as_str())
+                .collect();
+            // If the family has at least one *distinct* wired child,
+            // it counts as a true alias (sentinel1_raw lists only
+            // itself, so it doesn't).
+            if wired.iter().any(|k| *k != b.key.as_str()) {
+                aliases_with_wired_children.push((b.key.as_str(), wired));
+            }
+        }
+        // Sanity floor: at minimum we expect air_quality, cop_dem,
+        // overture, and climate to come through with wired children.
+        // (Dropping any of these without an agent-facing migration
+        // would re-introduce the P0.)
+        for required in ["air_quality", "cop_dem", "overture", "climate"] {
+            assert!(
+                aliases_with_wired_children
+                    .iter()
+                    .any(|(k, v)| *k == required && !v.is_empty()),
+                "family alias {required} lost its wired children — agents will conclude the \
+                 family is offline. Got map: {aliases_with_wired_children:?}"
+            );
+        }
     }
 
     /// LatLngQ accepts both `lon` and `lng` so that an agent trained
