@@ -11466,6 +11466,204 @@ async fn materialize_marine_band(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+/// Materialize a TerraClimate **30-year climate normal** at a single
+/// lat/lng. TerraClimate (Abatzoglou et al. 2018, *Scientific Data*; v1.1
+/// 2025 release) is the University of Idaho Climatology Lab's
+/// monthly-cadence global climatology, distributed as NetCDF-4 over THREDDS
+/// at <http://thredds.northwestknowledge.net:8080>. Free, public-domain
+/// (CC0), no API key.
+///
+/// Three sub-bands wired today, all answering "what is the climate
+/// **normal** here?" (NOT "what's it doing right now?" — that's the
+/// `weather.*` family):
+///
+/// - `terraclimate.precip_normal_mm` — annual mean precipitation, mm/year
+///   (sum the 12 monthly mean precips for each year in the 1991-2020 WMO
+///   normal window, mean across years).
+/// - `terraclimate.tmean_normal_c` — mean monthly temperature, °C, computed
+///   as (T_max + T_min)/2 averaged across every month in the window. This
+///   is the standard meteorological definition when a continuously-sampled
+///   mean is unavailable (Linacre 1992).
+/// - `terraclimate.aet_normal_mm` — annual actual evapotranspiration,
+///   mm/year (same computation as precip but for AET; informs the water
+///   balance P − AET).
+///
+/// All three use the **WMO 1991-2020 standard normal** window —
+/// [`emem_fetch::terraclimate::NORMAL_WINDOW`]. The previous WMO window
+/// (1981-2010) is now superseded; switching to a different baseline is a
+/// one-line edit in the connector and would also require renaming the
+/// bands so two responders never produce different "normals" under the
+/// same band name.
+///
+/// Static — `target_unix` is implicitly 0 (one fact per cell answers for
+/// all time). Backfill is meaningless here and is gated upstream by the
+/// `BandKind::Static` declaration in `band_materializer_meta`.
+async fn materialize_terraclimate_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::terraclimate as tc;
+
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let signed_at = chrono_iso8601_utc();
+
+    // Sub-band → variable-spec dispatcher. Each branch builds the fact with
+    // its own derivation `fn_key` so a verifier can re-run the exact
+    // computation: which NCSS variable, which window, which aggregation
+    // (annual total vs monthly mean vs tmin/tmax fusion).
+    let (value, unit, confidence, scheme, sources, fn_key, fn_args) = match band {
+        "terraclimate.precip_normal_mm" => {
+            let sample = tc::fetch_terraclimate_normal(
+                &tc::PPT,
+                lat,
+                lng,
+                tc::NORMAL_WINDOW,
+                tc::NormalKind::AnnualTotal,
+                timeout,
+            )
+            .await
+            .map_err(|e| format!("terraclimate ppt: {e}"))?;
+            (
+                sample.value,
+                sample.unit,
+                // Confidence floor matches other reanalysis-derived bands
+                // (era5.*, power.*) — the underlying climatology is well-
+                // constrained and TerraClimate is widely cited (>5k papers).
+                0.85f32,
+                "terraclimate_ncss",
+                vec![Source {
+                    scheme: "terraclimate_ncss".into(),
+                    id: sample.url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(sample.url.clone()),
+                }],
+                "terraclimate_ppt_annual_total_normal_1991_2020@1".to_string(),
+                ciborium::Value::Array(vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(tc::NORMAL_WINDOW.0)),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(tc::NORMAL_WINDOW.1)),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(
+                        sample.n_samples as i64,
+                    )),
+                ]),
+            )
+        }
+        "terraclimate.aet_normal_mm" => {
+            let sample = tc::fetch_terraclimate_normal(
+                &tc::AET,
+                lat,
+                lng,
+                tc::NORMAL_WINDOW,
+                tc::NormalKind::AnnualTotal,
+                timeout,
+            )
+            .await
+            .map_err(|e| format!("terraclimate aet: {e}"))?;
+            (
+                sample.value,
+                sample.unit,
+                0.80f32,
+                "terraclimate_ncss",
+                vec![Source {
+                    scheme: "terraclimate_ncss".into(),
+                    id: sample.url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(sample.url.clone()),
+                }],
+                "terraclimate_aet_annual_total_normal_1991_2020@1".to_string(),
+                ciborium::Value::Array(vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(tc::NORMAL_WINDOW.0)),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(tc::NORMAL_WINDOW.1)),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(
+                        sample.n_samples as i64,
+                    )),
+                ]),
+            )
+        }
+        "terraclimate.tmean_normal_c" => {
+            // Two upstream calls (tmin, tmax). Both URLs land in the
+            // sources list so a verifier can pin both halves of the
+            // (T_min + T_max) / 2 derivation.
+            let sample = tc::fetch_terraclimate_tmean_normal(lat, lng, tc::NORMAL_WINDOW, timeout)
+                .await
+                .map_err(|e| format!("terraclimate tmean: {e}"))?;
+            (
+                sample.value,
+                sample.unit,
+                0.85f32,
+                "terraclimate_ncss",
+                vec![
+                    Source {
+                        scheme: "terraclimate_ncss".into(),
+                        id: sample.tmin_url.clone(),
+                        cid: None,
+                        hash: None,
+                        captured_at: Some(signed_at.clone()),
+                        url: Some(sample.tmin_url.clone()),
+                    },
+                    Source {
+                        scheme: "terraclimate_ncss".into(),
+                        id: sample.tmax_url.clone(),
+                        cid: None,
+                        hash: None,
+                        captured_at: Some(signed_at.clone()),
+                        url: Some(sample.tmax_url.clone()),
+                    },
+                ],
+                "terraclimate_tmean_monthly_mean_normal_1991_2020@1".to_string(),
+                ciborium::Value::Array(vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(tc::NORMAL_WINDOW.0)),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(tc::NORMAL_WINDOW.1)),
+                    ciborium::Value::Integer(ciborium::value::Integer::from(
+                        sample.n_samples as i64,
+                    )),
+                ]),
+            )
+        }
+        _ => {
+            return Err(format!(
+                "no_terraclimate_subband: '{band}' not wired; supported: terraclimate.precip_normal_mm, terraclimate.tmean_normal_c, terraclimate.aet_normal_mm"
+            ));
+        }
+    };
+
+    let _ = scheme; // captured for future logging hooks; unused at present
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        // Static — one canonical tslot for all time, mirrors how other
+        // climatology / per-release bands persist (esa_worldcover, gsw).
+        tslot: 0,
+        value: ciborium::Value::Float(value),
+        unit: Some(unit.to_string()),
+        confidence,
+        uncertainty: None,
+        sources,
+        derivation: Derivation {
+            fn_key,
+            args: Some(fn_args),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 /// Parse an Open-Meteo `YYYY-MM-DDTHH:MM` (always UTC when timezone=UTC)
 /// timestamp into Unix epoch seconds. Returns `None` for malformed input.
 /// Strict: must match exactly 16 chars, the literal `T`, and `:00` minutes.
@@ -13850,6 +14048,25 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: None,
             wire_path: "Open-Meteo Marine REST (ECMWF WAM wave model)",
         },
+        // TerraClimate climate normals (1991-2020 WMO standard window).
+        // Single value per cell — the fact answers "what is the climatology
+        // here", not "what was it on day X". Backfill is meaningless because
+        // the value IS already a 30-year mean; sub-bands routed below to
+        // their respective NCSS variables (ppt → precip_normal_mm,
+        // tmax+tmin → tmean_normal_c, aet → aet_normal_mm). Idaho
+        // Climatology Lab keeps appending new years annually but the WMO
+        // normal window only shifts every decade.
+        b if b.starts_with("terraclimate.") => MaterializerMeta {
+            tempo: Tempo::Static,
+            kind: BandKind::Static,
+            // Documented climatology window — the responder's source files
+            // span 1958-present but the published normal we serve is the
+            // current WMO standard (1991-2020), in force from 2021-01-01.
+            history_from_unix: Some(days_from_civil(1991, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2021, 1, 1) * 86_400 - 1),
+            wire_path:
+                "thredds.northwestknowledge.net NCSS (TerraClimate v1.1 monthly aggregations, 1991-2020 normal)",
+        },
         // ORNL DAAC additional MODIS subset products. Per-product start of
         // record below; all 8-day or 16-day or 30-day composites depending
         // on the upstream product's natural cadence.
@@ -14236,6 +14453,13 @@ async fn materialize_band_at(
             | "soilgrids.nitrogen_0_30cm"
     ) {
         return materialize_soilgrids_band(cell64, s, band).await;
+    }
+
+    // TerraClimate 1991-2020 normals — single static fact per cell, no
+    // per-tslot series. target_unix is ignored (the value IS a 30-year
+    // mean) and dispatched to the variable-specific fetcher.
+    if band.starts_with("terraclimate.") {
+        return materialize_terraclimate_band(cell64, s, band).await;
     }
 
     // Met.no nowcast — no historical record. Surface this honestly so the
@@ -14993,6 +15217,42 @@ async fn try_materialize_bands(
             // Open-Meteo Marine ECMWF WAM. Recall path: current hour.
             b_name if b_name.starts_with("marine.") => {
                 match materialize_marine_band(cell64, s, b, None).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // TerraClimate 1991-2020 climate normals (Idaho Climatology Lab).
+            // Static — one signed fact per cell, no per-tslot series. Three
+            // sub-bands wired today: tmean_normal_c, precip_normal_mm,
+            // aet_normal_mm. The dispatcher in `materialize_terraclimate_band`
+            // routes the suffix to the right NCSS variable.
+            b_name if b_name.starts_with("terraclimate.") => {
+                match materialize_terraclimate_band(cell64, s, b).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
