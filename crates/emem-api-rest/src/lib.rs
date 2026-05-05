@@ -3704,7 +3704,7 @@ impl LatLngQ {
             ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::InvalidArgument,
                     message: "missing `lon` (or `lng`) query parameter".into(),
                     details: None,
                 },
@@ -3764,7 +3764,7 @@ impl LatLngQ {
             ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::InvalidArgument,
                     message: "supply (lat, lon|lng) or place".into(),
                     details: None,
                 },
@@ -4346,7 +4346,7 @@ async fn boring_recall_at(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "lat/lon must be finite numbers".into(),
                 details: None,
             },
@@ -4356,7 +4356,7 @@ async fn boring_recall_at(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "lat must be in [-90,90], lon in [-180,180]".into(),
                 details: None,
             },
@@ -4884,7 +4884,7 @@ async fn boring_recall_aggregated(
                 Err(e) => {
                     errors.push(json!({
                         "cell": cell,
-                        "code": format!("{:?}", e.1.code),
+                        "code": e.1.code,
                         "message": e.1.message,
                         "status": e.0.as_u16(),
                     }));
@@ -5817,7 +5817,7 @@ async fn post_recall_many(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "recall_many: `cells` cannot be empty".into(),
                 details: None,
             },
@@ -5827,7 +5827,7 @@ async fn post_recall_many(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: format!(
                     "recall_many: max 256 cells per call (got {}); split client-side",
                     req.cells.len()
@@ -5868,7 +5868,7 @@ async fn post_recall_many(
                     cell.clone(),
                     json!({
                         "error": e.to_string(),
-                        "code": format!("{:?}", e.wire_code()),
+                        "code": e.wire_code(),
                     }),
                 );
             }
@@ -6034,7 +6034,7 @@ async fn post_recall_polygon(
                 )
             } else {
                 return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-                        code: ErrorCode::Internal,
+                        code: ErrorCode::InvalidArgument,
                         message: format!("recall_polygon: place '{p}' resolved without bbox or centre — try passing polygon_bbox explicitly"),
                         details: None,
                     }));
@@ -6130,7 +6130,7 @@ async fn post_recall_polygon(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "recall_polygon: bbox sampled to zero cells".into(),
                 details: None,
             },
@@ -6171,7 +6171,7 @@ async fn post_recall_polygon(
                     cell.clone(),
                     json!({
                         "error":  e.1.message,
-                        "code":   format!("{:?}", e.1.code),
+                        "code":   e.1.code,
                         "status": e.0.as_u16(),
                     }),
                 );
@@ -6272,7 +6272,7 @@ async fn post_recall_polygon(
                         cell.clone(),
                         json!({
                             "error":  e.1.message,
-                            "code":   format!("{:?}", e.1.code),
+                            "code":   e.1.code,
                             "status": e.0.as_u16(),
                         }),
                     );
@@ -6883,7 +6883,7 @@ async fn post_verify_receipt(
                 ApiError(
                     StatusCode::BAD_REQUEST,
                     ErrorBody {
-                        code: ErrorCode::Internal,
+                        code: ErrorCode::InvalidArgument,
                         message: format!("pubkey_b32 decode: {e}"),
                         details: None,
                     },
@@ -6893,7 +6893,7 @@ async fn post_verify_receipt(
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::InvalidArgument,
                     message: format!("pubkey_b32 must decode to 32 bytes, got {}", raw.len()),
                     details: None,
                 },
@@ -7062,7 +7062,7 @@ async fn post_fetch(
     let cell_in = req.cell.as_deref().ok_or_else(|| ApiError(
         StatusCode::BAD_REQUEST,
         ErrorBody {
-            code: ErrorCode::Internal,
+            code: ErrorCode::InvalidArgument,
             message: "POST /v1/fetch requires either {cid} (resolve fact by content-address) or {cell, band [, tslot]} (materialize band at cell)".into(),
             details: None,
         },
@@ -7071,7 +7071,7 @@ async fn post_fetch(
         ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message:
                     "POST /v1/fetch with `cell` requires `band` — see /v1/bands for the registry"
                         .into(),
@@ -8334,7 +8334,7 @@ async fn mcp_tool_call(
                 .storage
                 .get_facts_many(&[cid])
                 .await
-                .map_err(|e| (-(ErrorCode::Internal as i64), e.to_string()))?;
+                .map_err(|e| (-(e.wire_code() as i64), e.to_string()))?;
             let fact = facts.into_iter().next().flatten().ok_or_else(|| {
                 (
                     -(ErrorCode::CidNotFound as i64),
@@ -9213,7 +9213,7 @@ async fn post_elevation_coherent(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "supply (lat,lng), cell64, or place".into(),
                 details: None,
             },
@@ -9239,7 +9239,7 @@ async fn elevation_coherent(s: &AppState, target: ResolvedTarget) -> Result<Json
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "lat/lng must be finite".into(),
                 details: None,
             },
@@ -9549,7 +9549,7 @@ async fn elevation_coherent_polygon(
             Err(e) => {
                 cell_errors.push(json!({
                     "cell": cell_str,
-                    "code": format!("{:?}", e.1.code),
+                    "code": e.1.code,
                     "message": e.1.message,
                     "status": e.0.as_u16(),
                 }));
@@ -15213,7 +15213,7 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
             ApiError(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::CacheError,
                     message: e.to_string(),
                     details: None,
                 },
@@ -15268,7 +15268,7 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
             ApiError(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::CacheError,
                     message: e.to_string(),
                     details: None,
                 },
@@ -17046,6 +17046,7 @@ async fn run_temporal_window(
             Err(e) => {
                 samples_out.push(json!({
                     "tslot_target_unix": target_unix,
+                    "code":              ErrorCode::SourceFetchFailed,
                     "error":             e,
                 }));
             }
@@ -17651,7 +17652,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "ask: `q` cannot be empty".into(),
                 details: None,
             },
@@ -17680,7 +17681,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::InvalidCell,
                     message: format!("ask: `cell` must be a cell64 string, got '{c}'"),
                     details: None,
                 },
@@ -17925,6 +17926,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             Err(e) => json!({
                 "fetched": false,
                 "url":     scene_url,
+                "code":    ErrorCode::SourceFetchFailed,
                 "error":   e,
             }),
         }
@@ -19513,7 +19515,7 @@ async fn get_cell_recall_geojson(
         ApiError(
             StatusCode::BAD_GATEWAY,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::SourceFetchFailed,
                 message: format!("recall failed: {e}"),
                 details: None,
             },
@@ -19622,7 +19624,7 @@ async fn get_contributor(
         return Err(ApiError(
             StatusCode::NOT_FOUND,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CacheError,
                 message: "attester registry unavailable on this responder".into(),
                 details: None,
             },
@@ -19633,7 +19635,7 @@ async fn get_contributor(
         Ok(None) => Err(ApiError(
             StatusCode::NOT_FOUND,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CidNotFound,
                 message: format!("no contributor record for {pubkey_b32}"),
                 details: None,
             },
@@ -19641,7 +19643,7 @@ async fn get_contributor(
         Err(e) => Err(ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CacheError,
                 message: format!("attester lookup failed: {e}"),
                 details: None,
             },
@@ -20492,7 +20494,7 @@ async fn post_review(
 ) -> Result<Json<JsonValue>, ApiError> {
     if !known_subject_kind(&req.subject_kind) {
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
+            code: ErrorCode::InvalidArgument,
             message: format!("subject_kind must be one of: fact, cell, request_id, session, band, endpoint, other. got: {:?}", req.subject_kind),
             details: None,
         }));
@@ -20501,7 +20503,7 @@ async fn post_review(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: format!(
                     "outcome must be one of: success, partial, failed, noisy. got: {:?}",
                     req.outcome
@@ -20514,7 +20516,7 @@ async fn post_review(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "task is required and must be non-empty (1..=512 chars).".into(),
                 details: None,
             },
@@ -20522,7 +20524,7 @@ async fn post_review(
     }
     if req.task.len() > REVIEW_TASK_MAX || req.comment.len() > REVIEW_COMMENT_MAX {
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, ErrorBody {
-            code: ErrorCode::Internal,
+            code: ErrorCode::InvalidArgument,
             message: format!("task ≤ {REVIEW_TASK_MAX} chars; comment ≤ {REVIEW_COMMENT_MAX} chars. For longer notes, upload as a Fact and reference via subject_kind=fact."),
             details: None,
         }));
@@ -20531,7 +20533,7 @@ async fn post_review(
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: "rating must be 0..=5 (0 = unrated).".into(),
                 details: None,
             },
@@ -20556,7 +20558,7 @@ async fn post_review(
     let db = match s.storage.hot_sled_db() {
         Some(db) => db,
         None => return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, ErrorBody {
-            code: ErrorCode::Internal,
+            code: ErrorCode::CacheError,
             message: "reviews persistence requires a sled-backed hot cache; this responder is running ephemeral storage.".into(),
             details: None,
         })),
@@ -20566,7 +20568,7 @@ async fn post_review(
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CacheError,
                 message: format!("open reviews tree: {e}"),
                 details: None,
             },
@@ -20576,7 +20578,7 @@ async fn post_review(
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CacheError,
                 message: format!("open reviews index: {e}"),
                 details: None,
             },
@@ -20588,7 +20590,7 @@ async fn post_review(
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CanonicalEncodingDivergence,
                 message: format!("cbor: {e}"),
                 details: None,
             },
@@ -20601,7 +20603,7 @@ async fn post_review(
             ApiError(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::CacheError,
                     message: format!("insert: {e}"),
                     details: None,
                 },
@@ -20618,7 +20620,7 @@ async fn post_review(
             ApiError(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorBody {
-                    code: ErrorCode::Internal,
+                    code: ErrorCode::CacheError,
                     message: format!("index insert: {e}"),
                     details: None,
                 },
@@ -20665,7 +20667,7 @@ async fn list_reviews(
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CacheError,
                 message: format!("open: {e}"),
                 details: None,
             },
@@ -20701,7 +20703,7 @@ async fn reviews_for_subject(
     let kind = q.get("kind").cloned().unwrap_or_else(|| "fact".to_string());
     if !known_subject_kind(&kind) {
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
-            code: ErrorCode::Internal,
+            code: ErrorCode::InvalidArgument,
             message: format!("kind query param must be one of: fact, cell, request_id, session, band, endpoint, other. got: {kind:?}"),
             details: None,
         }));
@@ -20723,7 +20725,7 @@ async fn reviews_for_subject(
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CacheError,
                 message: format!("open: {e}"),
                 details: None,
             },
@@ -20733,7 +20735,7 @@ async fn reviews_for_subject(
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
-                code: ErrorCode::Internal,
+                code: ErrorCode::CacheError,
                 message: format!("open idx: {e}"),
                 details: None,
             },
@@ -21735,5 +21737,88 @@ mod tests {
             full["notes"].is_string(),
             "summary=false MUST preserve `notes`"
         );
+    }
+
+    /// `ErrorCode` MUST serialise to snake_case on the wire so agents can
+    /// look up the recovery hint in `errors_payload()`. Regression guard
+    /// for the bug where `format!("{:?}", code)` was leaking PascalCase
+    /// (e.g. `"CidNotFound"`) into per-cell error envelopes — the
+    /// catalog publishes `cid_not_found`, so an agent doing
+    /// `errors_payload[code]` would never match.
+    #[test]
+    fn error_code_serialises_snake_case() {
+        use emem_core::error::ErrorCode;
+        let pairs = [
+            (ErrorCode::CidNotFound, "cid_not_found"),
+            (ErrorCode::InvalidArgument, "invalid_argument"),
+            (ErrorCode::SourceFetchFailed, "source_fetch_failed"),
+            (ErrorCode::CacheError, "cache_error"),
+            (ErrorCode::Internal, "internal"),
+        ];
+        for (code, expected) in pairs {
+            let v = serde_json::to_value(code).expect("ErrorCode serialises");
+            assert_eq!(
+                v.as_str(),
+                Some(expected),
+                "ErrorCode {code:?} must serialise as snake_case `{expected}`"
+            );
+        }
+    }
+
+    /// Every code emitted in error-bodies must appear in the catalog
+    /// returned by `errors_payload()`. If you add a new ErrorCode variant,
+    /// add a corresponding row to `errors_payload` so agents can look up
+    /// the meaning + recovery hint for the code they just received.
+    #[test]
+    fn every_error_code_variant_has_a_catalog_entry() {
+        use emem_core::error::ErrorCode;
+        let payload = errors_payload();
+        let codes: std::collections::HashSet<String> = payload
+            .get("codes")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e.get("code").and_then(|c| c.as_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let all_variants = [
+            ErrorCode::InvalidCell,
+            ErrorCode::InvalidResolution,
+            ErrorCode::TslotMismatch,
+            ErrorCode::BandNotInRegistry,
+            ErrorCode::FunctionNotInRegistry,
+            ErrorCode::SourceSchemeUnknown,
+            ErrorCode::CidNotFound,
+            ErrorCode::NoGeocoderMatch,
+            ErrorCode::RegistryCidUnknown,
+            ErrorCode::SchemaCidUnknown,
+            ErrorCode::PrivacyRefused,
+            ErrorCode::LevelTooLow,
+            ErrorCode::AttesterRevoked,
+            ErrorCode::Unauthorized,
+            ErrorCode::ClaimUndecidable,
+            ErrorCode::BadSignature,
+            ErrorCode::BadMerkleProof,
+            ErrorCode::CanonicalEncodingDivergence,
+            ErrorCode::SourceFetchFailed,
+            ErrorCode::SourceFormatMismatch,
+            ErrorCode::ComputeTimeout,
+            ErrorCode::ComputeQuotaExceeded,
+            ErrorCode::RateLimited,
+            ErrorCode::CacheError,
+            ErrorCode::InvalidArgument,
+            ErrorCode::Internal,
+        ];
+        for v in all_variants {
+            let wire = serde_json::to_value(v)
+                .ok()
+                .and_then(|j| j.as_str().map(String::from))
+                .expect("ErrorCode serialises to a string");
+            assert!(
+                codes.contains(&wire),
+                "ErrorCode::{v:?} (`{wire}`) is not documented in errors_payload()"
+            );
+        }
     }
 }
