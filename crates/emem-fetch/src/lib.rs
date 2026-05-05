@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 pub mod cache_window;
 pub mod cog;
 pub mod connectors;
+pub mod koppen;
 pub mod overture;
 pub mod proj;
 pub mod stac;
