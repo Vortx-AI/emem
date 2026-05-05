@@ -13518,6 +13518,150 @@ async fn materialize_protected(cell64: &str, s: &AppState) -> Result<emem_fact::
     }
 }
 
+// ---------------- DMSP-OLS V4 nightlights materializer ----------------
+//
+// Wires the `nightlights.*` sub-bands against NOAA NCEI's NGDC archive
+// at `www.ngdc.noaa.gov/eog/data/web_data/v4composites/F<sat><year>.v4.tar`.
+// The protocol's open-data, no-API-keys constraint rules out the
+// originally-targeted VIIRS DNB v22 product on EOG (eogdata.mines.edu
+// 302-redirects every request to a Keycloak/OAuth login flow as of
+// 2024-2025) and NASA Black Marble VNP46A4 on LAADS DAAC (303 →
+// `/profiles/licenses/...` Earthdata Login). DMSP-OLS V4 is the only
+// globally-mirrored, anonymous, Range-readable annual nightlight time
+// series that exists today — verified live: 200 OK, `accept-ranges:
+// bytes`, no `Set-Cookie`/redirect.
+//
+// One materializer dispatches three sub-bands per recall:
+//   - nightlights.dmsp_ols_avg_dn   → Primary, uint8 0..63 (the canonical scalar)
+//   - nightlights.year              → Primary, u16 (vintage of the composite)
+//   - nightlights.satellite         → Primary, string ("F18", "F16", …)
+//
+// All three are signed at tslot=0 because the DMSP-OLS V4 release is
+// frozen (1992-2013) — agents requesting historical years pass an
+// explicit vintage to `fetch_nightlight_sample`; the default-year recall
+// path returns the most recent vintage (`DMSP_OLS_DEFAULT_YEAR = 2013`).
+//
+// Cells outside the V4 raster's geographic coverage (lat ∉ [-65°, +75°])
+// short-circuit to a structured `Absence` BEFORE any HTTP round-trip —
+// see the OutOfBounds branch below.
+//
+// References:
+//   - Elvidge et al. 1997 (DMSP-OLS source product)
+//   - Li & Zhou 2017 (Remote Sensing 9:637, DN→radiance regression for
+//     comparing DMSP-OLS DN against VIIRS DNB nW·cm⁻²·sr⁻¹)
+async fn materialize_nightlights_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+    let year = emem_fetch::dmsp_ols::DMSP_OLS_DEFAULT_YEAR;
+    let upstream_url = emem_fetch::dmsp_ols::upstream_url_for_year(year)
+        .ok_or_else(|| format!("dmsp-ols default year {year} unsupported"))?;
+    let member = emem_fetch::dmsp_ols::avg_vis_member_name(year)
+        .ok_or_else(|| format!("dmsp-ols default year {year} member-name missing"))?;
+
+    match emem_fetch::dmsp_ols::fetch_nightlight_sample_default(&cli, lat, lng).await {
+        Ok(sample) => {
+            // Pick the value + unit that match the requested sub-band.
+            // Each sub-band signs the same upstream + year + satellite
+            // metadata so a verifier can replay any of them off the same
+            // DMSP-OLS V4 tarball.
+            let (value, unit, fn_key, confidence) = match band {
+                "nightlights.dmsp_ols_avg_dn" => (
+                    ciborium::Value::Integer((sample.avg_dn as i64).into()),
+                    "dmsp_ols_avg_dn",
+                    "dmsp_ols_v4_avg_vis_pixel@1",
+                    0.85_f32,
+                ),
+                "nightlights.year" => (
+                    ciborium::Value::Integer((sample.year as i64).into()),
+                    "year",
+                    "dmsp_ols_v4_vintage@1",
+                    1.00_f32,
+                ),
+                "nightlights.satellite" => (
+                    ciborium::Value::Text(sample.satellite.to_string()),
+                    "satellite_id",
+                    "dmsp_ols_v4_satellite@1",
+                    1.00_f32,
+                ),
+                _ => return Err(format!("nightlights sub-band {band} not wired")),
+            };
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: 0,
+                value,
+                unit: Some(unit.into()),
+                confidence,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "dmsp_ols.v4.ngdc".into(),
+                    id: format!("{}#{}", sample.upstream_url, sample.member_name),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(sample.upstream_url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: fn_key.into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((sample.year as i64).into()),
+                        ciborium::Value::Text(sample.satellite.into()),
+                    ])),
+                },
+                privacy_class: "aggregate_only".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(emem_fetch::dmsp_ols::DmspOlsError::OutOfBounds { lat, lng }) => {
+            // Cells north of 75°N or south of 65°S aren't in the V4
+            // raster. Sign a structured Absence rather than burn a
+            // ~100 MB Range read that would land outside the image.
+            let reason = format!(
+                "dmsp_ols_out_of_bounds: NOAA NGDC DMSP-OLS V4 covers \
+                 latitudes [-65°, +75°]; cell at ({lat:.6},{lng:.6}) is \
+                 outside the published raster. The protocol's no-fallback \
+                 rule applies: VIIRS DNB v22 (broader -75°/+75° window) \
+                 is gated behind EOG/CSM OAuth and NASA Black Marble VNP46A4 \
+                 behind Earthdata Login, so no open-data substitute exists \
+                 for polar cells today. Source: {upstream_url}#{member}"
+            );
+            let reason_cid = reason_cid_for(&reason);
+            let fact = Fact::Absence(NegativeFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: 0,
+                reason_cid,
+                confidence: 1.0,
+                sources: vec![Source {
+                    scheme: "dmsp_ols.v4.ngdc".into(),
+                    id: format!("{upstream_url}#{member}"),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(upstream_url.clone()),
+                }],
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(e) => Err(format!("dmsp_ols fetch failed: {e}")),
+    }
+}
+
 // ---------------- SoilGrids 2.0 (ISRIC) materializer ----------------
 //
 // ISRIC publishes static, global, 250 m soil-property maps via a public
@@ -14610,6 +14754,27 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "overpass-api.de OSM is_in() → boundary=protected_area + protect_class → IUCN",
         },
+        // DMSP-OLS V4 nightlights (NOAA NCEI / NGDC). 1992-2013 annual
+        // intercalibrated stable-lights composites, served as anonymous
+        // tar-of-gz-of-TIFF over HTTPS Range. The originally-targeted
+        // VIIRS DNB v22 product on EOG/CSM moved behind Keycloak/OAuth
+        // in 2024-2025 and NASA Black Marble VNP46A4 on LAADS DAAC sits
+        // behind Earthdata Login — both fail the protocol's open-data
+        // contract. The wired DMSP-OLS V4 archive is the canonical
+        // open-data fallback ("archived historic products will continue
+        // to be available", per
+        // www.ncei.noaa.gov/news/sunset-nighttime-lights-noaa). Three
+        // sub-bands — avg_dn, year, satellite — share one materializer.
+        "nightlights.dmsp_ols_avg_dn"
+        | "nightlights.year"
+        | "nightlights.satellite" => MaterializerMeta {
+            tempo: Tempo::Slow,
+            kind: BandKind::PerRelease,
+            history_from_unix: Some(days_from_civil(1992, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2014, 1, 1) * 86_400 - 1),
+            wire_path:
+                "www.ngdc.noaa.gov/eog/data/web_data/v4composites (DMSP-OLS V4 stable lights, 1992-2013, tar+gz+TIFF, HTTPS-Range)",
+        },
         _ => return None,
     };
     Some(m)
@@ -14840,7 +15005,18 @@ async fn materialize_band_at(
         // (the cube band) and the dotted key is the agent-friendly
         // spelling for `bands-v0.json::scalar_keys`.
         "protected" | "protected.is_protected_area" => {
-            return materialize_protected(cell64, s).await
+            return materialize_protected(cell64, s).await;
+        }
+        // DMSP-OLS V4 nightlights (NOAA NGDC, 1992-2013). PerRelease;
+        // target_unix is honoured implicitly by always returning the
+        // default (latest) vintage — the dispatcher in
+        // `materialize_nightlights_band` signs the year on the fact so
+        // an agent doing a series can pin which vintage they got. To
+        // backfill across the V4 record an operator calls
+        // `emem_fetch::dmsp_ols::fetch_nightlight_sample(...,year)`
+        // directly.
+        "nightlights.dmsp_ols_avg_dn" | "nightlights.year" | "nightlights.satellite" => {
+            return materialize_nightlights_band(cell64, s, band).await;
         }
         "geotessera" => {
             // Bare `geotessera` resolves to the Tessera vintage that
@@ -15608,6 +15784,41 @@ async fn try_materialize_bands(
                     });
                 }
             },
+            // DMSP-OLS V4 nightlights (NOAA NGDC, 1992-2013). Returns
+            // Primary (avg_dn / year / satellite) for in-bounds cells,
+            // Absence with a structured reason_cid for cells outside
+            // the V4 raster's [-65°, +75°] coverage.
+            "nightlights.dmsp_ols_avg_dn" | "nightlights.year" | "nightlights.satellite" => {
+                match materialize_nightlights_band(cell64, s, b).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary_or_absence",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
             // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
             // Returns Primary for populated cells, Absence for ocean /
             // polar / genuinely uninhabited terrain (the API's documented
@@ -18331,6 +18542,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 "fire_burn_severity":         ["indices.nbr"],
                 "soil_bare":                  ["indices.bsi"],
                 "built_up_human_geography":   ["indices.ndbi","overture.buildings.count","overture.places.count","overture.transportation.road_length_m"],
+                "human_population":            ["population","nightlights.dmsp_ols_avg_dn","nightlights.year","nightlights.satellite"],
                 "weather_now":                ["weather.temperature_2m","weather.cloud_cover","weather.precipitation_mm","weather.wind_speed_10m"],
                 "elevation_global_topobathy": ["gmrt.topobathy_mean"],
                 "elevation_land_only":        ["copdem30m.elevation_mean"],
@@ -18378,7 +18590,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 "_note_on_surface_water_vector": "The 12-d cube key `surface_water` is unfilled (no responder has agreed on the slot allocation yet). The scalar `surface_water.recurrence` IS live (see live_bands_by_topic.flood_history_long_term) and answers the historical-flood question.",
                 "deforestation_canopy_loss":   ["forest_change"],
                 "landcover_classes":           ["landcover","ecoregions","mangrove"],
-                "human_population":            ["nightlights","ghsl","population"],
+                "human_settlement_layer":      ["ghsl"],
                 "climate_long_term":           ["koppen","terraclimate"],
                 "soil_properties":             ["soilgrids"],
                 "ocean_chemistry":             ["ocean_chl"],
