@@ -1696,7 +1696,10 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
 /// Absence). Lets an agent discover, without trial-and-error, which
 /// bands work cite-ably for any cell on Earth versus which require a
 /// pre-existing attestation.
-async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
+async fn materializers(
+    State(s): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<PageQuery>,
+) -> Json<JsonValue> {
     let pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -2079,7 +2082,74 @@ async fn materializers(State(s): State<AppState>) -> Json<JsonValue> {
             arr.push(JsonValue::Object(obj));
         }
     }
+
+    // Pagination + summary projection. The full materializer registry was
+    // ~62 KB at 0.0.4 — well over MCP's 25 KB cap. Slice the array into a
+    // page and (optionally) drop the long `notes` field per entry. The
+    // top-level `pagination` envelope makes the slicing honest:
+    // agents see `total` and `next_url` and know to iterate.
+    let (page, page_size) = resolve_page_params(&q);
+    let summary = q.summary.unwrap_or(false);
+    let materializers_full = payload
+        .as_object_mut()
+        .and_then(|m| m.remove("materializers"))
+        .and_then(|v| match v {
+            JsonValue::Array(a) => Some(a),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let total = materializers_full.len();
+    let start = (page - 1).saturating_mul(page_size).min(total);
+    let end = start.saturating_add(page_size).min(total);
+    let items: Vec<JsonValue> = materializers_full[start..end]
+        .iter()
+        .map(|entry| project_materializer_entry(entry, summary))
+        .collect();
+    let extra = if summary { "&summary=true" } else { "" };
+    let pagination = pagination_envelope(page, page_size, total, "/v1/materializers", extra);
+    if let Some(map) = payload.as_object_mut() {
+        map.insert(
+            "_explanation".into(),
+            JsonValue::from(
+                "Paginated list — defaults to page=1, page_size=20 (max 100) so the response fits MCP's 25 KB cap. Pass `?page=N&page_size=K` to walk the registry, or `?summary=true` to drop the long `notes` body per entry. `pagination.total` is the full registry size — agents MUST follow `pagination.next_url` to see the rest.",
+            ),
+        );
+        map.insert("pagination".into(), pagination);
+        map.insert("items".into(), JsonValue::Array(items.clone()));
+        // Back-compat alias. Older clients read the top-level
+        // `materializers` key. Keep it pointing at the SAME paginated
+        // slice — never the full set — so the page-size contract is
+        // honoured uniformly.
+        map.insert("materializers".into(), JsonValue::Array(items));
+    }
     Json(payload)
+}
+
+/// Project one materializer entry. When `summary == true`, drop the
+/// long `notes` field (often 1-3 paragraphs of editorial prose per
+/// entry). Always retains `band`, `unit`, `value_kind`, `coverage`,
+/// `upstream_scheme`, `upstream_endpoint`, `derivation_fn_key`,
+/// `confidence`, `tempo`, `responder_pubkey_b32`, and the
+/// `history_available_*` window so an agent can decide whether to
+/// fetch the full entry from `/v1/materializers?page=…` without
+/// `summary=true`.
+fn project_materializer_entry(entry: &JsonValue, summary: bool) -> JsonValue {
+    if !summary {
+        return entry.clone();
+    }
+    let Some(obj) = entry.as_object() else {
+        return entry.clone();
+    };
+    let drop_keys = ["notes"];
+    let mut out = serde_json::Map::with_capacity(obj.len());
+    for (k, v) in obj.iter() {
+        if drop_keys.contains(&k.as_str()) {
+            continue;
+        }
+        out.insert(k.clone(), v.clone());
+    }
+    out.insert("summary".into(), JsonValue::Bool(true));
+    JsonValue::Object(out)
 }
 
 /// `GET /v1/data_availability` — temporal catalog: for every band this
@@ -2705,14 +2775,167 @@ static ALGORITHMS_CID: LazyLock<Option<String>> =
 static TOPICS_CID: LazyLock<Option<String>> =
     LazyLock::new(|| emem_core::manifest::manifest_cid(&*emem_core::topics::DEFAULT).ok());
 
-async fn algorithms() -> Json<JsonValue> {
+/// Pagination + projection options for `/v1/algorithms` and
+/// `/v1/materializers`. Both endpoints used to return the entire registry
+/// in a single response (190 KB and 62 KB respectively at 0.0.4) which
+/// blew through MCP's 25 KB cap and silently truncated against agent
+/// context windows. The handlers now accept `?page=N&page_size=K` (clamped
+/// to 1..=100) and an optional `?summary=true` projection that drops the
+/// long `formula` body and `temporal_recipe` so an agent can browse the
+/// catalog cheaply, then GET `/v1/algorithms/<key>` for one entry's full
+/// detail.
+///
+/// The default behaviour with NO query params still returns page 1 — never
+/// the full set — so MCP responses stay bounded by default and agents
+/// learn to iterate. The response body always carries `pagination.total`
+/// and `pagination.has_next` so the slicing is honest.
+#[derive(serde::Deserialize, Default, Debug, Clone)]
+struct PageQuery {
+    /// 1-indexed page number. Defaults to `1` when absent.
+    #[serde(default)]
+    page: Option<usize>,
+    /// Items per page. Defaults to `20`, clamped to `1..=100`.
+    #[serde(default)]
+    page_size: Option<usize>,
+    /// When `true`, drop the long `formula` / `notes` body and
+    /// `temporal_recipe` so each entry stays compact.
+    #[serde(default)]
+    summary: Option<bool>,
+}
+
+/// Default page size when the caller omits `?page_size=`. Held in one
+/// place so the test that pins the clamp also pins the default.
+const PAGINATION_DEFAULT_PAGE_SIZE: usize = 20;
+/// Hard cap on `page_size` — anything above this is silently clamped so
+/// a runaway client can't ask for the full registry in one shot.
+const PAGINATION_MAX_PAGE_SIZE: usize = 100;
+
+/// Resolve `(page, page_size)` from a `PageQuery`, applying the default
+/// page (`1`), default size (`PAGINATION_DEFAULT_PAGE_SIZE`), and the
+/// hard `page_size` clamp. Pulled into a free function so the same
+/// resolution logic is unit-testable without spinning a router.
+fn resolve_page_params(q: &PageQuery) -> (usize, usize) {
+    let page = q.page.unwrap_or(1).max(1);
+    let page_size = q
+        .page_size
+        .unwrap_or(PAGINATION_DEFAULT_PAGE_SIZE)
+        .clamp(1, PAGINATION_MAX_PAGE_SIZE);
+    (page, page_size)
+}
+
+/// Build the `pagination` envelope shared by `/v1/algorithms` and
+/// `/v1/materializers`. `path` is the relative URL prefix (e.g.
+/// `/v1/algorithms`) used to render `next_url` / `prev_url`. `extra`
+/// is appended verbatim after `page=N&page_size=K` so callers can
+/// preserve filters like `&summary=true` across pages.
+fn pagination_envelope(
+    page: usize,
+    page_size: usize,
+    total: usize,
+    path: &str,
+    extra: &str,
+) -> JsonValue {
+    let total_pages = total.div_ceil(page_size.max(1));
+    let has_next = page < total_pages;
+    let has_prev = page > 1 && total > 0;
+    let url_for = |p: usize| -> String { format!("{path}?page={p}&page_size={page_size}{extra}") };
+    json!({
+        "page":       page,
+        "page_size":  page_size,
+        "total":      total,
+        "total_pages": total_pages,
+        "has_next":   has_next,
+        "next_url":   if has_next { Some(url_for(page + 1)) } else { None },
+        "has_prev":   has_prev,
+        "prev_url":   if has_prev { Some(url_for(page - 1)) } else { None },
+    })
+}
+
+/// Project one algorithm entry. When `summary == true`, drop `formula`
+/// and `temporal_recipe` — the two heavy fields that pushed the full
+/// registry response over MCP's 25 KB cap. The `key`, `kind`,
+/// `input_bands`, and `citation` headline are always retained so an
+/// agent can decide whether to GET `/v1/algorithms/<key>` for the full
+/// body. Returns the structured-serde value when the entry can't be
+/// projected (defensive — `Algorithm` always serializes, but we never
+/// panic in a route handler).
+fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) -> JsonValue {
+    if !summary {
+        return serde_json::to_value(a).unwrap_or(json!({}));
+    }
+    let inputs: Vec<&str> = a.inputs.iter().filter_map(|i| i.band.as_deref()).collect();
+    json!({
+        "key":           a.key,
+        "kind":          a.kind,
+        "domain":        a.domain,
+        "inputs":        inputs,
+        "output":        a.output,
+        "citation":      a.citation,
+        "when_to_use":   a.when_to_use,
+        "fetch_url":     format!("/v1/algorithms/{}", a.key),
+        "summary":       true,
+    })
+}
+
+/// Project one entry of the `/v1/ask` `algorithms_for_question[]` list.
+/// When `verbose == false` (the default since the 2026-05-05 deepscan)
+/// drop the long `formula` body and the `temporal_recipe` block — both
+/// live at `/v1/algorithms/<key>` so the agent can fetch them on
+/// demand. The signed receipt itself is unrelated to this projection
+/// and stays intact in `facts.facts[]`.
+fn project_algorithm_for_question(
+    topic: &str,
+    a: &emem_core::algorithms::Algorithm,
+    inputs: &[&str],
+    verbose: bool,
+) -> JsonValue {
+    if verbose {
+        json!({
+            "topic":            topic,
+            "key":              a.key,
+            "kind":             a.kind,
+            "input_bands":      inputs,
+            "formula":          a.formula,
+            "output":           a.output,
+            "citation":         a.citation,
+            "fetch_url":        format!("/v1/algorithms/{}", a.key),
+            "temporal_recipe":  a.temporal_recipe,
+        })
+    } else {
+        json!({
+            "topic":            topic,
+            "key":              a.key,
+            "kind":             a.kind,
+            "input_bands":      inputs,
+            "output":           a.output,
+            "citation":         a.citation,
+            "fetch_url":        format!("/v1/algorithms/{}", a.key),
+        })
+    }
+}
+
+async fn algorithms(axum::extract::Query(q): axum::extract::Query<PageQuery>) -> Json<JsonValue> {
     let reg = &*emem_core::algorithms::DEFAULT;
     let cid = ALGORITHMS_CID.clone();
+    let (page, page_size) = resolve_page_params(&q);
+    let summary = q.summary.unwrap_or(false);
+
+    let total = reg.algorithms.len();
+    let start = (page - 1).saturating_mul(page_size).min(total);
+    let end = start.saturating_add(page_size).min(total);
+    let items: Vec<JsonValue> = reg.algorithms[start..end]
+        .iter()
+        .map(|a| project_algorithm_entry(a, summary))
+        .collect();
+    let extra = if summary { "&summary=true" } else { "" };
+    let pagination = pagination_envelope(page, page_size, total, "/v1/algorithms", extra);
+
     Json(json!({
         "manifest": reg.manifest,
         "version":  reg.version,
         "algorithms_cid": cid,
         "_note": reg.note,
+        "_explanation": "Paginated list — defaults to page=1, page_size=20 (max 100) so the response fits MCP's 25 KB cap. Pass `?page=N&page_size=K` to walk the registry, `?summary=true` to drop the long `formula` body and `temporal_recipe` per entry, or GET `/v1/algorithms/<key>` for one entry's full detail. `pagination.total` is the full registry size — agents MUST follow `pagination.next_url` to see the rest.",
         "agent_hint": {
             "what_this_is": "A content-addressed dictionary of recipes that combine attested band facts into composite answers (e.g. flood_risk@1, water_consensus@1, embedding_novelty@1). Receipts citing one of these names + the algorithm_cid let any other operator replay the same composition deterministically.",
             "how_to_use":    "1) Pick the entry whose `when_to_use` matches the agent's query. 2) Read its `inputs[].band` list and assemble a single `/v1/recall` (or `/v1/recall_many`) body. 3) Apply the `formula` in-process. 4) Cite the algorithm key + algorithms_cid alongside the fact_cids in the agent's reply.",
@@ -2722,7 +2945,14 @@ async fn algorithms() -> Json<JsonValue> {
                 "embedding": "cosine / novelty / change over geotessera vectors",
             },
         },
-        "algorithms": reg.algorithms,
+        "pagination": pagination,
+        "items": items.clone(),
+        // Back-compat alias. Older clients (and the homepage demo) still
+        // read the top-level `algorithms` key. Keep it pointing at the
+        // SAME paginated slice — never the full set — so the page-size
+        // contract is honoured uniformly. Agents that want everything
+        // must follow `pagination.next_url`.
+        "algorithms": items,
     }))
 }
 
@@ -7749,7 +7979,15 @@ async fn mcp_tool_call(
         }
         "emem_grid_info" => Ok(grid_info().await.0),
         "emem_coverage_matrix" => Ok(coverage_matrix(State(s.clone())).await.0),
-        "emem_materializers" => Ok(materializers(State(s.clone())).await.0),
+        "emem_materializers" => {
+            // Same pagination passthrough as `emem_algorithms` — without
+            // forwarding `page`/`page_size`/`summary`, an MCP-only agent
+            // can't see anything past the default page 1.
+            let q: PageQuery = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            Ok(materializers(State(s.clone()), axum::extract::Query(q))
+                .await
+                .0)
+        }
         "emem_data_availability" => Ok(data_availability(State(s.clone())).await.0),
         "emem_recall" => {
             // Route through the auto-materialize wrapper so MCP gets the
@@ -7859,7 +8097,14 @@ async fn mcp_tool_call(
         "emem_sources" => {
             Ok(serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(JsonValue::Null))
         }
-        "emem_algorithms" => Ok(algorithms().await.0),
+        "emem_algorithms" => {
+            // Forward `page`, `page_size`, `summary` from MCP args into
+            // the same PageQuery the REST handler reads — without this,
+            // the MCP path would always return the (paginated) page 1
+            // and an agent couldn't walk the registry from MCP at all.
+            let q: PageQuery = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            Ok(algorithms(axum::extract::Query(q)).await.0)
+        }
         "emem_cell_geojson" => {
             let cell = args
                 .get("cell")
@@ -8250,7 +8495,7 @@ async fn openapi() -> Json<JsonValue> {
                 "DiffReq":         {"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}},
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
-                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false}}},
+                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
                 "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
                 "WaveSolveReq":    {"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{"coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},"offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},"period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); 6–18 s is the typical wind-wave + swell envelope."},"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Number of seaward cells to sample for the bathymetric profile."}}},
@@ -15549,6 +15794,15 @@ struct AskReq {
     /// Bundle a Sentinel-2 RGB scene URL with the response.
     #[serde(default)]
     include_image: bool,
+    /// When `true`, return the full envelope: per-algorithm `formula`
+    /// strings, `temporal_recipe` blocks, per-fact `band_metadata`
+    /// duplicates, and the long `_explanation` prose. When `false`
+    /// (the default since the 2026-05-05 deepscan), the response is
+    /// trimmed to fit MCP's 25 KB cap — the signed receipt + fact CIDs
+    /// + algorithm keys all stay, but per-algorithm formulas live at
+    ///   `/v1/algorithms/<key>` and per-band metadata at `/v1/bands`.
+    #[serde(default)]
+    verbose: Option<bool>,
 }
 
 async fn post_ask(
@@ -16252,6 +16506,19 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             },
         ));
     }
+    // Verbosity gate. The default flipped to `false` on 2026-05-05 after
+    // the MCP deepscan reported /v1/ask responses up to 84 KB — well over
+    // MCP's 25 KB cap. When `verbose=false` the response trims:
+    //   - per-algorithm `formula` and `temporal_recipe` (live at
+    //     `/v1/algorithms/<key>` instead);
+    //   - the per-fact `band_metadata` block duplicated under each
+    //     `band_observations[]` entry (link to `/v1/bands` once at the
+    //     top instead);
+    //   - any `_explanation` text > 300 chars (redundant with /v1/discover).
+    // The receipt itself — `facts.facts[]` plus the signed envelope and
+    // every `fact_cid` / signer field — stays intact: receipt signing is
+    // protocol-critical and must never be touched by a verbosity toggle.
+    let verbose = req.verbose.unwrap_or(false);
 
     // Resolve cell64 from whichever locator the caller provided. We
     // prefer explicit cell64 → lat/lng → place name, in that order, so
@@ -16394,17 +16661,8 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
                 if a.temporal_recipe.is_some() {
                     algorithm_keys_with_recipe.push(a.key.clone());
                 }
-                algorithms_for_question.push(json!({
-                    "topic":            t,
-                    "key":              a.key,
-                    "kind":             a.kind,
-                    "input_bands":      inputs,
-                    "formula":          a.formula,
-                    "output":           a.output,
-                    "citation":         a.citation,
-                    "fetch_url":        format!("/v1/algorithms/{}", a.key),
-                    "temporal_recipe":  a.temporal_recipe,
-                }));
+                algorithms_for_question
+                    .push(project_algorithm_for_question(t, a, &inputs, verbose));
             }
         }
     }
@@ -16626,21 +16884,44 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             })
         })
         .collect();
-    let topic_routing = json!({
-        "matched_topics":   topics,
-        "matched_keywords": matched_keywords(&req.q),
-        "out_of_scope":     topics_empty,
-        "routing": {
-            "method":         router.backend_name(),
-            "threshold":      std::env::var("EMEM_TOPIC_THRESHOLD").ok()
-                                .and_then(|s| s.parse::<f32>().ok())
-                                .or_else(|| router.registry().routing.as_ref()
-                                    .and_then(|p| p.threshold))
-                                .unwrap_or(0.35),
-            "topics_matched": topics_matched_full,
-        },
-        "_explanation":     "Topics route via the topic registry (`crates/emem-core/data/topics-v0.json`). Default backend (since 2026-05-04) is direct `ort` 2.x + `tokenizers` BERT inference using `BAAI/bge-base-en-v1.5` (110 M params, 768-D, MTEB ~63), CLS-pooled and L2-normalised. Each topic's `description + aliases` is embedded once at startup; the question is embedded at query time and matched by cosine similarity above the registry's threshold (default 0.35). A keyword pre-pass over the same `aliases[]` runs first so exact-match nouns always surface. Fallbacks: `model2vec/potion-base-8M` (when ORT can't load), then `keyword` (substring search only). Backend in use is reported per-call as `topic_routing.routing.method`. Reproducible: same model file + same topic registry CID = same routing across responders.",
-    });
+    // Build the topic_routing block. Under `verbose=false` (the default
+    // since 2026-05-05) we drop the multi-paragraph `_explanation` prose
+    // — that text is duplicated at /v1/discover and /v1/topics and was
+    // costing ~1 KB per /v1/ask response with no marginal information
+    // for an agent that has already discovered the routing semantics.
+    let topic_routing = if verbose {
+        json!({
+            "matched_topics":   topics,
+            "matched_keywords": matched_keywords(&req.q),
+            "out_of_scope":     topics_empty,
+            "routing": {
+                "method":         router.backend_name(),
+                "threshold":      std::env::var("EMEM_TOPIC_THRESHOLD").ok()
+                                    .and_then(|s| s.parse::<f32>().ok())
+                                    .or_else(|| router.registry().routing.as_ref()
+                                        .and_then(|p| p.threshold))
+                                    .unwrap_or(0.35),
+                "topics_matched": topics_matched_full,
+            },
+            "_explanation":     "Topics route via the topic registry (`crates/emem-core/data/topics-v0.json`). Default backend (since 2026-05-04) is direct `ort` 2.x + `tokenizers` BERT inference using `BAAI/bge-base-en-v1.5` (110 M params, 768-D, MTEB ~63), CLS-pooled and L2-normalised. Each topic's `description + aliases` is embedded once at startup; the question is embedded at query time and matched by cosine similarity above the registry's threshold (default 0.35). A keyword pre-pass over the same `aliases[]` runs first so exact-match nouns always surface. Fallbacks: `model2vec/potion-base-8M` (when ORT can't load), then `keyword` (substring search only). Backend in use is reported per-call as `topic_routing.routing.method`. Reproducible: same model file + same topic registry CID = same routing across responders.",
+        })
+    } else {
+        json!({
+            "matched_topics":   topics,
+            "matched_keywords": matched_keywords(&req.q),
+            "out_of_scope":     topics_empty,
+            "routing": {
+                "method":         router.backend_name(),
+                "threshold":      std::env::var("EMEM_TOPIC_THRESHOLD").ok()
+                                    .and_then(|s| s.parse::<f32>().ok())
+                                    .or_else(|| router.registry().routing.as_ref()
+                                        .and_then(|p| p.threshold))
+                                    .unwrap_or(0.35),
+                "topics_matched": topics_matched_full,
+            },
+            "explain_url":      "/v1/discover",
+        })
+    };
 
     // Serialize the recall snapshot, then enrich with
     // `signer_pubkey_b32` (per fact) + `responder_pubkey_b32` (on
@@ -16648,19 +16929,30 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // re-encoding the raw 32-byte arrays. Bytes are kept for
     // byte-for-byte verification.
     let mut facts_json = serde_json::to_value(&recall_resp).unwrap_or(json!({}));
-    // Same per-fact metadata enrichment (`band_metadata`,
-    // `value_decoded`) the bare `/v1/recall` and
-    // `/v1/cells/:cell64` paths apply, so an LLM consuming the inner
-    // `facts.facts[]` of an /v1/ask response gets units +
-    // interpretation + per-scalar dimension overlay without a second
-    // /v1/bands round-trip. Walks the `facts` array in place.
-    enrich_facts_with_metadata(&mut facts_json);
+    // Per-fact `band_metadata` and `value_decoded` blocks repeat
+    // /v1/bands content for every fact and were the single largest
+    // contributor to the 84 KB /v1/ask payload caught by the
+    // 2026-05-05 deepscan. Skip them when `verbose=false` and
+    // surface a single top-level `bands_metadata_url` instead — the
+    // signed receipt itself stays untouched. Verbose callers still
+    // get the inline expansion.
+    if verbose {
+        enrich_facts_with_metadata(&mut facts_json);
+    }
     enrich_recall_signer_b32(&mut facts_json);
 
     let mut body = json!({
         "schema":         "emem.ask.v1",
         "question":       req.q,
         "place_resolved": place_resolved,
+        "verbose":        verbose,
+        "tip":            if verbose {
+            "passing verbose=false (the default) trims algorithm formulas + per-band metadata; the signed receipt stays intact"
+        } else {
+            "pass verbose=true to get full algorithm formulas + per-band metadata"
+        },
+        "bands_metadata_url":      "/v1/bands",
+        "algorithms_metadata_url": "/v1/algorithms",
         "topic_routing":  topic_routing,
         "facts":                   facts_json,
         "algorithms_for_question": algorithms_for_question,
@@ -19828,5 +20120,279 @@ mod tests {
             n_cells: None,
         };
         assert!(q_missing.longitude().is_err());
+    }
+
+    // ── P0 #1 (2026-05-05 deepscan): payload caps tests ─────────────
+    //
+    // The three regressions these tests pin in place:
+    //   (a) `?page_size=` MUST be clamped to PAGINATION_MAX_PAGE_SIZE
+    //       so a careless agent can't pull the entire 190 KB algorithm
+    //       registry in one shot.
+    //   (b) `?summary=true` on `/v1/algorithms` MUST drop the long
+    //       `formula` body — that field alone is ~80% of the payload.
+    //   (c) `/v1/ask` with `verbose=false` (the new default) MUST omit
+    //       per-algorithm `formula` and `temporal_recipe` from the
+    //       `algorithms_for_question[]` list while preserving every
+    //       receipt-critical field (signed_at, fact_cid, signer,
+    //       registry_cid, schema_cid).
+
+    #[test]
+    fn page_size_clamps_to_max() {
+        // Caller asks for 9999; should be clamped to PAGINATION_MAX_PAGE_SIZE.
+        let q = PageQuery {
+            page: Some(1),
+            page_size: Some(9999),
+            summary: None,
+        };
+        let (page, page_size) = resolve_page_params(&q);
+        assert_eq!(page, 1);
+        assert_eq!(
+            page_size, PAGINATION_MAX_PAGE_SIZE,
+            "page_size MUST clamp to {PAGINATION_MAX_PAGE_SIZE} so a careless agent can't pull the full registry"
+        );
+        // page_size=0 is clamped to 1 (never 0 — would produce
+        // div-by-zero in pagination_envelope).
+        let q0 = PageQuery {
+            page: None,
+            page_size: Some(0),
+            summary: None,
+        };
+        let (_p, ps) = resolve_page_params(&q0);
+        assert_eq!(ps, 1, "page_size=0 must clamp to 1, not stay 0");
+        // Page < 1 floors to 1 — no negative or zero pages.
+        let q_neg = PageQuery {
+            page: Some(0),
+            page_size: None,
+            summary: None,
+        };
+        let (p, ps) = resolve_page_params(&q_neg);
+        assert_eq!(p, 1, "page=0 must floor to 1");
+        assert_eq!(ps, PAGINATION_DEFAULT_PAGE_SIZE);
+    }
+
+    #[test]
+    fn pagination_envelope_has_next_math_is_honest() {
+        // 47 items, page 1 of size 20: next exists, prev doesn't.
+        let env = pagination_envelope(1, 20, 47, "/v1/algorithms", "");
+        assert_eq!(env["page"].as_u64(), Some(1));
+        assert_eq!(env["page_size"].as_u64(), Some(20));
+        assert_eq!(env["total"].as_u64(), Some(47));
+        assert_eq!(env["total_pages"].as_u64(), Some(3));
+        assert_eq!(env["has_next"].as_bool(), Some(true));
+        assert_eq!(env["has_prev"].as_bool(), Some(false));
+        assert_eq!(
+            env["next_url"].as_str(),
+            Some("/v1/algorithms?page=2&page_size=20")
+        );
+        assert!(env["prev_url"].is_null());
+        // Last page: has_next is false, prev_url filled.
+        let last = pagination_envelope(3, 20, 47, "/v1/algorithms", "&summary=true");
+        assert_eq!(last["has_next"].as_bool(), Some(false));
+        assert_eq!(last["has_prev"].as_bool(), Some(true));
+        assert!(last["next_url"].is_null());
+        assert_eq!(
+            last["prev_url"].as_str(),
+            Some("/v1/algorithms?page=2&page_size=20&summary=true")
+        );
+    }
+
+    #[tokio::test]
+    async fn algorithms_summary_true_drops_formula_bodies() {
+        // Pin the contract: `?summary=true` MUST drop `formula` and
+        // `temporal_recipe` per entry. Non-summary mode keeps them.
+        let summary_resp = algorithms(axum::extract::Query(PageQuery {
+            page: None,
+            page_size: Some(100),
+            summary: Some(true),
+        }))
+        .await
+        .0;
+        let items = summary_resp["items"]
+            .as_array()
+            .expect("items[] must be present");
+        assert!(!items.is_empty(), "registry shouldn't be empty");
+        for entry in items {
+            assert!(
+                entry.get("formula").is_none(),
+                "summary=true MUST drop `formula` from {:?}",
+                entry["key"]
+            );
+            assert!(
+                entry.get("temporal_recipe").is_none(),
+                "summary=true MUST drop `temporal_recipe` from {:?}",
+                entry["key"]
+            );
+            // Headline fields preserved.
+            assert!(
+                entry.get("key").and_then(|v| v.as_str()).is_some(),
+                "summary entry must keep `key`"
+            );
+            assert!(
+                entry.get("kind").is_some(),
+                "summary entry must keep `kind`"
+            );
+            assert!(
+                entry.get("inputs").is_some(),
+                "summary entry must keep `inputs[]`"
+            );
+            assert!(
+                entry.get("citation").is_some(),
+                "summary entry must keep `citation`"
+            );
+            assert!(
+                entry.get("fetch_url").is_some(),
+                "summary entry must point at /v1/algorithms/<key>"
+            );
+        }
+        assert_eq!(
+            summary_resp["pagination"]["page"].as_u64(),
+            Some(1),
+            "default page=1"
+        );
+        // total surfaces the full registry size — agents need this to
+        // know they're seeing a slice. Default is page 1 not the full
+        // set, so total_pages MUST be ≥ 1.
+        let total = summary_resp["pagination"]["total"].as_u64().unwrap();
+        assert!(
+            total >= items.len() as u64,
+            "pagination.total ({total}) MUST be ≥ items length ({}) — slicing must be honest",
+            items.len()
+        );
+        // Compare with non-summary: verbose entries DO carry `formula`.
+        let full_resp = algorithms(axum::extract::Query(PageQuery {
+            page: None,
+            page_size: Some(5),
+            summary: None,
+        }))
+        .await
+        .0;
+        let full_items = full_resp["items"]
+            .as_array()
+            .expect("items[] must be present");
+        assert!(
+            full_items.iter().any(|e| e.get("formula").is_some()),
+            "non-summary mode MUST keep `formula` on every entry that has one"
+        );
+        assert_eq!(
+            full_resp["pagination"]["page_size"].as_u64(),
+            Some(5),
+            "explicit page_size honoured"
+        );
+    }
+
+    #[test]
+    fn ask_req_verbose_defaults_to_false() {
+        // The 2026-05-05 deepscan flagged /v1/ask returning 84 KB; the
+        // fix is `verbose=false` by default. New callers that omit the
+        // field MUST get the trimmed shape, not the legacy verbose one.
+        let r: AskReq = serde_json::from_value(serde_json::json!({
+            "q": "is this flood-prone", "place": "Ashok Nagar, Ranchi"
+        }))
+        .unwrap();
+        assert!(
+            r.verbose.is_none(),
+            "AskReq.verbose absent => None (handler unwraps to false)"
+        );
+        // Explicit verbose=true round-trips.
+        let r_v: AskReq = serde_json::from_value(serde_json::json!({
+            "q": "x", "place": "y", "verbose": true
+        }))
+        .unwrap();
+        assert_eq!(r_v.verbose, Some(true));
+    }
+
+    #[test]
+    fn ask_algorithms_for_question_verbose_false_drops_formula_keeps_key() {
+        // Direct projection-level test — verbose=false MUST drop
+        // `formula` and `temporal_recipe` while preserving the
+        // receipt-relevant fields (`key`, `input_bands`, `citation`,
+        // `fetch_url`). The signed-receipt fields themselves
+        // (`signed_at`, `fact_cid`, signer pubkey, registry/schema CIDs)
+        // live in `facts.facts[]` — that path is NEVER touched by the
+        // verbose toggle, so once `formula` is gone here we know the
+        // payload-cap fix didn't bleed into receipt signing.
+        let reg = &*emem_core::algorithms::DEFAULT;
+        let alg = reg
+            .lookup("flood_risk@2")
+            .expect("flood_risk@2 must be in the registry");
+        let inputs: Vec<&str> = alg
+            .inputs
+            .iter()
+            .filter_map(|i| i.band.as_deref())
+            .collect();
+        let trimmed = project_algorithm_for_question(
+            "flood_risk_composite",
+            alg,
+            &inputs,
+            /* verbose= */ false,
+        );
+        assert!(
+            trimmed.get("formula").is_none(),
+            "verbose=false MUST drop `formula`"
+        );
+        assert!(
+            trimmed.get("temporal_recipe").is_none(),
+            "verbose=false MUST drop `temporal_recipe`"
+        );
+        assert_eq!(trimmed["key"].as_str(), Some("flood_risk@2"));
+        assert!(
+            trimmed["input_bands"].is_array()
+                && !trimmed["input_bands"].as_array().unwrap().is_empty(),
+            "verbose=false MUST keep `input_bands[]`"
+        );
+        assert!(
+            trimmed["citation"].is_string(),
+            "verbose=false MUST keep `citation`"
+        );
+        assert_eq!(
+            trimmed["fetch_url"].as_str(),
+            Some("/v1/algorithms/flood_risk@2")
+        );
+
+        // Verbose=true keeps everything.
+        let full = project_algorithm_for_question(
+            "flood_risk_composite",
+            alg,
+            &inputs,
+            /* verbose= */ true,
+        );
+        assert!(
+            full["formula"].is_string(),
+            "verbose=true MUST carry `formula`"
+        );
+        assert!(
+            full.get("temporal_recipe").is_some(),
+            "verbose=true MUST carry `temporal_recipe` (flood_risk@2 has one)"
+        );
+    }
+
+    #[test]
+    fn project_materializer_summary_drops_notes() {
+        let entry = serde_json::json!({
+            "band":              "modis.ndvi_mean",
+            "unit":              null,
+            "value_kind":        "primary",
+            "coverage":          "global",
+            "upstream_scheme":   "ornl_modis",
+            "upstream_endpoint": "https://example/api",
+            "derivation_fn_key": "modis_ornl_subset@1",
+            "confidence":        0.9,
+            "notes":             "A long editorial paragraph that bloats the response. Ten sentences. Every entry has one. ~62 KB total at 0.0.4.",
+        });
+        let trimmed = project_materializer_entry(&entry, true);
+        assert!(
+            trimmed.get("notes").is_none(),
+            "summary=true MUST drop the long `notes` field"
+        );
+        assert_eq!(trimmed["band"].as_str(), Some("modis.ndvi_mean"));
+        assert_eq!(trimmed["upstream_scheme"].as_str(), Some("ornl_modis"));
+        assert_eq!(trimmed["summary"].as_bool(), Some(true));
+
+        // Non-summary mode passes the entry through unchanged.
+        let full = project_materializer_entry(&entry, false);
+        assert!(
+            full["notes"].is_string(),
+            "summary=false MUST preserve `notes`"
+        );
     }
 }
