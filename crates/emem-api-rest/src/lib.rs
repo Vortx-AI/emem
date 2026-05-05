@@ -3931,6 +3931,9 @@ fn band_input_resolution_m(band: &str) -> Option<u32> {
         "gmrt.topobathy_mean" => Some(100),
         "surface_water.recurrence" => Some(30),
         b if b.starts_with("hansen.") => Some(30),
+        // `forest_change.*` are the canonical agent-facing names for
+        // the same Hansen GFC layers — 30 m native pixel grid.
+        b if b.starts_with("forest_change.") => Some(30),
         "esa_worldcover.lc_2021" => Some(10),
         b if b.starts_with("soilgrids.") => Some(250),
         b if b.starts_with("cams.") => Some(11_000),
@@ -4066,6 +4069,11 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
         b if b.starts_with("weather.") => "climate",
         b if b.starts_with("surface_water.") => "surface_water",
         b if b.starts_with("hansen.") => "forest_change",
+        // Canonical `forest_change.*` sub-bands resolve directly to the
+        // `forest_change` cube slot — kept here next to the legacy
+        // `hansen.*` arm so adding either form picks up the family
+        // editorial fields (description / interpretation / …).
+        b if b.starts_with("forest_change.") => "forest_change",
         b if b.starts_with("modis.lst_") || b.starts_with("modis.ndvi") => "indices",
         b if b.starts_with("soilgrids.") => "soilgrids",
         // CAMS scalars now have a dedicated `air_quality` band entry
@@ -13492,131 +13500,167 @@ async fn materialize_soilgrids_band(
 
 // ---------------- Hansen Global Forest Change materializer ----------------
 //
-// Three layers from the GFC v1.11 (2023) release:
-//   - hansen.tree_cover_2000  (byte 0..100, % canopy cover at 30 m)
-//   - hansen.loss_year        (byte 0..23, year of forest loss; 0 = no loss,
-//                              1 = 2001, ..., 23 = 2023)
-//   - hansen.gain             (byte 0/1, 2000–2012 gain mask)
+// Source: Hansen et al. 2013 (Science 342, 850-853). v1.12 release
+// (covers 2000-2024, published 2025-05). Public bucket
+// `earthenginepartners-hansen` on GCS — anonymous HTTPS Range reads
+// against 10°×10° LZW-compressed uint8 tiles.
 //
-// 10°×10° tiles on storage.googleapis.com (public-fetch HTTPS), named by
-// the NW corner: Hansen_GFC-2023-v1.11_<layer>_<lat_top>_<lng_left>.tif.
+// The connector module [`emem_fetch::hansen_gfc`] owns the wire path
+// (tile-name formula, calendar-year decode, structured TileNotFound
+// for cells outside coverage). This function maps band keys to its
+// three layer fetchers, signs Primary facts for real readings, and
+// signs Absence for tile gaps.
+//
+// Band keys:
+//   - `forest_change.lossyear`     — calendar year of forest loss
+//                                     2001..=2024 (`unit: year_of_loss`),
+//                                     `value: 0` for "no loss observed".
+//   - `forest_change.treecover2000`— year-2000 baseline canopy cover %
+//                                     (`unit: percent_canopy_cover`).
+//   - `forest_change.gain`         — 2000–2012 binary gain mask
+//                                     (`unit: binary`).
+//
+// Legacy `hansen.*` keys are accepted as aliases for back-compat with
+// the GFC-2023-v1.11 wiring; the canonical keys agents should use are
+// the `forest_change.*` ones surfaced under `forest_change.scalar_keys`
+// in `bands-v0.json`.
 async fn materialize_hansen_band(
     cell64: &str,
     s: &AppState,
     band: &str,
 ) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::hansen_gfc;
+
+    // Map band → layer kind. Legacy `hansen.*` keys round-trip to the
+    // same layer as their canonical `forest_change.*` siblings so that
+    // already-cached attestations keep resolving.
+    enum Layer {
+        LossYear,
+        TreeCover2000,
+        Gain,
+    }
     let layer = match band {
-        "hansen.tree_cover_2000" => "treecover2000",
-        "hansen.loss_year" => "lossyear",
-        "hansen.gain" => "gain",
+        "forest_change.lossyear" | "hansen.loss_year" => Layer::LossYear,
+        "forest_change.treecover2000" | "hansen.tree_cover_2000" => Layer::TreeCover2000,
+        "forest_change.gain" | "hansen.gain" => Layer::Gain,
         _ => return Err(format!("hansen band {band} not registered")),
     };
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
-    // NW-corner naming on a 10° grid.
-    let lat_top = (lat / 10.0).ceil() as i32 * 10;
-    let lng_left = (lng / 10.0).floor() as i32 * 10;
-    let lat_tag = if lat_top >= 0 {
-        format!("{:02}N", lat_top)
-    } else {
-        format!("{:02}S", lat_top.abs())
-    };
-    let lng_tag = if lng_left >= 0 {
-        format!("{:03}E", lng_left)
-    } else {
-        format!("{:03}W", lng_left.abs())
-    };
-    let url = format!(
-        "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2023-v1.11/Hansen_GFC-2023-v1.11_{layer}_{lat_tag}_{lng_tag}.tif"
-    );
 
     let cli = s2_http_client();
     let signed_at = chrono_iso8601_utc();
 
-    let prof = match emem_fetch::cog::open_profile(&cli, &url).await {
-        Ok(p) => p,
-        Err(e) => {
-            // Hansen GFC tiles only exist on land between 80°N and 60°S;
-            // tiles outside that window 404 (and the bucket also has the
-            // odd missing oceanic tile). Treat 404 / not-found as a
-            // signed Absence so /v1/recall returns a citable "no data
-            // here" instead of looping the upstream forever. Other
-            // errors (timeout, 5xx) remain Err for retry.
-            let msg = e.to_string();
-            if msg.contains("404") || msg.to_lowercase().contains("not found") {
+    // Common absence-reason builder: structured text describing why
+    // the cell sits outside Hansen GFC coverage, attributed to the
+    // upstream tile we attempted. Bucket layout drops both polar
+    // tiles and certain all-zero oceanic tiles.
+    let absence_reason = |layer_str: &str, tile: &str| -> String {
+        format!(
+            "Hansen GFC v1.12 tile {tile} not present for layer {layer_str}: cell at ({lat:.6},{lng:.6}) is outside the dataset's 60°S–80°N land coverage or in an all-zero oceanic tile that the bucket omits."
+        )
+    };
+
+    // Fetch the layer-specific value via the dedicated connector.
+    // Each fetcher returns a structured value-or-error; we translate
+    // TileNotFound into an Absence (Antarctica / oceanic tile gap)
+    // and propagate everything else as a hard error.
+    let (value_int, unit, layer_str): (i64, &'static str, &'static str) = match layer {
+        Layer::LossYear => match hansen_gfc::fetch_forest_loss_year(&cli, lat, lng).await {
+            // Real loss event in 2001..=2024 — sign the calendar year.
+            Ok(Some(year)) => (year as i64, "year_of_loss", hansen_gfc::LAYER_LOSSYEAR),
+            // Pixel is on land in coverage but had no loss observed —
+            // a meaningful Primary fact carrying value 0 with the same
+            // unit string. Distinguishes "no deforestation here" from
+            // "this cell is not in the dataset" (the Absence path).
+            Ok(None) => (0i64, "year_of_loss", hansen_gfc::LAYER_LOSSYEAR),
+            Err(hansen_gfc::HansenGfcError::TileNotFound { tile, layer, url }) => {
+                let reason = absence_reason(&layer, &tile);
                 return sign_band_absence(
                     cell64,
                     s,
                     band,
                     0,
-                    "hansen.gfc.v1_11.2023",
+                    "hansen.gfc.v1_12.2024",
                     &url,
                     &signed_at,
-                    &format!(
-                        "Hansen GFC tile {lat_tag}_{lng_tag} not present (outside 80°N–60°S coverage or oceanic): {msg}"
-                    ),
+                    &reason,
                 )
                 .await;
             }
-            return Err(format!("open hansen cog {url}: {e}"));
-        }
+            Err(e) => return Err(format!("forest_change.lossyear fetch failed: {e}")),
+        },
+        Layer::TreeCover2000 => match hansen_gfc::fetch_treecover_2000(&cli, lat, lng).await {
+            Ok(pct) => (
+                pct as i64,
+                "percent_canopy_cover",
+                hansen_gfc::LAYER_TREECOVER_2000,
+            ),
+            Err(hansen_gfc::HansenGfcError::TileNotFound { tile, layer, url }) => {
+                let reason = absence_reason(&layer, &tile);
+                return sign_band_absence(
+                    cell64,
+                    s,
+                    band,
+                    0,
+                    "hansen.gfc.v1_12.2024",
+                    &url,
+                    &signed_at,
+                    &reason,
+                )
+                .await;
+            }
+            Err(e) => return Err(format!("forest_change.treecover2000 fetch failed: {e}")),
+        },
+        Layer::Gain => match hansen_gfc::fetch_forest_gain(&cli, lat, lng).await {
+            Ok(bit) => (bit as i64, "binary", hansen_gfc::LAYER_GAIN),
+            Err(hansen_gfc::HansenGfcError::TileNotFound { tile, layer, url }) => {
+                let reason = absence_reason(&layer, &tile);
+                return sign_band_absence(
+                    cell64,
+                    s,
+                    band,
+                    0,
+                    "hansen.gfc.v1_12.2024",
+                    &url,
+                    &signed_at,
+                    &reason,
+                )
+                .await;
+            }
+            Err(e) => return Err(format!("forest_change.gain fetch failed: {e}")),
+        },
     };
-    let raw = emem_fetch::cog::sample_pixel(&cli, &url, &prof, lng, lat)
-        .await
-        .map_err(|e| format!("sample hansen {url}: {e}"))?;
 
-    if !raw.is_finite() {
-        // Hansen rasters use 0 as the on-land "no event" value, so a
-        // non-finite read is a true no-data sentinel (off-tile / nodata
-        // mask). Sign Absence rather than Err.
-        return sign_band_absence(
-            cell64,
-            s,
-            band,
-            0,
-            "hansen.gfc.v1_11.2023",
-            &url,
-            &signed_at,
-            &format!("hansen pixel non-finite at ({lat:.6},{lng:.6}) {url}"),
-        )
-        .await;
-    }
-    let v = raw.round() as i64;
-    let (unit, lo, hi) = match band {
-        "hansen.tree_cover_2000" => ("percent_canopy_cover", 0i64, 100i64),
-        "hansen.loss_year" => ("year_offset_from_2000", 0i64, 23i64),
-        "hansen.gain" => ("binary", 0i64, 1i64),
-        _ => unreachable!(),
-    };
-    if v < lo || v > hi {
-        return Err(format!(
-            "hansen {band} pixel out of range: raw={raw} (rounded={v}), expected [{lo},{hi}] at ({lat:.6},{lng:.6}) tile {lat_tag}_{lng_tag}"
-        ));
-    }
+    // Reconstruct the upstream URL + tile tag for the Source.id and
+    // derivation pointer. tile_url_for is pure — no extra round trip.
+    let url = hansen_gfc::tile_url_for(lat, lng, layer_str);
+    let (lat_tag, lng_tag) = hansen_gfc::tile_corner_tags(lat, lng);
+
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
         tslot: 0,
-        value: ciborium::Value::Integer(v.into()),
+        value: ciborium::Value::Integer(value_int.into()),
         unit: Some(unit.into()),
         confidence: 0.93,
         uncertainty: None,
         sources: vec![Source {
-            scheme: "hansen.gfc.v1_11.2023".into(),
+            scheme: "hansen.gfc.v1_12.2024".into(),
             id: url.clone(),
             cid: None,
             hash: None,
             captured_at: Some(signed_at.clone()),
-            url: None,
+            url: Some(url.clone()),
         }],
         derivation: Derivation {
-            fn_key: "hansen_gfc_v1_11_pixel@1".into(),
+            fn_key: "hansen_gfc_v1_12_pixel@1".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
                 ciborium::Value::Text(format!("{lat_tag}_{lng_tag}")),
-                ciborium::Value::Text(layer.into()),
+                ciborium::Value::Text(layer_str.into()),
             ])),
         },
         privacy_class: "public".into(),
@@ -14235,18 +14279,28 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: Some(days_from_civil(2022, 1, 1) * 86_400 - 1),
             wire_path: "esa-worldcover s3 (anonymous): v200 2021 10 m LCCS map",
         },
-        // Hansen Global Forest Change v1.11 (2023 release). Three layers:
-        // tree_cover_2000 (static climatology of 2000), loss_year (cumulative
-        // 2001..=2023), gain (single 2000–2012 mask). All three are signed
-        // as static-per-release facts (the 2023 release is the canonical
-        // serving snapshot until the next annual update).
-        "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain" => MaterializerMeta {
+        // Hansen Global Forest Change v1.12 (2025 release, covers
+        // 2000-2024). Three layers signed as sub-bands of the
+        // `forest_change` family:
+        //   - forest_change.lossyear      cumulative loss 2001..=2024
+        //   - forest_change.treecover2000 baseline canopy % at year 2000
+        //   - forest_change.gain          2000-2012 binary gain mask
+        // All three are static-per-release facts; the v1.12 snapshot is
+        // the canonical serving copy until the next annual update.
+        // Legacy `hansen.*` keys remain wired as back-compat aliases so
+        // already-cached attestations resolve.
+        "forest_change.lossyear"
+        | "forest_change.treecover2000"
+        | "forest_change.gain"
+        | "hansen.tree_cover_2000"
+        | "hansen.loss_year"
+        | "hansen.gain" => MaterializerMeta {
             tempo: Tempo::Slow,
             kind: BandKind::PerRelease,
             history_from_unix: Some(days_from_civil(2000, 1, 1) * 86_400),
-            history_to_unix: Some(days_from_civil(2024, 1, 1) * 86_400 - 1),
+            history_to_unix: Some(days_from_civil(2025, 1, 1) * 86_400 - 1),
             wire_path:
-                "storage.googleapis.com/earthenginepartners-hansen GFC-2023-v1.11 30 m tiles",
+                "storage.googleapis.com/earthenginepartners-hansen GFC-2024-v1.12 30 m tiles",
         },
         // SoilGrids 2.0 (ISRIC) — static global soil-property maps, 250 m,
         // 0–30 cm thickness-weighted to match agronomic topsoil depth.
@@ -14405,7 +14459,14 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("modis.burned_area_monthly".into());
     // ESA WorldCover 2021 (single release).
     out.push("esa_worldcover.lc_2021".into());
-    // Hansen Global Forest Change v1.11 (2023 release).
+    // Hansen Global Forest Change v1.12 (2025 release, covers 2000-2024).
+    // Canonical sub-bands of the `forest_change` family.
+    out.push("forest_change.lossyear".into());
+    out.push("forest_change.treecover2000".into());
+    out.push("forest_change.gain".into());
+    // Legacy `hansen.*` keys remain in the catalog so existing agent
+    // recipes keep resolving while migrating to the family-aliased
+    // names above.
     out.push("hansen.tree_cover_2000".into());
     out.push("hansen.loss_year".into());
     out.push("hansen.gain".into());
@@ -14552,10 +14613,17 @@ async fn materialize_band_at(
         return materialize_esa_worldcover_2021(cell64, s).await;
     }
 
-    // Hansen GFC v1.11 layers — single release, static per cell.
+    // Hansen GFC v1.12 layers — single release, static per cell.
+    // `forest_change.*` keys are the canonical agent-facing names;
+    // `hansen.*` keys remain accepted as back-compat aliases.
     if matches!(
         band,
-        "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain"
+        "forest_change.lossyear"
+            | "forest_change.treecover2000"
+            | "forest_change.gain"
+            | "hansen.tree_cover_2000"
+            | "hansen.loss_year"
+            | "hansen.gain"
     ) {
         return materialize_hansen_band(cell64, s, band).await;
     }
@@ -15463,38 +15531,43 @@ async fn try_materialize_bands(
                     });
                 }
             },
-            // Hansen Global Forest Change v1.11.
-            "hansen.tree_cover_2000" | "hansen.loss_year" | "hansen.gain" => {
-                match materialize_hansen_band(cell64, s, b).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
-                    }
+            // Hansen Global Forest Change v1.12. Canonical agent keys
+            // are `forest_change.*`; `hansen.*` aliases remain wired
+            // for back-compat with already-cached attestations.
+            "forest_change.lossyear"
+            | "forest_change.treecover2000"
+            | "forest_change.gain"
+            | "hansen.tree_cover_2000"
+            | "hansen.loss_year"
+            | "hansen.gain" => match materialize_hansen_band(cell64, s, b).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
                 }
-            }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             // SoilGrids 2.0 (ISRIC) static topsoil 0–30 cm scalars.
             // Six properties (soc, phh2o, clay, sand, bdod, nitrogen),
             // all routed through one materializer that handles the
@@ -20657,6 +20730,52 @@ mod tests {
                 source_scheme_for(k)
             );
         }
+    }
+
+    /// P1-B regression: the `forest_change` family band MUST declare
+    /// `forest_change.lossyear` (and siblings) under `scalar_keys`
+    /// AND each child MUST resolve to a wired materializer. This is
+    /// the same family-alias pattern as `air_quality`/`cams.*` —
+    /// without it, agents asking the deepscan eval question "Has
+    /// this been deforested since 2010?" hit the cube placeholder
+    /// `forest_change` and conclude "no Hansen GFC", even though the
+    /// `forest_change.lossyear` materializer is fully wired against
+    /// the public `earthenginepartners-hansen` GCS bucket.
+    #[test]
+    fn coverage_matrix_forest_change_surfaces_wired_subkeys() {
+        let registry = &*emem_core::bands::DEFAULT;
+        let fc = registry
+            .lookup("forest_change")
+            .expect("forest_change band missing from registry");
+        let declared: Vec<&str> = fc.scalar_keys.iter().map(|s| s.as_str()).collect();
+        // Sub-bands under `forest_change` must include the three
+        // canonical Hansen GFC layers — anything less and the eval
+        // question "deforested since YYYY?" can't resolve.
+        for must_have in [
+            "forest_change.lossyear",
+            "forest_change.treecover2000",
+            "forest_change.gain",
+        ] {
+            assert!(
+                declared.contains(&must_have),
+                "forest_change.scalar_keys missing {must_have}: {declared:?}"
+            );
+        }
+        // Every declared child MUST route to a wired materializer.
+        for child in &declared {
+            assert!(
+                band_materializer_meta(child).is_some(),
+                "forest_change child {child} has no band_materializer_meta arm — \
+                 agents will see the family as offline"
+            );
+        }
+        // The family band itself must NOT have a direct materializer
+        // (forest_change is the cube placeholder; recall goes to the
+        // sub-band keys via the family-alias projection).
+        assert!(
+            band_materializer_meta("forest_change").is_none(),
+            "forest_change grew its own materializer — update this test"
+        );
     }
 
     /// Companion guard for the same P0: walk every cube band and
