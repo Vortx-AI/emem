@@ -262,6 +262,46 @@ const HEAT_CFL_SAFETY: f64 = 0.20;
 /// implies the longest reasonable horizon at default α.
 const HEAT_MAX_STEPS: usize = 2_000_000;
 
+/// Spatial-variation threshold below which a 3×3 stencil is treated as
+/// mathematically uniform. A 0.01 K range across a 30 m × 30 m perimeter
+/// is well below the MODIS LST instrument noise floor (≈0.5 K, see
+/// Wan 2014); anything tighter cannot be physically distinguished from a
+/// single-pixel sample replicated across all 9 cells. When this triggers
+/// the discrete Laplacian collapses to zero and the FTCS step returns
+/// `delta_k == 0.0` regardless of dt or α — see the `stencil_diagnostic`
+/// field on the `/v1/heat_solve` response for the agent-facing
+/// explanation. Documented in `docs/PHYSICS_ENDPOINTS_2026_05_04.md`.
+const HEAT_UNIFORM_STENCIL_THRESHOLD_K: f64 = 0.01;
+
+/// Result of the 3×3 stencil-collapse diagnostic. `range_k` is the
+/// max-minus-min of the 9 initial-condition temperatures in kelvin;
+/// `is_uniform` is `range_k < HEAT_UNIFORM_STENCIL_THRESHOLD_K`. The
+/// diagnostic exists because a stencil populated from a single coarser
+/// upstream pixel gives a zero Laplacian (and hence `delta_k == 0.0`)
+/// regardless of dt / α. Surfacing this lets agents distinguish a
+/// real "no diffusion expected" outcome from a "stencil collapsed at an
+/// upstream sampling resolution coarser than the cell pitch" artifact.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StencilDiagnostic {
+    pub range_k: f64,
+    pub is_uniform: bool,
+}
+
+/// Compute the stencil-collapse diagnostic for a 9-cell initial-condition
+/// vector. Pure function — split out so unit tests can exercise the
+/// uniform-vs-varied decision without standing up an `AppState` or
+/// touching the network. The handler embeds the same numbers in the
+/// `stencil_range_k` and `stencil_diagnostic` response fields.
+pub fn heat_stencil_diagnostic(values: &[f64; 9]) -> StencilDiagnostic {
+    let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let range_k = max - min;
+    StencilDiagnostic {
+        range_k,
+        is_uniform: range_k < HEAT_UNIFORM_STENCIL_THRESHOLD_K,
+    }
+}
+
 /// One forward 2-D explicit-FD step on a 3×3 stencil. Mutates the centre
 /// in-place and returns the new value. Boundary cells are treated as
 /// Dirichlet (held fixed). Pure function — no I/O — so the math is
@@ -432,6 +472,38 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
     }
 
     let centre_initial_k = values[4];
+
+    // Stencil-collapse diagnostic. When all 9 neighbourhood cells were
+    // populated from a single coarser upstream pixel (e.g. one MODIS LST
+    // 1 km observation tiled across all 9 of these 10 m cells), the
+    // discrete Laplacian is exactly zero and the FTCS step is a no-op.
+    // The math is correct (∇²(constant) = 0) but the result is just the
+    // input echoed back. We surface this so an agent can distinguish a
+    // genuine "no diffusion expected" outcome from a "stencil sampled at
+    // an upstream resolution coarser than the cell pitch" artifact.
+    // Computed BEFORE the FTCS step (the diagnostic describes the
+    // initial condition; we don't change `delta_k` based on it — the
+    // honest answer is still 0.0 K).
+    let StencilDiagnostic {
+        range_k: stencil_range_k,
+        is_uniform: is_uniform_stencil,
+    } = heat_stencil_diagnostic(&values);
+    let stencil_interpretation: String = if is_uniform_stencil {
+        format!(
+            "All 9 neighborhood cells have ΔT < {:.2} K. The discrete Laplacian collapses to zero, \
+             so delta_k will be exactly 0.0 regardless of dt or alpha. This usually means the \
+             upstream materialiser populated the 3×3 stencil from a single coarser source pixel \
+             (e.g. a single MODIS LST 1km observation covering all 9 of these 10m cells). To get a \
+             real diffusion result, pre-fetch a wider MODIS tile so the perimeter cells have \
+             spatial variation, OR query a larger physical neighbourhood by using a coarser cell \
+             resolution.",
+            HEAT_UNIFORM_STENCIL_THRESHOLD_K
+        )
+    } else {
+        "Stencil has measurable spatial variation; FTCS step will produce a non-trivial delta_k."
+            .to_string()
+    };
+
     let final_centre_k = heat_solve_3x3_centre(&values, req.diffusivity_m2_per_s, dt_s, n_steps);
     let dx2 = CELL_PITCH_M * CELL_PITCH_M;
     let cfl_factor = req.diffusivity_m2_per_s * dt_s / dx2;
@@ -466,6 +538,12 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
         "imputation_note": if imputed.is_empty() { JsonValue::Null } else {
             json!("Indices listed in `imputed_neighbor_indices` had no usable fact; the centre value was substituted (zero-flux Neumann boundary at the missing edge). Forecast confidence drops with the imputed-neighbor count.")
         },
+        "stencil_range_k": stencil_range_k,
+        "stencil_diagnostic": {
+            "is_uniform": is_uniform_stencil,
+            "threshold_k": HEAT_UNIFORM_STENCIL_THRESHOLD_K,
+            "interpretation": stencil_interpretation,
+        },
         "errors": errors,
         "diffusivity_m2_per_s": req.diffusivity_m2_per_s,
         "hours_ahead": req.hours_ahead,
@@ -489,6 +567,22 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
             "verify_offline":   "POST /v1/verify_receipt {receipt}",
             "fact_dereference": "GET /v1/facts/{fact_cid} for each input_fact_cids[i]",
             "iterate":          format!("POST /v1/heat_solve {{cell:'{}', hours_ahead: <next-window>}}", req.cell),
+            "improve_stencil":  if is_uniform_stencil {
+                format!(
+                    "Stencil is uniform (range={:.4} K < {:.2} K threshold). To get a non-trivial delta_k: \
+                     (a) call POST /v1/backfill {{cell:'{}', band:'{}'}} with a wider time/space window so \
+                     the materialiser pulls additional MODIS tiles that cover the perimeter cells distinctly; \
+                     OR (b) re-issue this request against a coarser cell resolution (a parent cell whose \
+                     children straddle multiple MODIS pixels), then disaggregate post-hoc.",
+                    stencil_range_k, HEAT_UNIFORM_STENCIL_THRESHOLD_K, req.cell, band
+                )
+            } else {
+                format!(
+                    "Stencil already has measurable spatial variation (range={:.4} K). No action needed; \
+                     iterate the horizon to extend the forecast.",
+                    stencil_range_k
+                )
+            },
         },
     }))
 }
@@ -1448,6 +1542,116 @@ mod tests {
     #[test]
     fn jepa_empty_history_is_none() {
         assert!(jepa_predict_ar2_seasonal(&[], None).is_none());
+    }
+
+    /// Stencil diagnostic — uniform case. All 9 cells at exactly 300 K
+    /// (the canonical "stencil populated from a single coarser upstream
+    /// pixel" pathology that motivated this fix). The diagnostic must
+    /// flag `is_uniform=true`, the FTCS step must yield `delta_k==0.0`
+    /// regardless of dt or α, and the threshold must be the documented
+    /// 0.01 K. Mirrors the Phoenix +24h capture in
+    /// `scripts/eval/physics/heat_phoenix.json`.
+    #[test]
+    fn heat_stencil_diagnostic_flags_uniform_and_delta_k_is_zero() {
+        let u0 = [300.0_f64; 9];
+        let diag = heat_stencil_diagnostic(&u0);
+        assert!(
+            diag.is_uniform,
+            "all-300 K stencil should flag is_uniform=true; got {diag:?}"
+        );
+        assert!(
+            diag.range_k < HEAT_UNIFORM_STENCIL_THRESHOLD_K,
+            "stencil_range_k {} should be below threshold {}",
+            diag.range_k,
+            HEAT_UNIFORM_STENCIL_THRESHOLD_K
+        );
+        assert_eq!(diag.range_k, 0.0, "exact-uniform stencil has zero range");
+        // FTCS must produce delta_k == 0.0 regardless of dt/α; this is
+        // the math-is-correct, physics-is-meaningless property the
+        // diagnostic exists to surface. Sweep a few representative
+        // (α, dt, n) combinations to make the invariant explicit.
+        for &(alpha, dt_s, n_steps) in &[
+            (1.0e-6_f64, 3600.0_f64, 24_usize),
+            (1.0e-3_f64, 1.0_f64, 1000_usize),
+            (5.0e-7_f64, 86_400.0_f64, 1_usize),
+        ] {
+            let final_centre = heat_solve_3x3_centre(&u0, alpha, dt_s, n_steps);
+            let delta_k = final_centre - u0[4];
+            assert_eq!(
+                delta_k, 0.0,
+                "uniform stencil delta_k must be exactly 0.0 \
+                 (α={alpha}, dt={dt_s}, n={n_steps}); got {delta_k}"
+            );
+        }
+    }
+
+    /// Stencil diagnostic — varied case. A 290..310 K spread across the
+    /// 9 cells gives a 20 K range, well above threshold; the diagnostic
+    /// must flag `is_uniform=false` and the FTCS step must produce a
+    /// non-zero `delta_k` (the centre relaxes toward the cooler
+    /// neighbours since the local Laplacian is negative).
+    #[test]
+    fn heat_stencil_diagnostic_flags_varied_and_delta_k_is_nonzero() {
+        // NW, N, NE, W, centre, E, SW, S, SE — 290..310 K spread.
+        let u0 = [
+            290.0_f64, 295.0, 300.0, 295.0, 310.0, 305.0, 290.0, 295.0, 300.0,
+        ];
+        let diag = heat_stencil_diagnostic(&u0);
+        assert!(
+            !diag.is_uniform,
+            "varied stencil should flag is_uniform=false; got {diag:?}"
+        );
+        assert!(
+            (diag.range_k - 20.0).abs() < 1e-12,
+            "expected 20 K range across 290..310 K stencil; got {}",
+            diag.range_k
+        );
+        assert!(
+            diag.range_k >= HEAT_UNIFORM_STENCIL_THRESHOLD_K,
+            "varied stencil_range_k {} must clear threshold {}",
+            diag.range_k,
+            HEAT_UNIFORM_STENCIL_THRESHOLD_K
+        );
+        // Centre is 310 K; the 4 cardinal neighbours (N, S, E, W) at
+        // indices 1, 7, 5, 3 are 295 + 295 + 305 + 295 = 1190; mean
+        // 297.5 K. So the Laplacian is negative and the centre must
+        // cool. Use a large α to make the change visible at the
+        // unit-test scale (real urban α=1e-6 moves the centre by sub-
+        // millikelvin per real-world hour).
+        let final_centre = heat_solve_3x3_centre(&u0, 5.0e-3, 0.5, 1000);
+        let delta_k = final_centre - u0[4];
+        assert!(
+            delta_k != 0.0,
+            "varied stencil must produce non-zero delta_k; got {delta_k}"
+        );
+        assert!(
+            delta_k < 0.0,
+            "centre 310 K with cooler neighbours must cool; delta_k={delta_k}"
+        );
+        assert!(
+            final_centre < 310.0 && final_centre > 290.0,
+            "centre should relax inside the neighbour envelope; got {final_centre}"
+        );
+    }
+
+    /// Threshold boundary — a stencil whose range is just below 0.01 K
+    /// is uniform (below MODIS LST instrument noise); a stencil whose
+    /// range is exactly at or above 0.01 K is varied. Pin this so a
+    /// future refactor can't silently shift the cutoff.
+    #[test]
+    fn heat_stencil_diagnostic_threshold_boundary() {
+        // Range = 0.005 K → uniform.
+        let mut u_under = [300.0_f64; 9];
+        u_under[0] = 300.005;
+        let diag_under = heat_stencil_diagnostic(&u_under);
+        assert!(diag_under.is_uniform, "0.005 K range must be uniform");
+        // Range = 0.02 K → varied (clearly above the 0.01 threshold).
+        let mut u_over = [300.0_f64; 9];
+        u_over[0] = 300.02;
+        let diag_over = heat_stencil_diagnostic(&u_over);
+        assert!(!diag_over.is_uniform, "0.02 K range must be varied");
+        // Documented constant, pinned.
+        assert_eq!(HEAT_UNIFORM_STENCIL_THRESHOLD_K, 0.01);
     }
 
     /// HeatSolveReq: deserialise with defaults, full body, and explicit
