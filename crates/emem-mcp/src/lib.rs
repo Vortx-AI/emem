@@ -194,7 +194,8 @@ const SCHEMA_ASK: &str = r#"{"type":"object","required":["q"],"properties":{
 "cell":{"type":"string","description":"cell64 string (alternative to `place` — use when you have one from a prior emem_locate / emem_recall response). Provide this OR `place` OR `lat`+`lng`."},
 "lat":{"type":"number","description":"WGS-84 latitude (paired with `lng`; alternative to `place` / `cell`)."},
 "lng":{"type":"number","description":"WGS-84 longitude (paired with `lat`)."},
-"include_image":{"type":"boolean","default":false,"description":"Bundle a Sentinel-2 RGB scene URL for the resolved cell. Adds ~1-2 s on first call."}
+"include_image":{"type":"boolean","default":false,"description":"Bundle a Sentinel-2 RGB scene URL for the resolved cell. Adds ~1-2 s on first call."},
+"verbose":{"type":"boolean","default":false,"description":"When true, return the full envelope: per-algorithm formula strings, temporal_recipe blocks, per-fact band_metadata duplicates, and the long _explanation prose. Default (since 2026-05-05) is false so the response fits MCP's 25 KB cap; the signed receipt + fact CIDs + algorithm keys + algorithms_cid are always retained. Pass true to get the full body when debugging."}
 }}"#;
 
 const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
