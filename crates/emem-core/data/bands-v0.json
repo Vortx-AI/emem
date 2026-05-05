@@ -341,14 +341,15 @@
       "family": "human",
       "offset": 1502,
       "dims": 8,
-      "tempo": "medium",
+      "tempo": "slow",
       "privacy": {"class": "aggregate_only", "min_res": 11},
-      "description": "VIIRS Day/Night Band radiance summary at the cell. Eight slots cover monthly mean, 6-month trend, and stability statistics.",
-      "units": "nW · cm⁻² · sr⁻¹ (radiance)",
-      "value_range": [0.0, null],
-      "interpretation": "Strong proxy for human activity intensity at night — picks up settlements down to ~hamlet scale. A drop year-over-year often signals out-migration, conflict, or grid failure; a spike signals new development or gas flaring (cross-check with `landcover.bare`).",
-      "pitfalls": "Snow on roofs reflects moonlight and inflates radiance in winter at high latitudes. VIIRS is masked under cloud — the monthly mean is over cloud-free nights only. Privacy: aggregate_only at min_res 11; finer recall is denied.",
-      "references": "Elvidge et al. 2017 (VIIRS DNB nightlights)"
+      "description": "Annual nightlight composite at the cell (DMSP-OLS V4 intercalibrated stable lights, 1992-2013). VIIRS DNB v22 was the originally-targeted source but EOG/CSM moved its archive behind OAuth in 2024-2025; the wired open-data path is NOAA NCEI NGDC, the only globally-mirrored, anonymous, Range-readable annual nightlight time series.",
+      "units": "see scalar_keys (avg_dn is uint8 0..63, year is uint16, satellite is string)",
+      "value_range": [0.0, 63.0],
+      "interpretation": "Strong proxy for human activity intensity at night — picks up settlements down to ~hamlet scale. A drop year-over-year often signals out-migration, conflict, or grid failure; a spike signals new development. Comparing DMSP-OLS DN to VIIRS DNB radiance requires the Li & Zhou 2017 (Remote Sensing 9:637) intercalibration regression — DN is not the same physical unit as nW · cm⁻² · sr⁻¹.",
+      "pitfalls": "Snow on roofs reflects moonlight and inflates DN in winter at high latitudes. The intercalibration mask zeroes ephemeral lights (fires, gas flares); a 0 at this cell genuinely means 'no measurable persistent night-time emission' and IS a Primary fact (not Absence). Privacy: aggregate_only at min_res 11; finer recall is denied. Coverage: -65°S to 75°N (DMSP-OLS V4 raster bounds).",
+      "scalar_keys": ["nightlights.dmsp_ols_avg_dn", "nightlights.year", "nightlights.satellite"],
+      "references": "Elvidge et al. 1997 (DMSP-OLS); Li & Zhou 2017 (Remote Sensing 9:637, DN-to-radiance regression)"
     },
     {
       "key": "ghsl",
