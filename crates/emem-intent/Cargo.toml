@@ -8,5 +8,6 @@ description = "Intent grammar + heuristic planner (v0); learned planner deferred
 [dependencies]
 emem-claim = { workspace = true }
 serde      = { workspace = true }
+serde_json = { workspace = true }
 ciborium   = { workspace = true }
 thiserror  = { workspace = true }

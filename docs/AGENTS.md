@@ -147,8 +147,10 @@ All examples below post to `https://emem.dev/v1/recall` with header
 `content-type: application/json`. Body shown. A 200 response with an
 empty `facts` list and `materialize_notes` is the honest signal that
 the responder hasn't wired this band's upstream connector yet — the
-response also carries `bands_available` listing what *is* answerable
-at that cell.
+response also carries `bands_already_attested_at_cell` listing what
+*is* answerable at that cell. (This field was named `bands_available`
+through 0.0.4; renamed in 0.0.5 because the old name read like a
+global capability list when it's really a per-cell cache snapshot.)
 
 ```bash
 # copdem30m.elevation_mean — Mount Fuji land DEM (Absence over water)
@@ -478,11 +480,14 @@ once at session start and only reference keys present in that list.
 For the materialized subset, `GET /v1/materializers` is the wire-stable
 catalog of what auto-fetches.
 
-**Mistake 2: Ignoring `bands_available` on an empty recall.**
+**Mistake 2: Ignoring `bands_already_attested_at_cell` on an empty recall.**
 If `/v1/recall` returns an empty `facts` list, the response carries
-`bands_available: [...]` listing the bands that DO have data at this
-cell. Fix: re-query with one of those band keys, or call
-`/v1/coverage_matrix` to see what the responder can answer globally.
+`bands_already_attested_at_cell: [...]` listing the bands that DO
+have data at this cell. Fix: re-query with one of those band keys,
+or call `/v1/coverage_matrix` to see what the responder can answer
+globally. (This field was named `bands_available` through 0.0.4 —
+the old name implied global capability when it's really a per-cell
+cache snapshot.)
 
 **Mistake 3: Treating `Fact::Absence` as null.**
 Absence is a signed statement that the responder tried and got no

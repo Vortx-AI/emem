@@ -159,13 +159,13 @@ pub fn plan(intent: &Intent) -> Plan {
                 ("tslot_b", window[1].to_string()),
             ]),
         }],
-        Intent::FindLike { key, .. } => vec![ToolCall {
+        Intent::FindLike { key, k, filter } => vec![ToolCall {
             primitive: "emem_find_similar".into(),
-            args: scalar_args(&[("key", key.clone())]),
+            args: find_similar_args(key.clone(), *k, filter.as_ref()),
         }],
-        Intent::Confirm { cell, .. } => vec![ToolCall {
+        Intent::Confirm { cell, claim } => vec![ToolCall {
             primitive: "emem_verify".into(),
-            args: scalar_args(&[("cell", cell.clone())]),
+            args: verify_args(cell.clone(), claim),
         }],
     };
     Plan { calls }
@@ -205,6 +205,88 @@ fn recall_args_with_bands(cell: String, bands: &[&str]) -> ciborium::Value {
             ),
         ),
     ])
+}
+
+/// Build args for `emem_find_similar`. Propagates the optional `k`
+/// (top-k neighbour count) and `filter` (post-rank Claim) so a caller
+/// who said "find 3 places like X with NDVI > 0.7" actually gets k=3
+/// + the filter — earlier the planner ignored both fields and returned
+/// the default top-10 unfiltered.
+fn find_similar_args(key: String, k: Option<u32>, filter: Option<&Claim>) -> ciborium::Value {
+    let mut entries: Vec<(ciborium::Value, ciborium::Value)> = vec![(
+        ciborium::Value::Text("key".into()),
+        ciborium::Value::Text(key),
+    )];
+    if let Some(k) = k {
+        entries.push((
+            ciborium::Value::Text("k".into()),
+            ciborium::Value::Integer((k as i64).into()),
+        ));
+    }
+    if let Some(f) = filter {
+        if let Ok(v) = serde_json_to_cbor(f) {
+            entries.push((ciborium::Value::Text("filter".into()), v));
+        }
+    }
+    ciborium::Value::Map(entries)
+}
+
+/// Build args for `emem_verify`. Propagates the structured `claim`
+/// alongside `cell` — earlier the planner dropped `claim` entirely,
+/// which silently turned every Confirm into "verify cell with no
+/// predicate" and made the verdict undefined.
+fn verify_args(cell: String, claim: &Claim) -> ciborium::Value {
+    let mut entries: Vec<(ciborium::Value, ciborium::Value)> = vec![(
+        ciborium::Value::Text("cell".into()),
+        ciborium::Value::Text(cell),
+    )];
+    if let Ok(v) = serde_json_to_cbor(claim) {
+        entries.push((ciborium::Value::Text("claim".into()), v));
+    }
+    ciborium::Value::Map(entries)
+}
+
+/// Round-trip a serde-Serialize value through JSON → ciborium::Value.
+/// Used for nested fields (Claim, filter) where re-implementing the
+/// CBOR shape by hand would drift from the canonical JSON serde repr.
+/// Returns the ciborium::Value that round-tripped via serde_json so
+/// nested objects/arrays/numbers all land on the right CBOR primitive.
+fn serde_json_to_cbor<T: Serialize>(v: &T) -> Result<ciborium::Value, ()> {
+    let j = serde_json::to_value(v).map_err(|_| ())?;
+    json_to_cbor(j)
+}
+
+fn json_to_cbor(j: serde_json::Value) -> Result<ciborium::Value, ()> {
+    Ok(match j {
+        serde_json::Value::Null => ciborium::Value::Null,
+        serde_json::Value::Bool(b) => ciborium::Value::Bool(b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                ciborium::Value::Integer(i.into())
+            } else if let Some(u) = n.as_u64() {
+                ciborium::Value::Integer((u as i128).try_into().map_err(|_| ())?)
+            } else if let Some(f) = n.as_f64() {
+                ciborium::Value::Float(f)
+            } else {
+                return Err(());
+            }
+        }
+        serde_json::Value::String(s) => ciborium::Value::Text(s),
+        serde_json::Value::Array(a) => {
+            let mut out = Vec::with_capacity(a.len());
+            for item in a {
+                out.push(json_to_cbor(item)?);
+            }
+            ciborium::Value::Array(out)
+        }
+        serde_json::Value::Object(m) => {
+            let mut out = Vec::with_capacity(m.len());
+            for (k, v) in m {
+                out.push((ciborium::Value::Text(k), json_to_cbor(v)?));
+            }
+            ciborium::Value::Map(out)
+        }
+    })
 }
 
 /// Build args for `emem_ask`. Mixed types (string question, optional
@@ -247,4 +329,84 @@ fn ask_args(
         ));
     }
     ciborium::Value::Map(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use emem_claim::{Claim, Op};
+
+    fn cbor_get<'a>(map: &'a ciborium::Value, key: &str) -> Option<&'a ciborium::Value> {
+        if let ciborium::Value::Map(entries) = map {
+            for (k, v) in entries {
+                if let ciborium::Value::Text(t) = k {
+                    if t == key {
+                        return Some(v);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Regression: the old `Intent::FindLike { key, .. }` arm dropped
+    /// `k` and `filter` on the floor. After the fix, both must land in
+    /// the emitted CBOR args.
+    #[test]
+    fn find_like_propagates_k_and_filter() {
+        let filter = Claim {
+            band: "indices.ndvi".into(),
+            op: Op::Gt,
+            value: ciborium::Value::Float(0.7),
+            tslot: Some(0),
+            window: None,
+            agg: None,
+        };
+        let p = plan(&Intent::FindLike {
+            key: "damO.zb000.xUti.zde78".into(),
+            k: Some(3),
+            filter: Some(filter),
+        });
+        assert_eq!(p.calls.len(), 1);
+        assert_eq!(p.calls[0].primitive, "emem_find_similar");
+
+        let key = cbor_get(&p.calls[0].args, "key").expect("key present");
+        assert!(matches!(key, ciborium::Value::Text(t) if t == "damO.zb000.xUti.zde78"));
+
+        let k = cbor_get(&p.calls[0].args, "k").expect("k must propagate");
+        assert!(
+            matches!(k, ciborium::Value::Integer(i) if i128::from(*i) == 3),
+            "k expected to be integer 3, got {k:?}"
+        );
+
+        let f = cbor_get(&p.calls[0].args, "filter").expect("filter must propagate");
+        assert!(matches!(f, ciborium::Value::Map(_)));
+    }
+
+    /// Regression: the old `Intent::Confirm { cell, .. }` arm dropped
+    /// `claim` entirely, which silently turned every Confirm into
+    /// "verify cell with no predicate".
+    #[test]
+    fn confirm_propagates_claim() {
+        let claim = Claim {
+            band: "indices.ndvi".into(),
+            op: Op::Gt,
+            value: ciborium::Value::Float(0.5),
+            tslot: Some(0),
+            window: None,
+            agg: None,
+        };
+        let p = plan(&Intent::Confirm {
+            claim,
+            cell: "damO.zb000.xUti.zde78".into(),
+        });
+        assert_eq!(p.calls.len(), 1);
+        assert_eq!(p.calls[0].primitive, "emem_verify");
+
+        let cell = cbor_get(&p.calls[0].args, "cell").expect("cell present");
+        assert!(matches!(cell, ciborium::Value::Text(t) if t == "damO.zb000.xUti.zde78"));
+
+        let c = cbor_get(&p.calls[0].args, "claim").expect("claim must propagate");
+        assert!(matches!(c, ciborium::Value::Map(_)));
+    }
 }

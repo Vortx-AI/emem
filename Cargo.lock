@@ -1452,6 +1452,7 @@ dependencies = [
  "ciborium",
  "emem-claim",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 
@@ -1485,6 +1486,7 @@ dependencies = [
  "emem-fact",
  "emem-storage",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
  "tokio",
 ]

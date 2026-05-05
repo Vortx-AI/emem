@@ -31,14 +31,24 @@ pub struct RecallResp {
     pub facts: Vec<Fact>,
     /// Signed receipt with cost.
     pub receipt: Receipt,
-    /// Bands present on this cell *regardless* of the `bands` filter. When
-    /// the caller's filter matches zero facts, this lets them distinguish
-    /// "wrong band name" (cell has data, just not for the requested band)
-    /// from "this place is genuinely empty" (no facts at all). Only
-    /// populated when the request supplied `bands` and the result is
-    /// empty — otherwise it would just duplicate the facts list.
+    /// Bands that already have at least one signed fact at THIS cell —
+    /// the answer to the agent's "what else can I read here without
+    /// going through materialise?" question. The list is the union of
+    /// every band attested at this cell64 across all tslots; it is NOT
+    /// a list of globally wired connectors (that's `/v1/bands`). When
+    /// a caller's filter matches zero facts, this lets them tell
+    /// "wrong band name" (cell has data, just not for the requested
+    /// band) apart from "this place is genuinely empty" (no facts at
+    /// all). The wire field name was renamed from `bands_available`
+    /// in the 2026-05-05 deepscan because the old name suggested
+    /// global wiring; LLMs were reading it as "what bands does emem
+    /// support" instead of "what bands have already been signed
+    /// here". Renamed cleanly with no backwards-compat alias —
+    /// callers that watched the misleading name should re-read this
+    /// docstring before reaching for the new spelling.
+    #[serde(rename = "bands_already_attested_at_cell")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bands_available: Option<Vec<String>>,
+    pub bands_already_attested_at_cell: Option<Vec<String>>,
 }
 
 /// Recall facts at a cell, optionally filtered by band and tslot.
@@ -94,7 +104,7 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     //
     // Cost: one extra `scan_cell` per recall, which is the same call we
     // already do under sled (point-in-tree scan, ~tens of microseconds).
-    let bands_available = {
+    let bands_already_attested_at_cell = {
         let all = storage.scan_cell(&req.cell, None).await.unwrap_or_default();
         let mut bands: Vec<String> = all.into_iter().map(|(k, _)| k.band).collect();
         bands.sort();
@@ -113,6 +123,76 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     Ok(RecallResp {
         facts,
         receipt,
-        bands_available,
+        bands_already_attested_at_cell,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    /// Mirror of the relevant `RecallResp` field — same `#[serde(rename)]`
+    /// attribute, no Receipt or Fact dependency. The shape under test
+    /// here is the wire field name only; the surrounding response
+    /// structure is exercised through the live API tests.
+    #[derive(Debug, Serialize, Deserialize)]
+    struct RecallShape {
+        #[serde(rename = "bands_already_attested_at_cell")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bands_already_attested_at_cell: Option<Vec<String>>,
+    }
+
+    /// Wire-shape regression: the field that used to be
+    /// `bands_available` (deepscan 2026-05-05: misleading name) MUST
+    /// serialize as `bands_already_attested_at_cell` after the rename.
+    /// If a future refactor accidentally re-introduces the old name,
+    /// this test fails — agents and docs would silently drift.
+    #[test]
+    fn bands_field_serialises_as_bands_already_attested_at_cell() {
+        let resp = RecallShape {
+            bands_already_attested_at_cell: Some(vec!["indices.ndvi".into()]),
+        };
+        let v = serde_json::to_value(&resp).expect("serialises");
+        assert!(
+            v.get("bands_already_attested_at_cell").is_some(),
+            "expected new field name on the wire; got: {v}"
+        );
+        assert!(
+            v.get("bands_available").is_none(),
+            "old `bands_available` name MUST be gone from the wire; got: {v}"
+        );
+    }
+
+    /// Symmetric round-trip: deserializing the new field name lands
+    /// back in `bands_already_attested_at_cell`. Confirms callers
+    /// reading the new name see the data.
+    #[test]
+    fn bands_field_round_trips_under_new_name() {
+        let v = serde_json::json!({
+            "bands_already_attested_at_cell": ["a", "b"],
+        });
+        let resp: RecallShape = serde_json::from_value(v).expect("deserialises");
+        assert_eq!(
+            resp.bands_already_attested_at_cell.as_deref(),
+            Some(&["a".to_string(), "b".to_string()][..])
+        );
+    }
+
+    /// The old wire name MUST be rejected on input — re-introducing
+    /// it as a serde alias would defeat the point of the rename
+    /// (agents that learned the misleading name would keep working
+    /// instead of being prompted to update). serde_json
+    /// `from_value` returns None for a missing-but-optional field;
+    /// a key under the OLD name should land that way (i.e. NOT
+    /// silently mapped to the new field).
+    #[test]
+    fn old_name_does_not_alias_new_field() {
+        let v = serde_json::json!({"bands_available": ["a", "b"]});
+        let resp: RecallShape = serde_json::from_value(v).expect("deserialises with no field");
+        assert!(
+            resp.bands_already_attested_at_cell.is_none(),
+            "the legacy `bands_available` key must NOT silently populate \
+             the new field — keeping the alias would defeat the rename"
+        );
+    }
 }

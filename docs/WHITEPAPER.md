@@ -550,7 +550,7 @@ freshly-fetched fact as itself, the fact is persisted to the
 content-addressed store, and the receipt comes back with the new
 `fact_cid`. The agent sees no difference between a warm cache hit
 and a cold materialisation other than latency. When the switch is
-off, the responder returns an empty recall plus `bands_available[]`
+off, the responder returns an empty recall plus `bands_already_attested_at_cell[]`
 so the agent can distinguish "wrong query" from "place is
 genuinely empty" — never a silent fallback.
 

@@ -41,6 +41,24 @@ pub struct DiffResp {
 
 /// Compute the delta.
 pub async fn diff(req: &DiffReq, srv: &Server) -> Result<DiffResp, StorageError> {
+    // Reject same-tslot diffs up front. delta = b - a where a == b is
+    // tautologically zero — silently returning that confuses callers
+    // (an LLM that meant `tslot_b - 1` typoed both fields, or a
+    // template substitution dropped one). Surface as a structured
+    // 400/InvalidArgument so the agent learns about its own bug
+    // instead of getting a "valid" delta=0 receipt.
+    if req.tslot_a == req.tslot_b {
+        return Err(StorageError::Protocol {
+            code: ErrorCode::InvalidArgument,
+            message: format!(
+                "diff: tslot_a == tslot_b == {} — delta is tautologically zero. \
+                 Pass two distinct tslots for ({}, {}); call /v1/trajectory to \
+                 enumerate the tslots that actually have facts.",
+                req.tslot_a, req.cell, req.band
+            ),
+        });
+    }
+
     let started = Instant::now();
     let storage = srv.storage.as_ref();
 
@@ -137,4 +155,99 @@ pub async fn diff(req: &DiffReq, srv: &Server) -> Result<DiffResp, StorageError>
         delta_fact: derivative,
         receipt,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use emem_fact::{Attestation, FactCid, RegistryCid, SchemaCid};
+    use emem_storage::server::ManifestCids;
+    use emem_storage::Storage;
+    use std::sync::Arc;
+
+    /// Empty storage: every lookup returns `None`. Sufficient for
+    /// testing input-validation guards that return BEFORE any
+    /// storage call.
+    struct NoopStorage;
+
+    #[async_trait]
+    impl Storage for NoopStorage {
+        async fn lookup_canonical_many(
+            &self,
+            keys: &[CanonicalKey],
+        ) -> Result<Vec<Option<FactCid>>, StorageError> {
+            Ok(vec![None; keys.len()])
+        }
+        async fn get_facts_many(
+            &self,
+            cids: &[FactCid],
+        ) -> Result<Vec<Option<Fact>>, StorageError> {
+            Ok(vec![None; cids.len()])
+        }
+        async fn put_attestation(&self, _att: &Attestation) -> Result<Vec<FactCid>, StorageError> {
+            unimplemented!("put_attestation not exercised by diff guard test")
+        }
+        async fn materialize_many(
+            &self,
+            _keys: &[CanonicalKey],
+        ) -> Result<Vec<FactCid>, StorageError> {
+            unimplemented!("materialize_many not exercised by diff guard test")
+        }
+        async fn scan_cell(
+            &self,
+            _cell: &str,
+            _tslot: Option<u64>,
+        ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+            Ok(Vec::new())
+        }
+        async fn iter_index(
+            &self,
+            _limit: Option<usize>,
+        ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn test_server() -> Server {
+        Server::new(
+            Arc::new(NoopStorage),
+            ManifestCids {
+                registry_cid: RegistryCid::new("test-registry"),
+                schema_cid: SchemaCid::new("test-schema"),
+                bands_cid: "test-bands".into(),
+                sources_cid: "test-sources".into(),
+            },
+        )
+    }
+
+    /// Calling diff with `tslot_a == tslot_b` MUST 400 with
+    /// `InvalidArgument`, not silently return delta=0. Regression
+    /// guard for the deepscan finding that the protocol was happily
+    /// signing a tautological zero-delta receipt for callers who
+    /// repeated the same tslot.
+    #[tokio::test]
+    async fn diff_rejects_equal_tslots() {
+        let srv = test_server();
+        let req = DiffReq {
+            cell: "damO.zb000.xUti.zde78".into(),
+            band: "indices.ndvi".into(),
+            tslot_a: 5,
+            tslot_b: 5,
+        };
+        match diff(&req, &srv).await {
+            Err(StorageError::Protocol {
+                code: ErrorCode::InvalidArgument,
+                message,
+            }) => {
+                assert!(
+                    message.contains("tautologically zero"),
+                    "message must explain why same-tslot is rejected, got: {message}"
+                );
+            }
+            other => {
+                panic!("diff with tslot_a==tslot_b must reject as InvalidArgument; got {other:?}")
+            }
+        }
+    }
 }

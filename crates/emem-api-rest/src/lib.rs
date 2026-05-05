@@ -3379,7 +3379,7 @@ async fn quickstart() -> Json<JsonValue> {
                 "method": "POST",
                 "path": "/v1/recall_many",
                 "body": { "cells": ["damO.zb000.xUti.zde79","damO.zb000.xUti.zde78"], "bands": ["indices.ndvi","weather.temperature_2m","copdem30m.elevation_mean","geotessera"] },
-                "expect": "200 with { by_cell: {<cell>: {facts, receipt, bands_available?}} }. NDVI from Sentinel-2 L2A via pure-Rust COG range read; weather from MET Norway (no API key); foundation embedding from Tessera v1; elevation from Cop-DEM."
+                "expect": "200 with { by_cell: {<cell>: {facts, receipt, bands_already_attested_at_cell?}} }. NDVI from Sentinel-2 L2A via pure-Rust COG range read; weather from MET Norway (no API key); foundation embedding from Tessera v1; elevation from Cop-DEM."
             },
             {
                 "n": 5,
@@ -4172,6 +4172,21 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
 /// a `value_decoded` label. Handles objects with a top-level `facts`
 /// array as well as bare arrays of facts. Non-fact JSON is left alone.
 fn enrich_facts_with_metadata(value: &mut JsonValue) {
+    enrich_facts_inner(value, true);
+}
+
+/// Enrich facts in-place with `value_decoded` (always) and
+/// `band_metadata` (only when `with_band_metadata` is true).
+///
+/// The split exists because `band_metadata` is fixed per band — the
+/// same blob duplicated on every fact across N cells is pure bloat
+/// in regional fan-outs (deepscan 2026-05-05: ~8 KB on a 16-fact
+/// recall_polygon). recall_polygon prefers to hoist a single keyed
+/// map onto the response root and call this helper with
+/// `with_band_metadata=false`. Single-cell `/v1/recall` keeps the
+/// per-fact form because there is at most one fact per band and
+/// the duplication cost is zero.
+fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
     let facts_arr = match value {
         JsonValue::Object(map) => match map.get_mut("facts") {
             Some(JsonValue::Array(arr)) => arr,
@@ -4214,11 +4229,51 @@ fn enrich_facts_with_metadata(value: &mut JsonValue) {
                 obj.insert("value_decoded".into(), json!(label));
             }
         }
-        let meta = band_metadata_for_response(&band);
-        if !meta.is_null() {
-            obj.insert("band_metadata".into(), meta);
+        if with_band_metadata {
+            let meta = band_metadata_for_response(&band);
+            if !meta.is_null() {
+                obj.insert("band_metadata".into(), meta);
+            }
         }
     }
+}
+
+/// Collect the unique set of band keys present across the `facts[]`
+/// array of a recall response. Used to hoist a single
+/// top-level `band_metadata` map for fan-out endpoints (recall_polygon)
+/// rather than duplicating the same blob on every fact.
+fn unique_band_keys_in_facts(value: &JsonValue) -> Vec<String> {
+    let facts_arr = match value {
+        JsonValue::Object(map) => match map.get("facts") {
+            Some(JsonValue::Array(arr)) => arr,
+            _ => return Vec::new(),
+        },
+        JsonValue::Array(arr) => arr,
+        _ => return Vec::new(),
+    };
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for fact in facts_arr {
+        let Some(obj) = fact.as_object() else {
+            continue;
+        };
+        let band = obj
+            .get("band")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                obj.get("Primary")
+                    .and_then(|p| p.get("band"))
+                    .and_then(|v| v.as_str())
+            })
+            .or_else(|| {
+                obj.get("Absence")
+                    .and_then(|p| p.get("band"))
+                    .and_then(|v| v.as_str())
+            });
+        if let Some(b) = band {
+            seen.insert(b.to_string());
+        }
+    }
+    seen.into_iter().collect()
 }
 
 /// Project a Fact + receipt-context into the boring response shape.
@@ -5945,6 +6000,17 @@ struct RecallPolygonReq {
     /// up to 2x the upstream fetches of a flat scan.
     #[serde(default)]
     drill_on_water: Option<bool>,
+    /// Per-fact `band_metadata` opt-in. Default `false`: the response
+    /// carries one consolidated `band_metadata` map at the top level
+    /// (keyed by band name) so the same metadata isn't duplicated on
+    /// every fact across N cells — that duplication added ~8 KB to a
+    /// 16-fact response (deepscan finding 2026-05-05). Set `true` to
+    /// re-enable per-fact `band_metadata` for backwards compatibility
+    /// with callers that walk facts independently. The compact
+    /// `value_decoded` label for categorical bands is always emitted
+    /// per-fact regardless of this flag.
+    #[serde(default)]
+    verbose: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -6118,6 +6184,10 @@ async fn post_recall_polygon(
         max_cells
     };
     let drill = req.drill_on_water.unwrap_or(false);
+    // Per-fact `band_metadata` is opt-in — see `RecallPolygonReq::verbose`
+    // for rationale. Default false: the response carries a single
+    // top-level `band_metadata` map keyed by band name.
+    let verbose = req.verbose.unwrap_or(false);
     // Two-stage scan budget: coarse pass gets max(8, target_cells/4),
     // leaving room for the drill phase to fan out.
     let coarse_n = if drill {
@@ -6159,7 +6229,7 @@ async fn post_recall_polygon(
                 total_facts += resp.facts.len();
                 materialize_notes_all.extend(notes);
                 if let Ok(mut j) = serde_json::to_value(&resp) {
-                    enrich_facts_with_metadata(&mut j);
+                    enrich_facts_inner(&mut j, verbose);
                     if let Some(JsonValue::Array(facts)) = j.get("facts").cloned() {
                         merged_facts.extend(facts);
                     }
@@ -6260,7 +6330,7 @@ async fn post_recall_polygon(
                     total_facts += resp.facts.len();
                     materialize_notes_all.extend(notes);
                     if let Ok(mut j) = serde_json::to_value(&resp) {
-                        enrich_facts_with_metadata(&mut j);
+                        enrich_facts_inner(&mut j, verbose);
                         if let Some(JsonValue::Array(facts)) = j.get("facts").cloned() {
                             merged_facts.extend(facts);
                         }
@@ -6334,6 +6404,33 @@ async fn post_recall_polygon(
                 "materialize_notes".into(),
                 JsonValue::Array(materialize_notes_all),
             );
+        }
+    }
+    // When verbose=false (the default), hoist a single `band_metadata`
+    // map keyed by band name onto the response root. The same blob
+    // would otherwise be duplicated on every fact across N cells —
+    // ~8 KB on a 16-fact response (deepscan finding 2026-05-05).
+    // With verbose=true, the per-fact form is preserved and we skip
+    // the top-level block to avoid sending the same data twice.
+    if !verbose {
+        let bands_present = unique_band_keys_in_facts(&out["merged_facts"]);
+        if !bands_present.is_empty() {
+            let mut meta_map = serde_json::Map::with_capacity(bands_present.len());
+            for b in bands_present {
+                let m = band_metadata_for_response(&b);
+                if !m.is_null() {
+                    meta_map.insert(b, m);
+                }
+            }
+            if !meta_map.is_empty() {
+                if let Some(o) = out.as_object_mut() {
+                    o.insert("band_metadata".into(), JsonValue::Object(meta_map));
+                    o.insert(
+                        "band_metadata_layout".into(),
+                        json!("hoisted: keyed by band; pass `verbose:true` to inline per-fact"),
+                    );
+                }
+            }
         }
     }
     Ok(Json(out))
@@ -21763,6 +21860,83 @@ mod tests {
                 "ErrorCode {code:?} must serialise as snake_case `{expected}`"
             );
         }
+    }
+
+    /// Default (`verbose=false`) behaviour of the helper that drives
+    /// `/v1/recall_polygon`'s metadata enrichment: each fact must
+    /// pick up `value_decoded` for categorical bands, but NOT
+    /// `band_metadata` (that gets hoisted to a single top-level block
+    /// by the recall_polygon handler). Regression guard for the
+    /// deepscan finding that band_metadata was duplicating per-fact.
+    #[test]
+    fn enrich_facts_inner_default_drops_band_metadata_keeps_value_decoded() {
+        let mut v = json!({
+            "facts": [
+                {
+                    "band": "esa_worldcover.lc_2021",
+                    "value": 50,
+                    "tslot": 0,
+                },
+                {
+                    "band": "indices.ndvi",
+                    "value": 0.42,
+                    "tslot": 0,
+                },
+            ],
+        });
+        enrich_facts_inner(&mut v, false);
+        let facts = v.get("facts").and_then(|f| f.as_array()).unwrap();
+        for f in facts {
+            assert!(
+                f.get("band_metadata").is_none(),
+                "band_metadata must be omitted when with_band_metadata=false: {f}"
+            );
+        }
+        // Categorical bands still get value_decoded.
+        let lc = &facts[0];
+        assert!(
+            lc.get("value_decoded").is_some(),
+            "categorical bands keep value_decoded regardless of verbose: {lc}"
+        );
+    }
+
+    /// `verbose=true` re-enables the per-fact `band_metadata` block —
+    /// preserving the wire shape callers had pre-deepscan.
+    #[test]
+    fn enrich_facts_inner_verbose_emits_band_metadata() {
+        let mut v = json!({
+            "facts": [
+                {"band": "indices.ndvi", "value": 0.42, "tslot": 0},
+            ],
+        });
+        enrich_facts_inner(&mut v, true);
+        let f = &v["facts"][0];
+        assert!(
+            f.get("band_metadata").is_some(),
+            "with_band_metadata=true must restore the per-fact block: {f}"
+        );
+    }
+
+    /// `unique_band_keys_in_facts` is what the polygon handler uses
+    /// to hoist a single keyed `band_metadata` map. It must
+    /// deduplicate (a 16-fact polygon over 2 bands surfaces only 2
+    /// keys) and stay deterministic.
+    #[test]
+    fn unique_band_keys_dedupe_and_sort() {
+        let v = json!({
+            "facts": [
+                {"band": "indices.ndvi", "value": 0.4},
+                {"band": "esa_worldcover.lc_2021", "value": 50},
+                {"band": "indices.ndvi", "value": 0.5},
+                {"band": "indices.ndvi", "value": 0.6},
+            ],
+        });
+        let keys = unique_band_keys_in_facts(&v);
+        // Sorted deterministically (BTreeSet) and deduplicated.
+        assert_eq!(
+            keys,
+            vec!["esa_worldcover.lc_2021".to_string(), "indices.ndvi".into()]
+        );
     }
 
     /// Every code emitted in error-bodies must appear in the catalog

@@ -62,7 +62,7 @@ Root cause: Open-Meteo's `/v1/elevation` wraps **Cop-DEM (land-only); it returns
 
 **Fix shape:** the elevation materializer must distinguish "0 m sea level" from "no land DEM exists here":
 
-- **A.** Refuse to materialize when Open-Meteo returns exactly 0 over a cell that's likely ocean (centroid in a known marine bbox, OR neighbouring cells also return 0). Return empty `facts: []` with `bands_available` carrying a `note: "ocean cell — bathymetry not yet attested"`.
+- **A.** Refuse to materialize when Open-Meteo returns exactly 0 over a cell that's likely ocean (centroid in a known marine bbox, OR neighbouring cells also return 0). Return empty `facts: []` with `bands_already_attested_at_cell` carrying a `note: "ocean cell — bathymetry not yet attested"`.
 - **B.** Materialize a **Negative fact** (`Fact::Absence`) for that cell + band, with a `reason_cid` pointing at the response, so the agent gets a signed receipt that the absence has been confirmed (vs. silence).
 - **C.** Add a bathymetry materializer (GEBCO 2024 raster via vsicurl, no auth). This is the right long-term answer; the band would be `gebco.bathymetry_mean` and the unit `m` (negative).
 
