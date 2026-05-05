@@ -386,11 +386,16 @@
       "dims": 12,
       "tempo": "slow",
       "privacy": {"class": "public"},
-      "description": "Hansen Global Forest Change v1.11 features: tree-cover-2000 percentage, year-of-loss, year-of-gain, plus annualised loss-rate summaries.",
-      "units": "mixed (percent canopy cover, year [2001..present], hectares lost / year)",
-      "interpretation": "`year_of_loss > 0` flags pixels that lost canopy since 2001 — the canonical deforestation signal. Pair with `mangrove` or `protected` to score 'illegal deforestation in a protected area'.",
-      "pitfalls": "Hansen counts canopy cover, not necessarily *primary forest*. Plantation harvest reads as 'loss' the same as primary deforestation. Use `mangrove` and ecoregion masks to disambiguate.",
-      "references": "Hansen et al. 2013 (Science) + annual updates at https://glad.umd.edu/dataset/global-2010-tree-cover-30-m"
+      "description": "Hansen Global Forest Change v1.12 (2000-2024 annual update, released 2025-05) features: tree-cover-2000 percentage, year-of-loss, year-of-gain, plus annualised loss-rate summaries.",
+      "units": "mixed (percent canopy cover, year [2001..2024], boolean gain mask)",
+      "interpretation": "`forest_change.lossyear > 0` flags pixels that lost canopy since 2001 — the canonical deforestation signal; the value is the calendar year (2001..=2024 in v1.12). Pair with `mangrove` or `protected` to score 'illegal deforestation in a protected area'. `forest_change.treecover2000` carries the year-2000 baseline canopy cover %; `forest_change.gain` carries the dataset-frozen 2000-2012 gain mask.",
+      "pitfalls": "Hansen counts canopy cover, not necessarily *primary forest*. Plantation harvest reads as 'loss' the same as primary deforestation. Use `mangrove` and ecoregion masks to disambiguate. Coverage is bounded ±60°S to ~80°N; cells outside that window return Absence not zero.",
+      "references": "Hansen et al. 2013 (Science 342, 850-853) + annual updates at https://glad.umd.edu/dataset/global-2010-tree-cover-30-m and https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/download.html",
+      "scalar_keys": [
+        "forest_change.lossyear",
+        "forest_change.treecover2000",
+        "forest_change.gain"
+      ]
     },
     {
       "key": "mangrove",
