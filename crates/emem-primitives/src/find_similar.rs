@@ -93,7 +93,19 @@ pub struct Neighbor {
 pub struct FindSimilarResp {
     /// Ranked neighbors.
     pub neighbors: Vec<Neighbor>,
-    /// Signed receipt.
+    /// What the caller asked for (`req.k`, defaulted/clamped). Surfaced
+    /// alongside `returned_k` so an agent can detect honest truncation:
+    /// when the corpus has fewer than `requested_k` distinct cells under
+    /// the requested band, the responder returns what it has rather than
+    /// padding — `returned_k < requested_k` is the signal.
+    pub requested_k: u32,
+    /// Number of distinct-cell neighbours actually returned. Always
+    /// equals `neighbors.len()`. After per-cell deduplication this can
+    /// be smaller than `requested_k` when the corpus is sparse.
+    pub returned_k: u32,
+    /// Signed receipt. `receipt.fact_cids` carries every Fact whose
+    /// vector contributed to the final ranking — one per kept neighbour
+    /// (the highest-scoring fact per cell after dedupe).
     pub receipt: Receipt,
 }
 
@@ -186,7 +198,12 @@ pub async fn find_similar(
     }
 
     let entries = storage.iter_index(None).await?;
-    let mut scored: Vec<Neighbor> = Vec::new();
+    // Score every (cell, band, tslot) candidate, keeping the FactCid
+    // alongside so the receipt can cite the exact Fact that contributed
+    // to the ranking. Without that pairing the receipt's fact_cids would
+    // be empty, breaking the protocol's "every read carries its
+    // citations" contract.
+    let mut scored: Vec<(Neighbor, FactCid)> = Vec::new();
     // When the query came from a cell64 (not an inline vector), the
     // top-1 will trivially be the query cell with cosine=1.0. That's a
     // self-match, not a useful neighbour — agents asking "find places
@@ -210,33 +227,66 @@ pub async fn find_similar(
         if let Fact::Primary(p) = fact {
             if let Some(vec) = as_vec_f32(&p.value) {
                 let score = cosine(&query_vec, &vec);
-                scored.push(Neighbor {
-                    cell: key.cell,
-                    score,
-                });
+                scored.push((
+                    Neighbor {
+                        cell: key.cell,
+                        score,
+                    },
+                    cid,
+                ));
             }
         }
     }
 
     // total_cmp gives a defined ordering for NaN scores (NaN sorts last),
     // so a single bad cosine doesn't silently shuffle the top-k.
-    scored.retain(|n| !n.score.is_nan());
-    scored.sort_by(|a, b| b.score.total_cmp(&a.score));
-    scored.truncate(k);
+    scored.retain(|(n, _)| !n.score.is_nan());
+    let (kept, kept_cids) = dedupe_top_k_by_cell(scored, k);
 
-    let cells: Vec<String> = scored.iter().map(|n| n.cell.clone()).collect();
-    let receipt = srv.sign_receipt(
-        "emem.find_similar",
-        cells,
-        Vec::<FactCid>::new(),
-        true,
-        started,
-        None,
-    );
+    let cells: Vec<String> = kept.iter().map(|n| n.cell.clone()).collect();
+    let returned_k = kept.len() as u32;
+    let receipt = srv.sign_receipt("emem.find_similar", cells, kept_cids, true, started, None);
     Ok(FindSimilarResp {
-        neighbors: scored,
+        neighbors: kept,
+        requested_k: k as u32,
+        returned_k,
         receipt,
     })
+}
+
+/// Group scored candidates by `cell64`, keep the highest-scoring entry
+/// per cell, sort the survivors by score descending, then truncate to
+/// `k`. Returns the kept neighbours alongside the FactCids that backed
+/// them so the receipt can cite each contributing fact.
+///
+/// The dedupe is the core of the P0 fix: `iter_index` returns one entry
+/// per `(cell, band, tslot)` triple, so a cell with several historical
+/// vintages would otherwise occupy multiple slots in the top-k. By
+/// definition `find_similar` is a per-place ranker — per-band-vintage
+/// detail belongs to `/v1/recall`. If the agent has fewer distinct
+/// cells than they asked for, surfacing `returned_k < requested_k` is
+/// the honest signal; we never pad with duplicates.
+fn dedupe_top_k_by_cell(
+    mut scored: Vec<(Neighbor, FactCid)>,
+    k: usize,
+) -> (Vec<Neighbor>, Vec<FactCid>) {
+    // Sort by score descending so the first time we see each cell we
+    // see its best score. total_cmp keeps the NaN-safe ordering applied
+    // upstream.
+    scored.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut kept: Vec<Neighbor> = Vec::with_capacity(k.min(scored.len()));
+    let mut kept_cids: Vec<FactCid> = Vec::with_capacity(k.min(scored.len()));
+    for (neighbor, cid) in scored {
+        if kept.len() >= k {
+            break;
+        }
+        if seen.insert(neighbor.cell.clone()) {
+            kept.push(neighbor);
+            kept_cids.push(cid);
+        }
+    }
+    (kept, kept_cids)
 }
 
 fn parse_inline_vec(s: &str) -> Result<Vec<f32>, StorageError> {
@@ -359,7 +409,10 @@ async fn find_similar_binary(
     // 4× k is the same window TerraBit's writeup recommends — large
     // enough that the cosine re-rank can recover most of the recall
     // loss from sign-bit quantization, small enough to keep the
-    // re-rank cost dominated by the popcount scan.
+    // re-rank cost dominated by the popcount scan. We oversample the
+    // raw scan by an extra factor so per-cell dedupe (multiple tslots
+    // per cell collapse to one) doesn't shrink the survivor pool below
+    // `triage_k` distinct cells before the cosine rerank phase.
     let triage_k = match req.mode {
         FindSimilarMode::HammingThenRerank => (k * 4).max(k),
         _ => k,
@@ -369,7 +422,7 @@ async fn find_similar_binary(
     } else {
         Some(req.key.as_str())
     };
-    let mut triage: Vec<(String, u32)> = Vec::new();
+    let mut triage: Vec<(String, u32, FactCid)> = Vec::new();
     for (key, cid) in entries {
         if key.band != bin_band {
             continue;
@@ -384,21 +437,29 @@ async fn find_similar_binary(
         if let Fact::Primary(p) = fact {
             if let Some(bytes) = as_bin128(&p.value) {
                 let dist = hamming_distance(&query_bytes, &bytes);
-                triage.push((key.cell.clone(), dist));
+                triage.push((key.cell.clone(), dist, cid));
             }
         }
     }
-    triage.sort_by_key(|(_, d)| *d);
-    triage.truncate(triage_k);
+    // Sort by distance ascending, then dedupe by cell64 so each cell's
+    // best (closest) Hamming candidate survives. This is the per-cell
+    // ranker promise; per-vintage detail belongs to /v1/recall.
+    triage.sort_by_key(|(_, d, _)| *d);
+    let triage = dedupe_triage_by_cell(triage, triage_k);
 
-    let neighbors: Vec<Neighbor> = match req.mode {
+    let (neighbors, fact_cids): (Vec<Neighbor>, Vec<FactCid>) = match req.mode {
         FindSimilarMode::Hamming => triage
             .into_iter()
-            .map(|(cell, d)| Neighbor {
-                cell,
-                score: hamming_score(d),
+            .map(|(cell, d, cid)| {
+                (
+                    Neighbor {
+                        cell,
+                        score: hamming_score(d),
+                    },
+                    cid,
+                )
             })
-            .collect(),
+            .unzip(),
         FindSimilarMode::HammingThenRerank => {
             // Pull the underlying cosine vector for each shortlisted
             // cell and re-score. A cell that surfaced under Hamming
@@ -411,8 +472,8 @@ async fn find_similar_binary(
             } else {
                 load_cell_vec(storage, &req.key, cosine_band).await?
             };
-            let mut reranked: Vec<Neighbor> = Vec::with_capacity(triage.len());
-            for (cell, d) in triage {
+            let mut reranked: Vec<(Neighbor, FactCid)> = Vec::with_capacity(triage.len());
+            for (cell, d, cid) in triage {
                 let vec = load_cell_vec(storage, &cell, cosine_band)
                     .await
                     .unwrap_or_default();
@@ -421,26 +482,48 @@ async fn find_similar_binary(
                 } else {
                     cosine(&query_vec, &vec)
                 };
-                reranked.push(Neighbor { cell, score });
+                reranked.push((Neighbor { cell, score }, cid));
             }
-            reranked.retain(|n| !n.score.is_nan());
-            reranked.sort_by(|a, b| b.score.total_cmp(&a.score));
-            reranked.truncate(k);
-            reranked
+            reranked.retain(|(n, _)| !n.score.is_nan());
+            // The triage list is already cell-unique, so the rerank
+            // dedupe is a no-op for shape — but routing through the
+            // shared helper keeps the sort + truncate-to-k contract in
+            // one place and survives a future change to triage.
+            let (kept, kept_cids) = dedupe_top_k_by_cell(reranked, k);
+            (kept, kept_cids)
         }
         FindSimilarMode::Cosine => unreachable!("cosine handled above"),
     };
 
     let cells: Vec<String> = neighbors.iter().map(|n| n.cell.clone()).collect();
-    let receipt = srv.sign_receipt(
-        "emem.find_similar",
-        cells,
-        Vec::<FactCid>::new(),
-        true,
-        started,
-        None,
-    );
-    Ok(FindSimilarResp { neighbors, receipt })
+    let returned_k = neighbors.len() as u32;
+    let receipt = srv.sign_receipt("emem.find_similar", cells, fact_cids, true, started, None);
+    Ok(FindSimilarResp {
+        neighbors,
+        requested_k: k as u32,
+        returned_k,
+        receipt,
+    })
+}
+
+/// Hamming-path dedupe: triage is already sorted by distance ascending,
+/// so the first time we see a cell is its best Hamming candidate. Keep
+/// up to `triage_k` distinct cells.
+fn dedupe_triage_by_cell(
+    triage: Vec<(String, u32, FactCid)>,
+    triage_k: usize,
+) -> Vec<(String, u32, FactCid)> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut kept: Vec<(String, u32, FactCid)> = Vec::with_capacity(triage_k.min(triage.len()));
+    for entry in triage {
+        if kept.len() >= triage_k {
+            break;
+        }
+        if seen.insert(entry.0.clone()) {
+            kept.push(entry);
+        }
+    }
+    kept
 }
 
 /// Coerce a CBOR value to a 16-byte binary embedding. The
@@ -521,4 +604,360 @@ async fn load_cell_bin128(
              turboquant_geotessera_bin128_v1@1 derivation.",
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the P0 fix: top-k MUST contain at most one entry per
+    //! cell64 (per-place ranker contract), and the receipt MUST cite
+    //! every fact whose vector contributed to the ranking. We avoid the
+    //! full `MaterializingStorage` path here so the test stays
+    //! dependency-free and fast — a hand-rolled in-memory `Storage`
+    //! impl gives us complete control over the corpus shape (multiple
+    //! tslots per cell, single-cell corpora) the dedupe logic needs to
+    //! be driven against.
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::time::SystemTime;
+    use std::time::UNIX_EPOCH;
+
+    use async_trait::async_trait;
+    use ciborium::Value as CborValue;
+
+    use emem_cache::CanonicalKey;
+    use emem_core::AttesterKey;
+    use emem_fact::{Derivation, Fact, FactCid, PrimaryFact, RegistryCid, SchemaCid, Source};
+    use emem_storage::server::{ManifestCids, ResponderIdentity};
+    use emem_storage::{Server, Storage, StorageError};
+
+    /// Minimal Storage impl backed by an in-memory map. Only the
+    /// surface `find_similar` actually uses (`iter_index`, `scan_cell`,
+    /// `get_facts_many`) is wired; everything else returns `Internal`
+    /// so a regression that starts to depend on, say, materialize_many
+    /// surfaces loudly instead of silently passing.
+    struct MockStorage {
+        // CanonicalKey -> (FactCid, Fact)
+        entries: Mutex<Vec<(CanonicalKey, FactCid, Fact)>>,
+        cid_to_fact: Mutex<HashMap<String, Fact>>,
+    }
+
+    impl MockStorage {
+        fn new() -> Self {
+            Self {
+                entries: Mutex::new(Vec::new()),
+                cid_to_fact: Mutex::new(HashMap::new()),
+            }
+        }
+
+        /// Insert a fp32 vector fact at (cell, band, tslot). Each
+        /// invocation generates a fresh FactCid so duplicate (cell,
+        /// band) pairs at different tslots stay distinct in the index.
+        fn insert_vector(&self, cell: &str, band: &str, tslot: u64, vec: Vec<f32>) -> FactCid {
+            let cid_str = format!("test-cid-{}", next_id());
+            let cid = FactCid::new(&cid_str);
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell.into(),
+                band: band.into(),
+                tslot,
+                value: CborValue::Array(
+                    vec.into_iter()
+                        .map(|v| CborValue::Float(v as f64))
+                        .collect(),
+                ),
+                unit: None,
+                confidence: 1.0,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "test".into(),
+                    id: cid_str.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: None,
+                    url: None,
+                }],
+                derivation: Derivation {
+                    fn_key: "test@1".into(),
+                    args: None,
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new("test-schema"),
+                signer: AttesterKey([0u8; 32]),
+                signed_at: "2026-05-05T00:00:00Z".into(),
+            });
+            self.entries.lock().unwrap().push((
+                CanonicalKey {
+                    cell: cell.into(),
+                    band: band.into(),
+                    tslot,
+                },
+                cid.clone(),
+                fact.clone(),
+            ));
+            self.cid_to_fact.lock().unwrap().insert(cid_str, fact);
+            cid
+        }
+    }
+
+    #[async_trait]
+    impl Storage for MockStorage {
+        async fn lookup_canonical_many(
+            &self,
+            _keys: &[CanonicalKey],
+        ) -> Result<Vec<Option<FactCid>>, StorageError> {
+            unimplemented!("lookup_canonical_many not used by find_similar")
+        }
+
+        async fn get_facts_many(
+            &self,
+            cids: &[FactCid],
+        ) -> Result<Vec<Option<Fact>>, StorageError> {
+            let map = self.cid_to_fact.lock().unwrap();
+            Ok(cids.iter().map(|c| map.get(c.as_str()).cloned()).collect())
+        }
+
+        async fn put_attestation(
+            &self,
+            _att: &emem_fact::Attestation,
+        ) -> Result<Vec<FactCid>, StorageError> {
+            unimplemented!("put_attestation not used by find_similar")
+        }
+
+        async fn materialize_many(
+            &self,
+            _keys: &[CanonicalKey],
+        ) -> Result<Vec<FactCid>, StorageError> {
+            unimplemented!("materialize_many not used by find_similar")
+        }
+
+        async fn scan_cell(
+            &self,
+            cell: &str,
+            tslot: Option<u64>,
+        ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+            let entries = self.entries.lock().unwrap();
+            Ok(entries
+                .iter()
+                .filter(|(k, _, _)| k.cell == cell && tslot.map(|t| k.tslot == t).unwrap_or(true))
+                .map(|(k, c, _)| (k.clone(), c.clone()))
+                .collect())
+        }
+
+        async fn iter_index(
+            &self,
+            limit: Option<usize>,
+        ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+            let entries = self.entries.lock().unwrap();
+            let mut out: Vec<_> = entries
+                .iter()
+                .map(|(k, c, _)| (k.clone(), c.clone()))
+                .collect();
+            if let Some(n) = limit {
+                out.truncate(n);
+            }
+            Ok(out)
+        }
+    }
+
+    fn next_id() -> u64 {
+        // Process-local monotonically-increasing id, unique across
+        // tests in this module. Avoids depending on `uuid` for a
+        // purely-internal test handle.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(1);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64)
+            .unwrap_or(0);
+        COUNTER.fetch_add(1, Ordering::Relaxed) ^ nanos
+    }
+
+    fn test_server(storage: Arc<MockStorage>) -> Server {
+        Server {
+            storage,
+            identity: ResponderIdentity::fresh(),
+            manifests: ManifestCids {
+                registry_cid: RegistryCid::new("test-registry"),
+                schema_cid: SchemaCid::new("test-schema"),
+                bands_cid: "test-bands".into(),
+                sources_cid: "test-sources".into(),
+            },
+            started_at_unix_s: 0,
+        }
+    }
+
+    /// P0 acceptance (a) + (b): with multiple facts at the same
+    /// (cell, band) but different tslots, the top-k MUST contain
+    /// each cell64 at most once, and `receipt.fact_cids` MUST be
+    /// non-empty when the result list is non-empty.
+    #[tokio::test]
+    async fn dedupes_by_cell_and_populates_fact_cids() {
+        let storage = Arc::new(MockStorage::new());
+        // Three "places" — query cell + 2 candidate cells. Each
+        // candidate gets two vintages (tslot 0 and tslot 1) of nearly
+        // identical vectors to model a cell that has multiple historical
+        // attestations under the same band.
+        storage.insert_vector("cell-query", "geotessera", 0, vec![1.0, 0.0, 0.0, 0.0]);
+        storage.insert_vector("cell-a", "geotessera", 0, vec![0.99, 0.01, 0.0, 0.0]);
+        storage.insert_vector("cell-a", "geotessera", 1, vec![0.98, 0.02, 0.0, 0.0]);
+        storage.insert_vector("cell-b", "geotessera", 0, vec![0.5, 0.5, 0.0, 0.0]);
+        storage.insert_vector("cell-b", "geotessera", 1, vec![0.49, 0.51, 0.0, 0.0]);
+        storage.insert_vector("cell-b", "geotessera", 2, vec![0.48, 0.52, 0.0, 0.0]);
+
+        let srv = test_server(storage);
+        let req = FindSimilarReq {
+            key: "cell-query".into(),
+            k: Some(8),
+            band: Some("geotessera".into()),
+            filter: None,
+            mode: FindSimilarMode::Cosine,
+        };
+        let resp = find_similar(&req, &srv).await.expect("find_similar ok");
+
+        // (a) no duplicate cell64 in the neighbours list.
+        let mut cells: Vec<&str> = resp.neighbors.iter().map(|n| n.cell.as_str()).collect();
+        cells.sort();
+        let unique_count = {
+            let mut c = cells.clone();
+            c.dedup();
+            c.len()
+        };
+        assert_eq!(
+            cells.len(),
+            unique_count,
+            "find_similar must return at most one entry per cell64; got {cells:?}"
+        );
+
+        // (b) receipt.fact_cids non-empty when neighbours non-empty.
+        assert!(!resp.neighbors.is_empty(), "expected ≥1 neighbour");
+        assert!(
+            !resp.receipt.fact_cids.is_empty(),
+            "receipt.fact_cids must cite every Fact whose vector entered the ranking; got empty"
+        );
+        // One cited fact per kept neighbour (the highest-scoring vintage
+        // per cell). This is the protocol's "every read carries its
+        // citations" contract for find_similar.
+        assert_eq!(
+            resp.receipt.fact_cids.len(),
+            resp.neighbors.len(),
+            "fact_cids length must match neighbours length (one cite per kept fact)"
+        );
+        // The cell list embedded in the signed receipt must mirror the
+        // deduped neighbours order — that's what got signed.
+        assert_eq!(
+            resp.receipt.cells,
+            resp.neighbors
+                .iter()
+                .map(|n| n.cell.clone())
+                .collect::<Vec<_>>()
+        );
+
+        // requested_k / returned_k surface honest accounting.
+        assert_eq!(resp.requested_k, 8);
+        assert_eq!(resp.returned_k, resp.neighbors.len() as u32);
+    }
+
+    /// P0 acceptance (c): when fewer unique cells exist than k, the
+    /// response MUST surface `returned_k < requested_k` so the agent
+    /// can detect honest truncation. We do NOT pad with duplicates.
+    #[tokio::test]
+    async fn fewer_cells_than_k_surfaces_returned_k_less_than_requested() {
+        let storage = Arc::new(MockStorage::new());
+        // 1 query + 2 distinct candidate cells. Asking for k=20.
+        storage.insert_vector("q", "geotessera", 0, vec![1.0, 0.0]);
+        storage.insert_vector("a", "geotessera", 0, vec![0.9, 0.1]);
+        storage.insert_vector("a", "geotessera", 1, vec![0.85, 0.15]);
+        storage.insert_vector("b", "geotessera", 0, vec![0.1, 0.9]);
+
+        let srv = test_server(storage);
+        let req = FindSimilarReq {
+            key: "q".into(),
+            k: Some(20),
+            band: Some("geotessera".into()),
+            filter: None,
+            mode: FindSimilarMode::Cosine,
+        };
+        let resp = find_similar(&req, &srv).await.expect("find_similar ok");
+
+        assert_eq!(resp.requested_k, 20);
+        assert_eq!(resp.returned_k, 2, "only 2 distinct non-self cells exist");
+        assert!(
+            resp.returned_k < resp.requested_k,
+            "must surface returned_k<requested_k for honest truncation"
+        );
+        assert_eq!(resp.neighbors.len(), 2);
+        assert_eq!(resp.receipt.fact_cids.len(), 2);
+    }
+
+    /// A k=1 request still gets dedupe right (no panic, no double-up).
+    #[tokio::test]
+    async fn k_one_returns_single_unique_cell() {
+        let storage = Arc::new(MockStorage::new());
+        storage.insert_vector("q", "geotessera", 0, vec![1.0, 0.0]);
+        storage.insert_vector("a", "geotessera", 0, vec![0.99, 0.01]);
+        storage.insert_vector("a", "geotessera", 1, vec![0.98, 0.02]);
+        storage.insert_vector("a", "geotessera", 2, vec![0.97, 0.03]);
+        storage.insert_vector("b", "geotessera", 0, vec![0.5, 0.5]);
+
+        let srv = test_server(storage);
+        let req = FindSimilarReq {
+            key: "q".into(),
+            k: Some(1),
+            band: Some("geotessera".into()),
+            filter: None,
+            mode: FindSimilarMode::Cosine,
+        };
+        let resp = find_similar(&req, &srv).await.expect("find_similar ok");
+
+        assert_eq!(resp.returned_k, 1);
+        assert_eq!(resp.neighbors.len(), 1);
+        assert_eq!(resp.receipt.fact_cids.len(), 1);
+        // a is closer to q than b is, so it should win.
+        assert_eq!(resp.neighbors[0].cell, "a");
+    }
+
+    /// Direct unit on the dedupe helper — guards against a future
+    /// refactor that drops the dedupe step or changes the
+    /// "highest-score-per-cell wins" tie-break.
+    #[test]
+    fn dedupe_helper_keeps_best_score_per_cell() {
+        let cid_a1 = FactCid::new("a-1");
+        let cid_a2 = FactCid::new("a-2");
+        let cid_b = FactCid::new("b");
+        let scored = vec![
+            (
+                Neighbor {
+                    cell: "a".into(),
+                    score: 0.5,
+                },
+                cid_a1.clone(),
+            ),
+            (
+                Neighbor {
+                    cell: "a".into(),
+                    score: 0.9,
+                },
+                cid_a2.clone(),
+            ),
+            (
+                Neighbor {
+                    cell: "b".into(),
+                    score: 0.7,
+                },
+                cid_b.clone(),
+            ),
+        ];
+        let (kept, kept_cids) = dedupe_top_k_by_cell(scored, 5);
+        assert_eq!(kept.len(), 2);
+        // Sorted by score descending: a (0.9) then b (0.7).
+        assert_eq!(kept[0].cell, "a");
+        assert_eq!(kept[0].score, 0.9);
+        assert_eq!(
+            kept_cids[0], cid_a2,
+            "must cite the higher-scoring vintage of cell a"
+        );
+        assert_eq!(kept[1].cell, "b");
+        assert_eq!(kept_cids[1], cid_b);
+    }
 }
