@@ -121,8 +121,8 @@ const SCHEMA_COMPARE_BANDS: &str = r#"{"type":"object","required":["cell","a","b
 "cell":{"type":"string","description":"cell64 (`cell64` accepted as alias)"},
 "a":{"type":"string","description":"band A key (e.g. 'copdem30m.elevation_mean')"},
 "b":{"type":"string","description":"band B key (e.g. 'gmrt.topobathy_mean')"},
-"tslot_a":{"type":"integer","minimum":0,"default":0,"description":"tslot for band A — default 0 (the static slot)"},
-"tslot_b":{"type":"integer","minimum":0,"default":0,"description":"tslot for band B — default 0"},
+"tslot_a":{"type":"integer","minimum":0,"description":"tslot for band A. Omit to auto-pick the latest attested tslot for this band at this cell — required for medium/fast-tempo bands (NDVI 30-day, MODIS 8-day, weather, CAMS) which have NO fact at tslot=0. The response carries `tslot_resolution.per_band.tslot_used_a` so you see which slot was chosen."},
+"tslot_b":{"type":"integer","minimum":0,"description":"tslot for band B. Same auto-pick semantics as `tslot_a` when omitted."},
 "predicate":{"type":"object","description":"Optional consistency predicate. When set, the response carries a signed `verdict` (true|false|incomparable) over the comparison.","properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}},"required":["kind","threshold"]}
 }}"#;
 
@@ -312,7 +312,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_compare_bands",
         title: "Compare two bands at one cell",
         description: "Compare two bands at the same cell. Scalar pair → metric=delta, value=b-a. Vector pair (equal dim) → metric=cosine + per-dim delta. Returns a signed receipt naming both source fact CIDs.",
-        when_to_use: "Call when the user wants cross-source consistency at one place ('does Cop-DEM agree with GMRT here?'), cross-vintage drift ('how did the embedding change between 2017 and 2024 at this cell?'), or any band-vs-band comparison within a single cell. `cell` + `a` + `b` are required; `tslot_a`/`tslot_b` default to 0 (the static slot used by Cop-DEM, GMRT, ESA WorldCover, etc.).",
+        when_to_use: "Call when the user wants cross-source consistency at one place ('does Cop-DEM agree with GMRT here?'), cross-vintage drift ('how did the embedding change between 2017 and 2024 at this cell?'), or any band-vs-band comparison within a single cell. `cell` + `a` + `b` are required. `tslot_a`/`tslot_b` are OPTIONAL: omit them to let the responder auto-pick each band's latest attested tslot — required for medium/fast-tempo bands (NDVI 30-day, MODIS 8-day, weather, CAMS) where there is no fact at tslot=0. The response carries `tslot_resolution` (echoes what was chosen and why) and `bands_with_no_history` (lists any band the cell has no attested fact for).",
         input_schema: SCHEMA_COMPARE_BANDS,
         example_args: r#"{"cell":"damO.zb000.wapu.yAxe","a":"copdem30m.elevation_mean","b":"gmrt.topobathy_mean"}"#,
         level: "L0", category: ToolCategory::Read,
