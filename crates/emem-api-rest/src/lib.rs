@@ -2373,6 +2373,8 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
             &["Sentinel-1A/C C-band SAR (RTC γ0 VV in dB) via Microsoft Planetary Computer"]),
         ("surface_water.recurrence", "static", "water",
             &["JRC Global Surface Water v1.4 (Pekel et al. 2016, Landsat-derived 1984-2021 inter-annual recurrence climatology)"]),
+        ("koppen", "static", "climate",
+            &["Beck Köppen-Geiger v1 1-km present-day classification (Beck et al. 2018, Sci Data 5:180214; CC-BY-4.0)"]),
         ("weather.temperature_2m", "ultra_fast", "climate",
             &["MET Norway api.met.no — sat-fed via ECMWF + EUMETSAT geostationary fleet"]),
         ("weather.cloud_cover", "ultra_fast", "climate",
@@ -12950,6 +12952,106 @@ async fn materialize_esa_worldcover_2021(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+// ---------------- Beck Köppen-Geiger 1-km materializer ----------------
+//
+// Beck et al. 2018 (Sci Data 5, 180214; CC-BY-4.0) publish a 43200×21600
+// uint8 GeoTIFF of the global Köppen-Geiger climate classification at
+// 0.0083° (~1 km at the equator) for the present-day panel (1980-2016).
+// Every land pixel is one of 30 documented classes (Af..EF); a pixel
+// value of 0 means "outside the land + coastal mask" (open ocean, polar
+// interior). The raster is single-band, PackBits-compressed, EPSG:4326.
+//
+// The artefact is shipped inside `Beck_KG_V1.zip` on Figshare. The
+// fetcher in `emem_fetch::koppen` does the ZIP-aware partial fetch:
+// range-read the central directory, locate the present-day 1-km TIFF
+// entry, range-read its deflate stream, inflate, and cache the
+// resulting ~22 MB TIFF to `<EMEM_DATA>/cache/koppen/` so subsequent
+// recalls bypass the network. One-time bootstrap; static thereafter.
+//
+// The signed `Fact` carries:
+//   - `value`  → the canonical class string (e.g. "Cfa") in CBOR Text
+//   - `unit`   → "koppen_class"
+//   - `derivation` → ["beck_koppen_v1_present_pixel@1", lat, lng]
+//   - `sources[0]` → the figshare ndownloader URL + member name
+//
+// No fallback class. If the pixel is 0 (oceanic) the materializer signs
+// an `Absence` with a structured `reason_cid`. If the upstream fetch
+// fails, we surface a transport error — the agent gets an honest
+// "couldn't reach Beck dataset" rather than a guessed climate.
+async fn materialize_koppen(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+    let upstream_url = emem_fetch::koppen::upstream_url();
+    let upstream_member = emem_fetch::koppen::upstream_member_name();
+
+    match emem_fetch::koppen::fetch_koppen_class_for_cell(&cli, lat, lng).await {
+        Ok(class) => {
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: "koppen".into(),
+                tslot: 0,
+                value: ciborium::Value::Text(class.label.to_string()),
+                unit: Some("koppen_class".into()),
+                confidence: 0.85,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "beck.koppen.v1.present".into(),
+                    id: format!("{upstream_url}#{upstream_member}"),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(upstream_url.to_string()),
+                }],
+                derivation: Derivation {
+                    fn_key: "beck_koppen_v1_present_pixel@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((class.code as i64).into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(emem_fetch::koppen::KoppenError::NoData { lat, lng }) => {
+            let reason = format!(
+                "koppen_no_data: Beck Köppen-Geiger v1 present-day pixel at ({lat:.6},{lng:.6}) \
+                 returned 0 (the dataset's documented sentinel for cells outside the land + \
+                 coastal mask — open ocean, polar interior, etc.). \
+                 Source: {upstream_url}#{upstream_member} (Beck et al. 2018, doi:10.1038/sdata.2018.214)."
+            );
+            let reason_cid = reason_cid_for(&reason);
+            let fact = Fact::Absence(NegativeFact {
+                cell: cell64.to_string(),
+                band: "koppen".into(),
+                tslot: 0,
+                reason_cid,
+                confidence: 1.0,
+                sources: vec![Source {
+                    scheme: "beck.koppen.v1.present".into(),
+                    id: format!("{upstream_url}#{upstream_member}"),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(upstream_url.to_string()),
+                }],
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(e) => Err(format!("beck koppen fetch failed: {e}")),
+    }
+}
+
 // ---------------- SoilGrids 2.0 (ISRIC) materializer ----------------
 //
 // ISRIC publishes static, global, 250 m soil-property maps via a public
@@ -13797,6 +13899,20 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: Some(days_from_civil(2022, 1, 1) * 86_400 - 1),
             wire_path: "JRC Global Surface Water v1.4 (Landsat 1984-2021)",
         },
+        // Beck Köppen-Geiger v1 (Sci Data 2018, CC-BY-4.0). Static
+        // climatology — one signed class string per cell forever. The
+        // observation window backing the present-day panel is the
+        // 1980-2016 monthly climatology Beck et al. used to retrain the
+        // Köppen rules; surface that window so an agent citing the
+        // fact can pin it to the right epoch.
+        "koppen" => MaterializerMeta {
+            tempo: Tempo::Static,
+            kind: BandKind::Static,
+            history_from_unix: Some(days_from_civil(1980, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2017, 1, 1) * 86_400 - 1),
+            wire_path:
+                "Beck Köppen-Geiger v1 1-km present-day (figshare ZIP, range-fetched + cached)",
+        },
         // Met.no's locationforecast is a nowcast + 9-day forecast — no
         // historical record. Backfill is honest about this.
         b if b.starts_with("weather.") => MaterializerMeta {
@@ -13969,6 +14085,7 @@ fn all_materializable_bands() -> Vec<String> {
         "copdem30m.elevation_mean".into(),
         "gmrt.topobathy_mean".into(),
         "surface_water.recurrence".into(),
+        "koppen".into(),
         // Per-tslot historical archives.
         "modis.ndvi_mean".into(),
         // Sentinel-2 reflectance bands.
@@ -14129,6 +14246,8 @@ async fn materialize_band_at(
         }
         "gmrt.topobathy_mean" => return materialize_gmrt_topobathy(cell64, s).await,
         "surface_water.recurrence" => return materialize_jrc_gsw_recurrence(cell64, s).await,
+        // Beck Köppen-Geiger 1-km — static, one signed class per cell.
+        "koppen" => return materialize_koppen(cell64, s).await,
         "geotessera" => {
             // Bare `geotessera` resolves to the Tessera vintage that
             // contains target_unix; agents asking for backfill across
@@ -14821,6 +14940,38 @@ async fn try_materialize_bands(
                 }
             },
             "surface_water.recurrence" => match materialize_jrc_gsw_recurrence(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary_or_absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
+            // Beck Köppen-Geiger 1-km present-day — static climate-zone
+            // class. Returns Primary (with the canonical class string)
+            // for land cells, Absence for oceanic / out-of-mask cells.
+            "koppen" => match materialize_koppen(cell64, s).await {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
