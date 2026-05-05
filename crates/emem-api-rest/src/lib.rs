@@ -1000,6 +1000,13 @@ fn client_ip(h: &HeaderMap) -> Option<String> {
 struct ErrorBody {
     code: ErrorCode,
     message: String,
+    /// Optional structured rejection payload — only set on errors that
+    /// need to surface machine-readable recovery hints (e.g. the
+    /// land-locked-profile rejection in `wave_solve` ships the failed
+    /// `depth_profile_m[]` plus a `next_steps[]` array). Skipped from
+    /// the wire when `None` so the standard error shape is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    details: Option<serde_json::Value>,
 }
 
 pub(crate) struct ApiError(StatusCode, ErrorBody);
@@ -1044,6 +1051,7 @@ impl From<StorageError> for ApiError {
             ErrorBody {
                 code,
                 message: e.to_string(),
+                details: None,
             },
         )
     }
@@ -2980,6 +2988,7 @@ async fn algorithm_detail(
                         "no algorithm with key {key:?}; see /v1/algorithms — known keys: {}",
                         known.join(", "),
                     ),
+                    details: None,
                 },
             ))
         }
@@ -3686,6 +3695,7 @@ impl LatLngQ {
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: "missing `lon` (or `lng`) query parameter".into(),
+                    details: None,
                 },
             )
         })
@@ -3704,6 +3714,7 @@ impl LatLngQ {
                     ErrorBody {
                         code: ErrorCode::InvalidArgument,
                         message: format!("n_cells must be in 1..=64 (got {n}). For larger fan-outs use POST /v1/recall_polygon."),
+                        details: None,
                     },
                 ));
             }
@@ -3744,6 +3755,7 @@ impl LatLngQ {
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: "supply (lat, lon|lng) or place".into(),
+                    details: None,
                 },
             )
         })?;
@@ -3763,6 +3775,7 @@ impl LatLngQ {
                     ErrorBody {
                         code: ErrorCode::NoGeocoderMatch,
                         message: format!("locate succeeded for '{p}' but no lat_input"),
+                        details: None,
                     },
                 )
             })?;
@@ -3775,6 +3788,7 @@ impl LatLngQ {
                     ErrorBody {
                         code: ErrorCode::NoGeocoderMatch,
                         message: format!("locate succeeded for '{p}' but no lng_input"),
+                        details: None,
                     },
                 )
             })?;
@@ -4311,6 +4325,7 @@ async fn boring_recall_at(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "lat/lon must be finite numbers".into(),
+                details: None,
             },
         ));
     }
@@ -4320,6 +4335,7 @@ async fn boring_recall_at(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "lat must be in [-90,90], lon in [-180,180]".into(),
+                details: None,
             },
         ));
     }
@@ -4552,6 +4568,7 @@ async fn get_places_scene_overlay_svg(
                         "scene_overlay: place '{}' resolved to a point (no polygon_bbox); use /v1/cells/<cell>/scene.png for point queries",
                         q.place
                     ),
+                    details: None,
                 },
             ));
         }
@@ -4563,6 +4580,7 @@ async fn get_places_scene_overlay_svg(
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: "scene_overlay: bbox produced no sample cells".into(),
+                details: None,
             },
         ));
     }
@@ -5778,6 +5796,7 @@ async fn post_recall_many(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "recall_many: `cells` cannot be empty".into(),
+                details: None,
             },
         ));
     }
@@ -5790,6 +5809,7 @@ async fn post_recall_many(
                     "recall_many: max 256 cells per call (got {}); split client-side",
                     req.cells.len()
                 ),
+                details: None,
             },
         ));
     }
@@ -5993,6 +6013,7 @@ async fn post_recall_polygon(
                 return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
                         code: ErrorCode::Internal,
                         message: format!("recall_polygon: place '{p}' resolved without bbox or centre — try passing polygon_bbox explicitly"),
+                        details: None,
                     }));
             }
         }
@@ -6025,6 +6046,7 @@ async fn post_recall_polygon(
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
             code: ErrorCode::InvalidArgument,
             message: format!("recall_polygon: degenerate bbox {bbox:?}; need min_lat ≤ max_lat and min_lng ≤ max_lng with finite values"),
+            details: None,
         }));
     }
 
@@ -6042,6 +6064,7 @@ async fn post_recall_polygon(
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
                     message: format!("recall_polygon: max_cells must be in 1..=1024 (got {n})"),
+                    details: None,
                 },
             ));
         }
@@ -6063,6 +6086,7 @@ async fn post_recall_polygon(
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
                     message: format!("recall_polygon: cells_per_sqkm must be > 0, got {d}"),
+                    details: None,
                 },
             ));
         }
@@ -6085,6 +6109,7 @@ async fn post_recall_polygon(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "recall_polygon: bbox sampled to zero cells".into(),
+                details: None,
             },
         ));
     }
@@ -6337,6 +6362,7 @@ async fn post_query_region(
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
                     message: "bbox values must be finite (got NaN/Inf)".into(),
+                    details: None,
                 },
             ));
         }
@@ -6348,6 +6374,7 @@ async fn post_query_region(
                     message: format!(
                         "bbox must be [west, south, east, north] with west<=east and south<=north; got {bb:?}"
                     ),
+                    details: None,
                 },
             ));
         }
@@ -6359,6 +6386,7 @@ async fn post_query_region(
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
                     message: "bbox sampled to zero cells; widen the bbox or check axis order ([west, south, east, north])".into(),
+                    details: None,
                 },
             ));
         }
@@ -6369,6 +6397,7 @@ async fn post_query_region(
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: "POST /v1/query_region requires `geometry` (cell64 or `cells:c1,c2,...`) OR `bbox` ([west, south, east, north] in WGS-84 degrees)".into(),
+                details: None,
             },
         ));
     };
@@ -6792,6 +6821,7 @@ async fn post_attest_cbor(
             ErrorBody {
                 code: ErrorCode::CanonicalEncodingDivergence,
                 message: format!("cbor decode: {e}"),
+                details: None,
             },
         )
     })?;
@@ -6832,6 +6862,7 @@ async fn post_verify_receipt(
                     ErrorBody {
                         code: ErrorCode::Internal,
                         message: format!("pubkey_b32 decode: {e}"),
+                        details: None,
                     },
                 )
             })?;
@@ -6841,6 +6872,7 @@ async fn post_verify_receipt(
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: format!("pubkey_b32 must decode to 32 bytes, got {}", raw.len()),
+                    details: None,
                 },
             ));
         }
@@ -6875,6 +6907,7 @@ async fn post_verify_receipt(
             ErrorBody {
                 code: ErrorCode::BadSignature,
                 message: format!("bad pubkey: {e}"),
+                details: None,
             },
         )
     })?;
@@ -6919,6 +6952,7 @@ async fn get_fact(
             ErrorBody {
                 code: ErrorCode::CidNotFound,
                 message: format!("no fact for cid={cid}"),
+                details: None,
             },
         )
         .into_response();
@@ -6976,6 +7010,7 @@ async fn post_fetch(
                 ErrorBody {
                     code: ErrorCode::CidNotFound,
                     message: format!("cid '{cid_in}' is not a well-formed content address"),
+                    details: None,
                 },
             ));
         }
@@ -6987,6 +7022,7 @@ async fn post_fetch(
                 ErrorBody {
                     code: ErrorCode::CidNotFound,
                     message: format!("no fact for cid={cid_in}"),
+                    details: None,
                 },
             )
         })?;
@@ -7005,6 +7041,7 @@ async fn post_fetch(
         ErrorBody {
             code: ErrorCode::Internal,
             message: "POST /v1/fetch requires either {cid} (resolve fact by content-address) or {cell, band [, tslot]} (materialize band at cell)".into(),
+            details: None,
         },
     ))?;
     let band = req.band.as_deref().ok_or_else(|| {
@@ -7015,6 +7052,7 @@ async fn post_fetch(
                 message:
                     "POST /v1/fetch with `cell` requires `band` — see /v1/bands for the registry"
                         .into(),
+                details: None,
             },
         )
     })?;
@@ -7043,6 +7081,7 @@ async fn post_fetch(
                 ErrorBody {
                     code: ErrorCode::SourceFetchFailed,
                     message: format!("materialize {band} at {cell64}: {e}"),
+                    details: None,
                 },
             )
         })?;
@@ -7062,6 +7101,7 @@ async fn post_fetch(
                     "materialize_band_at returned cid={} but storage has no fact for it",
                     fact_cid.0
                 ),
+                details: None,
             },
         )
     })?;
@@ -8960,6 +9000,7 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, ErrorBody {
             code: ErrorCode::NoGeocoderMatch,
             message: format!("locate succeeded for '{s}' but the response had no cell64 — pass a cell64 string or a recognisable place name, or supply lat+lng directly"),
+            details: None,
         }))?
         .to_string();
     let label = body
@@ -9133,6 +9174,7 @@ async fn post_elevation_coherent(
                 ErrorBody {
                     code: ErrorCode::InvalidCell,
                     message: format!("cell64 decode: {e}"),
+                    details: None,
                 },
             )
         })?;
@@ -9150,6 +9192,7 @@ async fn post_elevation_coherent(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "supply (lat,lng), cell64, or place".into(),
+                details: None,
             },
         ));
     };
@@ -9175,6 +9218,7 @@ async fn elevation_coherent(s: &AppState, target: ResolvedTarget) -> Result<Json
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "lat/lng must be finite".into(),
+                details: None,
             },
         ));
     }
@@ -14221,6 +14265,7 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
                     "unknown band '{}': call /v1/bands or emem_bands first",
                     req.band
                 ),
+                details: None,
             },
         )
     })?;
@@ -14267,6 +14312,7 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: e.to_string(),
+                    details: None,
                 },
             )
         })?;
@@ -14321,6 +14367,7 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: e.to_string(),
+                    details: None,
                 },
             )
         })?;
@@ -16524,6 +16571,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "ask: `q` cannot be empty".into(),
+                details: None,
             },
         ));
     }
@@ -16552,6 +16600,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: format!("ask: `cell` must be a cell64 string, got '{c}'"),
+                    details: None,
                 },
             ));
         }
@@ -17194,6 +17243,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                 message: format!(
                                     "no geocoder match for '{p}' (Photon + Nominatim both returned zero results — try a more specific name, or pass lat+lng directly)"
                                 ),
+                                details: None,
                             },
                         ));
                     }
@@ -17211,6 +17261,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                 message: format!(
                                     "no geocoder match for '{p}' (Nominatim returned zero results; Photon transport failed: {ph_err})"
                                 ),
+                                details: None,
                             },
                         ));
                     }
@@ -17226,6 +17277,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                 message: format!(
                                     "Nominatim fallback transport failed (Photon returned zero results for '{p}'): {nom_err}"
                                 ),
+                                details: None,
                             },
                         ));
                     }
@@ -17240,6 +17292,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                 message: format!(
                                     "geocoder cascade failed for '{p}': photon={ph_err}; nominatim={nom_err}"
                                 ),
+                                details: None,
                             },
                         ));
                     }
@@ -18215,6 +18268,7 @@ async fn get_cell_info(Path(cell64): Path<String>) -> Result<Json<JsonValue>, Ap
             ErrorBody {
                 code: ErrorCode::InvalidCell,
                 message: format!("{e}"),
+                details: None,
             },
         )
     })?;
@@ -18314,6 +18368,7 @@ async fn get_cell_geojson(Path(cell64_with_ext): Path<String>) -> Result<Respons
             ErrorBody {
                 code: ErrorCode::InvalidCell,
                 message: e,
+                details: None,
             },
         )
     })?;
@@ -18343,6 +18398,7 @@ async fn get_cell_recall_geojson(
             ErrorBody {
                 code: ErrorCode::InvalidCell,
                 message: format!("cell64 decode: {e}"),
+                details: None,
             },
         )
     })?;
@@ -18375,6 +18431,7 @@ async fn get_cell_recall_geojson(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("recall failed: {e}"),
+                details: None,
             },
         )
     })?;
@@ -18483,6 +18540,7 @@ async fn get_contributor(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "attester registry unavailable on this responder".into(),
+                details: None,
             },
         ));
     };
@@ -18493,6 +18551,7 @@ async fn get_contributor(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("no contributor record for {pubkey_b32}"),
+                details: None,
             },
         )),
         Err(e) => Err(ApiError(
@@ -18500,6 +18559,7 @@ async fn get_contributor(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("attester lookup failed: {e}"),
+                details: None,
             },
         )),
     }
@@ -19042,6 +19102,7 @@ async fn temporal_route_inner(
                     message: format!(
                         "query_time '{qt}' is not a valid RFC 3339 / ISO 8601 timestamp"
                     ),
+                    details: None,
                 },
             )
         })?,
@@ -19349,6 +19410,7 @@ async fn post_review(
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
             code: ErrorCode::Internal,
             message: format!("subject_kind must be one of: fact, cell, request_id, session, band, endpoint, other. got: {:?}", req.subject_kind),
+            details: None,
         }));
     }
     if !known_outcome(&req.outcome) {
@@ -19360,6 +19422,7 @@ async fn post_review(
                     "outcome must be one of: success, partial, failed, noisy. got: {:?}",
                     req.outcome
                 ),
+                details: None,
             },
         ));
     }
@@ -19369,6 +19432,7 @@ async fn post_review(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "task is required and must be non-empty (1..=512 chars).".into(),
+                details: None,
             },
         ));
     }
@@ -19376,6 +19440,7 @@ async fn post_review(
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, ErrorBody {
             code: ErrorCode::Internal,
             message: format!("task ≤ {REVIEW_TASK_MAX} chars; comment ≤ {REVIEW_COMMENT_MAX} chars. For longer notes, upload as a Fact and reference via subject_kind=fact."),
+            details: None,
         }));
     }
     if req.rating > 5 {
@@ -19384,6 +19449,7 @@ async fn post_review(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: "rating must be 0..=5 (0 = unrated).".into(),
+                details: None,
             },
         ));
     }
@@ -19408,6 +19474,7 @@ async fn post_review(
         None => return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, ErrorBody {
             code: ErrorCode::Internal,
             message: "reviews persistence requires a sled-backed hot cache; this responder is running ephemeral storage.".into(),
+            details: None,
         })),
     };
 
@@ -19417,6 +19484,7 @@ async fn post_review(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("open reviews tree: {e}"),
+                details: None,
             },
         )
     })?;
@@ -19426,6 +19494,7 @@ async fn post_review(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("open reviews index: {e}"),
+                details: None,
             },
         )
     })?;
@@ -19437,6 +19506,7 @@ async fn post_review(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("cbor: {e}"),
+                details: None,
             },
         )
     })?;
@@ -19449,6 +19519,7 @@ async fn post_review(
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: format!("insert: {e}"),
+                    details: None,
                 },
             )
         })?;
@@ -19465,6 +19536,7 @@ async fn post_review(
                 ErrorBody {
                     code: ErrorCode::Internal,
                     message: format!("index insert: {e}"),
+                    details: None,
                 },
             )
         })?;
@@ -19511,6 +19583,7 @@ async fn list_reviews(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("open: {e}"),
+                details: None,
             },
         )
     })?;
@@ -19546,6 +19619,7 @@ async fn reviews_for_subject(
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
             code: ErrorCode::Internal,
             message: format!("kind query param must be one of: fact, cell, request_id, session, band, endpoint, other. got: {kind:?}"),
+            details: None,
         }));
     }
     let limit: usize = q
@@ -19567,6 +19641,7 @@ async fn reviews_for_subject(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("open: {e}"),
+                details: None,
             },
         )
     })?;
@@ -19576,6 +19651,7 @@ async fn reviews_for_subject(
             ErrorBody {
                 code: ErrorCode::Internal,
                 message: format!("open idx: {e}"),
+                details: None,
             },
         )
     })?;
