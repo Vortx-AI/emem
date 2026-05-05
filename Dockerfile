@@ -2,14 +2,20 @@
 
 # Build stage — Rust 1.88+ required by transitive deps (time 0.3.47,
 # icu_* 2.2.0). Pinned to 1.88 (workspace MSRV).
-FROM rust:1.88-slim-bookworm AS build
+#
+# Trixie (Debian 13, glibc 2.41) is required because ort-sys 2.0.0-rc.12
+# bundles ONNX's parser.cc which references __isoc23_strtoull /
+# __isoc23_strtol — symbols that only exist in glibc ≥ 2.38. On
+# bookworm-slim (glibc 2.36) the link fails with "undefined reference".
+FROM rust:1.88-slim-trixie AS build
 ARG TARGETARCH
 WORKDIR /usr/src/emem
 
 # OpenSSL is *not* needed (we use rustls-acme), but build tools are.
-# g++ is required by transitive C++ deps that came in with the
-# 0.0.3 transformer router (model2vec-rs → tokenizers → esaxx-rs);
-# the runtime stage is a fresh debian:bookworm-slim so it does not
+# g++ is required by transitive C++ deps:
+#   • ort-sys → bundled ONNX parser.cc (compiled via cc-crate)
+#   • model2vec-rs → tokenizers → esaxx-rs
+# The runtime stage is a fresh debian:trixie-slim so it does not
 # inherit g++ — this only adds ~50 MB to the build stage.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -34,14 +40,19 @@ COPY PRIVACY.md TERMS.md SUPPORT.md SECURITY.md ./
 # linux/amd64 + linux/arm64 build jobs don't race each other unpacking
 # the same crate into a shared cache (`File exists (os error 17)` on
 # `.cargo-ok`). Each arch keeps its own warm cache across runs.
-RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=emem-target-${TARGETARCH},target=/usr/src/emem/target,sharing=locked \
+# Cache id includes "trixie" so the bookworm-era target/ from previous
+# builds (which baked __isoc23_strtoull-referencing parser.cc.o under
+# different headers) is not reused — fresh trixie build from scratch.
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=emem-target-${TARGETARCH}-trixie,target=/usr/src/emem/target,sharing=locked \
     cargo build --release --bin emem-server && \
     cp target/release/emem-server /usr/local/bin/emem-server
 
 # Runtime stage — minimal Debian, non-root, with cap_net_bind_service
 # pre-applied so EMEM_BIND=0.0.0.0:443 works without docker run --cap-add.
-FROM debian:bookworm-slim AS runtime
+# Must match the build stage's libc (glibc 2.41 on trixie) so the
+# binary's __isoc23_* references resolve at runtime.
+FROM debian:trixie-slim AS runtime
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
