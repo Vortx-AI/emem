@@ -3939,6 +3939,10 @@ fn band_input_resolution_m(band: &str) -> Option<u32> {
         b if b.starts_with("weather.") => Some(2_500),
         b if b.starts_with("marine.") => Some(11_000),
         b if b.starts_with("overture.") => Some(305),
+        // WorldPop wpgppop is a 100 m global per-country product;
+        // the materialiser integrates over a 1 km² window to yield
+        // people · km⁻², so the *effective* fact resolution is 1 km.
+        "population" => Some(1_000),
         _ => None,
     }
 }
@@ -13250,6 +13254,107 @@ async fn materialize_koppen(cell64: &str, s: &AppState) -> Result<emem_fact::Fac
     }
 }
 
+// ---------------- WorldPop population materializer ----------------
+//
+// WorldPop's `wpgppop` 100 m global per-country product is the canonical
+// open-data answer to "how many people live here". We materialise via the
+// public anonymous REST endpoint at api.worldpop.org/v1/services/stats —
+// the static GeoTIFF mosaic on data.worldpop.org advertises Range support
+// but in practice returns the full ~870 MB body for every Range request,
+// so vsicurl COG sampling is unusable. The Stats API integrates over a
+// 1 km² AOI window centred on the cell and returns persons-per-km²;
+// see `emem_fetch::worldpop` for the AOI math.
+//
+// The signed `Fact` carries:
+//   - `value`     → people_per_km2 as CBOR Float (f64)
+//   - `unit`      → "people_per_km2"
+//   - `derivation` → ["worldpop_wpgppop_v1_stats@1", lat, lng, year]
+//   - `sources[0]` → fully-resolved REST URL the responder hit
+//
+// `WorldPopError::EmptyAoi` (the API's documented "no people in this
+// 1 km² window" outcome — ocean, polar, uninhabited terrain) signs an
+// `Absence` with a structured `reason_cid` rather than a synthetic 0.
+// All other error variants return an honest transport error.
+async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+
+    match emem_fetch::worldpop::fetch_population_density(&cli, lat, lng).await {
+        Ok(sample) => {
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: "population".into(),
+                tslot: 0,
+                value: ciborium::Value::Float(sample.people_per_km2),
+                unit: Some("people_per_km2".into()),
+                confidence: 0.85,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "worldpop.wpgppop.v1".into(),
+                    id: sample.upstream_url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(sample.upstream_url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "worldpop_wpgppop_v1_stats@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((sample.year as i64).into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(emem_fetch::worldpop::WorldPopError::EmptyAoi { lat, lng }) => {
+            let reason = format!(
+                "worldpop_empty_aoi: WorldPop wpgppop v1 (year {year}) returned \
+                 total_population=0 for the 1 km² AOI window centred on \
+                 ({lat:.6},{lng:.6}). This is the API's documented signal for \
+                 cells that fall over open ocean, polar interior, or genuinely \
+                 uninhabited terrain. Source: api.worldpop.org/v1/services/stats \
+                 wpgppop (WorldPop Global per-country 100 m, Tatem 2017).",
+                year = emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR,
+            );
+            let reason_cid = reason_cid_for(&reason);
+            let fact = Fact::Absence(NegativeFact {
+                cell: cell64.to_string(),
+                band: "population".into(),
+                tslot: 0,
+                reason_cid,
+                confidence: 1.0,
+                sources: vec![Source {
+                    scheme: "worldpop.wpgppop.v1".into(),
+                    id: format!(
+                        "api.worldpop.org/v1/services/stats wpgppop {} ({:.6},{:.6})",
+                        emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR,
+                        lat,
+                        lng
+                    ),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some("https://api.worldpop.org/v1/services/stats".into()),
+                }],
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(e) => Err(format!("worldpop fetch failed: {e}")),
+    }
+}
+
 // ---------------- SoilGrids 2.0 (ISRIC) materializer ----------------
 //
 // ISRIC publishes static, global, 250 m soil-property maps via a public
@@ -14259,6 +14364,21 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: None,
             wire_path: "rest.isric.org/soilgrids/v2.0 properties/query (REST, anonymous)",
         },
+        // WorldPop Global per-country 100 m population (`wpgppop`), 2000–2020
+        // vintages — REST integration over a 1 km² window centred on the
+        // cell. The static GeoTIFF mosaic at data.worldpop.org advertises
+        // Range support but in practice returns the full ~870 MB body for
+        // every Range request, so the COG sampler is unusable; the WorldPop
+        // Stats API is the only viable open-data, no-auth path. Default
+        // vintage is 2020 (latest published year of the wpgppop product).
+        "population" => MaterializerMeta {
+            tempo: Tempo::Slow,
+            kind: BandKind::AnnualSnapshot,
+            history_from_unix: Some(days_from_civil(2000, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2021, 1, 1) * 86_400 - 1),
+            wire_path:
+                "api.worldpop.org/v1/services/stats wpgppop (WorldPop 100 m, sync REST, AOI=1 km²)",
+        },
         _ => return None,
     };
     Some(m)
@@ -14416,6 +14536,8 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("soilgrids.sand_0_30cm".into());
     out.push("soilgrids.bdod_0_30cm".into());
     out.push("soilgrids.nitrogen_0_30cm".into());
+    // WorldPop population density (people · km⁻²), 2020 vintage by default.
+    out.push("population".into());
     out
 }
 
@@ -14465,6 +14587,8 @@ async fn materialize_band_at(
         "surface_water.recurrence" => return materialize_jrc_gsw_recurrence(cell64, s).await,
         // Beck Köppen-Geiger 1-km — static, one signed class per cell.
         "koppen" => return materialize_koppen(cell64, s).await,
+        // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
+        "population" => return materialize_population(cell64, s).await,
         "geotessera" => {
             // Bare `geotessera` resolves to the Tessera vintage that
             // contains target_unix; agents asking for backfill across
@@ -15196,6 +15320,39 @@ async fn try_materialize_bands(
             // class. Returns Primary (with the canonical class string)
             // for land cells, Absence for oceanic / out-of-mask cells.
             "koppen" => match materialize_koppen(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary_or_absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
+            // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
+            // Returns Primary for populated cells, Absence for ocean /
+            // polar / genuinely uninhabited terrain (the API's documented
+            // total_population=0 outcome).
+            "population" => match materialize_population(cell64, s).await {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
