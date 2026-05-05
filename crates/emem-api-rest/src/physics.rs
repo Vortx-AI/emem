@@ -65,6 +65,7 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
         ErrorBody {
             code: ErrorCode::InvalidArgument,
             message: msg.into(),
+            details: None,
         },
     )
 }
@@ -79,6 +80,7 @@ fn unprocessable(msg: impl Into<String>) -> ApiError {
         ErrorBody {
             code: ErrorCode::SourceFetchFailed,
             message: msg.into(),
+            details: None,
         },
     )
 }
@@ -530,6 +532,31 @@ const WAVE_CFL_SAFETY: f64 = 0.5;
 
 const WAVE_MAX_STEPS: usize = 200_000;
 
+/// Minimum fraction of profile cells that must be genuinely below sea
+/// level (depth > [`WAVE_OCEAN_DEPTH_THRESHOLD_M`]) for the bathymetric
+/// profile to count as oceanic. Below this fraction the seaward walk has
+/// landed mostly on continental crust and the explicit-FD wave solve
+/// would just propagate the offshore-boundary forcing across a near-zero
+/// depth column — the depth floor pins phase speed to ~0.31 m/s and the
+/// arrival height becomes a placeholder. Surfaced via the
+/// `LandLockedProfile` rejection on `POST /v1/wave_solve`.
+const WAVE_MIN_OCEAN_FRACTION: f64 = 0.5;
+
+/// The deepest cell of the seaward profile (after the offshore-to-coast
+/// reverse — index 0 in the FD solver) must have at least this much
+/// water under it for the sinusoidal offshore forcing to attach to a
+/// physical wave. Without it, c² = g·h shrinks to numerical noise at the
+/// boundary and the integration is meaningless. Surfaced via the
+/// `LandLockedProfile` rejection on `POST /v1/wave_solve`.
+const WAVE_MIN_OFFSHORE_DEPTH_M: f64 = 5.0;
+
+/// A profile cell counts as "oceanic" only when its measured depth
+/// exceeds this threshold — anything at or below the safety floor
+/// (0.01 m, set when phase-speed-flooring `c² = g·h.max(0.01)`) is just
+/// the floor showing through and is not real water for the swell to
+/// propagate over.
+const WAVE_OCEAN_DEPTH_THRESHOLD_M: f64 = 1.0;
+
 /// One forward 1-D explicit-FD step on the wave equation. Returns the
 /// new state vector. The two endpoint conditions are:
 ///
@@ -577,6 +604,162 @@ fn wave_max_dt(c_profile: &[f64], dx_m: f64) -> f64 {
         return 0.0;
     }
     WAVE_CFL_SAFETY * dx_m / c_max
+}
+
+/// Outcome of [`classify_seaward_profile`] — either the depth column is
+/// genuinely oceanic enough to integrate the wave equation over, or it
+/// landed mostly on continental crust and the solver would just push the
+/// offshore-boundary forcing through a near-zero depth column.
+///
+/// `depths_offshore_to_coast[0]` is the deepest cell (offshore boundary
+/// of the FD solver) and `[N-1]` is the coast.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProfileClassification {
+    /// Profile is oceanic enough — at least
+    /// [`WAVE_MIN_OCEAN_FRACTION`] of cells are deeper than
+    /// [`WAVE_OCEAN_DEPTH_THRESHOLD_M`] AND the offshore boundary cell
+    /// has at least [`WAVE_MIN_OFFSHORE_DEPTH_M`] of water.
+    Oceanic,
+    /// Offshore boundary cell is too shallow (< [`WAVE_MIN_OFFSHORE_DEPTH_M`]).
+    OffshoreBoundaryTooShallow,
+    /// Too few cells in the profile are oceanic
+    /// (< [`WAVE_MIN_OCEAN_FRACTION`] over [`WAVE_OCEAN_DEPTH_THRESHOLD_M`]).
+    InsufficientOceanFraction,
+}
+
+/// Decide whether a depth profile (ordered offshore-to-coast — i.e. as
+/// the FD solver indexes it, with `[0]` the deepest seaward boundary
+/// and `[N-1]` the coast) is meaningfully oceanic.
+///
+/// The two checks are complementary:
+///
+/// 1. **Offshore boundary check** — `depths[0] > WAVE_MIN_OFFSHORE_DEPTH_M`.
+///    Without real depth at the boundary the sinusoidal forcing has
+///    nothing physical to attach to (`c² = g·h` collapses to numerical
+///    noise).
+/// 2. **Profile fraction check** — at least `WAVE_MIN_OCEAN_FRACTION`
+///    of cells must have `depth > WAVE_OCEAN_DEPTH_THRESHOLD_M`. Below
+///    this the seaward walk has landed mostly on land and the result
+///    is a placeholder, not a wave forecast.
+///
+/// Pure function (no I/O) so the logic is unit-testable without
+/// touching storage or upstream sources.
+fn classify_seaward_profile(depths_offshore_to_coast: &[f64]) -> ProfileClassification {
+    if depths_offshore_to_coast.is_empty() {
+        return ProfileClassification::InsufficientOceanFraction;
+    }
+    if depths_offshore_to_coast[0] <= WAVE_MIN_OFFSHORE_DEPTH_M {
+        return ProfileClassification::OffshoreBoundaryTooShallow;
+    }
+    let oceanic_count = depths_offshore_to_coast
+        .iter()
+        .filter(|d| **d > WAVE_OCEAN_DEPTH_THRESHOLD_M)
+        .count();
+    let fraction = oceanic_count as f64 / depths_offshore_to_coast.len() as f64;
+    if fraction < WAVE_MIN_OCEAN_FRACTION {
+        return ProfileClassification::InsufficientOceanFraction;
+    }
+    ProfileClassification::Oceanic
+}
+
+/// Build the structured `LandLockedProfile` rejection. Surfaces the
+/// failed depth profile + phase-speed profile + a `next_steps[]` array
+/// with two concrete recovery paths the agent can act on:
+///
+///  * `try_longer_profile` — same input cell, `n_offshore_cells` doubled
+///    (capped at 64) so the seaward walk reaches actual deep water.
+///  * `try_different_cell` — the input cell is too far from open water;
+///    the agent should re-`/v1/locate` to a closer-to-coast cell.
+///
+/// HTTP 422 (request was syntactically fine; we just couldn't run the
+/// math) and the wire-stable `invalid_argument` code, with
+/// `error_kind: "LandLockedProfile"` carried in `details` so an agent
+/// can branch on the kind without parsing the message string.
+fn land_locked_profile_error(
+    classification: ProfileClassification,
+    coastal_cell: &str,
+    profile_cells_offshore_to_coast: &[String],
+    depths_offshore_to_coast: &[f64],
+    phase_speed_profile_m_per_s: &[f64],
+    n_offshore_requested: usize,
+) -> ApiError {
+    let oceanic_count = depths_offshore_to_coast
+        .iter()
+        .filter(|d| **d > WAVE_OCEAN_DEPTH_THRESHOLD_M)
+        .count();
+    let n = depths_offshore_to_coast.len();
+    let fraction = if n == 0 {
+        0.0
+    } else {
+        oceanic_count as f64 / n as f64
+    };
+    let message = match classification {
+        ProfileClassification::OffshoreBoundaryTooShallow => format!(
+            "land-locked seaward profile from coastal_cell={coastal_cell}: \
+             offshore boundary cell has depth {:.2} m, need >= {:.1} m. \
+             The seaward walk did not reach genuinely deep water — `c² = g·h` \
+             at the boundary collapses to numerical noise and the explicit-FD \
+             integration would just propagate the sinusoidal forcing across a \
+             near-zero depth column.",
+            depths_offshore_to_coast.first().copied().unwrap_or(0.0),
+            WAVE_MIN_OFFSHORE_DEPTH_M,
+        ),
+        ProfileClassification::InsufficientOceanFraction => format!(
+            "land-locked seaward profile from coastal_cell={coastal_cell}: \
+             only {oceanic_count}/{n} ({:.0}%) of profile cells are oceanic \
+             (depth > {:.1} m), need >= {:.0}%. The seaward walk landed mostly \
+             on continental crust; the depth floor pins phase speed and the \
+             arrival height becomes a placeholder, not a wave forecast.",
+            fraction * 100.0,
+            WAVE_OCEAN_DEPTH_THRESHOLD_M,
+            WAVE_MIN_OCEAN_FRACTION * 100.0,
+        ),
+        ProfileClassification::Oceanic => {
+            // Defensive — caller should never construct this error for
+            // an oceanic classification, but if they do we still return
+            // a coherent body rather than panic.
+            "internal: land_locked_profile_error called on an oceanic classification".to_string()
+        }
+    };
+    let suggested_n = (n_offshore_requested.saturating_mul(2)).clamp(2, 64);
+    let details = json!({
+        "error_kind": "LandLockedProfile",
+        "coastal_cell": coastal_cell,
+        "profile_cells_offshore_to_coast": profile_cells_offshore_to_coast,
+        "depth_profile_m": depths_offshore_to_coast,
+        "phase_speed_profile_m_per_s": phase_speed_profile_m_per_s,
+        "oceanic_cell_count": oceanic_count,
+        "profile_cell_count": n,
+        "oceanic_fraction": fraction,
+        "thresholds": {
+            "min_ocean_fraction": WAVE_MIN_OCEAN_FRACTION,
+            "min_offshore_depth_m": WAVE_MIN_OFFSHORE_DEPTH_M,
+            "ocean_depth_threshold_m": WAVE_OCEAN_DEPTH_THRESHOLD_M,
+        },
+        "next_steps": [
+            {
+                "action": "try_longer_profile",
+                "why": "the seaward walk may have stopped short of genuine deep water; doubling n_offshore_cells (up to the 64 cap) lets the FD profile reach an oceanic boundary",
+                "call": format!(
+                    "POST /v1/wave_solve {{coastal_cell:'{coastal_cell}', n_offshore_cells: {suggested_n}, offshore_height_m: <unchanged>, period_s: <unchanged>}}"
+                ),
+                "n_offshore_cells_suggested": suggested_n,
+            },
+            {
+                "action": "try_different_cell",
+                "why": "the input cell is too far from genuine open water; resolve a closer-to-coast cell first via /v1/locate (e.g. by anchoring on a beach, harbour, or named coastline) and call /v1/wave_solve from that cell",
+                "call": "POST /v1/locate {place: '<beach or coastline name>'} → use returned cell64 as coastal_cell",
+            },
+        ],
+    });
+    ApiError(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message,
+            details: Some(details),
+        },
+    )
 }
 
 /// Walk N steps seaward from `coastal_cell` along the gradient of
@@ -736,6 +919,25 @@ pub async fn wave_solve(mut req: WaveSolveReq, state: &AppState) -> Result<JsonV
     // Phase speed at each cell. We clamp to a tiny floor at the coast
     // to keep CFL finite (a depth-0 land cell would force c=0 → dt=0).
     let c_profile: Vec<f64> = depths.iter().map(|h| (G * h.max(0.01)).sqrt()).collect();
+
+    // Land-locked rejection. If the seaward walk landed mostly on
+    // continental crust the depth floor pancakes phase speed to ~0.31
+    // m/s and the arrival height becomes a placeholder. Reject loudly
+    // with the failed depth + phase-speed profiles in `details` so the
+    // agent can audit *why* the rejection fired and pick a recovery
+    // path (try_longer_profile / try_different_cell). See
+    // `WAVE_MIN_OCEAN_FRACTION` and `WAVE_MIN_OFFSHORE_DEPTH_M`.
+    let classification = classify_seaward_profile(&depths);
+    if classification != ProfileClassification::Oceanic {
+        return Err(land_locked_profile_error(
+            classification,
+            &req.coastal_cell,
+            &profile_cells,
+            &depths,
+            &c_profile,
+            n_offshore,
+        ));
+    }
     let dx_m = CELL_PITCH_M;
     let dt_s = wave_max_dt(&c_profile, dx_m);
     if dt_s <= 0.0 {
@@ -1266,5 +1468,185 @@ mod tests {
         assert_eq!(req.lookback_months, 6);
         assert_eq!(req.forecast_horizon_months, 1);
         assert_eq!(req.band, "indices.ndvi");
+    }
+
+    /// Wave land-locked rejection: a depth profile of all-floor cells
+    /// (every depth at 0.01 m, the safety floor used by the FD solver)
+    /// must classify as `OffshoreBoundaryTooShallow` and the rendered
+    /// `ApiError` must carry `error_kind: "LandLockedProfile"` plus
+    /// both `try_longer_profile` and `try_different_cell` actions in
+    /// `next_steps[]`.
+    #[test]
+    fn wave_land_locked_profile_is_rejected_with_structured_next_steps() {
+        let depths_offshore_to_coast = vec![0.01_f64; 12];
+        let classification = classify_seaward_profile(&depths_offshore_to_coast);
+        assert_eq!(
+            classification,
+            ProfileClassification::OffshoreBoundaryTooShallow,
+            "all-floor depth column must trip the offshore-boundary check first"
+        );
+        let c_profile: Vec<f64> = depths_offshore_to_coast
+            .iter()
+            .map(|h| (G * h.max(0.01)).sqrt())
+            .collect();
+        // Phase speed at the floor is √(g·0.01) ≈ 0.313 m/s — the bug
+        // signature the eval cited.
+        assert!((c_profile[0] - (G * 0.01_f64).sqrt()).abs() < 1e-9);
+        assert!(
+            c_profile[0] < 0.5,
+            "all-floor profile must produce the pancaked phase speed; got {}",
+            c_profile[0]
+        );
+        let profile_cells: Vec<String> = (0..12).map(|i| format!("dummy.cell.{i}")).collect();
+        let err = land_locked_profile_error(
+            classification,
+            "miami.beach.cell",
+            &profile_cells,
+            &depths_offshore_to_coast,
+            &c_profile,
+            12,
+        );
+        assert_eq!(err.0, StatusCode::UNPROCESSABLE_ENTITY);
+        let body = err.1;
+        let details = body.details.expect("LandLockedProfile must carry details");
+        assert_eq!(details["error_kind"], "LandLockedProfile");
+        assert_eq!(details["coastal_cell"], "miami.beach.cell");
+        // The failed depth + phase-speed profiles MUST be surfaced so
+        // the agent can audit why the rejection fired.
+        assert_eq!(details["depth_profile_m"].as_array().unwrap().len(), 12);
+        assert_eq!(
+            details["phase_speed_profile_m_per_s"]
+                .as_array()
+                .unwrap()
+                .len(),
+            12
+        );
+        let next_steps = details["next_steps"]
+            .as_array()
+            .expect("next_steps must be an array");
+        assert_eq!(next_steps.len(), 2, "expected exactly 2 next_steps");
+        let actions: Vec<&str> = next_steps
+            .iter()
+            .map(|s| s["action"].as_str().unwrap())
+            .collect();
+        assert!(
+            actions.contains(&"try_longer_profile"),
+            "missing try_longer_profile in {actions:?}"
+        );
+        assert!(
+            actions.contains(&"try_different_cell"),
+            "missing try_different_cell in {actions:?}"
+        );
+        // try_longer_profile must suggest 2× the requested n (capped at 64).
+        let try_longer = next_steps
+            .iter()
+            .find(|s| s["action"] == "try_longer_profile")
+            .unwrap();
+        assert_eq!(try_longer["n_offshore_cells_suggested"], 24);
+    }
+
+    /// Wave land-locked rejection: a profile with too few oceanic cells
+    /// (fraction below `WAVE_MIN_OCEAN_FRACTION`) must classify as
+    /// `InsufficientOceanFraction`, even when the offshore boundary
+    /// itself is deep enough.
+    #[test]
+    fn wave_insufficient_ocean_fraction_is_rejected() {
+        // Offshore boundary deep, but the rest of the column is land.
+        // 12 cells: depths[0]=20m, depths[1..]=0.01m → 1/12 ≈ 8% oceanic.
+        let mut depths = vec![0.01_f64; 12];
+        depths[0] = 20.0;
+        let classification = classify_seaward_profile(&depths);
+        assert_eq!(
+            classification,
+            ProfileClassification::InsufficientOceanFraction,
+        );
+        let c_profile: Vec<f64> = depths.iter().map(|h| (G * h.max(0.01)).sqrt()).collect();
+        let cells: Vec<String> = (0..12).map(|i| format!("c.{i}")).collect();
+        let err = land_locked_profile_error(
+            classification,
+            "city.centroid.cell",
+            &cells,
+            &depths,
+            &c_profile,
+            32,
+        );
+        let body = err.1;
+        let details = body.details.unwrap();
+        assert_eq!(details["error_kind"], "LandLockedProfile");
+        // Suggested n is min(32*2, 64) = 64.
+        let try_longer = details["next_steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["action"] == "try_longer_profile")
+            .unwrap();
+        assert_eq!(try_longer["n_offshore_cells_suggested"], 64);
+        // Sanity: oceanic_fraction is reported back so the agent can read it.
+        let frac = details["oceanic_fraction"].as_f64().unwrap();
+        assert!(
+            (frac - 1.0 / 12.0).abs() < 1e-9,
+            "expected fraction 1/12, got {frac}"
+        );
+    }
+
+    /// A genuinely-oceanic profile (e.g. 10 cells of >= 10 m depth)
+    /// must classify as `Oceanic` and the FD solver must produce a
+    /// non-degenerate phase-speed profile (c >> 0.31 m/s, the all-floor
+    /// signature of the bug).
+    #[test]
+    fn wave_oceanic_profile_passes_and_phase_speed_is_real() {
+        let depths_offshore_to_coast: Vec<f64> =
+            vec![25.0, 22.0, 20.0, 18.0, 16.0, 14.0, 12.0, 10.0, 8.0, 5.5];
+        let classification = classify_seaward_profile(&depths_offshore_to_coast);
+        assert_eq!(
+            classification,
+            ProfileClassification::Oceanic,
+            "10 cells of >= 5.5 m depth, all > {WAVE_OCEAN_DEPTH_THRESHOLD_M} m, must classify as oceanic"
+        );
+        let c_profile: Vec<f64> = depths_offshore_to_coast
+            .iter()
+            .map(|h| (G * h.max(0.01)).sqrt())
+            .collect();
+        // Every phase speed must be physically meaningful: at h=5.5 m,
+        // c = √(9.81·5.5) ≈ 7.34 m/s — three orders of magnitude above
+        // the all-floor signature of 0.31 m/s.
+        for c in &c_profile {
+            assert!(
+                *c > 5.0,
+                "oceanic profile produced degenerate phase speed {c} m/s"
+            );
+        }
+        // And the offshore boundary must be the deepest, fastest cell
+        // (matches the FD solver's offshore-to-coast indexing).
+        assert!(c_profile[0] >= *c_profile.last().unwrap());
+    }
+
+    /// Boundary cases: empty profile and a single-cell oceanic profile.
+    #[test]
+    fn wave_classification_boundary_cases() {
+        // Empty profile: trivially insufficient.
+        assert_eq!(
+            classify_seaward_profile(&[]),
+            ProfileClassification::InsufficientOceanFraction
+        );
+        // Single deep cell: passes the offshore-boundary check and the
+        // 100% oceanic-fraction check (1/1 == 100% >= 50%).
+        assert_eq!(
+            classify_seaward_profile(&[10.0]),
+            ProfileClassification::Oceanic
+        );
+        // Single shallow cell: fails the offshore-boundary check first.
+        assert_eq!(
+            classify_seaward_profile(&[0.5]),
+            ProfileClassification::OffshoreBoundaryTooShallow
+        );
+        // Two cells, one deep one shallow: 1/2 == 50%, exactly at the
+        // boundary. Per `< WAVE_MIN_OCEAN_FRACTION` (strict), 50% does
+        // NOT trip the fraction check — the offshore-boundary check
+        // governs. Deep boundary → Oceanic.
+        assert_eq!(
+            classify_seaward_profile(&[10.0, 0.5]),
+            ProfileClassification::Oceanic
+        );
     }
 }
