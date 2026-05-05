@@ -2397,6 +2397,15 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
             &["Overture Maps Foundation places parquet (anonymous S3)"]),
         ("overture.transportation.road_length_m", "slow", "human",
             &["Overture Maps Foundation transportation parquet (anonymous S3)"]),
+        // WDPA-equivalent protected-area lookup. Source-of-record is
+        // OpenStreetMap `boundary=protected_area` polygons via the public
+        // Overpass API (point-in-polygon `is_in()` filter); OSM mirrors
+        // the same designations WDPA tracks (NPS / USFWS / IUCN / EU
+        // CDDA) and tags `protect_class` 1..6 → IUCN Ia..VI. Protected
+        // Planet's own REST API requires an account-gated token, so OSM
+        // is the canonical open-data path.
+        ("protected", "static", "human",
+            &["OpenStreetMap WDPA mirror (Overpass API, boundary=protected_area + protect_class → IUCN)"]),
     ];
     let mat_set: std::collections::HashSet<&str> = materializer_bands.iter().map(|t| t.0).collect();
 
@@ -13363,6 +13372,152 @@ async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact:
     }
 }
 
+// ---------------- WDPA / protected-area materializer ----------------
+//
+// Answers the user-facing question "is this point in a protected area, and
+// if so, what kind?". Source-of-record is the World Database on Protected
+// Areas (WDPA) curated by UNEP-WCMC at protectedplanet.net, but their REST
+// API is token-gated even for anonymous callers (verified 2026-05-05),
+// which rules it out under the project_open_data "no key-gated sources
+// for default build" rule. Instead we query the public OpenStreetMap
+// Overpass API for `boundary=protected_area` polygons via point-in-polygon
+// `is_in()`. OSM crowdsources from authoritative national sources (NPS,
+// USFWS, IUCN, EU CDDA) and tags each PA with `protect_class`, the integer
+// that maps 1:1 onto the IUCN category WDPA itself uses. See
+// `emem_fetch::wdpa` for the source-selection rationale.
+//
+// The signed `Fact` carries:
+//   - Primary (cell is inside at least one PA):
+//       value         → CBOR Map { wdpa_id, name, iucn_category,
+//                                  designation, country_iso3, marine }
+//       unit          → "wdpa_protected_area"
+//       derivation    → ["wdpa_overpass_v1@1", lat, lng]
+//       sources[0]    → Overpass API endpoint URL
+//   - Absence (cell is NOT inside any PA — the *meaningful* confirmed-no
+//     answer; this is the protocol's NegativeFact path so a verifier can
+//     replay the same query and confirm "none"):
+//       reason_cid    → blake3 of the structured "no PA found" reason
+//       sources[0]    → same Overpass endpoint
+//
+// Rate-limit handling: a 429 from Overpass is surfaced as
+// `WdpaError::RateLimited { retry_after_s }` and propagated as a transport
+// error to the caller — the materialiser does NOT retry. The next recall
+// on the same cell will hit the cache and skip the API entirely.
+async fn materialize_protected(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+
+    match emem_fetch::wdpa::fetch_wdpa_status(&cli, lat, lng).await {
+        Ok(Some(m)) => {
+            // Encode the structured WDPA hit as a CBOR Map. Keys are
+            // CBOR text strings (the agent-friendly form); values mirror
+            // the Rust struct so an agent can JSON-deserialise the fact
+            // and read fields directly without a translation table.
+            let entries: Vec<(ciborium::Value, ciborium::Value)> = vec![
+                (
+                    ciborium::Value::Text("wdpa_id".into()),
+                    ciborium::Value::Integer(m.wdpa_id.into()),
+                ),
+                (
+                    ciborium::Value::Text("name".into()),
+                    ciborium::Value::Text(m.name.clone()),
+                ),
+                (
+                    ciborium::Value::Text("iucn_category".into()),
+                    ciborium::Value::Text(m.iucn_category.clone()),
+                ),
+                (
+                    ciborium::Value::Text("designation".into()),
+                    ciborium::Value::Text(m.designation.clone()),
+                ),
+                (
+                    ciborium::Value::Text("country_iso3".into()),
+                    ciborium::Value::Text(m.country_iso3.clone()),
+                ),
+                (
+                    ciborium::Value::Text("marine".into()),
+                    ciborium::Value::Bool(m.marine),
+                ),
+            ];
+            let value = ciborium::Value::Map(entries);
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: "protected".into(),
+                tslot: 0,
+                value,
+                unit: Some("wdpa_protected_area".into()),
+                // OSM-crowdsourced PA polygons are highly accurate for
+                // the major designations (NPS / USFWS / IUCN-listed) but
+                // less complete for sub-national designations and recent
+                // additions; 0.80 reflects "high but not authoritative".
+                confidence: 0.80,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "osm.overpass.protected_area".into(),
+                    id: format!("osm_area:{}", m.wdpa_id),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(emem_fetch::wdpa::OVERPASS_ENDPOINT_URL.to_string()),
+                }],
+                derivation: Derivation {
+                    fn_key: "wdpa_overpass_v1@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Ok(None) => {
+            // Confirmed-no path. Sign an Absence fact with a structured
+            // reason so a verifier can replay the same Overpass query
+            // and confirm zero matching PAs. This is NOT the same as
+            // "upstream failed" — that surfaces as the Err arm below.
+            let reason = format!(
+                "wdpa_no_match: Overpass `is_in({lat:.6},{lng:.6})` returned zero \
+                 matching `boundary=protected_area`, `boundary=national_park`, \
+                 or `leisure=nature_reserve` polygons. Source: \
+                 https://overpass-api.de/api/interpreter (OSM-crowdsourced WDPA \
+                 mirror; CC-BY-SA / ODbL). The cell does not fall inside any \
+                 OSM-mapped protected area at the time of attestation."
+            );
+            let reason_cid = reason_cid_for(&reason);
+            let fact = Fact::Absence(NegativeFact {
+                cell: cell64.to_string(),
+                band: "protected".into(),
+                tslot: 0,
+                reason_cid,
+                confidence: 0.90,
+                sources: vec![Source {
+                    scheme: "osm.overpass.protected_area".into(),
+                    id: format!("overpass is_in({lat:.6},{lng:.6}) → 0 matches"),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(emem_fetch::wdpa::OVERPASS_ENDPOINT_URL.to_string()),
+                }],
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(emem_fetch::wdpa::WdpaError::RateLimited { retry_after_s }) => Err(format!(
+            "wdpa upstream rate-limited: Overpass API returned 429; retry after {retry_after_s}s"
+        )),
+        Err(e) => Err(format!("wdpa fetch failed: {e}")),
+    }
+}
+
 // ---------------- SoilGrids 2.0 (ISRIC) materializer ----------------
 //
 // ISRIC publishes static, global, 250 m soil-property maps via a public
@@ -14433,6 +14588,28 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "api.worldpop.org/v1/services/stats wpgppop (WorldPop 100 m, sync REST, AOI=1 km²)",
         },
+        // WDPA-equivalent point-in-polygon lookup against OpenStreetMap
+        // `boundary=protected_area` / `boundary=national_park` /
+        // `leisure=nature_reserve` polygons via the public Overpass API
+        // (`is_in()` filter). Static band — one signed fact per cell
+        // for the lifetime of the upstream PA polygon (OSM edits trigger
+        // a re-materialise on next recall after cache eviction).
+        // Protected Planet's REST API requires an account-gated token
+        // even for read-only access (verified 2026-05-05) so the
+        // open-data path goes through OSM's mirror of the same WDPA
+        // designations. See `emem_fetch::wdpa` for source rationale.
+        // The dotted scalar key `protected.is_protected_area` is the
+        // canonical band-row in `bands-v0.json::scalar_keys`; both keys
+        // resolve to the same materializer so an agent can recall under
+        // either spelling.
+        "protected" | "protected.is_protected_area" => MaterializerMeta {
+            tempo: Tempo::Static,
+            kind: BandKind::Static,
+            history_from_unix: None,
+            history_to_unix: None,
+            wire_path:
+                "overpass-api.de OSM is_in() → boundary=protected_area + protect_class → IUCN",
+        },
         _ => return None,
     };
     Some(m)
@@ -14599,6 +14776,10 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("soilgrids.nitrogen_0_30cm".into());
     // WorldPop population density (people · km⁻²), 2020 vintage by default.
     out.push("population".into());
+    // WDPA-equivalent point-in-polygon (OSM Overpass mirror of
+    // protected-area designations). Static — one signed fact per cell.
+    out.push("protected".into());
+    out.push("protected.is_protected_area".into());
     out
 }
 
@@ -14650,6 +14831,17 @@ async fn materialize_band_at(
         "koppen" => return materialize_koppen(cell64, s).await,
         // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
         "population" => return materialize_population(cell64, s).await,
+        // WDPA-equivalent point-in-polygon lookup via OSM Overpass.
+        // Static band — one signed fact per cell. Returns Primary
+        // (with the structured WDPA hit) or Absence (confirmed "not
+        // in any PA") or transport error. Both the bare `protected`
+        // key and the dotted `protected.is_protected_area` scalar
+        // resolve here — the underlying fact persists under `protected`
+        // (the cube band) and the dotted key is the agent-friendly
+        // spelling for `bands-v0.json::scalar_keys`.
+        "protected" | "protected.is_protected_area" => {
+            return materialize_protected(cell64, s).await
+        }
         "geotessera" => {
             // Bare `geotessera` resolves to the Tessera vintage that
             // contains target_unix; agents asking for backfill across
@@ -15449,6 +15641,44 @@ async fn try_materialize_bands(
                     });
                 }
             },
+            // WDPA via OSM Overpass — static, one signed fact per cell.
+            // Primary on a hit (CBOR Map with wdpa_id + name +
+            // iucn_category + designation + country_iso3 + marine);
+            // Absence on a confirmed-no (the protocol's NegativeFact
+            // path); structured error otherwise. Both the bare
+            // `protected` key and the scalar `protected.is_protected_area`
+            // dispatch through `materialize_protected`.
+            "protected" | "protected.is_protected_area" => {
+                match materialize_protected(cell64, s).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary_or_absence",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
             // ORNL DAAC additional MODIS subset products (LST/ET/GPP/LAI/burn).
             // Recall path: target_unix=None → "latest valid composite within
             // last 4·half_window" — same heuristic as MOD13Q1 NDVI.
@@ -18108,6 +18338,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 "scene_classification":       ["s2.scl"],
                 "foundation_embedding":       ["geotessera","geotessera.multi_year"],
                 "radar_all_weather_sar":      ["sentinel1_raw"],
+                "conservation_protected_areas": ["protected"],
             },
             // For each topic above, the algorithm recipe(s) that compose
             // its bands into a derived answer. Agents should prefer the
@@ -18146,7 +18377,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 "_meaning": "These bands are reserved in the cube manifest but have no live connector. Recall returns empty. Tell the user honestly: 'this responder doesn't have a connector for X' — don't web-search until you've reported the gap.",
                 "_note_on_surface_water_vector": "The 12-d cube key `surface_water` is unfilled (no responder has agreed on the slot allocation yet). The scalar `surface_water.recurrence` IS live (see live_bands_by_topic.flood_history_long_term) and answers the historical-flood question.",
                 "deforestation_canopy_loss":   ["forest_change"],
-                "landcover_classes":           ["landcover","ecoregions","mangrove","protected"],
+                "landcover_classes":           ["landcover","ecoregions","mangrove"],
                 "human_population":            ["nightlights","ghsl","population"],
                 "climate_long_term":           ["koppen","terraclimate"],
                 "soil_properties":             ["soilgrids"],

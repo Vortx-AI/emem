@@ -32,6 +32,7 @@ pub mod proj;
 pub mod stac;
 pub mod template;
 pub mod terraclimate;
+pub mod wdpa;
 pub mod worldpop;
 
 /// A single fetch request.

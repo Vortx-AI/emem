@@ -418,8 +418,9 @@
       "privacy": {"class": "public"},
       "description": "World Database on Protected Areas (WDPA) features: any-overlap flag, IUCN-category code, designation year, area-fraction inside cell.",
       "units": "boolean / IUCN code / year / fraction",
-      "interpretation": "Lets risk algorithms uplift cells inside national parks, biosphere reserves, etc. The any-overlap flag is the cheap gate; IUCN category (Ia, Ib, II..VI) carries the strictness.",
-      "references": "https://www.protectedplanet.net"
+      "interpretation": "Lets risk algorithms uplift cells inside national parks, biosphere reserves, etc. The any-overlap flag is the cheap gate; IUCN category (Ia, Ib, II..VI) carries the strictness. The materialiser at this responder signs the band scalar `protected.is_protected_area`: when the cell falls inside an OSM-mapped protected area the Primary fact carries a CBOR map with wdpa_id + name + iucn_category + designation + country_iso3 + marine; when it does not, a signed Absence is recorded (the protocol's negative-fact path).",
+      "references": "https://www.protectedplanet.net",
+      "scalar_keys": ["protected.is_protected_area"]
     },
     {
       "key": "surface_water",
