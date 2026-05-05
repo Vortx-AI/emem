@@ -210,8 +210,8 @@ fn recall_args_with_bands(cell: String, bands: &[&str]) -> ciborium::Value {
 /// Build args for `emem_find_similar`. Propagates the optional `k`
 /// (top-k neighbour count) and `filter` (post-rank Claim) so a caller
 /// who said "find 3 places like X with NDVI > 0.7" actually gets k=3
-/// + the filter — earlier the planner ignored both fields and returned
-/// the default top-10 unfiltered.
+/// alongside the filter — earlier the planner ignored both fields
+/// and returned the default top-10 unfiltered.
 fn find_similar_args(key: String, k: Option<u32>, filter: Option<&Claim>) -> ciborium::Value {
     let mut entries: Vec<(ciborium::Value, ciborium::Value)> = vec![(
         ciborium::Value::Text("key".into()),

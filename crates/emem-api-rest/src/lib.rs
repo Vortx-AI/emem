@@ -15042,6 +15042,18 @@ fn all_materializable_bands() -> Vec<String> {
     // protected-area designations). Static — one signed fact per cell.
     out.push("protected".into());
     out.push("protected.is_protected_area".into());
+    // TerraClimate 30-year normals (1981-2010). One signed fact per
+    // cell at tslot=0 — the climatology is a single immutable
+    // window, not a time series.
+    out.push("terraclimate.precip_normal_mm".into());
+    out.push("terraclimate.aet_normal_mm".into());
+    out.push("terraclimate.tmean_normal_c".into());
+    // DMSP-OLS V4 nightlights (1992-2013, frozen). Three sub-bands
+    // share the same materializer so a single recall returns one of
+    // (avg_dn, year, satellite) at a time.
+    out.push("nightlights.dmsp_ols_avg_dn".into());
+    out.push("nightlights.year".into());
+    out.push("nightlights.satellite".into());
     out
 }
 
@@ -18687,11 +18699,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             "declared_but_no_materializer_at_this_responder": {
                 "_meaning": "These bands are reserved in the cube manifest but have no live connector. Recall returns empty. Tell the user honestly: 'this responder doesn't have a connector for X' — don't web-search until you've reported the gap.",
                 "_note_on_surface_water_vector": "The 12-d cube key `surface_water` is unfilled (no responder has agreed on the slot allocation yet). The scalar `surface_water.recurrence` IS live (see live_bands_by_topic.flood_history_long_term) and answers the historical-flood question.",
-                "deforestation_canopy_loss":   ["forest_change"],
                 "landcover_classes":           ["landcover","ecoregions","mangrove"],
                 "human_settlement_layer":      ["ghsl"],
-                "climate_long_term":           ["koppen","terraclimate"],
-                "soil_properties":             ["soilgrids"],
                 "ocean_chemistry":             ["ocean_chl"],
             },
             "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands — they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe — apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data — be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
