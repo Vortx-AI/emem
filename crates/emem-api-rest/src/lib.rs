@@ -38,6 +38,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod gpu_sidecar;
 mod jepa_v2;
 mod physics;
 pub mod topic_router;

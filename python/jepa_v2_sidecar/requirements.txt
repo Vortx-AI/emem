@@ -1,0 +1,19 @@
+# GPU inference sidecar — pinned runtime deps.
+#
+# CUDA build of PyTorch — must match the host's CUDA driver. The
+# +cu128 wheel depends on libcudart.so.12 / libcublas.so.12 from
+# the system NVIDIA driver. On this host the driver ships CUDA 12.8.
+#
+# Installation:
+#   python -m venv .venv
+#   .venv/bin/pip install --extra-index-url https://download.pytorch.org/whl/cu128 \
+#     -r requirements.txt
+#
+# Verify CUDA is reachable:
+#   .venv/bin/python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+
+torch==2.11.0+cu128
+fastapi==0.136.1
+uvicorn==0.46.0
+pydantic==2.13.3
+numpy==2.4.4

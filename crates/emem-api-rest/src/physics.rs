@@ -1361,6 +1361,56 @@ pub async fn post_jepa_predict(
 
 // ── jepa_temporal_predictor@2 — learned dynamics head over Tessera ────────
 
+/// Choose the inference backend for jepa_v2: prefer the GPU sidecar,
+/// fall back to the in-process CPU path.
+///
+/// Why three branches:
+///   - sidecar `Ok(_)`            → use it (much faster on CUDA)
+///   - sidecar `Upstream`         → 502; the sidecar is up and rejected
+///                                  the request, masking it would lie
+///                                  to the caller about model state
+///   - sidecar unreachable / timeout / framing garble → fall back to
+///     in-process CPU. Tag `via` + `fallback_reason` in the receipt
+///     so the verifier sees which backend produced the prediction.
+async fn predict_via_sidecar_or_local(
+    lags_2d: &[Vec<f32>],
+    flat: &[f32],
+) -> Result<(Vec<f32>, JsonValue), ApiError> {
+    let req = crate::gpu_sidecar::DynamicsRequest {
+        lags: lags_2d.to_vec(),
+    };
+    match crate::gpu_sidecar::predict_dynamics_v2(&req).await {
+        Ok(resp) => Ok((resp.prediction, resp.model)),
+        Err(crate::gpu_sidecar::SidecarError::Upstream { status, body }) => Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            ErrorBody {
+                code: ErrorCode::SourceFetchFailed,
+                message: format!(
+                    "jepa_v2 sidecar rejected request: status={status}, body={body}"
+                ),
+                details: None,
+            },
+        )),
+        Err(reason) => {
+            tracing::info!(
+                ?reason,
+                "jepa_v2 sidecar unavailable; falling back to in-process CPU"
+            );
+            let (pred, metadata) = crate::jepa_v2::predict_next_vintage(flat)
+                .map_err(crate::jepa_v2::into_api_error)?;
+            let mut block = crate::jepa_v2::receipt_block(&metadata);
+            if let Some(obj) = block.as_object_mut() {
+                obj.insert("via".into(), JsonValue::String("in_process_cpu".into()));
+                obj.insert(
+                    "fallback_reason".into(),
+                    JsonValue::String(reason.to_string()),
+                );
+            }
+            Ok((pred, block))
+        }
+    }
+}
+
 /// `POST /v1/jepa_predict_v2` request body.
 ///
 /// Predicts the next-vintage Tessera embedding at a cell from the K
@@ -1461,12 +1511,13 @@ pub async fn jepa_predict_v2(
     let lag_window = &by_year[by_year.len() - crate::jepa_v2::INPUT_LAGS..];
     let mut flat: Vec<f32> =
         Vec::with_capacity(crate::jepa_v2::INPUT_LAGS * crate::jepa_v2::TESSERA_DIM);
+    let mut lags_2d: Vec<Vec<f32>> = Vec::with_capacity(crate::jepa_v2::INPUT_LAGS);
     for (_, v, _) in lag_window {
         flat.extend_from_slice(v);
+        lags_2d.push(v.clone());
     }
 
-    let (pred, metadata) =
-        crate::jepa_v2::predict_next_vintage(&flat).map_err(crate::jepa_v2::into_api_error)?;
+    let (pred, model_block) = predict_via_sidecar_or_local(&lags_2d, &flat).await?;
     let predicted_year = lag_window.last().expect("non-empty").0 + 1;
 
     // The v2 surface returns the prediction inline — we DO NOT persist
@@ -1502,7 +1553,7 @@ pub async fn jepa_predict_v2(
         "prediction_dim": pred.len(),
         "prediction": pred,
         "input_fact_cids": input_cids,
-        "model": crate::jepa_v2::receipt_block(&metadata),
+        "model": model_block,
         "responder_pubkey_b32": pubkey,
         "receipt": receipt,
         "next": {
