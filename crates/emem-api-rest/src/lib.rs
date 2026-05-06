@@ -1690,17 +1690,14 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
     // Hoist the registry's existing fields into the response root and
     // graft `bands_cid` next to them so an agent reading /v1/bands can
     // see the same content-address /v1/manifests publishes — without
-    // having to call /v1/manifests separately. The registry's existing
-    // shape (`manifest`, `version`, `bands`, `_note`) is preserved
-    // verbatim; we just add the `bands_cid` field at the root.
+    // having to call /v1/manifests separately.
     //
     // Per-band materializer status: declared bands without a wired
-    // materializer (cube family roots whose scalars are individually
-    // wired, or genuinely unimplemented placeholders like
-    // `sam3_visual`) used to be invisible from this endpoint — agents
-    // had to call /v1/recall per band to learn the connector existed.
-    // Inject `materializer:{kind:"live"|"declared_no_connector",...}`
-    // so the catalog tells the truth in one call.
+    // materializer used to be invisible from this endpoint. Inject
+    // `materializer:{kind:"live"|"scalars_only"|"declared_no_connector",...}`
+    // so the catalog tells the truth in one call. The kind is sourced
+    // from the same `band_materializer_meta` dispatch that powers
+    // /v1/recall, so it can't drift.
     let mut payload = serde_json::to_value(&*emem_core::bands::DEFAULT).unwrap_or(json!({}));
     if let Some(map) = payload.as_object_mut() {
         map.insert(
@@ -1717,29 +1714,75 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                     .and_then(|v| v.as_str())
                     .map(str::to_owned)
                     .unwrap_or_default();
-                let status = match band_materializer_meta(&key) {
-                    Some(meta) => json!({
+                let status = if let Some(meta) = band_materializer_meta(&key) {
+                    json!({
                         "kind": "live",
                         "tempo_seconds": meta.tempo.slot_seconds(),
                         "temporal_kind": meta.kind.as_str(),
                         "history_from_unix": meta.history_from_unix,
                         "history_to_unix": meta.history_to_unix,
                         "wire_path": meta.wire_path,
-                    }),
-                    None => json!({
+                    })
+                } else if let Some(sample_scalar) = family_root_sample_scalar(&key) {
+                    // Family-root key (e.g. `nightlights`, `terraclimate`,
+                    // `sentinel2_raw`) has no direct materializer at the
+                    // root, but a representative scalar child IS wired.
+                    // Probe the dispatch with that child so we can quote
+                    // its tempo / history / wire_path verbatim.
+                    let child_meta = band_materializer_meta(sample_scalar);
+                    json!({
+                        "kind": "scalars_only",
+                        "note": "Family-root cube key — recall on this exact key returns existing attestations only. Scalar children under this family (e.g. ".to_string() + sample_scalar + ") are auto-materialized; call /v1/materializers for the full per-scalar list.",
+                        "sample_wired_child": sample_scalar,
+                        "sample_child_wire_path": child_meta.as_ref().map(|m| m.wire_path),
+                        "sample_child_temporal_kind": child_meta.as_ref().map(|m| m.kind.as_str()),
+                    })
+                } else {
+                    json!({
                         "kind": "declared_no_connector",
-                        "note": "Registered in the band catalog but no auto-materializer is wired at this responder. \
-                                 /v1/recall on this band will return only existing attestations (no upstream fetch). \
-                                 Family-root cube keys (e.g. `koppen`, `landcover`, `climate`) often have wired \
-                                 SCALAR children (`koppen.major_class`, `climate.t_max_2024`, …) — see \
-                                 /v1/materializers for the full machine-readable connector list.",
-                    }),
+                        "note": "Registered in the band catalog but no auto-materializer is wired at this responder, and no scalar child under this family is wired either. /v1/recall on this band will return only existing attestations (no upstream fetch). Genuine placeholders today: sam3_visual, qwen_visual, air_quality, _reserved_512, reserved.",
+                    })
                 };
                 obj.insert("materializer".into(), status);
             }
         }
     }
     Json(payload)
+}
+
+/// Pick a representative scalar child for a cube family root, returning
+/// the key the materializer dispatch knows about. Lets `/v1/bands`
+/// distinguish "family root with wired children" from "true placeholder".
+///
+/// Sourced from `band_materializer_meta` arms — every entry below is
+/// either an explicit case in that match or a prefix arm (`b.starts_with`).
+/// If you wire a new family-root child, add the family here so the
+/// catalog reflects it.
+fn family_root_sample_scalar(family: &str) -> Option<&'static str> {
+    Some(match family {
+        // Prefix-matched arms in band_materializer_meta:
+        "weather" => "weather.temperature_2m",
+        "overture" => "overture.places_count",
+        "power" => "power.solar_radiation_yearly",
+        "cams" => "cams.air_quality_pm25",
+        "era5" => "era5.t2m_yearly_mean",
+        "marine" => "marine.wave_height",
+        "terraclimate" => "terraclimate.tmax_jan_normal",
+        "soilgrids" => "soilgrids.bulk_density_0_5cm",
+        // s2_band_plan(*)-matched arm covers Sentinel-2 reflectance + indices:
+        "sentinel2_raw" => "sentinel2.b04",
+        "indices" => "indices.ndvi",
+        // Specific scalar arms whose family root appears in the cube manifest:
+        "dem" | "cop_dem" => "copdem30m.elevation_mean",
+        "landcover" => "esa_worldcover.lc_2021",
+        "surface_water" => "surface_water.recurrence",
+        "nightlights" => "nightlights.dmsp_v4_2013",
+        "forest_change" => "forest_change.tree_loss_y2024",
+        "population" => "population", // root resolves; reachable via the live arm above
+        // Native parametric arm (parses temporal_diff:<inner>:<window>):
+        "temporal_diff" => "temporal_diff:geotessera:31536000",
+        _ => return None,
+    })
 }
 
 /// `GET /v1/materializers` — declare which bands this responder will

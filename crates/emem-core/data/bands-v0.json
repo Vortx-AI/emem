@@ -261,8 +261,7 @@
       "dims": 192,
       "tempo": "slow",
       "privacy": {"class": "l2_only_with_model_cid"},
-      "status": "PLACEHOLDER — slot reserved, no distillation pipeline shipped at any responder yet. Recall returns existing attestations only.",
-      "description": "Reserved cube slot for a future SAM-style segmentation-aware visual embedding distilled per cell. Intended to capture fine-grained object/boundary/texture structure once a distillation pipeline ships.",
+      "description": "PLACEHOLDER — slot reserved, no distillation pipeline shipped at any responder yet. Intended to carry a future SAM-style segmentation-aware visual embedding distilled per cell (object/boundary/texture structure) once a real pipeline lands. Today: recall returns existing attestations only; no upstream fetch.",
       "units": "unitless (learned embedding, when implemented)",
       "interpretation": "Opaque per-dim, cosine when populated. Privacy class is `l2_only_with_model_cid` because raw access could leak the upstream image; agents minting facts here must quote the model CID alongside.",
       "pitfalls": "Today: no facts at any responder under this band. Future: model-version-locked — a vector minted under SAM3 v1.0 will not be directly comparable to one minted under v1.1; always carry the model CID."
@@ -274,8 +273,7 @@
       "dims": 192,
       "tempo": "slow",
       "privacy": {"class": "l2_only_with_model_cid"},
-      "status": "PLACEHOLDER — slot reserved, no Qwen-VL distillation pipeline shipped at any responder yet. Recall returns existing attestations only.",
-      "description": "Reserved cube slot for a future Qwen-VL-style scene-semantic visual embedding distilled per cell. Intended to capture 'what the cell looks like at a high level' once a distillation pipeline ships.",
+      "description": "PLACEHOLDER — slot reserved, no Qwen-VL distillation pipeline shipped at any responder yet. Intended to carry a future scene-semantic visual embedding ('what the cell looks like at a high level') once a real pipeline lands. Today: recall returns existing attestations only; no upstream fetch.",
       "units": "unitless (learned embedding, when implemented)",
       "interpretation": "Opaque per-dim, cosine when populated. Same privacy + model-CID rules as `sam3_visual`."
     },
