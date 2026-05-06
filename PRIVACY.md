@@ -70,11 +70,26 @@ Until and unless an explicit consent banner flips these to `granted` (the canoni
 
 This is the **GDPR-compliant default**. The aggregate visit counts let us see whether the site is being used by humans and by AI crawlers (broken out by user-agent in the Google Analytics console) without processing personal data. Inspect the actual gtag configuration at view-source on `https://emem.dev/`.
 
-**If we ever add a consent banner**, opt-in will be granular (per-purpose: analytics, functionality), opt-out will be the default, and a cookie list will appear here. We have not added a banner because the default-denied configuration emits no cookies and no PII.
+**Consent banner.** A consent banner is rendered for human visitors on first visit. AI crawlers do not run JS and do not see the banner. The banner offers two equally-prominent buttons:
 
-**Verifying the claim.** Open Chrome DevTools → Application → Cookies on `https://emem.dev/`. The cookie list MUST be empty. If you see a `_ga` cookie, this policy is wrong; please email `avijeet@vortx.ai`.
+- **Accept**: flips `analytics_storage` and `functionality_storage` to `granted` via `gtag('consent', 'update', ...)`. From that moment, GA4 sets the `_ga` cookie (2-year retention) and a `_ga_RBLXX5LR9L` cookie (2-year retention), transmits the (default-anonymised) IP, and emits regular analytics events. The decision is recorded in `localStorage` under key `emem.consent.v1` as `{"granted": true, "ts": <epoch_ms>, "v": 1}`, valid for 180 days, after which the banner re-prompts.
+- **Reject**: leaves all storage purposes denied. No cookies are set, no IP is sent, only cookieless aggregated pings continue. The decision is recorded as `{"granted": false, "ts": <epoch_ms>, "v": 1}`, valid for 180 days.
 
-**Lawful basis (GDPR Art. 6).** No personal data is processed under default-denied Consent Mode v2, so Art. 6 does not gate the cookieless pings. If a banner is later added and consent is granted, lawful basis becomes Art. 6(1)(a) consent.
+The Esc key dismisses with **Reject** (default-deny on accidental dismiss). The banner is not a cookie wall: the entire site remains fully usable without any decision (every endpoint and link works regardless of consent state).
+
+**Revoking or changing consent.** Click **Manage cookies** in the footer at any time. This clears `localStorage` key `emem.consent.v1`, re-renders the banner, and lets you make a new decision. To clear all GA cookies in the same step, also clear cookies for `emem.dev` in your browser.
+
+**localStorage usage.** Aside from `emem.consent.v1`, the site sets no `localStorage`, `sessionStorage`, or `IndexedDB` entries. The consent key is exempt from prior consent under ePrivacy Art. 5(3) "strictly necessary for the service requested" because remembering a consent decision is required to honour it.
+
+**Verifying the claims.** Open Chrome DevTools → Application on `https://emem.dev/`:
+
+- Before any decision: Cookies tab MUST be empty for `emem.dev`. Local Storage tab MUST be empty.
+- After Reject: Cookies tab MUST stay empty. Local Storage tab shows one entry: `emem.consent.v1` = `{"granted":false,"ts":...,"v":1}`.
+- After Accept: Cookies tab shows `_ga` + `_ga_RBLXX5LR9L`. Local Storage shows `emem.consent.v1` = `{"granted":true,"ts":...,"v":1}`.
+
+If you see different behaviour, this policy is wrong; please email `avijeet@vortx.ai`.
+
+**Lawful basis (GDPR Art. 6).** Under default-denied Consent Mode v2 (the state before any banner click), no personal data is processed and Art. 6 does not gate the cookieless pings. After explicit Accept, lawful basis is **Art. 6(1)(a) consent**, freely given (the banner is dismissable with Reject), specific (analytics + functionality only; never advertising), informed (this section), and unambiguous (explicit click on a clearly-labelled button).
 
 **Cross-border transfer.** The cookieless pings reach Google US infrastructure. Google's TADPF self-certification is the legal basis for the transfer. Standard Contractual Clauses (SCCs) apply as a fallback.
 

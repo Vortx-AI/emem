@@ -725,9 +725,16 @@ DPDP Act 2023 §11–§14 rights map to the GDPR rights above; California CCPA/C
 
 ### 13.5 Cookies, fingerprints, tracking
 
-The hosted responder sets no cookies of its own. The HTML landing page at `/` (and **only** that page; not `/v1/*`, not `/mcp`, not `/openapi.json`, not the markdown surfaces, not `.well-known/*`) loads Google Analytics 4 (`G-RBLXX5LR9L`) under Consent Mode v2 with default-denied for `ad_storage`, `ad_user_data`, `ad_personalization`, `analytics_storage`, `functionality_storage`, and `personalization_storage`. Under that configuration GA4 emits only cookieless aggregated pings: no `_ga` or `_ga_*` cookies are set, no raw IP is transmitted, no profile is built. `curl -I https://emem.dev/` returns no `Set-Cookie` header. Full disclosure (vendor, measurement ID, consent defaults, transfer basis, opt-out URL) at `/privacy` and machine-readable in `/.well-known/agent-card.json` under `provider.data_protection.third_party_analytics[]`.
+The hosted responder sets no cookies of its own. The HTML landing page at `/` (and **only** that page; not `/v1/*`, not `/mcp`, not `/openapi.json`, not the markdown surfaces, not `.well-known/*`) loads Google Analytics 4 (`G-RBLXX5LR9L`) under Consent Mode v2 with default-denied for every advertising and analytics storage purpose. A consent banner is rendered for human visitors with JS-capable browsers; AI crawlers do not run JS and therefore do not see the banner. The banner offers two equally-prominent buttons:
 
-No localStorage / IndexedDB entries, no fingerprinting probes, no first-party cookies. Static assets (`/favicon.svg`, `/og-image.svg`) are served from the same origin.
+- **Reject** keeps every storage purpose denied. No cookies are set; no IP is transmitted; only cookieless aggregated pings continue. The decision is recorded in `localStorage` under key `emem.consent.v1` and is valid for 180 days.
+- **Accept** flips `analytics_storage` and `functionality_storage` to `granted`. From that moment GA4 sets `_ga` (2-year) and `_ga_RBLXX5LR9L` (2-year) cookies, transmits the IP-anonymised payload, and emits regular analytics events.
+
+The banner is not a cookie wall: every endpoint and link works regardless of consent state. The Esc key dismisses with Reject (default-deny on accidental dismiss). A footer **Manage cookies** link clears `emem.consent.v1` and reopens the banner so the user can change their decision at any time.
+
+`localStorage` usage is limited to the single `emem.consent.v1` key, which is exempt from prior consent under ePrivacy Art. 5(3) "strictly necessary for the service requested" because remembering a consent decision is required to honour it. No `sessionStorage`, no `IndexedDB`, no fingerprinting probes, no first-party cookies. Static assets (`/favicon.svg`, `/og-image.svg`) are served from the same origin.
+
+`curl -I https://emem.dev/` returns no `Set-Cookie` header (cookies are only set client-side after Accept). Full disclosure at `/privacy`; machine-readable in `/.well-known/agent-card.json` under `provider.data_protection.third_party_analytics[].consent_banner`.
 
 ### 13.6 IP handling
 
