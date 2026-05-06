@@ -39,9 +39,26 @@ clobbering geoqa-models / intruder.
 
 ## Deployment
 
-systemd user unit `emem-jepa-sidecar.service` (Phase 2 ships the
-unit file). Starts before `emem-server.service`. Restart policy
-`Restart=on-failure`, `RestartSec=10`.
+User-mode systemd unit at `emem-jepa-sidecar.service` in this dir.
+Install with:
+
+```
+cp emem-jepa-sidecar.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now emem-jepa-sidecar.service
+```
+
+`emem-server.service` declares `Wants=` + `After=` on this unit so
+starting emem-server pulls the sidecar up. The socket lives at
+`%t/emem/jepa_sidecar.sock` (= `$XDG_RUNTIME_DIR/emem/jepa_sidecar.sock`,
+typically `/run/user/1000/emem/jepa_sidecar.sock`). Both processes
+run as the same uid so the socket is reachable without ACL fuss.
+
+Crashing the sidecar does NOT cascade-stop emem-server — the wired
+`/v1/jepa_predict_v2` falls back to the in-process CPU path on
+`SidecarError::Unavailable` and tags the receipt's `model.via` as
+`in_process_cpu` so verifiers see which backend produced each
+prediction.
 
 ## Local dev
 

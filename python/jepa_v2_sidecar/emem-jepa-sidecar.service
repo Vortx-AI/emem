@@ -1,0 +1,39 @@
+[Unit]
+Description=emem.dev — GPU inference sidecar (jepa_v2 / V-JEPA 2 / Prithvi)
+After=network-online.target
+Wants=network-online.target
+# emem-server.service has Wants= and After= back-references on this
+# unit so that:
+#   1. starting emem-server pulls the sidecar up
+#   2. the sidecar's socket exists before emem-server's first request
+# Crashing the sidecar does NOT cascade-stop emem-server — the wired
+# /v1/jepa_predict_v2 falls back to the in-process CPU path on
+# SidecarError::Unavailable.
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/emem/python/jepa_v2_sidecar
+# %t expands to $XDG_RUNTIME_DIR (/run/user/UID) under user-mode
+# systemd, which gives us a per-user runtime dir auto-cleaned at
+# logout. RuntimeDirectory= asks systemd to mkdir it for us.
+RuntimeDirectory=emem
+RuntimeDirectoryMode=0755
+Environment=EMEM_SIDECAR_SOCK=%t/emem/jepa_sidecar.sock
+Environment=EMEM_SIDECAR_VRAM_BUDGET_GB=10
+Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
+Environment=EMEM_JEPA_V2_DIR=/home/ubuntu/emem/var/emem/jepa_v2
+# CUDA driver libs the +cu128 wheel dlopens at runtime.
+Environment=LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
+# uvicorn binds the socket itself when --uds is set; we don't need
+# umask gymnastics because both processes run as the same uid.
+ExecStartPre=/bin/rm -f %t/emem/jepa_sidecar.sock
+ExecStart=/home/ubuntu/emem/python/jepa_v2_sidecar/.venv/bin/python \
+  -m uvicorn server:app \
+  --uds %t/emem/jepa_sidecar.sock \
+  --log-level info
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target
