@@ -38,6 +38,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod galileo_chip;
 mod gpu_sidecar;
 mod jepa_v2;
 mod physics;
@@ -10773,6 +10774,113 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
     sign_and_persist(s, fact, &signed_at).await
 }
 
+/// Phase 4 — Galileo-Tiny per-cell foundation embedding.
+///
+/// Pulls a 10-band S2 L2A chip (8×8 at 30 m equiv) via
+/// `galileo_chip::fetch_galileo_chip`, sends it to the GPU sidecar at
+/// `/predict/galileo_tiny_embed`, signs the returned 192-D embedding
+/// under the `galileo_tiny_v1` band. S2-only mode — Galileo accepts
+/// the other modalities masked.
+async fn materialize_galileo_tiny(
+    cell64: &str,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+
+    let chip = galileo_chip::fetch_galileo_chip(cell64, s, None).await?;
+    let scene_unix = if chip.scene_unix > 0 {
+        chip.scene_unix
+    } else {
+        0
+    };
+    let (_year, doy) = unix_to_year_doy(scene_unix);
+    // Galileo wants month-of-year (1..12) for its seasonal positional
+    // encoding. Convert DOY → month via civil-from-days math.
+    let month = if scene_unix > 0 {
+        let z = scene_unix.div_euclid(86_400);
+        let (_y, m, _d) = civil_from_days(z);
+        m as u8
+    } else {
+        7
+    };
+
+    let req = gpu_sidecar::GalileoRequest {
+        s2_chip: chip.as_4d(),
+        month: Some(month),
+        lng: Some(lng),
+        lat: Some(lat),
+    };
+    let resp = gpu_sidecar::predict_galileo_tiny_embed(&req)
+        .await
+        .map_err(|e| format!("galileo sidecar: {e}"))?;
+    if resp.embedding.is_empty() {
+        return Err("galileo sidecar returned empty embedding".to_string());
+    }
+
+    let signed_at = chrono_iso8601_utc();
+    let value = ciborium::Value::Array(
+        resp.embedding
+            .iter()
+            .map(|v| ciborium::Value::Float(*v as f64))
+            .collect(),
+    );
+
+    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 1);
+    for url in &chip.asset_urls {
+        sources.push(Source {
+            scheme: "sentinel-2-l2a.cog".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(chip.scene_iso.clone()),
+            url: Some(url.clone()),
+        });
+    }
+    let model_blake2b = resp
+        .model
+        .get("blake2b_hex")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    sources.push(Source {
+        scheme: "model.galileo_tiny_v1".into(),
+        id: format!("nasaharvest/galileo@{model_blake2b}"),
+        cid: None,
+        hash: None,
+        captured_at: Some(signed_at.clone()),
+        url: Some("https://huggingface.co/nasaharvest/galileo".into()),
+    });
+
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: "galileo_tiny_v1".into(),
+        tslot: 0,
+        value,
+        unit: None,
+        confidence: 0.85,
+        uncertainty: None,
+        sources,
+        derivation: Derivation {
+            fn_key: "galileo_tiny_v1_s2_embed@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(chip.scene_id.clone()),
+                ciborium::Value::Integer((scene_unix).into()),
+                ciborium::Value::Integer((doy as i64).into()),
+                ciborium::Value::Text(model_blake2b),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 /// ISO unix → (year, day_of_year). Used for Prithvi's temporal_coords
 /// metadata input. Returns (2024, 200) for stale/missing scene_unix.
 ///
@@ -15725,6 +15833,16 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "Element84/MPC Sentinel-2 L2A 6-band chip (B02/B03/B04/B8A/B11/B12, 224×224 @ 30m equiv) → emem-jepa-sidecar /predict/prithvi_eo2_embed (CUDA, ViT-L 1024-D CLS)",
         },
+        "galileo_tiny_v1" => MaterializerMeta {
+            // Galileo-Tiny (NASA Harvest, MIT). Per-cell embedding from a
+            // 10-band S2 chip 8×8 at 30 m equiv. Tempo + history mirror S2.
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(s2_l2a_start),
+            history_to_unix: None,
+            wire_path:
+                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/03/04/05/06/07/08/8A/11/12, 8×8 @ 30m equiv) → emem-jepa-sidecar /predict/galileo_tiny_embed (CUDA, 192-D avg-pooled tokens)",
+        },
         _ => return None,
     };
     Some(m)
@@ -15981,6 +16099,11 @@ async fn materialize_band_at(
         // it to the GPU sidecar, and signs the returned 1024-D CLS
         // embedding under the `prithvi_eo2` band.
         "prithvi_eo2" => return materialize_prithvi_eo2(cell64, s).await,
+        // Phase 4 — Galileo-Tiny S2-only embedding. Pulls a 10-band
+        // 8×8 chip at 30 m equiv, sends to the GPU sidecar, signs the
+        // returned 192-D average-pooled embedding under
+        // `galileo_tiny_v1`.
+        "galileo_tiny_v1" => return materialize_galileo_tiny(cell64, s).await,
         // Beck Köppen-Geiger 1-km — static, one signed class per cell.
         "koppen" => return materialize_koppen(cell64, s).await,
         // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
@@ -16854,6 +16977,40 @@ async fn try_materialize_bands(
                     }
                 }
             }
+            // Galileo-Tiny S2-only embedding. Fetches a 10-band 8×8
+            // chip at 30 m equiv, sends to GPU sidecar, signs the
+            // returned 192-D embedding. Galileo-Tiny is much smaller
+            // than Prithvi (5.7M params vs 330M) — cold start ~5 s,
+            // warm ~50 ms.
+            "galileo_tiny_v1" => match materialize_galileo_tiny(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             // Prithvi-EO-2.0-300M-TL — fetches a 6-band S2 L2A chip,
             // resamples to 30 m × 224×224, sends to GPU sidecar, signs
             // the returned 1024-D embedding. Cold call ~10-30 s

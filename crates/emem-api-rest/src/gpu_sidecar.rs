@@ -145,6 +145,50 @@ pub async fn predict_prithvi_eo2_embed(
         .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
 }
 
+/// Phase 4 — Galileo-Tiny S2-only embedding request.
+///
+/// `s2_chip` is `[T=1, H=8, W=8, 10]` reflectance in Galileo's S2_BANDS
+/// order: B2, B3, B4, B5, B6, B7, B8, B8A, B11, B12. Native scale
+/// (0–10000); the sidecar normalizes against Galileo's pretraining
+/// stats. `month` is 1..12 (defaults July if absent), engages the
+/// model's seasonal positional encoding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GalileoRequest {
+    pub s2_chip: Vec<Vec<Vec<Vec<f32>>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub month: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lng: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+}
+
+/// Galileo response — 192-D average-pooled embedding from the encoder
+/// (Tiny variant; embed_dim is in `model.config.embedding_size`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GalileoResponse {
+    pub embedding: Vec<f32>,
+    pub embedding_dim: usize,
+    pub model: JsonValue,
+    pub inference_us: u64,
+    pub device: String,
+}
+
+/// Call the sidecar's `/predict/galileo_tiny_embed` endpoint.
+///
+/// First request after sidecar restart pays the model load cost
+/// (~4 s — Galileo Tiny is only 22 MB checkpoint). Warm calls ~14 ms.
+/// As with Prithvi, no in-process CPU fallback at ViT scale.
+pub async fn predict_galileo_tiny_embed(
+    req: &GalileoRequest,
+) -> Result<GalileoResponse, SidecarError> {
+    let body =
+        serde_json::to_vec(req).map_err(|e| SidecarError::Protocol(format!("encode req: {e}")))?;
+    let resp_bytes = post_json("/predict/galileo_tiny_embed", &body).await?;
+    serde_json::from_slice::<GalileoResponse>(&resp_bytes)
+        .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
+}
+
 // ── HTTP/1 over Unix socket ──────────────────────────────────────────────
 
 async fn post_json(path: &str, body: &[u8]) -> Result<Vec<u8>, SidecarError> {

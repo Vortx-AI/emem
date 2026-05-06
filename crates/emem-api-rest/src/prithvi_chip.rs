@@ -197,6 +197,19 @@ pub async fn fetch_prithvi_chip(
 ///
 /// Inputs are `f64` (the COG sampler's native dtype); outputs are `f32`
 /// because the model + the wire response are f32.
+/// Public re-export — same dispatch as `resample_to_chip` but
+/// accessible to `galileo_chip` without duplicating the integer/
+/// bilinear branching.
+pub(crate) fn resample_to_chip_pub(src: &[f64], src_w: u32, src_h: u32, dst_n: u32) -> Vec<f32> {
+    resample_to_chip(src, src_w, src_h, dst_n)
+}
+
+/// Public re-export — same k×k mean pool used by the integer-divisor
+/// branch above, exposed for Galileo's 24×24 → 8×8 (k=3) pool.
+pub(crate) fn block_mean_pool_pub(src: &[f64], src_w: usize, src_h: usize, k: usize) -> Vec<f32> {
+    block_mean_pool(src, src_w, src_h, k)
+}
+
 fn resample_to_chip(src: &[f64], src_w: u32, src_h: u32, dst_n: u32) -> Vec<f32> {
     if src_w == dst_n && src_h == dst_n {
         return src.iter().map(|v| *v as f32).collect();
