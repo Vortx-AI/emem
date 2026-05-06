@@ -172,6 +172,13 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],"properties"
 
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
 
+const SCHEMA_EXPLAIN_ALGORITHM: &str = r#"{
+"type":"object",
+"required":["key"],
+"properties":{
+"key":{"type":"string","description":"Algorithm key including version suffix, e.g. `walkability_score@1`. Get the live key list from `emem_algorithms`."}
+}}"#;
+
 // Anthropic's tool input_schema validator (consumed by Claude.ai
 // connectors and the Anthropic API `tools` array) only accepts the
 // JSON-Schema subset {type, properties, required} at the root. Top-level
@@ -528,6 +535,26 @@ pub const TOOLS: &[ToolDescriptor] = &[
         title: "Composition recipes (algorithms)",
         description: "Content-addressed dictionary of composition recipes — formulas that fuse attested band facts (and embeddings) into derived scores, classifications, and similarity metrics.",
         when_to_use: "Call when the user's question is COMPOSITE (flood risk, urban density, water consensus, change-since-2020) rather than a single band readout. Each entry has `kind` (solo | combined | embedding), the input `bands` (assemble one `emem_recall` body from them), the `formula` in plain math, the `output` shape, and a `citation`. The agent applies the formula in-process and quotes the algorithm key + `algorithms_cid` (from `emem_manifests`) alongside the input fact_cids — that gives the receipt enough context for any other operator to replay the same composition deterministically. Embedding entries (cosine, novelty, change, neighborhood-consistency) operate on `geotessera`; for the most common k-NN pattern the protocol-native `emem_find_similar` is faster than fetching vectors and computing locally.",
+        input_schema: SCHEMA_NONE,
+        example_args: r#"{}"#,
+        level: "L0", category: ToolCategory::Introspect,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+    ToolDescriptor {
+        name: "emem_explain_algorithm",
+        title: "One-algorithm drill-down (formula + inputs + citation)",
+        description: "Per-key drill-down on a single composition recipe — full body (kind, inputs, formula, output, citation, references) for ONE algorithm key. Companion to `emem_algorithms` (which is the catalog).",
+        when_to_use: "Call when you already know the algorithm key (from `emem_algorithms`'s catalog or the topic registry) and need its full math. Cheaper than fetching the 190 KB catalog when you only need one entry. Returns the same structure that `/v1/algorithms/{key}` does. 404s with `cid_not_found` if the key isn't registered — call `emem_algorithms` for the live key list.",
+        input_schema: SCHEMA_EXPLAIN_ALGORITHM,
+        example_args: r#"{"key":"walkability_score@1"}"#,
+        level: "L0", category: ToolCategory::Introspect,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+    ToolDescriptor {
+        name: "emem_topics",
+        title: "Topic-grouped band + algorithm registry",
+        description: "Topic-grouped registry of every band and algorithm at this responder, plus visual surfaces and the `declared_but_no_materializer_at_this_responder` block (cube slots reserved without a live connector). Single source of truth shared with `/v1/locate`'s `data_at_this_cell` block.",
+        when_to_use: "Call when the user's question lives in a topic but they haven't named a specific band — e.g. 'is this place flood-prone' (→ flood_history_long_term + flood_water_event_window) or 'how walkable is this' (→ urban_livability). Returns three blocks: `live_bands_by_topic` (every band you can recall right now), `algorithms_for_topic` (named recipes that compose those bands into derived answers — pair with `emem_algorithms` for the formulas), and `declared_but_no_materializer_at_this_responder` (honest gaps). Browse here BEFORE inventing your own synthesis formula.",
         input_schema: SCHEMA_NONE,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,

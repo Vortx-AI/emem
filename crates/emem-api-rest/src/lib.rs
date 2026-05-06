@@ -270,6 +270,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/sources", get(sources))
         .route("/v1/algorithms", get(algorithms))
         .route("/v1/algorithms/:key", get(algorithm_detail))
+        .route("/v1/topics", get(topics))
         .route("/v1/errors", get(errors))
         .route("/v1/tools", get(tools))
         .route("/v1/agent_card", get(agent_card))
@@ -540,6 +541,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/sources"
         | "/v1/manifests"
         | "/v1/errors"
+        | "/v1/topics"
         | "/v1/quickstart"
         | "/v1/agent_quickref"
         | "/agents.md"
@@ -3004,6 +3006,94 @@ async fn algorithm_detail(
             ))
         }
     }
+}
+
+/// Topic-grouped band + algorithm registry. Single source of truth for
+/// the discovery surface that lives at `/v1/topics`, the
+/// `data_at_this_cell` block in `/v1/locate`, and the MCP
+/// `emem_topics` tool. Lifting it out of inline JSON literals
+/// guarantees the three surfaces never drift.
+///
+/// Design contract: every band in `live_bands_by_topic` has a live
+/// materializer at this responder; every algorithm in
+/// `algorithms_for_topic` resolves in
+/// `emem_core::algorithms::DEFAULT`. The
+/// `declared_but_no_materializer_at_this_responder` block is the
+/// honest "slot reserved, no connector" hint — agents should report
+/// these as gaps rather than concluding the protocol can't answer.
+fn topics_payload() -> JsonValue {
+    json!({
+        "_purpose": "Topic-grouped list of every band you can recall at this cell, plus the algorithm recipes that compose those bands into named scores. Read this BEFORE concluding the responder doesn't have data on a topic, and BEFORE inventing a synthesis formula in your own reasoning.",
+        "_pointer_to_algorithms": format!(
+            "GET /v1/algorithms for the full content-addressed registry of {} composition recipes (flood_risk, walkability, embedding_novelty, carbon-MRV, SDG indicators, etc.) used by `algorithms_for_topic` below. Cite the algorithm key + algorithms_cid in the receipt.",
+            emem_core::algorithms::DEFAULT.algorithms.len()
+        ),
+        "live_bands_by_topic": {
+            "flood_history_long_term":    ["surface_water.recurrence"],
+            "flood_water_event_window":   ["indices.ndwi","indices.mndwi","sentinel1_raw"],
+            "vegetation_condition":       ["indices.ndvi","indices.evi","indices.savi","indices.ndmi","modis.ndvi_mean"],
+            "fire_burn_severity":         ["indices.nbr"],
+            "soil_bare":                  ["indices.bsi"],
+            "built_up_human_geography":   ["indices.ndbi","overture.buildings.count","overture.places.count","overture.transportation.road_length_m"],
+            "human_population":            ["population","nightlights.dmsp_ols_avg_dn","nightlights.year","nightlights.satellite"],
+            "weather_now":                ["weather.temperature_2m","weather.cloud_cover","weather.precipitation_mm","weather.wind_speed_10m"],
+            "elevation_global_topobathy": ["gmrt.topobathy_mean"],
+            "elevation_land_only":        ["copdem30m.elevation_mean"],
+            "optical_raw_reflectance":    ["s2.B02","s2.B03","s2.B04","s2.B08","s2.B11","s2.B12"],
+            "scene_classification":       ["s2.scl"],
+            "foundation_embedding":       ["geotessera","geotessera.multi_year"],
+            "radar_all_weather_sar":      ["sentinel1_raw"],
+            "conservation_protected_areas": ["protected"],
+        },
+        "algorithms_for_topic": {
+            "flood_history_long_term":    ["flood_history_class@1"],
+            "flood_water_event_window":   ["water_consensus@1", "water_likelihood_from_vv@1"],
+            "flood_risk_composite":       ["flood_risk@2", "route_flood_exposure@1"],
+            "vegetation_condition":       ["vegetation_class_from_ndvi@1", "crop_stress_score@1", "agb_ndvi_powerlaw@1", "jepa_temporal_predictor@1"],
+            "fire_burn_severity":         ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "fosberg_fire_weather_index@1"],
+            "soil_bare":                  ["bare_soil_class@1"],
+            "snow":                       ["snow_likelihood_from_ndsi@1"],
+            "built_up_human_geography":   ["built_up_from_ndbi@1", "urban_density_score@1", "population_ghsl_dasymetric@1", "noise_exposure_proxy@1"],
+            "weather_now":                ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1", "vapor_pressure_deficit@1", "heat_equation_2d@1"],
+            "topography":                 ["slope_from_dem_neighborhood@1", "ruggedness_index@1", "topo_position_index@1", "coastal_proximity@1", "wave_equation_1d@1"],
+            "foundation_embedding":       ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "embedding_novelty@1", "embedding_neighborhood_consistency@1", "embedding_centroid@1", "region_similarity@1", "place_archetype_match@1", "region_outlier_score@1", "embedding_corridor_consistency@1", "embedding_diversity_score@1"],
+            "real_estate":                ["property_climate_risk_score@1", "insurance_premium_proxy@1", "coastal_erosion_proxy@1", "multi_peril_score@1"],
+            "esg":                        ["carbon_sink_score@1", "biodiversity_proxy@1", "esg_environmental_pressure@1", "physical_climate_risk_index@1", "transition_risk_proxy@1"],
+            "agriculture":                ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1"],
+            "soil_intelligence":          ["soil_moisture_sar@1", "soc_estimate_s2_dem@1", "soil_salinity_index@1", "rusle_soil_erosion@1", "land_degradation_trend@1"],
+            "carbon_credits":             ["soc_change_credit@1", "eudr_compliance@1", "rice_methane_awd_modeled@1", "carbon_sink_score@1"],
+            "parametric_insurance":       ["parametric_trigger@1", "spi_meteorological_drought@1", "crop_loss_event_assessment@1", "carbon.drought_carbon_stress@1", "physical_climate_risk_index@1"],
+            "energy":                     ["wind_power_density@1", "hydro_theoretical_power@1", "ghi_clearsky_haurwitz@1"],
+            "public_health":              ["air_stagnation_wang_angell@1", "aedes_thermal_suitability_mordecai@1", "heat_vulnerability_index@1"],
+            "urban_livability":           ["walkability_score@1", "bikeability_score@1", "urban_heat_island_imhoff@1", "green_space_access@1", "outdoor_comfort_score@1", "construction_site_exposure@1", "livability_index@1"],
+            "analytics":                  ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1", "visual_search_match@1"],
+        },
+        "visual_surfaces": {
+            "rgb_scene_png": "GET /v1/cells/{cell64}/scene.png?max_cloud=20  (or MCP `emem_cell_scene_rgb`) — true-colour Sentinel-2 L2A 256×256 thumbnail",
+            "cell_geojson":  "GET /v1/cells/{cell64}/geojson — polygon hexagon for any GIS / map renderer",
+            "cell_recall_geojson": "GET /v1/cells/{cell64}/recall_geojson?bands=... — properties carry every fact value the responder has, ready to style",
+        },
+        "declared_but_no_materializer_at_this_responder": {
+            "_meaning": "These bands are reserved in the cube manifest but have no live connector. Recall returns empty. Tell the user honestly: 'this responder doesn't have a connector for X' — don't web-search until you've reported the gap.",
+            "_note_on_surface_water_vector": "The 12-d cube key `surface_water` is unfilled (no responder has agreed on the slot allocation yet). The scalar `surface_water.recurrence` IS live (see live_bands_by_topic.flood_history_long_term) and answers the historical-flood question.",
+            "landcover_classes":           ["landcover","ecoregions","mangrove"],
+            "human_settlement_layer":      ["ghsl"],
+            "ocean_chemistry":             ["ocean_chl"],
+        },
+        "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands — they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe — apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data — be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
+        "for_temporal_questions": "For 'last N years' questions, materializers return one fact at the latest available tslot. To get a series, call `emem_recall` repeatedly for past tslots only if the band's tempo is `slow`/`static` (which means one fact covers the period). For `fast`/`medium` tempo bands, history requires the responder to have already seeded past tslots — call `emem_trajectory` to enumerate what's there, do NOT assume historical lookback materializes on demand.",
+    })
+}
+
+/// `GET /v1/topics` — content-addressed topic registry exposed as a
+/// first-class endpoint. Same body the `/v1/locate` `data_at_this_cell`
+/// block returns; broken out so an agent can browse the topic
+/// inventory without having to first locate a cell.
+async fn topics() -> Json<JsonValue> {
+    Json(json!({
+        "schema": "emem.topics.v1",
+        "topics": topics_payload(),
+    }))
 }
 
 /// `GET /v1/errors` — error catalogue with action hints. Just listing the
@@ -8401,6 +8491,29 @@ async fn mcp_tool_call(
             "topics_cid": TOPICS_CID.clone(),
         })),
         "emem_errors" => Ok(errors_payload()),
+        "emem_topics" => Ok(json!({
+            "schema": "emem.topics.v1",
+            "topics": topics_payload(),
+        })),
+        "emem_explain_algorithm" => {
+            #[derive(serde::Deserialize)]
+            struct ExplainArgs {
+                key: String,
+            }
+            let a: ExplainArgs =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let reg = &*emem_core::algorithms::DEFAULT;
+            match reg.lookup(&a.key) {
+                Some(algo) => Ok(serde_json::to_value(algo).unwrap_or(json!({}))),
+                None => Err((
+                    -(ErrorCode::CidNotFound as i64),
+                    format!(
+                        "no algorithm with key {:?}; call emem_algorithms (or GET /v1/algorithms) for the catalog",
+                        a.key
+                    ),
+                )),
+            }
+        }
         "emem_fetch" => {
             #[derive(serde::Deserialize)]
             struct FetchArgs {
@@ -8558,6 +8671,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/functions":         {"get":{"summary":"function registry","operationId":"emem_functions","responses":{"200":json_ok}}},
             "/v1/sources":           {"get":{"summary":"source registry","operationId":"emem_sources","responses":{"200":json_ok}}},
             "/v1/errors":            {"get":{"summary":"error code catalog","operationId":"emem_errors","responses":{"200":json_ok}}},
+            "/v1/topics":            {"get":{"summary":"topic-grouped band + algorithm registry (single source of truth shared with `/v1/locate`'s `data_at_this_cell` block)","operationId":"emem_topics","responses":{"200":json_ok}}},
+            "/v1/algorithms/{key}":  {"get":{"summary":"per-key drill-down on a single algorithm (formula, inputs, citation) — pair with /v1/algorithms's catalog","operationId":"emem_explain_algorithm","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","responses":{"200":json_ok}}},
             "/v1/cells/{cell64}":    {"get":{"summary":"recall facts at a cell","operationId":"emem_recall_cell_get","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/recall":            {"post":{"summary":"recall facts","operationId":"emem_recall","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RecallReq"}}}},"responses":{"200":json_ok}}},
@@ -8725,6 +8840,8 @@ async fn openapi_action_json() -> Json<JsonValue> {
         "emem_fleet",
         "emem_temporal_route",
         "emem_errors",
+        "emem_topics",
+        "emem_explain_algorithm",
         // Geo helpers (3)
         "emem_cell_geojson",
         "emem_cell_scene_rgb",
@@ -18640,72 +18757,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         // locate, so the agent sees the full inventory before picking
         // bands. Drift risk vs `materializer_bands` is mitigated by the
         // unit test in tests::locate_inventory_matches_coverage_matrix.
-        "data_at_this_cell": json!({
-            "_purpose": "Topic-grouped list of every band you can recall at this cell, plus the algorithm recipes that compose those bands into named scores. Read this BEFORE concluding the responder doesn't have data on a topic, and BEFORE inventing a synthesis formula in your own reasoning.",
-            "_pointer_to_algorithms": format!(
-                "GET /v1/algorithms for the full content-addressed registry of {} composition recipes (flood_risk, walkability, embedding_novelty, carbon-MRV, SDG indicators, etc.) used by `algorithms_for_topic` below. Cite the algorithm key + algorithms_cid in the receipt.",
-                emem_core::algorithms::DEFAULT.algorithms.len()
-            ),
-            "live_bands_by_topic": {
-                "flood_history_long_term":    ["surface_water.recurrence"],
-                "flood_water_event_window":   ["indices.ndwi","indices.mndwi","sentinel1_raw"],
-                "vegetation_condition":       ["indices.ndvi","indices.evi","indices.savi","indices.ndmi","modis.ndvi_mean"],
-                "fire_burn_severity":         ["indices.nbr"],
-                "soil_bare":                  ["indices.bsi"],
-                "built_up_human_geography":   ["indices.ndbi","overture.buildings.count","overture.places.count","overture.transportation.road_length_m"],
-                "human_population":            ["population","nightlights.dmsp_ols_avg_dn","nightlights.year","nightlights.satellite"],
-                "weather_now":                ["weather.temperature_2m","weather.cloud_cover","weather.precipitation_mm","weather.wind_speed_10m"],
-                "elevation_global_topobathy": ["gmrt.topobathy_mean"],
-                "elevation_land_only":        ["copdem30m.elevation_mean"],
-                "optical_raw_reflectance":    ["s2.B02","s2.B03","s2.B04","s2.B08","s2.B11","s2.B12"],
-                "scene_classification":       ["s2.scl"],
-                "foundation_embedding":       ["geotessera","geotessera.multi_year"],
-                "radar_all_weather_sar":      ["sentinel1_raw"],
-                "conservation_protected_areas": ["protected"],
-            },
-            // For each topic above, the algorithm recipe(s) that compose
-            // its bands into a derived answer. Agents should prefer the
-            // named recipe over inventing thresholds — receipts citing
-            // an algorithm_cid replay deterministically.
-            "algorithms_for_topic": {
-                "flood_history_long_term":    ["flood_history_class@1"],
-                "flood_water_event_window":   ["water_consensus@1", "water_likelihood_from_vv@1"],
-                "flood_risk_composite":       ["flood_risk@2", "route_flood_exposure@1"],
-                "vegetation_condition":       ["vegetation_class_from_ndvi@1", "crop_stress_score@1", "agb_ndvi_powerlaw@1", "jepa_temporal_predictor@1"],
-                "fire_burn_severity":         ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "fosberg_fire_weather_index@1"],
-                "soil_bare":                  ["bare_soil_class@1"],
-                "snow":                       ["snow_likelihood_from_ndsi@1"],
-                "built_up_human_geography":   ["built_up_from_ndbi@1", "urban_density_score@1", "population_ghsl_dasymetric@1", "noise_exposure_proxy@1"],
-                "weather_now":                ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1", "vapor_pressure_deficit@1", "heat_equation_2d@1"],
-                "topography":                 ["slope_from_dem_neighborhood@1", "ruggedness_index@1", "topo_position_index@1", "coastal_proximity@1", "wave_equation_1d@1"],
-                "foundation_embedding":       ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "embedding_novelty@1", "embedding_neighborhood_consistency@1", "embedding_centroid@1", "region_similarity@1", "place_archetype_match@1", "region_outlier_score@1", "embedding_corridor_consistency@1", "embedding_diversity_score@1"],
-                "real_estate":                ["property_climate_risk_score@1", "insurance_premium_proxy@1", "coastal_erosion_proxy@1", "multi_peril_score@1"],
-                "esg":                        ["carbon_sink_score@1", "biodiversity_proxy@1", "esg_environmental_pressure@1", "physical_climate_risk_index@1", "transition_risk_proxy@1"],
-                "agriculture":                ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1"],
-                "soil_intelligence":          ["soil_moisture_sar@1", "soc_estimate_s2_dem@1", "soil_salinity_index@1", "rusle_soil_erosion@1", "land_degradation_trend@1"],
-                "carbon_credits":             ["soc_change_credit@1", "eudr_compliance@1", "rice_methane_awd_modeled@1", "carbon_sink_score@1"],
-                "parametric_insurance":       ["parametric_trigger@1", "spi_meteorological_drought@1", "crop_loss_event_assessment@1", "carbon.drought_carbon_stress@1", "physical_climate_risk_index@1"],
-                "energy":                     ["wind_power_density@1", "hydro_theoretical_power@1", "ghi_clearsky_haurwitz@1"],
-                "public_health":              ["air_stagnation_wang_angell@1", "aedes_thermal_suitability_mordecai@1", "heat_vulnerability_index@1"],
-                "urban_livability":           ["walkability_score@1", "bikeability_score@1", "urban_heat_island_imhoff@1", "green_space_access@1", "outdoor_comfort_score@1", "construction_site_exposure@1", "livability_index@1"],
-                "analytics":                  ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1", "visual_search_match@1"],
-            },
-            // Multimodal (visual / image) surfaces available at this cell.
-            "visual_surfaces": {
-                "rgb_scene_png": "GET /v1/cells/{cell64}/scene.png?max_cloud=20  (or MCP `emem_cell_scene_rgb`) — true-colour Sentinel-2 L2A 256×256 thumbnail",
-                "cell_geojson":  "GET /v1/cells/{cell64}/geojson — polygon hexagon for any GIS / map renderer",
-                "cell_recall_geojson": "GET /v1/cells/{cell64}/recall_geojson?bands=... — properties carry every fact value the responder has, ready to style",
-            },
-            "declared_but_no_materializer_at_this_responder": {
-                "_meaning": "These bands are reserved in the cube manifest but have no live connector. Recall returns empty. Tell the user honestly: 'this responder doesn't have a connector for X' — don't web-search until you've reported the gap.",
-                "_note_on_surface_water_vector": "The 12-d cube key `surface_water` is unfilled (no responder has agreed on the slot allocation yet). The scalar `surface_water.recurrence` IS live (see live_bands_by_topic.flood_history_long_term) and answers the historical-flood question.",
-                "landcover_classes":           ["landcover","ecoregions","mangrove"],
-                "human_settlement_layer":      ["ghsl"],
-                "ocean_chemistry":             ["ocean_chl"],
-            },
-            "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands — they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe — apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data — be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
-            "for_temporal_questions": "For 'last N years' questions, materializers return one fact at the latest available tslot. To get a series, call `emem_recall` repeatedly for past tslots only if the band's tempo is `slow`/`static` (which means one fact covers the period). For `fast`/`medium` tempo bands, history requires the responder to have already seeded past tslots — call `emem_trajectory` to enumerate what's there, do NOT assume historical lookback materializes on demand.",
-        }),
+        "data_at_this_cell": topics_payload(),
         "agent_hint": {
             "request_field_name": "cell",
             "alias_accepted":     "cell64",
@@ -22002,6 +22054,56 @@ mod tests {
                 codes.contains(&wire),
                 "ErrorCode::{v:?} (`{wire}`) is not documented in errors_payload()"
             );
+        }
+    }
+
+    /// `topics_payload()` is the single source of truth shared with
+    /// `/v1/locate`'s `data_at_this_cell` block. Sanity guard so a
+    /// future refactor that drops a key (e.g. removes
+    /// `live_bands_by_topic` or `algorithms_for_topic`) breaks the
+    /// test, not an agent in production.
+    #[test]
+    fn topics_payload_carries_required_blocks() {
+        let v = topics_payload();
+        for required in [
+            "live_bands_by_topic",
+            "algorithms_for_topic",
+            "visual_surfaces",
+            "declared_but_no_materializer_at_this_responder",
+            "how_to_use",
+            "for_temporal_questions",
+        ] {
+            assert!(
+                v.get(required).is_some(),
+                "topics_payload() missing required block `{required}`: {v}"
+            );
+        }
+    }
+
+    /// Every algorithm key cited in `algorithms_for_topic` MUST
+    /// resolve in the registry. Without this guard a renamed or
+    /// removed algorithm would silently break `emem_topics` →
+    /// `emem_explain_algorithm` chaining.
+    #[test]
+    fn topics_payload_algorithm_keys_resolve_in_registry() {
+        let v = topics_payload();
+        let reg = &*emem_core::algorithms::DEFAULT;
+        let topics = v
+            .get("algorithms_for_topic")
+            .and_then(|t| t.as_object())
+            .expect("algorithms_for_topic is an object");
+        for (topic, algos) in topics {
+            let arr = algos.as_array().unwrap_or_else(|| {
+                panic!("topic {topic} value is not an array: {algos:?}")
+            });
+            for k in arr {
+                let key = k.as_str().expect("algorithm key is a string");
+                assert!(
+                    reg.lookup(key).is_some(),
+                    "topic `{topic}` references unknown algorithm `{key}` — \
+                     keep emem_topics + emem_algorithms in sync"
+                );
+            }
         }
     }
 }
