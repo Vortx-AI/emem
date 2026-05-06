@@ -14292,6 +14292,265 @@ async fn materialize_hansen_band(
 /// Build the merkle-rooted Attestation around one fact, sign it under the
 /// responder's identity, persist it, and return the fact CID. Centralises
 /// the boilerplate that all materializers share.
+/// Parse a `temporal_diff:<inner_band>:<window>` band key into its
+/// two semantic pieces. Window grammar: `Nd` (days), `Nw` (weeks),
+/// `Nm` (months, 30d each), `Ny` (years, 365.25d each). Pure;
+/// returns `None` on any shape error so the caller can produce a
+/// structured upstream-style "invalid band key" message.
+///
+/// Splits right-to-left because the inner band itself may contain
+/// the colon-free emem-band convention (`indices.ndvi`,
+/// `forest_change.lossyear`) and we want the LAST `:` to be the
+/// window separator. If a future band introduces a colon in its
+/// own key this needs revisiting.
+fn parse_temporal_diff_key(band: &str) -> Option<(String, i64)> {
+    let payload = band.strip_prefix("temporal_diff:")?;
+    let mut it = payload.rsplitn(2, ':');
+    let window_str = it.next()?;
+    let inner_band = it.next()?;
+    if inner_band.is_empty() {
+        return None;
+    }
+    let secs = parse_temporal_diff_window_secs(window_str)?;
+    Some((inner_band.to_string(), secs))
+}
+
+/// Window-grammar parser for `temporal_diff`. Returns seconds.
+/// Reject zero / negative / non-finite up front so callers can rely
+/// on `secs > 0` downstream.
+fn parse_temporal_diff_window_secs(s: &str) -> Option<i64> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 2 {
+        return None;
+    }
+    let (num_part, unit) = bytes.split_at(bytes.len() - 1);
+    let n: u32 = std::str::from_utf8(num_part).ok()?.parse().ok()?;
+    if n == 0 {
+        return None;
+    }
+    let secs_per_unit: i64 = match unit[0] {
+        b'd' => 86_400,
+        b'w' => 7 * 86_400,
+        b'm' => 30 * 86_400,                         // calendar-month approximation
+        b'y' => (365.25_f64 * 86_400.0).round() as i64, // Julian year
+        _ => return None,
+    };
+    Some(secs_per_unit * (n as i64))
+}
+
+/// Materialise a `temporal_diff:<inner>:<window>` band. See
+/// `materialize_band_at`'s prefix-dispatch arm for the user-facing
+/// contract; this function is the implementation.
+///
+/// Algorithm:
+///   1. Parse band key. Reject malformed.
+///   2. Resolve inner band's tempo from `band_materializer_meta`.
+///      Reject inner bands that don't exist as materialisers.
+///   3. Auto-materialise the latest end (`target_unix`) — this is
+///      the cheap end in steady state because it's what most
+///      callers already have cached.
+///   4. Look up the historical end (`target_unix - window`) in
+///      storage WITHOUT auto-fetching. If missing, sign a
+///      structured Absence with reason `needs_backfill` pointing
+///      at /v1/backfill — agents must explicitly seed history,
+///      not pay for a transparent backfill behind a single recall.
+///   5. Compute `delta = value_b - value_a` (scalar f64; vector
+///      bands rejected with a clear "vectors not supported"
+///      message — they need their own algorithm not delta).
+///   6. Sign as a Primary fact under the synthetic key with
+///      `derivation.fn_key = "nd.delta@1"`, `parents = [cid_a, cid_b]`,
+///      and both source facts cited so the receipt replays the
+///      delta from primary evidence.
+async fn materialize_temporal_diff(
+    cell64: &str,
+    band: &str,
+    target_unix: i64,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    let (inner_band, window_secs) = parse_temporal_diff_key(band).ok_or_else(|| {
+        format!(
+            "temporal_diff band-key shape: `temporal_diff:<inner_band>:<window>` \
+             where window is e.g. `30d`, `90d`, `1y`, `2y`. Got `{band}`."
+        )
+    })?;
+    let inner_meta = band_materializer_meta(&inner_band).ok_or_else(|| {
+        format!(
+            "temporal_diff inner band `{inner_band}` has no materialiser at this \
+             responder; call /v1/materializers for the live list."
+        )
+    })?;
+    if window_secs <= 0 {
+        return Err(format!(
+            "temporal_diff window must be positive; parsed secs={window_secs}"
+        ));
+    }
+    let target_unix_a = target_unix.saturating_sub(window_secs);
+    let tslot_a = emem_core::tslot::Tslot::from_unix(target_unix_a, inner_meta.tempo).0;
+    let tslot_b = emem_core::tslot::Tslot::from_unix(target_unix, inner_meta.tempo).0;
+    if tslot_a == tslot_b {
+        return Err(format!(
+            "temporal_diff window `{window_secs}s` is shorter than `{inner_band}`'s \
+             tempo grain ({}s) — both ends would land in the same tslot. Pick a \
+             larger window or a finer-tempo band.",
+            inner_meta.tempo.slot_seconds()
+        ));
+    }
+
+    // Auto-materialise the latest end via the dispatcher. Recursive
+    // call is safe — no fixed-point because `inner_band` doesn't have
+    // the `temporal_diff:` prefix (parser stripped it).
+    let cid_b =
+        Box::pin(materialize_band_at(cell64, &inner_band, target_unix, s)).await?;
+
+    // Historical end: lookup-only. No transparent backfill — it would
+    // mask "you forgot to seed history" as a slow recall.
+    let key_a = emem_cache::CanonicalKey {
+        cell: cell64.to_string(),
+        band: inner_band.clone(),
+        tslot: tslot_a,
+    };
+    let cid_a_opt = s
+        .storage
+        .lookup_canonical_many(std::slice::from_ref(&key_a))
+        .await
+        .map_err(|e| format!("storage lookup_canonical_many: {e}"))?
+        .pop()
+        .flatten();
+
+    let signed_at = chrono_iso8601_utc();
+    let cid_a = match cid_a_opt {
+        Some(c) => c,
+        None => {
+            // Sign Absence with structured needs_backfill reason. The
+            // agent-actionable hint includes the exact /v1/backfill
+            // body so an LLM can self-repair.
+            let reason = format!(
+                "needs_backfill: temporal_diff requires a fact at \
+                 (cell={cell64}, band={inner_band}, tslot={tslot_a}) — equivalent to \
+                 unix≈{target_unix_a}. Seed it via POST /v1/backfill \
+                 {{cell:'{cell64}', band:'{inner_band}', start_unix:{target_unix_a}, end_unix:{target_unix_a}}} \
+                 then re-recall this band. The historical end is NOT auto-fetched \
+                 to keep recall latency bounded."
+            );
+            let reason_cid = reason_cid_for(&reason);
+            let fact = Fact::Absence(NegativeFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: tslot_b,
+                reason_cid,
+                confidence: 1.0,
+                sources: vec![Source {
+                    scheme: format!("temporal_diff.{inner_band}"),
+                    id: format!(
+                        "missing inner fact (cell={cell64}, band={inner_band}, tslot={tslot_a})"
+                    ),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: None,
+                }],
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            return sign_and_persist(s, fact, &signed_at).await;
+        }
+    };
+
+    // Both ends present. Fetch the underlying values and compute delta.
+    let facts = s
+        .storage
+        .get_facts_many(&[cid_a.clone(), cid_b.clone()])
+        .await
+        .map_err(|e| format!("storage get_facts_many: {e}"))?;
+    let fa = facts
+        .first()
+        .cloned()
+        .flatten()
+        .ok_or_else(|| format!("missing fact bytes for cid_a={}", cid_a.as_str()))?;
+    let fb = facts
+        .get(1)
+        .cloned()
+        .flatten()
+        .ok_or_else(|| format!("missing fact bytes for cid_b={}", cid_b.as_str()))?;
+
+    let (va, vb) = match (&fa, &fb) {
+        (Fact::Primary(a), Fact::Primary(b)) => (&a.value, &b.value),
+        _ => {
+            return Err(format!(
+                "temporal_diff requires Primary facts at both tslots for `{inner_band}`; \
+                 got non-Primary (Absence at one or both ends)"
+            ))
+        }
+    };
+
+    // Scalars only for now. Vector deltas are real but the user-facing
+    // semantics are different (cosine drift, per-dimension change vector,
+    // …) — those belong in a separate algorithm, not this materialiser.
+    let an = emem_primitives::cbor_ops::as_f64(va).ok_or_else(|| {
+        format!(
+            "temporal_diff: inner band `{inner_band}` is not numeric scalar at the \
+             historical tslot. Vector bands need a dedicated algorithm; \
+             call /v1/algorithms for embedding-change recipes."
+        )
+    })?;
+    let bn = emem_primitives::cbor_ops::as_f64(vb).ok_or_else(|| {
+        format!(
+            "temporal_diff: inner band `{inner_band}` is not numeric scalar at the \
+             latest tslot."
+        )
+    })?;
+    let delta = bn - an;
+
+    // Carry the inner unit through unchanged — the band-key telegraphs
+    // it's a delta. e.g. NDVI → unit "ndvi" applies to the delta.
+    let inner_unit = match &fa {
+        Fact::Primary(p) => p.unit.clone(),
+        _ => None,
+    };
+    let primary_fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot: tslot_b,
+        value: ciborium::Value::Float(delta),
+        unit: inner_unit,
+        confidence: 1.0,
+        uncertainty: None,
+        sources: vec![
+            Source {
+                scheme: format!("temporal_diff.parent_a.{inner_band}"),
+                id: cid_a.as_str().to_string(),
+                cid: Some(cid_a.as_str().to_string()),
+                hash: None,
+                captured_at: Some(signed_at.clone()),
+                url: None,
+            },
+            Source {
+                scheme: format!("temporal_diff.parent_b.{inner_band}"),
+                id: cid_b.as_str().to_string(),
+                cid: Some(cid_b.as_str().to_string()),
+                hash: None,
+                captured_at: Some(signed_at.clone()),
+                url: None,
+            },
+        ],
+        derivation: Derivation {
+            fn_key: "nd.delta@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Text(inner_band),
+                ciborium::Value::Integer((window_secs as i64).into()),
+                ciborium::Value::Integer((tslot_a as i64).into()),
+                ciborium::Value::Integer((tslot_b as i64).into()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, primary_fact, &signed_at).await
+}
+
 async fn sign_and_persist(
     s: &AppState,
     fact: Fact,
@@ -14648,6 +14907,26 @@ impl BandKind {
 /// Adding a new vintage is a one-line edit to `TESSERA_YEARS_RANGE`.
 fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
     use emem_core::tslot::Tempo;
+    // Native temporal_diff materializer (P3-C). Parametric prefix:
+    // `temporal_diff:<inner_band>:<window>` inherits its tempo / kind /
+    // history bounds from the inner band — the synthetic key adds a
+    // signed delta wrapper but the temporal grain is dictated by the
+    // primary data source. The wire_path advertises the convention so
+    // /v1/materializers surfaces the parametric pattern even if no
+    // specific instance is yet seeded.
+    if let Some((inner, _window_secs)) = parse_temporal_diff_key(band) {
+        // Box the recursion to avoid an infinite-size future inside the
+        // same function (band_materializer_meta is sync, so this is just
+        // a heap allocation, not a runtime concern).
+        let inner_meta = band_materializer_meta(&inner)?;
+        return Some(MaterializerMeta {
+            tempo: inner_meta.tempo,
+            kind: inner_meta.kind,
+            history_from_unix: inner_meta.history_from_unix,
+            history_to_unix: inner_meta.history_to_unix,
+            wire_path: "temporal_diff: native delta over <inner_band> across the requested window (signed Primary fact, parents cite both source CIDs)",
+        });
+    }
     // Provider-of-record start dates, computed via Hinnant civil → days
     // so the constants stay self-checking (no magic-number drift).
     // - MOD13Q1 first granule "A2000049" = day-of-year 49 of 2000 = 2000-02-18.
@@ -15171,6 +15450,15 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("nightlights.dmsp_ols_avg_dn".into());
     out.push("nightlights.year".into());
     out.push("nightlights.satellite".into());
+    // temporal_diff is parametric (band-key shape:
+    // `temporal_diff:<inner_band>:<window>`) so we can't enumerate
+    // every instance. Surface a few canonical examples so an agent
+    // browsing /v1/materializers sees the pattern; the dispatcher
+    // accepts any (inner, window) pair where the inner band has a
+    // materialiser at this responder.
+    out.push("temporal_diff:indices.ndvi:1y".into());
+    out.push("temporal_diff:indices.ndvi:30d".into());
+    out.push("temporal_diff:weather.temperature_2m:1y".into());
     out
 }
 
@@ -15203,6 +15491,16 @@ async fn materialize_band_at(
     target_unix: i64,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
+    // Native temporal_diff materializer (P3-C). A band-key of shape
+    // `temporal_diff:<inner_band>:<window>` (e.g. `temporal_diff:indices.ndvi:1y`)
+    // resolves to a Primary fact whose value is `inner@target - inner@(target-window)`.
+    // The latest end auto-materialises through this function recursively;
+    // the historical end MUST already exist in storage — we sign a
+    // structured Absence with reason `needs_backfill` rather than blow
+    // the latency budget on a transparent backfill.
+    if band.starts_with("temporal_diff:") {
+        return materialize_temporal_diff(cell64, band, target_unix, s).await;
+    }
     // Static products: tslot is meaningless, the canonical fact lives at
     // tslot=0 regardless of target.
     match band {
@@ -22078,6 +22376,103 @@ mod tests {
                 "topics_payload() missing required block `{required}`: {v}"
             );
         }
+    }
+
+    /// Window-grammar parser for `temporal_diff:<inner>:<window>`.
+    /// Days/weeks/months/years; reject zero, negative, garbage,
+    /// over-short. These constants are the public contract.
+    #[test]
+    fn temporal_diff_window_parser_accepts_units() {
+        assert_eq!(parse_temporal_diff_window_secs("1d"), Some(86_400));
+        assert_eq!(parse_temporal_diff_window_secs("30d"), Some(30 * 86_400));
+        assert_eq!(parse_temporal_diff_window_secs("1w"), Some(7 * 86_400));
+        assert_eq!(parse_temporal_diff_window_secs("4w"), Some(28 * 86_400));
+        assert_eq!(parse_temporal_diff_window_secs("1m"), Some(30 * 86_400));
+        assert_eq!(
+            parse_temporal_diff_window_secs("1y"),
+            Some((365.25_f64 * 86_400.0).round() as i64)
+        );
+        assert_eq!(
+            parse_temporal_diff_window_secs("2y"),
+            Some(2 * (365.25_f64 * 86_400.0).round() as i64)
+        );
+    }
+
+    #[test]
+    fn temporal_diff_window_parser_rejects_garbage() {
+        for bad in [
+            "", "0d", "0y", "y", "d", "30", "30x", "30days", "1.5y", "-1y",
+            "  30d", "30d ", "abc",
+        ] {
+            assert!(
+                parse_temporal_diff_window_secs(bad).is_none(),
+                "expected None for `{bad}`, got {:?}",
+                parse_temporal_diff_window_secs(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn temporal_diff_key_parser_splits_inner_and_window() {
+        assert_eq!(
+            parse_temporal_diff_key("temporal_diff:indices.ndvi:1y"),
+            Some((
+                "indices.ndvi".to_string(),
+                (365.25_f64 * 86_400.0).round() as i64
+            ))
+        );
+        assert_eq!(
+            parse_temporal_diff_key("temporal_diff:weather.temperature_2m:30d"),
+            Some(("weather.temperature_2m".to_string(), 30 * 86_400))
+        );
+        // Nested temporal_diff (delta of a delta) — the parser splits
+        // on the LAST colon so the outer wrapper sees an inner band of
+        // `temporal_diff:foo:30d` and a window of `1y`. Recursion in
+        // the dispatcher then handles the inner.
+        assert_eq!(
+            parse_temporal_diff_key("temporal_diff:temporal_diff:foo:30d:1y"),
+            Some((
+                "temporal_diff:foo:30d".to_string(),
+                (365.25_f64 * 86_400.0).round() as i64
+            ))
+        );
+    }
+
+    #[test]
+    fn temporal_diff_key_parser_rejects_malformed() {
+        for bad in [
+            "indices.ndvi:1y",            // missing temporal_diff: prefix
+            "temporal_diff:indices.ndvi", // missing window
+            "temporal_diff::1y",          // empty inner band
+            "temporal_diff:indices.ndvi:",// empty window
+            "temporal_diff:indices.ndvi:99x", // invalid window unit
+            "temporal_diff:indices.ndvi:0y",  // zero window
+        ] {
+            assert!(
+                parse_temporal_diff_key(bad).is_none(),
+                "expected None for `{bad}`"
+            );
+        }
+    }
+
+    /// `band_materializer_meta` resolves every documented temporal_diff
+    /// example by inheriting the inner band's tempo + history bounds.
+    /// Guards the parametric prefix arm against silent breakage when
+    /// the inner band's meta changes.
+    #[test]
+    fn temporal_diff_meta_inherits_from_inner_band() {
+        let inner = band_materializer_meta("indices.ndvi")
+            .expect("indices.ndvi has a materializer");
+        let wrapped = band_materializer_meta("temporal_diff:indices.ndvi:1y")
+            .expect("temporal_diff over indices.ndvi must resolve");
+        assert_eq!(wrapped.tempo, inner.tempo);
+        assert_eq!(wrapped.history_from_unix, inner.history_from_unix);
+        assert_eq!(wrapped.history_to_unix, inner.history_to_unix);
+        assert!(
+            wrapped.wire_path.contains("temporal_diff"),
+            "wire_path should advertise the temporal_diff convention; got `{}`",
+            wrapped.wire_path
+        );
     }
 
     /// Every algorithm key cited in `algorithms_for_topic` MUST
