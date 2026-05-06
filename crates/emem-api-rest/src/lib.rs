@@ -16571,6 +16571,45 @@ async fn try_materialize_bands(
                     }
                 }
             }
+            // NASA FIRMS active-fire (P3-D). Tempo::Fast (hourly). The
+            // dispatcher takes target_unix from `now` because /v1/recall
+            // doesn't carry an explicit tslot for auto-materialise calls
+            // — agents asking for a historical hour use /v1/backfill.
+            "firms.active_fires" => {
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                match materialize_firms_active_fires(cell64, s, now_unix).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary_or_absence",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
             // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
             // Returns Primary for populated cells, Absence for ocean /
             // polar / genuinely uninhabited terrain (the API's documented
