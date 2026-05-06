@@ -3,7 +3,7 @@
   {"id":2,"domain":"health","q":"heat stroke risk in phoenix this week","place":"Phoenix, Arizona","expect":["public_health","weather_now","urban_livability"]},
   {"id":3,"domain":"health","q":"pm2.5 pollution exposure beijing","place":"Beijing, China","expect":["public_health"]},
   {"id":4,"domain":"health","q":"wildfire smoke risk los angeles","place":"Los Angeles, California","expect":["fire_burn_severity","public_health"]},
-  {"id":5,"domain":"health","q":"pm2.5 levels lahore pakistan","place":"Lahore, Pakistan","expect":["public_health"]},
+  {"id":5,"domain":"health","q":"pm2.5 winter inversion milan italy","place":"Milan, Italy","expect":["public_health"]},
 
   {"id":6,"domain":"property","q":"flood risk for a property in houston","place":"Houston, Texas","expect":["flood_risk_composite","flood_water_event_window","flood_history_long_term","real_estate","topography"]},
   {"id":7,"domain":"property","q":"walkability score for soho manhattan","place":"SoHo, Manhattan, New York","expect":["urban_livability","built_up_human_geography","real_estate"]},
@@ -11,7 +11,7 @@
   {"id":9,"domain":"property","q":"coastal erosion miami beach","place":"Miami Beach, Florida","expect":["topography","elevation_global_topobathy"]},
   {"id":10,"domain":"property","q":"building density tokyo shibuya","place":"Shibuya, Tokyo, Japan","expect":["built_up_human_geography","urban_livability","real_estate"]},
 
-  {"id":11,"domain":"calamity","q":"recent flood damage pakistan sindh","place":"Sindh, Pakistan","expect":["flood_water_event_window","flood_history_long_term","flood_risk_composite","parametric_insurance"]},
+  {"id":11,"domain":"calamity","q":"flood damage kerala india","place":"Kerala, India","expect":["flood_water_event_window","flood_history_long_term","flood_risk_composite","parametric_insurance"]},
   {"id":12,"domain":"calamity","q":"active wildfire risk northern california","place":"Sacramento, California","expect":["fire_burn_severity","public_health"]},
   {"id":13,"domain":"calamity","q":"drought severity cape town","place":"Cape Town, South Africa","expect":["weather_now","agriculture","parametric_insurance"]},
   {"id":14,"domain":"calamity","q":"cyclone path bangladesh","place":"Chittagong, Bangladesh","expect":["weather_now","parametric_insurance"]},

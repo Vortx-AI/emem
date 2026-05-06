@@ -111,7 +111,7 @@ User: *"Is the elevation here above 4000 m?"*
 ```bash
 C=$(curl -s -X POST https://emem.dev/v1/locate \
      -H 'content-type: application/json' \
-     -d '{"place":"K2, Pakistan"}' | jq -r .cell64)
+     -d '{"place":"Mont Blanc, France"}' | jq -r .cell64)
 
 curl -s -X POST https://emem.dev/v1/verify \
   -H 'content-type: application/json' \
