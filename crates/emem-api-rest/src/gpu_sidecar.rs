@@ -101,7 +101,7 @@ pub async fn predict_dynamics_v2(req: &DynamicsRequest) -> Result<DynamicsRespon
 /// (Blue, Green, Red, Narrow NIR, SWIR1, SWIR2). The sidecar handles
 /// per-band mean/std normalization. Optional `year` + `julian_day`
 /// + `lng` + `lat` engage the model's temporal/location embeddings;
-/// pass None to use the dropout-trained no-metadata path.
+///   pass None to use the dropout-trained no-metadata path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrithviRequest {
     pub chip: Vec<Vec<Vec<f32>>>,

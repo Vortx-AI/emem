@@ -9175,25 +9175,6 @@ async fn api_alias() -> Response {
         .unwrap_or_else(|_| StatusCode::PERMANENT_REDIRECT.into_response())
 }
 
-/// Curated landmarks an agent can use to bootstrap and verify the protocol
-/// without leaving the page. Each entry maps a globally-recognised name to
-/// the canonical cell64 produced by `emem-codec::cell_from_latlng`. This
-/// list is editorial; new entries should ship with at least one attested
-/// fact so `recall` returns provenance, not silence.
-fn canonical_places() -> Vec<(&'static str, f64, f64)> {
-    vec![
-        ("Mount Fuji", 35.3606, 138.7274),
-        ("Mount Everest", 27.9881, 86.9250),
-        ("Grand Canyon", 36.1069, -112.1129),
-        ("Tokyo, Japan", 35.6762, 139.6503),
-        ("New York, USA", 40.7128, -74.0060),
-        ("São Paulo, Brazil", -23.5505, -46.6333),
-        ("Lagos, Nigeria", 6.5244, 3.3792),
-        ("Sydney, Australia", -33.8688, 151.2093),
-        ("Reykjavík, Iceland", 64.1466, -21.9426),
-    ]
-}
-
 async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
     // Agent-native bootstrap. North-star size: <1 KB so the entire
     // document fits in a system prompt and the agent never fetches
@@ -10873,7 +10854,7 @@ fn unix_to_year_doy(unix: i64) -> (i32, i32) {
         return (2024, 200);
     }
     let z = unix.div_euclid(86_400);
-    let (y, m, d) = civil_from_days(z);
+    let (y, _m, _d) = civil_from_days(z);
     let jan1 = days_from_civil(y, 1, 1);
     let day_of_year = (z - jan1 + 1) as i32; // 1..=366
     (y, day_of_year)

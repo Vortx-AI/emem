@@ -162,7 +162,7 @@ pub async fn fetch_galileo_chip(
         // (20 m bands).
         let mut resampled = if native_pixels == GALILEO_CHIP_PIXELS {
             raw.iter().map(|v| *v as f32).collect()
-        } else if native_pixels % GALILEO_CHIP_PIXELS == 0 {
+        } else if native_pixels.is_multiple_of(GALILEO_CHIP_PIXELS) {
             let k = (native_pixels / GALILEO_CHIP_PIXELS) as usize;
             block_mean_pool_pub(&raw, native_pixels as usize, native_pixels as usize, k)
         } else {

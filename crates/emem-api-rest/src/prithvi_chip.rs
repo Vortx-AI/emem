@@ -214,7 +214,7 @@ fn resample_to_chip(src: &[f64], src_w: u32, src_h: u32, dst_n: u32) -> Vec<f32>
     if src_w == dst_n && src_h == dst_n {
         return src.iter().map(|v| *v as f32).collect();
     }
-    if src_w == src_h && src_w % dst_n == 0 {
+    if src_w == src_h && src_w.is_multiple_of(dst_n) {
         let k = (src_w / dst_n) as usize;
         return block_mean_pool(src, src_w as usize, src_h as usize, k);
     }

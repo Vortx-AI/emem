@@ -1365,11 +1365,10 @@ pub async fn post_jepa_predict(
 /// fall back to the in-process CPU path.
 ///
 /// Why three branches:
-///   - sidecar `Ok(_)`            → use it (much faster on CUDA)
-///   - sidecar `Upstream`         → 502; the sidecar is up and rejected
-///                                  the request, masking it would lie
-///                                  to the caller about model state
-///   - sidecar unreachable / timeout / framing garble → fall back to
+///   - sidecar `Ok(_)`: use it (much faster on CUDA)
+///   - sidecar `Upstream`: 502; the sidecar is up and rejected the request,
+///     masking it would lie to the caller about model state
+///   - sidecar unreachable / timeout / framing garble: fall back to
 ///     in-process CPU. Tag `via` + `fallback_reason` in the receipt
 ///     so the verifier sees which backend produced the prediction.
 async fn predict_via_sidecar_or_local(
