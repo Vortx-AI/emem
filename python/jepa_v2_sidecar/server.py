@@ -143,18 +143,33 @@ class _Registry:
                 "run python/jepa_v2/export_baseline.py to seed the sentinel"
             )
         meta = json.loads(meta_path.read_text())
-        # We DO NOT load from .onnx here. Instead we rebuild the
-        # PyTorch model fresh and zero out the head — the same
-        # invariant the Rust path's loaded ONNX upholds. This keeps
-        # the sidecar loose-coupled to ONNX runtime quirks while
-        # producing byte-identical predictions on the sentinel.
-        # When train.py ships a real .onnx, swap this for an actual
-        # ONNX → torch import.
+        # CORRECTNESS GUARD: this branch supports the zero-init
+        # baseline ONLY. We rebuild the PyTorch architecture and
+        # zero out the head so output == last_input_vintage by
+        # construction — byte-identical to the Rust ort path on
+        # the sentinel.
+        #
+        # When metadata claims `training.trained == true` we MUST
+        # load actual learned weights (state_dict.pt or onnx →
+        # torch import) before serving — otherwise we'd emit
+        # randomly-initialised PyTorch outputs under a "trained"
+        # receipt, which would corrupt every downstream
+        # comparison + inflate verifier trust. That loader hasn't
+        # shipped yet, so refuse-to-serve until it does.
+        trained = bool(meta.get("training", {}).get("trained", False))
+        if trained:
+            raise RuntimeError(
+                "dynamics_v2 metadata claims trained=true but the sidecar's "
+                "trained-checkpoint loader has not shipped yet. Refusing to "
+                "serve random PyTorch weights under a 'trained' receipt. "
+                "Either set training.trained=false in the metadata to fall "
+                "back to the residual-zero sentinel, or implement the ONNX "
+                "→ torch state_dict loader at server.py:_Registry.load_dynamics."
+            )
         model = DynamicsModel().to(self.device)
-        if not meta.get("training", {}).get("trained", False):
-            with torch.no_grad():
-                model.head.weight.zero_()
-                model.head.bias.zero_()
+        with torch.no_grad():
+            model.head.weight.zero_()
+            model.head.bias.zero_()
         model.eval()
         self.dynamics = (model, meta)
         self.dynamics_load_at = time.time()
@@ -220,6 +235,12 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
     try:
         model, meta = _REG.load_dynamics()
     except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except RuntimeError as e:
+        # The "trained-but-no-loader" guard. 503 so the Rust client
+        # surfaces it as Upstream (502) — emem-server then refuses
+        # to silently fall back to the in-process CPU path because
+        # the user explicitly attested a trained checkpoint.
         raise HTTPException(status_code=503, detail=str(e)) from e
 
     arr = np.asarray(req.lags, dtype=np.float32)            # [3, 128]

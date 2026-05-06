@@ -89,13 +89,20 @@ pub struct ArtifactInfo {
 
 impl ModelMetadata {
     /// True when the metadata sidecar reports `training.trained == true`.
-    /// Untrained baseline ships ship with explicit `trained: false` so
-    /// this returns false and the receipt surfaces a warning.
+    ///
+    /// Default is **false** (fail-safe). A malformed metadata file that
+    /// omits the `trained` field MUST NOT silently flip the receipt's
+    /// "trained" flag to true — that would mean a verifier reading the
+    /// receipt sees no `untrained_baseline` honesty warning while the
+    /// served prediction comes from random weights. The honest default
+    /// is "I don't know what trained this, treat as untrained, surface
+    /// the warning". When `train.py` ships a real model it must
+    /// explicitly write `training.trained = true` into metadata.
     pub fn is_trained(&self) -> bool {
         self.training
             .get("trained")
             .and_then(|v| v.as_bool())
-            .unwrap_or(true) // Default true: when the field is absent (real train.py output), treat as trained.
+            .unwrap_or(false)
     }
 }
 
@@ -291,16 +298,33 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// `is_trained` defaults to true when the metadata sidecar is the
-    /// trained shape (no `training.trained` field). The export-baseline
-    /// script writes `trained: false` explicitly so the receipt warns;
-    /// real train.py output omits the field entirely (defaults true).
+    /// `is_trained` defaults to FALSE when the `training.trained` field
+    /// is absent — fail-safe so malformed metadata can't silently strip
+    /// the `untrained_baseline` honesty warning from the receipt. Real
+    /// train.py output MUST explicitly write `training.trained = true`.
     #[test]
-    fn metadata_is_trained_default_true_when_field_absent() {
+    fn metadata_is_trained_default_false_when_field_absent() {
         let m: ModelMetadata = serde_json::from_value(json!({
             "model_id": "jepa_temporal_predictor@2",
             "version": "0.0.1",
             "training": {"epochs": 200},
+            "validation": {"cosine_similarity": 0.81},
+            "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 100, "blake2b_hex": "00"},
+        })).expect("parse");
+        assert!(
+            !m.is_trained(),
+            "absent `training.trained` field must default to FALSE so receipts \
+             carry the untrained_baseline honesty warning by default"
+        );
+    }
+
+    /// And the trained=true case: must set the field explicitly.
+    #[test]
+    fn metadata_is_trained_true_when_field_explicitly_true() {
+        let m: ModelMetadata = serde_json::from_value(json!({
+            "model_id": "jepa_temporal_predictor@2",
+            "version": "0.0.1",
+            "training": {"trained": true, "epochs": 200},
             "validation": {"cosine_similarity": 0.81},
             "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 100, "blake2b_hex": "00"},
         })).expect("parse");
@@ -352,7 +376,8 @@ mod tests {
         let m: ModelMetadata = serde_json::from_value(json!({
             "model_id": "jepa_temporal_predictor@2",
             "version": "0.0.1",
-            "training": {"epochs": 200, "n_train_pairs": 1500},
+            // `trained: true` MUST be explicit per the fail-safe default.
+            "training": {"trained": true, "epochs": 200, "n_train_pairs": 1500},
             "validation": {"cosine_similarity": 0.81, "cosine_lift_vs_baseline": 0.05},
             "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 800000, "blake2b_hex": "deadbeef"},
         })).expect("parse");
