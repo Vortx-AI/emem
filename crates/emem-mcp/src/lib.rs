@@ -251,6 +251,10 @@ const SCHEMA_JEPA_PREDICT: &str = r#"{"type":"object","required":["cell"],"prope
 "forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1 only."}
 }}"#;
 
+const SCHEMA_JEPA_PREDICT_V2: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 to forecast at, or a free-text place name (auto-resolved via /v1/locate)."}
+}}"#;
+
 /// Normative tool inventory, with rich agent-facing metadata.
 pub const TOOLS: &[ToolDescriptor] = &[
     // ── Geocoder (must be first — every other primitive needs cell64) ──
@@ -404,6 +408,16 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation). Lookback defaults to 6 months; if fewer monthly tslots are attested at this cell, the predictor uses what's there and surfaces the count in `lookback_months_used`. Returns 422 if no NDVI history exists at the cell — chain to `emem_backfill` first to seed history. Receipt cites every input NDVI fact CID.",
         input_schema: SCHEMA_JEPA_PREDICT,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","lookback_months":6}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_jepa_predict_v2",
+        title: "Learned dynamics head over Tessera embeddings (jepa_temporal_predictor@2)",
+        description: "Predict the next-vintage 128-D Tessera embedding at a cell using a small learned dynamics MLP. Reads the K=3 most-recent attested `geotessera.YYYY` vintages, runs them through an ONNX dynamics head (~200k params, CPU-fast), returns the predicted next-year embedding. The receipt's `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, and `honesty_warnings` flagging `untrained_baseline` when the artifact is the zero-init sentinel. Distinct from v1 (`emem_jepa_predict`) — v1 returns an NDVI scalar via closed-form coefficients; v2 returns a 128-D embedding from a learned model.",
+        when_to_use: "Use when you want a forecast in EMBEDDING space rather than NDVI scalar — e.g. to find next-year analogs via `emem_find_similar` against the prediction, or to feed any algorithm in `algorithms_for_topic.foundation_embedding`. Returns 422 with a `/v1/backfill` hint when the cell has fewer than 3 consecutive Tessera vintages cached. Always read the receipt's `model.honesty_warnings` array — when it contains `untrained_baseline`, the prediction is the trivial 'predict last vintage' baseline (treat as no-op).",
+        input_schema: SCHEMA_JEPA_PREDICT_V2,
+        example_args: r#"{"cell":"damO.zb000.xUti.zde78"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },

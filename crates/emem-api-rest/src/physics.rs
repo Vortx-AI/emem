@@ -1359,6 +1359,167 @@ pub async fn post_jepa_predict(
     Ok(Json(jepa_predict(req, &state).await?))
 }
 
+// ── jepa_temporal_predictor@2 — learned dynamics head over Tessera ────────
+
+/// `POST /v1/jepa_predict_v2` request body.
+///
+/// Predicts the next-vintage Tessera embedding at a cell from the K
+/// most-recent attested vintages. Output is a 128-D vector — agents
+/// can compare against any other Tessera-attested cell via cosine, or
+/// dot-decode through any algorithm in
+/// `algorithms_for_topic.foundation_embedding`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JepaPredictV2Req {
+    /// Cell to forecast at. Accepts cell64 or a free-text place name
+    /// (resolved via /v1/locate). Aliased to `place`.
+    #[serde(alias = "place")]
+    pub cell: String,
+}
+
+/// Run the learned-dynamics predictor.
+pub async fn jepa_predict_v2(
+    mut req: JepaPredictV2Req,
+    state: &AppState,
+) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
+    req.cell = resolved_cell.clone();
+
+    // Pull ALL attested geotessera.YYYY vintages at this cell. Auto-
+    // materialise on miss is OFF for the historical sweep — Tessera
+    // vintages are heavy (~tens of seconds each) and a v2 predict call
+    // shouldn't burn an upstream sweep. Agents seeking history call
+    // /v1/backfill explicitly.
+    //
+    // We fan-fetch each year band and assemble what's actually present.
+    const TESSERA_YEARS: std::ops::RangeInclusive<i32> = 2017..=2024;
+    let years: Vec<i32> = TESSERA_YEARS.collect();
+    let mut by_year: Vec<(i32, Vec<f32>, String)> = Vec::new();
+    for &y in &years {
+        let band = format!("geotessera.{y}");
+        let req_recall = RecallReq {
+            cell: req.cell.clone(),
+            bands: Some(vec![band.clone()]),
+            tslot: None,
+        };
+        let (resp, _notes) = recall_with_auto_materialize(&req_recall, state).await?;
+        for (idx, f) in resp.facts.iter().enumerate() {
+            if let Fact::Primary(p) = f {
+                if p.band != band {
+                    continue;
+                }
+                if let ciborium::Value::Array(arr) = &p.value {
+                    if arr.len() != crate::jepa_v2::TESSERA_DIM {
+                        continue;
+                    }
+                    let mut v: Vec<f32> = Vec::with_capacity(arr.len());
+                    let mut ok = true;
+                    for x in arr {
+                        match x {
+                            ciborium::Value::Float(f) => v.push(*f as f32),
+                            ciborium::Value::Integer(i) => {
+                                let as_i: i128 = (*i).into();
+                                v.push(as_i as f32)
+                            }
+                            _ => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if ok && v.len() == crate::jepa_v2::TESSERA_DIM {
+                        let cid = resp
+                            .receipt
+                            .fact_cids
+                            .get(idx)
+                            .map(|c| c.0.clone())
+                            .unwrap_or_default();
+                        by_year.push((y, v, cid));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if by_year.len() < crate::jepa_v2::INPUT_LAGS {
+        return Err(unprocessable(format!(
+            "jepa_v2 needs ≥{lags} consecutive Tessera vintages at cell {cell}; \
+             found {n}. Run POST /v1/backfill {{cell:'{cell}', \
+             band:'geotessera.YYYY', start_unix:..., end_unix:...}} for {miss} \
+             more years, or call /v1/jepa_predict (the v1 NDVI-scalar predictor) \
+             for a closed-form fallback that needs only monthly NDVI history.",
+            lags = crate::jepa_v2::INPUT_LAGS,
+            cell = req.cell,
+            n = by_year.len(),
+            miss = crate::jepa_v2::INPUT_LAGS - by_year.len(),
+        )));
+    }
+
+    by_year.sort_by_key(|(y, _, _)| *y);
+    // Take the K most-recent vintages as input.
+    let lag_window = &by_year[by_year.len() - crate::jepa_v2::INPUT_LAGS..];
+    let mut flat: Vec<f32> =
+        Vec::with_capacity(crate::jepa_v2::INPUT_LAGS * crate::jepa_v2::TESSERA_DIM);
+    for (_, v, _) in lag_window {
+        flat.extend_from_slice(v);
+    }
+
+    let (pred, metadata) =
+        crate::jepa_v2::predict_next_vintage(&flat).map_err(crate::jepa_v2::into_api_error)?;
+    let predicted_year = lag_window.last().expect("non-empty").0 + 1;
+
+    // The v2 surface returns the prediction inline — we DO NOT persist
+    // a synthetic Tessera fact under `geotessera.<predicted_year>`
+    // because that would clobber the band's contract (Tessera facts
+    // are upstream-attested, not predicted). Agents that want to
+    // persist the prediction can attest it themselves under a
+    // private band. The receipt cites the K input fact_cids so
+    // verifiers can replay the prediction by re-running the .onnx.
+    let pubkey = pubkey_b32(state);
+    let input_cids: Vec<String> = lag_window.iter().map(|(_, _, cid)| cid.clone()).collect();
+    let receipt = state.sign_receipt(
+        "emem.jepa_predict_v2",
+        vec![req.cell.clone()],
+        input_cids
+            .iter()
+            .filter(|c| !c.is_empty())
+            .cloned()
+            .map(FactCid::new)
+            .collect(),
+        false,
+        started,
+        None,
+    );
+
+    Ok(json!({
+        "schema": "emem.jepa_predict_v2.v1",
+        "cell": req.cell,
+        "resolved_from": resolved_ref,
+        "lag_window_years": lag_window.iter().map(|(y, _, _)| *y).collect::<Vec<_>>(),
+        "predicted_year": predicted_year,
+        "predicted_band": format!("geotessera.{predicted_year}"),
+        "prediction_dim": pred.len(),
+        "prediction": pred,
+        "input_fact_cids": input_cids,
+        "model": crate::jepa_v2::receipt_block(&metadata),
+        "responder_pubkey_b32": pubkey,
+        "receipt": receipt,
+        "next": {
+            "verify_offline":   "POST /v1/verify_receipt {receipt}",
+            "compare_against":  "POST /v1/find_similar { key:'inline:[…prediction…]', band:'geotessera', k:10 }",
+            "v1_fallback":      format!("POST /v1/jepa_predict {{cell:'{}'}} for the closed-form NDVI-scalar predictor", req.cell),
+        },
+    }))
+}
+
+pub async fn post_jepa_predict_v2(
+    State(state): State<AppState>,
+    Json(req): Json<JepaPredictV2Req>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(jepa_predict_v2(req, &state).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

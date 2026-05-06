@@ -38,6 +38,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod jepa_v2;
 mod physics;
 pub mod topic_router;
 
@@ -320,6 +321,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/heat_solve", post(physics::post_heat_solve))
         .route("/v1/wave_solve", post(physics::post_wave_solve))
         .route("/v1/jepa_predict", post(physics::post_jepa_predict))
+        .route("/v1/jepa_predict_v2", post(physics::post_jepa_predict_v2))
         .route("/v1/schema", get(get_schema))
         .route("/v1/verify", post(post_verify))
         .route("/v1/intent", post(post_intent))
@@ -8588,6 +8590,13 @@ async fn mcp_tool_call(
                 .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))
         }
+        "emem_jepa_predict_v2" => {
+            let req: physics::JepaPredictV2Req =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            physics::jepa_predict_v2(req, s)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
         // MCP spec: unknown TOOL names are tool-runtime failures, not
         // protocol errors — surface them through the CallToolResult
         // envelope (`isError: true`) so the host treats it as an
@@ -8686,6 +8695,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/heat_solve":        {"post":{"summary":"2-D explicit-FD heat-equation solver (forecast LST N hours ahead from a 3×3 cell stencil)","operationId":"emem_heat_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HeatSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/wave_solve":        {"post":{"summary":"1-D explicit-FD shallow-water wave-equation solver (propagate offshore swell to the coast along a bathymetric profile)","operationId":"emem_wave_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WaveSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/jepa_predict":      {"post":{"summary":"constrained JEPA-pattern AR(2) seasonal NDVI predictor (closed-form coefficients, NOT a learned MLP)","operationId":"emem_jepa_predict","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/JepaPredictReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/jepa_predict_v2":   {"post":{"summary":"learned dynamics head over Tessera embeddings: predicts the next-vintage 128-D embedding from the K most-recent attested vintages. Receipt carries model_cid + training/validation provenance; honesty_warnings flags `untrained_baseline` when the artifact is the zero-init sentinel.","operationId":"emem_jepa_predict_v2","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/schema":            {"get":{"summary":"active CDDL/JSON schema bundle (REST mirror of emem_schema)","operationId":"emem_schema","responses":{"200":json_ok}}},
             // Single canonical /v1/facts/{cid} — earlier we listed it twice
             // with different operationIds (emem_fetch and emem_get_fact);
