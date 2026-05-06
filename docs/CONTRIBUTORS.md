@@ -105,7 +105,7 @@ who's contributing what to the corpus they're trusting).
 
 Bands the protocol cares about (from `/v1/bands`):
 
-- **foundation** (slow tempo): geotessera 128D (live, int8+f32-scale upstream); the 1792-D cube also reserves slots for an AlphaEarth-derived 576D embedding, but DeepMind's AlphaEarth has not released open weights — when shipped, that slot will mirror the per-cell embedding from Google Earth Engine, not run the model locally
+- **foundation** (slow tempo): three live open-weight embeddings — `geotessera` 128D (Tessera v1, Cambridge, int8 + f32-scale upstream, vintage 2024), `prithvi_eo2` 1024D (Prithvi-EO-2.0-300M-TL, NASA / IBM, Apache-2.0, ViT-L over HLS V2 6 bands), `galileo_base_v1` 768D (Galileo Base, NASA Harvest, MIT). The 1792-D cube also reserves a 576D slot for AlphaEarth (9 yrs × 64), not auto-materialized because DeepMind has not released open weights and the GEE delivery requires per-pull authentication.
 - **optical** (fast tempo): sentinel2_raw 10D, sentinel1 8D
 - **terrain** (slow): copdem30m, slope, aspect, ruggedness
 - **biotic** (slow): worldcover, gfc forest cover, ndvi_long_term

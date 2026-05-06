@@ -7,6 +7,68 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 
 ## [Unreleased]
 
+### Content and compliance (2026-05-06)
+
+- **Agent-first rewrite of the bootstrap surface.** `/v1/discover`
+  shrunk from 130 KB to 1,026 B (134×): a sub-1 KB system-prompt fit
+  with the load-bearing minimum (responder pubkey, 4 manifest CIDs,
+  a one-line algebra `Cell × Band × Tslot → Fact ; cid=blake3(cbor)/
+  b32-32 ; sig=ed25519`, the primitive→URL map, and fanout pointers).
+  `/llms.txt` 20 KB → 5 KB; `/llms-full.txt` aliased to `/llms.txt`;
+  `/agents.md` 27 KB → 16 KB; `index.html` 59 KB → 3.5 KB rewritten
+  in peer-engineer voice (no em-dashes, no AI tells, no marketing
+  prose). Two paragraphs and working playground links a tool-less
+  agent can follow. `robots.txt` slimmed; `sitemap.xml` pruned to 15
+  discovery surfaces. Zero URL moves, zero 404s, SEO / AEO indexes
+  intact.
+- **Production-grade SPEC.md v0.0.4.** Bumped from `v0.0.4-draft /
+  draft` to `v0.0.4 / stable`. Foundation embedding stack reflects
+  what the responder actually serves: `geotessera` (Tessera v1,
+  128-D, vintage 2024), `prithvi_eo2` (Prithvi-EO-2.0-300M-TL,
+  1024-D), `galileo_base_v1` (Galileo Base, 768-D). AlphaEarth
+  Foundations cited as informative prior art only, with explicit
+  "no open weights" disclosure. §3.1 declares the active
+  `cell64-geo-21x22` grid honestly alongside the spec-target hex
+  DGGS at res-13. §16 function registry expanded with 14 missing
+  materializer entries. §22 References split into Normative +
+  Informative with citations for every upstream data source the
+  reference build reads from (S1, S2, STAC, MODIS, COPDEM, GMRT,
+  JRC-GSW, HANSEN, WORLDCOVER, SOILGRIDS, METNO, ERA5, POWER,
+  OPENMETEO-CAMS, OPENMETEO-MARINE, OVERTURE, TESSERA, PRITHVI,
+  GALILEO) plus RFC-grade refs (CBOR, CDDL, EdDSA, blake3, base32,
+  IPLD, MCP, A2A). All 43 citation keys defined.
+- **GDPR / UK-GDPR / DPDP-2023 / CCPA-CPRA compliance surface.**
+  SPEC.md §13 expanded to six subsections: per-band privacy class
+  (existing), no-PII-in-canonical-channel, Art. 6 lawful basis,
+  data-subject-rights table, no-cookies disclosure, IP-handling
+  disclosure (blake3 truncated hash, not raw IP), data-subject
+  contact. Citations added: GDPR (Reg 2016/679), UK-GDPR, DPDP-2023,
+  CCPA-CPRA, RFC 9116. `/v1/discover.fanout` adds `privacy`, `terms`,
+  `spec`. `/.well-known/agent-card.json.provider` now carries
+  `privacy_policy_url`, `terms_of_service_url`, `support_url`, and a
+  `data_protection` extension declaring all four regimes, 30-day log
+  retention, no sale or sharing, no PII in the canonical channel.
+- **Privacy claims aligned with code reality.** Audit found two gaps.
+  (1) "30 days, then deleted" was not enforced; systemd journald
+  defaulted to vacuum-on-disk-pressure. Fix: ship
+  `ops/systemd/journald-30day-retention.conf` with
+  `MaxRetentionSec=30day`, install at
+  `/etc/systemd/journald.conf.d/`, restart `systemd-journald`.
+  Retention now enforced. (2) "originating IP" oversold the data
+  exposure: the access-log middleware computes
+  `agent_ip_hash = base32_nopad_lower(blake3(client_ip)[:8])`,
+  storing only the 8-byte non-reversible hash. PRIVACY.md and SPEC.md
+  §13.3 / §13.6 now describe the hash construction with the source
+  path. Honestly disclosed that GET query strings ARE captured
+  (paired with the hashed IP) for the 30-day window; POST bodies are
+  NOT. Verified end-to-end on the live server (POST canary absent,
+  GET canary present, no Set-Cookie, no third-party trackers).
+- **Stale AlphaEarth references in secondary docs cleaned up.**
+  `WHITEPAPER.md`, `CONTRIBUTORS.md`, `MATERIALIZERS.md`, `TEMPORAL.md`,
+  `MILESTONE_v0.0.4.md` updated to surface the three live
+  foundation embeddings (Tessera, Prithvi, Galileo) and reframe
+  AlphaEarth as a reserved slot with the open-weights gap explicit.
+
 ### Added
 - **Three real physics primitives — heat / wave PDE solvers + constrained
   JEPA-pattern NDVI predictor.** Closes the 2026-05 audit-found gap that

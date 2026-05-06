@@ -148,23 +148,19 @@ gets `materialize_notes: [{status: "skipped", reason: "no_auto_materializer_regi
 | `nightlights.viirs_dnb` | [Earth Observation Group VIIRS DNB](https://eogdata.mines.edu/products/vnl/) | COG | Monthly; aggregate-only privacy class |
 | `koppen.beckV2` | [Beck Köppen-Geiger v2 (2018)](https://doi.org/10.1038/sdata.2018.214) | COG | Static categorical climate zone |
 
-### `alphaearth.satellite_embedding_v1` — special case
+### Foundation embeddings: live and reserved
 
-- **Upstream**: [Google AlphaEarth Foundations](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/),
-  64-dim annual global embeddings since 2017. Available via Earth
-  Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` and the public GCS
-  bucket `gs://alphaearth_foundations` as COGs.
-- **Why not auto-materialized for the public responder?**
-  `gs://alphaearth_foundations` is **Requester Pays** — the caller
-  must pass a billing project ID with their GCS request. The default
-  responder serves zero-billing public data only. Operators who run
-  emem under their own GCP project can flip an env switch
-  (`EMEM_ALPHAEARTH_BILLING_PROJECT=<project>`) to enable it.
-- **Layout caveat**: the band entry in `bands-v0.json` reserves a
-  576-dim slot from a legacy AlphaEarth-v0 internal cube. The public
-  V1 ships at 64 dims; the materializer will write 64 floats into
-  the leading slice and zero-pad the rest so byte offsets stay
-  stable.
+The 0.0.x reference build ships three open-weight foundation embeddings as auto-materializing bands:
+
+- **`geotessera`** — Tessera v1 (Cambridge), 128-D, vintage 2024 only. Upstream serves int8 + per-pixel f32-scale tiles via HTTPS Range. Decoded to f32 over the wire. ~640 B/cell delivery cost.
+- **`prithvi_eo2`** — Prithvi-EO-2.0-300M-TL (NASA / IBM, Apache-2.0), 1024-D. The materializer fetches a 224×224 HLS V2 6-band chip (Blue, Green, Red, Narrow-NIR, SWIR1, SWIR2) at the cell from the Sentinel-2 L2A path, normalises per band, and runs the ViT-L locally on CUDA via the GPU sidecar (`python/jepa_v2_sidecar`). Cold recall ~2-4 s; warm forward ~19 ms.
+- **`galileo_base_v1`** — Galileo Base (NASA Harvest, MIT), 768-D. The materializer fetches a 10-band 8×8 chip at 30 m equiv (24×24 block-pool for 10 m bands; 12×12 bilinear for 20 m), runs the encoder locally on CUDA. S1 + DEM + climate modalities are accepted zero-masked (S2-only mode in 0.0.x). Cold recall ~4 s.
+
+#### `alphaearth.satellite_embedding_v1` — slot reserved, not wired
+
+- **Upstream**: [Google AlphaEarth Foundations](https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail/), 64-dim annual global embeddings since 2017. Available via Earth Engine `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` and the public GCS bucket `gs://alphaearth_foundations` as COGs.
+- **Why not wired in 0.0.x?** Two reasons. First, DeepMind has not released open weights, so the embedding cannot run locally; the only delivery channel is the GEE-hosted layer. Second, `gs://alphaearth_foundations` is **Requester Pays** — the caller must pass a billing project ID with their GCS request, and the default responder serves zero-billing public data only.
+- **Layout caveat**: the band entry in `bands-v0.json` reserves a 576-dim slot (9 yrs × 64) from a legacy AlphaEarth-v0 internal cube. If an operator ever wires the public V1 (64 dims), the materializer would write 64 floats into the leading slice and zero-pad the rest so byte offsets stay stable.
 
 ---
 

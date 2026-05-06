@@ -91,10 +91,11 @@ The taxonomy is shared; the runtime is not.
   cosine seasonality function clipped at one period — a periodic
   decay heuristic, nothing more.
 
-- **AR-1 / linear**: yearly aggregates (AlphaEarth annual, land
-  cover) have one usable observation per cycle. A linear decay
-  matches what a Markov-1 process actually gives; piecewise constant
-  with a year-boundary discontinuity is the same idea but uglier.
+- **AR-1 / linear**: yearly aggregates (Tessera annual, Prithvi
+  vintage-anchored, land cover) have one usable observation per
+  cycle. A linear decay matches what a Markov-1 process actually
+  gives; piecewise constant with a year-boundary discontinuity is
+  the same idea but uglier.
 
 - **Advection / linear with horizon**: weather and traffic are
   transported (advection) much faster than they're created. Linear
@@ -130,7 +131,7 @@ matches one of these keyword groups:
 | climate, weather, temperature, rainfall | climate, terraclimate, koppen | 1.5× |
 | terrain, elevation, mountain, depth, bathymetry | dem, cop_dem, topobathy, terrain | 1.5× |
 | radar, all-weather, cloud, night | sentinel1 | 1.4× |
-| foundation, embedding, latent, general | alphaearth, geotessera, foundation | 1.3× |
+| foundation, embedding, latent, general | geotessera, prithvi_eo2, galileo_base_v1, alphaearth (reserved), foundation | 1.3× |
 
 The intent affinity is **explicitly editorial** — the math score
 (`score_math` in the response) is the protocol-level contract; the

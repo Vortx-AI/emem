@@ -41,10 +41,11 @@ items below are everything else the codebase or docs still owe.
 
 - **Today (0.0.3):** `landcover.lcv1_leaf` returns placeholder names
   `lcv-1.f0.l0` … `lcv-1.f7.l7` (SPEC §13).
-- **Target:** HDBSCAN over (AlphaEarth-9yr ⊕ S2-monthly ⊕ Köppen ⊕
-  ecoregions) at res-9 cell centroids; each leaf gains a 1792-D
-  centroid vector so `landcover:lcv-1.43` is *also* a vec64
-  address.
+- **Target:** HDBSCAN over (Tessera v1 ⊕ Sentinel-2 monthly composites
+  ⊕ Köppen ⊕ ecoregions) at res-9 cell centroids; each leaf gains a
+  1792-D centroid vector so `landcover:lcv-1.43` is *also* a vec64
+  address. AlphaEarth was the v0.0.3 candidate input but was dropped
+  because DeepMind has not released open weights.
 - **Open questions:** OQ-9 in `docs/SPEC.md` (clustering
   methodology), OQ-10 (max derivative-of-derivative depth).
 

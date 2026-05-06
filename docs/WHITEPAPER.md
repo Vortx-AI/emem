@@ -91,7 +91,7 @@ units determined by the band's tempo class:
 | Tempo       | Slot duration | Example bands         |
 | ----------- | ------------- | --------------------- |
 | `static`    | n/a (slot 0)  | DEM, Köppen           |
-| `slow`      | 1 year        | AlphaEarth, soil      |
+| `slow`      | 1 year        | Tessera, Prithvi, Galileo, soil |
 | `medium`    | 30 days       | NDVI composites       |
 | `fast`      | 1 day         | raw S2 NDVI           |
 | `ultra_fast`| 1 hour        | weather, traffic      |
@@ -219,14 +219,23 @@ The default emem build serves recall against open Earth-observation
 data without operator credentials, via anonymous HTTPS Range reads
 (vsicurl-equivalent COG window fetch). Default no-auth providers:
 
-- Copernicus DEM 30m (AWS open data)
-- ESA WorldCover v2.00 (AWS open data)
-- JRC Global Surface Water v1.4 (GCS public)
-- Hansen Global Forest Change v1.12 (GCS public)
-- GHSL Built-up & Population R2023A (JRC EC)
-- WorldPop 1km (worldpop.org)
-- AlphaEarth Foundations v1 (GCS public, when enabled)
-- OSM tile servers (rate-limited)
+- Sentinel-2 L2A via Element84 / Earth Search v1 STAC (anonymous AWS)
+- Sentinel-1 GRD via the same STAC endpoint
+- Copernicus DEM 30m (anonymous AWS open data)
+- GMRT global topo + bathy (Lamont-Doherty)
+- MODIS Terra/Aqua products via NASA LP DAAC (LST, NDVI, ET, GPP, LAI, burned area)
+- ESA WorldCover 2021 v200 (anonymous AWS)
+- JRC Global Surface Water v1.4 (Landsat 1984-2021)
+- Hansen Global Forest Change v1.11 2023 release
+- SoilGrids 2.0 (ISRIC REST API)
+- MET Norway Locationforecast 2.0 nowcast
+- Open-Meteo (ERA5 reanalysis, CAMS air quality, Marine wave / SST)
+- NASA POWER (MERRA-2 + GEOS) daily reanalysis
+- Overture Maps Foundation (anonymous S3 partitions)
+- Tessera v1 foundation embedding (Cambridge, vintage 2024)
+- Prithvi-EO-2.0-300M-TL (NASA / IBM, Apache-2.0, run locally on CUDA)
+- Galileo Base (NASA Harvest, MIT, run locally on CUDA)
+- AlphaEarth Foundations v1 (slot reserved; not auto-materialized in 0.0.x — DeepMind has not released open weights and the GEE delivery requires per-pull authentication incompatible with anonymous L0/L1 reads)
 
 The default dispatcher is `emem_fetch::connectors::open_data_dispatcher()`.
 Authenticated providers (Earthdata, Sentinel Hub, Mapbox) are wired by
