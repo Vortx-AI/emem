@@ -1693,12 +1693,51 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
     // having to call /v1/manifests separately. The registry's existing
     // shape (`manifest`, `version`, `bands`, `_note`) is preserved
     // verbatim; we just add the `bands_cid` field at the root.
+    //
+    // Per-band materializer status: declared bands without a wired
+    // materializer (cube family roots whose scalars are individually
+    // wired, or genuinely unimplemented placeholders like
+    // `sam3_visual`) used to be invisible from this endpoint — agents
+    // had to call /v1/recall per band to learn the connector existed.
+    // Inject `materializer:{kind:"live"|"declared_no_connector",...}`
+    // so the catalog tells the truth in one call.
     let mut payload = serde_json::to_value(&*emem_core::bands::DEFAULT).unwrap_or(json!({}));
     if let Some(map) = payload.as_object_mut() {
         map.insert(
             "bands_cid".into(),
             JsonValue::String(s.manifests.bands_cid.clone()),
         );
+        if let Some(arr) = map.get_mut("bands").and_then(|v| v.as_array_mut()) {
+            for entry in arr.iter_mut() {
+                let Some(obj) = entry.as_object_mut() else {
+                    continue;
+                };
+                let key = obj
+                    .get("key")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_default();
+                let status = match band_materializer_meta(&key) {
+                    Some(meta) => json!({
+                        "kind": "live",
+                        "tempo_seconds": meta.tempo.slot_seconds(),
+                        "temporal_kind": meta.kind.as_str(),
+                        "history_from_unix": meta.history_from_unix,
+                        "history_to_unix": meta.history_to_unix,
+                        "wire_path": meta.wire_path,
+                    }),
+                    None => json!({
+                        "kind": "declared_no_connector",
+                        "note": "Registered in the band catalog but no auto-materializer is wired at this responder. \
+                                 /v1/recall on this band will return only existing attestations (no upstream fetch). \
+                                 Family-root cube keys (e.g. `koppen`, `landcover`, `climate`) often have wired \
+                                 SCALAR children (`koppen.major_class`, `climate.t_max_2024`, …) — see \
+                                 /v1/materializers for the full machine-readable connector list.",
+                    }),
+                };
+                obj.insert("materializer".into(), status);
+            }
+        }
     }
     Json(payload)
 }
@@ -3078,11 +3117,10 @@ fn topics_payload() -> JsonValue {
             "cell_recall_geojson": "GET /v1/cells/{cell64}/recall_geojson?bands=... — properties carry every fact value the responder has, ready to style",
         },
         "declared_but_no_materializer_at_this_responder": {
-            "_meaning": "These bands are reserved in the cube manifest but have no live connector. Recall returns empty. Tell the user honestly: 'this responder doesn't have a connector for X' — don't web-search until you've reported the gap.",
-            "_note_on_surface_water_vector": "The 12-d cube key `surface_water` is unfilled (no responder has agreed on the slot allocation yet). The scalar `surface_water.recurrence` IS live (see live_bands_by_topic.flood_history_long_term) and answers the historical-flood question.",
-            "landcover_classes":           ["landcover","ecoregions","mangrove"],
-            "human_settlement_layer":      ["ghsl"],
-            "ocean_chemistry":             ["ocean_chl"],
+            "_meaning": "Bands reserved in the cube manifest but with no live connector at this responder. Recall returns empty (existing attestations only, no upstream fetch).",
+            "_authoritative_list": "GET /v1/bands — every band entry now carries a `materializer:{kind:'live'|'declared_no_connector', ...}` field. Filter on kind=='declared_no_connector' for the canonical, code-derived set.",
+            "_note_on_cube_family_roots": "Most unwired keys are cube FAMILY-ROOT slots whose SCALAR children are wired (e.g. `koppen` root unwired but `koppen.major_class` live; `surface_water` cube key reserved but `surface_water.recurrence` answers the flood-history question). Use /v1/materializers for the per-scalar wired list.",
+            "_note_on_visual_embedding_placeholders": "`sam3_visual` (SAM3 distillation) and `qwen_visual` (Qwen-VL distillation) are reserved cube slots — there is NO inference pipeline at this responder yet. Treat as 'planned, not shipped'.",
         },
         "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands — they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe — apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data — be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
         "for_temporal_questions": "For 'last N years' questions, materializers return one fact at the latest available tslot. To get a series, call `emem_recall` repeatedly for past tslots only if the band's tempo is `slow`/`static` (which means one fact covers the period). For `fast`/`medium` tempo bands, history requires the responder to have already seeded past tslots — call `emem_trajectory` to enumerate what's there, do NOT assume historical lookback materializes on demand.",

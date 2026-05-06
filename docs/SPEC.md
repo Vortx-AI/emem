@@ -235,7 +235,7 @@ Top-level summary of v0 (full manifest at `data/bands-v0.json`; CID at `/.well-k
 
 | Family | Dims | Bands | Tempo | Privacy class |
 |---|---|---|---|---|
-| foundation | 704 | geotessera (128), alphaearth (576, 9 yrs × 64) | medium | public |
+| foundation | 704 | geotessera (128, live; int8+f32-scale upstream), alphaearth (576, 9 yrs × 64; **slot reserved — DeepMind AlphaEarth has no open weights, so when populated this band will mirror the per-cell GEE embedding rather than run the model locally**) | medium | public |
 | optical | 13 | sentinel2_raw (10), indices (3) | fast | public |
 | radar | 2 | sentinel1_raw | fast | public |
 | terrain | 43 | dem (3), terrain_derived (32), cop_dem (8) | static | public |

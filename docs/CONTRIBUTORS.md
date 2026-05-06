@@ -105,7 +105,7 @@ who's contributing what to the corpus they're trusting).
 
 Bands the protocol cares about (from `/v1/bands`):
 
-- **foundation** (slow tempo): geotessera 128D, alphaearth 576D
+- **foundation** (slow tempo): geotessera 128D (live, int8+f32-scale upstream); the 1792-D cube also reserves slots for an AlphaEarth-derived 576D embedding, but DeepMind's AlphaEarth has not released open weights — when shipped, that slot will mirror the per-cell embedding from Google Earth Engine, not run the model locally
 - **optical** (fast tempo): sentinel2_raw 10D, sentinel1 8D
 - **terrain** (slow): copdem30m, slope, aspect, ruggedness
 - **biotic** (slow): worldcover, gfc forest cover, ndvi_long_term
