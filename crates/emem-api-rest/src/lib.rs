@@ -10774,14 +10774,15 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
     sign_and_persist(s, fact, &signed_at).await
 }
 
-/// Phase 4 — Galileo-Tiny per-cell foundation embedding.
+/// Phase 4 — Galileo Base per-cell foundation embedding.
 ///
 /// Pulls a 10-band S2 L2A chip (8×8 at 30 m equiv) via
 /// `galileo_chip::fetch_galileo_chip`, sends it to the GPU sidecar at
-/// `/predict/galileo_tiny_embed`, signs the returned 192-D embedding
-/// under the `galileo_tiny_v1` band. S2-only mode — Galileo accepts
-/// the other modalities masked.
-async fn materialize_galileo_tiny(
+/// `/predict/galileo_embed` (variant-agnostic; sidecar's
+/// `EMEM_GALILEO_VARIANT` selects Base = 768-D, Tiny = 192-D, …),
+/// signs the returned embedding under the `galileo_base_v1` band.
+/// S2-only mode — Galileo accepts the other modalities zero-masked.
+async fn materialize_galileo_base(
     cell64: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
@@ -10812,7 +10813,7 @@ async fn materialize_galileo_tiny(
         lng: Some(lng),
         lat: Some(lat),
     };
-    let resp = gpu_sidecar::predict_galileo_tiny_embed(&req)
+    let resp = gpu_sidecar::predict_galileo_embed(&req)
         .await
         .map_err(|e| format!("galileo sidecar: {e}"))?;
     if resp.embedding.is_empty() {
@@ -10845,7 +10846,7 @@ async fn materialize_galileo_tiny(
         .unwrap_or("")
         .to_string();
     sources.push(Source {
-        scheme: "model.galileo_tiny_v1".into(),
+        scheme: "model.galileo_base_v1".into(),
         id: format!("nasaharvest/galileo@{model_blake2b}"),
         cid: None,
         hash: None,
@@ -10855,7 +10856,7 @@ async fn materialize_galileo_tiny(
 
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
-        band: "galileo_tiny_v1".into(),
+        band: "galileo_base_v1".into(),
         tslot: 0,
         value,
         unit: None,
@@ -10863,7 +10864,7 @@ async fn materialize_galileo_tiny(
         uncertainty: None,
         sources,
         derivation: Derivation {
-            fn_key: "galileo_tiny_v1_s2_embed@1".into(),
+            fn_key: "galileo_base_v1_s2_embed@1".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -15833,15 +15834,16 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "Element84/MPC Sentinel-2 L2A 6-band chip (B02/B03/B04/B8A/B11/B12, 224×224 @ 30m equiv) → emem-jepa-sidecar /predict/prithvi_eo2_embed (CUDA, ViT-L 1024-D CLS)",
         },
-        "galileo_tiny_v1" => MaterializerMeta {
-            // Galileo-Tiny (NASA Harvest, MIT). Per-cell embedding from a
+        "galileo_base_v1" => MaterializerMeta {
+            // Galileo (NASA Harvest, MIT) — Base variant by default
+            // (86.5 M params, 768-D embedding). Per-cell embedding from a
             // 10-band S2 chip 8×8 at 30 m equiv. Tempo + history mirror S2.
             tempo: Tempo::Medium,
             kind: BandKind::TimeSeries,
             history_from_unix: Some(s2_l2a_start),
             history_to_unix: None,
             wire_path:
-                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/03/04/05/06/07/08/8A/11/12, 8×8 @ 30m equiv) → emem-jepa-sidecar /predict/galileo_tiny_embed (CUDA, 192-D avg-pooled tokens)",
+                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/03/04/05/06/07/08/8A/11/12, 8×8 @ 30m equiv) → emem-jepa-sidecar /predict/galileo_embed (CUDA, Base = 768-D avg-pooled tokens; variant set by EMEM_GALILEO_VARIANT)",
         },
         _ => return None,
     };
@@ -16099,11 +16101,11 @@ async fn materialize_band_at(
         // it to the GPU sidecar, and signs the returned 1024-D CLS
         // embedding under the `prithvi_eo2` band.
         "prithvi_eo2" => return materialize_prithvi_eo2(cell64, s).await,
-        // Phase 4 — Galileo-Tiny S2-only embedding. Pulls a 10-band
+        // Phase 4 — Galileo Base S2-only embedding. Pulls a 10-band
         // 8×8 chip at 30 m equiv, sends to the GPU sidecar, signs the
-        // returned 192-D average-pooled embedding under
-        // `galileo_tiny_v1`.
-        "galileo_tiny_v1" => return materialize_galileo_tiny(cell64, s).await,
+        // returned 768-D average-pooled embedding under
+        // `galileo_base_v1`.
+        "galileo_base_v1" => return materialize_galileo_base(cell64, s).await,
         // Beck Köppen-Geiger 1-km — static, one signed class per cell.
         "koppen" => return materialize_koppen(cell64, s).await,
         // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
@@ -16977,12 +16979,12 @@ async fn try_materialize_bands(
                     }
                 }
             }
-            // Galileo-Tiny S2-only embedding. Fetches a 10-band 8×8
+            // Galileo Base S2-only embedding. Fetches a 10-band 8×8
             // chip at 30 m equiv, sends to GPU sidecar, signs the
-            // returned 192-D embedding. Galileo-Tiny is much smaller
-            // than Prithvi (5.7M params vs 330M) — cold start ~5 s,
-            // warm ~50 ms.
-            "galileo_tiny_v1" => match materialize_galileo_tiny(cell64, s).await {
+            // returned 768-D embedding. Galileo Base is mid-size
+            // (86.5M params vs Prithvi's 330M) — cold start ~5 s,
+            // warm ~25 ms.
+            "galileo_base_v1" => match materialize_galileo_base(cell64, s).await {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",

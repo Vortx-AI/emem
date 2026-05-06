@@ -145,13 +145,15 @@ pub async fn predict_prithvi_eo2_embed(
         .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
 }
 
-/// Phase 4 — Galileo-Tiny S2-only embedding request.
+/// Phase 4 — Galileo S2-only embedding request.
 ///
-/// `s2_chip` is `[T=1, H=8, W=8, 10]` reflectance in Galileo's S2_BANDS
-/// order: B2, B3, B4, B5, B6, B7, B8, B8A, B11, B12. Native scale
-/// (0–10000); the sidecar normalizes against Galileo's pretraining
-/// stats. `month` is 1..12 (defaults July if absent), engages the
-/// model's seasonal positional encoding.
+/// Variant (tiny | base | nano) is determined by the sidecar's
+/// `EMEM_GALILEO_VARIANT` at startup; embedding dimension follows
+/// (Tiny=192, Base=768). `s2_chip` is `[T=1, H=8, W=8, 10]`
+/// reflectance in Galileo's S2_BANDS order: B2, B3, B4, B5, B6, B7,
+/// B8, B8A, B11, B12. Native scale (0–10000); the sidecar normalizes
+/// against Galileo's pretraining stats. `month` is 1..12 (defaults
+/// July if absent), engages the model's seasonal positional encoding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GalileoRequest {
     pub s2_chip: Vec<Vec<Vec<Vec<f32>>>>,
@@ -163,8 +165,9 @@ pub struct GalileoRequest {
     pub lat: Option<f64>,
 }
 
-/// Galileo response — 192-D average-pooled embedding from the encoder
-/// (Tiny variant; embed_dim is in `model.config.embedding_size`).
+/// Galileo response — average-pooled embedding from the encoder.
+/// Dimension depends on variant (Tiny=192, Base=768); read it from
+/// `embedding_dim` or `model.config.embedding_size`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GalileoResponse {
     pub embedding: Vec<f32>,
@@ -174,17 +177,16 @@ pub struct GalileoResponse {
     pub device: String,
 }
 
-/// Call the sidecar's `/predict/galileo_tiny_embed` endpoint.
+/// Call the sidecar's `/predict/galileo_embed` endpoint (variant-agnostic).
 ///
 /// First request after sidecar restart pays the model load cost
-/// (~4 s — Galileo Tiny is only 22 MB checkpoint). Warm calls ~14 ms.
-/// As with Prithvi, no in-process CPU fallback at ViT scale.
-pub async fn predict_galileo_tiny_embed(
-    req: &GalileoRequest,
-) -> Result<GalileoResponse, SidecarError> {
+/// (~4 s for Tiny / 22 MB; ~5 s for Base / 330 MB). Warm calls
+/// ~14 ms (Tiny) / ~25 ms (Base). As with Prithvi, no in-process CPU
+/// fallback at ViT scale.
+pub async fn predict_galileo_embed(req: &GalileoRequest) -> Result<GalileoResponse, SidecarError> {
     let body =
         serde_json::to_vec(req).map_err(|e| SidecarError::Protocol(format!("encode req: {e}")))?;
-    let resp_bytes = post_json("/predict/galileo_tiny_embed", &body).await?;
+    let resp_bytes = post_json("/predict/galileo_embed", &body).await?;
     serde_json::from_slice::<GalileoResponse>(&resp_bytes)
         .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
 }

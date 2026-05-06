@@ -60,14 +60,15 @@ PRITHVI_SNAPSHOT = Path(
     os.environ.get("EMEM_PRITHVI_SNAPSHOT", str(PRITHVI_SNAPSHOT_DEFAULT))
 )
 
-# Phase 4 — Galileo-Tiny multimodal encoder (NASA Harvest, MIT).
-# Tiny variant: 5.7 M params, 22 MB checkpoint, 192-D embedding. Pinned
+# Phase 4 — Galileo multimodal encoder (NASA Harvest, MIT). Pinned
 # to the local HF snapshot path for offline-once-cached operation.
+# Base variant (default): 86.5 M params, 330 MB checkpoint, 768-D
+# embedding. Override EMEM_GALILEO_VARIANT to swap (tiny / base / nano).
 GALILEO_REPO = "nasaharvest/galileo"
-GALILEO_VARIANT = "tiny"
+GALILEO_VARIANT = os.environ.get("EMEM_GALILEO_VARIANT", "base")
 GALILEO_SNAPSHOT_DEFAULT = (
-    EMEM_DATA / "hf_cache/hub/models--nasaharvest--galileo/"
-    "snapshots/f039dd5dde966a931baeda47eb680fa89b253e4e/models/tiny"
+    EMEM_DATA / f"hf_cache/hub/models--nasaharvest--galileo/"
+    f"snapshots/f039dd5dde966a931baeda47eb680fa89b253e4e/models/{GALILEO_VARIANT}"
 )
 GALILEO_SNAPSHOT = Path(
     os.environ.get("EMEM_GALILEO_SNAPSHOT", str(GALILEO_SNAPSHOT_DEFAULT))
@@ -687,9 +688,13 @@ def predict_prithvi_eo2_embed(req: PrithviRequest) -> PrithviResponse:
     )
 
 
-@app.post("/predict/galileo_tiny_embed")
-def predict_galileo_tiny_embed(req: GalileoRequest) -> GalileoResponse:
-    """Compute the per-cell Galileo-Tiny embedding from an S2-only chip.
+@app.post("/predict/galileo_embed")
+def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
+    """Compute the per-cell Galileo embedding from an S2-only chip.
+
+    Variant (tiny | base | nano) is determined by EMEM_GALILEO_VARIANT
+    at sidecar startup; the response carries `model.model_id` so callers
+    know which variant produced the embedding.
 
     All other Galileo modalities (S1, ERA5, TC, VIIRS, SRTM, DW, WC,
     LandScan, location) are passed as zeros + masked-as-absent. The
