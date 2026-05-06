@@ -1,275 +1,104 @@
-# emem — Earth memory for AI agents
+# emem — Earth memory protocol
 
-> Cite-able, signed answers about any place on Earth. Three calls:
-> locate → recall → cite receipt.fact_cids[0]. No API key, no signup.
-> Operator + legal: see end of file.
+> Cite-able, content-addressed, ed25519-signed memory of every place on Earth.
+> Bootstrap: GET /v1/discover  ·  Schema: /openapi.json  ·  MCP: /mcp
 
-## Add to your agent (copy-paste)
+## Algebra
 
-- Claude Code / Desktop / Cursor / Cline / VS Code MCP, drop into mcp.json:
-  `{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }`
-- Gemini CLI: `gemini extensions install https://emem.dev/gemini-extension.json`
-- OpenAI Custom GPT Action: paste `https://emem.dev/openapi.action.json`
-  (curated 28-op subset, fits the 30-op Action cap), Auth: None
-- Anthropic API: `"mcp_servers": [{"type":"url","url":"https://emem.dev/mcp","name":"emem"}]`
+    Fact     :: Cell × Band × Tslot → {value, unit, provenance, fact_cid}
+    Receipt  :: Request → {fact_cids, responder_pubkey, sig}
+    cell64   = b1024(lat[21] · lng[22])    pitch ≈ 9.55 m at equator
+    CID      = base32-nopad-lowercase(blake3(canonical_cbor(fact)), 32B)
+    sig      = ed25519(blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖ fact_cids))
 
-## What your user might ask → what to call → what to cite
+## Install (one line each)
 
-The shortest path for any free-text question is `emem_ask({q, place})`
-— it does locate → topic-route → recall → algorithm fan-out and
-returns signed `facts[]` + `algorithms_for_question[]` in one call.
-Use the explicit recall path only when you already have a cell64
-or want a specific band.
+    Claude/Cursor/Cline/VSCode MCP : { "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }
+    Anthropic API                  : { "mcp_servers": [{ "type": "url", "url": "https://emem.dev/mcp", "name": "emem" }] }
+    Gemini CLI                     : gemini extensions install https://emem.dev/gemini-extension.json
+    OpenAI Custom GPT Action       : import https://emem.dev/openapi.action.json   (auth: none)
 
-These examples all PASS the live 51-question evaluation
-(`docs/EVAL_2026_05_04.md`). Topic routing is `BAAI/bge-base-en-v1.5`
-via direct `ort` 2.x — backend reported per-call as
-`topic_routing.routing.method`.
+## Primitives (typed)
 
-| Domain      | Sample free-text question                          | One-call wrapper                                                                  | Routes to (top topics)                                |
-|-------------|----------------------------------------------------|-----------------------------------------------------------------------------------|--------------------------------------------------------|
-| health      | "air quality in new delhi today"                   | `emem_ask({q, place:"New Delhi"})`                                                | `public_health`, `weather_now`                         |
-| health      | "wildfire smoke risk los angeles"                  | `emem_ask({q, place:"Los Angeles"})`                                              | `fire_burn_severity`, `public_health`                  |
-| property    | "flood risk for a property in houston"             | `emem_ask({q, place:"Houston, Texas"})`                                           | `flood_risk_composite`, `real_estate`                  |
-| property    | "walkability score for soho manhattan"             | `emem_ask({q, place:"SoHo, Manhattan"})`                                          | `urban_livability`, `real_estate`                      |
-| calamity    | "recent flood damage pakistan sindh"               | `emem_ask({q, place:"Sindh, Pakistan"})`                                          | `flood_history_long_term`, `flood_water_event_window`  |
-| calamity    | "storm surge risk new orleans"                     | `emem_ask({q, place:"New Orleans"})`                                              | `flood_risk_composite`, `real_estate`                  |
-| carbon      | "carbon stock in the amazon basin"                 | `emem_ask({q, place:"Manaus, Brazil"})`                                           | `carbon_credits`, `esg`                                |
-| carbon      | "mangrove carbon density sundarbans"               | `emem_ask({q, place:"Sundarbans, India"})`                                        | `carbon_credits`, `esg`                                |
-| esg         | "biodiversity index western ghats india"           | `emem_ask({q, place:"Coorg, Karnataka"})`                                         | `esg`, `vegetation_condition`                          |
-| esg         | "environmental risk textile factory tirupur"       | `emem_ask({q, place:"Tirupur, Tamil Nadu"})`                                      | `esg`, `public_health`                                 |
-| agriculture | "crop stress in punjab india"                      | `emem_ask({q, place:"Ludhiana, Punjab"})`                                         | `agriculture`, `vegetation_condition`                  |
-| agriculture | "ndvi of corn fields nebraska"                     | `emem_ask({q, place:"Lincoln, Nebraska"})`                                        | `vegetation_condition`, `optical_raw_reflectance`      |
-| forest      | "tropical deforestation rate brazil"               | `emem_ask({q, place:"Rondônia, Brazil"})`                                         | `esg`, `carbon_credits`, `vegetation_condition`        |
-| forest      | "fire scars in yellowstone"                        | `emem_ask({q, place:"Yellowstone, Wyoming"})`                                     | `fire_burn_severity`, `vegetation_condition`           |
-| water       | "lake mead water level"                            | `emem_ask({q, place:"Lake Mead, Nevada"})`                                        | `flood_water_event_window`, `elevation_land_only`      |
-| water       | "surface water in chad basin"                      | `emem_ask({q, place:"Lake Chad"})`                                                | `flood_water_event_window`, `flood_history_long_term`  |
-| urban       | "urban heat island phoenix"                        | `emem_ask({q, place:"Phoenix, Arizona"})`                                         | `urban_livability`, `public_health`                    |
-| urban       | "road density central lagos"                       | `emem_ask({q, place:"Lagos Island, Nigeria"})`                                    | `built_up_human_geography`, `urban_livability`         |
-| climate     | "snow cover trend hindu kush"                      | `emem_ask({q, place:"Kabul, Afghanistan"})`                                       | `snow`, `vegetation_condition`                         |
-| climate     | "sea surface temperature off cape town"            | `emem_ask({q, place:"Cape Town"})`                                                | `weather_now`, `elevation_global_topobathy`            |
+    ask              :: Question × (Place|Cell) → Fact[] × Algorithm[] × Receipt
+    locate           :: (Place|LatLng)          → Cell × Bbox
+    recall           :: Cell × Band[]           → Fact[] × Receipt
+    recall_polygon   :: (Place|Bbox) × Band[]   → Fact[][] × Aggregate × Receipt
+    compare          :: Cell × Cell × Family    → Score × Receipt
+    find_similar     :: Cell × Embedding × k    → (Cell × cos)[k] × Receipt
+    diff             :: Cell × Tslot × Tslot × Band[] → Δ × Receipt
+    trajectory       :: Cell × Band × [t0,t1]   → Fact[] × Receipt
+    backfill         :: Cell × Band × [t0,t1]   → Fact[] × Receipt
+    verify_receipt   :: Receipt                 → {valid: bool, signer}
 
-In every response: cite `receipt.fact_cids[0]` (truncated 13-char prefix)
-and mention `responder_pubkey_b32` once per session. The
-`algorithms_for_question[]` array tells you which composition recipes
-fired (`crop_stress_score@1`, `flood_risk@2`, `aqi_class@1`, etc.) so
-you don't have to invent the fan-out.
+Full descriptors with input schemas: GET /v1/agent_card  ·  POST /mcp tools/list
 
-## Direct-recall examples (when you already have the cell64 or band)
+## Executable examples
 
-| User question                                       | Tool call                                                                                | Cite                            |
-|-----------------------------------------------------|------------------------------------------------------------------------------------------|---------------------------------|
-| "Is the air bad in Delhi right now?"                | `emem_locate({q:"Delhi"})` then `emem_recall({cell, bands:["cams.pm25"]})`               | receipt.fact_cids[0]            |
-| "Has lat/lng X ever flooded?"                       | `emem_recall({cell, bands:["surface_water.recurrence","sentinel1_raw"]})`                | two fact_cids                   |
-| "What's the elevation of Mount Fuji?"               | `emem_locate({q:"Mount Fuji"})` then `emem_recall({bands:["copdem30m.elevation_mean"]})` | one fact_cid                    |
-| "Find places like the Sundarbans"                   | `emem_find_similar({key:cell, band:"geotessera", k:5})`                                  | k cell64s + cosine + receipt    |
-| "How did this farm change between 2020 and 2024?"   | `emem_diff({cell, t1, t2, bands:["indices.ndvi"]})`                                      | diff fact_cid                   |
-| "Average PM2.5 across this city"                    | `emem_recall_polygon({place:"Lagos", bands:["cams.pm25"]})` then `emem_query_region`     | aggregated + per-cell receipts  |
+    # ask — free-text → topic-route → recall → algorithms (one call)
+    curl -sX POST https://emem.dev/v1/ask \
+      -H 'content-type: application/json' \
+      -d '{"q":"air quality in new delhi today","place":"New Delhi"}'
 
-## What every numeric response carries (no second round-trip needed)
+    # recall — cell × bands → signed facts
+    curl -sX POST https://emem.dev/v1/recall \
+      -H 'content-type: application/json' \
+      -d '{"cell":"defi.zb592.nemu.zEvE","bands":["copdem30m.elevation_mean"]}'
 
-Every signed fact in a `/v1/recall`, `/v1/ask`, `/v1/cells/:cell64`,
-`/v1/recall_polygon`, or boring-endpoint response now ships these
-sibling fields. Quote them verbatim — you do not need a second
-`/v1/bands` call to interpret or cite the value.
+    # recall_polygon — region question (locate → polygon → fan-out)
+    curl -sX POST https://emem.dev/v1/recall_polygon \
+      -H 'content-type: application/json' \
+      -d '{"place":"Lagos","bands":["cams.pm25"]}'
 
-- `value` + `unit` — the number and its physical unit.
-- `band_metadata.interpretation` — editorial guidance (e.g. "PM2.5 / PM10 / NO2 / O3 are the canonical four pollutants used by US EPA AQI calculators — see aqi_class@1"). Quote instead of re-inventing thresholds.
-- `band_metadata.pitfalls` — only mention when the user's question intersects (e.g. "CAMS is a ~11 km global model so a single industrial stack won't show up").
-- `band_metadata.dimension_description` + `dimension_index` — surfaces the per-scalar slot info (so `weather.temperature_2m` carries "Air temperature at 2 m above ground" not "see scalar_keys").
-- `value_decoded` — for categorical bands (ESA WorldCover, JRC Surface Water transition class, S2 SCL): the human label.
-- `signer_pubkey_b32` (sibling to raw `signer` bytes) — quote in cid64-short form. Lets the user paste into `/v1/verify`.
-- `fact_cid` — quote (first 13 chars). Lets the user replay with `GET /v1/cells/:cell/facts/:cid`.
-- `receipt.responder_pubkey_b32` — mention once per session.
+    # find_similar — k-NN over a foundation embedding
+    curl -sX POST https://emem.dev/v1/find_similar \
+      -H 'content-type: application/json' \
+      -d '{"key":"defi.zb592.nemu.zEvE","band":"geotessera","k":5}'
 
-For the live derived classifications (e.g. AQI category, precipitation
-intensity), `/v1/ask` populates `algorithm_outcomes[]` — quote
-`algorithm_key` + `value` + look up the human label in
-`/v1/algorithms[key].output.values[value-1]`. The full integration
-guide is at `/agents.md` §5 (Anatomy of a numeric response).
+    # MCP tools/list
+    curl -sX POST https://emem.dev/mcp \
+      -H 'content-type: application/json' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
-## Tools (MCP — see /mcp tools/list for the live catalog)
+## Citation contract
 
-- `emem_locate(q)` — place name or lat/lng → cell64 + bbox + neighbours.
-  When to use: any time the user mentions a place. When NOT to use: when
-  you already have a cell64.
-- `emem_recall(cell, bands[])` — fetch facts at a cell, signed. Auto-
-  materializes on miss. Returns Primary | Derivative | Absence.
-- `emem_recall_polygon(place|bbox, bands[])` — closes locate → polygon →
-  fan-out into one call. Use this for region questions.
+Every numeric response carries: `value`, `unit`, `band_metadata.{interpretation,
+pitfalls, dimension_description}`, `value_decoded` (categorical), `signer_pubkey_b32`,
+`fact_cid`, `receipt.responder_pubkey_b32`. Cite `receipt.fact_cids[0]` (13-char
+prefix). Mention `responder_pubkey_b32` once per session. Never invent a CID.
 
-## Trust the data
-- Every read is signed ed25519. Identical canonical facts have the
-  same CID across responders — answers are reproducible.
-- Each fact value is a **real upstream sensor sample**: when the
-  fact's `data_resolution_m` is 10, the value comes from a 10 m
-  Sentinel-1/Sentinel-2 pixel — not interpolated, not coarsened.
-  The multimodal-fusion contract guarantees that algorithms anchored
-  on S1/S2/Landsat consume 10 m inputs natively.
-- `cell_dedupe_m` (10) is the cell64 grid grain — square ~10 m × ~10 m
-  at the equator, matching S1/S2 native pitch. Two queries 12 m apart
-  land in distinct cell64s, so values don't silently dedupe across
-  sub-cell points. Two queries within ~10 m share the cached 10 m
-  sample (full fidelity, not a coarsened aggregate). Use
-  `/v1/recall_polygon` when you want a region of per-cell samples.
-- Signed `Absence` is a real answer ("tried and got no answer"); do
-  not retry, surface it as an honest gap.
-- Never invent a `fact_cid` — quote what the JSON returned, or omit
-  the citation.
+## Guarantees
 
-## When to call emem
+    hash_alg        : blake3
+    sig_alg         : ed25519
+    encoding        : cbor (canonical, deterministic)
+    auth            : none for L0/L1 read paths; attester key for L2 writes
+    absence         : signed; do not retry — surface as honest gap
+    idempotent      : recall, compare, find_similar, diff, verify_receipt
+    deterministic   : identical canonical facts → identical CID across responders
+    auto-materialize: recall miss on a wired band fetches from open-data upstream + signs
 
-- User mentions a place, lat/lng, or `cell64` → POST `/v1/recall`
-- User names a wide region (city, canyon, park, country) →
-  POST `/v1/recall_polygon` `{place, bands}`, collapses
-  locate → polygon_sample_cells → recall_many into one call
-- "How similar is X to Y" → POST `/v1/compare`
-- "Find places like X" → POST `/v1/find_similar`
-- "What changed at X between t1 and t2" → POST `/v1/diff`
-- "Show me the trajectory" → POST `/v1/trajectory` (returns only already-attested tslots)
-- "Give me HISTORY for this band over a window" → POST `/v1/backfill` (materializes per-tslot history; signed; bounded by `history_available_from_unix`/`to_unix` in `/v1/coverage_matrix`)
-- Spatial yes/no with citable evidence → POST `/v1/verify`
-- Region average / median / p90 → POST `/v1/query_region`
-- "Resolve a CID to its fact" → GET `/v1/facts/{cid}` or MCP `emem_fetch`
-- "What schema is this responder serving?" → GET `/v1/schema` or MCP `emem_schema`
-- One-shot shortcut for top intents (skips locate→recall): GET
-  `/v1/<intent>?lat=&lon=` returns the same signed Fact + `cell64`
-  + `fact_cid`. The full intent map is at GET `/v1/agent_quickref`.
-- Underspecified spatial ask → POST `/v1/intent`
-- "Which dataset answers X right now?" → GET `/v1/coverage_matrix` (now carries `tempo_seconds`, `history_available_from_unix`/`to_unix`, and per-band `responder_pubkey_b32`)
-- "Which satellite is behind this band?" → GET `/v1/fleet`
-- "What band given query time + intent?" → POST `/v1/temporal_route`
-- "Forecast LST N hours ahead" (urban heat island, surface-temperature evolution) → POST `/v1/heat_solve` (2-D explicit-FD solver for `∂u/∂t = α∇²u`; signed forecast cites the 9 input MODIS LST CIDs)
-- "Will the offshore swell make it to the coast?" (storm-surge planning, surf forecasting) → POST `/v1/wave_solve` (1-D explicit-FD shallow-water solver for `∂²u/∂t² = c²∂²u/∂x²` along the GMRT bathymetric profile; signed arrival)
-- "What's the next-month NDVI here?" (crop-stress monitoring, vegetation-anomaly anticipation) → POST `/v1/jepa_predict` (constrained JEPA-pattern AR(2) seasonal predictor; closed-form coefficients, NOT a learned MLP — see honesty note in response)
+## Catalogs (machine-readable)
 
-Cite `receipt.fact_cids[0]` (cid64 short form) in the reply.
-Mention `responder_pubkey_b32` once per session.
+    /v1/bands              — band ontology, dims, tempo, materializer status
+    /v1/algorithms         — composition recipes (flood_risk, walkability, …)
+    /v1/materializers      — wire-stable list of auto-materializing bands
+    /v1/data_availability  — per-band kind/tempo/history-window
+    /v1/coverage_matrix    — has_materializer, facts_count, last_attested
+    /v1/fleet              — sensor lineage (S1/S2/MODIS/Cop-DEM/…)
+    /v1/grid_info          — cell64 pitch + DGGS interop (h3, s2)
 
-## Live materialized bands (no API key required)
+## Discovery
 
-- `s2.B01..B12`, `s2.B8A`, `s2.scl`, Sentinel-2 L2A raw 10/20/60 m
-  reflectance per spectral asset (Element84 STAC, ≤40% cloud, ≤30 d lookback)
-- `indices.{ndvi, ndwi, mndwi, evi, nbr, ndmi, savi, bsi, ndbi}`:
-  classic 9 spectral indices from Sentinel-2 (single STAC search per cell)
-- `indices.{ndti, gndvi, ndre, fai, tss, ndsi, afri1600, savi_l1,
-  surface_dryness, urban_canopy_index}`, 10 consumer-health-relevant
-  indices (turbidity, red-edge chlorophyll, floating algae, suspended
-  solids, snow cover, aerosol-resistant veg, urban canopy density)
-- `sentinel1_raw`, Sentinel-1 GRD VV (dB), all-weather radar
-- `geotessera` (alias `geotessera.2024`), Tessera 128-D foundation
-  embedding (HTTPS range, ~640 B/cell)
-- `geotessera.{2017..2024}`, annual vintages, signed individually
-- `geotessera.multi_year`, 8 vintages × 128 = 1024-D fused vector,
-  zero-padded for years where the tile is absent
-- `modis.ndvi_mean`, 16-day MODIS Terra NDVI
-- `modis.lst_day_8day`, `modis.lst_night_8day`, 8-day land-surface
-  temperature (1 km, MOD11A2), heat-stress, UHI math
-- `modis.et_8day`, `modis.gpp_8day`, `modis.lai_8day`, biophysical
-  evapotranspiration / gross primary production / leaf-area index
-  (MOD16A2 / MOD17A2H / MOD15A2H, 500 m, 8-day)
-- `modis.burned_area_monthly`, MCD64A1 monthly burn-date (500 m)
-- `gmrt.topobathy_mean`, global topo+bathy (Lamont-Doherty)
-- `copdem30m.elevation_mean`, land DEM, signed Absence over water
-- `surface_water.recurrence`, JRC GSW v1.4 flood-recurrence climatology
-  (Landsat 1984–2021)
-- `weather.{temperature_2m, cloud_cover, precipitation_mm, wind_speed_10m,
-  relative_humidity_2m, dew_point_2m, air_pressure_msl, wind_direction_10m}`
- , api.met.no/locationforecast/2.0/compact, hourly nowcast, ECMWF +
-  EUMETSAT geostationary-fed (no key, no rate limit)
-- `power.{t2m, t2m_min, t2m_max, precip, rh2m, allsky_sw, ws10m}`:
-  NASA POWER daily reanalysis (MERRA-2 + GEOS), 1981–present, public-
-  domain (US Gov), backfillable
-- `cams.{pm25, pm10, no2, o3, so2, co, aod_550}`, Open-Meteo CAMS
-  air-quality (ECMWF CAMS, hourly, 2013-08-01–present, CC BY 4.0).
-  Surface-level pollutants for consumer health questions.
-- `era5.{t2m, precip, rh2m, windspeed_10m, cloudcover, surface_pressure,
-  dewpoint_2m}`, Open-Meteo ERA5 archive, ECMWF reanalysis 1940–present,
-  hourly, CC BY 4.0
-- `marine.{wave_height, swell_period, swell_height, sst, wave_direction}`
- , Open-Meteo Marine (ECMWF WAM), 2022-08-01 onward, hourly, ocean only
-- `overture.{buildings.count, places.count, transportation.road_length_m}`
- , Overture Maps Foundation per-cell aggregates (S3 anonymous)
-- `esa_worldcover.lc_2021`, ESA WorldCover 2021 v200 11-class landcover
-  (10 m, anonymous AWS S3, CC BY 4.0). Class values 10/20/30/40/50/60/
-  70/80/90/95/100 (tree/shrub/grass/crop/built/bare/snow/water/herbaceous-
-  wet/mangroves/moss-lichen).
-- `hansen.{tree_cover_2000, loss_year, gain}`, Hansen Global Forest
-  Change v1.11 2023 release (30 m, storage.googleapis.com). tree_cover_2000
-  is 0..100% canopy, loss_year is 0..23 (year of loss; 1=2001, 23=2023),
-  gain is 0/1 (2000–2012 gain mask).
-- `soilgrids.{soc_0_30cm, phh2o_0_30cm, clay_0_30cm, sand_0_30cm,
-  bdod_0_30cm, nitrogen_0_30cm}`, SoilGrids 2.0 (ISRIC, CC BY 4.0).
-  Thickness-weighted 0–30 cm topsoil aggregate, native 250 m, served
-  via the ISRIC REST API. Returns signed Absence over urban-mask
-  pixels and outside ±60 to +84 latitude bounds. Anchors EUDR
-  compliance, VM0042 SOC, RUSLE K-factor, IPCC Tier-2 rice CH₄.
+    /v1/discover                    — typed bootstrap (manifests, primitives, ontology)
+    /openapi.json                   — full OpenAPI 3.1 spec
+    /.well-known/agent-card.json    — A2A v0.2 agent card
+    /.well-known/mcp.json           — MCP server descriptor
+    /.well-known/emem.json          — manifest CIDs + responder pubkey
+    /agents.md                      — full integration guide
+    /whitepaper.md                  — architecture + math
 
-## Discovery surface (single GET each)
+## Operator
 
-- `/v1/discover`, bootstrap: agent_card + manifests + canonical places
-- `/v1/agent_card`, tool descriptors + when-to-use + JSON Schema
-- `/v1/quickstart`, six-step playbook
-- `/v1/coverage_matrix`, per-band has_materializer + facts_count + last_attested
-- `/v1/fleet`, satellite/sensor lineage by_cadence + by_capability
-- `/v1/materializers`, wire-stable list of auto-materializing bands
-- `/v1/data_availability`, per-band temporal coverage (kind +
-  history_from/to + tempo + upstream wire path); always agrees 1:1 with
-  `/v1/materializers`. Call this before `emem_backfill` to avoid
-  trial-and-error 422s on now-only bands (e.g., met.no nowcast).
-- `/v1/bands`, band ontology (offsets, dims, tempo, privacy)
-- `/v1/grid_info`, cell64 ground resolution, DGGS interop
-- `/v1/temporal_route`, PDE-based band routing
-- `/openapi.json`, paste into GPT Custom Action
-- `/mcp`, MCP Streamable HTTP transport over HTTPS (Claude Desktop, Cursor, Cline)
-- `/.well-known/emem.json`, manifest CIDs + responder pubkey
-- `/agents.md`, full integration guide · `/whitepaper.md`, architecture + math
-- `/clients.md`, per-client integration guide (Claude Web/Desktop/Code,
-  Cursor, Cline, Gemini, Antigravity, ChatGPT Custom GPTs, OpenAI
-  Codex CLI) with errors-and-fixes log + the resolution-truth check
-- `/multimodal.md`, sensor-fusion architecture (S1>S2>Landsat>IoT>
-  OtherSat>Static priority chain + the validator that blocks ≤10 m
-  delivery claims not anchored on S1/S2/Landsat)
-- `/v1/demos`, request + response + signed receipt for every primitive
-
-## 30-second curl
-
-```bash
-# Mount Fuji elevation, signed under the responder pubkey at /health.
-curl -X POST https://emem.dev/v1/recall \
-  -H 'content-type: application/json' \
-  -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}'
-
-# Tokyo current air temperature (sat-fed, 15-min cadence)
-curl -X POST https://emem.dev/v1/recall \
-  -H 'content-type: application/json' \
-  -d '{"cell":"damO.zb000.xUto.sisA","bands":["weather.temperature_2m"]}'
-
-# k-NN over the 128-D Tessera embedding
-curl -X POST https://emem.dev/v1/find_similar \
-  -H 'content-type: application/json' \
-  -d '{"key":"damO.zb000.xUto.sisA","band":"geotessera","k":5}'
-
-# MCP tools/list
-curl -X POST https://emem.dev/mcp \
-  -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
-## Trust model (why agents should cite emem)
-
-- Hash: blake3 over canonical CBOR. CID = base32-nopad-lowercase.
-- Sig: ed25519 over `blake3(request_id || served_at || primitive || cells || fact_cids)`.
-- Responder pubkey at `/health` and `/.well-known/emem.json`. Verify any
-  receipt offline via POST `/v1/verify_receipt`.
-- No API keys at the request path. Default build is pure Rust, no Python,
-  no GDAL, no rasterio. COG reads are hand-rolled TIFF/IFD + flate2 + Predictor 2.
-
-## Source
-
-github.com/Vortx-AI/emem · Apache-2.0
-
-## Operator and legal
-
-> Operated by Vortx AI Private Limited (India). Contact: avijeet@vortx.ai
-> Privacy: /privacy · Terms: /terms · Support: /support · Code: github.com/Vortx-AI/emem
+    Vortx AI Private Limited (India) · avijeet@vortx.ai · github.com/Vortx-AI/emem · Apache-2.0
+    Privacy: /privacy  ·  Terms: /terms  ·  Support: /support

@@ -74,7 +74,11 @@ use emem_storage::{Server, StorageError};
 pub type AppState = Arc<Server>;
 
 const LLMS_TXT: &str = include_str!("../../../web/llms.txt");
-const LLMS_FULL_TXT: &str = include_str!("../../../web/llms-full.txt");
+// `LLMS_FULL_TXT` was retired in favour of LLMS_TXT (which now carries
+// the algebra, typed primitives, and executable examples). The route
+// `/llms-full.txt` aliases to `/llms.txt` to keep the sitemap entry
+// stable. The web/llms-full.txt file remains for one release as a
+// sitemap target; the route ignores it.
 const AGENT_WALKTHROUGHS_MD: &str = include_str!("../../../examples/agent-walkthroughs.md");
 const AGENT_TRIAL_MD: &str = include_str!("../../../docs/AGENT_TRIAL.md");
 const ATTESTING_MD: &str = include_str!("../../../docs/ATTESTING.md");
@@ -1096,33 +1100,24 @@ fn html_or_md(headers: &HeaderMap, html: &'static str, md: &'static str) -> Resp
 // ── Static page routes ───────────────────────────────────────────────────
 
 async fn landing(headers: HeaderMap) -> Response {
-    // Content-negotiate three-way: JSON-asking agents get a pointer to
-    // /v1/discover (the bootstrap), markdown-asking agents get llms.txt
-    // (token-cheap summary), and HTML-asking browsers get the homepage.
-    // This is the *first* request a fresh agent makes; getting it wrong
-    // means an agent-only client never finds the protocol surface.
+    // Content-negotiate three-way:
+    //   Accept: text/markdown            → /llms.txt body (token-cheap)
+    //   Accept: application/json (no html)→ pointer to /v1/discover
+    //   else (browsers, AI crawlers)     → /index.html (sub-1 KB)
+    // First request a fresh agent makes; the wrong default leaves an
+    // agent-only client unable to find the protocol surface.
     let accept = headers
         .get(ACCEPT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let prefers_json = accept.contains("application/json") && !accept.contains("text/html");
     if prefers_json {
+        // Minimal pointer — discover is the only URL an agent needs.
         let body = serde_json::to_vec(&serde_json::json!({
-            "schema": "emem.landing.v1",
-            "tagline": "Cite-able, content-addressed, signed memory of every place on Earth.",
-            "bootstrap": "/v1/discover",
-            "agent_card": "/v1/agent_card",
-            "openapi": "/openapi.json",
-            "mcp": "/mcp",
+            "discover": "/v1/discover",
             "llms_txt": "/llms.txt",
-            "agents_md": "/agents.md",
-            "next": [
-                "GET /v1/discover  — one-call bootstrap with manifests, tools, canonical places",
-                "GET /v1/quickstart — three-call flow: discover → recall → verify_receipt",
-                "GET /v1/grid_info — actual cell64 resolution + DGGS interop",
-                "GET /v1/coverage  — what places have data attested today",
-                "GET /v1/coverage_map.svg — visual gym (multimodal agents)"
-            ]
+            "openapi":  "/openapi.json",
+            "mcp":      "/mcp",
         }))
         .unwrap_or_default();
         return Response::builder()
@@ -1159,7 +1154,13 @@ async fn serve_llms_txt() -> Response {
     text_response("text/plain; charset=utf-8", LLMS_TXT)
 }
 async fn serve_llms_full() -> Response {
-    text_response("text/plain; charset=utf-8", LLMS_FULL_TXT)
+    // Historical artifact — earlier release shipped a 25 KB "full" variant
+    // that drifted from the live catalog. The agent-native rewrite of
+    // /llms.txt now carries the same algebra, types, executable examples,
+    // and machine guarantees, so /llms-full.txt aliases to it. Sitemap
+    // entry is preserved; agents that fetched the longer URL still land
+    // on a coherent doc.
+    text_response("text/plain; charset=utf-8", LLMS_TXT)
 }
 async fn serve_agent_walkthroughs() -> Response {
     text_response("text/markdown; charset=utf-8", AGENT_WALKTHROUGHS_MD)
@@ -3555,7 +3556,7 @@ async fn quickstart() -> Json<JsonValue> {
                 "name": "Recall — fan out across bands and the neighborhood",
                 "method": "POST",
                 "path": "/v1/recall_many",
-                "body": { "cells": ["damO.zb000.xUti.zde79","damO.zb000.xUti.zde78"], "bands": ["indices.ndvi","weather.temperature_2m","copdem30m.elevation_mean","geotessera"] },
+                "body": { "cells": ["defi.zb592.nemu.zEvE","defi.zb545.wAmA.zb9dd"], "bands": ["indices.ndvi","weather.temperature_2m","copdem30m.elevation_mean","geotessera"] },
                 "expect": "200 with { by_cell: {<cell>: {facts, receipt, bands_already_attested_at_cell?}} }. NDVI from Sentinel-2 L2A via pure-Rust COG range read; weather from MET Norway (no API key); foundation embedding from Tessera v1; elevation from Cop-DEM."
             },
             {
@@ -7478,7 +7479,7 @@ async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
                     "jsonrpc": "2.0", "id": 3, "method": "tools/call",
                     "params": {
                         "name": "emem_recall",
-                        "arguments": {"cell": "damO.zb000.xUti.zde78", "bands": ["copdem30m.elevation_mean"]}
+                        "arguments": {"cell": "defi.zb592.nemu.zEvE", "bands": ["copdem30m.elevation_mean"]}
                     }
                 }
             }
@@ -7939,7 +7940,7 @@ fn mcp_read_resource(uri: &str) -> Result<JsonValue, (i64, String)> {
         "emem://docs/spec.md" => Some((SPEC_MD, "text/markdown")),
         "emem://docs/whitepaper.md" => Some((WHITEPAPER_MD, "text/markdown")),
         "emem://docs/llms.txt" => Some((LLMS_TXT, "text/markdown")),
-        "emem://docs/llms-full.txt" => Some((LLMS_FULL_TXT, "text/markdown")),
+        "emem://docs/llms-full.txt" => Some((LLMS_TXT, "text/markdown")),
         "emem://docs/agent_walkthroughs.md" => Some((AGENT_WALKTHROUGHS_MD, "text/markdown")),
         "emem://docs/temporal.md" => Some((TEMPORAL_MD, "text/markdown")),
         "emem://docs/materializers.md" => Some((MATERIALIZERS_MD, "text/markdown")),
@@ -9194,74 +9195,54 @@ fn canonical_places() -> Vec<(&'static str, f64, f64)> {
 }
 
 async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
-    let card = agent_card(State(s.clone())).await;
-    let manifests = manifests(State(s.clone())).await;
-    let bands = bands(State(s.clone())).await;
-    // Surface a slim algorithm-registry summary inline so the cold-start
-    // bootstrap is genuinely one-call. Full bodies live at /v1/algorithms.
+    // Agent-native bootstrap. North-star size: <1 KB so the entire
+    // document fits in a system prompt and the agent never fetches
+    // it again. Everything heavier — typed signatures, examples,
+    // guarantees, ontology long-form, catalogs — fans out:
+    //
+    //   /v1/agent_card     full primitive descriptors (types, examples, guarantees)
+    //   /v1/bands          band ontology + materializer status
+    //   /v1/algorithms     composition recipes
+    //   /openapi.json      JSON-Schema for every input/output
+    //   /agents.md         long-form ontology + decision tree
+    //   /.well-known/*     well-known mirrors
+    //
+    // What stays: responder pubkey (verify), manifests CIDs (cite),
+    // a one-line algebra (interpret), the primitive→URL map (call).
     let alg_reg = &*emem_core::algorithms::DEFAULT;
-    let alg_summary: Vec<JsonValue> = alg_reg
-        .algorithms
-        .iter()
-        .map(|a| {
-            json!({
-                "key":    a.key,
-                "kind":   a.kind,
-                "domain": a.domain,
-                "when_to_use": a.when_to_use.chars().take(140).collect::<String>(),
-            })
-        })
-        .collect();
     let alg_cid = emem_core::manifest::manifest_cid(alg_reg).ok();
-    let mut places: Vec<JsonValue> = Vec::new();
-    for (name, lat, lng) in canonical_places() {
-        let cell = emem_codec::cell64_from_latlng(lat, lng);
-        places.push(json!({
-            "name": name,
-            "lat": lat,
-            "lng": lng,
-            "cell64": cell,
-            "recall": format!("/v1/recall body {{\"cell\":\"{cell}\"}}"),
-        }));
-    }
     let pubkey = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
     Json(json!({
         "schema": "emem.discover.v1",
-        "tagline": "Cite-able, content-addressed, signed memory of every place on Earth.",
         "responder_pubkey_b32": pubkey,
-        "responder_key_epoch": s.identity.epoch.0,
-        "manifests": manifests.0,
-        "bands": bands.0,
-        "algorithms": {
-            "_purpose": "Composition recipes (flood_risk, walkability, embedding_novelty, …) that fuse attested band facts into derived scores. Cite algorithm_cid + fact_cids for reproducibility. Full bodies at GET /v1/algorithms.",
+        "fact": "Cell×Band×Tslot → Fact ; cell64=b1024(lat[21]·lng[22])≈9.55m ; cid=blake3(cbor)/b32-32 ; sig=ed25519",
+        "manifests": {
+            "bands_cid":      &s.manifests.bands_cid,
+            "registry_cid":   s.manifests.registry_cid.as_str(),
+            "schema_cid":     s.manifests.schema_cid.as_str(),
             "algorithms_cid": alg_cid,
-            "count": alg_reg.algorithms.len(),
-            "summary": alg_summary,
         },
-        "agent_card": card.0,
-        "canonical_places": places,
-        "next_calls": [
-            {"call":"POST /v1/locate", "use":"map a place name or lat/lng to a cell64; returns data_at_this_cell with bands AND algorithms grouped by topic"},
-            {"call":"POST /v1/recall", "use":"read the facts known about a cell; auto-materializes on miss for any wired band"},
-            {"call":"GET  /v1/algorithms/:key", "use":"fetch one composition recipe (formula + inputs + citation); apply in-process and cite algorithm_cid in the receipt"},
-            {"call":"POST /v1/compare", "use":"score two cells against a band family"},
-            {"call":"POST /v1/find_similar", "use":"k-NN over the corpus"},
-            {"call":"GET  /v1/cells/:cell64/scene.png", "use":"true-colour Sentinel-2 RGB thumbnail (multimodal); also via MCP `emem_cell_scene_rgb`"},
-            {"call":"POST /v1/attest_cbor", "use":"contribute facts to the shared memory"},
-            {"call":"POST /v1/verify_receipt", "use":"audit any responder's signed receipt"},
-            {"call":"GET  /v1/grid_info", "use":"declared resolution, DGGS lineage, H3/S2 interop"},
-            {"call":"GET  /v1/agent_stats", "use":"by-family request counts, latency p50/p95/p99"},
-        ],
-        "human_readable_doc": "/agents.md",
-        "llm_optimised_doc":  "/llms-full.txt",
-        "openapi":            "/openapi.json",
-        "mcp":                "/mcp",
-        "metrics":            "/metrics",
-        "leaderboard":        "/v1/contributors",
-        "source":             "https://github.com/Vortx-AI/emem",
-        "license":            "Apache-2.0",
+        "primitives": {
+            "ask":            "POST /v1/ask",
+            "locate":         "POST /v1/locate",
+            "recall":         "POST /v1/recall",
+            "recall_polygon": "POST /v1/recall_polygon",
+            "compare":        "POST /v1/compare",
+            "find_similar":   "POST /v1/find_similar",
+            "diff":           "POST /v1/diff",
+            "trajectory":     "POST /v1/trajectory",
+            "backfill":       "POST /v1/backfill",
+            "verify":         "POST /v1/verify_receipt",
+        },
+        "fanout": {
+            "agent_card": "/v1/agent_card",
+            "bands":      "/v1/bands",
+            "algorithms": "/v1/algorithms",
+            "openapi":    "/openapi.json",
+            "mcp":        "/mcp",
+        },
     }))
 }
 
@@ -9401,7 +9382,7 @@ async fn grid_info() -> Json<JsonValue> {
             "kind": "raster, packed lat/lng quantisation (square at equator)",
             "lat_bits": 21,
             "lng_bits": 22,
-            "encoded_string_form": "four base-1024 bigrams joined by '.', e.g. damO.zb000.xUti.zde79",
+            "encoded_string_form": "four base-1024 bigrams joined by '.', e.g. defi.zb592.nemu.zEvE",
             "string_length_chars": 18,
             "ground_resolution": {
                 "lat_axis_deg":   8.583e-5,
