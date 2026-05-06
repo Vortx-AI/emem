@@ -3033,6 +3033,7 @@ fn topics_payload() -> JsonValue {
             "flood_water_event_window":   ["indices.ndwi","indices.mndwi","sentinel1_raw"],
             "vegetation_condition":       ["indices.ndvi","indices.evi","indices.savi","indices.ndmi","modis.ndvi_mean"],
             "fire_burn_severity":         ["indices.nbr"],
+            "fire_active_realtime":       ["firms.active_fires"],
             "soil_bare":                  ["indices.bsi"],
             "built_up_human_geography":   ["indices.ndbi","overture.buildings.count","overture.places.count","overture.transportation.road_length_m"],
             "human_population":            ["population","nightlights.dmsp_ols_avg_dn","nightlights.year","nightlights.satellite"],
@@ -13876,6 +13877,214 @@ async fn materialize_nightlights_band(
     }
 }
 
+// ---------------- NASA FIRMS active-fire materializer (P3-D) -----------
+//
+// Wires `firms.active_fires` against the anonymous bulk-CSV path at
+// firms.modaps.eosdis.nasa.gov/data/active_fire/<source>/csv/. Four
+// sensors (MODIS Aqua+Terra fused, VIIRS S-NPP, VIIRS NOAA-20, VIIRS
+// NOAA-21), 24h rolling window, ~14 MB/day combined. The connector
+// caches all four parsed CSVs in-process; per-recall this materialiser
+// does a linear bbox+tslot scan (≤200k detections worldwide; tens of µs).
+//
+// Tslot tempo is `Tempo::Fast` (hourly) — fires are event-driven and
+// the upstream cadence is 8-10 overpasses/day. Per-cell summary returned
+// as a CBOR Map: detections, frp_max_mw, frp_sum_mw,
+// last_detection_unix_s, conf_max (0..100), sensors_bitmask
+// (MODIS=1, VIIRS-SNPP=2, VIIRS-J1=4, VIIRS-J2=8), daynight_mix_u8.
+//
+// Two distinct Absence reasons:
+//   - `outside_window` — recall tslot is older than the 24h rolling
+//     window the bulk file covers. Agents asking for historical fires
+//     should backfill from FIRMS Archive Download (different endpoint).
+//   - `no_detections` — confirmed-no answer for a tslot inside the
+//     window. This is the meaningful "no fire here right now" signal.
+//
+// Confidence normalisation (handled in the connector): MODIS ships
+// integer 0..100; VIIRS ships {low|nominal|high} string and we map
+// to {20, 50, 90} so downstream code reads one type.
+async fn materialize_firms_active_fires(
+    cell64: &str,
+    s: &AppState,
+    target_unix: i64,
+) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    // The cell's centre + ~10m square half-extent. Use one tslot grain
+    // for the bbox latitude tolerance — the cell is so small at 10 m
+    // that we just scan a small bbox around the centre.
+    let half_lat_deg = (info.bbox_deg.max_lat - info.bbox_deg.min_lat) * 0.5;
+    let half_lng_deg = (info.bbox_deg.max_lng - info.bbox_deg.min_lng) * 0.5;
+    let bbox_min_lat = info.bbox_deg.min_lat - half_lat_deg;
+    let bbox_max_lat = info.bbox_deg.max_lat + half_lat_deg;
+    let bbox_min_lng = info.bbox_deg.min_lng - half_lng_deg;
+    let bbox_max_lng = info.bbox_deg.max_lng + half_lng_deg;
+
+    // Tslot grain is one hour (Tempo::Fast). Build [t, t+3600) window.
+    let tslot = emem_core::tslot::Tslot::from_unix(target_unix, emem_core::tslot::Tempo::Fast).0;
+    let tslot_start = (tslot as i64) * 3600;
+    let tslot_end = tslot_start + 3600 - 1;
+
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+    match emem_fetch::firms::fetch_fires_for_cell(
+        &cli,
+        bbox_min_lat,
+        bbox_max_lat,
+        bbox_min_lng,
+        bbox_max_lng,
+        tslot_start,
+        tslot_end,
+    )
+    .await
+    {
+        Ok(summary) if summary.detections > 0 => {
+            // Primary fact carrying the structured summary.
+            let entries: Vec<(ciborium::Value, ciborium::Value)> = vec![
+                (
+                    ciborium::Value::Text("detections".into()),
+                    ciborium::Value::Integer((summary.detections as i64).into()),
+                ),
+                (
+                    ciborium::Value::Text("frp_max_mw".into()),
+                    ciborium::Value::Float(summary.frp_max_mw as f64),
+                ),
+                (
+                    ciborium::Value::Text("frp_sum_mw".into()),
+                    ciborium::Value::Float(summary.frp_sum_mw as f64),
+                ),
+                (
+                    ciborium::Value::Text("last_detection_unix_s".into()),
+                    ciborium::Value::Integer(summary.last_detection_unix_s.into()),
+                ),
+                (
+                    ciborium::Value::Text("conf_max".into()),
+                    ciborium::Value::Integer((summary.conf_max as i64).into()),
+                ),
+                (
+                    ciborium::Value::Text("sensors_bitmask".into()),
+                    ciborium::Value::Integer((summary.sensors_bitmask as i64).into()),
+                ),
+                (
+                    ciborium::Value::Text("daynight_mix_u8".into()),
+                    ciborium::Value::Integer((summary.daynight_mix_u8 as i64).into()),
+                ),
+            ];
+            let value = ciborium::Value::Map(entries);
+            let mut sources: Vec<Source> = summary
+                .source_urls
+                .iter()
+                .map(|url| Source {
+                    scheme: "nasa.firms.active_fire.csv".into(),
+                    id: url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(url.clone()),
+                })
+                .collect();
+            if sources.is_empty() {
+                sources.push(Source {
+                    scheme: "nasa.firms.active_fire.csv".into(),
+                    id: "firms-bulk-csv".into(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some("https://firms.modaps.eosdis.nasa.gov/data/active_fire/".into()),
+                });
+            }
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: "firms.active_fires".into(),
+                tslot,
+                value,
+                unit: Some("firms_active_fires_summary".into()),
+                // FIRMS reports per-detection confidence; the cell-level
+                // summary is a faithful aggregation of upstream values
+                // but the upstream itself carries 0..100 confidence per
+                // hit (~85th percentile is "high"). Use 0.90 as a
+                // band-level confidence acknowledging both the upstream
+                // confidence and the small cell × hour aggregation.
+                confidence: 0.90,
+                uncertainty: None,
+                sources,
+                derivation: Derivation {
+                    fn_key: "firms_active_fires_summary@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(info.lat_deg),
+                        ciborium::Value::Float(info.lng_deg),
+                        ciborium::Value::Integer(tslot_start.into()),
+                        ciborium::Value::Integer(tslot_end.into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Ok(_) => {
+            // detections==0 → confirmed no-fire-here Absence.
+            let reason = format!(
+                "no_detections: FIRMS bulk-CSV scan returned zero active-fire \
+                 detections within cell bbox ({bbox_min_lat:.6},{bbox_min_lng:.6})..\
+                 ({bbox_max_lat:.6},{bbox_max_lng:.6}) for tslot=[{tslot_start}, {tslot_end}). \
+                 Sources: MODIS C6.1 + VIIRS S-NPP/J1/J2 (24h rolling window). \
+                 This is the meaningful 'no fire detected here right now' signal — \
+                 distinct from a stale cache or upstream outage."
+            );
+            let reason_cid = reason_cid_for(&reason);
+            let fact = Fact::Absence(NegativeFact {
+                cell: cell64.to_string(),
+                band: "firms.active_fires".into(),
+                tslot,
+                reason_cid,
+                confidence: 0.95,
+                sources: vec![Source {
+                    scheme: "nasa.firms.active_fire.csv".into(),
+                    id: "firms-24h-bulk-csv".into(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some("https://firms.modaps.eosdis.nasa.gov/data/active_fire/".into()),
+                }],
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(emem_fetch::firms::FirmsError::OutsideWindow) => {
+            let reason = format!(
+                "outside_window: FIRMS bulk-CSV covers a 24h rolling window; \
+                 requested tslot=[{tslot_start}, {tslot_end}) falls outside \
+                 the file's coverage. For historical fires use the FIRMS \
+                 Archive Download API (different endpoint, different access path)."
+            );
+            let reason_cid = reason_cid_for(&reason);
+            let fact = Fact::Absence(NegativeFact {
+                cell: cell64.to_string(),
+                band: "firms.active_fires".into(),
+                tslot,
+                reason_cid,
+                confidence: 1.0,
+                sources: vec![Source {
+                    scheme: "nasa.firms.active_fire.csv".into(),
+                    id: "firms-24h-bulk-csv".into(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some("https://firms.modaps.eosdis.nasa.gov/data/active_fire/".into()),
+                }],
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(e) => Err(format!("firms fetch failed: {e}")),
+    }
+}
+
 // ---------------- SoilGrids 2.0 (ISRIC) materializer ----------------
 //
 // ISRIC publishes static, global, 250 m soil-property maps via a public
@@ -14305,9 +14514,7 @@ async fn materialize_hansen_band(
 /// own key this needs revisiting.
 fn parse_temporal_diff_key(band: &str) -> Option<(String, i64)> {
     let payload = band.strip_prefix("temporal_diff:")?;
-    let mut it = payload.rsplitn(2, ':');
-    let window_str = it.next()?;
-    let inner_band = it.next()?;
+    let (inner_band, window_str) = payload.rsplit_once(':')?;
     if inner_band.is_empty() {
         return None;
     }
@@ -14331,7 +14538,7 @@ fn parse_temporal_diff_window_secs(s: &str) -> Option<i64> {
     let secs_per_unit: i64 = match unit[0] {
         b'd' => 86_400,
         b'w' => 7 * 86_400,
-        b'm' => 30 * 86_400,                         // calendar-month approximation
+        b'm' => 30 * 86_400, // calendar-month approximation
         b'y' => (365.25_f64 * 86_400.0).round() as i64, // Julian year
         _ => return None,
     };
@@ -14399,8 +14606,7 @@ async fn materialize_temporal_diff(
     // Auto-materialise the latest end via the dispatcher. Recursive
     // call is safe — no fixed-point because `inner_band` doesn't have
     // the `temporal_diff:` prefix (parser stripped it).
-    let cid_b =
-        Box::pin(materialize_band_at(cell64, &inner_band, target_unix, s)).await?;
+    let cid_b = Box::pin(materialize_band_at(cell64, &inner_band, target_unix, s)).await?;
 
     // Historical end: lookup-only. No transparent backfill — it would
     // mask "you forgot to seed history" as a slow recall.
@@ -14538,7 +14744,7 @@ async fn materialize_temporal_diff(
             fn_key: "nd.delta@1".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Text(inner_band),
-                ciborium::Value::Integer((window_secs as i64).into()),
+                ciborium::Value::Integer(window_secs.into()),
                 ciborium::Value::Integer((tslot_a as i64).into()),
                 ciborium::Value::Integer((tslot_b as i64).into()),
             ])),
@@ -15268,6 +15474,19 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "www.ngdc.noaa.gov/eog/data/web_data/v4composites (DMSP-OLS V4 stable lights, 1992-2013, tar+gz+TIFF, HTTPS-Range)",
         },
+        // NASA FIRMS active-fire (P3-D). Tempo::Fast (hourly).
+        // history_*_unix bounds reflect the bulk-CSV's 24h rolling
+        // window — older recalls fall outside coverage and sign Absence.
+        "firms.active_fires" => MaterializerMeta {
+            tempo: Tempo::Fast,
+            kind: BandKind::TimeSeries,
+            // Rolling window: now() − 24h; reported as None so agents
+            // call /v1/health for the live "now" anchor.
+            history_from_unix: None,
+            history_to_unix: None,
+            wire_path:
+                "firms.modaps.eosdis.nasa.gov/data/active_fire/<source>/csv/...Global_24h.csv (anonymous bulk CSV; MODIS C6.1 + VIIRS S-NPP/J1/J2; ~14MB/day total)",
+        },
         _ => return None,
     };
     Some(m)
@@ -15450,6 +15669,8 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("nightlights.dmsp_ols_avg_dn".into());
     out.push("nightlights.year".into());
     out.push("nightlights.satellite".into());
+    // NASA FIRMS active-fire — Tempo::Fast (hourly), 24h rolling.
+    out.push("firms.active_fires".into());
     // temporal_diff is parametric (band-key shape:
     // `temporal_diff:<inner_band>:<window>`) so we can't enumerate
     // every instance. Surface a few canonical examples so an agent
@@ -15541,6 +15762,13 @@ async fn materialize_band_at(
         // directly.
         "nightlights.dmsp_ols_avg_dn" | "nightlights.year" | "nightlights.satellite" => {
             return materialize_nightlights_band(cell64, s, band).await;
+        }
+        // NASA FIRMS active-fire (P3-D). Tempo::Fast (hourly tslot);
+        // 24h rolling window. Returns a structured CBOR Map summary
+        // per (cell64, tslot) — see materialize_firms_active_fires
+        // for the full Primary/Absence contract.
+        "firms.active_fires" => {
+            return materialize_firms_active_fires(cell64, s, target_unix).await;
         }
         "geotessera" => {
             // Bare `geotessera` resolves to the Tessera vintage that
@@ -22401,8 +22629,7 @@ mod tests {
     #[test]
     fn temporal_diff_window_parser_rejects_garbage() {
         for bad in [
-            "", "0d", "0y", "y", "d", "30", "30x", "30days", "1.5y", "-1y",
-            "  30d", "30d ", "abc",
+            "", "0d", "0y", "y", "d", "30", "30x", "30days", "1.5y", "-1y", "  30d", "30d ", "abc",
         ] {
             assert!(
                 parse_temporal_diff_window_secs(bad).is_none(),
@@ -22441,10 +22668,10 @@ mod tests {
     #[test]
     fn temporal_diff_key_parser_rejects_malformed() {
         for bad in [
-            "indices.ndvi:1y",            // missing temporal_diff: prefix
-            "temporal_diff:indices.ndvi", // missing window
-            "temporal_diff::1y",          // empty inner band
-            "temporal_diff:indices.ndvi:",// empty window
+            "indices.ndvi:1y",                // missing temporal_diff: prefix
+            "temporal_diff:indices.ndvi",     // missing window
+            "temporal_diff::1y",              // empty inner band
+            "temporal_diff:indices.ndvi:",    // empty window
             "temporal_diff:indices.ndvi:99x", // invalid window unit
             "temporal_diff:indices.ndvi:0y",  // zero window
         ] {
@@ -22461,8 +22688,8 @@ mod tests {
     /// the inner band's meta changes.
     #[test]
     fn temporal_diff_meta_inherits_from_inner_band() {
-        let inner = band_materializer_meta("indices.ndvi")
-            .expect("indices.ndvi has a materializer");
+        let inner =
+            band_materializer_meta("indices.ndvi").expect("indices.ndvi has a materializer");
         let wrapped = band_materializer_meta("temporal_diff:indices.ndvi:1y")
             .expect("temporal_diff over indices.ndvi must resolve");
         assert_eq!(wrapped.tempo, inner.tempo);
@@ -22488,9 +22715,9 @@ mod tests {
             .and_then(|t| t.as_object())
             .expect("algorithms_for_topic is an object");
         for (topic, algos) in topics {
-            let arr = algos.as_array().unwrap_or_else(|| {
-                panic!("topic {topic} value is not an array: {algos:?}")
-            });
+            let arr = algos
+                .as_array()
+                .unwrap_or_else(|| panic!("topic {topic} value is not an array: {algos:?}"));
             for k in arr {
                 let key = k.as_str().expect("algorithm key is a string");
                 assert!(
