@@ -11,26 +11,33 @@ and are out of scope.
 
 ## Tl;dr
 
-- **No accounts. No keys. No PII.** L0 and L1 read endpoints are anonymous.
-- We do not collect, store, or sell user data.
+- **No accounts. No keys. No PII in the canonical channel.** L0 and L1 read endpoints are anonymous.
+- We do not collect, store, sell, or share user data with third parties for advertising.
 - We do not run third-party analytics that profile visitors.
-- We log standard request metadata (timestamp, IP, user-agent, path, status,
-  duration) for operational health, with a 30-day rolling retention.
+- The responder logs request metadata (timestamp, hashed IP, user-agent, path, query string, status, duration) for operational health and abuse mitigation. Retention is enforced at 30 days via systemd journald (`MaxRetentionSec=30day` in `/etc/systemd/journald.conf.d/30day-retention.conf`). After 30 days the entries are vacuumed from the journal.
+- POST request bodies are NOT logged. GET query strings ARE logged (paired with the hashed IP) so they appear in operational logs for the retention window.
 
 ## What we collect
 
 | Surface | Data | Purpose | Retention |
 |---|---|---|---|
-| `GET /…`, `POST /v1/*`, `POST /mcp` | Request method, path, status, duration, response size, originating IP, user-agent header | Server health, abuse mitigation, capacity planning | 30 days, then deleted |
+| `GET /…`, `POST /v1/*`, `POST /mcp` | Request method, path, GET query string, response status, duration, **blake3-hashed truncated IP** (8-byte base32, non-reversible — see `agent_ip_hash` in the access log layer at `crates/emem-api-rest/src/lib.rs`), user-agent header, accept header, traceparent header | Server health, abuse mitigation, capacity planning | 30 days, enforced by `MaxRetentionSec=30day` on systemd journald |
 | `POST /v1/attest`, `POST /v1/attest_cbor` | The signed attestation payload itself: ed25519 attester pubkey, fact CIDs, Merkle root, attestation timestamp | Persisted to the public, content-addressed corpus by design — that is the whole protocol | Indefinite (the corpus is a public ledger) |
-| `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate`, `POST /v1/backfill` | Request body (cell, place name, bands, time window) | Used in-memory only to compute the response; not associated with the requesting IP | Not persisted beyond the request |
-| Auto-materialized facts (incl. `emem_backfill`) | Upstream provider response (Copernicus DEM, JRC GSW, Hansen, ESA WorldCover, OSM/Overture, Open-Meteo, MODIS / ORNL DAAC, Sentinel-1/2 via Microsoft Planetary Computer, Tessera, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
+| `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate`, `POST /v1/ask`, `POST /v1/backfill` | Request body (cell, place name, free-text question, bands, time window). Bodies are used in-memory only to compute the response and are **not** logged; only the path appears in the access log. | Not persisted beyond the request | None |
+| `GET /v1/locate?place=…`, `GET /v1/elevation?lat=…&lng=…`, etc. | The full query string is captured by the access log middleware. If you submit a sensitive place name as a GET query, it is in the operational log for the 30-day retention window, paired with the hashed IP. | Operational | 30 days |
+| Auto-materialized facts (incl. `emem_backfill`) | Upstream provider response (Copernicus DEM, JRC GSW, Hansen GFC, ESA WorldCover, OSM/Overture, Open-Meteo, MODIS via NASA LP DAAC, Sentinel-1/2 via Element84 STAC, Tessera, Prithvi-EO-2.0, Galileo, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
 
 **We never log:**
 
-- Free-text questions sent to `emem_ask` or `emem_intent`
-- Per-user query histories
+- POST request bodies for any primitive, including free-text questions sent to `/v1/ask` or `/v1/intent`
 - Cookies, fingerprints, or device identifiers (we set none)
+- Conversation context from your MCP host or other tools
+
+**We do log (for the 30-day retention window):**
+
+- A blake3-hashed, 8-byte-truncated, base32 representation of the originating IP. The hash is one-way: the raw IP is **not** stored and cannot be recovered.
+- The full GET query string. Prefer POST for sensitive queries; the body is not captured.
+- The HTTP path, method, status, duration, user-agent, accept, and traceparent headers.
 
 ## What we do NOT collect
 

@@ -702,7 +702,7 @@ The hosted responder at `https://emem.dev` is operated by Vortx AI Private Limit
 Lawful bases under EU/UK GDPR Art. 6 for the canonical hosted instance:
 
 - **Art. 6(1)(f) legitimate interests** for serving public Earth observation facts, since the protocol returns answers about public places from public datasets and processes no personal data in the canonical channel.
-- **Art. 6(1)(f) legitimate interests** for operator-side request logs (timestamp, IP, user-agent, path, status, duration) for the limited purposes of service health, capacity planning, and abuse mitigation. Retained for 30 days, then deleted.
+- **Art. 6(1)(f) legitimate interests** for operator-side request logs (timestamp, blake3-hashed truncated IP, user-agent, path, GET query string, status, duration) for the limited purposes of service health, capacity planning, and abuse mitigation. Retention is enforced at 30 days by `MaxRetentionSec=30day` on systemd journald (see `ops/systemd/journald-30day-retention.conf` in the reference deployment). POST bodies are not captured.
 - **Art. 6(1)(b) contract** for any future authenticated paid tier, when offered.
 
 No `Art. 9` special-category data is processed.
@@ -725,9 +725,13 @@ DPDP Act 2023 §11–§14 rights map to the GDPR rights above; California CCPA/C
 
 ### 13.5 Cookies, fingerprints, tracking
 
-The hosted responder sets no cookies, no localStorage / IndexedDB entries, no fingerprinting probes, no third-party trackers. Static assets (`/favicon.svg`, `/og-image.svg`) are served from the same origin.
+The hosted responder sets no cookies, no localStorage / IndexedDB entries, no fingerprinting probes, no third-party trackers. Static assets (`/favicon.svg`, `/og-image.svg`) are served from the same origin. This is verifiable on any request: `curl -I https://emem.dev/` returns no `Set-Cookie` header.
 
-### 13.6 Data subject contact and policy
+### 13.6 IP handling
+
+Raw client IPs are **not** stored. The access log middleware computes `agent_ip_hash = base32_nopad_lower(blake3(client_ip)[:8])` and stores only that 8-byte hash. The construction is one-way: a stored hash cannot be reverted to a raw IP without rainbow-tabling the IPv4 / IPv6 space. Source: `crates/emem-api-rest/src/lib.rs::hashed_ip`.
+
+### 13.7 Data subject contact and policy
 
 For data-subject-rights enquiries, breach reports, and any other privacy correspondence: **avijeet@vortx.ai**. The canonical privacy policy is `/privacy`; the canonical terms of service are `/terms`; support and security contacts are at `/support` and `/.well-known/security.txt`.
 
