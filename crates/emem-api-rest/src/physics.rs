@@ -270,7 +270,10 @@ const HEAT_MAX_STEPS: usize = 2_000_000;
 /// the discrete Laplacian collapses to zero and the FTCS step returns
 /// `delta_k == 0.0` regardless of dt or α — see the `stencil_diagnostic`
 /// field on the `/v1/heat_solve` response for the agent-facing
-/// explanation. Documented in `docs/PHYSICS_ENDPOINTS_2026_05_04.md`.
+/// explanation. The endpoint surfaces request + response + receipt
+/// inline; see `POST /v1/heat_solve`, `POST /v1/wave_solve`,
+/// `POST /v1/jepa_predict` and the receipt-level diagnostics for the
+/// canonical record.
 const HEAT_UNIFORM_STENCIL_THRESHOLD_K: f64 = 0.01;
 
 /// Result of the 3×3 stencil-collapse diagnostic. `range_k` is the

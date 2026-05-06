@@ -199,10 +199,10 @@ so any verifier can re-run the prediction and confirm the answer.
   exposing the predictor as a deterministic fn_key and integrating
   the model weights into the responder's storage.
 - Needs a stability story for the rollout: a real wave-equation
-  rollout drifts if you push too far; a JEPA predictor trained on
-  AlphaEarth annual data has only ~9 data points per pixel;
-  integration with the staleness kernels above for hybrid prediction
-  is open research.
+  rollout drifts if you push too far; a JEPA-style predictor trained
+  on Tessera annual data has only one data point per pixel (Tessera
+  ships vintage 2024 only upstream as of v0.0.4); integration with
+  the staleness kernels above for hybrid prediction is open research.
 
 When ready, the protocol surface is `POST /v1/predict` returning a
 `Fact::Derivative` with the JEPA fn_key. The temporal router would
@@ -238,7 +238,7 @@ taxonomy; the closed loop is the v0.1 design, not the 0.0.x reality:
 ```bash
 curl -s -X POST https://emem.dev/v1/temporal_route \
   -H "content-type: application/json" \
-  -d '{"cell":"damO.zb000.xUti.zde7d","intent":"monitor crop yield this week","limit":4}' \
+  -d '{"cell":"defi.zb493.xoso.zcb6a","intent":"monitor crop yield this week","limit":4}' \
 | jq '.cite_now[0:2], .fetch_for_intent[0:3]'
 ```
 

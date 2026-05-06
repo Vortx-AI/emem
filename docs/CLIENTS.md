@@ -121,17 +121,17 @@ includes the protocol details verbatim.
 Empirical reality check, three places, three bands, one HTTP each:
 
 ```
-=== Punjab India (30.5, 75.85) → cell=damO.zb000.wabi.zc2ff ===
+=== Punjab India (30.5, 75.85) → cell=defi.zb55f.ze82d.revE ===
   sentinel1_raw           Primary, value=-18.34 dB
   indices.ndvi            Primary, value= 0.197
   soilgrids.soc_0_30cm    Primary, value= 8.58 g/kg
 
-=== Brazilian Amazon (-3.4653, -62.2159) → cell=damO.zb000.gEse.yahE ===
+=== Brazilian Amazon (-3.4653, -62.2159) → cell=defi.zb3dc.puzU.nuzU ===
   sentinel1_raw           — note: no Sentinel-1 RTC scene in last 30 days
   indices.ndvi            — note: no Sentinel-2 L2A scene under 40 % cloud in last 30 days
   soilgrids.soc_0_30cm    Primary, value=20.72 g/kg
 
-=== Iowa USA (41.5868, -93.6250) → cell=damO.zb000.ze036.fagI ===
+=== Iowa USA (41.5868, -93.6250) → cell=defi.zb5da.boto.zba5f ===
   sentinel1_raw           Primary, value=-2.03 dB    (bare cropland, late April)
   indices.ndvi            Primary, value= 0.05       (low NDVI: tilled)
   soilgrids.soc_0_30cm    Absence (urban-mask null at Des Moines metro)
@@ -162,7 +162,7 @@ Live example we just ran (Mt Fuji elevation):
 ```
 fact_cid       = uyk4bd4hvppkeawwqrcp3lew4mn4v5eobkauw4qbp4jugd34ac5q
 band           = copdem30m.elevation_mean
-cell           = damO.zb000.xUti.zde78
+cell           = defi.zb592.nemu.zEvE
 value          = 3618.0 m
 sources[0].id  = https://api.open-meteo.com/v1/elevation?latitude=35.361410&longitude=138.729229
 derivation     = open_meteo_copdem90m@1
@@ -209,7 +209,7 @@ Claude: 1) curl -sX POST https://emem.dev/v1/locate \
             -H 'content-type: application/json' \
             -d '{"cell":"<cell64>","bands":["cams.pm25"]}'
 User:   <pastes JSON>
-Claude: The cell64 returned was damO.zb000.weso.yupu. Cell-level
+Claude: The cell64 returned was defi.zb592.nemu.zEvE. Cell-level
         cams.pm25 at 2026-04-30 was X µg/m³ (fact_cid <first 8>;
         responder <first 8 of pubkey from /health>). Source:
         Open-Meteo CAMS, ECMWF reanalysis.
@@ -253,7 +253,7 @@ on macOS or `%AppData%\Claude\claude_desktop_config.json` on Windows.
 }
 ```
 
-Restart Claude Desktop; you should see 28 tools appear under the
+Restart Claude Desktop; you should see 34 tools appear under the
 emem badge.
 
 ### 2.2  Test we ran (raw curl over the same wire transport)
@@ -277,7 +277,7 @@ curl -sX POST https://emem.dev/mcp -H 'content-type: application/json' \
 curl -sX POST https://emem.dev/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
        "name":"emem_recall",
-       "arguments":{"cell":"damO.zb000.wabi.zc2ff","bands":["indices.ndvi"]}}}' \
+       "arguments":{"cell":"defi.zb55f.ze82d.revE","bands":["indices.ndvi"]}}}' \
   | jq -r '.result.content[0].text' | jq '.facts[0].value'
 # → 0.197...
 ```
@@ -288,7 +288,7 @@ curl -sX POST https://emem.dev/mcp -H 'content-type: application/json' \
 |------------------|---------------------------------------------------------------------|
 | install friction | one config block, one restart                                       |
 | auth             | none (public build)                                                 |
-| tool count       | 28 tools (all read primitives + introspection + multimodal helpers) |
+| tool count       | 34 tools (all read primitives + introspection + multimodal helpers) |
 | streaming        | Streamable HTTP, no long-lived WebSocket required                   |
 | traceability     | `tools/call` returns the same JSON your agent sees, including receipt |
 
@@ -333,7 +333,7 @@ Or add manually to `.mcp.json` in the project root:
 ```
 
 Inside a Claude Code session, type `/mcp` to see the connection
-status; you should see `emem  connected (28 tools)`.
+status; you should see `emem  connected (34 tools)`.
 
 ### 3.2  Test we ran
 
@@ -342,9 +342,9 @@ status; you should see `emem  connected (28 tools)`.
 
 Claude Code:
   Calling emem.emem_locate({"q":"Mount Fuji"})
-  → cell64 = damO.zb000.xUti.zde78, via=embedded
+  → cell64 = defi.zb592.nemu.zEvE, via=embedded
   Calling emem.emem_recall({
-      "cell":"damO.zb000.xUti.zde78",
+      "cell":"defi.zb592.nemu.zEvE",
       "bands":["copdem30m.elevation_mean"]})
   → value=3618 m, fact_cid=uyk4bd4h…
 ```
@@ -386,7 +386,7 @@ Restart Cursor; tools surface in the agent panel.
 Test command (run in Cursor's chat):
 
 ```text
-@emem what's the NDVI for cell damO.zb000.wabi.zc2ff?
+@emem what's the NDVI for cell defi.zb55f.ze82d.revE?
 ```
 
 Expected: Cursor calls `emem_recall` → receives 0.197 → cites the
@@ -420,7 +420,7 @@ fact_cid.
 }
 ```
 
-Reality: identical to Claude Desktop §2 (same wire, same 28 tools).
+Reality: identical to Claude Desktop §2 (same wire, same 34 tools).
 
 ---
 
@@ -449,7 +449,7 @@ upload the OpenAPI JSON, or paste the URL into the spec field.
 # Gemini calls /v1/recall via OpenAPI tool — same wire as a Custom GPT
 curl -sX POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}' \
+  -d '{"cell":"defi.zb592.nemu.zEvE","bands":["copdem30m.elevation_mean"]}' \
   | jq '.facts[0].value, .receipt.fact_cids[0]'
 # → 3618.0
 # → "uyk4bd4hvppkeawwqrcp3lew4mn4v5eobkauw4qbp4jugd34ac5q"
@@ -522,7 +522,7 @@ emem provides the two manifests it needs:
 curl -sX POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -H 'user-agent: ChatGPT-User/1.0; +https://openai.com/bot' \
-  -d '{"cell":"damO.zb000.xUti.zde78","bands":["copdem30m.elevation_mean"]}' \
+  -d '{"cell":"defi.zb592.nemu.zEvE","bands":["copdem30m.elevation_mean"]}' \
   | jq '{value: .facts[0].value, fact_cid: .receipt.fact_cids[0]}'
 # → { "value": 3618, "fact_cid": "uyk4bd4hvppkeawwqrcp3lew4mn4v5eobkauw4qbp4jugd34ac5q" }
 ```
@@ -560,8 +560,8 @@ Test inside a Codex session:
 ```text
 > Use emem to fetch the recent NDVI for downtown Hyderabad.
 codex: emem.emem_locate("Hyderabad, India") →
-       cell64=damO.zb000.weso.yupu
-codex: emem.emem_recall(cell="damO.zb000.weso.yupu",
+       cell64=defi.zb592.nemu.zEvE
+codex: emem.emem_recall(cell="defi.zb592.nemu.zEvE",
                         bands=["indices.ndvi"]) → 0.20
        fact_cid=vk6jb5zy2aq42gcf6pu6op5ih62rr763vk3aj4mfmhxrljoxogpa
 ```

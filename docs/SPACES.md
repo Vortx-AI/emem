@@ -41,10 +41,10 @@ resolution, prefix with the space CID, and you have a content-
 addressed cell64-equivalent for that space.
 
 ```
-geo:    "damO.zb000.xUti.zde7d"                  (current)
-floor:  "space:floorplan/vortx-hq-v1#damO.zb000.xUti.zde7d"
-arch:   "space:repo/emem.git#damO.zb000.xUti.zde7d"
-latent: "space:clip-tsne-v3#damO.zb000.xUti.zde7d"
+geo:    "defi.zb493.xoso.zcb6a"                  (current)
+floor:  "space:floorplan/vortx-hq-v1#defi.zb493.xoso.zcb6a"
+arch:   "space:repo/emem.git#defi.zb493.xoso.zcb6a"
+latent: "space:clip-tsne-v3#defi.zb493.xoso.zcb6a"
 ```
 
 The `#` is the namespace separator — old cells keep their bare form
@@ -56,7 +56,7 @@ for backwards compatibility; new spaces are explicitly prefixed.
 
 The whole reason the geo cell64 is useful for LLMs is that *spatially
 close points have lexically close strings*. A model sees
-`damO.zb000.xUti.zde79` and `damO.zb000.xUti.zde7d` and the attention
+`defi.zb592.nemu.zEvE` and `defi.zb493.xoso.zcb6a` and the attention
 mechanism can spot they share a 12-character prefix; it doesn't need
 explicit math to know they're nearby.
 
@@ -72,7 +72,7 @@ benefit:
   trace can spot related modules by token-prefix similarity.
 - **Latent embedding plane (2D-projected)**: vectors that t-SNE /
   UMAP placed near each other share a cell-prefix. An agent can
-  cite "the cluster around `damO.zb000.xUti.*`" without dumping
+  cite "the cluster around `defi.zb493.*`" without dumping
   hundreds of vectors.
 
 The math is the same; the only thing that differs is which `(u, v)`

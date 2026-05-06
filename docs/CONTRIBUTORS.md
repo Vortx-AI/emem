@@ -167,12 +167,12 @@ identical so agents can compose responders into a federated mesh.
 curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
   -d '{"place":"Mount Fuji"}'
-# → {"cell64":"damO.zb000.xUti.zde78", ...}
+# → {"cell64":"defi.zb592.nemu.zEvE", ...}
 
 # 2) Recall — see what's already known.
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"damO.zb000.xUti.zde78"}'
+  -d '{"cell":"defi.zb592.nemu.zEvE"}'
 
 # 3) If a band you care about is missing, attest.
 #    Build your Attestation client-side, sign with your ed25519 key,

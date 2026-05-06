@@ -80,9 +80,7 @@ const LLMS_TXT: &str = include_str!("../../../web/llms.txt");
 // stable. The web/llms-full.txt file remains for one release as a
 // sitemap target; the route ignores it.
 const AGENT_WALKTHROUGHS_MD: &str = include_str!("../../../examples/agent-walkthroughs.md");
-const AGENT_TRIAL_MD: &str = include_str!("../../../docs/AGENT_TRIAL.md");
 const ATTESTING_MD: &str = include_str!("../../../docs/ATTESTING.md");
-const GLOBAL_TRIAL_MD: &str = include_str!("../../../docs/GLOBAL_TRIAL.md");
 const MATERIALIZERS_MD: &str = include_str!("../../../docs/MATERIALIZERS.md");
 const SPACES_MD: &str = include_str!("../../../docs/SPACES.md");
 const TEMPORAL_MD: &str = include_str!("../../../docs/TEMPORAL.md");
@@ -223,7 +221,6 @@ pub fn router(state: AppState) -> Router {
             "/examples/agent-walkthroughs.md",
             get(serve_agent_walkthroughs),
         )
-        .route("/agent-trial.md", get(serve_agent_trial))
         .route("/attesting.md", get(serve_attesting))
         .route("/docs/ATTESTING.md", get(serve_attesting))
         // Policy docs published under stable URLs so server.json's
@@ -240,8 +237,6 @@ pub fn router(state: AppState) -> Router {
         .route("/security", get(serve_security_md))
         .route("/security.md", get(serve_security_md))
         .route("/docs/SECURITY.md", get(serve_security_md))
-        .route("/global-trial.md", get(serve_global_trial))
-        .route("/docs/GLOBAL_TRIAL.md", get(serve_global_trial))
         .route("/materializers.md", get(serve_materializers_md))
         .route("/docs/MATERIALIZERS.md", get(serve_materializers_md))
         .route("/spaces.md", get(serve_spaces_md))
@@ -562,7 +557,6 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/multimodal.md"
         | "/llms.txt"
         | "/llms-full.txt"
-        | "/agent-trial.md"
         | "/attesting.md"
         | "/privacy"
         | "/privacy.md"
@@ -576,7 +570,6 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/security"
         | "/security.md"
         | "/docs/SECURITY.md"
-        | "/global-trial.md"
         | "/materializers.md"
         | "/spaces.md"
         | "/temporal.md"
@@ -1206,9 +1199,6 @@ async fn serve_llms_full() -> Response {
 async fn serve_agent_walkthroughs() -> Response {
     text_response("text/markdown; charset=utf-8", AGENT_WALKTHROUGHS_MD)
 }
-async fn serve_agent_trial() -> Response {
-    text_response("text/markdown; charset=utf-8", AGENT_TRIAL_MD)
-}
 async fn serve_attesting() -> Response {
     text_response("text/markdown; charset=utf-8", ATTESTING_MD)
 }
@@ -1223,9 +1213,6 @@ async fn serve_support_md() -> Response {
 }
 async fn serve_security_md() -> Response {
     text_response("text/markdown; charset=utf-8", SECURITY_MD)
-}
-async fn serve_global_trial() -> Response {
-    text_response("text/markdown; charset=utf-8", GLOBAL_TRIAL_MD)
 }
 async fn serve_materializers_md() -> Response {
     text_response("text/markdown; charset=utf-8", MATERIALIZERS_MD)
@@ -3669,7 +3656,6 @@ async fn quickstart() -> Json<JsonValue> {
         "example_chat_to_paste_into_a_system_prompt":
             "When the user asks about a place (lat/lng, region name, or cell64), call emem.recall first via the cell64 returned by emem.locate's neighborhood_cells. Cite the response receipt's fact_cids (truncated cid64 form) in your reply. If the user asks 'what changed', use emem.diff. If 'find similar', use emem.find_similar.",
         "see_also": {
-            "first_person_trial":   "/agent-trial.md",
             "agent_walkthroughs":   "/examples/agent-walkthroughs.md",
             "errors_with_recovery": "/v1/errors",
             "grid_resolution":      "/v1/grid_info",

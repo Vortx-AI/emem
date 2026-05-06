@@ -70,7 +70,7 @@ curl -s http://localhost:5051/v1/agent_card | jq '.serverInfo, .runtime'
 Or pin to a specific release:
 
 ```bash
-docker pull ghcr.io/vortx-ai/emem:v0.0.3
+docker pull ghcr.io/vortx-ai/emem:v0.0.4
 ```
 
 The image is built by `.github/workflows/publish.yml` on every push to
@@ -96,13 +96,13 @@ EMEM_BIND=0.0.0.0:5051 EMEM_DATA=./var/emem ./target/release/emem-server
 curl -s http://localhost:5051/health
 curl -s -X POST http://localhost:5051/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"damO.zb000.xUti.zde78"}'   # Mt Fuji
+  -d '{"cell":"defi.zb592.nemu.zEvE"}'   # Mt Fuji
 ```
 
 ### MCP — Claude Desktop, Cursor, Cline, Codex, Antigravity
 
 The hosted endpoint is `https://emem.dev/mcp` — Streamable HTTP, no auth,
-28 tools. Paste-ready configs live under `examples/`:
+34 tools. Paste-ready configs live under `examples/`:
 
 | platform        | file                                |
 |-----------------|-------------------------------------|
@@ -127,10 +127,7 @@ request + response + receipt files to `var/demos/<UTC>/`:
 ./target/release/emem-realdemo        # real Copernicus DEM 30m S3 tiles
 ```
 
-Trace artifacts surface at `GET /v1/demos`. Two trial reports against
-the live endpoint live at [docs/AGENT_TRIAL.md](docs/AGENT_TRIAL.md)
-(single-agent loop) and [docs/GLOBAL_TRIAL.md](docs/GLOBAL_TRIAL.md)
-(43 fixtures across nine place-types; both run with `scripts/global_trial.py`).
+Trace artifacts surface at `GET /v1/demos`.
 
 ## How it works
 

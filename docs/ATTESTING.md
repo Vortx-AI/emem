@@ -54,7 +54,7 @@ is no other binding; if your bytes match, your attestation verifies.
 
 ```python
 PrimaryFact = {
-  "cell":          "damO.zb000.xUti.zde78",   # cell64 string from /v1/locate
+  "cell":          "defi.zb592.nemu.zEvE",   # cell64 string from /v1/locate
   "band":          "copdem30m.elevation_mean", # see /v1/bands
   "tslot":         0,                          # 0 = atemporal
   "value":         3776.24,                    # the measurement
@@ -129,7 +129,7 @@ pk = sk.public_key().public_bytes_raw()  # 32 bytes
 
 # 3. Build a Primary fact.
 primary = {
-    "cell":         "damO.zb000.xUti.zde78",
+    "cell":         "defi.zb592.nemu.zEvE",
     "band":         "claude_knowledge.peak_height_m",
     "tslot":        0,
     "value":        3776.24,
@@ -207,7 +207,7 @@ const pk = await ed.getPublicKey(sk);
 
 const fact = {
   kind: "primary",
-  cell: "damO.zb000.xUti.zde78",
+  cell: "defi.zb592.nemu.zEvE",
   band: "claude_knowledge.peak_height_m",
   tslot: 0,
   value: 3776.24,

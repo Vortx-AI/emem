@@ -156,13 +156,13 @@ emem.dev responder. All probes use the published REST and MCP surfaces
 ### 6.1 Sensor-tier sweep
 
 Recall a representative band from each modality at a known agri cell
-(Mansa, Punjab — `damO.zb000.wabo.zd9ad`) in parallel batches sized
+(Mansa, Punjab — `defi.zb555.lAhe.qEke`) in parallel batches sized
 ≤8 to fit inside the gateway timeout.
 
 ```bash
 python3 - <<'PY'
 import json, subprocess, concurrent.futures
-CELL = "damO.zb000.wabo.zd9ad"
+CELL = "defi.zb555.lAhe.qEke"
 TIERS = {
     "S1":       ["sentinel1_raw"],
     "S2-refl":  ["s2.B04","s2.B11","s2.B12","s2.B8A"],
@@ -219,7 +219,7 @@ d=json.load(sys.stdin)
 a=next(a for a in d['algorithms'] if a['key']=='$ALG')
 print(','.join(i['band'] for i in a['inputs'] if i.get('band') and not i['band'].startswith('<')))")
 curl -sS -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d "{\"cell\":\"damO.zb000.wabo.zd9ad\",\"bands\":[\"${INPUTS//,/\",\"}\"]}" | python3 -m json.tool
+  -d "{\"cell\":\"defi.zb555.lAhe.qEke\",\"bands\":[\"${INPUTS//,/\",\"}\"]}" | python3 -m json.tool
 ```
 
 Pass criterion: 100 % primary on the agri reference cell. Live verified
@@ -249,7 +249,7 @@ correct topic and surface the correct algorithm:
 for Q in "soil organic carbon at this plot" "EUDR compliance for this plot" \
          "PMFBY claim assessment" "nitrogen uptake of the crop"; do
   curl -sS -X POST https://emem.dev/v1/ask -H 'content-type: application/json' \
-    -d "{\"q\":\"$Q\",\"cell\":\"damO.zb000.wabo.zd9ad\"}" | python3 -c "
+    -d "{\"q\":\"$Q\",\"cell\":\"defi.zb555.lAhe.qEke\"}" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 print(f\"{d['question'][:50]:<50} → {d['topic_routing']['matched_topics']}\")"
@@ -267,7 +267,7 @@ curl -sS -X POST https://emem.dev/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-Pass criterion: all 28 tools listed with strict-mode-clean input
+Pass criterion: all 34 tools listed with strict-mode-clean input
 schemas (no top-level `anyOf`, no array `type`). `tools/call emem_recall`
 must return cross-modal facts identical to the REST `/v1/recall`
 endpoint.

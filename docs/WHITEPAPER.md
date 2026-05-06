@@ -274,7 +274,7 @@ place / cell I/O
   GET    /v1/cells/:cell64
   GET    /v1/cells/:cell64/info | /geojson | /scene.png | /scene.rgb
 
-recall family (the seven read primitives + bulk + polygon)
+recall family (the core read primitives + bulk + polygon)
   POST   /v1/recall | /v1/recall_many | /v1/recall_polygon
   POST   /v1/query_region | /v1/compare | /v1/compare_bands
   POST   /v1/find_similar | /v1/diff | /v1/trajectory | /v1/verify
@@ -373,7 +373,7 @@ agent suite spanning health, property, calamity, carbon, ESG,
 agriculture, forest, water, and energy. Routing accuracy was 90 %
 (46/51 questions matched the expected topic set); 50/51 returned
 HTTP 200; mean latency 41.5 s including cold materialisation, ~110 ms
-warm. Full report in `docs/EVAL_2026_05_04.md`.
+warm. Live numbers exposed at `GET /v1/agent_stats`.
 
 ---
 
@@ -524,7 +524,7 @@ explicit response field — none silently degrades):
   forecast.
 
 These three modes are documented in detail with live request/response
-samples in `docs/PHYSICS_ENDPOINTS_2026_05_04.md`. The protocol
+samples available live via `POST /v1/heat_solve`, `POST /v1/wave_solve`, and `POST /v1/jepa_predict`. The protocol
 contract is "every limitation is a visible field, never a silent
 fallback" — that is what makes the receipts safe for downstream
 agents to compose without hidden assumptions.
@@ -590,7 +590,7 @@ the system *cite-able*.
 
 **3. Address space must be cheap to type, parse, and remember.**
 Agents pay tokens per character. A 64-bit cell encoded as four
-1024-symbol bigrams (`damO.zb000.xUti.zde79`) sits at the entropy limit
+1024-symbol bigrams (`defi.zb592.nemu.zEvE`) sits at the entropy limit
 of human-and-machine-friendly addressing: 18 ASCII characters, exactly
 one BPE token in mainstream tokenizers per bigram, lossless round-trip
 with `(lat, lng)` to ≈30 m, total order under Hilbert traversal so
@@ -617,7 +617,7 @@ licensing friction is a prerequisite, not a feature.
 
 ### What the read surface must contain, and why exactly seven
 
-The seven read primitives are the closure of "questions an agent asks
+The core read primitives are the closure of "questions an agent asks
 about a place" under composition:
 
 - `recall` answers *what is here, now*.
@@ -680,8 +680,8 @@ Specifications and operating documents:
 - `docs/SPEC.md` — wire-stable protocol specification.
 - `docs/AGENTS.md` — paste-ready MCP / OpenAPI configs for every supporting host.
 - `docs/TEMPORAL.md` — derivation of the five `/v1/temporal_route` decay kernels.
-- `docs/PHYSICS_ENDPOINTS_2026_05_04.md` — live request/response samples and known-limitations matrix for `/v1/heat_solve`, `/v1/wave_solve`, `/v1/jepa_predict`.
-- `docs/EVAL_2026_05_04.md` — 51-question agent evaluation across 9 domains; per-domain pass/fail and routing accuracy.
+- `POST /v1/heat_solve`, `POST /v1/wave_solve`, `POST /v1/jepa_predict` — live PDE / AR(2) solvers; the receipts are the canonical record.
+- `GET /v1/agent_stats` — live request counts, latency p50 / p95 / p99 by primitive family. The operator-facing aggregate replaces dated eval snapshots.
 
 Topic + algorithm registries (canonical, content-addressed):
 
