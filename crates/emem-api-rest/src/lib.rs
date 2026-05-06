@@ -1437,6 +1437,17 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "url":          "https://vortx.ai",
             "contact":      "avijeet@vortx.ai",
             "country":      "India",
+            "privacy_policy_url":   format!("{origin}/privacy"),
+            "terms_of_service_url": format!("{origin}/terms"),
+            "support_url":          format!("{origin}/support"),
+            "data_protection": {
+                "regimes":  ["GDPR", "UK-GDPR", "DPDP-2023", "CCPA-CPRA"],
+                "contact":  "avijeet@vortx.ai",
+                "no_pii_in_canonical_channel": true,
+                "log_retention_days": 30,
+                "sells_personal_data": false,
+                "shares_for_advertising": false,
+            },
         },
         // A2A v0.3 constrains `transport` to JSONRPC|HTTP|SSE|HTTP+JSON|GRPC.
         // Earlier custom values ("openapi-3.1", "mcp-streamable-http", …)
@@ -9223,6 +9234,9 @@ async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
             "algorithms": "/v1/algorithms",
             "openapi":    "/openapi.json",
             "mcp":        "/mcp",
+            "privacy":    "/privacy",
+            "terms":      "/terms",
+            "spec":       "/spec.md",
         },
     }))
 }

@@ -1,7 +1,8 @@
-# emem Protocol — Specification v0.0.4-draft
+# emem Protocol — Specification v0.0.4
 
-> Status: draft · 2026-05-06 · Editor: Vortx-AI Private Limited (avijeet@vortx.ai)
-> Supersedes: `docs/SPEC.md@v0.0.3-draft`
+> Status: stable · 2026-05-06 · Editor: Vortx-AI Private Limited (avijeet@vortx.ai)
+> Supersedes: `docs/SPEC.md@v0.0.3`
+> Hosted responder: https://emem.dev · Privacy: https://emem.dev/privacy · Terms: https://emem.dev/terms · Support: https://emem.dev/support
 > Conformance terms (MUST, SHOULD, MAY) follow [RFC 2119], [RFC 8174].
 >
 > Changes vs v0.0.3:
@@ -44,7 +45,7 @@ Five things an agent needs to call any primitive. (Verbose explanation in §3, �
 4. **Verify, don't trust.** Every Fact carries `signer`, `signature`, `schema_cid`. Verify the signature against `attesters[].key` from `emem.manifests`. Dereference `schema_cid` once and cache; subsequent facts under the same CID are guaranteed to parse.
 5. **Compose, address by similarity.** When you need "places like this place", use `emem.find_similar(key=<cell64 or vec64>, k=10)` — embedding space is part of the address space. When you don't know which primitive to call, send `emem.intent({type: ..., ...})` and the protocol returns a Plan you can execute (or ask the protocol to execute for you).
 
-That is the entire surface for L0 reads. Verify and attest are §6–§8; the rest of the spec is reference material.
+That is the entire surface for L0 reads. Verify and attest are §6–§8; the rest of the spec is reference material. Privacy and data protection posture (GDPR, UK GDPR, DPDP, CCPA) is §13; the canonical hosted instance publishes its policy at `/privacy` and its terms at `/terms`.
 
 ---
 
@@ -675,9 +676,11 @@ A conforming implementation MUST publish its level in `/.well-known/emem.json` a
 
 ---
 
-## §13 Privacy
+## §13 Privacy and data protection
 
-H3-equivalent res-13 cells are ~3.4m on a side. Some bands at that resolution are PII-loaded — population at building scale, nightlights at residence scale, future thermal at vehicle scale. The protocol enforces privacy at the band declaration level:
+### 13.1 Per-band privacy class (protocol level)
+
+Hex DGGS res-13 cells are ~3.4 m on a side. Some bands at that resolution are PII-loaded: population at building scale, nightlights at residence scale, future thermal at vehicle scale. The protocol enforces privacy at the band declaration level:
 
 - **`public`** — unrestricted; default.
 - **`aggregate_only at res ≥ N`** — implementations MUST NOT serve at resolution finer than N. Queries at finer resolution receive aggregated values from the res-N parent, with `privacy_snapped: true` and the parent cell ID in the response.
@@ -685,6 +688,48 @@ H3-equivalent res-13 cells are ~3.4m on a side. Some bands at that resolution ar
 - **`prohibited`** — reserved for future bands the protocol has chosen not to expose; serving such bands is a conformance violation.
 
 The privacy class is part of the band registry and therefore content-addressed via `manifests.coverage_cid`. A privacy reclassification is a registry version bump.
+
+### 13.2 What the canonical channel does and does not contain
+
+The wire-canonical channel carries `(cell, band, tslot, value, source_cids, signer, signature)`. None of those fields is a personal identifier. `cell` is a quantised lat/lng anchored to public Earth observation pixels; `signer` is the responder's own ed25519 pubkey; `source_cids` reference public datasets. The canonical fact format **MUST NOT** include user identifiers, IP addresses, free-text questions, or any data that could re-identify the requesting party.
+
+Recall, compare, find_similar, diff, trajectory, backfill, and verify_receipt are stateless from the user's perspective: they consume a `(cell, band[], tslot?)` triple and return facts plus a receipt. The protocol prescribes no user-account, session, cookie, or identifier mechanism.
+
+### 13.3 Operator-side processing and lawful basis
+
+The hosted responder at `https://emem.dev` is operated by Vortx AI Private Limited (India). Operator-level processing (request logs, geocoder query traces, abuse mitigation) is governed by the operator's published privacy policy at `/privacy` and terms at `/terms`. Self-hosted deployments are out of scope and are governed by their own operator's policy.
+
+Lawful bases under EU/UK GDPR Art. 6 for the canonical hosted instance:
+
+- **Art. 6(1)(f) legitimate interests** for serving public Earth observation facts, since the protocol returns answers about public places from public datasets and processes no personal data in the canonical channel.
+- **Art. 6(1)(f) legitimate interests** for operator-side request logs (timestamp, IP, user-agent, path, status, duration) for the limited purposes of service health, capacity planning, and abuse mitigation. Retained for 30 days, then deleted.
+- **Art. 6(1)(b) contract** for any future authenticated paid tier, when offered.
+
+No `Art. 9` special-category data is processed.
+
+### 13.4 GDPR / UK GDPR / DPDP / CCPA compliance
+
+Implementations targeting EU/UK markets MUST conform with [GDPR] and [UK-GDPR]. Implementations targeting Indian markets MUST conform with [DPDP-2023]. Implementations targeting California consumers MUST conform with [CCPA-CPRA]. The hosted responder honours data subject / data principal rights under all four regimes:
+
+| Right (GDPR Art.) | What the responder does |
+|---|---|
+| Access (Art. 15) | Operator returns any operational log line tied to a controllable IP within 30 days of request to `avijeet@vortx.ai`. |
+| Rectification (Art. 16) | Same channel; corrections applied to retained logs. |
+| Erasure (Art. 17) | Log lines purged ahead of the 30-day rotation on request. Signed attestations submitted to `/v1/attest` are content-addressed and cannot be retracted (this is the cryptographic property of the protocol, disclosed in `/terms` §4); the protocol does not allow erasure of public ledger entries. |
+| Restriction (Art. 18) | Operator stops processing operational metadata associated with the IP for any purpose beyond fulfilling the request. |
+| Portability (Art. 20) | Operational logs are exported in JSONL on request. Public attestations are already content-addressed and self-portable. |
+| Object (Art. 21) | Same channel; objection honoured for legitimate-interest processing. |
+| Lodge a complaint (Art. 77) | EU: local supervisory authority. UK: Information Commissioner's Office (ICO). India: Data Protection Board of India once operational. California: California Privacy Protection Agency. |
+
+DPDP Act 2023 §11–§14 rights map to the GDPR rights above; California CCPA/CPRA rights to access / delete / correct / opt-out of sale or sharing map to the same channel. The responder does not sell or share personal data with third parties for advertising or cross-context behavioural purposes; there is nothing to opt out of in that regard.
+
+### 13.5 Cookies, fingerprints, tracking
+
+The hosted responder sets no cookies, no localStorage / IndexedDB entries, no fingerprinting probes, no third-party trackers. Static assets (`/favicon.svg`, `/og-image.svg`) are served from the same origin.
+
+### 13.6 Data subject contact and policy
+
+For data-subject-rights enquiries, breach reports, and any other privacy correspondence: **avijeet@vortx.ai**. The canonical privacy policy is `/privacy`; the canonical terms of service are `/terms`; support and security contacts are at `/support` and `/.well-known/security.txt`.
 
 ---
 
@@ -984,6 +1029,14 @@ Transport and discovery:
 - [LLMS-TXT] Howard, J. et al. *llms.txt — A proposal to standardise on using an /llms.txt file.* https://llmstxt.org/
 - [WELL-KNOWN] Nottingham, M. *Well-Known URIs.* RFC 8615, May 2019. https://www.rfc-editor.org/rfc/rfc8615
 
+Data protection (normative for hosted responders in the named jurisdictions):
+
+- [GDPR] European Parliament and Council. *Regulation (EU) 2016/679 (General Data Protection Regulation).* 27 April 2016. https://eur-lex.europa.eu/eli/reg/2016/679/oj
+- [UK-GDPR] UK Information Commissioner's Office. *Guide to the UK General Data Protection Regulation.* https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/
+- [DPDP-2023] Government of India. *The Digital Personal Data Protection Act, 2023.* https://www.meity.gov.in/data-protection-framework
+- [CCPA-CPRA] California Privacy Protection Agency. *California Consumer Privacy Act, as amended by the California Privacy Rights Act.* https://oag.ca.gov/privacy/ccpa
+- [RFC 9116] Foudil, E., and Shafranovich, Y. *A File Format to Aid in Security Vulnerability Disclosure (security.txt).* RFC 9116, April 2022. https://www.rfc-editor.org/rfc/rfc9116
+
 ### 22.2 Informative references — upstream data sources
 
 Each band wired in the reference responder pulls from a published
@@ -1051,4 +1104,4 @@ Human geography:
 
 ---
 
-*End of emem Protocol Specification v0.0.4-draft.*
+*End of emem Protocol Specification v0.0.4.*
