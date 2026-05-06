@@ -46,6 +46,20 @@ assert RESERVE_BUDGET_GB > 0, "VRAM budget over-allocated; rebalance constants"
 EMEM_DATA = Path(os.environ.get("EMEM_DATA", "/home/ubuntu/emem/var/emem"))
 DYNAMICS_DIR = Path(os.environ.get("EMEM_JEPA_V2_DIR", str(EMEM_DATA / "jepa_v2")))
 
+# Phase 3 — Prithvi-EO-2.0-300M-TL artifacts. We pin the snapshot path
+# at startup; HF_HOME is set by the systemd unit. Future loads will
+# read from this exact pinned snapshot (no HF lookup), so production
+# is offline by construction once the cache is seeded. To upgrade,
+# re-run the snapshot_download bootstrap and update PRITHVI_SNAPSHOT.
+PRITHVI_REPO = "ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL"
+PRITHVI_SNAPSHOT_DEFAULT = (
+    EMEM_DATA / "hf_cache/hub/models--ibm-nasa-geospatial--Prithvi-EO-2.0-300M-TL/"
+    "snapshots/63adbd39c271da4c42f447e69b1a7c91a338cdc9"
+)
+PRITHVI_SNAPSHOT = Path(
+    os.environ.get("EMEM_PRITHVI_SNAPSHOT", str(PRITHVI_SNAPSHOT_DEFAULT))
+)
+
 # ── Phase 1 dynamics model (mirror of the Rust path) ──────────────────────
 INPUT_LAGS = 3
 TESSERA_DIM = 128
@@ -100,6 +114,8 @@ class _Registry:
     def __init__(self) -> None:
         self.dynamics: tuple[DynamicsModel, dict[str, Any]] | None = None
         self.dynamics_load_at: float | None = None
+        self.prithvi: tuple[Any, dict[str, Any]] | None = None
+        self.prithvi_load_at: float | None = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # Hard per-process VRAM cap, set ONCE at startup. The argument
         # to set_per_process_memory_fraction is a fraction of total
@@ -187,6 +203,94 @@ class _Registry:
         self.dynamics_load_at = time.time()
         return self.dynamics
 
+    def load_prithvi(self) -> tuple[Any, dict[str, Any]]:
+        """Load Prithvi-EO-2.0-300M-TL from the pinned local snapshot.
+        Returns (model, meta) where model is in eval mode on self.device,
+        meta carries the receipt-shape `model` block (model_id, blake2b_hex,
+        bands, mean/std, source paper) the Rust caller forwards into the
+        signed receipt.
+
+        We build with `num_frames=1` to match our per-cell input shape
+        (T=1 timestep). The pos_embed reconstruction path in
+        prithvi_mae.py constructs new tensors via numpy → CPU when T
+        differs from grid_size; building with num_frames=1 keeps every
+        tensor on `self.device` from the start.
+        """
+        if self.prithvi is not None:
+            return self.prithvi
+        # Vendor — `prithvi_mae.py` lives next to this file (Apache-2.0
+        # from ibm-nasa-geospatial). Importing once at load time keeps
+        # the cold-start cost on the first request, not on `import`.
+        sys.path.insert(0, str(Path(__file__).parent))
+        from prithvi_mae import PrithviMAE  # noqa: WPS433
+        ckpt_path = PRITHVI_SNAPSHOT / "Prithvi_EO_V2_300M_TL.pt"
+        cfg_path = PRITHVI_SNAPSHOT / "config.json"
+        if not ckpt_path.exists() or not cfg_path.exists():
+            raise FileNotFoundError(
+                f"Prithvi-EO-2.0 artifacts not found at {PRITHVI_SNAPSHOT}. "
+                f"Bootstrap with `huggingface_hub.snapshot_download(repo_id="
+                f"'{PRITHVI_REPO}', allow_patterns=['*.py','*.json','*.txt','*.pt'], "
+                f"cache_dir='{EMEM_DATA / 'hf_cache/hub'}')` (one-time, "
+                f"~1.3 GB; production runs offline once cached)."
+            )
+        cfg = json.loads(cfg_path.read_text())["pretrained_cfg"]
+        # T=1 — single timestep per request. The chip-fetch upgrade
+        # (Phase 3b) may eventually feed multi-vintage stacks; when it
+        # does, raise this and re-derive pos_embed on `self.device`.
+        cfg["num_frames"] = 1
+        ks = (
+            "img_size", "num_frames", "patch_size", "in_chans", "embed_dim",
+            "depth", "num_heads", "decoder_embed_dim", "decoder_depth",
+            "decoder_num_heads", "mlp_ratio", "coords_encoding",
+            "coords_scale_learn", "mask_ratio",
+        )
+        model = PrithviMAE(**{k: cfg[k] for k in ks})
+        sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+        # Strip pos_embed buffers — the model rebuilds them deterministically
+        # from img_size + patch_size + num_frames at forward time. Keeping
+        # the upstream pos_embed (which assumes num_frames=4) would mismatch
+        # our num_frames=1 build.
+        for k in list(sd):
+            if "pos_embed" in k:
+                del sd[k]
+        model.load_state_dict(sd, strict=False)
+        model.eval().to(self.device)
+        # Hash the .pt for the model_cid in the receipt — same blake2b-256
+        # convention the protocol uses for fact CIDs.
+        ckpt_blake2b = hashlib.blake2b(ckpt_path.read_bytes(), digest_size=32).hexdigest()
+        meta = {
+            "model_id": "prithvi_eo_v2_300m_tl",
+            "version": "2.0.0",
+            "license": "Apache-2.0",
+            "source": "ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL (HF)",
+            "paper": "arXiv:2412.02732 — Prithvi-EO-2.0",
+            "checkpoint_filename": ckpt_path.name,
+            "blake2b_hex": ckpt_blake2b,
+            "size_bytes": ckpt_path.stat().st_size,
+            "config": {
+                "img_size": cfg["img_size"],
+                "num_frames": cfg["num_frames"],
+                "patch_size": cfg["patch_size"],
+                "in_chans": cfg["in_chans"],
+                "embed_dim": cfg["embed_dim"],
+                "depth": cfg["depth"],
+                "num_heads": cfg["num_heads"],
+                "bands_in_order": [
+                    "Blue (S2.B02)",
+                    "Green (S2.B03)",
+                    "Red (S2.B04)",
+                    "Narrow NIR (S2.B8A)",
+                    "SWIR1 (S2.B11)",
+                    "SWIR2 (S2.B12)",
+                ],
+                "mean_per_band": cfg["mean"],
+                "std_per_band": cfg["std"],
+            },
+        }
+        self.prithvi = (model, meta)
+        self.prithvi_load_at = time.time()
+        return self.prithvi
+
 
 _REG = _Registry()
 
@@ -219,6 +323,61 @@ class DynamicsResponse(BaseModel):
     device: str
 
 
+class PrithviRequest(BaseModel):
+    """Per-cell Prithvi-EO-2.0 embedding request.
+
+    `chip` is the 6-band reflectance window centred on the cell, in
+    the order Blue / Green / Red / Narrow-NIR / SWIR1 / SWIR2 (matches
+    HLS V2 product). Reflectance values in the upstream's native scale
+    (typically 0–10000); the sidecar applies the model's mean/std
+    normalization. Shape: `[6, H, W]` — H and W must equal the
+    model's `img_size` (224 in Prithvi-EO-2.0).
+    """
+
+    chip: list[list[list[float]]] = Field(
+        ..., description="reflectance chip, shape [6, 224, 224], HLS V2 band order"
+    )
+    # Optional metadata — Prithvi-EO-2.0-TL was pretrained with these,
+    # so passing them sharpens the embedding when known. Both default
+    # to None; the model handles the dropout case at inference.
+    year: int | None = Field(default=None, description="acquisition year, e.g. 2024")
+    julian_day: int | None = Field(
+        default=None, ge=1, le=366, description="day-of-year 1..366"
+    )
+    lng: float | None = Field(default=None, description="centre longitude (WGS-84)")
+    lat: float | None = Field(default=None, description="centre latitude (WGS-84)")
+
+    @field_validator("chip")
+    @classmethod
+    def check_chip_shape(
+        cls, v: list[list[list[float]]]
+    ) -> list[list[list[float]]]:
+        # Validate against the model's expected img_size (224). We don't
+        # import the model just to read this — Prithvi-EO-2.0 fixes it
+        # at 224 in config.json and the band count is locked to 6.
+        if len(v) != 6:
+            raise ValueError(f"`chip` must have 6 bands (got {len(v)})")
+        for i, plane in enumerate(v):
+            if len(plane) != 224:
+                raise ValueError(
+                    f"`chip[{i}]` must have 224 rows (got {len(plane)})"
+                )
+            for j, row in enumerate(plane):
+                if len(row) != 224:
+                    raise ValueError(
+                        f"`chip[{i}][{j}]` must have 224 cols (got {len(row)})"
+                    )
+        return v
+
+
+class PrithviResponse(BaseModel):
+    embedding: list[float]
+    embedding_dim: int
+    model: dict[str, Any]
+    inference_us: int
+    device: str
+
+
 # ── App ───────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="emem-jepa-sidecar",
@@ -232,6 +391,8 @@ def health() -> dict[str, Any]:
     models: list[str] = []
     if _REG.dynamics is not None:
         models.append("dynamics_v2")
+    if _REG.prithvi is not None:
+        models.append("prithvi_eo_v2_300m_tl")
     return {
         "status": "ok",
         "models_loaded": models,
@@ -292,6 +453,78 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
                     "forecast. Run python/jepa_v2/train.py to ship a real model."
                 ]
             ),
+        },
+        inference_us=dt_us,
+        device=str(_REG.device),
+    )
+
+
+@app.post("/predict/prithvi_eo2_embed")
+def predict_prithvi_eo2_embed(req: PrithviRequest) -> PrithviResponse:
+    """Compute the per-cell Prithvi-EO-2.0-300M-TL embedding.
+
+    Returns the encoder's CLS token from the last transformer block
+    (post-norm) — a 1024-D foundation embedding suitable for cosine
+    similarity, downstream linear probes, or k-NN retrieval. The chip
+    is normalized with the model's per-band mean/std before the
+    forward pass.
+    """
+    try:
+        model, meta = _REG.load_prithvi()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    # Build [1, 6, 1, 224, 224] tensor from the request chip + normalize.
+    arr = np.asarray(req.chip, dtype=np.float32)  # [6, 224, 224]
+    x = torch.from_numpy(arr).unsqueeze(0).unsqueeze(2).to(_REG.device)
+    mean = torch.tensor(meta["config"]["mean_per_band"], device=_REG.device)
+    std = torch.tensor(meta["config"]["std_per_band"], device=_REG.device)
+    x = (x - mean.view(1, 6, 1, 1, 1)) / std.view(1, 6, 1, 1, 1)
+
+    # Optional metadata tensors. The model accepts None for either,
+    # falling back to the dropout-trained no-metadata path.
+    temporal_coords = None
+    location_coords = None
+    if req.year is not None and req.julian_day is not None:
+        temporal_coords = torch.tensor(
+            [[[float(req.year), float(req.julian_day)]]],
+            device=_REG.device,
+        )  # [B=1, T=1, 2]
+    if req.lng is not None and req.lat is not None:
+        location_coords = torch.tensor(
+            [[float(req.lng), float(req.lat)]], device=_REG.device
+        )  # [B=1, 2]
+
+    t0 = time.perf_counter_ns()
+    with torch.inference_mode():
+        # forward_features returns one tensor per encoder block, post-norm
+        # on the last entry. Shape: [B, num_patches+1, embed_dim].
+        feats = model.forward_features(x, temporal_coords, location_coords)
+    dt_us = max(1, (time.perf_counter_ns() - t0) // 1000)
+
+    # CLS token of the last block IS the per-image foundation embedding.
+    embedding = feats[-1][:, 0, :].squeeze(0).cpu().tolist()
+
+    return PrithviResponse(
+        embedding=embedding,
+        embedding_dim=len(embedding),
+        model={
+            "model_id": meta["model_id"],
+            "version": meta["version"],
+            "license": meta["license"],
+            "blake2b_hex": meta["blake2b_hex"],
+            "via": "python_sidecar",
+            "source": meta["source"],
+            "paper": meta["paper"],
+            "config": meta["config"],
+            "honesty_warnings": [
+                "frozen_pretrained_encoder: this is a per-cell forward "
+                "pass through the frozen Prithvi-EO-2.0-300M-TL encoder "
+                "(no fine-tuning at this responder). The embedding "
+                "captures whatever HLS V2 pretraining captured; quality "
+                "for any downstream task depends on how well that "
+                "task aligns with masked-autoencoder objectives."
+            ],
         },
         inference_us=dt_us,
         device=str(_REG.device),

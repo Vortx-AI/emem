@@ -13,7 +13,15 @@
 #   .venv/bin/python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 
 torch==2.11.0+cu128
+torchvision==0.26.0+cu128
 fastapi==0.136.1
 uvicorn==0.46.0
 pydantic==2.13.3
 numpy==2.4.4
+# Phase 3 — Prithvi-EO-2.0-300M-TL deps. timm provides ViT building
+# blocks the vendored prithvi_mae.py imports; einops handles the 3D
+# patch reshape; huggingface_hub is one-shot bootstrap for downloading
+# the snapshot. Production runs offline (HF_HUB_OFFLINE=1) once cached.
+timm==1.0.26
+einops==0.8.2
+huggingface_hub==1.13.0

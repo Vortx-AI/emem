@@ -95,6 +95,56 @@ pub async fn predict_dynamics_v2(req: &DynamicsRequest) -> Result<DynamicsRespon
         .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
 }
 
+/// Phase 3 — Prithvi-EO-2.0-300M-TL per-cell embedding request.
+///
+/// `chip` is a `[6, 224, 224]` reflectance window in HLS V2 band order
+/// (Blue, Green, Red, Narrow NIR, SWIR1, SWIR2). The sidecar handles
+/// per-band mean/std normalization. Optional `year` + `julian_day`
+/// + `lng` + `lat` engage the model's temporal/location embeddings;
+/// pass None to use the dropout-trained no-metadata path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrithviRequest {
+    pub chip: Vec<Vec<Vec<f32>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub julian_day: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lng: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+}
+
+/// Prithvi response — 1024-D CLS-token embedding from the encoder's
+/// last block (post-norm). The `model` JSON object is the receipt-shape
+/// block the Rust caller forwards verbatim into the signed receipt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrithviResponse {
+    pub embedding: Vec<f32>,
+    pub embedding_dim: usize,
+    pub model: JsonValue,
+    pub inference_us: u64,
+    pub device: String,
+}
+
+/// Call the sidecar's `/predict/prithvi_eo2_embed` endpoint.
+///
+/// The first request after sidecar restart pays the model load cost
+/// (~10 s — copying the 1.24 GB checkpoint to VRAM). Subsequent calls
+/// are ~20 ms warm. Callers should treat this surface as best-effort
+/// — when the sidecar is unavailable, recall on the `prithvi_eo2`
+/// band returns existing attestations only (no in-process fallback;
+/// CPU inference at ViT-L scale is not viable).
+pub async fn predict_prithvi_eo2_embed(
+    req: &PrithviRequest,
+) -> Result<PrithviResponse, SidecarError> {
+    let body =
+        serde_json::to_vec(req).map_err(|e| SidecarError::Protocol(format!("encode req: {e}")))?;
+    let resp_bytes = post_json("/predict/prithvi_eo2_embed", &body).await?;
+    serde_json::from_slice::<PrithviResponse>(&resp_bytes)
+        .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
+}
+
 // ── HTTP/1 over Unix socket ──────────────────────────────────────────────
 
 async fn post_json(path: &str, body: &[u8]) -> Result<Vec<u8>, SidecarError> {
@@ -239,6 +289,47 @@ mod tests {
             Some("python_sidecar")
         );
         assert!(resp.device.starts_with("cuda") || resp.device == "cpu");
+    }
+
+    /// Live Prithvi-EO-2.0 round-trip. Requires the sidecar at
+    /// `EMEM_SIDECAR_SOCK` AND the local snapshot at
+    /// `EMEM_PRITHVI_SNAPSHOT` (defaults to the path under
+    /// `EMEM_DATA/hf_cache/...`). Run explicitly with `--ignored`.
+    /// First call after sidecar restart costs ~10 s (loading the
+    /// 1.24 GB checkpoint into VRAM); warm calls are ~20 ms.
+    #[tokio::test]
+    #[ignore]
+    async fn live_predict_prithvi_eo2_returns_1024d() {
+        // Synthetic chip: 6 bands × 224×224 of mid-range reflectance
+        // values. The sidecar normalizes with the model's mean/std.
+        let chip: Vec<Vec<Vec<f32>>> = (0..6)
+            .map(|_| (0..224).map(|_| vec![3500.0_f32; 224]).collect())
+            .collect();
+        let req = PrithviRequest {
+            chip,
+            year: Some(2024),
+            julian_day: Some(200),
+            lng: Some(-73.98),
+            lat: Some(40.76),
+        };
+        let resp = predict_prithvi_eo2_embed(&req)
+            .await
+            .expect("sidecar reachable + Prithvi snapshot present");
+        assert_eq!(resp.embedding_dim, 1024, "Prithvi-EO-2.0 ViT-L is 1024-D");
+        assert_eq!(resp.embedding.len(), 1024);
+        let l2 = resp.embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!(
+            l2 > 0.1 && l2 < 1000.0,
+            "embedding L2 should be sane; got {l2}"
+        );
+        assert_eq!(
+            resp.model.get("via").and_then(|v| v.as_str()),
+            Some("python_sidecar")
+        );
+        assert_eq!(
+            resp.model.get("model_id").and_then(|v| v.as_str()),
+            Some("prithvi_eo_v2_300m_tl")
+        );
     }
 
     /// Connecting to a non-existent socket surfaces Unavailable
