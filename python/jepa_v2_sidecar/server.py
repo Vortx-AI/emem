@@ -101,6 +101,20 @@ class _Registry:
         self.dynamics: tuple[DynamicsModel, dict[str, Any]] | None = None
         self.dynamics_load_at: float | None = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Hard per-process VRAM cap, set ONCE at startup. The argument
+        # to set_per_process_memory_fraction is a fraction of total
+        # device memory, NOT of our budget — so we compute
+        # TOTAL_BUDGET_GB / total_device_gb. Any future allocation that
+        # would push the process past this cap raises CUDA OOM, which
+        # surfaces as 503 to the Rust caller and the in-process CPU
+        # fallback takes over. Per-model BUDGET_GB constants below are
+        # advisory accounting only — they sum to TOTAL_BUDGET_GB and
+        # describe how the cap is allocated, not separate hard caps.
+        if self.device.type == "cuda":
+            _, total_b = torch.cuda.mem_get_info(0)
+            total_gb = total_b / 1024**3
+            fraction = min(1.0, TOTAL_BUDGET_GB / total_gb)
+            torch.cuda.set_per_process_memory_fraction(fraction, device=0)
 
     def cuda_props(self) -> dict[str, Any]:
         if self.device.type != "cuda":
@@ -130,12 +144,10 @@ class _Registry:
     def load_dynamics(self) -> tuple[DynamicsModel, dict[str, Any]]:
         if self.dynamics is not None:
             return self.dynamics
-        # Bound this model's slice of VRAM so an OOM here doesn't
-        # spill into the others' budgets.
-        if self.device.type == "cuda":
-            torch.cuda.set_per_process_memory_fraction(
-                DYNAMICS_BUDGET_GB / float(TOTAL_BUDGET_GB), device=0
-            )
+        # No per-load set_per_process_memory_fraction — the global cap
+        # is set once in __init__. Calling it again here would REPLACE
+        # the global cap with one scaled to a single model's slice and
+        # break the budget for any subsequent loads.
         meta_path = DYNAMICS_DIR / "dynamics_v2.metadata.json"
         if not meta_path.exists():
             raise FileNotFoundError(
