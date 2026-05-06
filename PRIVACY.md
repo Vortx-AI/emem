@@ -48,7 +48,7 @@ and are out of scope.
 
 ## Google Analytics
 
-The HTML landing page at `https://emem.dev/` (and only that page; not `/v1/*`, not `/mcp`, not `/openapi.json`, not the markdown surfaces) loads Google Analytics 4 with measurement ID **`G-RBLXX5LR9L`** under **Consent Mode v2** with the following default values, set before `gtag.js` is loaded:
+The HTML landing page at `https://emem.dev/` (and only that page; not `/v1/*`, not `/mcp`, not `/openapi.json`, not the markdown surfaces) loads Google Analytics 4 with the operator's configured measurement ID under **Consent Mode v2** with the following default values, set before `gtag.js` is loaded. The measurement ID is configured via the `EMEM_GA_MEASUREMENT_ID` environment variable on the server; the live value for this responder is published machine-readably at `/.well-known/agent-card.json` under `provider.data_protection.third_party_analytics[0].measurement_id`. The repo holds only a placeholder so forks do not inherit this responder's GA stream by default.
 
 ```
 ad_storage:              denied
@@ -72,20 +72,22 @@ This is the **GDPR-compliant default**. The aggregate visit counts let us see wh
 
 **Consent banner.** A consent banner is rendered for human visitors on first visit. AI crawlers do not run JS and do not see the banner. The banner offers two equally-prominent buttons:
 
-- **Accept**: flips `analytics_storage` and `functionality_storage` to `granted` via `gtag('consent', 'update', ...)`. From that moment, GA4 sets the `_ga` cookie (2-year retention) and a `_ga_RBLXX5LR9L` cookie (2-year retention), transmits the (default-anonymised) IP, and emits regular analytics events. The decision is recorded in `localStorage` under key `emem.consent.v1` as `{"granted": true, "ts": <epoch_ms>, "v": 1}`, valid for 180 days, after which the banner re-prompts.
-- **Reject**: leaves all storage purposes denied. No cookies are set, no IP is sent, only cookieless aggregated pings continue. The decision is recorded as `{"granted": false, "ts": <epoch_ms>, "v": 1}`, valid for 180 days.
+- **Accept**: flips `analytics_storage` and `functionality_storage` to `granted` via `gtag('consent', 'update', ...)`. From that moment, GA4 sets the `_ga` cookie (2-year retention) and a `_ga_<container>` cookie (2-year retention), transmits the (default-anonymised) IP, and emits regular analytics events. The decision is recorded in a first-party cookie `emem_consent` (Path=/, Max-Age=180 days, SameSite=Lax, Secure) with value `accept`.
+- **Reject**: leaves all storage purposes denied. GA cookies are not set, no IP is sent, only cookieless aggregated pings continue. The decision is recorded in the same first-party cookie `emem_consent` with value `reject`.
 
 The Esc key dismisses with **Reject** (default-deny on accidental dismiss). The banner is not a cookie wall: the entire site remains fully usable without any decision (every endpoint and link works regardless of consent state).
 
-**Revoking or changing consent.** Click **Manage cookies** in the footer at any time. This clears `localStorage` key `emem.consent.v1`, re-renders the banner, and lets you make a new decision. To clear all GA cookies in the same step, also clear cookies for `emem.dev` in your browser.
+**Why a cookie and not localStorage?** Earlier versions of this site stored the consent decision in `localStorage`. We switched to a first-party cookie in 2026-05 because EU-strict browser configurations (Firefox Strict tracking-protection mode, Brave Shields, the "delete site data on close" Safari / Edge defaults common in the EEA) were clearing `localStorage` between sessions. That made the banner re-prompt on every refresh — a bad UX and arguably a dark pattern. First-party cookies survive those configs reliably while remaining strictly necessary under ePrivacy Art. 5(3).
 
-**localStorage usage.** Aside from `emem.consent.v1`, the site sets no `localStorage`, `sessionStorage`, or `IndexedDB` entries. The consent key is exempt from prior consent under ePrivacy Art. 5(3) "strictly necessary for the service requested" because remembering a consent decision is required to honour it.
+**Revoking or changing consent.** Click **Manage cookies** in the footer at any time. This deletes the `emem_consent` cookie (`Max-Age=0`), re-renders the banner, and lets you make a new decision. To clear all GA cookies in the same step, also clear cookies for `emem.dev` in your browser.
 
-**Verifying the claims.** Open Chrome DevTools → Application on `https://emem.dev/`:
+**Cookie / storage inventory.** The site sets no `localStorage`, no `sessionStorage`, no `IndexedDB` entries. The only cookie set before any consent decision is **none**. The only cookie set after any consent decision (accept or reject) is `emem_consent`, which is exempt from prior consent under ePrivacy Art. 5(3) because remembering a consent decision is strictly necessary to honour it.
 
-- Before any decision: Cookies tab MUST be empty for `emem.dev`. Local Storage tab MUST be empty.
-- After Reject: Cookies tab MUST stay empty. Local Storage tab shows one entry: `emem.consent.v1` = `{"granted":false,"ts":...,"v":1}`.
-- After Accept: Cookies tab shows `_ga` + `_ga_RBLXX5LR9L`. Local Storage shows `emem.consent.v1` = `{"granted":true,"ts":...,"v":1}`.
+**Verifying the claims.** Open Chrome DevTools → Application → Cookies on `https://emem.dev/`:
+
+- Before any decision: Cookies tab MUST be empty for `emem.dev`. Local Storage and Session Storage tabs MUST be empty.
+- After Reject: Cookies tab shows `emem_consent=reject` only. No `_ga*`. Local Storage stays empty.
+- After Accept: Cookies tab shows `emem_consent=accept`, `_ga`, and `_ga_<container>`. Local Storage stays empty.
 
 If you see different behaviour, this policy is wrong; please email `avijeet@vortx.ai`.
 

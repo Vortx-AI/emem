@@ -1097,6 +1097,47 @@ fn html_or_md(headers: &HeaderMap, html: &'static str, md: &'static str) -> Resp
     }
 }
 
+/// Read the operator's Google Analytics 4 measurement ID from the
+/// `EMEM_GA_MEASUREMENT_ID` env var. Returns `Some(id)` if a non-empty
+/// value is set, `None` otherwise. The repo holds a placeholder
+/// (`__EMEM_GA_ID__`) in `web/index.html` so forks do not inherit the
+/// canonical responder's GA stream; the hosted instance configures
+/// the env var via its systemd unit.
+fn ga_measurement_id() -> Option<String> {
+    std::env::var("EMEM_GA_MEASUREMENT_ID")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Render `INDEX_HTML` with the GA placeholder substituted, or with
+/// the entire GA block stripped when no measurement ID is configured.
+/// Computed once at first use; cached for the lifetime of the process.
+fn rendered_index_html() -> &'static str {
+    static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| match ga_measurement_id() {
+            Some(id) => INDEX_HTML.replace("__EMEM_GA_ID__", &id),
+            None => {
+                let mut out = String::with_capacity(INDEX_HTML.len());
+                let mut rest = INDEX_HTML;
+                while let Some(start) = rest.find("<!-- ##GA_BEGIN## -->") {
+                    out.push_str(&rest[..start]);
+                    if let Some(end) = rest[start..].find("<!-- ##GA_END## -->") {
+                        let after = start + end + "<!-- ##GA_END## -->".len();
+                        rest = &rest[after..];
+                    } else {
+                        rest = &rest[start..];
+                        break;
+                    }
+                }
+                out.push_str(rest);
+                out
+            }
+        })
+        .as_str()
+}
+
 // ── Static page routes ───────────────────────────────────────────────────
 
 async fn landing(headers: HeaderMap) -> Response {
@@ -1126,7 +1167,7 @@ async fn landing(headers: HeaderMap) -> Response {
             .body(axum::body::Body::from(body))
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     }
-    html_or_md(&headers, INDEX_HTML, LLMS_TXT)
+    html_or_md(&headers, rendered_index_html(), LLMS_TXT)
 }
 
 async fn agents_page(headers: HeaderMap) -> Response {
@@ -1449,34 +1490,42 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 "log_retention_enforced_by": "systemd-journald MaxRetentionSec=30day",
                 "sells_personal_data": false,
                 "shares_for_advertising": false,
-                "third_party_analytics": [{
-                    "vendor":           "Google Analytics 4",
-                    "measurement_id":   "G-RBLXX5LR9L",
-                    "scope":            "HTML landing page only (/), not /v1/*, /mcp, /openapi.json, /agents.md, /llms.txt, or .well-known/*",
-                    "consent_mode":     "v2",
-                    "consent_default":  "denied for ad_storage, ad_user_data, ad_personalization, analytics_storage, functionality_storage, personalization_storage; granted for security_storage",
-                    "consent_banner": {
-                        "rendered_for":          "human visitors with a JS-capable browser",
-                        "rendered_for_ai_agents": false,
-                        "buttons":               ["Accept", "Reject"],
-                        "buttons_equal_prominence": true,
-                        "esc_key_action":        "Reject",
-                        "is_cookie_wall":        false,
-                        "decision_storage":      "localStorage key emem.consent.v1, JSON {granted, ts, v}, 180-day validity",
-                        "revocation":            "footer 'Manage cookies' link clears the key and reopens the banner",
-                    },
-                    "cookies_pre_consent":   [],
-                    "cookies_post_consent":  ["_ga (2yr)", "_ga_RBLXX5LR9L (2yr)"],
-                    "localstorage_pre_consent":  [],
-                    "localstorage_post_decision":["emem.consent.v1 (necessary, ePrivacy Art. 5(3) exempt)"],
-                    "pii_transmitted_pre_consent": false,
-                    "ip_transmitted_pre_consent":  false,
-                    "transport":        "navigator.sendBeacon (non-blocking)",
-                    "transfer_basis":   "Google TADPF self-certification + SCCs",
-                    "opt_out":          "https://tools.google.com/dlpage/gaoptout",
-                    "lawful_basis_pre_consent":  "GDPR Art. 6 not engaged (no personal data processed)",
-                    "lawful_basis_post_consent": "GDPR Art. 6(1)(a) consent",
-                }],
+                "third_party_analytics": match ga_measurement_id() {
+                    Some(id) => json!([{
+                        "vendor":           "Google Analytics 4",
+                        "measurement_id":   id,
+                        "ga_post_consent_cookies": [
+                            "_ga (2yr)",
+                            format!("_ga_{} (2yr)", id.trim_start_matches("G-")),
+                        ],
+                        "scope":            "HTML landing page only (/), not /v1/*, /mcp, /openapi.json, /agents.md, /llms.txt, or .well-known/*",
+                        "configured_via":   "env var EMEM_GA_MEASUREMENT_ID; repo holds a placeholder so forks do not inherit",
+                        "consent_mode":     "v2",
+                        "consent_default":  "denied for ad_storage, ad_user_data, ad_personalization, analytics_storage, functionality_storage, personalization_storage; granted for security_storage",
+                        "consent_banner": {
+                            "rendered_for":          "human visitors with a JS-capable browser",
+                            "rendered_for_ai_agents": false,
+                            "buttons":               ["Accept", "Reject"],
+                            "buttons_equal_prominence": true,
+                            "esc_key_action":        "Reject",
+                            "is_cookie_wall":        false,
+                            "decision_storage":      "first-party cookie emem_consent (Path=/, Max-Age=180d, SameSite=Lax, Secure)",
+                            "decision_storage_rationale": "switched from localStorage in 2026-05; EU-strict browser configs (Firefox Strict, Brave Shields, 'delete site data on close') were clearing localStorage between sessions and causing the banner to re-prompt on every refresh. First-party cookies survive those configs.",
+                            "revocation":            "footer 'Manage cookies' link deletes the cookie and reopens the banner",
+                        },
+                        "cookies_pre_consent":  [],
+                        "cookies_post_decision": ["emem_consent (180d, necessary, ePrivacy Art. 5(3) exempt)"],
+                        "cookies_post_accept":   ["emem_consent (180d, necessary)", "_ga (2yr)", "_ga_<container> (2yr)"],
+                        "pii_transmitted_pre_consent": false,
+                        "ip_transmitted_pre_consent":  false,
+                        "transport":        "navigator.sendBeacon (non-blocking)",
+                        "transfer_basis":   "Google TADPF self-certification + SCCs",
+                        "opt_out":          "https://tools.google.com/dlpage/gaoptout",
+                        "lawful_basis_pre_consent":  "GDPR Art. 6 not engaged (no personal data processed)",
+                        "lawful_basis_post_consent": "GDPR Art. 6(1)(a) consent",
+                    }]),
+                    None => json!([]),
+                },
             },
         },
         // A2A v0.3 constrains `transport` to JSONRPC|HTTP|SSE|HTTP+JSON|GRPC.

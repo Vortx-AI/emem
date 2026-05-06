@@ -7,6 +7,33 @@ and we use [Semantic Versioning](https://semver.org/) once we're past
 
 ## [Unreleased]
 
+### Privacy and consent fixes (2026-05-06, evening)
+
+- **GA4 measurement ID moved out of the public repo.** The repo's
+  `web/index.html` now holds a `__EMEM_GA_ID__` placeholder. The
+  responder substitutes this at startup with the value of env var
+  `EMEM_GA_MEASUREMENT_ID`, or strips the entire GA `<script>` block
+  if the var is unset. Forks no longer inherit the canonical
+  responder's GA stream by default. The hosted instance configures
+  the ID via its systemd unit (`ops/systemd/emem-server.service.example`).
+  Note: Google Analytics measurement IDs are public-by-design (every
+  browser sees them in the gtag config), so this is engineering
+  hygiene rather than a secrets fix; the practical benefit is that
+  forkers' traffic does not commingle with this responder's stats.
+- **Consent storage moved from localStorage to a first-party cookie.**
+  EU users reported the banner re-prompting on every refresh.
+  Diagnosis: EU-strict browser configurations (Firefox Strict mode,
+  Brave Shields, "delete site data on close" defaults common in the
+  EEA) were clearing `localStorage` between sessions while preserving
+  cookies. Fix: the consent decision now lives in a first-party
+  cookie `emem_consent` (Path=/, Max-Age=180 days, SameSite=Lax,
+  Secure), exempt from prior consent under ePrivacy Art. 5(3). The
+  inline GA bootstrap script reads the cookie BEFORE `gtag.js` loads,
+  so a previously-accepted user never has GA briefly run denied.
+  PRIVACY.md, SPEC.md §13.5, and `.well-known/agent-card.json`
+  `data_protection.third_party_analytics[0].consent_banner` all
+  updated to reflect cookie-based storage and document the rationale.
+
 ### Content and compliance (2026-05-06)
 
 - **Agent-first rewrite of the bootstrap surface.** `/v1/discover`
@@ -691,7 +718,7 @@ registry, the multimodal scene path, and the brand identity.
   + metrics + realdemo trace at 03:17 UTC.
 - SEO surface: Open Graph + Twitter card meta, geo / ICBM / DC.coverage
   meta, JSON-LD `SoftwareApplication` + `Organization` + `WebSite`,
-  GA4 (`G-RBLXX5LR9L`), favicon, OG image, IndexNow key endpoint,
+  GA4 (operator-configured measurement ID), favicon, OG image, IndexNow key endpoint,
   `/.well-known/security.txt`.
 
 ### Also changed (carryover from the post-0.0.2 development cycle)

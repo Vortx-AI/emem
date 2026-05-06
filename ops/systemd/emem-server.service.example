@@ -1,0 +1,57 @@
+# emem-server systemd user unit — example configuration.
+#
+# Install:
+#   cp ops/systemd/emem-server.service.example \
+#     ~/.config/systemd/user/emem-server.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now emem-server.service
+#
+# Adapt the Environment= lines below to your operator setup.
+
+[Unit]
+Description=emem.dev — Earth memory protocol HTTP/MCP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/emem
+
+# Bind addresses
+Environment=EMEM_BIND=127.0.0.1:5051
+Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
+Environment=EMEM_DEMOS_DIR=/home/ubuntu/emem/var/demos
+
+# TLS (Let's Encrypt via TLS-ALPN-01). The binary needs
+# `cap_net_bind_service` to bind :443 as a non-root user; see
+# scripts/redeploy.sh.
+Environment=EMEM_TLS_DOMAINS=emem.dev,www.emem.dev
+Environment=EMEM_TLS_BIND=0.0.0.0:443
+Environment=EMEM_TLS_CONTACT=mailto:avijeet@vortx.ai
+# Environment=EMEM_TLS_STAGING=1
+
+# Logging
+Environment=RUST_LOG=info,rustls_acme=info
+
+# Topic-routing inference backend (ort + tokenizers)
+Environment=ORT_DYLIB_PATH=/opt/onnxruntime-1.22.0-cuda12/lib/libonnxruntime.so.1.22.0
+Environment=LD_LIBRARY_PATH=/opt/onnxruntime-1.22.0-cuda12/lib:/usr/lib/x86_64-linux-gnu
+
+# GPU sidecar (jepa_v2 + Prithvi + Galileo on CUDA via UDS)
+Environment=EMEM_SIDECAR_SOCK=%t/emem/jepa_sidecar.sock
+Environment=EMEM_SIDECAR_TIMEOUT_MS=10000
+
+# Google Analytics 4 measurement ID. The repo's web/index.html holds a
+# `__EMEM_GA_ID__` placeholder; the responder substitutes this value
+# at startup. Unset (or comment out) to disable GA entirely — the
+# entire GA <script> block is stripped from the served HTML when
+# this variable is unset or empty.
+Environment=EMEM_GA_MEASUREMENT_ID=
+
+LimitNOFILE=65536
+ExecStart=/home/ubuntu/emem/target/release/emem-server
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
