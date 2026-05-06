@@ -41,6 +41,7 @@ use std::sync::{Arc, LazyLock};
 mod gpu_sidecar;
 mod jepa_v2;
 mod physics;
+mod prithvi_chip;
 pub mod topic_router;
 
 use axum::body::Bytes;
@@ -10656,6 +10657,138 @@ async fn materialize_geotessera_multi_year(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+/// Phase 3b — Prithvi-EO-2.0-300M-TL per-cell foundation embedding.
+///
+/// Pulls a Sentinel-2 L2A 6-band chip via `prithvi_chip::fetch_prithvi_chip`
+/// (672×672 at 10 m for B02/B03/B04 → 3:1 mean-pool → 224 at 30 m;
+/// 336×336 at 20 m for B8A/B11/B12 → 1.5:1 bilinear → 224 at 30 m),
+/// hands it to the GPU sidecar at `/predict/prithvi_eo2_embed`, and
+/// signs the returned 1024-D embedding under the `prithvi_eo2` band.
+///
+/// When the sidecar is unreachable or the upstream returns no clean
+/// scene, this returns an Err string — callers surface as 5xx via
+/// `ApiError`. We do NOT fall back to a different model or a degraded
+/// chip; the no-stub policy says "ship the real thing or surface the
+/// gap honestly".
+async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+
+    // Fetch the 6×224×224 chip at 30 m equivalent. Up to ~5 MB of COG
+    // tile range reads spread across 6 assets; ~3-6 s on a fresh cell.
+    let chip = prithvi_chip::fetch_prithvi_chip(cell64, s, None).await?;
+
+    // Year + julian_day from the scene capture time engages the
+    // model's temporal-encoder branch. ISO unix → DOY 1..366.
+    let scene_unix = if chip.scene_unix > 0 {
+        chip.scene_unix
+    } else {
+        0
+    };
+    let (year, julian_day) = unix_to_year_doy(scene_unix);
+
+    let req = gpu_sidecar::PrithviRequest {
+        chip: chip.as_3d(),
+        year: Some(year),
+        julian_day: Some(julian_day),
+        lng: Some(lng),
+        lat: Some(lat),
+    };
+    let resp = gpu_sidecar::predict_prithvi_eo2_embed(&req)
+        .await
+        .map_err(|e| format!("prithvi sidecar: {e}"))?;
+    if resp.embedding.len() != 1024 {
+        return Err(format!(
+            "prithvi sidecar returned dim={} (want 1024)",
+            resp.embedding.len()
+        ));
+    }
+
+    let signed_at = chrono_iso8601_utc();
+    let value = ciborium::Value::Array(
+        resp.embedding
+            .iter()
+            .map(|v| ciborium::Value::Float(*v as f64))
+            .collect(),
+    );
+
+    // Receipt-shape input provenance: every asset URL the chip was
+    // sourced from + the scene id + the model checkpoint hash. A
+    // verifier with the same inputs and the same checkpoint reproduces
+    // the embedding bit-for-identical.
+    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 1);
+    for url in &chip.asset_urls {
+        sources.push(Source {
+            scheme: "sentinel-2-l2a.cog".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(chip.scene_iso.clone()),
+            url: Some(url.clone()),
+        });
+    }
+    let model_blake2b = resp
+        .model
+        .get("blake2b_hex")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    sources.push(Source {
+        scheme: "model.prithvi_eo2_300m_tl".into(),
+        id: format!("ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL@{model_blake2b}"),
+        cid: None,
+        // Source.hash is Option<[u8; 32]>; we keep the hex form in `id`
+        // for round-trip readability and decode it lossily if a
+        // verifier later wants the raw 32-byte slice.
+        hash: None,
+        captured_at: Some(signed_at.clone()),
+        url: Some("https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL".into()),
+    });
+
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: "prithvi_eo2".into(),
+        tslot: 0,
+        value,
+        unit: None,
+        confidence: 0.85,
+        uncertainty: None,
+        sources,
+        derivation: Derivation {
+            fn_key: "prithvi_eo2_300m_tl_embed@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(chip.scene_id.clone()),
+                ciborium::Value::Integer((scene_unix).into()),
+                ciborium::Value::Text(model_blake2b),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+/// ISO unix → (year, day_of_year). Used for Prithvi's temporal_coords
+/// metadata input. Returns (2024, 200) for stale/missing scene_unix.
+///
+/// Built on `days_from_civil` / `civil_from_days` (Hinnant civil-date)
+/// so we don't pull `chrono` just for two integer conversions.
+fn unix_to_year_doy(unix: i64) -> (i32, i32) {
+    if unix <= 0 {
+        return (2024, 200);
+    }
+    let z = unix.div_euclid(86_400);
+    let (y, m, d) = civil_from_days(z);
+    let jan1 = days_from_civil(y, 1, 1);
+    let day_of_year = (z - jan1 + 1) as i32; // 1..=366
+    (y, day_of_year)
+}
+
 /// Per-year Tessera pixel fetch — pure HTTP-range NumPy reader against the
 /// public dl2.geotessera.org bucket. Returns the 128-D dequantised
 /// embedding for the exact (lat, lng) tile pixel, or an error string.
@@ -15580,6 +15713,18 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "firms.modaps.eosdis.nasa.gov/data/active_fire/<source>/csv/...Global_24h.csv (anonymous bulk CSV; MODIS C6.1 + VIIRS S-NPP/J1/J2; ~14MB/day total)",
         },
+        "prithvi_eo2" => MaterializerMeta {
+            // Prithvi-EO-2.0-300M-TL ViT-L. Per-cell foundation embedding
+            // computed on the GPU sidecar over a 6-band S2 L2A chip resampled
+            // to 224×224 at 30 m. Tempo follows S2 (medium cadence; the
+            // chip is one acquisition, not a stack). History tracks S2 L2A.
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(s2_l2a_start),
+            history_to_unix: None,
+            wire_path:
+                "Element84/MPC Sentinel-2 L2A 6-band chip (B02/B03/B04/B8A/B11/B12, 224×224 @ 30m equiv) → emem-jepa-sidecar /predict/prithvi_eo2_embed (CUDA, ViT-L 1024-D CLS)",
+        },
         _ => return None,
     };
     Some(m)
@@ -15831,6 +15976,11 @@ async fn materialize_band_at(
         }
         "gmrt.topobathy_mean" => return materialize_gmrt_topobathy(cell64, s).await,
         "surface_water.recurrence" => return materialize_jrc_gsw_recurrence(cell64, s).await,
+        // Phase 3b — Prithvi-EO-2.0-300M-TL embedding. Pulls a 6-band
+        // S2 L2A chip resampled to a uniform 30 m × 224×224 grid, sends
+        // it to the GPU sidecar, and signs the returned 1024-D CLS
+        // embedding under the `prithvi_eo2` band.
+        "prithvi_eo2" => return materialize_prithvi_eo2(cell64, s).await,
         // Beck Köppen-Geiger 1-km — static, one signed class per cell.
         "koppen" => return materialize_koppen(cell64, s).await,
         // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
@@ -16704,6 +16854,40 @@ async fn try_materialize_bands(
                     }
                 }
             }
+            // Prithvi-EO-2.0-300M-TL — fetches a 6-band S2 L2A chip,
+            // resamples to 30 m × 224×224, sends to GPU sidecar, signs
+            // the returned 1024-D embedding. Cold call ~10-30 s
+            // (chip range-reads + sidecar inference); warm cache hits
+            // are under 1 s.
+            "prithvi_eo2" => match materialize_prithvi_eo2(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
             // Returns Primary for populated cells, Absence for ocean /
             // polar / genuinely uninhabited terrain (the API's documented
@@ -21163,7 +21347,7 @@ async fn get_temporal_route(
 
 /// Best-effort ISO-8601 UTC parser. Accepts "Z" or "+00:00". Returns
 /// None on any parse failure — callers fall back to "now".
-fn parse_iso8601_unix(s: &str) -> Option<i64> {
+pub(crate) fn parse_iso8601_unix(s: &str) -> Option<i64> {
     // Forms: "2026-04-27T01:23:45Z", "2026-04-27T01:23:45+00:00",
     //        "2026-04-27" (day boundary).
     let s = s.trim();
