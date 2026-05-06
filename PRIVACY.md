@@ -12,8 +12,8 @@ and are out of scope.
 ## Tl;dr
 
 - **No accounts. No keys. No PII in the canonical channel.** L0 and L1 read endpoints are anonymous.
-- We do not collect, store, sell, or share user data with third parties for advertising.
-- We do not run third-party analytics that profile visitors.
+- We do not sell or share user data with third parties for advertising.
+- We log every request server-side (path, GET query string, status, duration, user-agent, hashed IP) and we run **Google Analytics 4** on the HTML landing page only, under Consent Mode v2 with default-denied for all storage. See §"Google Analytics" below for what that means in practice.
 - The responder logs request metadata (timestamp, hashed IP, user-agent, path, query string, status, duration) for operational health and abuse mitigation. Retention is enforced at 30 days via systemd journald (`MaxRetentionSec=30day` in `/etc/systemd/journald.conf.d/30day-retention.conf`). After 30 days the entries are vacuumed from the journal.
 - POST request bodies are NOT logged. GET query strings ARE logged (paired with the hashed IP) so they appear in operational logs for the retention window.
 
@@ -45,6 +45,42 @@ and are out of scope.
 - No data from other tools, files, or memory of your AI agent
 - No location data beyond what you explicitly include in a request
 - No payment information (the public responder is free for L0/L1)
+
+## Google Analytics
+
+The HTML landing page at `https://emem.dev/` (and only that page; not `/v1/*`, not `/mcp`, not `/openapi.json`, not the markdown surfaces) loads Google Analytics 4 with measurement ID **`G-RBLXX5LR9L`** under **Consent Mode v2** with the following default values, set before `gtag.js` is loaded:
+
+```
+ad_storage:              denied
+ad_user_data:            denied
+ad_personalization:      denied
+analytics_storage:       denied
+functionality_storage:   denied
+personalization_storage: denied
+security_storage:        granted
+```
+
+Until and unless an explicit consent banner flips these to `granted` (the canonical responder does not currently render a banner), GA4 emits only **cookieless aggregated pings**. Concretely, with the defaults above:
+
+- **No `_ga` or `_ga_<container>` cookies are set.** No browser-side identifier is stored.
+- **No raw IP is transmitted.** GA4 anonymises IP by default; we additionally pass `anonymize_ip: true` for defensive compatibility with auditing tools.
+- **No advertising signals are processed** (`ad_storage`, `ad_user_data`, `ad_personalization` all denied).
+- **No personalised reporting** in the GA4 console; only modeled aggregate visit counts.
+- The pings are sent over `transport_type: beacon` (`navigator.sendBeacon`), which is non-blocking and queued by the browser.
+
+This is the **GDPR-compliant default**. The aggregate visit counts let us see whether the site is being used by humans and by AI crawlers (broken out by user-agent in the Google Analytics console) without processing personal data. Inspect the actual gtag configuration at view-source on `https://emem.dev/`.
+
+**If we ever add a consent banner**, opt-in will be granular (per-purpose: analytics, functionality), opt-out will be the default, and a cookie list will appear here. We have not added a banner because the default-denied configuration emits no cookies and no PII.
+
+**Verifying the claim.** Open Chrome DevTools → Application → Cookies on `https://emem.dev/`. The cookie list MUST be empty. If you see a `_ga` cookie, this policy is wrong; please email `avijeet@vortx.ai`.
+
+**Lawful basis (GDPR Art. 6).** No personal data is processed under default-denied Consent Mode v2, so Art. 6 does not gate the cookieless pings. If a banner is later added and consent is granted, lawful basis becomes Art. 6(1)(a) consent.
+
+**Cross-border transfer.** The cookieless pings reach Google US infrastructure. Google's TADPF self-certification is the legal basis for the transfer. Standard Contractual Clauses (SCCs) apply as a fallback.
+
+**Opt-out.** Install the [Google Analytics opt-out browser add-on](https://tools.google.com/dlpage/gaoptout) for absolute opt-out. With our default-denied config, this is rarely needed (no cookie is set in the first place).
+
+**Why GA at all if it sets no cookies?** The aggregate visit counts let the operator see traffic shape (which agent populations hit the site, which countries, peak hours) without instrumenting a separate analytics stack. Server-side aggregates are also exposed at `/v1/agent_stats` for any caller; the GA console is the operator-facing companion.
 
 ## Geocoder cache
 

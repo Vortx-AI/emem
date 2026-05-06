@@ -725,7 +725,9 @@ DPDP Act 2023 §11–§14 rights map to the GDPR rights above; California CCPA/C
 
 ### 13.5 Cookies, fingerprints, tracking
 
-The hosted responder sets no cookies, no localStorage / IndexedDB entries, no fingerprinting probes, no third-party trackers. Static assets (`/favicon.svg`, `/og-image.svg`) are served from the same origin. This is verifiable on any request: `curl -I https://emem.dev/` returns no `Set-Cookie` header.
+The hosted responder sets no cookies of its own. The HTML landing page at `/` (and **only** that page; not `/v1/*`, not `/mcp`, not `/openapi.json`, not the markdown surfaces, not `.well-known/*`) loads Google Analytics 4 (`G-RBLXX5LR9L`) under Consent Mode v2 with default-denied for `ad_storage`, `ad_user_data`, `ad_personalization`, `analytics_storage`, `functionality_storage`, and `personalization_storage`. Under that configuration GA4 emits only cookieless aggregated pings: no `_ga` or `_ga_*` cookies are set, no raw IP is transmitted, no profile is built. `curl -I https://emem.dev/` returns no `Set-Cookie` header. Full disclosure (vendor, measurement ID, consent defaults, transfer basis, opt-out URL) at `/privacy` and machine-readable in `/.well-known/agent-card.json` under `provider.data_protection.third_party_analytics[]`.
+
+No localStorage / IndexedDB entries, no fingerprinting probes, no first-party cookies. Static assets (`/favicon.svg`, `/og-image.svg`) are served from the same origin.
 
 ### 13.6 IP handling
 
