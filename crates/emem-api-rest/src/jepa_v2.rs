@@ -254,13 +254,28 @@ pub fn receipt_block(metadata: &ModelMetadata) -> JsonValue {
         "honesty_warnings": if metadata.is_trained() {
             serde_json::Value::Array(Vec::new())
         } else {
-            serde_json::Value::Array(vec![serde_json::Value::String(
-                "untrained_baseline: this jepa_v2 model is the residual-zero-init \
-                 sentinel that returns last_input_vintage by construction. \
-                 Quality is the 'predict last vintage' baseline, NOT a learned \
-                 forecast. Run python/jepa_v2/train.py to ship a real model."
-                    .into(),
-            )])
+            serde_json::Value::Array(vec![
+                serde_json::Value::String(
+                    "untrained_baseline: this jepa_v2 model is the residual-zero-init \
+                     sentinel that returns last_input_vintage by construction. \
+                     Quality is the 'predict last vintage' baseline, NOT a learned \
+                     forecast."
+                        .into(),
+                ),
+                serde_json::Value::String(
+                    "upstream_geotessera_single_vintage: as of 2026-05-06 the public \
+                     dl2.geotessera.org bucket only serves the 2024 vintage reliably \
+                     (2017–2023 return null). A learned next-vintage predictor is \
+                     therefore not trainable from this responder's data — the \
+                     thesis requires K≥3 historical vintages per cell. The endpoint \
+                     stays online for protocol surface stability, but its prediction \
+                     is degenerate (all K lags collapse to the same 2024 vector → \
+                     output equals 2024 vector). For real foundation embeddings, use \
+                     the Phase-3 prithvi_eo2 band (when shipped) which runs over our \
+                     S2 L2A path and is vintage-agnostic by construction."
+                        .into(),
+                ),
+            ])
         },
     })
 }
@@ -361,7 +376,14 @@ mod tests {
             .get("honesty_warnings")
             .and_then(|v| v.as_array())
             .expect("honesty_warnings is an array");
-        assert_eq!(warnings.len(), 1);
+        // Two warnings now: untrained_baseline + upstream_geotessera_single_vintage.
+        // The single-vintage caveat is permanent until upstream Tessera ships
+        // multi-year data (see project_jepa_audit memory note).
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings.iter().any(|w| w
+            .as_str()
+            .unwrap_or("")
+            .contains("upstream_geotessera_single_vintage")));
         let w = warnings[0].as_str().unwrap();
         assert!(
             w.contains("untrained_baseline"),
