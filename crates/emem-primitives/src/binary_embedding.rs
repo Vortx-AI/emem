@@ -6,9 +6,12 @@
 //! Binary-quantized embeddings for fast triage k-NN.
 //!
 //! The protocol's default foundation embedding (`geotessera`) is a
-//! 128-D fp16 vector — 256 B/cell on disk, cosine similarity scoring
-//! at fp32. Two changes here cut both numbers by ~16× without losing
-//! the ability to re-rank with the full vector when an answer needs it:
+//! 128-D vector stored upstream as int8 + per-pixel f32 scale
+//! (~144 B/cell on disk: 128 int8 + 4 B scale + tile metadata),
+//! decoded to f32 by the recall path so all comparisons run in
+//! fp32 cosine. Two changes here cut both the storage and the
+//! scoring cost by ~16× without losing the ability to re-rank with
+//! the full vector when an answer needs it:
 //!
 //!   1. **Sign-bit packing** to a 128-bit binary embedding (16 B/cell).
 //!      The bit at position `i` is `1` iff the (rotated) value at

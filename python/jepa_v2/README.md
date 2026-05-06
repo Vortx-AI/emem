@@ -7,7 +7,10 @@ embedding. Inference runs in Rust via `ort` against the `.onnx` artifact
 produced here.
 
 ## Architecture
-- Input: `[batch, K=3, 128]` — three prior Tessera fp16 vectors per cell.
+- Input: `[batch, K=3, 128]` — three prior Tessera vectors per cell.
+  Tessera ships as int8 + per-pixel f32 scale upstream; the recall
+  layer decodes to f32 before this code sees it, so training operates
+  on decoded f32 throughout.
 - Output: `[batch, 128]` — predicted next-vintage embedding.
 - Backbone: 4-layer MLP-mixer-ish residual block, ~200k params total.
 - Loss: cosine + L2 in latent space (joint).
@@ -18,7 +21,8 @@ produced here.
 1. Calls `/v1/coverage_matrix` → list of (cell, band, last_attested_unix).
 2. Filters to bands matching `geotessera.YYYY` for years 2017..2024.
 3. For each cell with ≥4 consecutive vintages, calls `/v1/recall` per
-   `geotessera.<year>` to fetch the 128-D fp16 vector.
+   `geotessera.<year>` to fetch the 128-D vector (decoded f32 over the
+   wire from the upstream int8+scale storage).
 4. Saves to `<EMEM_DATA>/jepa_v2/training_data.npz` as
    `{cells: [str], vintages: [int], vectors: float32[N, Y, 128]}`.
 

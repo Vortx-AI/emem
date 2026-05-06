@@ -13,7 +13,7 @@
       "dims": 128,
       "tempo": "slow",
       "privacy": {"class": "public"},
-      "description": "Tessera annual foundation embedding (128-D fp16). A learned multimodal vector that fuses Sentinel-2 optical, Sentinel-1 radar, and seasonality into one position-stable vector per cell per year. The default similarity surface for `/v1/find_similar` because it captures land-cover, structure, and recent change in one shot.",
+      "description": "Tessera annual foundation embedding (128-D, stored upstream as int8 + per-pixel f32 scale; recall decodes to f32 for cosine scoring). A learned multimodal vector that fuses Sentinel-2 optical, Sentinel-1 radar, and seasonality into one position-stable vector per cell per year. The default similarity surface for `/v1/find_similar` because it captures land-cover, structure, and recent change in one shot.",
       "units": "unitless (learned embedding)",
       "interpretation": "Compare via cosine similarity (or Hamming on the `geotessera.bin128` sign-bit sibling). Two cells with similarity > 0.85 are usually the same physical archetype (e.g. dense urban, mature mangrove, sparse savanna). Not directly interpretable per dimension — treat as opaque.",
       "pitfalls": "Yearly cadence: a cell that flips from forest to clearing mid-year reads as the *annual mean* until the next vintage. Use `temporal_diff` or `phenology` to detect intra-year change.",

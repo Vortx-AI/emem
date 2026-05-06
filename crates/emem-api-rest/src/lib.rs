@@ -1826,16 +1826,16 @@ async fn materializers(
                 "value_encoding":    "cbor.bytes(16)",
                 "coverage":          "wherever geotessera is attested — derived locally, no extra upstream call",
                 "upstream_scheme":   "geotessera",
-                "upstream_endpoint": "(derived from cached geotessera fp16 vector)",
+                "upstream_endpoint": "(derived from cached geotessera int8+scale vector decoded to f32)",
                 "derivation_fn_key": "turboquant_geotessera_bin128_v1@1",
                 "confidence":        0.85,
                 "tempo":             "slow",
                 "fetch_strategy":    "derived: turboquant rotation + sign-bit pack",
                 "fetch_bytes_per_cell": 16,
                 "use_with":          "find_similar mode=hamming or hamming_then_rerank",
-                "compression_ratio": "16x vs geotessera (256 B → 16 B per cell)",
+                "compression_ratio": "~8x vs geotessera int8+scale (~132 B → 16 B per cell); ~32x vs the recall-decoded f32 (512 B)",
                 "scoring_throughput": "~10⁹ pairs/sec/core via XOR + popcount",
-                "notes":             "Sign-bit-packed 128-bit binary embedding derived from the geotessera fp16 vector after a fixed random orthogonal rotation (TurboQuant — Corley, https://geospatialml.com/posts/terrabit/). Designed to feed `find_similar` as a triage layer: ~65% recall@10 on its own, matches cosine precision when used with mode=hamming_then_rerank (the responder pulls 4·k Hamming candidates, re-ranks by cosine on the underlying geotessera vector). Rotation matrix is content-addressed via derivation.args[2] so a verifier can re-derive bit-for-bit."
+                "notes":             "Sign-bit-packed 128-bit binary embedding derived from the geotessera vector (int8 + per-pixel f32 scale upstream, decoded to f32 by recall) after a fixed random orthogonal rotation (TurboQuant — Corley, https://geospatialml.com/posts/terrabit/). Designed to feed `find_similar` as a triage layer: ~65% recall@10 on its own, matches cosine precision when used with mode=hamming_then_rerank (the responder pulls 4·k Hamming candidates, re-ranks by cosine on the underlying geotessera vector). Rotation matrix is content-addressed via derivation.args[2] so a verifier can re-derive bit-for-bit."
             },
             {
                 "band":              "weather.temperature_2m",
@@ -2351,7 +2351,7 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
         ("geotessera.2023", "slow", "foundation", &["Tessera v1 2023"]),
         ("geotessera.2024", "slow", "foundation", &["Tessera v1 2024"]),
         ("geotessera.bin128", "slow", "foundation",
-            &["Derived: turboquant rotation + sign-bit pack of geotessera fp16 vector. 16 B/cell on disk; Hamming-distance triage k-NN at ~10⁹ pairs/sec/core. Designed to feed `find_similar` mode=hamming / hamming_then_rerank — the full fp16 vector under `geotessera` is still attested for re-rank."]),
+            &["Derived: turboquant rotation + sign-bit pack of geotessera vector (int8+scale upstream, decoded f32 via recall). 16 B/cell on disk; Hamming-distance triage k-NN at ~10⁹ pairs/sec/core. Designed to feed `find_similar` mode=hamming / hamming_then_rerank — the full vector under `geotessera` is still attested for re-rank."]),
         ("indices.ndvi", "fast", "vegetation", &["Sentinel-2A/B/C MSI (NDVI)"]),
         ("indices.ndwi", "fast", "water",      &["Sentinel-2A/B/C MSI (NDWI Gao)"]),
         ("indices.mndwi", "fast", "water",     &["Sentinel-2A/B/C MSI (MNDWI McFeeters)"]),
@@ -3377,7 +3377,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 "embedding_vectors": {
                     "transport": "JSON arrays inside Fact.value",
                     "wired_via": "REST + MCP",
-                    "agent_use":  "Geotessera 128-D and multi_year 1024-D vectors travel as JSON-encoded float arrays inside the standard recall envelope. There is no separate binary fp16 / Arrow / msgpack vector channel today."
+                    "agent_use":  "Geotessera 128-D and multi_year 1024-D vectors travel as JSON-encoded float arrays inside the standard recall envelope (decoded from upstream int8+scale). There is no separate binary / Arrow / msgpack vector channel today."
                 }
             },
             "ingest": {
@@ -8785,7 +8785,7 @@ async fn openapi() -> Json<JsonValue> {
                 "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}},
                 "QueryRegionReq":  {"type":"object","description":"Either `geometry` (cell64 or 'cells:c1,c2,...') or `bbox` ([west, south, east, north] WGS-84 degrees) is required. When `bbox` is given the responder samples it to up to `max_cells` cells (default 256, max 1024) and runs the canonical primitive over the cell list.","properties":{"geometry":{"type":"string","description":"cell64 or `cells:c1,c2,...`"},"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first)"},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":256,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied."},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
-                "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D fp16). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
+                "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
                 "DiffReq":         {"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}},
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
@@ -10837,8 +10837,9 @@ async fn materialize_geotessera_for_year(
 ///
 /// The fact value is a CBOR `Bytes(16)` payload — the sign-bit-packed
 /// output of [`emem_primitives::binary_embedding::pack_bin128`] applied
-/// to the (rotated) `geotessera` fp16 vector. Used by `find_similar`
-/// in `mode: "hamming"` / `"hamming_then_rerank"` for triage k-NN at
+/// to the (rotated) `geotessera` vector (int8+scale upstream, decoded
+/// to f32 by recall before rotation). Used by `find_similar` in
+/// `mode: "hamming"` / `"hamming_then_rerank"` for triage k-NN at
 /// ~1000× the throughput of fp32 cosine.
 ///
 /// We chain on top of `materialize_geotessera_for_year` so a recall
@@ -10853,7 +10854,7 @@ async fn materialize_geotessera_bin128(
 
     // Try existing facts first — read the most recent geotessera vector
     // attested at this cell, regardless of vintage. This avoids re-
-    // fetching the upstream when the fp16 embedding is already cached.
+    // fetching the upstream when the embedding is already cached.
     let pairs = s.storage.scan_cell(cell64, None).await.unwrap_or_default();
     let mut existing_vec: Option<Vec<f32>> = None;
     for (key, cid) in &pairs {
@@ -15212,7 +15213,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_from_unix: Some(jan1_unix(*TESSERA_YEARS_RANGE.end())),
             history_to_unix: Some(tessera_window_end),
             wire_path:
-                "derived: turboquant rotation + sign-bit pack of geotessera fp16 vector (16 B/cell)",
+                "derived: turboquant rotation + sign-bit pack of geotessera vector (int8+scale upstream, decoded f32; 16 B/cell)",
         },
         b if parse_geotessera_year(b)
             .map(|y| TESSERA_YEARS_RANGE.contains(&y))
@@ -15585,8 +15586,9 @@ fn all_materializable_bands() -> Vec<String> {
         "geotessera".into(),
         "geotessera.multi_year".into(),
         // Binary-quantized sibling — derived locally from the cached
-        // geotessera fp16 vector via TurboQuant rotation + sign-bit
-        // packing. Feeds find_similar mode=hamming/hamming_then_rerank.
+        // geotessera vector (int8+scale upstream, decoded f32 by recall)
+        // via TurboQuant rotation + sign-bit packing. Feeds find_similar
+        // mode=hamming/hamming_then_rerank.
         "geotessera.bin128".into(),
     ];
     for y in TESSERA_YEARS_RANGE_PUBLIC.clone() {
