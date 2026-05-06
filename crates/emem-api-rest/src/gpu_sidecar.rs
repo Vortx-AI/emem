@@ -34,8 +34,7 @@ const DEFAULT_TIMEOUT_MS: u64 = 5_000;
 
 fn socket_path() -> PathBuf {
     PathBuf::from(
-        std::env::var("EMEM_SIDECAR_SOCK")
-            .unwrap_or_else(|_| "/run/emem/jepa_sidecar.sock".into()),
+        std::env::var("EMEM_SIDECAR_SOCK").unwrap_or_else(|_| "/run/emem/jepa_sidecar.sock".into()),
     )
 }
 
@@ -88,11 +87,9 @@ pub struct DynamicsResponse {
 
 /// Call the sidecar's `/predict/dynamics_v2` endpoint. Returns the
 /// 128-D prediction + the model block.
-pub async fn predict_dynamics_v2(
-    req: &DynamicsRequest,
-) -> Result<DynamicsResponse, SidecarError> {
-    let body = serde_json::to_vec(req)
-        .map_err(|e| SidecarError::Protocol(format!("encode req: {e}")))?;
+pub async fn predict_dynamics_v2(req: &DynamicsRequest) -> Result<DynamicsResponse, SidecarError> {
+    let body =
+        serde_json::to_vec(req).map_err(|e| SidecarError::Protocol(format!("encode req: {e}")))?;
     let resp_bytes = post_json("/predict/dynamics_v2", &body).await?;
     serde_json::from_slice::<DynamicsResponse>(&resp_bytes)
         .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
@@ -248,10 +245,7 @@ mod tests {
     /// (the variant that triggers in-process fallback).
     #[tokio::test]
     async fn missing_socket_returns_unavailable() {
-        std::env::set_var(
-            "EMEM_SIDECAR_SOCK",
-            "/tmp/this-socket-does-not-exist.sock",
-        );
+        std::env::set_var("EMEM_SIDECAR_SOCK", "/tmp/this-socket-does-not-exist.sock");
         let err = post_json("/predict/dynamics_v2", b"{}").await.unwrap_err();
         match err {
             SidecarError::Unavailable(msg) => {

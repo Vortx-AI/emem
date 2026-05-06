@@ -1385,9 +1385,7 @@ async fn predict_via_sidecar_or_local(
             StatusCode::BAD_GATEWAY,
             ErrorBody {
                 code: ErrorCode::SourceFetchFailed,
-                message: format!(
-                    "jepa_v2 sidecar rejected request: status={status}, body={body}"
-                ),
+                message: format!("jepa_v2 sidecar rejected request: status={status}, body={body}"),
                 details: None,
             },
         )),

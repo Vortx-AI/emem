@@ -154,8 +154,7 @@ fn ensure_loaded() -> Result<Arc<LoadedModel>, String> {
             // of sync (e.g. someone re-ran train.py but didn't refresh
             // the sidecar). Fail fast rather than serve a fact whose
             // model_cid lies.
-            let on_disk_bytes = std::fs::read(&onnx)
-                .map_err(|e| format!("read onnx: {e}"))?;
+            let on_disk_bytes = std::fs::read(&onnx).map_err(|e| format!("read onnx: {e}"))?;
             if on_disk_bytes.len() as u64 != metadata.artifact.size_bytes {
                 return Err(format!(
                     "jepa_v2 size mismatch: metadata says {} bytes but \
@@ -212,11 +211,8 @@ pub fn predict_next_vintage(lags: &[f32]) -> Result<(Vec<f32>, ModelMetadata), S
         ));
     }
     let model = ensure_loaded()?;
-    let input = ort::value::Tensor::from_array((
-        [1usize, INPUT_LAGS, TESSERA_DIM],
-        lags.to_vec(),
-    ))
-    .map_err(|e| format!("ort input tensor: {e}"))?;
+    let input = ort::value::Tensor::from_array(([1usize, INPUT_LAGS, TESSERA_DIM], lags.to_vec()))
+        .map_err(|e| format!("ort input tensor: {e}"))?;
     let mut guard = model
         .session
         .lock()
@@ -310,7 +306,8 @@ mod tests {
             "training": {"epochs": 200},
             "validation": {"cosine_similarity": 0.81},
             "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 100, "blake2b_hex": "00"},
-        })).expect("parse");
+        }))
+        .expect("parse");
         assert!(
             !m.is_trained(),
             "absent `training.trained` field must default to FALSE so receipts \
@@ -327,7 +324,8 @@ mod tests {
             "training": {"trained": true, "epochs": 200},
             "validation": {"cosine_similarity": 0.81},
             "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 100, "blake2b_hex": "00"},
-        })).expect("parse");
+        }))
+        .expect("parse");
         assert!(m.is_trained());
     }
 
@@ -339,7 +337,8 @@ mod tests {
             "training": {"trained": false},
             "validation": {},
             "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 100, "blake2b_hex": "00"},
-        })).expect("parse");
+        }))
+        .expect("parse");
         assert!(!m.is_trained());
     }
 
@@ -355,7 +354,8 @@ mod tests {
             "training": {"trained": false},
             "validation": {},
             "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 8070, "blake2b_hex": "abc"},
-        })).expect("parse");
+        }))
+        .expect("parse");
         let block = receipt_block(&m);
         let warnings = block
             .get("honesty_warnings")
@@ -398,6 +398,9 @@ mod tests {
         // 3 lags × 128 dims = 384 floats.
         let too_short = vec![0.0_f32; 100];
         let err = predict_next_vintage(&too_short).expect_err("must reject short input");
-        assert!(err.contains("384"), "error should cite expected size; got {err}");
+        assert!(
+            err.contains("384"),
+            "error should cite expected size; got {err}"
+        );
     }
 }
