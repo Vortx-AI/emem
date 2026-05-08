@@ -40,7 +40,7 @@
   --fg:#E8E8EA;
   --fg-2:#B5B7BE;
   --fg-3:#7C7E87;
-  --fg-mute:#5A5C66;
+  --fg-mute:#7A7D87;     /* WCAG AA at 4.5:1 vs --bg (was #5A5C66 = 2.96:1) */
   --line:rgba(232,232,234,0.08);
   --line-2:rgba(232,232,234,0.16);
   --accent:#7CFFB2;        /* the only saturated green; means "verified"/"active" */
@@ -179,8 +179,42 @@ aside.left h3:not(:first-child){margin-top:1.4em}
 .tslider .label{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);display:flex;
   justify-content:space-between;margin-top:.2em}
 
-/* main / canvas */
+/* main / canvas
+   ─────────────
+   The canvas owns the entire main grid area. Every control floats over
+   the canvas, but we keep a strict policy: the TOP edge stays empty so
+   the constellation breathes (and so hover tooltips on stars have room
+   to render upward). All chrome lives in a single bottom dock or at
+   edge handles. The audit caught five absolute clusters fighting on the
+   top row — they're all consolidated into `.dock` below.
+*/
 main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-height:0;min-width:0}
+.dock{position:absolute;bottom:.7em;left:50%;transform:translateX(-50%);
+  z-index:6;display:flex;align-items:stretch;background:var(--bg-1);
+  border:1px solid var(--line);border-radius:4px;font-family:var(--mono);
+  font-size:11px;overflow:hidden;box-shadow:0 6px 32px rgba(0,0,0,.6);
+  max-width:calc(100% - 1.4em)}
+.dock>.sec{display:flex;align-items:center}
+.dock>.sec+.sec{border-left:1px solid var(--line)}
+.dock button{border:none;border-radius:0;padding:.55em .85em;color:var(--fg-2);
+  background:transparent;font-size:11px;letter-spacing:.04em;
+  text-transform:uppercase;font-weight:500;line-height:1;display:inline-flex;
+  align-items:center;gap:.4em;cursor:pointer}
+.dock button:hover{color:var(--fg);background:var(--bg-2)}
+.dock button:disabled{opacity:.45;cursor:not-allowed}
+.dock button[aria-pressed=true]{color:var(--accent);
+  box-shadow:inset 0 -2px 0 var(--accent);background:rgba(124,255,178,.06)}
+.dock kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;
+  border-radius:2px;font-size:9.5px;color:var(--fg-3);font-weight:400;
+  letter-spacing:0;text-transform:none}
+.dock .sec.proj button{text-transform:none;letter-spacing:0;font-weight:400}
+.dock .sec.proj .proj-axis{color:var(--fg-mute)}
+.dock .sec.proj .proj-label{font-weight:500}
+.dock .sec.zoom button{padding:.5em .65em;font-size:13px;text-transform:none;
+  letter-spacing:0;line-height:1}
+@media(max-width:760px){.dock{bottom:.4em;font-size:10.5px;max-width:calc(100% - .8em)}
+  .dock button{padding:.45em .55em;font-size:10px}
+  .dock kbd{display:none}}
 .hero{position:absolute;left:50%;top:1.1em;transform:translateX(-50%);z-index:6;
   pointer-events:none;text-align:center;max-width:min(620px,90vw);
   font-family:var(--mono);transition:opacity .4s ease}
@@ -194,35 +228,13 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
 @media(max-width:760px){.hero{display:none}}
 .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.modes{position:absolute;top:.7em;left:.7em;z-index:5;display:flex;
-  background:var(--bg-1);border:1px solid var(--line);border-radius:3px;
-  font-family:var(--mono);font-size:11px;overflow:hidden;flex-wrap:wrap}
-.modes button{border:none;border-radius:0;padding:.5em 1em;font-size:11.5px;
-  letter-spacing:.06em;text-transform:uppercase;color:var(--fg-2);background:transparent;font-weight:500}
-.modes button:hover{color:var(--fg);background:var(--bg-2)}
-.modes button[aria-pressed=true]{color:var(--accent);background:rgba(124,255,178,.08);
-  box-shadow:inset 0 -2px 0 var(--accent)}
-.chipProj{position:absolute;top:.7em;left:auto;right:auto;z-index:5;
-  display:inline-flex;align-items:center;gap:.45em;
-  background:var(--bg-1);border:1px solid var(--line);border-radius:3px;
-  font-family:var(--mono);font-size:11px;color:var(--fg-2);
-  padding:.45em .7em;text-transform:none;letter-spacing:0}
-@media(min-width:760px){.chipProj{left:auto;right:auto;margin-left:.45em;position:absolute;top:.7em}}
-.chipProj{left:calc(.7em + 12.4em);}
-.chipProj[disabled]{opacity:.55;cursor:not-allowed}
-.chipProj:not([disabled]):hover{border-color:var(--accent);color:var(--accent)}
-.chipProj[aria-pressed=true]{color:var(--accent);border-color:var(--accent);
-  background:rgba(124,255,178,.06);box-shadow:inset 0 -2px 0 var(--accent)}
-.chipProj .proj-axis{color:var(--fg-mute);font-weight:500}
-.chipProj kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;
-  font-size:10px;color:var(--fg-3)}
-@media(max-width:760px){.chipProj{display:none}}
-.modes button:not(:last-child){border-right:1px solid var(--line)}
-.zoomctl{position:absolute;top:.7em;right:.7em;z-index:5;background:var(--bg-1);
-  border:1px solid var(--line);border-radius:3px;display:flex;flex-direction:column}
-.zoomctl button{border:none;border-radius:0;width:30px;height:30px;padding:0;font-size:14px;color:var(--fg-2)}
-.zoomctl button:not(:last-child){border-bottom:1px solid var(--line)}
-.legend{position:absolute;bottom:.7em;left:.7em;z-index:4;background:var(--bg-1);
+/* Legacy top-edge .modes / .chipProj / .zoomctl / .focus-btn rules
+   removed — every control now lives in the bottom dock declared above.
+   The audit's screenshot proved five clusters were colliding on the top
+   row at <1100px viewport widths; the modes bar wrapped under chipProj
+   on tablets ("LO" instead of "LOG"); and the focus button overlapped
+   the zoom rail. One unified bottom dock fixes all of it. */
+.legend{position:absolute;bottom:calc(.7em + 50px);left:.7em;z-index:4;background:var(--bg-1);
   border:1px solid var(--line);font-size:10.5px;color:var(--fg-3);
   border-radius:3px;max-width:18em;font-family:var(--mono);line-height:1.55;
   display:none;overflow:hidden}
@@ -436,18 +448,11 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .collapse-handle.cr{ right:.4em; top:50%; transform:translateY(-50%);
   width:18px; height:54px; border-radius:3px 0 0 3px; border-right:none;
   writing-mode:vertical-rl; text-orientation:mixed }
-.collapse-handle.cc{ bottom:.4em; left:50%; transform:translateX(-50%);
-  height:18px; padding:0 .8em; border-radius:3px 3px 0 0; border-bottom:none }
+.collapse-handle.cc{ bottom:calc(.7em + 50px); right:.7em;
+  height:22px; padding:0 .65em; border-radius:3px;
+  font-size:10.5px; color:var(--fg-2) }
 @media(max-width:760px){ .collapse-handle.cl, .collapse-handle.cr { display:none } }
-/* Focus button (top-right of canvas, near zoom ctl) */
-.focus-btn{position:absolute;top:.7em;right:calc(.7em + 38px);z-index:5;
-  background:var(--bg-1);border:1px solid var(--line);
-  font-family:var(--mono);font-size:11px;color:var(--fg-2);
-  padding:.45em .7em;border-radius:3px;cursor:pointer;
-  letter-spacing:.02em}
-.focus-btn:hover{border-color:var(--accent);color:var(--accent)}
-.focus-btn[aria-pressed=true]{color:var(--accent);border-color:var(--accent);
-  background:rgba(124,255,178,.06)}
+/* .focus-btn rules removed — focus is now a section in the bottom dock. */
 /* Hero close button so it's dismissable */
 .hero-close{position:absolute;top:0;right:-26px;width:20px;height:20px;
   background:var(--bg-1);border:1px solid var(--line);border-radius:99px;
@@ -535,29 +540,40 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div class=stat><span>auto-materialize</span><b id=sAuto>—</b></div>
   </aside>
 
-  <main id=main>
-    <h1 class=visually-hidden>emem.dev/humans — knowledge constellation of Earth memory</h1>
-    <div class=hero id=hero aria-hidden=true>
+  <main id=main tabindex="-1">
+    <div class=hero id=hero role=note>
       <h1><b>knowledge constellation</b> of Earth memory</h1>
       <p>every star is a signed cell · click one, the receipt verifies offline · every <kbd>/v1/*</kbd> call this UI makes prints below — read the page, learn the protocol</p>
       <button class=hero-close id=heroClose type=button aria-label="Dismiss intro">×</button>
     </div>
-    <div class=modes role=tablist aria-label="View modes">
-      <button id=modeField role=tab aria-pressed=true  aria-controls=stage    data-emem-action=mode-field>field</button>
-      <button id=modeGraph role=tab aria-pressed=false aria-controls=stage    data-emem-action=mode-graph>graph</button>
-      <button id=modeReg   role=tab aria-pressed=false aria-controls=registry data-emem-action=mode-registry>registry</button>
-      <button id=modeLog   role=tab aria-pressed=false aria-controls=logview  data-emem-action=mode-log>log</button>
-    </div>
-    <button id=chipProj class=chipProj type=button aria-pressed=false disabled
-            aria-label="Toggle projection between lat/lng and embedding PCA"
-            data-emem-action=projection-toggle
-            title="Embedding projection unavailable on this responder">
-      <span class=proj-axis>x</span><span class=proj-label>lat/lng</span><kbd>p</kbd>
-    </button>
-    <div class=zoomctl role=group aria-label="Zoom controls">
-      <button id=zoomIn  data-emem-action=zoom-in  title="zoom in (+)" aria-label="Zoom in">+</button>
-      <button id=zoomOut data-emem-action=zoom-out title="zoom out (−)" aria-label="Zoom out">−</button>
-      <button id=zoomFit data-emem-action=zoom-fit title="fit (0)" aria-label="Reset zoom">·</button>
+    <!-- Single bottom dock — modes + projection + zoom + focus. The top
+         edge of the canvas stays empty so hover tooltips on stars and
+         the centred hero strip have unobstructed room. -->
+    <div class=dock role=toolbar aria-label="Canvas controls">
+      <div class="sec modes" role=tablist aria-label="View modes">
+        <button id=modeField role=tab aria-pressed=true  aria-controls=stage    data-emem-action=mode-field>field<kbd>1</kbd></button>
+        <button id=modeGraph role=tab aria-pressed=false aria-controls=stage    data-emem-action=mode-graph>graph<kbd>2</kbd></button>
+        <button id=modeReg   role=tab aria-pressed=false aria-controls=registry data-emem-action=mode-registry>registry<kbd>3</kbd></button>
+        <button id=modeLog   role=tab aria-pressed=false aria-controls=logview  data-emem-action=mode-log>log<kbd>4</kbd></button>
+      </div>
+      <div class="sec proj">
+        <button id=chipProj type=button aria-pressed=false disabled
+                aria-label="Toggle projection between lat/lng and embedding PCA"
+                data-emem-action=projection-toggle
+                title="Embedding projection unavailable on this responder">
+          <span class=proj-axis>x</span><span class=proj-label>lat/lng</span><kbd>p</kbd>
+        </button>
+      </div>
+      <div class="sec zoom" role=group aria-label="Zoom controls">
+        <button id=zoomOut data-emem-action=zoom-out title="zoom out (−)" aria-label="Zoom out">−</button>
+        <button id=zoomFit data-emem-action=zoom-fit title="fit (0)"      aria-label="Reset zoom">·</button>
+        <button id=zoomIn  data-emem-action=zoom-in  title="zoom in (+)"  aria-label="Zoom in">+</button>
+      </div>
+      <div class="sec focus">
+        <button id=focusBtn type=button aria-pressed=false
+                data-emem-action=toggle-focus
+                aria-label="Toggle focus mode" title="Hide all chrome — F or Esc">⤢ focus<kbd>F</kbd></button>
+      </div>
     </div>
     <button class="collapse-handle cl" id=cHandleLeft type=button
             data-emem-action=collapse-left
@@ -574,9 +590,6 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
             aria-label="Toggle console" title="Collapse the console (or \\)">
       <span class=glyph id=cHandleConsoleGlyph>▾</span><span class=lbl id=cHandleConsoleLabel>console</span>
     </button>
-    <button class=focus-btn id=focusBtn type=button aria-pressed=false
-            data-emem-action=toggle-focus
-            aria-label="Toggle focus mode" title="Hide all chrome — F or Esc">⤢ focus<kbd style="margin-left:.4em;background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;font-size:10px;color:var(--fg-3)">F</kbd></button>
     <canvas id=stage aria-label="Constellation of attested cells"></canvas>
     <svg id=registry aria-hidden=true></svg>
     <div id=logview aria-hidden=true>
@@ -610,7 +623,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     </div>
   </aside>
 
-  <section class=console id=console role=log aria-live=polite tabindex=0>
+  <section class=console id=console role=log aria-live=off tabindex=0>
     <div class=console-toolbar>
       <span id=callCount>0 calls</span>
       <button id=consoleClear class=ghost type=button>clear</button>
@@ -721,6 +734,16 @@ let _calls = 0;
 
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 
+// Hard cap on console rows. Without this a long session accumulates DOM
+// nodes for every /v1/* call + every UI toggle and the page leaks memory.
+// 250 rows is plenty for a working trail; older rows fall off the top.
+const CONSOLE_MAX_ROWS = 250;
+function _trimConsole() {
+  if (!consoleBody) return;
+  while (consoleBody.childElementCount > CONSOLE_MAX_ROWS) {
+    consoleBody.firstElementChild.remove();
+  }
+}
 function logCall(method, url, body) {
   _calls++;
   callCountEl.textContent = _calls + (_calls === 1 ? ' call' : ' calls');
@@ -740,6 +763,7 @@ function logCall(method, url, body) {
       '<button class=pivot data-pivot=replay title="Re-run this call">↻</button>' +
     '</span>';
   consoleBody.appendChild(div);
+  _trimConsole();
   consoleEl.scrollTop = consoleEl.scrollHeight;
   div._curl   = curlFor(method, url, body);
   div._py     = pyFor(method, url, body);
@@ -885,6 +909,20 @@ document.getElementById('consoleCopy').onclick  = () => {
 };
 
 // ── 3. Family palette + helpers ─────────────────────────────────────────────
+function pickDominantFamily(matrixRows) {
+  // Returns the family with the most facts across the matrix. Used as
+  // the per-cell default family until each cell gets recalled and the
+  // actual dominant band is known.
+  if (!matrixRows || !matrixRows.length) return 'foundation';
+  const counts = new Map();
+  for (const b of matrixRows) {
+    const f = b.family || 'reserved';
+    counts.set(f, (counts.get(f) || 0) + (b.facts_count || 0));
+  }
+  let best = 'reserved', bestN = -1;
+  for (const [f, n] of counts) { if (n > bestN) { bestN = n; best = f; } }
+  return best;
+}
 function humanTempo(s) {
   if (!s) return 'static';
   if (s < 60) return s + 's';
@@ -1065,10 +1103,24 @@ async function boot() {
     for (const b of STATE.matrix) {
       if (!STATE.bandFamilyByKey[b.band]) STATE.bandFamilyByKey[b.band] = b.family || 'reserved';
     }
+    // Re-derive each cell's dominant family from the matrix so the family
+    // filter actually filters something. /v1/coverage gives us per-cell
+    // fact_count but not per-family breakdown; we approximate by picking
+    // the family of the band with the highest global facts_count, which
+    // is the corpus's "centre of mass". When a cell is later recalled,
+    // doRecall() refines the family with the cell's actual top band.
+    const dominantFamily = pickDominantFamily(STATE.matrix);
+    for (const c of STATE.cells) {
+      if (c.family === 'foundation' && !c._familyRefined) {
+        c.family = dominantFamily;
+        c.color  = famColor(dominantFamily);
+      }
+    }
     paintLeftPane();
     buildFamilyKey();
     buildLogView();
     primeTimeWindow();
+    drawCurrent();
   }).catch(()=>{});
 
   pBands.then(bandsRes => {
@@ -2051,10 +2103,23 @@ function drawCurrent() {
 // setTimeout chain) so the cadence is honest 60 fps when visible, and the
 // browser pauses us when the tab is hidden. CPU stays low because all we do
 // per frame is fillRect + a few hundred arcs.
+//
+// Honour `prefers-reduced-motion`: if the user has it on, we draw once on
+// mode switches/state changes and skip the rAF loop entirely. The CSS rule
+// at the top of the file disables CSS animations but JS rAF needs its own
+// gate or it keeps burning a frame budget for no visible payoff.
 let _twinkleRunning = false;
+const _reduceMotion = (() => {
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch (_) { return false; }
+})();
 function startTwinkleLoop() {
   if (_twinkleRunning) return;
   _twinkleRunning = true;
+  if (_reduceMotion) {
+    if (STATE.mode === 'field') drawField();
+    return; // single paint, no animation loop
+  }
   function tick() {
     if (STATE.mode === 'field') drawField();
     requestAnimationFrame(tick);
@@ -2177,6 +2242,13 @@ window.addEventListener('mouseup', async () => {
       // result already in console
     }
     STATE.lassoPoints = null;
+    // Auto-exit lasso after a polygon submits — otherwise the next click on
+    // the canvas starts another lasso instead of selecting a star, which is
+    // surprising. The lasso chip + L-key toggle still bring it back.
+    lassoMode = false;
+    canvas.classList.remove('lasso');
+    const lc = document.getElementById('chipLasso');
+    if (lc) lc.setAttribute('aria-pressed', 'false');
     drawField();
   }
 });
@@ -2209,10 +2281,19 @@ canvas.addEventListener('click', e => {
   if (c) selectCell(c);
 });
 
-// touch: simple tap-to-pick + pinch-to-zoom + two-finger pan
-let _touch = { last: null, pinchD: 0, scale0: 1 };
+// touch: tap-to-pick + pinch-to-zoom + two-finger pan + LASSO when
+// lassoMode is on. Without the lasso branch, tapping the lasso chip on
+// mobile flipped lassoMode but the next finger drag still routed through
+// pan — so lasso was unreachable on touch devices. Auditor D + auditor C
+// flagged this; this restores parity with the desktop mouse path.
+let _touch = { last: null, pinchD: 0, scale0: 1, lassoOn: false };
 canvas.addEventListener('touchstart', e => {
-  if (e.touches.length === 1) {
+  if (e.touches.length === 1 && lassoMode) {
+    const t = e.touches[0];
+    const r = canvas.getBoundingClientRect();
+    STATE.lassoPoints = [[t.clientX - r.left, t.clientY - r.top]];
+    _touch.lassoOn = true;
+  } else if (e.touches.length === 1) {
     const t = e.touches[0];
     _touch.last = { x:t.clientX, y:t.clientY, t0:performance.now(), tx0:STATE.view.tx, ty0:STATE.view.ty };
   } else if (e.touches.length === 2) {
@@ -2220,9 +2301,18 @@ canvas.addEventListener('touchstart', e => {
     const dy = e.touches[0].clientY - e.touches[1].clientY;
     _touch.pinchD = Math.hypot(dx, dy);
     _touch.scale0 = STATE.view.scale;
+    // If lasso was in flight when a second finger lands, abandon it.
+    if (_touch.lassoOn) { STATE.lassoPoints = null; _touch.lassoOn = false; drawField(); }
   }
 }, { passive:true });
 canvas.addEventListener('touchmove', e => {
+  if (_touch.lassoOn && e.touches.length === 1) {
+    const t = e.touches[0];
+    const r = canvas.getBoundingClientRect();
+    STATE.lassoPoints.push([t.clientX - r.left, t.clientY - r.top]);
+    drawField();
+    return;
+  }
   if (e.touches.length === 1 && _touch.last) {
     const t = e.touches[0];
     STATE.view.tx = _touch.last.tx0 + (t.clientX - _touch.last.x);
@@ -2238,14 +2328,44 @@ canvas.addEventListener('touchmove', e => {
     }
   }
 }, { passive:true });
-canvas.addEventListener('touchend', e => {
-  if (_touch.last && performance.now() - _touch.last.t0 < 250 && Math.abs((e.changedTouches[0]?.clientX||0)-_touch.last.x) < 6) {
+canvas.addEventListener('touchend', async e => {
+  if (_touch.lassoOn && STATE.lassoPoints && STATE.lassoPoints.length > 4) {
+    // Submit the touch lasso polygon — same path as the mouseup branch.
+    const polyLatLng = STATE.lassoPoints.map(([px, py]) => {
+      const [x, y] = unproject(px*dpr, py*dpr);
+      const lng01 = x, lat01 = y;
+      const cosLat = Math.cos((90 - lat01*180) * Math.PI/180) || 1;
+      const lng = (lng01 - 0.5)/cosLat * 360 + ((lng01 - 0.5) >= 0 ? 0 : 0);
+      const lat = 90 - lat01*180;
+      return [lng, lat];
+    });
+    polyLatLng.push(polyLatLng[0]);
+    const sel = STATE.cells.filter(c => ptInPoly([c.lng, c.lat], polyLatLng.slice(0,-1)));
+    paintLassoSummary(polyLatLng, sel);
+    const lassoBand = pickLassoBand();
+    try {
+      const res = await api('POST', '/v1/recall_polygon', {
+        polygon: polyLatLng, bands: [lassoBand]
+      });
+      paintPolygonResult(polyLatLng, sel, res, lassoBand);
+    } catch (_) {}
+    STATE.lassoPoints = null;
+    _touch.lassoOn = false;
+    lassoMode = false;
+    canvas.classList.remove('lasso');
+    const lc = document.getElementById('chipLasso');
+    if (lc) lc.setAttribute('aria-pressed', 'false');
+    drawField();
+  } else if (_touch.last && performance.now() - _touch.last.t0 < 250 && Math.abs((e.changedTouches[0]?.clientX||0)-_touch.last.x) < 6) {
     // tap
     const t = e.changedTouches[0];
     const r = canvas.getBoundingClientRect();
     const px = (t.clientX - r.left) * dpr, py = (t.clientY - r.top) * dpr;
     const c = pickCell(px, py);
     if (c) selectCell(c);
+  } else {
+    // drag with no lasso: just clear flags
+    if (_touch.lassoOn) { STATE.lassoPoints = null; _touch.lassoOn = false; drawField(); }
   }
   _touch.last = null; _touch.pinchD = 0;
 });
@@ -2361,13 +2481,13 @@ function applyLayout(state) {
   if (cG) cG.textContent = state.noConsole ? '▴' : '▾';
   // Focus button: swap label and aria-pressed so the click visibly registers.
   // The audit found the button worked in code, but the only delta was a
-  // subtle accent border — not legible. Now the label flips ⤢ focus ↔ ⤢ exit.
+  // subtle accent border — not legible. Label flips ⤢ focus ↔ ⤢ exit.
   const fb = document.getElementById('focusBtn');
   if (fb) {
     fb.setAttribute('aria-pressed', state.focus ? 'true' : 'false');
     fb.innerHTML = state.focus
-      ? '⤢ exit<kbd style="margin-left:.4em;background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;font-size:10px;color:var(--fg-3)">Esc</kbd>'
-      : '⤢ focus<kbd style="margin-left:.4em;background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;font-size:10px;color:var(--fg-3)">F</kbd>';
+      ? '⤢ exit<kbd>Esc</kbd>'
+      : '⤢ focus<kbd>F</kbd>';
   }
   // Repaint the canvas in the same frame the grid resizes. Using rAF instead
   // of a 320 ms setTimeout removes the dead air that read as "click did
@@ -2430,6 +2550,7 @@ function echoUI(method, action, value) {
     + '<span class=url style="color:var(--fg-3)">'+escapeHtml(action)+'</span>'
     + '<span class=arrow>→</span><span class="ok-status">'+escapeHtml(value)+'</span>';
   consoleBody.appendChild(div);
+  _trimConsole();
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 document.getElementById('cHandleLeft')   .onclick = () => toggleLayout('noLeft');
@@ -2486,7 +2607,12 @@ function installChips(root) {
   for (const sel of sels) {
     root.querySelectorAll(sel).forEach(el => {
       if (el.classList.contains('ememchip')) return;
-      const raw = (el.textContent || '').trim();
+      // Prefer `title` (set to the full hash by setMan/paintHeaderResponder)
+      // over `textContent`, which may already be truncated to 10+'…' for
+      // display. Without this the manifest-CID chips copy "abc...123…" to
+      // the clipboard instead of the full base32 CID — auditor F found
+      // this on the live page.
+      const raw = (el.getAttribute('title') || el.textContent || '').trim();
       if (!raw || raw === '—') return;
       const kind = guessChipKind(el, raw);
       const short = truncateHash(raw, kind);
@@ -2576,7 +2702,7 @@ async function doRecall(cell) {
       fcount[fam] = (fcount[fam]||0) + 1;
     }
     const dom = Object.entries(fcount).sort((a,b)=>b[1]-a[1])[0][0];
-    cell.family = dom; cell.color = famColor(dom);
+    cell.family = dom; cell.color = famColor(dom); cell._familyRefined = true;
     drawCurrent();
 
     let html = '<h3>facts ('+facts.length+')</h3>';
@@ -2910,12 +3036,25 @@ function buildCmdkCorpus() {
 function refreshCmdk(q) {
   const corpus = buildCmdkCorpus();
   const ql = q.trim().toLowerCase();
+  // cell64 detector — same regex as promptForCell. If the typed query is
+  // already a cell64, surface a "select cell" verb at the top so Enter
+  // resolves the real coords via /v1/cells/{c}/info instead of round-
+  // tripping through /v1/locate (which works but is wrong intent).
+  const c64Re = /^[a-z]{4}\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+$/;
   let results;
   if (!ql) results = corpus.slice(0, 60);
   else {
     results = corpus.filter(r => r.label.toLowerCase().includes(ql)).slice(0, 100);
-    // Always include a "geocode" verb as the top result if user typed a free-form query.
-    results.unshift({ kind:'geocode', label:'locate "'+q+'"  →  POST /v1/locate', run:() => doLocate(q) });
+    if (c64Re.test(q.trim())) {
+      results.unshift({
+        kind:'cell',
+        label:'select cell  '+q.trim()+'  →  /v1/cells/{c}/info',
+        run:async () => { closeCmdk(); const c = await resolveCellById(q.trim()); if (c) selectCell(c); }
+      });
+    } else {
+      // Free-form query: treat as a place name and geocode.
+      results.unshift({ kind:'geocode', label:'locate "'+q+'"  →  POST /v1/locate', run:() => doLocate(q) });
+    }
   }
   _cmdkResults = results;
   _cmdkActive = 0;

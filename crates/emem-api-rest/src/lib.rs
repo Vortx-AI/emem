@@ -848,14 +848,23 @@ async fn security_headers_layer(
     // Allow huggingface.co and *.hf.space to embed the landing page so the
     // HuggingFace Space iframe preview renders. Modern browsers ignore the
     // legacy X-Frame-Options when CSP frame-ancestors is set, so we drop it.
+    // /humans dynamically imports @noble/curves and @noble/hashes from
+    // esm.sh for in-browser BLAKE3 + Ed25519 verification. esm.sh's bundled
+    // ESM modules also issue cross-origin sub-imports under the same host.
+    // Both `script-src` and `connect-src` must list it or the page silently
+    // falls back to server-side /v1/verify_receipt and labels itself as
+    // "offline verify unavailable" — which reads as a verify failure.
+    // fonts: Google Fonts CSS is on fonts.googleapis.com; the actual font
+    // binaries on fonts.gstatic.com need both font-src and connect-src.
     h.insert(
         "content-security-policy",
         HeaderValue::from_static(
             "default-src 'self'; \
-         script-src 'self' https://www.googletagmanager.com 'unsafe-inline'; \
-         connect-src 'self' https://www.google-analytics.com; \
+         script-src 'self' https://www.googletagmanager.com https://esm.sh 'unsafe-inline'; \
+         connect-src 'self' https://www.google-analytics.com https://esm.sh; \
          img-src 'self' data: https:; \
-         style-src 'self' 'unsafe-inline'; \
+         style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
+         font-src 'self' data: https://fonts.gstatic.com; \
          frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
          base-uri 'self'; \
          form-action 'self'",
