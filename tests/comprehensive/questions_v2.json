@@ -1,0 +1,141 @@
+{
+  "_meta": {
+    "schema": "emem.eval.v2",
+    "purpose": "Comprehensive consumer-focused evaluation of emem /v1/ask routing + materialize fidelity. Covers new question types (intent-driven, multi-hop, comparative, lifestyle), new locations (deliberately disjoint from scripts/eval/questions.json), and high-volume real-world AI-agent query patterns drawn from public discourse: r/RealEstate, r/climatechange, r/Insurance, climate-migration journalism, parametric-insurance trade press, agriculture extension queries, and global news headlines 2023-2026.",
+    "design_principles": [
+      "Phrase like a worried consumer or a journalist, not like a GIS analyst.",
+      "Locations deliberately new vs the existing 51-question set.",
+      "Each question carries an `intent` tag so we can score volume-weighted accuracy.",
+      "Each question carries `severity` (1-5) reflecting real-world stakes.",
+      "Each question carries `volume_signal` — qualitative estimate of public-search/AI-agent volume."
+    ],
+    "expected_topic_keys_reference": "crates/emem-core/data/topics-v0.json"
+  },
+  "questions": [
+    {"id":101,"domain":"real_estate","intent":"buy_decision","volume_signal":"very_high","severity":4,"q":"should i buy a flat in lower parel mumbai or is it flood prone","place":"Lower Parel, Mumbai, India","expect":["flood_risk_composite","flood_history_long_term","real_estate","urban_livability"]},
+    {"id":102,"domain":"real_estate","intent":"buy_decision","volume_signal":"very_high","severity":4,"q":"is gurgaon sector 65 safe from waterlogging in monsoon","place":"Sector 65, Gurgaon, India","expect":["flood_risk_composite","flood_water_event_window","urban_livability"]},
+    {"id":103,"domain":"real_estate","intent":"buy_decision","volume_signal":"very_high","severity":4,"q":"thinking of buying a beach house in tampa florida how risky is the storm surge","place":"Tampa, Florida","expect":["flood_risk_composite","topography","elevation_global_topobathy","parametric_insurance"]},
+    {"id":104,"domain":"real_estate","intent":"buy_decision","volume_signal":"high","severity":3,"q":"is asheville north carolina still a climate haven after helene","place":"Asheville, North Carolina","expect":["flood_history_long_term","flood_risk_composite","weather_now","topography"]},
+    {"id":105,"domain":"real_estate","intent":"livability","volume_signal":"high","severity":3,"q":"how walkable is the polanco neighborhood mexico city","place":"Polanco, Mexico City","expect":["urban_livability","built_up_human_geography","real_estate"]},
+    {"id":106,"domain":"real_estate","intent":"livability","volume_signal":"high","severity":3,"q":"green space and tree cover in koramangala bangalore","place":"Koramangala, Bangalore, India","expect":["urban_livability","vegetation_condition","built_up_human_geography"]},
+    {"id":107,"domain":"real_estate","intent":"buy_decision","volume_signal":"high","severity":4,"q":"is it dumb to buy a house in paradise california after the camp fire","place":"Paradise, California","expect":["fire_burn_severity","vegetation_condition","real_estate"]},
+    {"id":108,"domain":"real_estate","intent":"climate_due_diligence","volume_signal":"medium","severity":4,"q":"sea level rise threat to flats in bandra reclamation","place":"Bandra Reclamation, Mumbai, India","expect":["elevation_global_topobathy","topography","flood_risk_composite"]},
+
+    {"id":110,"domain":"climate_migration","intent":"relocation","volume_signal":"high","severity":4,"q":"is duluth minnesota actually a climate refuge","place":"Duluth, Minnesota","expect":["weather_now","urban_livability","flood_history_long_term"]},
+    {"id":111,"domain":"climate_migration","intent":"relocation","volume_signal":"high","severity":4,"q":"is buffalo new york a good climate haven for retirement","place":"Buffalo, New York","expect":["weather_now","urban_livability","flood_history_long_term"]},
+    {"id":112,"domain":"climate_migration","intent":"relocation","volume_signal":"medium","severity":3,"q":"climate safe places in portugal away from wildfire","place":"Coimbra, Portugal","expect":["fire_burn_severity","vegetation_condition","weather_now"]},
+    {"id":113,"domain":"climate_migration","intent":"relocation","volume_signal":"medium","severity":4,"q":"how livable will phoenix be in 2050 with extreme heat","place":"Phoenix, Arizona","expect":["weather_now","public_health","urban_livability"]},
+    {"id":114,"domain":"climate_migration","intent":"relocation","volume_signal":"medium","severity":3,"q":"is the great lakes region the best place to escape climate change","place":"Cleveland, Ohio","expect":["weather_now","urban_livability","flood_history_long_term"]},
+
+    {"id":120,"domain":"wildfire","intent":"acute_risk","volume_signal":"very_high","severity":5,"q":"is my home in the palisades likely to burn this fire season","place":"Pacific Palisades, Los Angeles","expect":["fire_burn_severity","vegetation_condition","public_health"]},
+    {"id":121,"domain":"wildfire","intent":"smoke_health","volume_signal":"very_high","severity":4,"q":"how bad is wildfire smoke in toronto today from quebec fires","place":"Toronto, Canada","expect":["public_health","fire_burn_severity"]},
+    {"id":122,"domain":"wildfire","intent":"smoke_health","volume_signal":"very_high","severity":4,"q":"smoke from canadian wildfires new york city","place":"Manhattan, New York","expect":["public_health","fire_burn_severity"]},
+    {"id":123,"domain":"wildfire","intent":"acute_risk","volume_signal":"high","severity":5,"q":"wildfire near maui kula upcountry","place":"Kula, Maui, Hawaii","expect":["fire_burn_severity","vegetation_condition","public_health"]},
+    {"id":124,"domain":"wildfire","intent":"acute_risk","volume_signal":"high","severity":4,"q":"bushfire risk blue mountains nsw this summer","place":"Katoomba, New South Wales, Australia","expect":["fire_burn_severity","vegetation_condition","weather_now"]},
+    {"id":125,"domain":"wildfire","intent":"recent_burn","volume_signal":"medium","severity":4,"q":"how much of rhodes greece burned in the 2023 fires","place":"Rhodes, Greece","expect":["fire_burn_severity","vegetation_condition"]},
+    {"id":126,"domain":"wildfire","intent":"recent_burn","volume_signal":"medium","severity":4,"q":"burn scar from valparaiso chile fire 2024","place":"Valparaíso, Chile","expect":["fire_burn_severity","vegetation_condition"]},
+
+    {"id":130,"domain":"flooding","intent":"acute_event","volume_signal":"very_high","severity":5,"q":"is dubai still flooded after the april rains","place":"Dubai, United Arab Emirates","expect":["flood_water_event_window","flood_risk_composite","weather_now"]},
+    {"id":131,"domain":"flooding","intent":"acute_event","volume_signal":"high","severity":5,"q":"valencia spain floods october 2024 inundation extent","place":"Valencia, Spain","expect":["flood_water_event_window","flood_history_long_term","flood_risk_composite"]},
+    {"id":132,"domain":"flooding","intent":"acute_event","volume_signal":"high","severity":5,"q":"derna libya dam collapse flood damage","place":"Derna, Libya","expect":["flood_water_event_window","flood_history_long_term","topography"]},
+    {"id":133,"domain":"flooding","intent":"chronic","volume_signal":"high","severity":4,"q":"how often does chennai velachery actually waterlog every monsoon","place":"Velachery, Chennai, India","expect":["flood_history_long_term","flood_risk_composite","flood_water_event_window"]},
+    {"id":134,"domain":"flooding","intent":"chronic","volume_signal":"medium","severity":4,"q":"is khartoum at risk from nile flooding this year","place":"Khartoum, Sudan","expect":["flood_risk_composite","flood_history_long_term","weather_now"]},
+    {"id":135,"domain":"flooding","intent":"acute_event","volume_signal":"medium","severity":4,"q":"porto alegre brazil flood recovery 2024","place":"Porto Alegre, Brazil","expect":["flood_water_event_window","flood_history_long_term","flood_risk_composite"]},
+    {"id":136,"domain":"flooding","intent":"chronic","volume_signal":"medium","severity":3,"q":"is venice still sinking and how often does san marco flood","place":"Piazza San Marco, Venice, Italy","expect":["flood_history_long_term","topography","elevation_global_topobathy"]},
+
+    {"id":140,"domain":"heat_health","intent":"acute_health","volume_signal":"very_high","severity":5,"q":"how dangerous is the heat dome in seville this week","place":"Seville, Spain","expect":["weather_now","public_health"]},
+    {"id":141,"domain":"heat_health","intent":"acute_health","volume_signal":"very_high","severity":5,"q":"heatwave delhi may 2026 health risk for kids","place":"Connaught Place, New Delhi, India","expect":["weather_now","public_health","urban_livability"]},
+    {"id":142,"domain":"heat_health","intent":"chronic","volume_signal":"high","severity":4,"q":"how hot are nights in karachi getting these days","place":"Karachi, Pakistan","expect":["weather_now","public_health"]},
+    {"id":143,"domain":"heat_health","intent":"acute_health","volume_signal":"high","severity":5,"q":"hajj heatstroke risk mecca","place":"Mecca, Saudi Arabia","expect":["weather_now","public_health"]},
+    {"id":144,"domain":"heat_health","intent":"urban_heat","volume_signal":"medium","severity":3,"q":"which neighborhoods in athens have worst urban heat island","place":"Exarcheia, Athens, Greece","expect":["urban_livability","public_health","built_up_human_geography"]},
+    {"id":145,"domain":"heat_health","intent":"urban_heat","volume_signal":"medium","severity":3,"q":"is paris ile-de-france going to be uninhabitable in summer","place":"Saint-Denis, Paris, France","expect":["weather_now","public_health","urban_livability"]},
+
+    {"id":150,"domain":"air_quality","intent":"acute_health","volume_signal":"very_high","severity":4,"q":"is the air safe to walk outside in lahore today","place":"Gulberg, Lahore, Pakistan","expect":["public_health"]},
+    {"id":151,"domain":"air_quality","intent":"acute_health","volume_signal":"very_high","severity":4,"q":"smog in delhi gurgaon noida how bad is it","place":"Sector 18, Noida, India","expect":["public_health","urban_livability"]},
+    {"id":152,"domain":"air_quality","intent":"chronic","volume_signal":"high","severity":4,"q":"is hanoi air pollution worse than beijing now","place":"Ba Dinh, Hanoi, Vietnam","expect":["public_health","urban_livability"]},
+    {"id":153,"domain":"air_quality","intent":"chronic","volume_signal":"medium","severity":3,"q":"pm2.5 dhaka bangladesh winter","place":"Gulshan, Dhaka, Bangladesh","expect":["public_health"]},
+    {"id":154,"domain":"air_quality","intent":"acute_health","volume_signal":"medium","severity":3,"q":"saharan dust storm air quality canary islands","place":"Las Palmas, Canary Islands","expect":["public_health","weather_now"]},
+
+    {"id":160,"domain":"insurance","intent":"parametric","volume_signal":"medium","severity":4,"q":"hurricane parametric trigger probability gulf coast louisiana","place":"Lafayette, Louisiana","expect":["parametric_insurance","weather_now","flood_risk_composite"]},
+    {"id":161,"domain":"insurance","intent":"home_insurance","volume_signal":"very_high","severity":4,"q":"why is home insurance unaffordable in cape coral florida","place":"Cape Coral, Florida","expect":["flood_risk_composite","topography","parametric_insurance","real_estate"]},
+    {"id":162,"domain":"insurance","intent":"home_insurance","volume_signal":"high","severity":4,"q":"insurer non-renewals santa rosa california wildfire risk","place":"Santa Rosa, California","expect":["fire_burn_severity","real_estate","parametric_insurance"]},
+    {"id":163,"domain":"insurance","intent":"parametric","volume_signal":"medium","severity":3,"q":"drought index payout for cotton farmers australia","place":"Wee Waa, New South Wales, Australia","expect":["parametric_insurance","agriculture","weather_now"]},
+    {"id":164,"domain":"insurance","intent":"parametric","volume_signal":"medium","severity":3,"q":"typhoon parametric coverage philippines luzon","place":"Tuguegarao, Cagayan, Philippines","expect":["parametric_insurance","weather_now","flood_risk_composite"]},
+
+    {"id":170,"domain":"food_security","intent":"crop_health","volume_signal":"high","severity":4,"q":"how is the maize harvest looking in the us corn belt","place":"Ames, Iowa","expect":["agriculture","vegetation_condition","weather_now"]},
+    {"id":171,"domain":"food_security","intent":"drought_impact","volume_signal":"high","severity":5,"q":"horn of africa drought somalia food crisis","place":"Baidoa, Somalia","expect":["agriculture","vegetation_condition","weather_now"]},
+    {"id":172,"domain":"food_security","intent":"crop_health","volume_signal":"medium","severity":3,"q":"coffee rust risk minas gerais brazil","place":"Varginha, Minas Gerais, Brazil","expect":["agriculture","vegetation_condition"]},
+    {"id":173,"domain":"food_security","intent":"water","volume_signal":"medium","severity":4,"q":"groundwater stress on rice farms central valley california","place":"Fresno, California","expect":["agriculture","weather_now","soil_intelligence"]},
+    {"id":174,"domain":"food_security","intent":"crop_health","volume_signal":"medium","severity":3,"q":"vineyard drought stress bordeaux this season","place":"Saint-Émilion, France","expect":["agriculture","vegetation_condition","weather_now"]},
+    {"id":175,"domain":"food_security","intent":"crop_health","volume_signal":"medium","severity":3,"q":"tea garden vigor assam india","place":"Jorhat, Assam, India","expect":["agriculture","vegetation_condition"]},
+    {"id":176,"domain":"food_security","intent":"flood_impact","volume_signal":"medium","severity":4,"q":"rice paddies inundated by floods in sindh pakistan","place":"Larkana, Sindh, Pakistan","expect":["flood_water_event_window","agriculture","vegetation_condition"]},
+
+    {"id":180,"domain":"water_security","intent":"reservoir","volume_signal":"high","severity":4,"q":"is bengaluru going to run out of water like 2024 again","place":"Bellandur, Bangalore, India","expect":["weather_now","flood_history_long_term","agriculture"]},
+    {"id":181,"domain":"water_security","intent":"reservoir","volume_signal":"medium","severity":4,"q":"reservoir levels barcelona drought","place":"Sau Reservoir, Catalonia, Spain","expect":["flood_water_event_window","weather_now"]},
+    {"id":182,"domain":"water_security","intent":"shrinking_lake","volume_signal":"medium","severity":4,"q":"is the great salt lake going to disappear","place":"Antelope Island, Utah","expect":["flood_history_long_term","topography","flood_water_event_window"]},
+    {"id":183,"domain":"water_security","intent":"shrinking_lake","volume_signal":"medium","severity":4,"q":"aral sea recovery uzbekistan kazakhstan","place":"Muynak, Uzbekistan","expect":["flood_history_long_term","topography","vegetation_condition"]},
+    {"id":184,"domain":"water_security","intent":"reservoir","volume_signal":"medium","severity":3,"q":"dam levels itaipu paraguay brazil","place":"Itaipu Dam, Paraguay","expect":["flood_water_event_window","topography"]},
+
+    {"id":190,"domain":"forest_carbon","intent":"deforestation","volume_signal":"high","severity":4,"q":"is the amazon nearing the tipping point in para state","place":"Altamira, Pará, Brazil","expect":["vegetation_condition","carbon_credits","esg"]},
+    {"id":191,"domain":"forest_carbon","intent":"deforestation","volume_signal":"medium","severity":4,"q":"oil palm expansion deforestation papua indonesia","place":"Merauke, Papua, Indonesia","expect":["vegetation_condition","carbon_credits","esg"]},
+    {"id":192,"domain":"forest_carbon","intent":"reforestation","volume_signal":"medium","severity":3,"q":"great green wall progress sahel senegal","place":"Linguère, Senegal","expect":["vegetation_condition","carbon_credits"]},
+    {"id":193,"domain":"forest_carbon","intent":"carbon_stock","volume_signal":"medium","severity":3,"q":"peatland carbon stock central kalimantan","place":"Palangka Raya, Indonesia","expect":["carbon_credits","vegetation_condition","soil_intelligence"]},
+    {"id":194,"domain":"forest_carbon","intent":"deforestation","volume_signal":"medium","severity":4,"q":"congo basin forest loss kisangani","place":"Kisangani, Democratic Republic of the Congo","expect":["vegetation_condition","carbon_credits","esg"]},
+
+    {"id":200,"domain":"energy_transition","intent":"solar","volume_signal":"high","severity":2,"q":"is my rooftop in jaipur worth installing solar panels","place":"Malviya Nagar, Jaipur, India","expect":["weather_now","built_up_human_geography","urban_livability"]},
+    {"id":201,"domain":"energy_transition","intent":"solar","volume_signal":"medium","severity":2,"q":"utility solar farm siting potential atacama chile","place":"Calama, Chile","expect":["weather_now","soil_bare"]},
+    {"id":202,"domain":"energy_transition","intent":"wind","volume_signal":"medium","severity":2,"q":"offshore wind potential east coast vietnam","place":"Phan Thiết, Vietnam","expect":["weather_now"]},
+    {"id":203,"domain":"energy_transition","intent":"wind","volume_signal":"medium","severity":2,"q":"wind capacity factor north sea netherlands","place":"IJmuiden, Netherlands","expect":["weather_now"]},
+    {"id":204,"domain":"energy_transition","intent":"hydro","volume_signal":"low","severity":3,"q":"snowpack hydro generation pacific northwest","place":"Wenatchee, Washington","expect":["snow","weather_now","topography"]},
+
+    {"id":210,"domain":"travel_safety","intent":"trip_planning","volume_signal":"very_high","severity":3,"q":"is it safe to visit bali during volcanic ash from agung","place":"Ubud, Bali, Indonesia","expect":["public_health","weather_now"]},
+    {"id":211,"domain":"travel_safety","intent":"trip_planning","volume_signal":"high","severity":3,"q":"thailand monsoon flood risk koh samui october","place":"Koh Samui, Thailand","expect":["flood_risk_composite","flood_water_event_window","weather_now"]},
+    {"id":212,"domain":"travel_safety","intent":"trip_planning","volume_signal":"medium","severity":3,"q":"sahara dust haboob risk marrakech","place":"Marrakech, Morocco","expect":["public_health","weather_now"]},
+    {"id":213,"domain":"travel_safety","intent":"trip_planning","volume_signal":"medium","severity":3,"q":"is iceland safe to drive in november ring road","place":"Vík, Iceland","expect":["weather_now","snow"]},
+    {"id":214,"domain":"travel_safety","intent":"trip_planning","volume_signal":"medium","severity":3,"q":"avalanche risk chamonix france ski season","place":"Chamonix, France","expect":["snow","weather_now","topography"]},
+
+    {"id":220,"domain":"glacier_polar","intent":"melt","volume_signal":"medium","severity":4,"q":"is thwaites glacier collapse imminent","place":"Thwaites Glacier, Antarctica","expect":["snow","topography","elevation_global_topobathy"]},
+    {"id":221,"domain":"glacier_polar","intent":"melt","volume_signal":"medium","severity":4,"q":"how fast is the gangotri glacier retreating","place":"Gangotri Glacier, Uttarakhand, India","expect":["snow","topography","weather_now"]},
+    {"id":222,"domain":"glacier_polar","intent":"melt","volume_signal":"medium","severity":4,"q":"swiss alps glacier loss aletsch","place":"Aletsch Glacier, Switzerland","expect":["snow","topography"]},
+    {"id":223,"domain":"glacier_polar","intent":"melt","volume_signal":"medium","severity":4,"q":"greenland ice sheet melt jakobshavn","place":"Ilulissat, Greenland","expect":["snow","topography","elevation_global_topobathy"]},
+
+    {"id":230,"domain":"coastal","intent":"sea_level","volume_signal":"high","severity":5,"q":"will tuvalu still exist in 2050","place":"Funafuti, Tuvalu","expect":["elevation_global_topobathy","topography","flood_risk_composite"]},
+    {"id":231,"domain":"coastal","intent":"sea_level","volume_signal":"high","severity":5,"q":"sinking lands and sea rise male maldives","place":"Malé, Maldives","expect":["elevation_global_topobathy","topography","flood_risk_composite"]},
+    {"id":232,"domain":"coastal","intent":"erosion","volume_signal":"medium","severity":4,"q":"coastal erosion lagos nigeria victoria island","place":"Victoria Island, Lagos, Nigeria","expect":["topography","elevation_global_topobathy","built_up_human_geography"]},
+    {"id":233,"domain":"coastal","intent":"sea_level","volume_signal":"medium","severity":4,"q":"sea rise threat to alexandria egypt","place":"Alexandria, Egypt","expect":["elevation_global_topobathy","topography","flood_risk_composite"]},
+    {"id":234,"domain":"coastal","intent":"erosion","volume_signal":"low","severity":3,"q":"sand loss outer banks north carolina rodanthe","place":"Rodanthe, North Carolina","expect":["topography","elevation_global_topobathy"]},
+
+    {"id":240,"domain":"urban_planning","intent":"density","volume_signal":"medium","severity":2,"q":"15 minute city scoring barcelona eixample","place":"Eixample, Barcelona, Spain","expect":["urban_livability","built_up_human_geography","real_estate"]},
+    {"id":241,"domain":"urban_planning","intent":"green","volume_signal":"medium","severity":2,"q":"tree canopy equity south side chicago","place":"Englewood, Chicago, Illinois","expect":["urban_livability","vegetation_condition","public_health"]},
+    {"id":242,"domain":"urban_planning","intent":"informal","volume_signal":"medium","severity":3,"q":"informal settlement growth dharavi mumbai","place":"Dharavi, Mumbai, India","expect":["built_up_human_geography","urban_livability"]},
+    {"id":243,"domain":"urban_planning","intent":"density","volume_signal":"medium","severity":2,"q":"how dense is kowloon hong kong actually","place":"Mong Kok, Hong Kong","expect":["built_up_human_geography","urban_livability"]},
+
+    {"id":250,"domain":"esg_due_diligence","intent":"factory_audit","volume_signal":"medium","severity":3,"q":"environmental impact zone around foxconn zhengzhou plant","place":"Zhengzhou, Henan, China","expect":["esg","public_health","built_up_human_geography"]},
+    {"id":251,"domain":"esg_due_diligence","intent":"mining","volume_signal":"medium","severity":4,"q":"deforestation footprint cobalt mining katanga drc","place":"Kolwezi, Democratic Republic of the Congo","expect":["esg","vegetation_condition","carbon_credits"]},
+    {"id":252,"domain":"esg_due_diligence","intent":"supply_chain","volume_signal":"medium","severity":3,"q":"water stress around lithium mine salar de atacama","place":"Salar de Atacama, Chile","expect":["esg","weather_now","soil_bare"]},
+    {"id":253,"domain":"esg_due_diligence","intent":"factory_audit","volume_signal":"low","severity":3,"q":"steel mill emissions plume tata jamshedpur","place":"Jamshedpur, Jharkhand, India","expect":["esg","public_health","built_up_human_geography"]},
+
+    {"id":260,"domain":"new_question_type_comparative","intent":"compare_two_places","volume_signal":"high","severity":3,"q":"which is more flood prone gurgaon or noida for buying property","place":"DLF Phase 5, Gurgaon, India","expect":["flood_risk_composite","real_estate","urban_livability"]},
+    {"id":261,"domain":"new_question_type_comparative","intent":"compare_two_places","volume_signal":"medium","severity":3,"q":"is austin or denver better for climate over the next 30 years","place":"Austin, Texas","expect":["weather_now","urban_livability","fire_burn_severity"]},
+
+    {"id":270,"domain":"new_question_type_temporal","intent":"trend","volume_signal":"medium","severity":3,"q":"how has tree cover changed in singapore over the last decade","place":"Bukit Timah, Singapore","expect":["vegetation_condition","carbon_credits","urban_livability"]},
+    {"id":271,"domain":"new_question_type_temporal","intent":"trend","volume_signal":"medium","severity":4,"q":"trend of summer maximum temperatures in baghdad over 20 years","place":"Baghdad, Iraq","expect":["weather_now","public_health"]},
+    {"id":272,"domain":"new_question_type_temporal","intent":"trend","volume_signal":"medium","severity":3,"q":"how is built up area expanding around addis ababa","place":"Bole, Addis Ababa, Ethiopia","expect":["built_up_human_geography","urban_livability","esg"]},
+
+    {"id":280,"domain":"new_question_type_natural_language","intent":"vague_concern","volume_signal":"high","severity":3,"q":"i'm worried about the climate where i live can you check","place":"Edinburgh, Scotland","expect":["weather_now","flood_risk_composite","urban_livability"]},
+    {"id":281,"domain":"new_question_type_natural_language","intent":"vague_concern","volume_signal":"high","severity":3,"q":"is my hometown going to be uninhabitable","place":"Basra, Iraq","expect":["weather_now","public_health","flood_risk_composite"]},
+    {"id":282,"domain":"new_question_type_natural_language","intent":"vague_concern","volume_signal":"medium","severity":3,"q":"what should i be scared of climate-wise here","place":"Manila, Philippines","expect":["weather_now","flood_risk_composite","public_health"]},
+
+    {"id":290,"domain":"out_of_scope_check","intent":"non_geo","volume_signal":"low","severity":1,"q":"who won the 2024 election","place":"Washington, DC","expect":[]},
+    {"id":291,"domain":"out_of_scope_check","intent":"non_geo","volume_signal":"low","severity":1,"q":"what is the meaning of life","place":"Earth","expect":[]},
+
+    {"id":300,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"medium","severity":3,"q":"flood risk in pacific island nation kiribati","place":"South Tarawa, Kiribati","expect":["flood_risk_composite","topography","elevation_global_topobathy"]},
+    {"id":301,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"medium","severity":3,"q":"vegetation health madagascar dry south","place":"Toliara, Madagascar","expect":["vegetation_condition","agriculture"]},
+    {"id":302,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"medium","severity":3,"q":"sahel rainfall trends timbuktu mali","place":"Timbuktu, Mali","expect":["weather_now","agriculture"]},
+    {"id":303,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"medium","severity":3,"q":"snow cover mongolia ulaanbaatar this winter","place":"Ulaanbaatar, Mongolia","expect":["snow","weather_now"]},
+    {"id":304,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"earthquake vulnerability and topography port-au-prince","place":"Pétion-Ville, Port-au-Prince, Haiti","expect":["topography","built_up_human_geography","urban_livability"]},
+    {"id":305,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"oil spill recovery delta niger","place":"Bonny, Rivers State, Nigeria","expect":["esg","vegetation_condition"]},
+    {"id":306,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"glacial lake outburst risk sikkim india","place":"South Lhonak Lake, Sikkim, India","expect":["snow","topography","flood_water_event_window"]},
+    {"id":307,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"dust bowl risk aralkum desert","place":"Aralkum Desert, Uzbekistan","expect":["soil_bare","weather_now","public_health"]}
+  ]
+}
