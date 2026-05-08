@@ -89,11 +89,22 @@ The maintained dev host runs this way. Walk through:
    sudo journalctl --vacuum-time=30d
    ```
 
-The example unit declares
-`AmbientCapabilities=CAP_NET_BIND_SERVICE`. That is the systemd-native
-equivalent of `setcap cap_net_bind_service=+ep` and survives a
-`cargo build --release`. See "Known operational risks" below for the
-2026-04-30 incident this fix prevents.
+CAP_NET_BIND_SERVICE handling depends on whether the unit is user-
+or system-installed:
+
+- **User unit** (this template, installed under `~/.config/systemd/user/`):
+  the kernel does not honour `AmbientCapabilities=` for the user-mode
+  systemd manager because there is no UID transition for it to prime.
+  The working pattern is `setcap cap_net_bind_service=+ep` on the
+  binary; `scripts/redeploy.sh` re-applies it after every
+  `cargo build --release` (the strip removes the file cap).
+- **System unit** (installed under `/etc/systemd/system/`, runs with
+  `User=emem`): uncomment the `AmbientCapabilities=CAP_NET_BIND_SERVICE`
+  line in the service file. The system manager primes the cap before
+  the UID transition, so the binary doesn't need a file cap.
+
+See "Known operational risks" below for the 2026-04-30 incident this
+covers.
 
 ### TLS
 
@@ -331,7 +342,7 @@ hit rate.
 
 | Risk | Today's mitigation | Future |
 |---|---|---|
-| `cap_net_bind_service` stripped on `cargo build --release` | `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the systemd unit (added 2026-05-08); `redeploy.sh` re-applies setcap as a belt-and-suspenders | unchanged |
+| `cap_net_bind_service` stripped on `cargo build --release` | `redeploy.sh` re-applies `setcap` after every release build; system-mode units can also use `AmbientCapabilities=CAP_NET_BIND_SERVICE` (does not work for user units — kernel restriction) | unchanged |
 | WorldPop 2-4 s/cell upstream latency | accepted; cap on `/v1/query_region` keeps blast radius small | pre-bake the global 1 km² raster to COG in S3 (deferred, infra decisions outstanding) |
 | Terraclimate NCSS single endpoint | NCAR RDA fallback registered (2026-05-08); receipt records which mirror served | watch SLA on both |
 | DMSP-OLS frozen at 2013 | `/v1/data_availability` reports `history_available_to_unix=2013-12-31` honestly | dataset is genuinely complete; no fix needed |
@@ -345,12 +356,17 @@ The cap_net_bind_service incident: on 2026-04-30 a sequence of
 `cargo build --release` smoke tests stripped the file capability
 between rebuilds, the systemd user unit could not bind :443, and
 `Restart=on-failure` with `RestartSec=2` produced **1560 restarts in
-30 minutes** before the operator noticed. The remediation that day
-was `scripts/redeploy.sh`, which re-runs `setcap` as part of the
-ritual. The 2026-05-08 fix added `AmbientCapabilities=` to the
-service file so the responder no longer depends on the file
-capability surviving a rebuild. Both layers exist now; either alone
-is sufficient.
+30 minutes** before the operator noticed. The remediation pattern is
+`scripts/redeploy.sh`, which re-runs `setcap` after every release
+build. A 2026-05-08 sweep tried to add `AmbientCapabilities=` as a
+systemd-native alternative and discovered the kernel does not honour
+that directive for user-mode systemd: there's no UID transition for
+the user manager to prime, so the unit fails with
+`status=218/CAPABILITIES`. The directive only works for system-mode
+units (installed under `/etc/systemd/system/` with an explicit
+`User=` line). The corrected guidance in
+`ops/systemd/emem-server.service.example` now documents both paths
+explicitly; user-mode deployments stay on `setcap` via redeploy.sh.
 
 ## Troubleshooting recipes
 

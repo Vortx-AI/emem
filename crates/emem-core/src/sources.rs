@@ -111,12 +111,14 @@ impl Manifest for SourceRegistry {
                     s.scheme
                 )));
             }
-            if s.providers.is_empty() {
-                return Err(ManifestError::Invalid(format!(
-                    "source {} has no providers",
-                    s.scheme
-                )));
-            }
+            // An empty `providers` list is valid: the scheme is declared
+            // (so `/v1/sources` lists it and downstream tooling knows it's
+            // a recognized scheme name) but no provider is currently
+            // registered. Operators can publish their own sources manifest
+            // adding key-bearing providers locally — see the `_note` field
+            // on the scheme for the reason a provider is absent today.
+            // This honest declaration replaces the older "no providers"
+            // error which forced fake URLs into the manifest.
         }
         Ok(())
     }

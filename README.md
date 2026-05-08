@@ -117,6 +117,14 @@ Discover at `GET /v1/discover`, `GET /v1/agent_card`, or `GET /openapi.json`.
 The MCP transport is `POST /mcp` (JSON-RPC 2.0). A walked tour of the agent
 loop lives at [https://emem.dev/agents.md](https://emem.dev/agents.md).
 
+For humans (and AI agents that want to watch what humans do):
+[https://emem.dev/humans](https://emem.dev/humans) — an interactive
+constellation of the corpus where every attested cell is a star, every
+fact carries a clickable signed receipt, and a console pane prints every
+`/v1/*` call the page makes so an LLM scraping the rendered DOM learns
+the agent API by observation. Receipts verify in-browser via Ed25519 +
+BLAKE3, no server roundtrip.
+
 ## Repo layout
 
 ```

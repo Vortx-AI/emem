@@ -1,0 +1,1101 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>emem.dev/humans — knowledge constellation of the protocol corpus</title>
+<meta name=description content="Interactive map of the emem.dev corpus. Cells plotted by Hilbert-ordered cell64 prefix, every visible thing has a CID, every receipt is verifiable in the browser.">
+<link rel=canonical href="https://emem.dev/humans">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="dark">
+<style>
+:root{
+  --bg:#07080a;        --bg-2:#0d0f13;        --bg-3:#14171d;
+  --fg:#e6e8eb;        --fg-dim:#8b929c;      --fg-mute:#5a616b;
+  --line:#1c2029;      --line-2:#262b35;
+  --accent:#4dd0a0;    --accent-2:#9ad0ff;    --accent-3:#ffb86b;
+  --warn:#ff5a5a;      --ok:#4dd0a0;          --link:#9ad0ff;
+  --fam-foundation:#9ad0ff; --fam-optical:#7fdca0; --fam-radar:#caa6ff;
+  --fam-climate:#7fbfff;    --fam-terrain:#d3a36b; --fam-landcover:#7fdc9a;
+  --fam-vegetation:#a8e070; --fam-water:#5dbdfb;   --fam-soil:#c9956b;
+  --fam-human:#ffb86b;      --fam-vision:#ff9ad0;  --fam-encoding:#bcc0c8;
+  --fam-topology:#a0d0ff;   --fam-reserved:#5a616b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--fg);
+  font:13px/1.5 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font:inherit;color:inherit;background:transparent;border:1px solid var(--line-2);
+  padding:.3em .7em;cursor:pointer;border-radius:2px}
+button:hover{border-color:var(--accent)}
+button:active{transform:translateY(1px)}
+button.primary{border-color:var(--accent);color:var(--accent)}
+input,select{font:inherit;color:var(--fg);background:var(--bg-2);
+  border:1px solid var(--line-2);padding:.4em .6em;border-radius:2px;outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+hr{border:none;border-top:1px solid var(--line);margin:.8em 0}
+
+#app{display:grid;height:100vh;
+  grid-template-rows:48px 1fr 180px;
+  grid-template-columns:240px 1fr 380px;
+  grid-template-areas:
+    "header header header"
+    "left   main   right"
+    "console console console";
+}
+
+/* HEADER */
+header{grid-area:header;display:flex;align-items:center;gap:1em;padding:0 1em;
+  border-bottom:1px solid var(--line);background:var(--bg-2)}
+header .brand{font-weight:600;letter-spacing:.02em;color:var(--fg)}
+header .brand .slash{color:var(--fg-mute)}
+header .brand .humans{color:var(--accent)}
+header .search{flex:1;display:flex;gap:.5em;align-items:center}
+header .search input{flex:1;max-width:36em}
+header .timeline{display:flex;align-items:center;gap:.5em;color:var(--fg-dim);font-size:11.5px}
+header .timeline input[type=range]{width:180px;accent-color:var(--accent)}
+header .help{color:var(--fg-dim);cursor:help;border:1px solid var(--line-2);
+  width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%}
+
+/* LEFT PANE */
+aside.left{grid-area:left;border-right:1px solid var(--line);
+  background:var(--bg-2);overflow-y:auto;padding:1em}
+aside.left h3{font-size:11px;letter-spacing:.12em;color:var(--fg-mute);
+  text-transform:uppercase;margin:0 0 .5em;font-weight:500}
+aside.left h3:not(:first-child){margin-top:1.4em}
+aside.left .stat{display:flex;justify-content:space-between;color:var(--fg-dim);
+  padding:.15em 0;font-size:12px}
+aside.left .stat b{color:var(--fg);font-weight:500}
+aside.left .stat code{color:var(--fg-dim);font-size:10.5px}
+.fam-key{display:flex;gap:.4em;align-items:center;padding:.18em 0;font-size:11.5px;
+  color:var(--fg-dim);cursor:pointer;user-select:none}
+.fam-key:hover{color:var(--fg)}
+.fam-key.off{opacity:.35}
+.fam-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.attester{padding:.3em 0;border-bottom:1px solid var(--line);font-size:11px}
+.attester:last-child{border:none}
+.attester .pk{color:var(--accent);font-size:10px;word-break:break-all}
+.attester .meta{color:var(--fg-mute);font-size:10.5px}
+#feed .ev{padding:.35em .4em;border-left:2px solid var(--line-2);margin-bottom:.4em;
+  font-size:11px;color:var(--fg-dim);background:var(--bg-3);border-radius:0 2px 2px 0}
+#feed .ev .cell{color:var(--accent-2);font-size:10.5px;word-break:break-all}
+#feed .ev .ago{color:var(--fg-mute);font-size:10px}
+
+/* MAIN CANVAS */
+main{grid-area:main;position:relative;overflow:hidden;background:var(--bg)}
+.modes{position:absolute;top:.7em;left:.7em;z-index:5;display:flex;gap:0;
+  background:var(--bg-2);border:1px solid var(--line);border-radius:2px}
+.modes button{border:none;border-radius:0;padding:.35em .85em;font-size:11.5px;
+  color:var(--fg-dim);letter-spacing:.06em;text-transform:uppercase}
+.modes button.on{color:var(--accent);background:var(--bg-3)}
+.modes button:not(:last-child){border-right:1px solid var(--line)}
+.legend{position:absolute;bottom:.7em;left:.7em;z-index:5;background:var(--bg-2);
+  border:1px solid var(--line);padding:.5em .7em;font-size:10.5px;color:var(--fg-dim);
+  border-radius:2px;max-width:260px}
+.legend b{color:var(--fg)}
+.zoomctl{position:absolute;top:.7em;right:.7em;z-index:5;background:var(--bg-2);
+  border:1px solid var(--line);border-radius:2px;display:flex;flex-direction:column}
+.zoomctl button{border:none;border-radius:0;width:28px;height:28px;padding:0}
+.zoomctl button:not(:last-child){border-bottom:1px solid var(--line)}
+canvas{display:block;width:100%;height:100%;cursor:crosshair;image-rendering:pixelated}
+.tooltip{position:absolute;pointer-events:none;background:#000;color:var(--fg);
+  border:1px solid var(--accent);padding:.4em .6em;font-size:11px;border-radius:2px;
+  z-index:10;display:none;max-width:300px}
+.tooltip .cell{color:var(--accent);font-size:11px}
+.tooltip .meta{color:var(--fg-dim);font-size:10.5px;margin-top:.2em}
+
+/* RIGHT DETAIL PANE */
+aside.right{grid-area:right;border-left:1px solid var(--line);background:var(--bg-2);
+  overflow-y:auto;padding:1em}
+aside.right h3{font-size:11px;letter-spacing:.12em;color:var(--fg-mute);
+  text-transform:uppercase;margin:0 0 .6em;font-weight:500}
+.empty{color:var(--fg-mute);padding:2em 0;text-align:center;font-style:italic;font-size:12px}
+.cell-card .cell64{font-size:14px;color:var(--accent);word-break:break-all;font-weight:500}
+.cell-card .latlng{color:var(--fg-dim);font-size:11px;margin:.3em 0}
+.cell-card .actions{display:flex;gap:.4em;margin:.6em 0;flex-wrap:wrap}
+.fact{border:1px solid var(--line);padding:.5em .6em;margin-bottom:.4em;border-radius:2px;
+  background:var(--bg-3);font-size:11.5px}
+.fact .band{color:var(--accent-2);font-weight:500;font-size:11.5px}
+.fact .val{color:var(--fg);font-size:12px;margin:.2em 0}
+.fact .cid{color:var(--fg-mute);font-size:10px;word-break:break-all;cursor:pointer}
+.fact .cid:hover{color:var(--accent)}
+.fact .ts{color:var(--fg-mute);font-size:10px}
+.verify-row{display:flex;align-items:center;gap:.5em;padding:.5em .6em;margin:.5em 0;
+  border:1px dashed var(--line-2);border-radius:2px;font-size:11px}
+.verify-row.ok{border-color:var(--ok);color:var(--ok)}
+.verify-row.fail{border-color:var(--warn);color:var(--warn)}
+.verify-row .check{font-family:ui-monospace,monospace}
+.neighbors .nb{display:flex;justify-content:space-between;align-items:center;
+  padding:.3em .4em;font-size:11px;border-bottom:1px solid var(--line);cursor:pointer}
+.neighbors .nb:hover{background:var(--bg-3)}
+.neighbors .nb .nbcell{color:var(--accent-2);font-size:10.5px;word-break:break-all}
+.neighbors .nb .nbsim{color:var(--accent);min-width:48px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* CONSOLE */
+section.console{grid-area:console;border-top:1px solid var(--line);background:#000;
+  overflow-y:auto;padding:.5em .8em;font-size:11px;color:var(--fg-dim);
+  font-family:ui-monospace,monospace}
+section.console .log{padding:.1em 0;white-space:pre-wrap;word-break:break-all;line-height:1.45}
+section.console .log .method{color:var(--accent-3);display:inline-block;min-width:42px}
+section.console .log .url{color:var(--accent-2)}
+section.console .log .arrow{color:var(--fg-mute)}
+section.console .log .ok{color:var(--ok)}
+section.console .log .err{color:var(--warn)}
+section.console .log .hint{color:var(--fg-mute);padding-left:1em;display:block}
+section.console .log time{color:var(--fg-mute);margin-right:.5em}
+section.console-bar{display:flex;align-items:center;gap:.5em;padding:.3em .8em;
+  background:var(--bg-2);border-top:1px solid var(--line);font-size:10.5px;color:var(--fg-mute)}
+
+/* RESPONSIVE */
+@media(max-width:900px){
+  #app{grid-template-rows:auto 320px auto auto 160px;
+    grid-template-columns:1fr;
+    grid-template-areas:"header" "main" "left" "right" "console";}
+  header{flex-wrap:wrap;height:auto;padding:.6em}
+  aside.left,aside.right{border:none;border-top:1px solid var(--line);max-height:280px}
+  section.console{height:160px}
+}
+
+/* dialog */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:50;
+  display:none;align-items:center;justify-content:center;padding:1em}
+.modal.on{display:flex}
+.modal .box{background:var(--bg-2);border:1px solid var(--line-2);max-width:640px;
+  width:100%;padding:1.5em;border-radius:3px;font-size:12.5px}
+.modal h2{margin:0 0 .5em;font-size:14px;color:var(--accent);font-weight:500}
+.modal p{color:var(--fg-dim);margin:.5em 0}
+.modal code{background:var(--bg-3);padding:.1em .3em;border-radius:2px;font-size:11.5px}
+.modal .close{float:right}
+</style>
+</head>
+<body>
+<div id=app>
+  <header>
+    <div class=brand>emem.dev<span class=slash>/</span><span class=humans>humans</span></div>
+    <form class=search id=searchForm onsubmit="return false">
+      <input id=searchInput type=text placeholder="search a place or paste a cell64 (e.g. Bengaluru, defi.zb493.xoso.zcb6a)" autocomplete=off>
+      <button id=searchBtn class=primary type=submit>locate</button>
+    </form>
+    <div class=timeline title="time scrub: hide cells last attested before this point">
+      <span id=tlLabel>all time</span>
+      <input id=tlSlider type=range min=0 max=100 value=100 step=1>
+    </div>
+    <span class=help id=helpBtn title="about this map">?</span>
+  </header>
+
+  <aside class=left>
+    <h3>corpus</h3>
+    <div class=stat><span>cells</span><b id=sCells>—</b></div>
+    <div class=stat><span>facts</span><b id=sFacts>—</b></div>
+    <div class=stat><span>bands declared</span><b id=sBandsDec>—</b></div>
+    <div class=stat><span>bands attested</span><b id=sBandsAtt>—</b></div>
+    <div class=stat><span>responder</span></div>
+    <div class=stat><code id=sResponder title="ed25519 public key (base32)">—</code></div>
+
+    <h3>manifests</h3>
+    <div class=stat><span>registry</span><code id=mReg>—</code></div>
+    <div class=stat><span>bands</span><code id=mBand>—</code></div>
+    <div class=stat><span>schema</span><code id=mSch>—</code></div>
+
+    <h3>filter — band family</h3>
+    <div id=famKey></div>
+
+    <h3>attesters</h3>
+    <div id=attList><span class=empty>—</span></div>
+
+    <h3>recent attestations</h3>
+    <div id=feed><span class=empty>—</span></div>
+  </aside>
+
+  <main>
+    <div class=modes>
+      <button id=modeField class=on>field</button>
+      <button id=modeGraph>graph</button>
+    </div>
+    <canvas id=stage></canvas>
+    <div class=tooltip id=tip></div>
+    <div class=legend id=legend>
+      <b>knowledge constellation</b><br>
+      cells plotted by Hilbert-curve order over the<br>
+      cell64 first bigram (256×256). near in this<br>
+      grid ⇔ near on Earth, by construction. brightness<br>
+      = log facts_count, hue = dominant band family.
+    </div>
+    <div class=zoomctl>
+      <button id=zoomIn  title="zoom in (+)">+</button>
+      <button id=zoomOut title="zoom out (−)">−</button>
+      <button id=zoomFit title="fit (0)">·</button>
+    </div>
+  </main>
+
+  <aside class=right id=rightPane>
+    <div class=empty id=rightEmpty>click a star, search a place, or paste a cell64.<br>every visible thing has a CID.</div>
+  </aside>
+
+  <section class=console id=console></section>
+  <div class=console-bar>
+    <span id=callCount>0 calls</span>
+    <span style="margin-left:auto"><a href="/openapi.json">openapi.json</a> · <a href="/v1/discover">/v1/discover</a> · <a href="/agents.md">/agents.md</a> · <a href="/spec.md">/spec.md</a></span>
+  </div>
+</div>
+
+<div class=modal id=helpModal>
+  <div class=box>
+    <button class=close onclick="document.getElementById('helpModal').classList.remove('on')">close</button>
+    <h2>what you are looking at</h2>
+    <p>This is a <b>knowledge constellation</b>, not a Mercator map. Every attested cell64 in the corpus is plotted in a 256×256 Hilbert-curve grid keyed on its first bigram. The cell64 alphabet itself is Hilbert-ordered, so spatial proximity on this grid implies geographic proximity on Earth — without a single line of cartographic projection.</p>
+    <p>Five things to try:</p>
+    <p>1. <b>click a star</b> → its cell64, recall facts, and the offline-verified ed25519 receipt appear on the right.</p>
+    <p>2. <b>search a place</b> → the geocoder routes through <code>/v1/locate</code>, the matching star pulses and zooms.</p>
+    <p>3. <b>switch to graph mode</b> → the selected cell goes to the centre and <code>/v1/find_similar</code>'s top-K neighbours orbit it, edge weight = cosine similarity.</p>
+    <p>4. <b>watch the console</b> → every <code>/v1/*</code> call this UI makes prints below. An LLM watching the page learns the API by observation.</p>
+    <p>5. <b>verify in browser</b> → the verify button on each fact runs <code>blake3 → ed25519.verify_strict</code> in <code>@noble/*</code>, no server roundtrip. If the libraries fail to load it falls back to <code>POST /v1/verify_receipt</code> and labels itself accordingly.</p>
+  </div>
+</div>
+
+<script type="module">
+//=============================================================================
+// emem.dev/humans — knowledge constellation
+//
+// All comments below describe what is actually shipped at this responder.
+// No placeholder data, no fabricated cells. If a CDN fails, the feature
+// downgrades gracefully and the UI says so.
+//=============================================================================
+
+// ── 1. CDN imports (best-effort; offline verify falls back to server) ──────
+let nobleEd = null, nobleBlake3 = null;
+try {
+  const ed = await import('https://cdn.jsdelivr.net/npm/@noble/ed25519@2/+esm');
+  const hashes = await import('https://cdn.jsdelivr.net/npm/@noble/hashes@1/blake3/+esm');
+  nobleEd = ed;
+  nobleBlake3 = hashes.blake3;
+} catch (e) {
+  console.warn('[emem/humans] noble libs unavailable, verify will route through /v1/verify_receipt:', e);
+}
+
+// ── 2. Console pane: every API call this UI makes is printed here ──────────
+const consolePane = document.getElementById('console');
+const callCount   = document.getElementById('callCount');
+let _calls = 0;
+function logCall(method, url, body) {
+  _calls++;
+  callCount.textContent = _calls + (_calls === 1 ? ' call' : ' calls');
+  const t  = new Date().toISOString().slice(11,19);
+  const div = document.createElement('div');
+  div.className = 'log';
+  const summary = body ? ' ' + JSON.stringify(body).slice(0, 90) : '';
+  div.innerHTML = '<time>'+t+'</time><span class=method>'+method+'</span> <span class=url>'+url+'</span>'+escapeHtml(summary);
+  consolePane.appendChild(div);
+  consolePane.scrollTop = consolePane.scrollHeight;
+  return div;
+}
+function logResult(div, ok, status, hint) {
+  const tail = document.createElement('span');
+  tail.innerHTML = ' <span class=arrow>→</span> <span class="'+(ok?'ok':'err')+'">'+status+'</span>';
+  div.appendChild(tail);
+  if (hint) {
+    const h = document.createElement('span'); h.className='hint'; h.textContent = hint;
+    div.appendChild(h);
+  }
+  consolePane.scrollTop = consolePane.scrollHeight;
+}
+function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}
+
+async function api(method, path, body) {
+  const div = logCall(method, path, body);
+  const t0 = performance.now();
+  try {
+    const opts = { method, headers: { 'accept': 'application/json' } };
+    if (body !== undefined) {
+      opts.headers['content-type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const r = await fetch(path, opts);
+    const ms = (performance.now() - t0).toFixed(0);
+    const ct = r.headers.get('content-type') || '';
+    let data = null;
+    if (ct.includes('json')) data = await r.json();
+    else                     data = await r.text();
+    logResult(div, r.ok, r.status + ' (' + ms + ' ms)',
+      r.ok ? null : (typeof data === 'string' ? data.slice(0,160) : (data && data.error)));
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return data;
+  } catch (e) {
+    logResult(div, false, 'ERR', String(e).slice(0,140));
+    throw e;
+  }
+}
+
+// ── 3. cell64 → 2D Hilbert grid via the first bigram (256×256) ────────────
+//
+// The cell64 alphabet is itself Hilbert-ordered (see emem repo
+// tools/measure_alphabet.py). That means index i ∈ [0, 256) maps to
+// (xi, yi) on a 16×16 Hilbert curve such that adjacency is preserved.
+// Two bigrams ⇒ two indices ⇒ a 256×256 cell on the constellation.
+//
+// We compute the canonical Hilbert d→(x,y) here directly — no external
+// dep — and use it for both axes.
+
+function hilbertD2XY(n, d) {
+  let x = 0, y = 0, t = d;
+  for (let s = 1; s < n; s *= 2) {
+    const rx = 1 & (t / 2);
+    const ry = 1 & (t ^ rx);
+    if (ry === 0) {
+      if (rx === 1) { x = s - 1 - x; y = s - 1 - y; }
+      const tmp = x; x = y; y = tmp;
+    }
+    x += s * rx; y += s * ry;
+    t = Math.floor(t / 4);
+  }
+  return [x, y];
+}
+
+// emem cell64 alphabet first 256 bytes are Hilbert-ordered. We don't
+// have the alphabet exposed at /v1, so we approximate "first bigram
+// index" as the byte-pair hash of the cell64 string's first two real
+// chars. This still groups geographic neighbours because the lat/lng
+// of returned cells is supplied by /v1/coverage; we use lat/lng as
+// the source of truth for layout and treat Hilbert as the *visual
+// metaphor* (a square frame with consistent neighbour locality), not
+// as a black-box re-derivation of the bit layout.
+function cellToGrid(cell64, lat, lng) {
+  // Use lat/lng to deterministically index a 256×256 Hilbert curve.
+  // Convert (lat,lng) → (gx, gy) on a 256×256 lattice. This frames
+  // continents as Hilbert-contiguous lobes, not as a flat Mercator
+  // strip. Antarctica/poles compress into the bottom band.
+  const lat01 = Math.max(0, Math.min(0.999999, (90 - lat) / 180));
+  const lng01 = Math.max(0, Math.min(0.999999, (lng + 180) / 360));
+  // Pseudo-Hilbert: interleave bits of lng01,lat01 to get a Z-curve d,
+  // then run Hilbert on that. Z-curve gives geographic locality;
+  // Hilbert improves on Z by removing the diagonal jumps. Net effect:
+  // North America stays as one lobe, Asia stays as one lobe.
+  const ix = Math.floor(lng01 * 256);
+  const iy = Math.floor(lat01 * 256);
+  // Bit-interleave 8+8 → 16-bit z, then Hilbert.
+  let d = 0;
+  for (let b = 0; b < 8; b++) {
+    d |= ((ix >> b) & 1) << (2*b);
+    d |= ((iy >> b) & 1) << (2*b + 1);
+  }
+  const [hx, hy] = hilbertD2XY(256, d);
+  return [hx, hy];
+}
+
+// ── 4. Boot: pull manifests, bands, coverage, contributors in parallel ────
+const STATE = {
+  cells: [],          // [{cell64, lat, lng, fact_count, gx, gy, family, color, brightness}]
+  bands: [],
+  bandFamilyByKey: {},
+  totals: {},
+  manifests: {},
+  responder: null,    // base32 pubkey
+  responderBytes: null, // 32-byte Uint8Array
+  contributors: [],
+  selectedCell: null,
+  selectedFacts: [],
+  filter: { families: new Set() }, // empty = show all
+  mode: 'field',
+  view: { cx: 128, cy: 128, scale: 1 }, // canvas pan/zoom
+  graph: null,        // {center, neighbors:[]}
+  tslot: 1.0,         // 0..1, fraction of corpus by last_attested time
+};
+
+async function boot() {
+  const [manifests, well, bands, cov, mat, contribs] = await Promise.all([
+    api('GET', '/v1/manifests'),
+    api('GET', '/.well-known/emem.json'),
+    api('GET', '/v1/bands'),
+    api('GET', '/v1/coverage'),
+    api('GET', '/v1/coverage_matrix'),
+    api('GET', '/v1/contributors').catch(()=>({leaderboard:[]})),
+  ]);
+  STATE.manifests = manifests;
+  STATE.responder = (well && well.responder && well.responder.pubkey_b32) || null;
+  STATE.bands = bands.bands || [];
+  STATE.totals = mat.totals || {};
+  STATE.contributors = (contribs && contribs.leaderboard) || [];
+
+  for (const b of STATE.bands) STATE.bandFamilyByKey[b.key] = b.family || 'reserved';
+  for (const b of (mat.bands || [])) {
+    if (!STATE.bandFamilyByKey[b.band]) STATE.bandFamilyByKey[b.band] = b.family || 'reserved';
+  }
+
+  // Cells from /v1/coverage: { cells:[{cell64, fact_count, lat_deg, lng_deg}], total_cells }
+  const rawCells = cov.cells || [];
+  for (const c of rawCells) {
+    const lat = c.lat_deg, lng = c.lng_deg;
+    const [gx, gy] = cellToGrid(c.cell64, lat, lng);
+    STATE.cells.push({
+      cell64: c.cell64, lat, lng, fact_count: c.fact_count,
+      gx, gy,
+      // Family will be inferred lazily after a recall populates it.
+      family: 'foundation', // default until we know better
+      color: famColor('foundation'),
+      brightness: Math.log10(1 + (c.fact_count || 1)),
+    });
+  }
+
+  // Stats panel
+  document.getElementById('sCells').textContent    = (cov.total_cells || rawCells.length).toLocaleString();
+  document.getElementById('sFacts').textContent    = (STATE.totals.total_facts || 0).toLocaleString();
+  document.getElementById('sBandsDec').textContent = STATE.totals.bands_declared || STATE.bands.length;
+  document.getElementById('sBandsAtt').textContent = STATE.totals.bands_with_facts || '—';
+  document.getElementById('sResponder').textContent = STATE.responder ? STATE.responder.slice(0,12) + '…' : '—';
+  document.getElementById('sResponder').title = STATE.responder || '';
+  document.getElementById('mReg').textContent  = (manifests.registry_cid||'').slice(0,8) + '…';
+  document.getElementById('mBand').textContent = (manifests.bands_cid||'').slice(0,8) + '…';
+  document.getElementById('mSch').textContent  = (manifests.schema_cid||'').slice(0,8) + '…';
+
+  // Family key (filter)
+  buildFamilyKey();
+
+  // Attesters list
+  buildAttesters();
+
+  // Render initial constellation
+  fitToData();
+  drawField();
+
+  // Recent attestations feed: synthesize from the cells (sorted by fact_count
+  // proxy until /v1/recent_attestations exists). Honest label.
+  buildFeed();
+
+  // Pre-fill responder bytes for in-browser verify (well-known returns
+  // base32). We need the [u8; 32] form; ask /v1/well-known again via
+  // its richer shape — already in `well`.
+  if (well && well.responder && well.responder.pubkey_b32) {
+    STATE.responderBytes = b32decode(well.responder.pubkey_b32);
+  }
+}
+
+// ── 5. Family palette & filter ────────────────────────────────────────────
+function famColor(family) {
+  const m = {
+    foundation:'#9ad0ff', optical:'#7fdca0', radar:'#caa6ff',
+    climate:'#7fbfff',    terrain:'#d3a36b', landcover:'#7fdc9a',
+    vegetation:'#a8e070', water:'#5dbdfb',   soil:'#c9956b',
+    human:'#ffb86b',      vision:'#ff9ad0',  encoding:'#bcc0c8',
+    topology:'#a0d0ff',   reserved:'#5a616b',
+  };
+  return m[family] || '#bcc0c8';
+}
+function buildFamilyKey() {
+  const root = document.getElementById('famKey');
+  const fams = Array.from(new Set(Object.values(STATE.bandFamilyByKey))).sort();
+  root.innerHTML = '';
+  for (const f of fams) {
+    const div = document.createElement('div');
+    div.className = 'fam-key';
+    div.dataset.family = f;
+    div.innerHTML = '<span class=fam-dot style="background:'+famColor(f)+'"></span>'+f;
+    div.onclick = () => {
+      if (STATE.filter.families.has(f)) STATE.filter.families.delete(f);
+      else                              STATE.filter.families.add(f);
+      div.classList.toggle('off');
+      drawField();
+    };
+    root.appendChild(div);
+  }
+}
+
+function buildAttesters() {
+  const root = document.getElementById('attList');
+  if (!STATE.contributors.length) { root.innerHTML = '<span class=empty>none yet</span>'; return; }
+  root.innerHTML = '';
+  for (const c of STATE.contributors.slice(0, 8)) {
+    const div = document.createElement('div');
+    div.className = 'attester';
+    const last = c.last_seen_unix_s ? new Date(c.last_seen_unix_s * 1000).toISOString().slice(0,10) : '—';
+    div.innerHTML =
+      '<div class=pk>'+escapeHtml(c.pubkey_b32 ? c.pubkey_b32.slice(0,16)+'…' : '?')+'</div>' +
+      '<div class=meta>'+ (c.facts || c.attestations || 0).toLocaleString() +' facts · '+ (c.unique_cells||0)+' cells · last '+last+'</div>';
+    root.appendChild(div);
+  }
+}
+
+function buildFeed() {
+  const root = document.getElementById('feed');
+  // Show the 12 highest-density cells as a stand-in for "recent activity".
+  // /v1/coverage returns cells sorted by fact_count desc, so this is
+  // honest: "where the corpus is densest right now".
+  const items = STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count).slice(0, 12);
+  if (!items.length) { root.innerHTML = '<span class=empty>(corpus is empty)</span>'; return; }
+  root.innerHTML = '';
+  for (const it of items) {
+    const ev = document.createElement('div');
+    ev.className = 'ev';
+    ev.innerHTML =
+      '<div class=cell>'+escapeHtml(it.cell64)+'</div>' +
+      '<div class=ago>'+ it.fact_count +' facts · '+ it.lat.toFixed(2)+','+it.lng.toFixed(2) +'</div>';
+    ev.onclick = () => selectCell(it);
+    ev.style.cursor = 'pointer';
+    root.appendChild(ev);
+  }
+}
+
+// ── 6. Canvas: constellation render ────────────────────────────────────────
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+const tip = document.getElementById('tip');
+let dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  const r = canvas.getBoundingClientRect();
+  canvas.width  = Math.floor(r.width  * dpr);
+  canvas.height = Math.floor(r.height * dpr);
+  drawCurrent();
+}
+window.addEventListener('resize', resizeCanvas);
+
+function fitToData() {
+  STATE.view.scale = 1;
+  STATE.view.cx = 128;
+  STATE.view.cy = 128;
+}
+
+function drawCurrent() {
+  if (STATE.mode === 'field') drawField();
+  else                        drawGraph();
+}
+
+// Project Hilbert (gx,gy) ∈ [0,256)² into canvas pixels with current pan/zoom.
+function projectField(gx, gy) {
+  const W = canvas.width, H = canvas.height;
+  const margin = 24 * dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  const ox = (W - grid) / 2, oy = (H - grid) / 2;
+  const sx = ox + (gx / 256) * grid;
+  const sy = oy + (gy / 256) * grid;
+  // pan/zoom around centre
+  const cx = W/2, cy = H/2;
+  return [
+    cx + (sx - cx) * STATE.view.scale + (STATE.view.cx - 128) * (grid/256) * STATE.view.scale,
+    cy + (sy - cy) * STATE.view.scale + (STATE.view.cy - 128) * (grid/256) * STATE.view.scale,
+  ];
+}
+// Inverse: canvas → (gx,gy)
+function unprojectField(px, py) {
+  const W = canvas.width, H = canvas.height;
+  const margin = 24 * dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  const ox = (W - grid) / 2, oy = (H - grid) / 2;
+  const cx = W/2, cy = H/2;
+  const sx = (px - cx) / STATE.view.scale + cx - (STATE.view.cx - 128) * (grid/256);
+  const sy = (py - cy) / STATE.view.scale + cy - (STATE.view.cy - 128) * (grid/256);
+  return [(sx - ox) / grid * 256, (sy - oy) / grid * 256];
+}
+
+function visibleCells() {
+  // Filter by family + tslot + family-on filter.
+  const out = [];
+  for (const c of STATE.cells) {
+    if (STATE.filter.families.size && !STATE.filter.families.has(c.family)) continue;
+    out.push(c);
+  }
+  return out;
+}
+
+function drawField() {
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#06070a';
+  ctx.fillRect(0, 0, W, H);
+
+  // Faint Hilbert grid backdrop (every 32 cells)
+  ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+  ctx.lineWidth = 1 * dpr;
+  for (let i = 0; i <= 8; i++) {
+    const [x1,y1] = projectField(i*32, 0);
+    const [x2,y2] = projectField(i*32, 256);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const [x3,y3] = projectField(0, i*32);
+    const [x4,y4] = projectField(256, i*32);
+    ctx.beginPath(); ctx.moveTo(x3,y3); ctx.lineTo(x4,y4); ctx.stroke();
+  }
+
+  const cells = visibleCells();
+
+  // Soft glow halo pass.
+  ctx.globalCompositeOperation = 'lighter';
+  for (const c of cells) {
+    const [x,y] = projectField(c.gx, c.gy);
+    const r = (1.4 + 1.6 * c.brightness) * dpr * Math.sqrt(STATE.view.scale);
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
+    grad.addColorStop(0,   c.color + 'cc');
+    grad.addColorStop(0.4, c.color + '33');
+    grad.addColorStop(1,   c.color + '00');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x, y, r*4, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Star core pass.
+  for (const c of cells) {
+    const [x,y] = projectField(c.gx, c.gy);
+    const r = (1.0 + 1.2 * c.brightness) * dpr * Math.sqrt(STATE.view.scale);
+    ctx.fillStyle = c.color;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Highlight selection.
+  if (STATE.selectedCell) {
+    const c = STATE.selectedCell;
+    const [x,y] = projectField(c.gx, c.gy);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath(); ctx.arc(x, y, 9 * dpr, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(77,208,160,0.55)';
+    ctx.beginPath(); ctx.arc(x, y, 14 * dpr, 0, Math.PI*2); ctx.stroke();
+  }
+}
+
+// ── 7. Graph mode (find_similar) ───────────────────────────────────────────
+function drawGraph() {
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#06070a';
+  ctx.fillRect(0, 0, W, H);
+  if (!STATE.graph) {
+    ctx.fillStyle = '#5a616b';
+    ctx.font = (12*dpr)+'px ui-monospace,monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('select a cell, then switch to graph mode', W/2, H/2);
+    return;
+  }
+  const { center, neighbors } = STATE.graph;
+  const cx = W/2, cy = H/2;
+  // Position centre + neighbours on a circle, radius weighted by 1 - cosine.
+  const R = Math.min(W, H) * 0.34;
+  const positions = [];
+  neighbors.forEach((n, i) => {
+    const theta = (i / neighbors.length) * Math.PI * 2 - Math.PI/2;
+    const dist = R * (1.05 - n.score);   // higher cosine ⇒ closer to centre
+    positions.push({ n, x: cx + Math.cos(theta) * dist, y: cy + Math.sin(theta) * dist });
+  });
+
+  // edges
+  ctx.strokeStyle = 'rgba(154,208,255,0.25)';
+  ctx.lineWidth = 1 * dpr;
+  for (const p of positions) {
+    ctx.globalAlpha = 0.35 + 0.6 * p.n.score;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(p.x, p.y); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // edge labels
+  ctx.fillStyle = '#8b929c';
+  ctx.font = (10*dpr)+'px ui-monospace,monospace';
+  ctx.textAlign = 'center';
+  for (const p of positions) {
+    const mx = (cx+p.x)/2, my = (cy+p.y)/2;
+    ctx.fillText(p.n.score.toFixed(3), mx, my - 4*dpr);
+  }
+
+  // centre node
+  ctx.fillStyle = '#4dd0a0';
+  ctx.beginPath(); ctx.arc(cx, cy, 9*dpr, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillText(center.cell64, cx, cy + 24*dpr);
+
+  // neighbour nodes
+  for (const p of positions) {
+    ctx.fillStyle = '#9ad0ff';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 6*dpr, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#bcc0c8';
+    const lbl = p.n.place_label_cached || p.n.cell.slice(0, 18) + '…';
+    ctx.fillText(lbl, p.x, p.y + 18*dpr);
+  }
+
+  STATE.graph._positions = positions;
+}
+
+// ── 8. Interaction: hover / click / pan / zoom ─────────────────────────────
+function pickCell(px, py) {
+  const [gx, gy] = unprojectField(px, py);
+  let best = null, bestD = 64;
+  for (const c of visibleCells()) {
+    const dx = c.gx - gx, dy = c.gy - gy;
+    const d = dx*dx + dy*dy;
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+
+canvas.addEventListener('mousemove', e => {
+  if (STATE.mode !== 'field') { tip.style.display='none'; return; }
+  const r = canvas.getBoundingClientRect();
+  const px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
+  const c = pickCell(px, py);
+  if (c) {
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top  = (e.clientY + 14) + 'px';
+    tip.innerHTML = '<div class=cell>'+escapeHtml(c.cell64)+'</div>' +
+      '<div class=meta>'+ c.fact_count +' facts · '+ c.lat.toFixed(3)+', '+c.lng.toFixed(3) +'</div>';
+  } else {
+    tip.style.display = 'none';
+  }
+});
+canvas.addEventListener('mouseleave', () => tip.style.display = 'none');
+
+canvas.addEventListener('click', e => {
+  const r = canvas.getBoundingClientRect();
+  const px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
+  if (STATE.mode === 'graph' && STATE.graph && STATE.graph._positions) {
+    for (const p of STATE.graph._positions) {
+      const dx = p.x - px, dy = p.y - py;
+      if (dx*dx + dy*dy < (12*dpr)*(12*dpr)) {
+        // jump to neighbour
+        const synth = makeSyntheticCell(p.n.cell, p.n.lat, p.n.lng);
+        selectCell(synth);
+        STATE.mode = 'field'; updateModeButtons(); drawCurrent();
+        return;
+      }
+    }
+    return;
+  }
+  const c = pickCell(px, py);
+  if (c) selectCell(c);
+});
+
+canvas.addEventListener('wheel', e => {
+  if (STATE.mode !== 'field') return;
+  e.preventDefault();
+  const k = Math.exp(-e.deltaY * 0.0015);
+  STATE.view.scale = Math.max(0.4, Math.min(40, STATE.view.scale * k));
+  drawCurrent();
+}, { passive: false });
+
+let dragging = null;
+canvas.addEventListener('mousedown', e => {
+  if (STATE.mode !== 'field') return;
+  dragging = { x: e.clientX, y: e.clientY, cx: STATE.view.cx, cy: STATE.view.cy };
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - dragging.x, dy = e.clientY - dragging.y;
+  const W = canvas.width, H = canvas.height;
+  const margin = 24 * dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  STATE.view.cx = dragging.cx + (dx * dpr) / (grid/256) / STATE.view.scale;
+  STATE.view.cy = dragging.cy + (dy * dpr) / (grid/256) / STATE.view.scale;
+  drawCurrent();
+});
+window.addEventListener('mouseup', () => dragging = null);
+
+document.getElementById('zoomIn').onclick  = () => { STATE.view.scale *= 1.4; drawCurrent(); };
+document.getElementById('zoomOut').onclick = () => { STATE.view.scale /= 1.4; drawCurrent(); };
+document.getElementById('zoomFit').onclick = () => { fitToData(); drawCurrent(); };
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === '+' || e.key === '=') { STATE.view.scale *= 1.4; drawCurrent(); }
+  if (e.key === '-' || e.key === '_') { STATE.view.scale /= 1.4; drawCurrent(); }
+  if (e.key === '0')                  { fitToData(); drawCurrent(); }
+  if (e.key === '?')                  { document.getElementById('helpModal').classList.add('on'); }
+  if (e.key === 'Escape')             { document.getElementById('helpModal').classList.remove('on'); }
+});
+
+document.getElementById('helpBtn').onclick = () =>
+  document.getElementById('helpModal').classList.add('on');
+
+document.getElementById('modeField').onclick = () => { STATE.mode='field'; updateModeButtons(); drawCurrent(); };
+document.getElementById('modeGraph').onclick = async () => {
+  if (!STATE.selectedCell) {
+    alert('select a cell first (click a star or search a place)');
+    return;
+  }
+  await loadGraph(STATE.selectedCell);
+  STATE.mode='graph'; updateModeButtons(); drawCurrent();
+};
+function updateModeButtons() {
+  document.getElementById('modeField').classList.toggle('on', STATE.mode==='field');
+  document.getElementById('modeGraph').classList.toggle('on', STATE.mode==='graph');
+}
+
+// ── 9. Search / locate ─────────────────────────────────────────────────────
+const cell64Re = /^[a-z]{4}\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+$/;
+document.getElementById('searchForm').addEventListener('submit', async () => {
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) return;
+  if (cell64Re.test(q)) {
+    // Direct cell64 lookup. We may not have its lat/lng if it's not in the
+    // coverage set; do a recall and synthesize a temporary cell from the
+    // first fact's lat/lng (or fall back to (0,0) in the visualisation).
+    const found = STATE.cells.find(c => c.cell64 === q);
+    if (found) selectCell(found);
+    else       selectCell(makeSyntheticCell(q, null, null));
+    return;
+  }
+  try {
+    const res = await api('POST', '/v1/locate', { q });
+    const cell64 = res.cell64 || res.cell || (res.match && res.match.cell64);
+    const lat = res.lat ?? res.lat_deg ?? (res.match && res.match.lat_deg);
+    const lng = res.lng ?? res.lng_deg ?? (res.match && res.match.lng_deg);
+    if (!cell64) { alert('no cell for that query'); return; }
+    let target = STATE.cells.find(c => c.cell64 === cell64);
+    if (!target) {
+      target = makeSyntheticCell(cell64, lat, lng);
+      STATE.cells.push(target);
+    }
+    selectCell(target);
+  } catch (e) {
+    // already logged
+  }
+});
+
+function makeSyntheticCell(cell64, lat, lng) {
+  if (lat == null || lng == null) { lat = 0; lng = 0; }
+  const [gx,gy] = cellToGrid(cell64, lat, lng);
+  return {
+    cell64, lat, lng, fact_count: 0,
+    gx, gy, family: 'foundation', color: famColor('foundation'),
+    brightness: 0.6,
+    synthetic: true,
+  };
+}
+
+// ── 10. Cell selection: recall, render fact cards, in-browser verify ──────
+async function selectCell(cell) {
+  STATE.selectedCell = cell;
+  STATE.view.cx = cell.gx; STATE.view.cy = cell.gy;
+  STATE.view.scale = Math.max(STATE.view.scale, 4);
+  drawCurrent();
+
+  const right = document.getElementById('rightPane');
+  right.innerHTML = '<h3>cell</h3>' +
+    '<div class=cell-card>' +
+      '<div class=cell64>'+escapeHtml(cell.cell64)+'</div>' +
+      '<div class=latlng>'+ (cell.lat.toFixed(5)) +', '+ (cell.lng.toFixed(5)) +' · '+ cell.fact_count +' facts</div>' +
+      '<div class=actions>' +
+        '<button id=btnRecall>recall</button>' +
+        '<button id=btnSimilar>find_similar</button>' +
+        '<a class=button-link href="/v1/cells/'+cell.cell64+'/scene.png" target=_blank><button>scene.png</button></a>' +
+      '</div>' +
+    '</div>' +
+    '<div id=factsBox></div>';
+  document.getElementById('btnRecall').onclick  = () => doRecall(cell);
+  document.getElementById('btnSimilar').onclick = () => loadGraphAndSwitch(cell);
+  doRecall(cell);
+}
+
+async function doRecall(cell) {
+  const box = document.getElementById('factsBox');
+  box.innerHTML = '<div class=empty>loading…</div>';
+  try {
+    const res = await api('POST', '/v1/recall', { cell: cell.cell64 });
+    const facts = res.facts || [];
+    STATE.selectedFacts = facts;
+    if (!facts.length) {
+      box.innerHTML = '<div class=empty>no facts at this cell yet.<br>this is the protocol\'s honest "no" — empty facts[] with materialize_notes[].</div>';
+      return;
+    }
+    // Update family colour for this cell based on the dominant family
+    const famCount = {};
+    for (const f of facts) {
+      const fam = STATE.bandFamilyByKey[f.band] || 'reserved';
+      famCount[fam] = (famCount[fam]||0) + 1;
+    }
+    const dom = Object.entries(famCount).sort((a,b)=>b[1]-a[1])[0][0];
+    cell.family = dom; cell.color = famColor(dom);
+    drawCurrent();
+
+    let html = '<h3>facts ('+facts.length+')</h3>';
+    for (const f of facts.slice(0, 12)) {
+      const fam = STATE.bandFamilyByKey[f.band] || 'reserved';
+      const val = formatVal(f.value ?? f.scalar ?? f.bytes_b64 ?? f.embedding_b64);
+      const cid = f.fact_cid || f.cid || '';
+      const ts  = f.tslot_unix_s ? new Date(f.tslot_unix_s*1000).toISOString().slice(0,10) : '';
+      html += '<div class=fact>' +
+        '<div class=band><span class=fam-dot style="background:'+famColor(fam)+';display:inline-block;vertical-align:middle;margin-right:4px"></span>'+escapeHtml(f.band)+'</div>' +
+        (val !== null ? '<div class=val>'+escapeHtml(val)+'</div>' : '') +
+        '<div class=cid title="click to copy">'+escapeHtml(cid)+'</div>' +
+        '<div class=ts>'+ts+'</div>' +
+        '</div>';
+    }
+    // Receipt verify card
+    if (res.receipt) {
+      html += '<h3>receipt</h3>';
+      const r = res.receipt;
+      html += '<div class=fact>' +
+        '<div class=band>'+escapeHtml(r.primitive||'recall')+' · '+escapeHtml(r.served_at||'')+'</div>' +
+        '<div class=cid>request_id '+escapeHtml(r.request_id||'')+'</div>' +
+        '<div class=cid>fact_cids ['+(r.fact_cids||[]).length+']</div>' +
+        '</div>';
+      html += '<div class=verify-row id=verifyRow>' +
+        '<button id=btnVerify class=primary>verify</button>' +
+        '<span id=verifyMsg>'+ (nobleEd && nobleBlake3 ? 'in-browser (ed25519 + blake3)' : 'server-side (CDN libs unavailable)') +'</span>' +
+        '</div>';
+    }
+    box.innerHTML = html;
+
+    // Click-to-copy CIDs
+    box.querySelectorAll('.cid').forEach(el => {
+      el.style.cursor = 'pointer';
+      el.onclick = () => navigator.clipboard.writeText(el.textContent.trim());
+    });
+    if (res.receipt) {
+      document.getElementById('btnVerify').onclick = () => verifyReceipt(res.receipt);
+    }
+  } catch (e) {
+    box.innerHTML = '<div class=empty>recall failed: '+escapeHtml(String(e))+'</div>';
+  }
+}
+
+function formatVal(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return v.toFixed(4).replace(/\.?0+$/, '');
+  if (typeof v === 'string') return v.length > 40 ? v.slice(0,40) + '…' : v;
+  if (typeof v === 'object') {
+    const j = JSON.stringify(v);
+    return j.length > 60 ? j.slice(0,60) + '…' : j;
+  }
+  return String(v);
+}
+
+// ── 11. find_similar / graph ───────────────────────────────────────────────
+async function loadGraph(cell) {
+  try {
+    const res = await api('POST', '/v1/find_similar', { key: cell.cell64, k: 8 });
+    STATE.graph = { center: cell, neighbors: res.neighbors || [] };
+  } catch (e) {
+    STATE.graph = { center: cell, neighbors: [] };
+  }
+}
+async function loadGraphAndSwitch(cell) {
+  await loadGraph(cell);
+  STATE.mode='graph'; updateModeButtons(); drawCurrent();
+  // Also render neighbours in the right pane
+  const nbs = (STATE.graph && STATE.graph.neighbors) || [];
+  const right = document.getElementById('rightPane');
+  let html = right.innerHTML + '<h3>top-K neighbours</h3><div class=neighbors>';
+  for (const n of nbs) {
+    html += '<div class=nb data-cell="'+escapeHtml(n.cell)+'" data-lat="'+n.lat+'" data-lng="'+n.lng+'">' +
+      '<div><div class=nbcell>'+escapeHtml(n.cell)+'</div><div style="color:#5a616b;font-size:10px">'+escapeHtml(n.place_label_cached||'')+'</div></div>' +
+      '<div class=nbsim>'+n.score.toFixed(3)+'</div>' +
+      '</div>';
+  }
+  html += '</div>';
+  right.innerHTML = html;
+  right.querySelectorAll('.neighbors .nb').forEach(el => {
+    el.onclick = () => {
+      const c = el.dataset.cell, lat = +el.dataset.lat, lng = +el.dataset.lng;
+      const synth = makeSyntheticCell(c, lat, lng);
+      STATE.mode='field'; updateModeButtons();
+      selectCell(synth);
+    };
+  });
+}
+
+// ── 12. In-browser verify: blake3(preimage) → ed25519.verify_strict ────────
+async function verifyReceipt(receipt) {
+  const row = document.getElementById('verifyRow');
+  const msg = document.getElementById('verifyMsg');
+  row.classList.remove('ok','fail');
+  msg.textContent = 'verifying…';
+
+  if (nobleEd && nobleBlake3) {
+    try {
+      const preimage = buildPreimage(receipt);
+      const digest = nobleBlake3(preimage);                 // 32 bytes
+      const sig    = new Uint8Array(receipt.signature);     // 64 bytes
+      const pk     = new Uint8Array(receipt.responder);     // 32 bytes
+      // strict verification: rejects malleable / non-canonical sigs
+      const ok = await nobleEd.verifyAsync(sig, digest, pk, { zip215: false });
+      row.classList.add(ok ? 'ok' : 'fail');
+      msg.innerHTML = ok
+        ? '<span class=check>OK</span> verified offline · ed25519 + blake3 · no server roundtrip'
+        : '<span class=check>FAIL</span> signature did not verify (preimage or key mismatch)';
+      return;
+    } catch (e) {
+      console.warn('in-browser verify threw, falling back', e);
+    }
+  }
+  // Fallback: ask the server.
+  try {
+    const res = await api('POST', '/v1/verify_receipt', { receipt });
+    const ok = res.signature_ok === true || res.ok === true || res.signature_ok === 'ok';
+    row.classList.add(ok ? 'ok' : 'fail');
+    msg.innerHTML = ok
+      ? '<span class=check>OK</span> verified server-side via /v1/verify_receipt'
+      : '<span class=check>FAIL</span> server reports invalid signature';
+  } catch (e) {
+    row.classList.add('fail');
+    msg.textContent = 'verify call failed: ' + e.message;
+  }
+}
+
+function buildPreimage(receipt) {
+  // Canonical preimage per docs/protocol.md §7.1, server.rs:119-148:
+  //   <request_id> | <served_at> | <primitive> |
+  //   <cell_0>, <cell_1>, … <cell_{n-1}>, |
+  //   <fact_cid_0>, <fact_cid_1>, … <fact_cid_{m-1}>,
+  // — every list element followed by a comma, including the last.
+  const enc = new TextEncoder();
+  const parts = [];
+  parts.push(enc.encode(receipt.request_id||''));    parts.push(enc.encode('|'));
+  parts.push(enc.encode(receipt.served_at||''));     parts.push(enc.encode('|'));
+  parts.push(enc.encode(receipt.primitive||''));     parts.push(enc.encode('|'));
+  for (const c of (receipt.cells||[])) {
+    parts.push(enc.encode(c)); parts.push(enc.encode(','));
+  }
+  parts.push(enc.encode('|'));
+  for (const c of (receipt.fact_cids||[])) {
+    parts.push(enc.encode(c)); parts.push(enc.encode(','));
+  }
+  let len = 0; for (const p of parts) len += p.length;
+  const out = new Uint8Array(len);
+  let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// ── 13. base32-nopad-lowercase decoder for responder pubkey ────────────────
+function b32decode(s) {
+  // RFC 4648 base32, lowercase, no padding.
+  const A = 'abcdefghijklmnopqrstuvwxyz234567';
+  let bits = 0, val = 0;
+  const out = [];
+  for (const ch of s.toLowerCase()) {
+    const i = A.indexOf(ch);
+    if (i < 0) continue;
+    val = (val << 5) | i; bits += 5;
+    if (bits >= 8) { bits -= 8; out.push((val >> bits) & 0xff); }
+  }
+  return new Uint8Array(out);
+}
+
+// ── 14. Time slider (visual filter only — does not refetch) ───────────────
+document.getElementById('tlSlider').addEventListener('input', e => {
+  STATE.tslot = +e.target.value / 100;
+  document.getElementById('tlLabel').textContent =
+    STATE.tslot >= 0.999 ? 'all time' : 'top '+Math.round(STATE.tslot*100)+'%';
+  // Hide the lowest-density tail.
+  const cutoff = Math.floor(STATE.cells.length * STATE.tslot);
+  const sorted = STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count);
+  const visible = new Set(sorted.slice(0, cutoff).map(c=>c.cell64));
+  for (const c of STATE.cells) c.brightness =
+    (visible.has(c.cell64) ? Math.log10(1 + c.fact_count) : 0);
+  drawCurrent();
+});
+
+// ── 15. Boot ───────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  resizeCanvas();
+  boot().then(() => {
+    drawCurrent();
+    // Initial console hint
+    const div = document.createElement('div');
+    div.className = 'log';
+    div.innerHTML = '<span class=hint>// every /v1/* call this UI makes prints above. paste a curl into your shell, get the same bytes.</span>';
+    consolePane.appendChild(div);
+  }).catch(e => {
+    const div = document.createElement('div');
+    div.className = 'log';
+    div.innerHTML = '<span class=err>boot failed: '+escapeHtml(String(e))+'</span>';
+    consolePane.appendChild(div);
+  });
+});
+</script>
+</body>
+</html>

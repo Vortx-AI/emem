@@ -586,17 +586,8 @@
     },
     {
       "scheme": "openet.30m.daily",
-      "_note": "OpenET ensemble evapotranspiration over CONUS at 30 m daily — six-model mean (DisALEXI, eeMETRIC, geeSEBAL, PT-JPL, SIMS, SSEBop). Direct irrigation-efficiency driver where coverage exists; outside CONUS fall back to MODIS et_8day. Melton et al. 2022, JAWRA 58(6):971–994.",
-      "providers": [
-        {
-          "id": "openet.dri",
-          "kind": "https_cog_vsicurl",
-          "url_template": "https://openetcoldata.s3-us-west-2.amazonaws.com/ensemble/conus/gridmet/daily/asset_v0_{year}/{year}{month}{day}.tif",
-          "auth": "anonymous",
-          "rate_limit_qps": 30,
-          "license": "CC-BY-4.0 (OpenET / NASA / DRI)"
-        }
-      ],
+      "_note": "OpenET ensemble evapotranspiration over CONUS at 30 m daily — six-model mean (DisALEXI, eeMETRIC, geeSEBAL, PT-JPL, SIMS, SSEBop). Melton et al. 2022, JAWRA 58(6):971–994. Verified 2026-05-08: the public S3 mirror at `openetcoldata.s3-us-west-2.amazonaws.com` returns NoSuchBucket; the OpenET REST API at `openet-api.org` is MAP_KEY-gated and the Earth Engine asset is OAuth-gated. No anonymous open-data path exists today, so providers[] is empty until that changes (or an operator registers a key-bearing provider in their own sources manifest).",
+      "providers": [],
       "tempo": "fast",
       "native_resolution_m": 30
     },

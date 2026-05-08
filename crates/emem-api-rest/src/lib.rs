@@ -90,6 +90,7 @@ const SPACES_MD: &str = include_str!("../../../docs/operating.md");
 const TEMPORAL_MD: &str = include_str!("../../../docs/protocol.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
+const HUMANS_HTML: &str = include_str!("../../../web/humans.html");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 // Lowercase canonical docs (post-2026-05-08 docs sweep). CLIENTS_MD was
@@ -144,6 +145,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         // Landing & agent-targeted pages
         .route("/", get(landing))
+        .route("/humans", get(serve_humans_html))
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
         .route("/whitepaper", get(serve_whitepaper_md))
@@ -1193,6 +1195,21 @@ async fn serve_multimodal_md() -> Response {
 }
 async fn serve_llms_txt() -> Response {
     text_response("text/plain; charset=utf-8", LLMS_TXT)
+}
+
+/// `/humans` — interactive knowledge constellation of the corpus.
+///
+/// One HTML file (`web/humans.html`), inline CSS+JS, two CDN imports
+/// (`@noble/ed25519` for offline signature verify, `@noble/hashes/blake3`
+/// for the receipt preimage). Designed as a gold-standard surface for AI
+/// agents observing a human UI: every `/v1/*` call the page makes is
+/// printed in a console pane, so an LLM watching the page learns the
+/// API by observation.
+///
+/// No GA injection here — `/humans` is a developer/agent tool, not the
+/// SEO landing page; analytics live on `/`.
+async fn serve_humans_html() -> Response {
+    text_response("text/html; charset=utf-8", HUMANS_HTML)
 }
 async fn serve_llms_full() -> Response {
     // Historical artifact — earlier release shipped a 25 KB "full" variant

@@ -59,11 +59,15 @@ stub or "lands in v0.1".
   defines `NCSS_BASES = [UI primary, NCAR RDA secondary]`.
   `fetch_terraclimate_normal` tries each in order; the receipt's
   `Source.url` records which mirror answered.
-- systemd `AmbientCapabilities=CAP_NET_BIND_SERVICE` on
-  `ops/systemd/emem-server.service.example` so `:443` binding
-  survives `cargo build --release` strip without a manual `setcap`.
-  The `redeploy.sh setcap` path remains as belt-and-suspenders for
-  systemd <426.
+- Documented the user-vs-system-mode `cap_net_bind_service` story in
+  `ops/systemd/emem-server.service.example` and `docs/operating.md`.
+  An earlier attempt to add `AmbientCapabilities=CAP_NET_BIND_SERVICE`
+  for the user unit failed in production: the kernel does not honour
+  that directive for user-mode systemd (no UID transition for the
+  user manager to prime), so the unit crash-looped with
+  `status=218/CAPABILITIES`. The directive only works for system-mode
+  units. User-mode deployments stay on `setcap cap_net_bind_service=+ep`
+  re-applied by `scripts/redeploy.sh` after every release build.
 - 4 query_region bbox lock-in tests (round-trip, oversized cap,
   malformed, inverted).
 - 2 Merkle path lock-in tests (single-leaf empty path,
@@ -78,6 +82,29 @@ stub or "lands in v0.1".
   `project_api_surface`, `project_cli_binaries`, `project_intent`,
   `project_inference`, `project_external_surface`,
   `project_integration_gaps`, `feedback_parallel_audits`).
+- `chirps.daily.v2` connector wired end-to-end. New module
+  `crates/emem-fetch/src/chirps.rs` (~310 LoC, 7 unit tests + 1 live
+  test). Materializer `materialize_chirps_daily_precip` in
+  `crates/emem-api-rest/src/lib.rs` signs Primary on real readings,
+  Absence with structured `reason_text` on out-of-bounds (±50° lat),
+  before-record (pre-1981), no-data (-9999.0 sentinel). New band
+  `chirps.precip_daily_mm` at offset 1672 (1 dim); `reserved` shifted
+  to 1673 with dims=119 (Σ=1792 preserved). Function `chirps.precip@1`
+  registered. Live verification: Mumbai cell 2023-07-26 returns
+  76.2 mm/day, 2023-07-27 returns 304.8 mm/day — heavy-monsoon ground
+  truth, signed with populated `receipt.merkle_proof`.
+- `/humans` interactive map at `https://emem.dev/humans`. Knowledge
+  constellation of the corpus: every attested cell64 is a star
+  positioned by Hilbert-ordered (lat,lng) projection (not Mercator),
+  brightness scaled by fact density, colour by dominant band family.
+  Click a star → right-pane shows facts + signed receipt + verify
+  button; verify runs Ed25519 + BLAKE3 in-browser (`@noble/ed25519`
+  + `@noble/hashes/blake3` via ESM CDN, falls back to
+  `/v1/verify_receipt` if the imports fail). A `find_similar` graph
+  view reveals the embedding topology. Console pane prints every
+  `/v1/*` call so an LLM watching the page learns the agent API by
+  observation. Single self-contained `web/humans.html`, 1101 LoC,
+  served via `include_str!` on the new `/humans` route.
 
 #### Changed
 - HuggingFace Space `Dockerfile` pinned to
@@ -87,6 +114,17 @@ stub or "lands in v0.1".
 - `query_region` total-fact cap (`MAX_REGION_FACTS = 65_536`)
   added to defend against pathological dense-corpus + 4096-cell
   bbox combinations.
+- `crates/emem-core/src/sources.rs` validator now accepts
+  `providers: []` for a declared scheme. Replaces the older "no
+  providers" hard-error that forced fake URLs into the manifest.
+  An empty `providers[]` means the scheme name is recognised but
+  no anonymous open-data path exists today — operators register
+  their own key-bearing providers locally.
+- `sources-v0.json:openet.30m.daily` providers list cleared with
+  a `_note` documenting the blocker (the public S3 mirror returns
+  `NoSuchBucket`; OpenET REST API and the GEE asset are both
+  key-gated). Replaces the broken URL that previously made
+  `/v1/sources` advertise a path that 404'd.
 
 #### Removed
 - `Mode::Zk` variant from `verify` — Rust enum
