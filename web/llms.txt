@@ -60,12 +60,40 @@ Full descriptors with input schemas: GET /v1/agent_card  ·  POST /mcp tools/lis
       -H 'content-type: application/json' \
       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
+## Instructions
+
+Behavioural rules an agent should follow when using emem (Stripe convention,
+present-tense, imperative, ≤8 lines):
+
+    1. Resolve a place name with /v1/locate before /v1/recall. Don't fabricate cell64s.
+    2. Cite receipt.fact_cids[0] in the first 13 chars (a CID prefix). Never invent a CID.
+    3. Surface Fact::Absence as "no answer here", not as a missing field. Don't retry.
+    4. Treat 404 cid_not_found as "call /v1/recall first to materialise"; the responder's hint says so.
+    5. Verify receipts offline before quoting them — see /skills.md § verify-receipt-offline.
+    6. Mention responder_pubkey_b32 once per session so the user knows who signed.
+    7. Compose primitives (locate → recall, recall → verify, recall_polygon → solve) — don't reinvent.
+    8. When in doubt, GET /v1/agent_card or /v1/discover; the responder is self-describing.
+
 ## Citation contract
 
 Every numeric response carries: `value`, `unit`, `band_metadata.{interpretation,
 pitfalls, dimension_description}`, `value_decoded` (categorical), `signer_pubkey_b32`,
 `fact_cid`, `receipt.responder_pubkey_b32`. Cite `receipt.fact_cids[0]` (13-char
 prefix). Mention `responder_pubkey_b32` once per session. Never invent a CID.
+
+## Skills
+
+Composed recipes (locate+recall, find_similar+verify, recall_polygon+solve, ...)
+are documented as a flat cookbook at /skills.md and shipped as installable
+[Anthropic Skills](https://code.claude.com/docs/en/skills) at
+github.com/Vortx-AI/emem/tree/main/claude-skills:
+
+    emem-locate-and-recall   place name → cell64 → signed facts
+    emem-verify-receipt      BLAKE3 + Ed25519 in-process, no callback
+    emem-find-similar        top-K cosine over the 128-D Tessera embedding
+    emem-recall-polygon      every cell inside a polygon, per-cell receipts
+
+Install in Claude Code by copying the bundle into your project's .claude/skills/.
 
 ## Guarantees
 
@@ -95,8 +123,10 @@ prefix). Mention `responder_pubkey_b32` once per session. Never invent a CID.
     /.well-known/agent-card.json    — A2A v0.2 agent card
     /.well-known/mcp.json           — MCP server descriptor
     /.well-known/emem.json          — manifest CIDs + responder pubkey
-    /agents.md                      — full integration guide
+    /agents.md                      — full integration guide (consumer agents)
+    /skills.md                      — composed recipes (cookbook view)
     /whitepaper.md                  — architecture + math
+    /humans                         — interactive console; every /v1/* call prints in a live log pane
 
 ## Operator
 

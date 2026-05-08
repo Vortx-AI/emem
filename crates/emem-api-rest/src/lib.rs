@@ -94,6 +94,15 @@ const HUMANS_HTML: &str = include_str!("../../../web/humans.html");
 const HUMANS_JSON: &str = include_str!("../../../web/humans.json");
 const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
 const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
+const SKILLS_MD: &str = include_str!("../../../web/skills.md");
+const SKILL_LOCATE_AND_RECALL: &str =
+    include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
+const SKILL_VERIFY_RECEIPT: &str =
+    include_str!("../../../claude-skills/emem-verify-receipt/SKILL.md");
+const SKILL_FIND_SIMILAR: &str =
+    include_str!("../../../claude-skills/emem-find-similar/SKILL.md");
+const SKILL_RECALL_POLYGON: &str =
+    include_str!("../../../claude-skills/emem-recall-polygon/SKILL.md");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 // Lowercase canonical docs (post-2026-05-08 docs sweep). CLIENTS_MD was
@@ -152,6 +161,11 @@ pub fn router(state: AppState) -> Router {
         .route("/humans.json", get(serve_humans_json))
         .route("/humans/llms.txt", get(serve_humans_llms_txt))
         .route("/humans-og.svg", get(serve_humans_og_svg))
+        .route("/skills.md", get(serve_skills_md))
+        .route("/skills/emem-locate-and-recall/SKILL.md", get(serve_skill_locate_and_recall))
+        .route("/skills/emem-verify-receipt/SKILL.md",   get(serve_skill_verify_receipt))
+        .route("/skills/emem-find-similar/SKILL.md",     get(serve_skill_find_similar))
+        .route("/skills/emem-recall-polygon/SKILL.md",   get(serve_skill_recall_polygon))
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
         .route("/whitepaper", get(serve_whitepaper_md))
@@ -1248,6 +1262,31 @@ async fn serve_humans_llms_txt() -> Response {
 /// identically wherever the URL is pasted.
 async fn serve_humans_og_svg() -> Response {
     text_response("image/svg+xml; charset=utf-8", HUMANS_OG_SVG)
+}
+
+/// `/skills.md` — composed-recipe cookbook for agents.
+///
+/// The same recipes ship as installable Anthropic Skills bundles at
+/// `claude-skills/` in the repo (and at `/skills/<name>/SKILL.md` on
+/// this responder for direct URL fetch).
+async fn serve_skills_md() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILLS_MD)
+}
+
+/// `/skills/<name>/SKILL.md` — individual installable skills (Anthropic
+/// Skills format with YAML frontmatter). A Claude Code user can fetch
+/// any of these and drop them into `.claude/skills/<name>/SKILL.md`.
+async fn serve_skill_locate_and_recall() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_LOCATE_AND_RECALL)
+}
+async fn serve_skill_verify_receipt() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_VERIFY_RECEIPT)
+}
+async fn serve_skill_find_similar() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_FIND_SIMILAR)
+}
+async fn serve_skill_recall_polygon() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_RECALL_POLYGON)
 }
 async fn serve_llms_full() -> Response {
     // Historical artifact — earlier release shipped a 25 KB "full" variant
