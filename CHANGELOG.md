@@ -1,743 +1,393 @@
 # Changelog
 
-All notable changes to the emem reference implementation are recorded
-here. The format follows [Keep a Changelog](https://keepachangelog.com/)
-and we use [Semantic Versioning](https://semver.org/) once we're past
-0.1.
+emem follows the [Keep a Changelog](https://keepachangelog.com/) format.
+CIDs are content-addressed; minor version bumps may roll bands /
+algorithms / sources manifests, but old facts under old CIDs continue
+to verify.
 
 ## [Unreleased]
 
-### Privacy and consent fixes (2026-05-06, evening)
+### Sweep — 2026-05-08
 
-- **GA4 measurement ID moved out of the public repo.** The repo's
-  `web/index.html` now holds a `__EMEM_GA_ID__` placeholder. The
-  responder substitutes this at startup with the value of env var
-  `EMEM_GA_MEASUREMENT_ID`, or strips the entire GA `<script>` block
-  if the var is unset. Forks no longer inherit the canonical
-  responder's GA stream by default. The hosted instance configures
-  the ID via its systemd unit (`ops/systemd/emem-server.service.example`).
-  Note: Google Analytics measurement IDs are public-by-design (every
-  browser sees them in the gtag config), so this is engineering
-  hygiene rather than a secrets fix; the practical benefit is that
-  forkers' traffic does not commingle with this responder's stats.
-- **Consent storage moved from localStorage to a first-party cookie.**
-  EU users reported the banner re-prompting on every refresh.
-  Diagnosis: EU-strict browser configurations (Firefox Strict mode,
-  Brave Shields, "delete site data on close" defaults common in the
-  EEA) were clearing `localStorage` between sessions while preserving
-  cookies. Fix: the consent decision now lives in a first-party
-  cookie `emem_consent` (Path=/, Max-Age=180 days, SameSite=Lax,
-  Secure), exempt from prior consent under ePrivacy Art. 5(3). The
-  inline GA bootstrap script reads the cookie BEFORE `gtag.js` loads,
-  so a previously-accepted user never has GA briefly run denied.
-  PRIVACY.md, SPEC.md §13.5, and `.well-known/agent-card.json`
-  `data_protection.third_party_analytics[0].consent_banner` all
-  updated to reflect cookie-based storage and document the rationale.
+Fresh memory rebuild from code, full P0+P1+P2 fix sweep, then docs
+redo. The summary: every honesty gap surfaced by the parallel audit
+is closed in code or removed from the surface; nothing is left as a
+stub or "lands in v0.1".
 
-### Content and compliance (2026-05-06)
+#### Added
+- `verify mode=Resolve` actually resolves on miss. Previously
+  degraded silently to Fast. Now calls
+  `storage.materialize_many(&[CanonicalKey])` with the targeted
+  tslot (or single-point window) and re-scans. Open-ended windows
+  with no targetable tslot fall back to Fast — documented in the
+  doc comment, not silently swallowed. `MaterializeMiss` (no
+  upstream connector) bubbles to the caller.
+  (`crates/emem-primitives/src/verify.rs:92-111`.)
+- `find_similar.filter` honours structured `Claim` predicates with
+  per-cell verdict memoisation, applied in both cosine and binary
+  scoring paths. Cells with no fact for the filter band are dropped
+  (undecidable, not "false") so an agent asking "find places like X
+  where NDVI > 0.5" does not get silent inclusion of cells with no
+  NDVI history.
+- `Receipt.merkle_proof` populated end-to-end:
+  - `emem_attest::merkle_root_and_paths(leaves) -> (root,
+    Vec<path>)` returns root + per-leaf bottom-up sibling paths in
+    one pass.
+  - `emem_attest::verify_merkle_path(leaf, idx, path, root)` rebuilds
+    the root from a single proof.
+  - `MaterializingStorage::put_attestation` persists per-fact
+    `MerkleProof` records to a sled tree `emem.fact_proofs`, keyed
+    by FactCid string. Leaves are sorted by their 32-byte leaf
+    hash; `MerkleProof.leaf_index` is the sorted-order position.
+  - `Server::sign_receipt` populates `Receipt.merkle_proof` from
+    the first cited fact's stored proof.
+- `query_region` accepts `bbox:lon_min,lat_min,lon_max,lat_max`
+  geometry. Synthesis caps at `MAX_BBOX_CELLS = 4096` (~6.4 km ×
+  6.4 km at the equator) and `MAX_REGION_FACTS = 65_536`. Beyond
+  either cap the responder stops scanning and aggregates over what
+  it has; `receipt.fact_cids` reflects exactly what contributed.
+  GeoJSON polyfill returns a structured error.
+- JEPA-v2 trained-checkpoint loader at
+  `python/jepa_v2_sidecar/server.py:_Registry.load_dynamics`:
+  `torch.load(weights_only=True)` → `load_state_dict(strict=True)`
+  (architecture-name drift fails at load, not at prediction) →
+  optional `blake2b_hex(state_dict_bytes) == declared_hash`. The
+  pre-existing `RuntimeError("loader not shipped yet")` guard is
+  gone; its concern (silent garbage outputs) is preserved by the
+  strict load + hash check.
+- Terraclimate failover: `crates/emem-fetch/src/terraclimate.rs`
+  defines `NCSS_BASES = [UI primary, NCAR RDA secondary]`.
+  `fetch_terraclimate_normal` tries each in order; the receipt's
+  `Source.url` records which mirror answered.
+- systemd `AmbientCapabilities=CAP_NET_BIND_SERVICE` on
+  `ops/systemd/emem-server.service.example` so `:443` binding
+  survives `cargo build --release` strip without a manual `setcap`.
+  The `redeploy.sh setcap` path remains as belt-and-suspenders for
+  systemd <426.
+- 4 query_region bbox lock-in tests (round-trip, oversized cap,
+  malformed, inverted).
+- 2 Merkle path lock-in tests (single-leaf empty path,
+  odd-cardinality self-pair).
+- 14 fresh docs files: `README.md`, `CONTRIBUTING.md`,
+  `CHANGELOG.md` (this), `docs/{agents, protocol, architecture,
+  registries, data-sources, inference, developing, operating,
+  whitepaper}.md`.
+- 12 fresh memory files capturing code-verified ground truth
+  (`project_codec`, `project_registries`, `project_trust_layer`,
+  `project_fetch_inventory`, `project_primitives`,
+  `project_api_surface`, `project_cli_binaries`, `project_intent`,
+  `project_inference`, `project_external_surface`,
+  `project_integration_gaps`, `feedback_parallel_audits`).
 
-- **Agent-first rewrite of the bootstrap surface.** `/v1/discover`
-  shrunk from 130 KB to 1,026 B (134×): a sub-1 KB system-prompt fit
-  with the load-bearing minimum (responder pubkey, 4 manifest CIDs,
-  a one-line algebra `Cell × Band × Tslot → Fact ; cid=blake3(cbor)/
-  b32-32 ; sig=ed25519`, the primitive→URL map, and fanout pointers).
-  `/llms.txt` 20 KB → 5 KB; `/llms-full.txt` aliased to `/llms.txt`;
-  `/agents.md` 27 KB → 16 KB; `index.html` 59 KB → 3.5 KB rewritten
-  in peer-engineer voice (no em-dashes, no AI tells, no marketing
-  prose). Two paragraphs and working playground links a tool-less
-  agent can follow. `robots.txt` slimmed; `sitemap.xml` pruned to 15
-  discovery surfaces. Zero URL moves, zero 404s, SEO / AEO indexes
-  intact.
-- **Production-grade SPEC.md v0.0.4.** Bumped from `v0.0.4-draft /
-  draft` to `v0.0.4 / stable`. Foundation embedding stack reflects
-  what the responder actually serves: `geotessera` (Tessera v1,
-  128-D, vintage 2024), `prithvi_eo2` (Prithvi-EO-2.0-300M-TL,
-  1024-D), `galileo_base_v1` (Galileo Base, 768-D). AlphaEarth
-  Foundations cited as informative prior art only, with explicit
-  "no open weights" disclosure. §3.1 declares the active
-  `cell64-geo-21x22` grid honestly alongside the spec-target hex
-  DGGS at res-13. §16 function registry expanded with 14 missing
-  materializer entries. §22 References split into Normative +
-  Informative with citations for every upstream data source the
-  reference build reads from (S1, S2, STAC, MODIS, COPDEM, GMRT,
-  JRC-GSW, HANSEN, WORLDCOVER, SOILGRIDS, METNO, ERA5, POWER,
-  OPENMETEO-CAMS, OPENMETEO-MARINE, OVERTURE, TESSERA, PRITHVI,
-  GALILEO) plus RFC-grade refs (CBOR, CDDL, EdDSA, blake3, base32,
-  IPLD, MCP, A2A). All 43 citation keys defined.
-- **GDPR / UK-GDPR / DPDP-2023 / CCPA-CPRA compliance surface.**
-  SPEC.md §13 expanded to six subsections: per-band privacy class
-  (existing), no-PII-in-canonical-channel, Art. 6 lawful basis,
-  data-subject-rights table, no-cookies disclosure, IP-handling
-  disclosure (blake3 truncated hash, not raw IP), data-subject
-  contact. Citations added: GDPR (Reg 2016/679), UK-GDPR, DPDP-2023,
-  CCPA-CPRA, RFC 9116. `/v1/discover.fanout` adds `privacy`, `terms`,
-  `spec`. `/.well-known/agent-card.json.provider` now carries
-  `privacy_policy_url`, `terms_of_service_url`, `support_url`, and a
-  `data_protection` extension declaring all four regimes, 30-day log
-  retention, no sale or sharing, no PII in the canonical channel.
-- **Privacy claims aligned with code reality.** Audit found two gaps.
-  (1) "30 days, then deleted" was not enforced; systemd journald
-  defaulted to vacuum-on-disk-pressure. Fix: ship
-  `ops/systemd/journald-30day-retention.conf` with
-  `MaxRetentionSec=30day`, install at
-  `/etc/systemd/journald.conf.d/`, restart `systemd-journald`.
-  Retention now enforced. (2) "originating IP" oversold the data
-  exposure: the access-log middleware computes
-  `agent_ip_hash = base32_nopad_lower(blake3(client_ip)[:8])`,
-  storing only the 8-byte non-reversible hash. PRIVACY.md and SPEC.md
-  §13.3 / §13.6 now describe the hash construction with the source
-  path. Honestly disclosed that GET query strings ARE captured
-  (paired with the hashed IP) for the 30-day window; POST bodies are
-  NOT. Verified end-to-end on the live server (POST canary absent,
-  GET canary present, no Set-Cookie, no third-party trackers).
-- **Stale AlphaEarth references in secondary docs cleaned up.**
-  `WHITEPAPER.md`, `CONTRIBUTORS.md`, `MATERIALIZERS.md`, `TEMPORAL.md`,
-  `MILESTONE_v0.0.4.md` updated to surface the three live
-  foundation embeddings (Tessera, Prithvi, Galileo) and reframe
-  AlphaEarth as a reserved slot with the open-weights gap explicit.
+#### Changed
+- HuggingFace Space `Dockerfile` pinned to
+  `ghcr.io/vortx-ai/emem:0.0` (was `:latest`). A `:latest`
+  deletion or upstream regression no longer dark-blacks the Space.
+  SHA pin recommended in the comment for the next bump.
+- `query_region` total-fact cap (`MAX_REGION_FACTS = 65_536`)
+  added to defend against pathological dense-corpus + 4096-cell
+  bbox combinations.
 
-### Added
-- **Three real physics primitives — heat / wave PDE solvers + constrained
-  JEPA-pattern NDVI predictor.** Closes the 2026-05 audit-found gap that
-  the existing temporal-routing kernels were closed-form decay scores
-  motivated by PDE Green's functions, **not** PDE solvers. The new
-  primitives all evaluate actual finite-difference discretisations under
-  CFL stability checks, sign their output with the responder identity,
-  and cite every input fact CID in the receipt:
-  - `POST /v1/heat_solve {cell, hours_ahead, diffusivity_m2_per_s}` —
-    2-D explicit FTCS solver for `∂u/∂t = α∇²u` over a 3×3 cell stencil
-    centred on `cell`. Reads `modis.lst_day_8day` at the centre and 8
-    cell64 neighbours, integrates forward under `α·Δt/Δx² ≤ 0.20` (the
-    2-D stability bound is 0.25; we keep 20 % round-off margin), and
-    returns a Kelvin forecast with the full 9-cell initial condition,
-    the chosen `(n_steps, dt_seconds)`, and the active CFL factor.
-    Default α=1e-6 m²/s matches urban surface diffusivity (Oke 2017
-    §2.3 Table 2.4); horizon capped at 168 h.
-  - `POST /v1/wave_solve {coastal_cell, offshore_height_m, period_s, n_offshore_cells}` —
-    1-D explicit CTCS solver for `∂²u/∂t² = c²∂²u/∂x²` with `c² = g·h`
-    from `gmrt.topobathy_mean` along the seaward bathymetric gradient.
-    Walks N cells offshore from the coastal cell (default 8 → 80 m
-    profile at the active 10 m grid), integrates under
-    `c·Δt/Δx ≤ 0.5`, with sinusoidal forcing at the offshore boundary
-    `H_s·sin(2π·t/T)` and a hard wall at the coast. Returns the
-    arrival height + arrival time + depth and phase-speed profiles.
-  - `POST /v1/jepa_predict {cell, band, lookback_months}` — constrained
-    JEPA-pattern AR(2) seasonal next-month NDVI predictor. Reads up to
-    24 past months of `indices.ndvi` at the cell, fits the closed-form
-    predictor `y_{t+1} = α·(lag-12 NDVI ∨ recent_mean) + β·(last + slope) + γ·recent_mean`,
-    clamps to `[-1, 1]`. **Coefficients (α=0.6, β=0.3, γ=0.1) are fixed
-    from the agricultural-NDVI literature — NOT a learned MLP.**
-    `jepa_temporal_predictor@2` will train an actual encoder + predictor
-    on the geotessera embedding pool. Surfaces `lag_12_used` so an
-    agent can audit which terms drove the prediction.
-  - All three primitives are wired through MCP (`emem_heat_solve`,
-    `emem_wave_solve`, `emem_jepa_predict`), advertised in
-    `/openapi.json`, and registered in the algorithms manifest with
-    formula + citation + CFL bound. Receipts verify offline via
-    `POST /v1/verify_receipt`. Pure math (`heat_step_2d`,
-    `wave_step_1d`, `jepa_predict_ar2_seasonal`) is unit-tested without
-    storage.
+#### Removed
+- `Mode::Zk` variant from `verify` — Rust enum
+  (`emem-primitives/src/verify.rs`), MCP tool schema
+  (`emem-mcp/src/lib.rs`), OpenAPI VerifyReq schema
+  (`emem-api-rest/src/lib.rs`). The variant was advertised but had
+  zero implementation; `mode=zk` returned 500 on every call. v0.1+
+  may revisit.
+- `Attestation.stake` field from `crates/emem-fact/src/attest.rs`
+  and 9 call sites. Was reserved-for-v2.5; v2.5 will add a
+  properly-named field if and when economics is designed.
+- `find_similar.filter` Internal-error guard. Replaced with the
+  actual evaluator above.
+- 14 stale docs (`docs/{AGENTS, ATTESTING, CLIENTS, CONTRIBUTORS,
+  DEPLOY, GO_LIVE, MATERIALIZERS, MILESTONE_v0.0.4, MULTIMODAL,
+  PUBLISHING, SPACES, SPEC, TEMPORAL, WHITEPAPER}.md`) — replaced
+  by the lowercase set above.
 
-### Fixed
-- **Polygon fan-out for embedded-gazetteer + cached places.** Boring
-  endpoints (`POST /v1/{ndvi,air,lst,soil,water,forest,weather,
-  elevation,at}`) silently fell back to a single 10 m centroid pixel
-  for places resolved via the embedded gazetteer (e.g. `place="Mumbai"`
-  → `via: "embedded"`) or via a stale TTL cache row that pre-dated the
-  polygon-bbox tracking. The wide_bbox table only covers ~14
-  region-scale features (Sahara, Amazon, Alps, …) so the rest of the
-  embedded gazetteer landed in the no-polygon path. Photon also
-  returns Point geometry without an `extent` for many dense-city
-  features even when Nominatim's record carries the boundingbox.
-  `locate_inner` now enriches missing polygon bboxes via a single
-  Nominatim `/search?q=…&limit=1` lookup at three sites — embedded-
-  gazetteer hit, cache hit with no stored bbox, and Photon hit with
-  no extent — and re-caches the result so subsequent calls short-
-  circuit. Net effect: `POST /v1/ndvi {place:"Mumbai"}` now fans out
-  across the metropolitan extent (16-cell sample, mean+median+min+
-  max+std + scene_thumbs[16] + scene_overlay.svg URL) instead of
-  reporting one centroid pixel; `POST /v1/lst {place:"Vatican City"}`
-  carries the boundary polygon; etc.
-- **Polygon visual deliverables on `POST /v1/elevation`.** The
-  elevation polygon path (`elevation_coherent_polygon`) carried per-
-  cell sub-facts and a polygon-level validity vote but no
-  `polygon.scene_thumbs[]`, `polygon.scene_overlay_url`, or
-  `polygon.geojson` outline — agents querying elevation over a region
-  couldn't render a multimodal answer the way NDVI / LST / soil
-  responses already supported. Now exposes the same shape: 16-cap
-  per-cell PNG/RGB/GeoJSON URLs, a server-rendered viridis SVG of the
-  polygon's elevation surface, and an outline FeatureCollection with
-  `area_km2`.
+#### Fixed
+- `verify mode=Resolve` no longer silently behaves as Fast.
+- Production deploys no longer require manual `setcap` after every
+  release rebuild.
+- Receipts now carry Merkle inclusion proofs (was always `None`).
+
+### Audit (parallel, 8 subsystems) — 2026-05-08
+
+Eight Explore agents audited core+codec, fact / claim / attest /
+storage, fetch / connectors, primitives, REST+MCP (live),
+CLI+intent, GPU sidecar + JEPA / Prithvi / Galileo, and
+SDKs+web+deploy. Findings:
+
+- 73 REST endpoints + 34 MCP tools live and schema-aligned, tested
+  on `127.0.0.1:5051`.
+- 244+ workspace tests pass.
+- Sources audit correction: original "11 unwired schemes" claim was
+  wrong. Six are wired inline in `emem-api-rest/src/lib.rs`
+  materialiser functions (gmrt, ornl_modis, nasa_power, open_meteo
+  4-variant, soilgrids.v2, viirs.fire.nrt). Five are genuinely
+  unwired: openet.30m.daily, dynamic_world.v1, tropomi.s5p.ch4,
+  tropomi.s5p.no2, viirs.dnb.monthly.
+
+## [0.0.4] — 2026-05-XX
+
+Polygon-aware boring endpoints, real physics primitives (heat /
+wave PDE solvers + AR(2) NDVI predictor), agent-first homepage,
+production SPEC.md, GDPR / UK-GDPR / DPDP-2023 / CCPA-CPRA
+compliance surface.
 
 ### Added
-- **Hybrid topic routing — keyword exact-match boost + transformer
-  semantic fallback.** Even in transformer mode the router now runs
-  the keyword-substring pass first; if a question contains an exact
-  alias (case-folded), those topics surface ahead of the transformer
-  hits with `via: "keyword"` and a length-based score. The transformer
-  pass still runs to add semantically related topics the keyword pass
-  missed (paraphrases / synonyms). Closes the 2026-05-04 routing gap
-  where `model2vec/potion-base-8M`'s 256-D static-lookup embeddings
-  scored common Qwen-style questions ("show me NDVI for Bengaluru",
-  "satellite imagery of Mumbai") below the 0.35 threshold because the
-  place noun ("Bengaluru") dominated the embedding pool. Pure
-  substring search costs <1 µs per question over <100 short aliases
-  per topic — zero latency overhead.
-- **Aggressive alias enrichment** — `vegetation_condition` (NDVI map/
-  value/for/at/of/in, EVI, SAVI, NDMI, LAI, photosynthesis,
-  greenness, vegetation/crop health, plant vigour),
-  `optical_raw_reflectance` (satellite imagery / picture / image /
-  photo, show me satellite, show me a picture of, S2 scene, true
-  color, RGB image, multispectral, what does this place look like),
-  `radar_all_weather_sar` (show me radar, S1 scene, SAR image,
-  radar imagery, cloud-penetrating, through clouds, night imagery),
-  `public_health` (air quality in / of / at / for, pollution in,
-  smog in, AQI in / for, PM10, particulate matter, no2 level,
-  heat vulnerability / exposure / stress, how polluted is). Targets
-  the question framings agents most commonly use that previously
-  scored below 0.35 cosine.
-- **`/v1/ask imagery_hint` block** — when the matched topics include
-  one of `optical_raw_reflectance`, `radar_all_weather_sar`,
-  `scene_classification` (i.e. the user wants imagery), promote the
-  Sentinel-2 RGB scene URL from the buried `scene` block to a
-  top-level `imagery_hint` block and add a `render_image_for_imagery_topic`
-  caveat telling the agent to render or link to the image instead of
-  (or alongside) the raw band values. Closes the gap where Qwen
-  reading "satellite imagery of Mumbai" returned 7 numeric S2 bands
-  and missed the actual viewable PNG buried in a 15-key response.
-- **Inventory-based algorithm dispatch tightened** — the inventory
-  fall-through I added earlier (so `aqi_class@1` would fire for
-  air-quality questions even when topic_router missed) was too greedy:
-  it dispatched any algorithm whose AST inputs were all in the recall
-  cache, which fired `flood_risk@2` and `aqi_class@1` for "show me
-  NDVI for Bengaluru" because their inputs (cams.pm25,
-  surface_water.recurrence, copdem30m.elevation_mean, sentinel1_raw)
-  all happened to be cached at Bengaluru. Now requires (a) at least
-  one topic was matched, AND (b) every input the AST reads is also
-  in `want_bands` (the bands the matched topics wanted). Air-quality
-  routing now goes through the proper topic_router path (after the
-  alias enrichment), so removing the inventory dispatch for empty-
-  topic queries doesn't regress that case.
-- **`air_quality` band entry + per-scalar dimension overlay** —
-  carved 7 dims off the front of `_reserved_512` (offset 192,
-  shrunk from 512 → 505 dims) to give CAMS air-quality scalars
+- **Three real physics primitives.**
+  - `POST /v1/heat_solve` — explicit FTCS 2D for `∂u/∂t = α∇²u`
+    over a 9-cell stencil at the cell64 10 m pitch. Reads
+    `modis.lst_day_8day` at the centre and 8 neighbours, integrates
+    forward under `α·Δt/Δx² ≤ 0.20`, returns Kelvin forecast +
+    initial condition + chosen `(n_steps, dt_seconds)`. Default
+    α=1e-6 m²/s (Oke 2017 §2.3 table 2.4); horizon ≤168 h.
+  - `POST /v1/wave_solve` — explicit CTCS 1D shallow-water for
+    `∂²u/∂t² = c²∂²u/∂x²` along the seaward bathymetric gradient
+    from `gmrt.topobathy_mean`, `c² = g·h`, `c` floored at 0.01 m.
+    Sinusoidal forcing at the offshore boundary; hard wall at the
+    coast; CFL safety 0.5. Land-locked rejection: offshore
+    boundary ≥5 m AND ≥50 % of profile >1 m, else 422 + suggestion.
+  - `POST /v1/jepa_predict` — closed-form AR(2) seasonal NDVI
+    (`α=0.6, β=0.3, γ=0.1`, lookback ≤24 months). Surfaces
+    `lag_12_used` so an agent can audit which terms drove the
+    prediction. NOT a learned MLP.
+- All three wired through MCP and OpenAPI; receipts verify offline
+  via `POST /v1/verify_receipt`. Pure math (`heat_step_2d`,
+  `wave_step_1d`, `jepa_predict_ar2_seasonal`) unit-tested without
+  storage.
+- `POST /v1/jepa_predict_v2` — pulls 3 latest Tessera vintages,
+  routes to GPU sidecar, returns 128-D prediction. Receipt carries
+  `untrained_baseline` warning until Tessera publishes
+  multi-vintage history.
+- **Polygon-aware boring endpoints** — `POST /v1/{ndvi, elevation,
+  air, lst, soil, water, forest, weather, at}` resolve a place to
+  an OSM polygon, fan out to up to 64 sample cells in parallel
+  (`tokio::task::JoinSet`), return mean / median / min / max / std
+  per band (mode + class distribution for categorical bands;
+  centroid for vector embeddings). Knob: `n_cells` (default 16, max
+  64, `1` forces point mode at the centroid).
+- Visual + structured deliverables on polygon responses:
+  `polygon.geojson` outline FeatureCollection, `polygon.scene_thumbs[]`,
+  `polygon.scene_overlay_url` pointer, top-level `value_per_cell[]`
+  + per-cell `geojson` FeatureCollection.
+- `GET /v1/places/scene_overlay.svg?place=&band=&n_cells=&...` —
+  server-rendered viridis SVG of the resolved polygon, cells
+  coloured across the actual recalled min/max.
+- `GET /v1/cells/:cell64/scene.rgb` — raw octet-stream RGB bytes
+  with `x-emem-scene-{format,width,height,channels,...}` headers.
+- `POST /v1/fetch` — REST mirror of MCP `emem_fetch`. Accepts
+  either `{cid}` (lookup) or `{cell, band, [tslot]}` (materialise +
+  persist).
+- `POST /v1/elevation` cross-band coherent — recalls Cop-DEM (land),
+  GMRT (ocean topobathy), ESA WorldCover (LC veto); reports
+  `validity ∈ {land, ocean, coastline, unknown}`. Open ocean
+  surfaces `elevation_m: null` + signed `bathymetry_m`, eliminating
+  the `0.0` ambiguity.
+- **Embedded band metadata** in `/v1/recall`, `/v1/cells/:cell`,
+  `/v1/recall_polygon`, `/v1/ask`, boring endpoints. Every fact
+  carries sibling `band_metadata` (description, units, value_range,
+  interpretation, pitfalls, references) + `value_decoded` for
+  categorical bands (ESA WorldCover LCCS, JRC Surface Water
+  transition class, S2 SCL). Materialiser scalars
+  (`copdem30m.elevation_mean`, `surface_water.*`, `s2.scl`) inherit
+  metadata from their cube band and surface
+  `inherited_from_cube_band`.
+- `signer_pubkey_b32` + `responder_pubkey_b32` sibling fields on
+  receipts. Raw 32-byte arrays remain intact for byte-for-byte
+  verification; the base32-nopad string is for paste-into-`/v1/verify`
+  ergonomics.
+- `aqi_class@1` algorithm (chained `Where` ops on `cams.pm25` →
+  EPA AQI 1-6), `weather_summary@1` (combined; sky / precip / temp /
+  wind one-liner; Met Office / WMO METAR / Beaufort 8 thresholds).
+  Total algorithms: 102 → 105.
+- `air_quality` band entry — carved 7 dims off the front of
+  `_reserved_512` (offset 192, shrunk 512 → 505) for CAMS scalars
   (`cams.pm25`, `cams.pm10`, `cams.no2`, `cams.o3`, `cams.so2`,
-  `cams.co`, `cams.aod_550`) a proper band-registry home with
-  description / interpretation / pitfalls / references / per-scalar
-  dimension records (units + value_range + description per
-  pollutant). `band_metadata_for_response` now overlays the matched
-  `dimensions[]` entry over the cube-band fields when a dotted
-  scalar key resolves, so `weather.temperature_2m` now surfaces
-  units `°C` (was "see scalar_keys") and the per-dim
-  description ("Air temperature at 2 m above ground"). Bands count
-  goes 33 → 34; `total_dims` stays 1792; `bands_cid` regenerates
-  on next manifest read. The `cams.*` cube-band map updated from
-  → `climate` (wrong) to → `air_quality` (correct).
-- **`/v1/ask` inventory-based algorithm fall-through** — when the
-  topic router misses (e.g. transformer scores below threshold for
-  "air quality in Delhi") but the recall snapshot owns every input
-  an algorithm needs, fire the algorithm anyway. Walks
-  `algorithms[]`, keeps any whose `evaluation: Expr`-referenced
-  bands are all present in `recall.facts[]`, appends to the dispatch
-  list. Closes the matching gap where `aqi_class@1` was registered
-  + bound to `public_health` but the topic_router didn't tag the
-  question `public_health`, so the algorithm never dispatched.
-  Live verified: `air quality in Delhi` now returns
-  `algorithm_outcomes:[{algorithm_key:"aqi_class@1", value:4.0}]`
-  for PM2.5 = 83.8 µg/m³ (Unhealthy per EPA).
-- **`/v1/ask` per-fact `band_metadata` enrichment** — the inner
-  `facts.facts[]` of every /v1/ask response now carries the same
-  `band_metadata` + `value_decoded` blocks that `/v1/recall` and
-  `/v1/cells/:cell64` already shipped, so an LLM consuming an ask
-  response gets units + interpretation + per-scalar dimension
-  overlay + categorical-class labels without a second /v1/bands
-  round-trip. `/v1/ask` was previously the one path that emitted
-  raw signed facts without the band-metadata enrichment.
-- **Three new algorithm registry entries** — `aqi_class@1`,
-  `weather_summary@1`, and `precip_intensity_class@1` was already
-  present; **`aqi_class@1`** is solo, AST-evaluable (chained
-  `Where` ops on `cams.pm25` → integer 1–6 indexing the US EPA AQI
-  category names in `output.values[]` — quote as
-  "aqi_class@1 = 4 / Unhealthy"), with the EPA breakpoints for
-  PM2.5 (12 / 35.4 / 55.4 / 150.4 / 250.4 µg/m³). **`weather_summary@1`**
-  is combined, formula-only (no AST today — Expr is f64-typed),
-  outputs a sky/precip/temperature/wind one-liner with thresholds
-  matching Met Office, WMO METAR, and Beaufort 8 conventions.
-  Both wired into the matching topics (`public_health` →
-  `aqi_class@1`; `weather_now` → `weather_summary@1`) so
-  `/v1/ask {q:"air quality in Delhi"}` now returns
-  `algorithm_outcomes[{algorithm_key:"aqi_class@1", value: 4, ...}]`
-  alongside the raw CAMS facts. Total algorithms 102 → 105.
-- **`/agents.md` integration guide updates** —
-  - New §5 **"Anatomy of a numeric response"** with a complete
-    annotated example of every sibling field 0.0.4 ships
-    (`band_metadata`, `signer_pubkey_b32`, `value_decoded`,
-    `responder_pubkey_b32`, `inherited_from_cube_band`,
-    `dimension_description`, `dimension_index`) plus a field-by-field
-    table of what an agent does with each, plus a 3-sentence reply
-    skeleton an agent can re-use verbatim.
-  - §3 `algorithm_outcomes[]` description bumped to reflect
-    `aqi_class@1` migration + the new `band_observations[]` inventory
-    fall-through path that lets `/v1/ask` come back with raw CAMS
-    facts even before any algorithm fires.
-  - §6 trust-model manifest CIDs replaced with a "fetch from
-    `/v1/manifests`" instruction (the hardcoded CIDs were stale
-    every release; the air_quality band carve regenerated the
-    bands_cid as expected).
-  - Sections 6–12 renumbered to 7–13 to fit the new §5.
-  - Homepage promotes `/agents.md` from the discover-surface block
-    (where it was buried at line 613) to a callout right under the
-    prompt table, paired with `/llms.txt` and `/llms-full.txt`.
-  - `/llms.txt` adds a "What every numeric response carries"
-    section listing the same sibling fields so an agent reading
-    only llms.txt knows to quote them.
-- **Embedded band metadata in numeric responses** — every fact
-  returned by `/v1/recall`, `/v1/cells/:cell64`, `/v1/recall_polygon`,
-  `/v1/ask`, and the `boring` endpoints now carries a sibling
-  `band_metadata` object (description, units, value_range,
-  interpretation, pitfalls, references) sourced from the same band
-  registry as `/v1/bands` — and a `value_decoded` label for the
-  three categorical bands wired today (ESA WorldCover LCCS,
-  JRC Surface Water transition class, Sentinel-2 SCL). An LLM no
-  longer has to round-trip through `/v1/bands` to translate
-  `value: 50, unit: "lccs_class"` into "Built-up". Materializer
-  scalars (e.g. `copdem30m.elevation_mean`, `surface_water.*`,
-  `s2.scl`) inherit metadata from their cube band and surface
-  `inherited_from_cube_band` so the lineage stays explicit.
-- **Sibling `signer_pubkey_b32` + `responder_pubkey_b32` on every
-  receipt** — the raw 32-byte `signer` / `responder` arrays remain
-  intact for byte-for-byte verification (every existing client
-  still works), and a sibling base32-nopad string is now emitted
-  alongside so humans + LLMs can quote / paste the pubkey directly
-  into `/v1/verify` without re-encoding 32 bytes by hand.
-- **Cross-band coherent `/v1/elevation`** — `POST /v1/elevation`
-  now routes through `post_elevation_coherent`, which always
-  recalls Cop-DEM (land), GMRT (ocean topobathy), and ESA
-  WorldCover (LC class veto) and reports a derived `validity`
-  (`land`, `ocean`, `coastline`, `unknown`). Over open ocean the
-  headline `elevation_m` is **null** and `bathymetry_m` carries
-  the GMRT signed depth (negative below sea level) — eliminating
-  the `elevation_m: 0.0` ambiguity that previously made open-Pacific
-  responses indistinguishable from honest sea-level land. All three
-  inputs surface under `sub_facts[]` so an agent can audit the
-  coherence call. The polygon variant adds a `mixed_coastline`
-  vote and partitions `mean_land_elevation_m` / `mean_ocean_depth_m`
-  by per-cell validity so a coastal city or island chain doesn't
-  blend a hilltop with an abyssal plain.
-- **`/v1/ask` band_observations[] inventory fall-through** — when
-  the topic router returns zero topics but the cell still owns a
-  full signed bundle (e.g. air-quality questions resolving against
-  pre-cached or auto-materialized cams.* facts), a second pass
-  walks `recall.facts[]` and emits an entry per band with
-  `routing_via: "inventory"`. Topic-router-derived entries carry
-  `routing_via: "topic_router"`; explicitly-requested bands carry
-  `routing_via: "explicit_band"`. Without this pass an agent
-  asking "air quality in Delhi" got `band_observations: []` even
-  though 17 signed cams.* facts were already in the response —
-  exactly the gap the 2026-05-04 user report flagged.
-- **Honest caveat suppression** — the `/v1/ask` `out_of_scope`
-  caveat now only emits when `topics_matched`, `band_observations`,
-  AND `facts.facts` are all empty. Previously an LLM saw a "topics
-  did not match" caveat next to 17 signed numeric facts, which
-  read as the model contradicting itself.
-- **Workspace bumped to 0.0.4** — incorporates polygon-aware boring
-  endpoints, visual deliverables (geojson + scene_overlay_url +
-  value_per_cell + scene_thumbs), curated GPT-Action OpenAPI subset,
-  agent-first homepage, and a rewritten /llms.txt opening with a
-  prompt → tool-call table. `server.json` matches.
-- **Agent-first homepage rewrite** — `web/index.html` reordered so
-  the H1 + lede + four-tab install grid (Claude Code/Desktop/Cursor/
-  Cline/VS Code MCP, Claude API, Gemini CLI, OpenAI Custom GPT
-  Action) sit above the fold. Three example user-prompt → tool-call
-  rows follow. Operator/legal blockquote demoted to footer. Killed
-  the 1100-char meta description (replaced with a 95-char one),
-  removed the 2009-era `geo.region`/`ICBM`/`geo.placename` SEO meta
-  tags, removed the invented `<meta name="ai-plugin">` /
-  `agent-protocol` tags (canonical paths are
-  `/.well-known/ai-plugin.json` + `/.well-known/agent-card.json`),
-  stripped the repetitive `Just ask &mdash;` prefixes off the
-  Direct integrations table so each cell stands alone for crawler
-  quotability, deferred Google Analytics gtag to the end of `<body>`.
-  Replaced hardcoded count phrases ("102 algorithms", "90+ bands
-  total") with neutral wording — the live counts are at
-  `/v1/agent_card.band_taxonomy` and `/v1/coverage_matrix.totals`.
-  Appended a JSON-LD `@graph` with `WebAPI.potentialAction[]`
-  (`RecallPlaceFacts`, `VerifyReceipt`) and a `BreadcrumbList`
-  (homepage → OpenAPI → MCP) for AEO citation surfaces.
-- **`/llms.txt` rewrite** — new H1, install grid (4 lines per
-  client), and a prompt → tool-call → cite table covering 6 of the
-  most common agent intents (air quality, flood history, elevation,
-  similarity search, temporal diff, polygon aggregation). Operator/
-  legal blockquote moved to the very bottom under
-  `## Operator and legal`.
-- **`GET /v1/openapi.action.json`** — curated 28-operation subset of
-  the full 74-op `/openapi.json`, fitting OpenAI Custom GPT
-  Actions' hard 30-op cap that previously locked out the entire
-  OpenAI platform from importing emem. Title is "emem Earth Memory
-  — Custom GPT Action subset". `x-openai-isConsequential: false`
-  on every read; `true` only on `/v1/attest`. Operations kept:
-  `emem_locate`, `emem_recall`, `emem_recall_many`,
-  `emem_recall_polygon`, `emem_query_region`, `emem_compare`,
-  `emem_compare_bands`, `emem_find_similar`, `emem_trajectory`,
-  `emem_diff`, `emem_verify`, `emem_intent`, `emem_fetch`,
-  `emem_backfill`, `emem_bands`, `emem_coverage_matrix`,
-  `emem_data_availability`, `emem_materializers`, `emem_algorithms`,
-  `emem_grid_info`, `emem_fleet`, `emem_temporal_route`,
-  `emem_errors`, `emem_cell_geojson`, `emem_cell_scene_rgb`,
-  `emem_elevation`, `emem_verify_receipt`, `emem_attest`. Dropped:
-  18 `boring` duplicates (each redundant with `emem_recall`), 4
-  introspection duplicates (`emem_schema`, `emem_functions`,
-  `emem_sources`, `emem_manifests`), and the health/discovery
-  endpoints not relevant inside an Action.
-- **MCP registry metadata** — `server.json` adds
-  `keywords: [earth-observation, geospatial, satellite, carbon-mrv,
-  ed25519, no-api-key, mcp, model-context-protocol]` and
-  `categories: [data, geospatial, earth-observation]` so
-  registry.modelcontextprotocol.io / Smithery / mcp.so / Glama /
-  mcphub keyword-search returns emem for "geospatial" / "earth"
-  queries (previously returned zero).
-- **`surfaces.rest_openapi_action_subset`** in `/v1/agent_card`
-  pointing at `/v1/openapi.action.json` so any agent reading the
-  card knows the curated subset exists.
-
-- **Polygon-aware boring endpoints** — when `POST /v1/{ndvi,elevation,
-  air,lst,soil,water,forest,weather,at}` resolves a place name to an
-  OSM feature with extent (airports, parks, lakes, regions, universities
-  — anything Nominatim/Photon returns a `polygon_bbox` for), the handler
-  now fans out to up to 64 sample cells across the bbox in parallel
-  (`tokio::task::JoinSet`) and returns mean/median/min/max/std per band
-  (mode + class distribution for categorical bands, centroid for vector
-  embeddings). Headline `value` for single-band requests stays at the
-  top level for backward-compat; the new `polygon` and `stats` blocks
-  layer alongside. Point queries (raw `lat,lng` body, or place names
-  the geocoder returns as a centroid) keep their byte-identical
-  single-cell shape. Knob: `n_cells` body/query field (default 16,
-  max 64; `n_cells:1` forces point mode at the centroid). Verified
-  live: `/v1/ndvi {place:"Miami International Airport"}` previously
-  returned a single 0.022 NDVI pixel of tarmac at the centroid; now
-  returns mean=0.106, median=0.067, min=-0.002, max=0.418, std=0.118
-  across 16 cells covering the 15.1 km² polygon.
-- **Visual + structured deliverables on polygon responses** —
-  - `polygon.geojson` — FeatureCollection with one Polygon Feature for
-    the bbox outline; properties carry `place_label`, `area_km2`,
-    `n_sample_cells`. Renders directly in geojson.io / Mapbox / Leaflet.
-  - `polygon.scene_thumbs[]` — per-cell URL pointers (`scene_png`,
-    `scene_rgb`, `geojson`, `info`) so an agent can grid the per-cell
-    visuals in chat without re-querying.
-  - `polygon.scene_overlay_url` — pointer to the new
-    `GET /v1/places/scene_overlay.svg` endpoint with the band + cell
-    count pre-set; agent embeds the URL in a chat reply.
-  - Top-level `value_per_cell[]` — `{cell, lat, lng, value, kind,
-    fact_cid}` per sample cell so an agent can plot its own histogram,
-    identify outliers, or persist for downstream analysis.
-  - Top-level `geojson` — FeatureCollection of per-cell sample
-    Polygons, each carrying the recalled value as a Feature property
-    (per-band when single-band; otherwise per-band block carries its
-    own).
-- **`GET /v1/places/scene_overlay.svg?place=&band=&n_cells=&width=&height=`**
-  — server-rendered value-painted SVG of the resolved place's polygon.
-  Cells coloured via a viridis-like colormap stretched across the
-  actual recalled min/max (categorical and embedding bands fall back
-  to a fixed palette). Caption strip carries place label + band +
-  sample count + value range. Returns `image/svg+xml` with
-  `Cache-Control: public, max-age=60`.
-- **`/v1/{ndvi,air,lst,soil,water,forest,weather,at}`** — convenience
-  POST handlers accepting `{place: "..."}` (geocode→cell) or
-  `{lat, lng}`; matching `?place=` and `?lat=&lng=` GET forms. Each
-  returns a single signed scalar plus receipt. Closes the gap where
-  only `/v1/elevation` was wired despite the eight sister endpoints
-  being documented.
-- **`GET /v1/cells/:cell64/scene.rgb`** — raw `application/octet-stream`
-  RGB bytes (with `x-emem-scene-{format,width,height,channels,...}`
-  headers), sibling to the existing `scene.png` route. Matches the MCP
-  `emem_cell_scene_rgb` tool.
-- **`GET /security`** — fourth policy page, served as
-  `text/markdown` from `SECURITY.md` alongside the existing
-  `/privacy`, `/terms`, `/support` routes; required for marketplace
-  listings.
-- **`POST /v1/fetch`** — REST mirror of the MCP `emem_fetch` tool.
-  Accepts either `{cid}` (lookup-only) or `{cell, band, [tslot]}`
-  (materialize-then-persist), returning the fact + signed receipt.
-- **`bands_cid` in `/v1/bands` response root** — agents reading
-  `/v1/bands` alone can now pin the manifest CID without a separate
-  `/v1/manifests` call.
-- **`open_meteo_copdem90m@1` and `met_no_locationforecast_compact@1`**
-  registered in `/v1/functions` so the derivation-function registry
-  matches the materializer registry. Function count: 17 → 19.
-- **`place_not_found` and `geocoder_transport_down` error codes**
-  exposed in `/v1/errors` alongside the legacy `no_geocoder_match`,
-  documenting the runtime distinction wired in commit `02e4c5e`.
-- **`/v1/query_region` accepts `bbox: [west, south, east, north]`**
-  in addition to the cell64 `geometry` form, matching the documented
-  examples in `examples/agent-walkthroughs.md`.
-- **`emem verify <receipt-path|->`** subcommand on the `emem` CLI —
-  offline ed25519 verification of a receipt against either the
-  embedded responder pubkey, an explicit `--pubkey b32`, or
-  `/.well-known/emem.json` via `--base-url`/`EMEM_BASE_URL`. Calls the
-  same blake3 preimage path as `POST /v1/verify_receipt`. Exits 0 on
-  valid, 1 on invalid.
-- **`EMEM_BASE_URL` defaults to `http://localhost:5051`** in
-  `emem-demo`, `emem-livedemo`, `emem-realdemo`, matching the
-  emem-server default bind. Emits a one-line stderr note when the
-  default fires.
-- Updated `emem_grid_info` MCP tool description to the active
-  `~9.54 m × 9.55 m` grid (was stale `~305 m × 611 m` text from the
-  legacy v0.0.0 layout). The response payload itself was always
-  correct; only the catalog description string was stale.
-
-- **Parallel temporal recipes** — `/v1/temporal_route` and
-  algorithm temporal-window materialization now fan out across
-  windows via `tokio::task::JoinSet`, removing the previous serial
-  60-s timeout bottleneck. Snapshot path (`try_materialize_bands`)
-  remains serial; parallelization is currently temporal-only.
-- **Transparent `algorithm_outcomes[]`** — algorithm responses now
-  carry `formula`, `inputs: {band_key: value}`, and `citation`
-  alongside the computed value, so any agent can recompute the
-  outcome locally and verify it. Outcomes are unsigned JSON in
-  0.0.x; signed `DerivativeFact` wrapping is targeted for 0.0.4.
-- **Deeper `/v1/bands`** — band manifest extended with
-  `description`, `units`, `value_range`, `interpretation`,
-  `pitfalls`, `references`, `dimensions[]`, `scalar_keys[]` for
-  the top 11 bands.
-- **MCP resource templates** — `emem://band/{band_key}`,
-  `emem://algorithm/{algorithm_key}`, `emem://fact/{fact_cid}`,
-  `emem://cell/{cell64}/...` exposed via MCP resource discovery.
+  `cams.co`, `cams.aod_550`). Bands count: 33 → 34;
+  `total_dims` stays 1792.
+- `/v1/ask` enrichments: `band_observations[]` inventory
+  fall-through, `imagery_hint` block for imagery topics,
+  `out_of_scope` caveat suppression when facts already exist,
+  per-fact `band_metadata` + `value_decoded`.
+- Agent surface: `/v1/openapi.action.json` (curated 28-op subset
+  for OpenAI Custom GPT Action's 30-op cap), agent-first homepage
+  rewrite, `/llms.txt` rewrite, `/agents.md` §5 anatomy of a
+  numeric response, MCP resource templates
+  (`emem://{band, algorithm, fact, cell}/...`).
+- **GDPR / UK-GDPR / DPDP-2023 / CCPA-CPRA compliance surface.**
+  SPEC.md §13 expanded to six subsections: per-band privacy class,
+  no-PII-in-canonical-channel, Art. 6 lawful basis, data-subject-rights
+  table, no-cookies disclosure, IP-handling
+  (`agent_ip_hash = base32_nopad_lower(blake3(client_ip)[..8])`).
+  `/v1/discover.fanout` adds `privacy`, `terms`, `spec`.
+  `/.well-known/agent-card.json.provider` adds privacy / terms /
+  support URLs and a `data_protection` extension.
+- Privacy enforcement: `ops/systemd/journald-30day-retention.conf`
+  with `MaxRetentionSec=30day`. POST canary verified absent in
+  logs; GET canary present (paired with hashed IP, 30-day window).
+- Production SPEC.md v0.0.4 (was v0.0.4-draft). §22 references
+  split Normative + Informative; 43 citation keys defined for
+  every upstream and every RFC-grade reference.
+- Privacy + consent fixes (2026-05-06):
+  - GA4 measurement ID moved out of public repo. `web/index.html`
+    holds `__EMEM_GA_ID__`; the responder substitutes
+    `EMEM_GA_MEASUREMENT_ID` at startup or strips the GA block
+    entirely.
+  - Consent storage moved from `localStorage` to a first-party
+    cookie `emem_consent` (Path=/, Max-Age=180 days, SameSite=Lax,
+    Secure). EU strict-mode browsers were clearing localStorage
+    between sessions.
 
 ### Changed
-- **Docs honesty pass on temporal-routing kernels** — clarify that
-  `/v1/temporal_route`'s `heat_gaussian`, `wave_seasonal`, and
-  `advection_linear` kernels are decay-scoring heuristics motivated
-  by the analytical solutions of the corresponding PDEs, not full
-  PDE solvers. The math is correct (the Gaussian *is* the 1-D heat
-  Green's function; the half-cosine is a one-period truncation of a
-  sinusoidal traveling wave) but applied to per-band staleness
-  ranking, not 2-D spatiotemporal prediction. `docs/TEMPORAL.md`
-  rewrites the "Why these specific PDEs" section, retitles the
-  table column to "PDE inspiration / shipped kernel (decay score)",
-  tightens the JEPA section's "research direction, NOT shipped"
-  framing, and adds a "What v0.1 will add" subsection naming the
-  three real implementations queued: `heat_equation_2d@1` (real 2-D
-  finite-difference heat solver for urban heat island propagation),
-  `wave_equation_1d@1` (real shallow-water wave solver for ocean
-  swell along bathymetry), `jepa_temporal_predictor@1` (small MLP
-  next-NDVI forecaster on the geotessera embedding). `docs/WHITEPAPER.md`
-  gains §10.7 covering the same kernels with the same honesty
-  framing, and `/v1/temporal_route` is added to the REST routes
-  list it had previously omitted. No code changes; no behavior
-  changes; only docs.
+- Workspace bumped to `0.0.4`.
+- `/v1/discover` shrunk 130 KB → 1,026 B (134×). One-KB system-prompt
+  fit: responder pubkey, 4 manifest CIDs, one-line algebra
+  `Cell × Band × Tslot → Fact ; cid=blake3(cbor)/b32-32 ;
+  sig=ed25519`, primitive→URL map, fanout pointers.
+- `/llms.txt` 20 KB → 5 KB; `/agents.md` 27 KB → 16 KB;
+  `index.html` 59 KB → 3.5 KB. Two paragraphs and working playground
+  links a tool-less agent can follow.
+- Hybrid topic routing — keyword exact-match boost runs ahead of
+  the transformer pass even in transformer mode. Closes the
+  `model2vec/potion-base-8M` 0.35-threshold gap on common Qwen-style
+  prompts where a place noun dominated the embedding pool.
+- Aggressive alias enrichment for `vegetation_condition`,
+  `optical_raw_reflectance`, `radar_all_weather_sar`,
+  `public_health` — the framings agents most commonly use that
+  previously scored below threshold.
+- Inventory-based algorithm dispatch tightened: requires
+  `topics_matched > 0` AND every input the AST reads is in
+  `want_bands`. Stops `flood_risk@2` and `aqi_class@1` from firing
+  on "show me NDVI for Bengaluru".
+- Cross-band coherent `/v1/elevation` (above) is the default now;
+  point and polygon both route through `post_elevation_coherent`.
+- Algorithm temporal-window materialisation parallelised via
+  `tokio::task::JoinSet` — the previous serial 60 s timeout is
+  gone for `/v1/temporal_route`.
+
+### Removed
+- 14 stale `docs/*.md` files (above) — replaced by lowercase
+  `docs/{agents, protocol, architecture, registries, data-sources,
+  inference, developing, operating, whitepaper}.md`.
 
 ### Fixed
-- **Dockerfile**: added `g++` to the build stage so the
-  `model2vec-rs` C++ dependency compiles cleanly in CI.
-- **0.0.3 sweep**: aligned `0.0.2 → 0.0.3` in user-agent strings,
-  exposed `topicRouter` backend in introspection.
+- Polygon fan-out for embedded-gazetteer + cached places.
+  `locate_inner` now enriches missing polygon bboxes via a single
+  Nominatim `/search?q=…&limit=1` lookup at three sites — embedded
+  hit, cache hit with no stored bbox, Photon hit with no extent —
+  and re-caches the result so subsequent calls short-circuit.
+- Polygon visual deliverables on `POST /v1/elevation` —
+  `polygon.scene_thumbs[]`, `polygon.scene_overlay_url`,
+  `polygon.geojson` outline now match what NDVI / LST / soil
+  responses already shipped.
+- Dockerfile: added `g++` to the build stage so `model2vec-rs`
+  compiles cleanly in CI.
+- Honest caveat suppression: `/v1/ask` `out_of_scope` only emits
+  when `topics_matched`, `band_observations`, AND `facts.facts` are
+  all empty.
 
 ## [0.0.3] — 2026-05-01
 
-This release closes the gaps surfaced by the Katihar (Bihar) man-made-lake
-test report — placeholders, hardcodes, and silent fallbacks that turned
-honest geospatial questions into wrong-but-confident answers. It also
-tightens every protocol surface that an external agent touches: the
-geocoder cascade, the temporal composition vocabulary, the algorithm
-registry, the multimodal scene path, and the brand identity.
+Closed gaps surfaced by the Katihar (Bihar) man-made-lake test
+report — placeholders, hardcodes, silent fallbacks. Tightened every
+protocol surface an external agent touches: geocoder cascade,
+temporal vocabulary, algorithm registry, multimodal scene path,
+brand identity.
 
 ### Added
-- **Topic registry + transformer router** —
-  `crates/emem-core/data/topics-v0.json` is a content-addressed
-  `TopicRegistry` (manifest topic `emem-topics`) of 25 hand-authored
-  topics, each declaring `{ key, description, aliases[], bands[],
-  algorithms[] }`. The new `topic_router` module in `emem-api-rest`
-  embeds each topic's description + aliases with model2vec-rs
-  (`minishlab/potion-base-8M`, ~32 MB, sub-ms inference, pure-Rust,
-  no ONNX/C++) and routes a free-text question to topics by cosine
-  similarity ≥ 0.35. If the model fails to load (no HF_HOME, no
-  network on first run, etc.) the router transparently falls back to
-  alias keyword matching — the surface contract is identical.
-  Replaces ~639 lines of static `TOPIC_BANDS` / `TOPIC_ALGORITHMS` /
-  `TOPIC_KEYWORDS` tables that were previously hardcoded in
-  `lib.rs`. (Phase B of the "scientific routing" scan.)
-- **Formula-AST evaluator + composite dispatcher** — `Expr` enum in
-  `emem-core::algorithms` (`Band`, `Const`, `Add`, `Sub`, `Mul`,
-  `Div`, `Linear`, `WeightedBlend`, `Clamp`, `Where`, `Abs`,
-  `Sigmoid`, `Relu`, `Max`, `Min`) with `Expr::evaluate(samples) ->
-  Option<f64>` and `Expr::referenced_bands()`. Algorithms now carry
-  an optional `evaluation: Expr` field that turns a human-readable
-  `formula: String` into a byte-stable executable AST. `flood_risk@2`
-  is the proof-of-concept: its `0.55*(swr/100) +
-  0.25*dem_agreement*(relu(50-cop)/50) + 0.20*sigmoid((-15-s1)/2)`
-  formula round-trips through canonical-CBOR JSON to the dispatcher
-  and produces 0.4836 byte-stably (test:
-  `flood_risk_v2_evaluates_to_a_real_number_from_dispatcher`). The
-  new `dispatch_algorithms(matched_keys, recall)` helper in
-  `emem-api-rest` runs every matched algorithm whose evaluation block
-  is satisfied by the recall samples and emits an
-  `algorithm_outcomes[]` array on `/v1/ask` (additive sibling, empty
-  when no algorithm has an `evaluation` block yet). (Phase C of the
-  "scientific routing" scan; M-13 / M-14 carryforward to v0.0.4 to
-  migrate the remaining 101 algorithms.)
-- **Temporal composition** — `Algorithm.temporal_recipe { windows[], label,
-  note }` in `emem-core::algorithms`. Each window declares
-  `{ band, lookback_days, aggregator, purpose, trigger_threshold? }` so a
-  composite score can express "antecedent rainfall (7 d, sum) → recent
-  radar water (14 d, max) → optical water (30 d, baseline)" without
-  hardcoding the cadence in the responder.
-- `/v1/ask` and `/v1/intent` responses now carry an additive
-  `temporal_composition[]` field (sibling to `facts`/`results`,
-  not a replacement) — empty array when no matched algorithm declares
-  a recipe. Each entry surfaces the algorithm key, the recipe label, and
-  per-window fact CIDs + scalar values + an aggregator summary so the
-  agent can compose a real flood / drought / wildfire answer in one
-  round-trip instead of a hand-rolled fan-out.
-- `flood_risk@2` algorithm — adds GMRT topo input and a
-  `dem_agreement` weighting term (factor 0.5 when |Cop-DEM − GMRT| > 5 m)
-  on top of `flood_risk@1`, plus a temporal_recipe for antecedent
-  rainfall + recent radar water + optical water. `flood_risk@1` is
-  retained for backwards compatibility.
-- `temporal_recipe` blocks on `water_consensus@1`,
-  `wildfire_exposure_score@1`, and `spi_meteorological_drought@1`.
-- **Sentinel-2/Sentinel-1 fallback ladders** — `s2_search_with_fallback`
-  (40 % cloud / 30 d → 60 % / 60 d → 80 % / 90 d) and
-  `s1_search_with_fallback` (15 d → 30 d → 60 d) so cloudy / rainy
-  regions still return a real scene rather than degrading to a
-  placeholder. Used by the rainy-day flood path the Katihar report
-  asked for.
-- **Adaptive polygon density** — `RecallPolygonReq.cells_per_sqkm` and
-  `drill_on_water` parameters; max-cells cap raised from 256 to 1024.
-  Two-stage drill now adds `hot_centres` around recurrence > 25 % cells
-  so a polygon recall over a water body returns the wet pixels at high
-  density instead of being blurred by a uniform sweep.
-- **Lake / pond / reservoir keywords** in `TOPIC_KEYWORDS["flood_water_event_window"]`
-  — `lake`, `pond`, `reservoir`, `manmade lake`, `tank`, `water body`,
-  `lagoon`, `wetland`, `marsh` — so a "is the lake flooded" question
-  actually routes to the flood/water topic instead of falling through.
-- **Photon (komoot.io) geocoder** as the primary live fallback when the
-  embedded gazetteer and TTL cache miss. Fast (~100 ms typical),
-  Elasticsearch-indexed OSM with strong recall on rural villages /
-  tanks / water bodies (Katihar test: `Laliyahi` resolves via Photon
-  but returned no results from Nominatim). Nominatim is now the
-  secondary fallback. Configurable via `EMEM_PHOTON_BASE`.
-- **Overture release auto-discovery** — `latest_release()` walks the
-  Overture S3 bucket via ListObjectsV2 + XML parse, with a 24 h cached
-  ReleaseCache and `EMEM_OVERTURE_RELEASE` env override so an operator
-  can pin a specific release for repro builds.
-- `/v1/materializers` now exposes `overture_release` so an agent can
-  see which release will be served without an Overture round-trip.
-- `temporal_recipe` is also surfaced inline on each
-  `/v1/intent → composite_suggestions.applicable[]` entry so an agent
-  planning a follow-up `/v1/ask` sees the lookback windows without a
-  second `GET /v1/algorithms/<key>` round-trip.
-- **Brand identity refresh** — new `/logo.png`, `/logo-mark.png`,
-  `/logo-300w.png`, `/logo-600w.png`, `/logo-1200w.png`,
-  `/favicon.png`, `/apple-touch-icon.png`, `/icon-192.png`,
-  `/icon-512.png` (PNG variants of the new mark) plus a refreshed
-  `favicon.svg` and `og-image.svg` carrying the new
-  indigo→purple gradient palette. `index.html`, `agent.json`,
-  `ai-plugin.json`, and `gemini-extension.json` now reference
-  `/logo.png` for organization-logo schema.
+- **Topic registry + transformer router.**
+  `crates/emem-core/data/topics-v0.json` — 25 hand-authored topics,
+  each `{key, description, aliases[], bands[], algorithms[]}`. The
+  `topic_router` module embeds descriptions + aliases with
+  model2vec-rs (`minishlab/potion-base-8M`, ~32 MB, sub-ms
+  inference, pure-Rust) and routes free-text questions by cosine
+  ≥0.35. Falls back to alias keyword matching when the model fails
+  to load. Replaces ~639 lines of static `TOPIC_BANDS` /
+  `TOPIC_ALGORITHMS` / `TOPIC_KEYWORDS` tables.
+- **Formula-AST evaluator + composite dispatcher.** `Expr` enum
+  in `emem-core::algorithms` (15 variants: Band, Const, Add, Sub,
+  Mul, Div, Linear, WeightedBlend, Clamp, Where, Abs, Sigmoid,
+  Relu, Max, Min). `Expr::evaluate(samples) -> Option<f64>`.
+  Algorithms gain optional `evaluation: Expr` field; `flood_risk@2`
+  is the proof-of-concept (round-trips canonical-CBOR JSON,
+  produces 0.4836 byte-stably).
+- **Temporal composition.** `Algorithm.temporal_recipe { windows[],
+  label, note }`; `/v1/ask` and `/v1/intent` carry an additive
+  `temporal_composition[]`. `flood_risk@2` adds GMRT topo +
+  `dem_agreement` weighting term.
+- **Sentinel-2 / Sentinel-1 fallback ladders.**
+  `s2_search_with_fallback` (40 % cloud / 30 d → 60 % / 60 d → 80 % /
+  90 d), `s1_search_with_fallback` (15 d → 30 d → 60 d).
+- **Adaptive polygon density.** `RecallPolygonReq.cells_per_sqkm` +
+  `drill_on_water` parameters; max-cells cap raised 256 → 1024.
+- **Photon (komoot.io) geocoder** as the primary live fallback.
+  Cascade: embedded → cache → Photon → Nominatim. Configurable via
+  `EMEM_PHOTON_BASE`. `/v1/locate.via` reports the resolved path.
+- **Overture release auto-discovery** via S3 ListObjectsV2 + XML
+  parse; 24 h cached `ReleaseCache`; `EMEM_OVERTURE_RELEASE`
+  override.
+- Brand identity refresh — new logo + favicon variants; PNGs
+  referenced from `index.html`, `agent.json`, `ai-plugin.json`,
+  `gemini-extension.json`.
 
 ### Changed
-- Live geocoder priority is now Photon → Nominatim (was: Nominatim → Overpass).
-  The `via` field in `/v1/locate` reports `embedded` / `cache` /
-  `photon` / `nominatim` / `direct`.
-- `build_cell_scene_rgb` percentile helper now returns `Option<f64>`
-  and filters non-finite / non-positive samples up front, so a tile
-  with no surface reflectance no longer renders as a black scene.
-- `algorithms_for_topic[flood_*]` now points at `flood_risk@2`.
-  `flood_risk@1` is retained in the registry so existing receipts
-  still resolve.
-- `/v1/recall_polygon`'s `max_cells` cap raised 256 → 1024 to support
-  the new dense / drilled fan-outs without forcing the agent to
-  manually slice the polygon.
-- Bumped HTTP request timeouts to give cold materializers room to
-  fan out on first hit (per `docs/CLIENTS.md` guidance).
+- Tslot anchor: u64 anchored at **Unix epoch** (was emem-2026
+  epoch in 0.0.2 — pre-2026 observations collapsed to `Tslot(0)`,
+  which broke per-tslot historical backfill).
+- `algorithms_for_topic[flood_*]` points at `flood_risk@2`;
+  `flood_risk@1` retained so existing receipts still resolve.
+- `/v1/recall_polygon.max_cells` cap raised 256 → 1024.
 
 ### Removed
-- **Static topic-routing tables** — the ~639-line
-  `TOPIC_BANDS` / `TOPIC_ALGORITHMS` / `TOPIC_KEYWORDS`
-  `LazyLock` blocks in `crates/emem-api-rest/src/lib.rs` are gone.
-  The same data now lives in `topics-v0.json` and is consumed
-  through the `TopicRouter` (transformer-backed cosine match,
-  alias-keyword fallback). The four call sites
-  (`live_bands_for_topic`, `algorithms_keys_for_topic`,
-  `route_question_to_topics`, `matched_keywords`) are now thin
-  registry queries.
-- **Overpass geocoder fallback** — the public Overpass instance
-  routinely returns 503 under rate limits and a global
-  name-regex query takes ~30 s on a synchronous request path. Photon
-  serves the same OSM corpus via Elasticsearch in ~100 ms with better
-  recall, so Overpass has been removed from the live cascade.
-  `EMEM_OVERPASS_BASE` is no longer consulted.
+- Static topic-routing tables (~639 lines): `TOPIC_BANDS`,
+  `TOPIC_ALGORITHMS`, `TOPIC_KEYWORDS` `LazyLock` blocks in
+  `emem-api-rest/src/lib.rs`. Same data now in `topics-v0.json`,
+  consumed via `TopicRouter`.
+- Overpass geocoder fallback. The public Overpass instance returns
+  503 under load; Photon serves the same OSM corpus in ~100 ms via
+  Elasticsearch.
 
 ### Fixed
-- `/v1/locate` for rural OSM places (e.g. `Laliyahi` / Katihar) — the
-  embedded → cache → Photon → Nominatim cascade now resolves these
-  reliably; the old chain timed out on Overpass.
-- `/v1/cells/{cell}/scene.png` no longer returns a uniformly black
-  PNG when a Sentinel-2 tile has scattered reflectance (percentile
-  helper was returning 0 instead of `None`).
-- Three Overture client `cli.release().to_string()` callsites were
-  silently fire-and-forgetting an unawaited future; now `.await`ed
-  with `map_err`.
+- `/v1/locate` for rural OSM places (Katihar / Laliyahi) — embedded
+  → cache → Photon → Nominatim resolves reliably; Overpass timed
+  out.
+- `/v1/cells/{cell}/scene.png` no longer black for tiles with
+  scattered reflectance (percentile helper now returns
+  `Option<f64>` and filters non-finite up front).
 
-### Migration notes
-- **No breaking changes.** `temporal_composition` and
-  `temporal_recipe` are additive sibling fields; existing readers
-  that parse `facts[]` only continue to work.
-- `flood_risk@1` is still in the registry, so receipts that cite the
-  v1 algorithm key continue to verify. New flood questions
-  automatically route to `flood_risk@2`.
-- If you hardcoded `via == "overpass"` anywhere, change it to
+### Migration
+- No breaking changes. `temporal_composition` and `temporal_recipe`
+  are additive sibling fields.
+- `flood_risk@1` still in the registry; receipts citing v1
+  continue to verify.
+- If you hardcoded `via == "overpass"`, change it to
   `via == "photon"`.
 
-### Also added (carryover from the post-0.0.2 development cycle)
-- `PRIVACY.md` "Your rights" section enumerating GDPR / CCPA / CPRA data-
-  subject rights (access, erasure, rectification, objection, opt-out of
-  sale/sharing, non-discrimination) and how to exercise them.
+### Carryover from post-0.0.2 development
 - Native HTTPS via in-process rustls + Let's Encrypt (TLS-ALPN-01).
-- `/v1/locate` (lat/lng or place name → cell64; OSM Nominatim under the
-  hood for place-name lookup).
-- `/v1/cells/{cell64}/info` (cell64 → centre + bbox + approx size).
-- `/v1/discover` (one-call agent bootstrap: agent_card + manifests +
-  canonical places + next-call hints).
-- `/api` — 308 redirect to `/v1/agent_card`.
-- `/v1/contributors` and `/v1/contributors/{pubkey_b32}` — the
-  Contributor-of-Intelligence Layer (CoIL) leaderboard.
-- `/metrics` — Prometheus text-format counters.
-- `/llms-full.txt` — the comprehensive single-call agent context dump.
-- `/examples/agent-walkthroughs.md` — 8 worked end-to-end queries.
-- Production middleware: 16 MiB body cap, 30 s timeout, per-IP token-
-  bucket rate limit (60/min, 120 burst), HSTS / CSP / X-Content-Type-
-  Options / X-Frame-Options / Referrer-Policy / Permissions-Policy,
-  optional HTTP→HTTPS redirect via `EMEM_REDIRECT_HTTPS=1`,
-  graceful shutdown on SIGTERM.
-- Persistent ed25519 responder identity at
+- Persistent Ed25519 responder identity at
   `<EMEM_DATA>/identity.secret.b32` (mode 0600).
-- `emem-livedemo` and `emem-realdemo` CLI binaries with full request +
-  response + receipt traceability written to `var/demos/`.
-- Daily systemd timer (`emem-daily-delta.timer`) capturing contributor
-  + metrics + realdemo trace at 03:17 UTC.
-- SEO surface: Open Graph + Twitter card meta, geo / ICBM / DC.coverage
-  meta, JSON-LD `SoftwareApplication` + `Organization` + `WebSite`,
-  GA4 (operator-configured measurement ID), favicon, OG image, IndexNow key endpoint,
-  `/.well-known/security.txt`.
-
-### Also changed (carryover from the post-0.0.2 development cycle)
-- Cell64 codec now exposes a stable `cell_from_latlng` / `latlng_from_cell64`
-  pair in `emem-codec::geo`, with a documented bit layout
-  (`mode|res|base|hilbert_d`).
-- `emem-realdemo` uses the canonical codec — its attested cells now
-  match the cells `/v1/locate` returns for the same coordinates.
-- Curl examples in `web/index.html` and `web/llms.txt` now reference a
-  real, locatable cell that returns real Cop-DEM provenance facts.
-- `serve_llms_full` actually serves a comprehensive LLM-targeted text
-  rather than the whitepaper.
-
-### Also removed (carryover from the post-0.0.2 development cycle)
-- The third-party `r.jina.ai` external-probe dependency. We use
-  `curl --resolve` for direct external connectivity tests now.
+- `/v1/locate` (lat/lng or place name → cell64), `/v1/cells/{cell}/info`,
+  `/v1/discover` (one-call agent bootstrap), `/v1/contributors[*]`
+  (CoIL leaderboard), `/metrics` (Prometheus).
+- Production middleware: 16 MiB body cap, 30 s timeout, per-IP
+  token bucket (60/min, 120 burst), HSTS / CSP / X-Content-Type-Options /
+  X-Frame-Options / Referrer-Policy / Permissions-Policy, optional
+  HTTPS redirect via `EMEM_REDIRECT_HTTPS=1`, graceful shutdown on
+  SIGTERM.
+- `emem-livedemo` and `emem-realdemo` CLI binaries with full
+  request + response + receipt traceability written to
+  `var/demos/`.
+- Cell64 codec gained `cell_from_latlng` / `latlng_from_cell64`
+  pair in `emem-codec::geo` with documented bit layout.
 
 ## [0.0.2] — 2026-04-26
 
 Initial open-source release. The protocol surface, primitives, MCP
-server, and reference responder are all functional. See README.md for
-the workspace layout and DEPLOY.md for production deployment.
+server, and reference responder are all functional. See
+`README.md` for the workspace layout and `docs/operating.md` for
+production deployment.
+
+End.

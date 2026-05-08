@@ -23,6 +23,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub mod cache_window;
+pub mod chirps;
 pub mod cog;
 pub mod connectors;
 pub mod dmsp_ols;

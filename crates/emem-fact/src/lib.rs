@@ -16,4 +16,4 @@ pub use cid::{FactCid, ReasonCid, RegistryCid, SchemaCid};
 pub use fact::{
     Derivation, DerivativeFact, Fact, FactKind, NegativeFact, PrimaryFact, Source, Uncertainty,
 };
-pub use receipt::{Cost, Receipt};
+pub use receipt::{Cost, MerkleProof, Receipt};

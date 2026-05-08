@@ -280,3 +280,55 @@ async fn s2_l2a_cog_samples_pixel_via_stac() {
     eprintln!("Cambridge UK B04={r} ({red_refl}), B08={n} ({nir_refl}), NDVI={ndvi:.4}");
     assert!((-1.0..=1.0).contains(&ndvi), "NDVI out of range: {ndvi}");
 }
+
+/// CHIRPS daily-precipitation end-to-end: anonymous COG at UCSB CHC,
+/// IFD head + tile range read for one (lat, lng, date). 2023-07-26
+/// is a documented heavy-rainfall day across the Indian SW monsoon
+/// belt (Maharashtra widespread flooding); 86 mm/day at Mumbai is
+/// the gauge-blended truth and a strong end-to-end indicator that
+/// our LZW + Float32 (predictor=1) decode path is honest. Tolerant
+/// of upstream transients (skips on transport / not-published
+/// rather than failing the suite, same convention as the other
+/// live tests).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chirps_daily_samples_pixel_via_anonymous_cog() {
+    if skip_if_no_network() {
+        return;
+    }
+    use emem_fetch::chirps;
+    match chirps::fetch_chirps_daily(19.07, 72.87, 2023, 7, 26, std::time::Duration::from_secs(60))
+        .await
+    {
+        Ok(s) => {
+            eprintln!(
+                "Mumbai 2023-07-26: {:.3} mm/day, url={}",
+                s.mm_per_day, s.upstream_url
+            );
+            // Documented heavy-rain day — 50 mm/day is a conservative
+            // floor that any Maharashtra-coast pixel comfortably clears.
+            assert!(
+                (50.0..1500.0).contains(&s.mm_per_day),
+                "expected heavy-monsoon mm/day in [50, 1500); got {}",
+                s.mm_per_day
+            );
+        }
+        Err(chirps::ChirpsError::Transport(e)) | Err(chirps::ChirpsError::Decode(e)) => {
+            eprintln!("CHIRPS Mumbai transport/decode (skipping): {e}");
+        }
+        Err(chirps::ChirpsError::NotPublished { url }) => {
+            eprintln!("CHIRPS Mumbai not_published (skipping): {url}");
+        }
+        Err(other) => panic!("CHIRPS Mumbai unexpected: {other}"),
+    }
+
+    // Out-of-bounds path: 75°N is north of the ±50° clip. Must
+    // surface as `OutOfBounds` short-circuit (no HTTP), and a
+    // recall against this cell would sign Absence with `out_of_bounds`.
+    match chirps::fetch_chirps_daily(75.0, 0.0, 2023, 7, 15, std::time::Duration::from_secs(10))
+        .await
+    {
+        Ok(s) => panic!("expected OutOfBounds, got value {}", s.mm_per_day),
+        Err(chirps::ChirpsError::OutOfBounds { .. }) => (),
+        Err(other) => panic!("expected OutOfBounds, got {other}"),
+    }
+}

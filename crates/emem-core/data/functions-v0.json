@@ -188,6 +188,16 @@
       "sources": [{ "scheme": "met_no", "channels": ["air_temperature","cloud_area_fraction","precipitation_amount","wind_speed"], "tempo": "fast" }],
       "formula": "met_no_locationforecast_compact(lat,lng) → properties.timeseries[nearest_to(target_unix)].data.instant.details[field] for {temperature_2m, cloud_cover, precipitation_mm, wind_speed_10m}; one fact per scalar_key",
       "deterministic": true
+    },
+    {
+      "key": "chirps.precip@1",
+      "kind": "primary",
+      "out_band": "chirps.precip_daily_mm",
+      "out_index": 0,
+      "out_unit": "mm/day",
+      "sources": [{ "scheme": "chirps.daily.v2", "tempo": "fast" }],
+      "formula": "chirps_v2_0_daily_cog_pixel(lat,lng,year,month,day) → mm/day (Float32, NoData=-9999.0); ±50° latitude clip, 1981-01-01 → today−30d coverage",
+      "deterministic": true
     }
   ]
 }

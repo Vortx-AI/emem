@@ -80,19 +80,26 @@ const LLMS_TXT: &str = include_str!("../../../web/llms.txt");
 // stable. The web/llms-full.txt file remains for one release as a
 // sitemap target; the route ignores it.
 const AGENT_WALKTHROUGHS_MD: &str = include_str!("../../../examples/agent-walkthroughs.md");
-const ATTESTING_MD: &str = include_str!("../../../docs/ATTESTING.md");
-const MATERIALIZERS_MD: &str = include_str!("../../../docs/MATERIALIZERS.md");
-const SPACES_MD: &str = include_str!("../../../docs/SPACES.md");
-const TEMPORAL_MD: &str = include_str!("../../../docs/TEMPORAL.md");
+// Topic docs were folded into the canonical four: protocol (attestation +
+// temporal), data-sources (materializers), operating (spaces / deploy).
+// Routes that used to serve the topic-specific files now serve the new
+// canonical doc — content is current, URLs keep working.
+const ATTESTING_MD: &str = include_str!("../../../docs/protocol.md");
+const MATERIALIZERS_MD: &str = include_str!("../../../docs/data-sources.md");
+const SPACES_MD: &str = include_str!("../../../docs/operating.md");
+const TEMPORAL_MD: &str = include_str!("../../../docs/protocol.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
-const AGENTS_MD: &str = include_str!("../../../docs/AGENTS.md");
-const WHITEPAPER_MD: &str = include_str!("../../../docs/WHITEPAPER.md");
-const SPEC_MD: &str = include_str!("../../../docs/SPEC.md");
-const CLIENTS_MD: &str = include_str!("../../../docs/CLIENTS.md");
-const MULTIMODAL_MD: &str = include_str!("../../../docs/MULTIMODAL.md");
+// Lowercase canonical docs (post-2026-05-08 docs sweep). CLIENTS_MD was
+// merged into agents.md; MULTIMODAL_MD into inference.md; SPEC_MD into
+// protocol.md.
+const AGENTS_MD: &str = include_str!("../../../docs/agents.md");
+const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper.md");
+const SPEC_MD: &str = include_str!("../../../docs/protocol.md");
+const CLIENTS_MD: &str = include_str!("../../../docs/agents.md");
+const MULTIMODAL_MD: &str = include_str!("../../../docs/inference.md");
 const PRIVACY_MD: &str = include_str!("../../../PRIVACY.md");
 const TERMS_MD: &str = include_str!("../../../TERMS.md");
 const SUPPORT_MD: &str = include_str!("../../../SUPPORT.md");
@@ -8948,7 +8955,7 @@ async fn openapi() -> Json<JsonValue> {
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
                 "DiffReq":         {"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}},
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
-                "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve","zk"]},"claim":{"type":"object"}}},
+                "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"type":"object"}}},
                 "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
                 "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
@@ -10204,7 +10211,6 @@ async fn materialize_elevation_mean(
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at,
     };
@@ -10310,7 +10316,6 @@ async fn materialize_gmrt_topobathy(
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at,
     };
@@ -10570,7 +10575,6 @@ async fn materialize_modis_ndvi_window(
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at,
     };
@@ -14874,6 +14878,162 @@ async fn materialize_hansen_band(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+// ---------------- CHIRPS daily-precipitation materializer ----------------
+//
+// UCSB CHIRPS v2.0: 0.05° Float32 daily precipitation, ±50° latitude,
+// 1981-01-01 → today (final-quality lag ~30 days). Anonymous COG path
+// at data.chc.ucsb.edu — no auth, no key. The connector lives in
+// `emem_fetch::chirps` and surfaces structured errors that map cleanly
+// onto the protocol's Primary / Absence / hard-error trichotomy:
+//   - Primary  : a real mm/day reading inside coverage.
+//   - Absence  : OutOfBounds (±50° clip), BeforeRecord (pre-1981),
+//                NoData (-9999.0 sentinel pixel — open ocean / IR gap).
+//   - Hard err : NotPublished (transient, within publication lag),
+//                Transport / Decode (network or COG corruption).
+async fn materialize_chirps_daily_precip(
+    cell64: &str,
+    s: &AppState,
+    target_unix: i64,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::chirps;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+
+    // Snap to the daily tslot so consecutive recalls within the same
+    // UTC day collapse to one fact. Tempo::Fast = 86400 s.
+    let tempo = emem_core::tslot::Tempo::Fast;
+    let tslot = emem_core::tslot::Tslot::from_unix(target_unix, tempo).0;
+    let slot_start = (tslot as i64) * 86_400;
+    let (year, month, day) = civil_from_days(slot_start / 86_400);
+
+    let signed_at = chrono_iso8601_utc();
+    // Per-call timeout: CHIRPS COGs are ~6.5 MB; one IFD head + one
+    // tile range read fits comfortably in 30 s on a normal link.
+    let timeout = std::time::Duration::from_secs(30);
+
+    match chirps::fetch_chirps_daily(lat, lng, year, month, day, timeout).await {
+        Ok(sample) => {
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: "chirps.precip_daily_mm".into(),
+                tslot,
+                value: ciborium::Value::Float(sample.mm_per_day),
+                unit: Some("mm/day".into()),
+                // CHIRPS station-blended retrievals are higher confidence
+                // than IR-only days, but the upstream doesn't expose a
+                // per-pixel uncertainty layer in the daily COG. The
+                // dataset paper (Funk et al. 2015) reports r ≈ 0.7–0.9
+                // against gauge networks in tropical Africa / India;
+                // 0.85 is a defensible band-level confidence honoring
+                // the daily-pixel granularity.
+                confidence: 0.85,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "chirps.daily.v2".into(),
+                    id: sample.upstream_url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(sample.upstream_url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "chirps.precip@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((year as i64).into()),
+                        ciborium::Value::Integer((month as i64).into()),
+                        ciborium::Value::Integer((day as i64).into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(chirps::ChirpsError::OutOfBounds { .. }) => {
+            // ±50° latitude clip: a meaningful "outside dataset coverage"
+            // Absence, not a transient outage. Sign with reason text +
+            // upstream URL so a verifier can pin the exact COG that
+            // wasn't queryable.
+            let url = chirps::url_for(year, month, day);
+            let reason = format!(
+                "out_of_bounds: cell ({lat:.6},{lng:.6}) is outside CHIRPS' \
+                 ±50° latitude / ±180° longitude clip. Coverage is global \
+                 between -50° and +50° latitude only; polar IR retrievals \
+                 are not reliable enough to ship in v2.0. For latitudes \
+                 above 50° use ERA5 (era5.precip_total_mm) instead."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                "chirps.precip_daily_mm",
+                tslot,
+                "chirps.daily.v2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(chirps::ChirpsError::BeforeRecord { year: y, month: m, day: d }) => {
+            let url = chirps::url_for(y, m, d);
+            let reason = format!(
+                "before_record: {y:04}-{m:02}-{d:02} predates CHIRPS v2.0 \
+                 start of record (1981-01-01). For pre-1981 precipitation \
+                 use the ERA5 archive (era5.* bands, 1940-present)."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                "chirps.precip_daily_mm",
+                tslot,
+                "chirps.daily.v2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(chirps::ChirpsError::NoData { lat, lng, year: y, month: m, day: d }) => {
+            // -9999.0 sentinel: open-ocean cell on a grid-aligned land
+            // pixel, polar IR coverage gap. Distinct from "no rain
+            // here" (which is a real 0.0 reading) — the responder must
+            // distinguish "we have no measurement" from "the measurement
+            // is zero". Sign Absence with `nodata`.
+            let url = chirps::url_for(y, m, d);
+            let reason = format!(
+                "nodata: CHIRPS pixel at ({lat:.6},{lng:.6}) on \
+                 {y:04}-{m:02}-{d:02} carried the documented sentinel \
+                 -9999.0. This is an unmeasured pixel (open ocean, IR \
+                 retrieval gap), distinct from a real 0 mm/day reading."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                "chirps.precip_daily_mm",
+                tslot,
+                "chirps.daily.v2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(e @ chirps::ChirpsError::NotPublished { .. }) => {
+            // Within the ~30-day final-quality lag — the file genuinely
+            // doesn't exist yet upstream. Surface as a hard error so the
+            // caller can retry later rather than caching an Absence
+            // that will silently rot once the file does land.
+            Err(format!("chirps fetch transient: {e}"))
+        }
+        Err(e) => Err(format!("chirps.precip_daily_mm fetch failed: {e}")),
+    }
+}
+
 /// Build the merkle-rooted Attestation around one fact, sign it under the
 /// responder's identity, persist it, and return the fact CID. Centralises
 /// the boilerplate that all materializers share.
@@ -15159,7 +15319,6 @@ async fn sign_and_persist(
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
     };
@@ -15373,7 +15532,6 @@ async fn sign_band_absence(
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
         registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        stake: None,
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
     };
@@ -15863,6 +16021,18 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "firms.modaps.eosdis.nasa.gov/data/active_fire/<source>/csv/...Global_24h.csv (anonymous bulk CSV; MODIS C6.1 + VIIRS S-NPP/J1/J2; ~14MB/day total)",
         },
+        // UCSB CHIRPS v2.0 daily precipitation (0.05° Float32, ±50° lat).
+        // Daily cadence; record runs 1981-01-01 → today−30d (final-quality
+        // lag). Pre-1981 + post-(today−30d) get structured Absence /
+        // not_published surfaces respectively.
+        "chirps.precip_daily_mm" => MaterializerMeta {
+            tempo: Tempo::Fast,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(days_from_civil(1981, 1, 1) * 86_400),
+            history_to_unix: None,
+            wire_path:
+                "data.chc.ucsb.edu CHIRPS-2.0/global_daily/cogs/p05 (anonymous Float32 COG, HTTPS-Range)",
+        },
         "prithvi_eo2" => MaterializerMeta {
             // Prithvi-EO-2.0-300M-TL ViT-L. Per-cell foundation embedding
             // computed on the GPU sidecar over a 6-band S2 L2A chip resampled
@@ -16294,6 +16464,13 @@ async fn materialize_band_at(
             | "soilgrids.nitrogen_0_30cm"
     ) {
         return materialize_soilgrids_band(cell64, s, band).await;
+    }
+
+    // CHIRPS v2.0 daily precipitation — global ±50° latitude, mm/day,
+    // Float32 COG at UCSB CHC. Daily cadence; the materializer snaps the
+    // request to the daily tslot and emits the per-day fact.
+    if band == "chirps.precip_daily_mm" {
+        return materialize_chirps_daily_precip(cell64, s, target_unix).await;
     }
 
     // TerraClimate 1991-2020 normals — single static fact per cell, no
@@ -17435,6 +17612,46 @@ async fn try_materialize_bands(
                     });
                 }
             },
+            // CHIRPS v2.0 daily precipitation — global ±50° latitude
+            // mm/day. Auto-materializes for the current UTC day; agents
+            // who want a specific historical date should call
+            // `/v1/backfill` (which routes through `materialize_band_at`
+            // with their target_unix).
+            "chirps.precip_daily_mm" => {
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                match materialize_chirps_daily_precip(cell64, s, now_unix).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary_or_absence",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
             // SoilGrids 2.0 (ISRIC) static topsoil 0–30 cm scalars.
             // Six properties (soc, phh2o, clay, sand, bdod, nitrogen),
             // all routed through one materializer that handles the

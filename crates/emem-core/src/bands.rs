@@ -218,7 +218,10 @@ mod tests {
     fn default_loads_and_validates() {
         let r = &*DEFAULT;
         assert_eq!(r.total_dims, 1792);
-        assert_eq!(r.bands.len(), 34);
+        // 34 cube bands + chirps.precip_daily_mm (offset 1672) = 35.
+        // Adding new tail bands shifts `reserved` forward and decrements
+        // its dims by the same total so Σ stays at 1792.
+        assert_eq!(r.bands.len(), 35);
     }
 
     #[test]
@@ -254,6 +257,11 @@ mod tests {
         assert_eq!(idx["sentinel2_raw"].offset, 704);
         assert_eq!(idx["sam3_visual"].offset, 894);
         assert_eq!(idx["qwen_visual"].offset, 1086);
-        assert_eq!(idx["reserved"].offset, 1672);
+        // chirps.precip_daily_mm sits at the head of the new tail block;
+        // reserved was 1672 → moved to 1673 (one slot taken).
+        assert_eq!(idx["chirps.precip_daily_mm"].offset, 1672);
+        assert_eq!(idx["chirps.precip_daily_mm"].dims, 1);
+        assert_eq!(idx["reserved"].offset, 1673);
+        assert_eq!(idx["reserved"].dims, 119);
     }
 }

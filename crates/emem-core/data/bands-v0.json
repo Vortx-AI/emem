@@ -529,10 +529,22 @@
       "references": "https://gadm.org"
     },
     {
+      "key": "chirps.precip_daily_mm",
+      "family": "climate",
+      "offset": 1672,
+      "dims": 1,
+      "tempo": "fast",
+      "privacy": {"class": "public"},
+      "description": "UCSB CHIRPS v2.0 daily precipitation (mm/day) at the cell centre, sampled from the global 0.05° Float32 COG. Reference standard for tropical agronomy where ERA5 underestimates convective tails. Coverage ±50° latitude; pixels outside that band return Absence. Funk et al. 2015, Sci. Data 2:150066.",
+      "units": "mm/day",
+      "interpretation": "Per-day rainfall total. Final-quality lags ~30 days; calls inside the lag window surface as a transient `not_published` error rather than a silent zero.",
+      "references": "https://www.chc.ucsb.edu/data/chirps"
+    },
+    {
       "key": "reserved",
       "family": "reserved",
-      "offset": 1672,
-      "dims": 120,
+      "offset": 1673,
+      "dims": 119,
       "tempo": "static",
       "privacy": {"class": "public"},
       "description": "Tail reservation slot for future cube extensions. Currently zero-padded — recall returns Absence.",

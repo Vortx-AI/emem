@@ -21,9 +21,6 @@ pub struct Attestation {
     pub registry_cid: RegistryCid,
     /// CID of CDDL profile in force.
     pub schema_cid: SchemaCid,
-    /// Credits committed (v2.5).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stake: Option<u64>,
     /// ed25519(blake3(batch_root || registry_cid || schema_cid)).
     pub signature: Signature,
     /// ISO 8601 wall clock at attestation submission.

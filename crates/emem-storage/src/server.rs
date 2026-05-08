@@ -151,6 +151,19 @@ impl Server {
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
 
+        // Surface a merkle inclusion proof for the first cited fact when
+        // one was persisted at attestation time. A receipt with multiple
+        // fact_cids carries one proof (the schema's `merkle_proof` is
+        // `Option<MerkleProof>`); a verifier with the responder pubkey
+        // can already re-derive every other CID from the signed receipt
+        // payload, so a single inclusion anchor is sufficient. None when
+        // the cited facts pre-date the proof tree (ephemeral runs,
+        // older attestations) — the receipt's signature still binds the
+        // CIDs end-to-end.
+        let merkle_proof = fact_cids
+            .first()
+            .and_then(|c| self.storage.proof_for_cid(c));
+
         Receipt {
             request_id,
             served_at,
@@ -159,7 +172,7 @@ impl Server {
             cells,
             fact_cids,
             schema_cid: self.manifests.schema_cid.clone(),
-            merkle_proof: None,
+            merkle_proof,
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),

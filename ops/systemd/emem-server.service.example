@@ -22,13 +22,17 @@ Environment=EMEM_BIND=127.0.0.1:5051
 Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
 Environment=EMEM_DEMOS_DIR=/home/ubuntu/emem/var/demos
 
-# TLS (Let's Encrypt via TLS-ALPN-01). The binary needs
-# `cap_net_bind_service` to bind :443 as a non-root user; see
-# scripts/redeploy.sh.
+# TLS (Let's Encrypt via TLS-ALPN-01). The binary binds :443 as a
+# non-root user via the AmbientCapabilities= directive below, so a
+# rebuild that strips the file capability no longer kills the unit.
+# (Pre-2026-05-08 deploys relied on `setcap cap_net_bind_service=+ep`
+# applied by scripts/redeploy.sh; AmbientCapabilities is the systemd-
+# native equivalent and survives `cargo build --release`.)
 Environment=EMEM_TLS_DOMAINS=emem.dev,www.emem.dev
 Environment=EMEM_TLS_BIND=0.0.0.0:443
 Environment=EMEM_TLS_CONTACT=mailto:avijeet@vortx.ai
 # Environment=EMEM_TLS_STAGING=1
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 # Logging
 Environment=RUST_LOG=info,rustls_acme=info

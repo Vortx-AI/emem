@@ -83,7 +83,25 @@ pub const NORMAL_WINDOW: (i32, i32) = (1991, 2020);
 /// aggregations. The dataset name suffix `_1950_CurrentYear_GLOBE.nc` is
 /// the THREDDS-side aggregation that spans every published year (1950 →
 /// the current calendar year), updated annually as new years are appended.
-pub const NCSS_BASE: &str = "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid";
+///
+/// Receipts pin the URL via `NormalSample.url`, which is computed against
+/// the *first base that returned a 2xx response* — i.e. the receipt records
+/// which mirror was actually used. Verifiers can replay the same query
+/// against any provider in [`NCSS_BASES`] (whose Layer 7 contract — same
+/// dataset name, same NCSS query parameters — is the federation point).
+pub const NCSS_BASE: &str = NCSS_BASES[0];
+
+/// Failover list of NCSS providers fronting the same TerraClimate
+/// aggregation. The connector tries them in order on Transport errors;
+/// the first 2xx wins. The primary is the University of Idaho mirror
+/// (the dataset's home, authoritative for new vintages); the secondary
+/// is RDA / NCAR Research Data Archive's mirror (federated by
+/// agreement, lags Idaho by ~24h on annual updates but identical bytes
+/// for the published normal window).
+pub const NCSS_BASES: &[&str] = &[
+    "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid",
+    "https://thredds.rda.ucar.edu/thredds/ncss/grid",
+];
 
 /// Variable names available on the TerraClimate THREDDS aggregation. Map
 /// from the emem band suffix to the NetCDF variable, the linear packing
@@ -200,17 +218,31 @@ pub const AET: VariableSpec = VariableSpec {
     unit: "mm",
 };
 
-/// Build the NCSS URL for a single variable + point + year range. Pure
-/// function — exposed so the unit tests can pin the URL shape without a
-/// network round-trip and so the responder can include it in the receipt.
+/// Build the NCSS URL for a single variable + point + year range against
+/// the primary mirror. Pure function — exposed so the unit tests can pin
+/// the URL shape without a network round-trip and so the responder can
+/// include it in the receipt.
 ///
 /// `start_year` and `end_year` are both inclusive; we ask for `Jan 1 of
 /// start_year` to `Dec 1 of end_year` (TerraClimate's monthly time
 /// coordinate is the first day of each month).
 pub fn ncss_url(spec: &VariableSpec, lat: f64, lng: f64, start_year: i32, end_year: i32) -> String {
+    ncss_url_for_base(NCSS_BASE, spec, lat, lng, start_year, end_year)
+}
+
+/// Build the NCSS URL against a specific base. Used by the failover loop
+/// to try each provider in [`NCSS_BASES`] in order.
+pub fn ncss_url_for_base(
+    base: &str,
+    spec: &VariableSpec,
+    lat: f64,
+    lng: f64,
+    start_year: i32,
+    end_year: i32,
+) -> String {
     format!(
         "{base}/agg_terraclimate_{var}_1950_CurrentYear_GLOBE.nc?var={var}&latitude={lat:.4}&longitude={lng:.4}&time_start={sy:04}-01-01T00:00:00Z&time_end={ey:04}-12-01T00:00:00Z&accept=csv",
-        base = NCSS_BASE,
+        base = base,
         var = spec.var,
         lat = lat,
         lng = lng,
@@ -459,8 +491,31 @@ pub async fn fetch_terraclimate_normal(
     kind: NormalKind,
     timeout: Duration,
 ) -> Result<NormalSample, FetchError> {
-    let url = ncss_url(spec, lat, lng, window.0, window.1);
-    let body = ncss_get(&url, timeout).await?;
+    // Try each NCSS mirror in order. Receipt pins the URL of the mirror
+    // that actually answered, so a verifier replaying the same query can
+    // tell which provider served the bytes.
+    let mut last_err: Option<FetchError> = None;
+    let mut url = ncss_url(spec, lat, lng, window.0, window.1);
+    let mut body_bytes: Option<Bytes> = None;
+    for base in NCSS_BASES {
+        let try_url = ncss_url_for_base(base, spec, lat, lng, window.0, window.1);
+        match ncss_get(&try_url, timeout).await {
+            Ok(b) => {
+                url = try_url;
+                body_bytes = Some(b);
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let body = match body_bytes {
+        Some(b) => b,
+        None => {
+            return Err(last_err.unwrap_or_else(|| {
+                FetchError::Transport("terraclimate: no NCSS mirror configured".into())
+            }))
+        }
+    };
     let body_str = std::str::from_utf8(&body)
         .map_err(|e| FetchError::Transport(format!("terraclimate body utf8: {e}")))?;
     let rows = parse_ncss_csv(body_str, &spec.packed)?;

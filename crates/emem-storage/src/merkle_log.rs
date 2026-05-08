@@ -259,7 +259,6 @@ mod tests {
             attester_key_epoch: KeyEpoch(0),
             registry_cid: RegistryCid::new("r"),
             schema_cid: SchemaCid::new("s"),
-            stake: None,
             signature: Signature([0u8; 64]),
             attested_at: "2026-01-01T00:00:00Z".into(),
         }

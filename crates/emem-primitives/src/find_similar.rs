@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-use emem_claim::Claim;
+use emem_claim::{Claim, Op};
 use emem_core::ErrorCode;
 use emem_fact::{Fact, FactCid, Receipt};
 use emem_storage::{Server, StorageError};
@@ -23,7 +23,7 @@ use emem_storage::{Server, StorageError};
 use crate::binary_embedding::{
     hamming_distance, hamming_score, pack_bin128_slice, BIN_BYTES, BIN_DIMS,
 };
-use crate::cbor_ops::{as_vec_f32, cosine};
+use crate::cbor_ops::{as_vec_f32, cosine, eq, lt};
 
 /// Scoring mode for [`find_similar`]. The default `cosine` is the
 /// historical behaviour (fp32 cosine over the requested band).
@@ -62,11 +62,13 @@ pub struct FindSimilarReq {
     /// Vector band to scan (default `"geotessera"`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub band: Option<String>,
-    /// Optional structured filter expressed in the claim algebra. The
-    /// claim evaluator is not yet wired into k-NN; setting this returns an
-    /// explicit error so callers cannot mistake an unfiltered result for a
-    /// filtered one. To filter today, post-filter with `/v1/verify` against
-    /// the desired `Claim` on each returned neighbor.
+    /// Optional structured filter expressed in the claim algebra. When
+    /// set, every candidate cell is evaluated against the filter (using
+    /// the same predicate engine as `/v1/verify`); only cells whose facts
+    /// satisfy the claim survive the k-NN ranking. Cells with no fact for
+    /// the filter band are dropped (they're undecidable, not "false") —
+    /// agents asking "find places like X where NDVI > 0.5" don't want
+    /// silent inclusion of cells that simply have no NDVI history.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filter: Option<Claim>,
     /// Scoring mode (default `cosine`). See [`FindSimilarMode`] for the
@@ -139,13 +141,6 @@ pub async fn find_similar(
     let k = req.k.unwrap_or(10).min(1000) as usize;
     let band = req.band.clone().unwrap_or_else(|| "geotessera".into());
 
-    if req.filter.is_some() {
-        return Err(StorageError::Protocol {
-            code: ErrorCode::Internal,
-            message: "find_similar: structured `filter` is not evaluated in k-NN today — post-filter via /v1/verify on each returned neighbor, or omit `filter` for unfiltered top-k".into(),
-        });
-    }
-
     // ── Binary fast path ───────────────────────────────────────────
     // Branch *before* loading the full vector — for `Hamming` we do
     // not need it at all, and for `HammingThenRerank` we delegate the
@@ -213,12 +208,29 @@ pub async fn find_similar(
     } else {
         Some(req.key.as_str())
     };
+    // Memo per-cell filter verdicts so we don't re-scan a cell once for
+    // each tslot it has under the scoring band — common when find_similar
+    // is run over a corpus with multi-vintage geotessera attestations.
+    let mut filter_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
     for (key, cid) in entries {
         if key.band != band {
             continue;
         }
         if Some(key.cell.as_str()) == self_match {
             continue;
+        }
+        if let Some(claim) = req.filter.as_ref() {
+            let pass = match filter_memo.get(&key.cell) {
+                Some(v) => *v,
+                None => {
+                    let v = cell_satisfies_claim(storage, &key.cell, claim).await?;
+                    filter_memo.insert(key.cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
         }
         let facts = storage.get_facts_many(std::slice::from_ref(&cid)).await?;
         let Some(Some(fact)) = facts.into_iter().next() else {
@@ -423,12 +435,26 @@ async fn find_similar_binary(
         Some(req.key.as_str())
     };
     let mut triage: Vec<(String, u32, FactCid)> = Vec::new();
+    let mut filter_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
     for (key, cid) in entries {
         if key.band != bin_band {
             continue;
         }
         if Some(key.cell.as_str()) == self_match {
             continue;
+        }
+        if let Some(claim) = req.filter.as_ref() {
+            let pass = match filter_memo.get(&key.cell) {
+                Some(v) => *v,
+                None => {
+                    let v = cell_satisfies_claim(storage, &key.cell, claim).await?;
+                    filter_memo.insert(key.cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
         }
         let facts = storage.get_facts_many(std::slice::from_ref(&cid)).await?;
         let Some(Some(fact)) = facts.into_iter().next() else {
@@ -504,6 +530,107 @@ async fn find_similar_binary(
         returned_k,
         receipt,
     })
+}
+
+/// Evaluate `claim` over the facts attested at `cell`. Mirrors the
+/// `evaluate` semantics in `verify.rs` so a filtered `find_similar` and
+/// a follow-up `/v1/verify` always agree. A cell with no fact for the
+/// claim's band is `false` (undecidable → drop), unless the claim's op
+/// is `Absent` in which case missing facts are exactly what's wanted.
+async fn cell_satisfies_claim(
+    storage: &(dyn emem_storage::Storage + Send + Sync),
+    cell: &str,
+    claim: &Claim,
+) -> Result<bool, StorageError> {
+    let pairs = storage.scan_cell(cell, None).await?;
+    let scoped: Vec<FactCid> = pairs
+        .into_iter()
+        .filter(|(k, _)| {
+            if k.band != claim.band {
+                return false;
+            }
+            match (claim.tslot, claim.window) {
+                (Some(t), _) => k.tslot == t,
+                (None, Some([s, e])) => k.tslot >= s && k.tslot <= e,
+                (None, None) => true,
+            }
+        })
+        .map(|(_, c)| c)
+        .collect();
+
+    let facts: Vec<Fact> = storage
+        .get_facts_many(&scoped)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    let mut values: Vec<&ciborium::Value> = Vec::new();
+    let mut absences = false;
+    for f in &facts {
+        match f {
+            Fact::Primary(p) => values.push(&p.value),
+            Fact::Absence(_) => absences = true,
+            Fact::Derivative(_) => {}
+        }
+    }
+
+    if matches!(claim.op, Op::Exists) {
+        return Ok(!values.is_empty());
+    }
+    if matches!(claim.op, Op::Absent) {
+        return Ok(absences);
+    }
+    if values.is_empty() {
+        // Undecidable for ordering ops: cell has no fact for this band.
+        // Drop it — agents asking "places like X with NDVI > 0.5" don't
+        // mean "any place that simply has no NDVI history".
+        return Ok(false);
+    }
+    let agg = claim.agg.as_deref().unwrap_or("any");
+    let per: Vec<bool> = values.iter().map(|v| eval_one(claim, v)).collect();
+    Ok(match agg {
+        "any" => per.iter().any(|x| *x),
+        "all" => per.iter().all(|x| *x),
+        "mean" | "min" | "max" => {
+            let nums: Vec<f64> = values
+                .iter()
+                .filter_map(|v| crate::cbor_ops::as_f64(v))
+                .collect();
+            if nums.is_empty() {
+                false
+            } else {
+                let folded = match agg {
+                    "mean" => nums.iter().sum::<f64>() / nums.len() as f64,
+                    "min" => nums.iter().cloned().fold(f64::INFINITY, f64::min),
+                    "max" => nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                    _ => unreachable!(),
+                };
+                eval_one(claim, &ciborium::Value::Float(folded))
+            }
+        }
+        _ => per.iter().any(|x| *x),
+    })
+}
+
+fn eval_one(claim: &Claim, fact_value: &ciborium::Value) -> bool {
+    match claim.op {
+        Op::Eq => eq(fact_value, &claim.value),
+        Op::Ne => !eq(fact_value, &claim.value),
+        Op::Lt => lt(fact_value, &claim.value).unwrap_or(false),
+        Op::Le => lt(fact_value, &claim.value).unwrap_or(false) || eq(fact_value, &claim.value),
+        Op::Gt => lt(&claim.value, fact_value).unwrap_or(false),
+        Op::Ge => lt(&claim.value, fact_value).unwrap_or(false) || eq(fact_value, &claim.value),
+        Op::In => match &claim.value {
+            ciborium::Value::Array(set) => set.iter().any(|x| eq(fact_value, x)),
+            _ => false,
+        },
+        Op::Ni => match &claim.value {
+            ciborium::Value::Array(set) => !set.iter().any(|x| eq(fact_value, x)),
+            _ => false,
+        },
+        Op::Exists | Op::Absent => false,
+    }
 }
 
 /// Hamming-path dedupe: triage is already sorted by distance ascending,

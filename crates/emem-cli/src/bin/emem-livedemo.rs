@@ -145,7 +145,6 @@ async fn main() -> anyhow::Result<()> {
         attester_key_epoch: KeyEpoch(0),
         registry_cid: RegistryCid::new(registry_cid.clone()),
         schema_cid: SchemaCid::new(schema_cid.clone()),
-        stake: None,
         signature: Signature(sig_bytes),
         attested_at: "2026-04-26T15:00:00Z".into(),
     };

@@ -229,26 +229,61 @@ class _Registry:
         # the sentinel.
         #
         # When metadata claims `training.trained == true` we MUST
-        # load actual learned weights (state_dict.pt or onnx →
-        # torch import) before serving — otherwise we'd emit
-        # randomly-initialised PyTorch outputs under a "trained"
-        # receipt, which would corrupt every downstream
-        # comparison + inflate verifier trust. That loader hasn't
-        # shipped yet, so refuse-to-serve until it does.
+        # load actual learned weights (state_dict.pt) before serving —
+        # otherwise we'd emit randomly-initialised PyTorch outputs
+        # under a "trained" receipt, which would corrupt every
+        # downstream comparison + inflate verifier trust. The
+        # checkpoint must:
+        #   1. exist on disk next to the metadata file,
+        #   2. match the architecture currently compiled in (we let
+        #      load_state_dict's strict=True surface any layer-name
+        #      drift loudly), and
+        #   3. carry the blake2b that metadata pinned (so a swapped
+        #      .pt file under a stale metadata.json fails closed).
         trained = bool(meta.get("training", {}).get("trained", False))
-        if trained:
-            raise RuntimeError(
-                "dynamics_v2 metadata claims trained=true but the sidecar's "
-                "trained-checkpoint loader has not shipped yet. Refusing to "
-                "serve random PyTorch weights under a 'trained' receipt. "
-                "Either set training.trained=false in the metadata to fall "
-                "back to the residual-zero sentinel, or implement the ONNX "
-                "→ torch state_dict loader at server.py:_Registry.load_dynamics."
-            )
         model = DynamicsModel().to(self.device)
-        with torch.no_grad():
-            model.head.weight.zero_()
-            model.head.bias.zero_()
+        if trained:
+            ckpt_path = DYNAMICS_DIR / "dynamics_v2.state_dict.pt"
+            if not ckpt_path.exists():
+                raise FileNotFoundError(
+                    f"dynamics_v2 metadata claims trained=true but no checkpoint "
+                    f"found at {ckpt_path}. Either drop training.trained back to "
+                    "false (residual-zero sentinel) or place the trained state_dict "
+                    "alongside the metadata."
+                )
+            expected_b2b = (
+                meta.get("training", {}).get("checkpoint_blake2b_hex")
+                or meta.get("model", {}).get("blake2b_hex")
+            )
+            if expected_b2b:
+                import hashlib
+                got_b2b = hashlib.blake2b(ckpt_path.read_bytes()).hexdigest()
+                if got_b2b != expected_b2b:
+                    raise RuntimeError(
+                        "dynamics_v2 trained checkpoint blake2b mismatch "
+                        f"(got {got_b2b[:16]}..., metadata pinned "
+                        f"{expected_b2b[:16]}...). Refusing to serve a swapped "
+                        "checkpoint under a stale receipt — re-run "
+                        "python/jepa_v2/export_baseline.py to refresh the metadata "
+                        "or restore the matching .pt file."
+                    )
+            # weights_only=True so a malicious .pt cannot side-effect
+            # via torch's pickle (defense in depth — the checkpoint
+            # comes from our own training pipeline, but the sidecar
+            # treats any on-disk artifact as untrusted input).
+            state_dict = torch.load(
+                ckpt_path, map_location=self.device, weights_only=True
+            )
+            # strict=True: any architecture drift between the trained
+            # checkpoint and the model class compiled into the sidecar
+            # is exactly the kind of silent corruption the original
+            # guard was protecting against. Surface it as a load-time
+            # error, not a runtime garbage-prediction.
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            with torch.no_grad():
+                model.head.weight.zero_()
+                model.head.bias.zero_()
         model.eval()
         self.dynamics = (model, meta)
         self.dynamics_load_at = time.time()
@@ -567,10 +602,11 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except RuntimeError as e:
-        # The "trained-but-no-loader" guard. 503 so the Rust client
-        # surfaces it as Upstream (502) — emem-server then refuses
-        # to silently fall back to the in-process CPU path because
-        # the user explicitly attested a trained checkpoint.
+        # Trained-checkpoint validation failure (architecture drift,
+        # blake2b mismatch). 503 so the Rust client surfaces as
+        # Upstream (502) — emem-server then refuses to silently fall
+        # back to the residual-zero baseline because the user
+        # explicitly attested a trained checkpoint.
         raise HTTPException(status_code=503, detail=str(e)) from e
 
     arr = np.asarray(req.lags, dtype=np.float32)            # [3, 128]

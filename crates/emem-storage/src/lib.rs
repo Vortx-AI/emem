@@ -23,8 +23,14 @@ use blake3::Hasher;
 
 use emem_cache::{Cache, CanonicalKey, SledHotCache};
 use emem_core::{BandRegistry, ErrorCode, FunctionRegistry, SourceRegistry};
-use emem_fact::{Attestation, Fact, FactCid};
+use emem_fact::{Attestation, Fact, FactCid, MerkleProof};
 use emem_fetch::Dispatcher;
+
+/// Sled tree storing per-fact merkle inclusion proofs. Populated by
+/// [`MaterializingStorage::put_attestation`]; read at receipt-sign time
+/// so every cited fact carries the path back to the batch root that
+/// signed it. Tree value: canonical CBOR of [`MerkleProof`].
+const TREE_FACT_PROOFS: &str = "emem.fact_proofs";
 
 pub mod attesters;
 pub mod merkle_log;
@@ -98,6 +104,16 @@ pub trait Storage: Send + Sync {
     /// Borrow the per-attester reputation tracker, if this storage backend
     /// runs one. Optional because ephemeral / read-only deploys may skip it.
     fn attesters(&self) -> Option<&AttesterRegistry> {
+        None
+    }
+
+    /// Look up the merkle inclusion proof persisted for `cid` at
+    /// attestation-write time. Returns None when no proof was ever
+    /// persisted (ephemeral storage that didn't open the
+    /// `emem.fact_proofs` tree, or a fact written before this surface
+    /// existed). Default impl returns None so backends that don't track
+    /// proofs are still valid `Storage`.
+    fn proof_for_cid(&self, _cid: &FactCid) -> Option<MerkleProof> {
         None
     }
 
@@ -253,6 +269,14 @@ impl Storage for MaterializingStorage {
         verify_attestation(att)?;
         let cids = self.cache.put_many(&att.facts).await?;
         self.log.append(att).await?;
+        // Persist a per-fact merkle inclusion proof so receipts citing
+        // any of these CIDs can ship a verifier-ready proof. Best-effort:
+        // a tree-write error never fails the attestation itself.
+        if let Some(hot) = &self.hot {
+            if let Err(e) = persist_fact_proofs(hot.db(), &att.facts, &cids) {
+                tracing::warn!(error=%e, "fact proof persistence error (ignored)");
+            }
+        }
         if let Some(reg) = &self.attesters {
             if let Err(e) = reg.record_attestation(&att.attester.0, &att.facts) {
                 tracing::warn!(error=%e, "attester reputation tracker error (ignored)");
@@ -316,6 +340,63 @@ impl Storage for MaterializingStorage {
     fn hot_sled_db(&self) -> Option<&sled::Db> {
         self.hot.as_ref().map(|h| h.db())
     }
+
+    fn proof_for_cid(&self, cid: &FactCid) -> Option<MerkleProof> {
+        let hot = self.hot.as_ref()?;
+        let tree = hot.db().open_tree(TREE_FACT_PROOFS).ok()?;
+        let bytes = tree.get(cid.as_str().as_bytes()).ok()??;
+        ciborium::de::from_reader::<MerkleProof, _>(&*bytes).ok()
+    }
+}
+
+/// Compute the per-fact merkle inclusion proof for every fact in the
+/// attestation and write it to the dedicated sled tree, keyed by
+/// `FactCid` string. The tree is opened on demand so attestations that
+/// pre-date this surface continue to round-trip without it.
+///
+/// The leaves are ordered exactly as they are inside [`verify_attestation`]:
+/// CBOR-encode each fact, blake3 the bytes, sort the leaves bytewise.
+/// `MerkleProof.leaf_index` is the leaf's position in that sorted order.
+fn persist_fact_proofs(
+    db: &sled::Db,
+    facts: &[Fact],
+    cids: &[FactCid],
+) -> Result<(), StorageError> {
+    if facts.is_empty() || cids.len() != facts.len() {
+        return Ok(());
+    }
+    let mut leaves_with_orig: Vec<([u8; 32], usize)> = Vec::with_capacity(facts.len());
+    for (i, f) in facts.iter().enumerate() {
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(f, &mut buf)
+            .map_err(|e| StorageError::Cbor(format!("fact_proofs cbor: {e}")))?;
+        let h = blake3::hash(&buf);
+        let mut a = [0u8; 32];
+        a.copy_from_slice(h.as_bytes());
+        leaves_with_orig.push((a, i));
+    }
+    leaves_with_orig.sort_by(|a, b| a.0.cmp(&b.0));
+    let leaves: Vec<[u8; 32]> = leaves_with_orig.iter().map(|(l, _)| *l).collect();
+    let (root, paths) = emem_attest::merkle_root_and_paths(&leaves);
+    let tree = db
+        .open_tree(TREE_FACT_PROOFS)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    for (sorted_idx, (_, orig_idx)) in leaves_with_orig.iter().enumerate() {
+        let cid = &cids[*orig_idx];
+        let proof = MerkleProof {
+            leaf_index: sorted_idx as u32,
+            path: paths[sorted_idx].clone(),
+            root,
+        };
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(&proof, &mut buf)
+            .map_err(|e| StorageError::Cbor(format!("fact_proofs cbor: {e}")))?;
+        tree.insert(cid.as_str().as_bytes(), buf)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    }
+    tree.flush()
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    Ok(())
 }
 
 /// Verify an attestation envelope:

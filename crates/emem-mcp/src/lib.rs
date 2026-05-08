@@ -148,7 +148,7 @@ const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["cell","band","w
 
 const SCHEMA_VERIFY: &str = r#"{"type":"object","required":["claim","cell"],"properties":{
 "cell":{"type":"string"},
-"mode":{"type":"string","enum":["fast","resolve","zk"],"default":"fast"},
+"mode":{"type":"string","enum":["fast","resolve"],"default":"fast"},
 "claim":{"type":"object","required":["band","op","value"],"properties":{
   "band":{"type":"string"},
   "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"]},
