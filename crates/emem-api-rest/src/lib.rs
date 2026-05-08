@@ -93,6 +93,7 @@ const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const HUMANS_HTML: &str = include_str!("../../../web/humans.html");
 const HUMANS_JSON: &str = include_str!("../../../web/humans.json");
 const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
+const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 // Lowercase canonical docs (post-2026-05-08 docs sweep). CLIENTS_MD was
@@ -150,6 +151,7 @@ pub fn router(state: AppState) -> Router {
         .route("/humans", get(serve_humans_html))
         .route("/humans.json", get(serve_humans_json))
         .route("/humans/llms.txt", get(serve_humans_llms_txt))
+        .route("/humans-og.svg", get(serve_humans_og_svg))
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
         .route("/whitepaper", get(serve_whitepaper_md))
@@ -1230,6 +1232,13 @@ async fn serve_humans_json() -> Response {
 /// `/humans` (endpoints invoked, data attributes, trust model, console pane).
 async fn serve_humans_llms_txt() -> Response {
     text_response("text/plain; charset=utf-8", HUMANS_LLMS_TXT)
+}
+
+/// `/humans-og.svg` — OpenGraph + Twitter card image for the `/humans`
+/// route. Drawn as static SVG so the file is byte-stable and renders
+/// identically wherever the URL is pasted.
+async fn serve_humans_og_svg() -> Response {
+    text_response("image/svg+xml; charset=utf-8", HUMANS_OG_SVG)
 }
 async fn serve_llms_full() -> Response {
     // Historical artifact — earlier release shipped a 25 KB "full" variant

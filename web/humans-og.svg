@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="emem.dev/humans — knowledge constellation">
+  <defs>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+      <stop offset="0%"   stop-color="#0E0F13" stop-opacity="1"/>
+      <stop offset="60%"  stop-color="#06070a" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="1"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#7CFFB2" stop-opacity=".75"/>
+      <stop offset="40%"  stop-color="#7CFFB2" stop-opacity=".18"/>
+      <stop offset="100%" stop-color="#7CFFB2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#7CC8FF" stop-opacity=".7"/>
+      <stop offset="40%"  stop-color="#7CC8FF" stop-opacity=".15"/>
+      <stop offset="100%" stop-color="#7CC8FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo3" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#B27CFF" stop-opacity=".7"/>
+      <stop offset="40%"  stop-color="#B27CFF" stop-opacity=".15"/>
+      <stop offset="100%" stop-color="#B27CFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="halo4" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#FFB37C" stop-opacity=".65"/>
+      <stop offset="40%"  stop-color="#FFB37C" stop-opacity=".15"/>
+      <stop offset="100%" stop-color="#FFB37C" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#vignette)"/>
+
+  <!-- decorative star field (deterministic) -->
+  <g fill="#E8E8EA">
+    <circle cx="58"   cy="63"   r="0.9" opacity=".40"/>
+    <circle cx="121"  cy="488"  r="0.8" opacity=".35"/>
+    <circle cx="167"  cy="194"  r="1.0" opacity=".50"/>
+    <circle cx="212"  cy="312"  r="0.7" opacity=".25"/>
+    <circle cx="251"  cy="62"   r="0.8" opacity=".35"/>
+    <circle cx="289"  cy="421"  r="1.1" opacity=".55"/>
+    <circle cx="318"  cy="551"  r="0.6" opacity=".30"/>
+    <circle cx="356"  cy="123"  r="0.9" opacity=".40"/>
+    <circle cx="402"  cy="247"  r="0.7" opacity=".30"/>
+    <circle cx="438"  cy="468"  r="1.0" opacity=".50"/>
+    <circle cx="476"  cy="89"   r="0.7" opacity=".30"/>
+    <circle cx="513"  cy="380"  r="0.9" opacity=".45"/>
+    <circle cx="557"  cy="156"  r="1.2" opacity=".60"/>
+    <circle cx="591"  cy="513"  r="0.8" opacity=".35"/>
+    <circle cx="624"  cy="270"  r="0.6" opacity=".25"/>
+    <circle cx="668"  cy="429"  r="0.9" opacity=".40"/>
+    <circle cx="704"  cy="98"   r="0.7" opacity=".30"/>
+    <circle cx="746"  cy="338"  r="1.0" opacity=".50"/>
+    <circle cx="781"  cy="184"  r="0.8" opacity=".35"/>
+    <circle cx="822"  cy="491"  r="0.6" opacity=".25"/>
+    <circle cx="857"  cy="221"  r="0.9" opacity=".40"/>
+    <circle cx="892"  cy="377"  r="0.7" opacity=".30"/>
+    <circle cx="932"  cy="119"  r="1.1" opacity=".55"/>
+    <circle cx="971"  cy="464"  r="0.8" opacity=".35"/>
+    <circle cx="1004" cy="270"  r="0.6" opacity=".25"/>
+    <circle cx="1043" cy="76"   r="0.9" opacity=".40"/>
+    <circle cx="1079" cy="412"  r="0.7" opacity=".30"/>
+    <circle cx="1117" cy="201"  r="1.0" opacity=".50"/>
+    <circle cx="1154" cy="528"  r="0.8" opacity=".35"/>
+  </g>
+
+  <!-- bright "cells" — the constellation conceit -->
+  <g>
+    <circle cx="316"  cy="289" r="46" fill="url(#halo)"/>
+    <circle cx="316"  cy="289" r="3.4" fill="#7CFFB2"/>
+    <circle cx="558"  cy="232" r="36" fill="url(#halo2)"/>
+    <circle cx="558"  cy="232" r="2.8" fill="#7CC8FF"/>
+    <circle cx="717"  cy="378" r="42" fill="url(#halo3)"/>
+    <circle cx="717"  cy="378" r="3.0" fill="#B27CFF"/>
+    <circle cx="876"  cy="276" r="40" fill="url(#halo4)"/>
+    <circle cx="876"  cy="276" r="3.2" fill="#FFB37C"/>
+    <circle cx="1014" cy="402" r="34" fill="url(#halo)"/>
+    <circle cx="1014" cy="402" r="2.6" fill="#7CFFB2"/>
+  </g>
+
+  <!-- title block -->
+  <g font-family="ui-monospace, 'JetBrains Mono', 'IBM Plex Mono', Menlo, Consolas, monospace">
+    <text x="80" y="120" fill="#5A5C66" font-size="20" letter-spacing="0.18em">EMEM.DEV / HUMANS</text>
+    <text x="80" y="200" fill="#E8E8EA" font-size="56" font-weight="600" letter-spacing="-0.01em">knowledge constellation</text>
+    <text x="80" y="262" fill="#7CFFB2" font-size="56" font-weight="600" letter-spacing="-0.01em">of Earth memory</text>
+
+    <text x="80" y="346" fill="#B5B7BE" font-size="22" letter-spacing="0.01em">every star is a signed cell on Earth.</text>
+    <text x="80" y="380" fill="#B5B7BE" font-size="22" letter-spacing="0.01em">click one — the receipt verifies offline in your browser.</text>
+    <text x="80" y="414" fill="#7C7E87" font-size="20" letter-spacing="0.01em">every /v1/* call the page makes prints in a console pane,</text>
+    <text x="80" y="442" fill="#7C7E87" font-size="20" letter-spacing="0.01em">so an LLM can learn the protocol by watching.</text>
+
+    <g>
+      <rect x="80"  y="500" width="184" height="44" rx="3" fill="#0E0F13" stroke="#7CFFB2" stroke-opacity=".6"/>
+      <text x="172" y="528" fill="#7CFFB2" font-size="18" text-anchor="middle">cell64 · band · tslot</text>
+
+      <rect x="276" y="500" width="172" height="44" rx="3" fill="#0E0F13" stroke="#7CC8FF" stroke-opacity=".4"/>
+      <text x="362" y="528" fill="#7CC8FF" font-size="18" text-anchor="middle">ed25519 + blake3</text>
+
+      <rect x="460" y="500" width="148" height="44" rx="3" fill="#0E0F13" stroke="#B27CFF" stroke-opacity=".4"/>
+      <text x="534" y="528" fill="#B27CFF" font-size="18" text-anchor="middle">REST · MCP · CBOR</text>
+    </g>
+
+    <text x="1118" y="582" fill="#5A5C66" font-size="13" text-anchor="end" letter-spacing="0.06em">EMEM.DEV — EARTH MEMORY PROTOCOL</text>
+  </g>
+</svg>

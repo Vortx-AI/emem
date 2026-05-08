@@ -16,8 +16,15 @@
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/humans">
 <meta property=og:title content="emem.dev/humans — knowledge constellation">
-<meta property=og:description content="Cells as stars. Every visible thing has a CID. Every receipt is offline-verifiable in the browser.">
-<meta property=og:image content="https://emem.dev/og-image.svg">
+<meta property=og:description content="Every star is a signed cell on Earth. Click one — the receipt verifies offline in your browser. Every API call this UI makes prints below, so an LLM can learn the protocol by watching.">
+<meta property=og:image content="https://emem.dev/humans-og.svg">
+<meta property=og:image:width content="1200">
+<meta property=og:image:height content="630">
+<meta name=twitter:card content="summary_large_image">
+<meta name=twitter:url content="https://emem.dev/humans">
+<meta name=twitter:title content="emem.dev/humans — knowledge constellation">
+<meta name=twitter:description content="Every star is a signed cell on Earth. Receipts verify offline. The page is its own API console.">
+<meta name=twitter:image content="https://emem.dev/humans-og.svg">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
@@ -124,7 +131,7 @@ header .brand .humans{color:var(--accent)}
 header .pubkey{display:none;font-family:var(--mono);font-size:11px;color:var(--fg-3);
   border:1px solid var(--line);padding:.2em .55em;border-radius:3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:18em}
-@media(min-width:1100px){header .pubkey{display:inline-block}}
+@media(min-width:900px){header .pubkey{display:inline-block}}
 header .pubkey .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);
   margin-right:.4em;animation:pulse 2.4s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
@@ -161,12 +168,27 @@ aside.left h3:not(:first-child){margin-top:1.4em}
 
 /* main / canvas */
 main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-height:0;min-width:0}
+.hero{position:absolute;left:50%;top:1.1em;transform:translateX(-50%);z-index:6;
+  pointer-events:none;text-align:center;max-width:min(620px,90vw);
+  font-family:var(--mono);transition:opacity .4s ease}
+.hero.fade{opacity:.0;pointer-events:none}
+.hero h1{margin:0;font-size:13px;font-weight:500;letter-spacing:.04em;color:var(--fg);
+  text-transform:none;line-height:1.4}
+.hero h1 b{color:var(--accent);font-weight:600}
+.hero p{margin:.18em 0 0;font-size:10.5px;color:var(--fg-3);letter-spacing:.02em;line-height:1.5}
+.hero p kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .35em;border-radius:2px;
+  font-size:10px;color:var(--fg-2)}
+@media(max-width:760px){.hero{display:none}}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .modes{position:absolute;top:.7em;left:.7em;z-index:5;display:flex;
   background:var(--bg-1);border:1px solid var(--line);border-radius:3px;
   font-family:var(--mono);font-size:11px;overflow:hidden;flex-wrap:wrap}
-.modes button{border:none;border-radius:0;padding:.45em .85em;font-size:10.5px;
-  letter-spacing:.08em;text-transform:uppercase;color:var(--fg-2);background:transparent}
-.modes button[aria-pressed=true]{color:var(--accent);background:rgba(124,255,178,.06)}
+.modes button{border:none;border-radius:0;padding:.5em 1em;font-size:11.5px;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--fg-2);background:transparent;font-weight:500}
+.modes button:hover{color:var(--fg);background:var(--bg-2)}
+.modes button[aria-pressed=true]{color:var(--accent);background:rgba(124,255,178,.08);
+  box-shadow:inset 0 -2px 0 var(--accent)}
 .modes button:not(:last-child){border-right:1px solid var(--line)}
 .zoomctl{position:absolute;top:.7em;right:.7em;z-index:5;background:var(--bg-1);
   border:1px solid var(--line);border-radius:3px;display:flex;flex-direction:column}
@@ -350,9 +372,10 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div class=pubkey id=hdrPubkey title="Responder ed25519 public key, base32-nopad-lowercase"><span class=dot></span><span id=hdrPubkeyText>connecting…</span></div>
     <div class=spacer></div>
     <div class=chips>
-      <button class=chip id=chipCmdk type=button aria-label="Open command palette">search<kbd>Ctrl-K</kbd></button>
+      <button class=chip id=chipCmdk type=button aria-label="Open command palette">search<kbd id=kbdCmdk>Ctrl-K</kbd></button>
+      <button class=chip id=chipLasso type=button aria-label="Toggle lasso select" aria-pressed=false>lasso<kbd>L</kbd></button>
       <button class=chip id=chipConsole type=button aria-label="Focus console">console<kbd>~</kbd></button>
-      <button class=chip id=chipHelp type=button aria-label="Show keyboard help">?</button>
+      <button class=chip id=chipHelp type=button aria-label="Show keyboard help">help<kbd>?</kbd></button>
     </div>
   </header>
 
@@ -390,6 +413,11 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   </aside>
 
   <main id=main>
+    <h1 class=visually-hidden>emem.dev/humans — knowledge constellation of Earth memory</h1>
+    <div class=hero id=hero aria-hidden=true>
+      <h1><b>knowledge constellation</b> of Earth memory</h1>
+      <p>every star is a signed cell · click one, the receipt verifies offline · every <kbd>/v1/*</kbd> call this UI makes prints below — read the page, learn the protocol</p>
+    </div>
     <div class=modes role=tablist aria-label="View modes">
       <button id=modeField  role=tab aria-pressed=true  aria-controls=stage>field</button>
       <button id=modeGraph  role=tab aria-pressed=false aria-controls=stage>graph</button>
@@ -419,7 +447,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       drag to lasso → POST /v1/recall_polygon.<br>
       click a star → recall + offline-verify.
     </div>
-    <div class=boot-veil id=bootVeil><span class=dot></span> wiring up — fetching /v1/discover · /v1/coverage · /v1/coverage_matrix · /.well-known/emem.json</div>
+    <div class=boot-veil id=bootVeil><span class=dot></span> <span id=bootVeilText>locating the corpus…</span></div>
   </main>
 
   <aside class=right id=rightPane aria-label="Selection details">
@@ -466,7 +494,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <button class=close id=helpClose type=button>close</button>
     <h2>keyboard</h2>
     <div class=keys>
-      <kbd>Ctrl-K</kbd><span>command palette (places, cells, bands, primitives)</span>
+      <kbd id=helpKbdCmdk>Ctrl-K</kbd><span>command palette (places, cells, bands, primitives)</span>
       <kbd>~</kbd><span>focus console</span>
       <kbd>1</kbd><span>field view</span>
       <kbd>2</kbd><span>graph view</span>
@@ -496,17 +524,33 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 //==============================================================================
 
 // ── 1. Esm.sh pinned crypto libs (offline verify path) ──────────────────────
+//
+// The imports are deferred — the page must paint even if esm.sh is slow or
+// blocked. We race the dynamic imports against a 2.5 s timeout; if the libs
+// don't arrive in time, the verify path silently routes through the
+// responder's /v1/verify_receipt endpoint instead. Top-level await would
+// have blocked first paint forever on a flaky CDN — never do that.
 let nobleEd = null, nobleBlake3 = null, nobleStatus = 'pending';
-try {
-  const ed     = await import('https://esm.sh/@noble/curves@1.6.0/ed25519');
-  const blake3 = await import('https://esm.sh/@noble/hashes@1.5.0/blake3');
-  nobleEd     = ed.ed25519;
-  nobleBlake3 = blake3.blake3;
-  nobleStatus = 'ok';
-} catch (e) {
-  console.warn('[emem/humans] crypto libs unavailable, falling back to /v1/verify_receipt:', e);
-  nobleStatus = 'fallback';
-}
+const nobleReady = (async () => {
+  const timeout = new Promise(res => setTimeout(() => res('timeout'), 2500));
+  const tryImport = (async () => {
+    const [ed, blake3] = await Promise.all([
+      import('https://esm.sh/@noble/curves@1.6.0/ed25519'),
+      import('https://esm.sh/@noble/hashes@1.5.0/blake3'),
+    ]);
+    return { ed, blake3 };
+  })();
+  try {
+    const r = await Promise.race([tryImport, timeout]);
+    if (r === 'timeout') { nobleStatus = 'fallback'; return; }
+    nobleEd = r.ed.ed25519;
+    nobleBlake3 = r.blake3.blake3;
+    nobleStatus = 'ok';
+  } catch (e) {
+    console.warn('[emem/humans] crypto libs unavailable, will route to /v1/verify_receipt:', e);
+    nobleStatus = 'fallback';
+  }
+})();
 
 // ── 2. Console pane: every API call this UI makes prints below ──────────────
 const consoleEl     = document.getElementById('console');
@@ -591,6 +635,15 @@ document.getElementById('consoleCopy').onclick  = () => {
 };
 
 // ── 3. Family palette + helpers ─────────────────────────────────────────────
+function humanTempo(s) {
+  if (!s) return 'static';
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.round(s/60) + ' min';
+  if (s < 86400) return Math.round(s/3600) + ' h';
+  if (s < 86400*30) return Math.round(s/86400) + ' d';
+  if (s < 86400*365) return Math.round(s/(86400*30)) + ' mo';
+  return Math.round(s/(86400*365)) + ' y';
+}
 function famColor(family) {
   const m = {
     foundation:'#B27CFF', optical:'#7CFFB2', radar:'#C8A8FF',
@@ -649,57 +702,146 @@ const STATE = {
   pcaBasis: null,
 };
 
-// ── 5. Boot: parallel fetch ─────────────────────────────────────────────────
+// ── 5. Boot: progressive — paint stars on first useful response ─────────────
+//
+// We don't wait for all eight endpoints to settle. /v1/coverage is the
+// minimum-viable payload (the cells), so we paint the moment it resolves and
+// hydrate everything else lazily. The header "responder" strip clears as
+// soon as /.well-known returns. Boot only throws if the THREE most critical
+// endpoints all fail — anything else degrades gracefully to a partial UI.
+function setBootText(s) {
+  const el = document.getElementById('bootVeilText');
+  if (el) el.textContent = s;
+}
+function clearBootVeil() {
+  const v = document.getElementById('bootVeil');
+  if (v) v.remove();
+}
+function setHeroFade(on) {
+  const h = document.getElementById('hero');
+  if (!h) return;
+  h.classList.toggle('fade', on);
+}
+
 async function boot() {
-  // /v1/discover, /.well-known, /v1/coverage, /v1/coverage_matrix, /v1/bands,
-  // /v1/algorithms, /v1/sources, /v1/data_availability — in parallel.
-  const settled = await Promise.allSettled([
-    api('GET', '/v1/discover'),
-    api('GET', '/.well-known/emem.json'),
-    api('GET', '/v1/coverage'),
-    api('GET', '/v1/coverage_matrix?limit=200'),
-    api('GET', '/v1/bands'),
-    api('GET', '/v1/algorithms'),
-    api('GET', '/v1/sources').catch(()=>null),
-    api('GET', '/v1/data_availability').catch(()=>null),
-  ]);
-  const [discover, well, cov, mat, bandsRes, algoRes, srcRes, availRes] = settled.map(s => s.status==='fulfilled' ? s.value : null);
-  if (!discover && !cov && !mat) {
-    throw new Error('All bootstrap endpoints failed; the responder is unreachable from this browser.');
+  setBootText('reaching the responder…');
+
+  // Fan out all eight in parallel, but await /v1/coverage first so we can
+  // paint the constellation as soon as that single response lands.
+  const pCov      = api('GET', '/v1/coverage').catch(e => { console.warn(e); return null; });
+  const pDiscover = api('GET', '/v1/discover').catch(()=>null);
+  const pWell     = api('GET', '/.well-known/emem.json').catch(()=>null);
+  const pMat      = api('GET', '/v1/coverage_matrix?limit=200').catch(()=>null);
+  const pBands    = api('GET', '/v1/bands').catch(()=>null);
+  const pAlgo     = api('GET', '/v1/algorithms').catch(()=>null);
+  const pSrc      = api('GET', '/v1/sources').catch(()=>null);
+  const pAvail    = api('GET', '/v1/data_availability').catch(()=>null);
+
+  // Header strip: clear "connecting…" as soon as the well-known returns —
+  // independent of cell paint. Responder identity is the page's trust
+  // anchor, so it must be visible even before the constellation lights up.
+  pWell.then(well => {
+    if (!well) return;
+    STATE.manifests = (well.manifests) || STATE.manifests;
+    STATE.responder = (well.responder && well.responder.pubkey_b32) || STATE.responder;
+    STATE.responderEpoch = (well.responder && well.responder.key_epoch) || STATE.responderEpoch;
+    if (STATE.responder) STATE.responderBytes = b32decode(STATE.responder);
+    paintHeaderResponder();
+  }).catch(()=>{});
+
+  // Phase 1: cells. As soon as /v1/coverage resolves, paint a usable map.
+  setBootText('drawing the constellation…');
+  const cov = await pCov;
+  const discover = await pDiscover;
+
+  if (!cov && !discover) {
+    // Truly nothing came back. Fall back to the JSON twin so the page is
+    // never just a spinner.
+    setBootText('responder unreachable — loading offline snapshot from /humans.json');
+    try {
+      const twin = await fetch('/humans.json').then(r => r.json());
+      STATE.responder = twin.responder_pubkey_b32 || STATE.responder;
+      STATE.manifests = twin.manifests || STATE.manifests;
+      const seedCells = (twin.cells_dense20 || []).map(c => ({
+        cell64: c.cell64, lat_deg: c.lat_deg, lng_deg: c.lng_deg, fact_count: c.fact_count || 0,
+      }));
+      hydrateCellsFromCoverage(seedCells);
+      paintHeaderResponder();
+      computeProjection(); paintLeftPane(); fitToData(); drawCurrent();
+      const v = document.getElementById('bootVeil');
+      if (v) v.innerHTML = '<span class=dot></span> showing offline snapshot — the live responder is not answering';
+      return;
+    } catch (_) {
+      throw new Error('Live responder unreachable and /humans.json is also missing.');
+    }
   }
 
-  STATE.manifests = (well && well.manifests) || (discover && discover.manifests) || {};
-  STATE.responder = (well && well.responder && well.responder.pubkey_b32)
-    || (discover && discover.responder_pubkey_b32) || null;
-  STATE.responderEpoch = (well && well.responder && well.responder.key_epoch) || 0;
-  if (STATE.responder) STATE.responderBytes = b32decode(STATE.responder);
-
-  STATE.bands  = (bandsRes && bandsRes.bands) || [];
-  STATE.totals = (mat && mat.totals) || {};
-  STATE.matrix = (mat && mat.bands) || [];
-  for (const b of STATE.matrix) STATE.matrixByBand.set(b.band, b);
-  for (const b of STATE.bands) STATE.bandFamilyByKey[b.key] = b.family || 'reserved';
-  for (const b of STATE.matrix) {
-    if (!STATE.bandFamilyByKey[b.band]) STATE.bandFamilyByKey[b.band] = b.family || 'reserved';
+  if (!STATE.manifests || !Object.keys(STATE.manifests).length) {
+    STATE.manifests = (discover && discover.manifests) || {};
+  }
+  if (!STATE.responder) {
+    STATE.responder = (discover && discover.responder_pubkey_b32) || null;
+    if (STATE.responder && !STATE.responderBytes) STATE.responderBytes = b32decode(STATE.responder);
+    paintHeaderResponder();
   }
 
-  STATE.algorithms = (algoRes && (algoRes.algorithms || algoRes.items)) || [];
-  STATE.sources    = (srcRes && (srcRes.sources || srcRes.items)) || [];
-  STATE.autoMaterialize = (availRes && availRes.auto_materialize_enabled) ?? null;
-
-  // Cells from /v1/coverage
   const rawCells = (cov && cov.cells) || [];
-  if (!rawCells.length) {
-    document.getElementById('bootVeil').innerHTML = 'no attested cells in this responder yet — empty corpus is the protocol\'s honest "no"';
-  } else {
-    document.getElementById('bootVeil').remove();
-  }
+  hydrateCellsFromCoverage(rawCells);
+  computeProjection();
+  paintLeftPane();
+  fitToData();
+  drawCurrent();
+  clearBootVeil();
+  setHeroFade(false);
 
-  // Compute per-cell dominant family from the matrix's family signal:
-  //   for each cell, pick a family weighted by per-band fact counts; we don't
-  //   have that mapping at /v1/coverage, so default to 'foundation' and let
-  //   selectCell() refine it after a /v1/recall.
+  // Phase 2: hydrate the rest in the background. Each is independent;
+  // failure of one doesn't block the others.
+  pMat.then(mat => {
+    if (!mat) return;
+    STATE.totals = mat.totals || {};
+    STATE.matrix = mat.bands || [];
+    for (const b of STATE.matrix) STATE.matrixByBand.set(b.band, b);
+    for (const b of STATE.matrix) {
+      if (!STATE.bandFamilyByKey[b.band]) STATE.bandFamilyByKey[b.band] = b.family || 'reserved';
+    }
+    paintLeftPane();
+    buildFamilyKey();
+    buildLogView();
+    primeTimeWindow();
+  }).catch(()=>{});
+
+  pBands.then(bandsRes => {
+    if (!bandsRes) return;
+    STATE.bands = bandsRes.bands || [];
+    for (const b of STATE.bands) STATE.bandFamilyByKey[b.key] = b.family || 'reserved';
+    paintLeftPane();
+    buildFamilyKey();
+    buildRegistryView();
+  }).catch(()=>{});
+
+  pAlgo.then(algoRes => {
+    if (!algoRes) return;
+    STATE.algorithms = algoRes.algorithms || algoRes.items || [];
+    buildRegistryView();
+  }).catch(()=>{});
+
+  pSrc.then(srcRes => {
+    if (!srcRes) return;
+    STATE.sources = srcRes.sources || srcRes.items || [];
+    buildRegistryView();
+  }).catch(()=>{});
+
+  pAvail.then(availRes => {
+    if (!availRes) return;
+    STATE.autoMaterialize = availRes.auto_materialize_enabled ?? null;
+    paintLeftPane();
+  }).catch(()=>{});
+}
+
+function hydrateCellsFromCoverage(rawCells) {
+  if (!rawCells || !rawCells.length) return;
   for (const c of rawCells) {
+    if (STATE.cellById.has(c.cell64)) continue;
     const cell = {
       cell64: c.cell64,
       lat: c.lat_deg,
@@ -714,15 +856,21 @@ async function boot() {
     STATE.cells.push(cell);
     STATE.cellById.set(cell.cell64, cell);
   }
+}
 
-  computeProjection();
-  paintLeftPane();
-  buildFamilyKey();
-  buildLogView();
-  buildRegistryView();
-  primeTimeWindow();
-  fitToData();
-  drawCurrent();
+function paintHeaderResponder() {
+  const t = document.getElementById('hdrPubkeyText');
+  const wrap = document.getElementById('hdrPubkey');
+  const pk = STATE.responder;
+  if (pk) {
+    t.textContent = pk.slice(0,18) + '…';
+    wrap.title = pk;
+    wrap.onclick = () => { try { navigator.clipboard.writeText(pk); } catch(_){} };
+    wrap.style.cursor = 'copy';
+  } else {
+    t.textContent = 'no responder';
+    wrap.title = 'No responder pubkey resolved — page is showing offline snapshot';
+  }
 }
 
 // ── 6. Projection: PCA when we can, equal-area lat/lng otherwise ────────────
@@ -760,8 +908,6 @@ function paintLeftPane() {
   el('sPubkey').textContent   = pk.length > 24 ? pk.slice(0,18)+'…' : pk;
   el('sPubkey').title         = pk;
   el('sPubkey').onclick       = () => { if (STATE.responder) navigator.clipboard.writeText(STATE.responder); };
-  el('hdrPubkeyText').textContent = pk.length > 24 ? pk.slice(0,18)+'…' : pk;
-  el('hdrPubkey').title       = pk;
   el('sEpoch').textContent    = String(STATE.responderEpoch);
   el('sAuto').textContent     = STATE.autoMaterialize === null ? '—' : (STATE.autoMaterialize ? 'on' : 'off');
 
@@ -884,10 +1030,55 @@ function visibleCells() {
   return out;
 }
 
+// Mulberry32 — fast deterministic PRNG so the decorative field is stable.
+function _mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let _starfieldCache = null;
+function drawDecorativeStarfield(W, H) {
+  if (!_starfieldCache || _starfieldCache.W !== W || _starfieldCache.H !== H) {
+    const rng = _mulberry32(0x510C5);
+    const N = 320;
+    const points = new Array(N);
+    for (let i = 0; i < N; i++) {
+      points[i] = {
+        x: rng() * W,
+        y: rng() * H,
+        r: 0.4 + rng() * 0.9,
+        phase: rng() * 6.283,
+        speed: 0.18 + rng() * 0.5,
+        a: 0.18 + rng() * 0.34,
+      };
+    }
+    _starfieldCache = { W, H, points };
+  }
+  const t = (performance.now() - _twinkleStart) / 1000;
+  ctx.save();
+  for (const p of _starfieldCache.points) {
+    const tw = 0.55 + 0.45 * Math.sin(t * p.speed + p.phase);
+    ctx.fillStyle = 'rgba(232,232,234,' + (p.a * tw).toFixed(3) + ')';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * dpr, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawField() {
   const W = canvas.width, H = canvas.height;
   ctx.fillStyle = '#06070a';
   ctx.fillRect(0, 0, W, H);
+
+  // Decorative seeded starfield — these are NOT cells, they're background
+  // texture so the canvas is never empty before /v1/coverage resolves.
+  // Live cells paint over the top with saturated colour and twinkle. The
+  // seed is fixed so the field is stable across resizes/zooms.
+  drawDecorativeStarfield(W, H);
 
   // faint coordinate grid (lat/lng mod 30°)
   ctx.strokeStyle = 'rgba(232,232,234,0.04)';
@@ -908,7 +1099,7 @@ function drawField() {
   for (const c of cells) {
     const [x,y] = project(c);
     if (x < -50 || x > W+50 || y < -50 || y > H+50) continue;
-    const tw = 0.7 + 0.3 * Math.sin(t * c.twinkleSpeed + c.twinkle);
+    const tw = 0.55 + 0.45 * Math.sin(t * c.twinkleSpeed + c.twinkle);
     const r = (1.4 + 1.6 * c.brightness) * dpr * Math.max(.7, Math.sqrt(STATE.view.scale)) * tw;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
     grad.addColorStop(0,   c.color + 'cc');
@@ -923,7 +1114,7 @@ function drawField() {
   for (const c of cells) {
     const [x,y] = project(c);
     if (x < -10 || x > W+10 || y < -10 || y > H+10) continue;
-    const tw = 0.7 + 0.3 * Math.sin(t * c.twinkleSpeed + c.twinkle);
+    const tw = 0.55 + 0.45 * Math.sin(t * c.twinkleSpeed + c.twinkle);
     const r = (1.0 + 1.2 * c.brightness) * dpr * Math.max(.7, Math.sqrt(STATE.view.scale)) * tw;
     ctx.fillStyle = c.color;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
@@ -1205,7 +1396,7 @@ function paintBandCard(band) {
     '<div class=fact data-emem-band="'+escapeHtml(band)+'" data-emem-family="'+escapeHtml(b.family||'reserved')+'">' +
       '<div class=band><span class=fam-dot style="background:'+famColor(b.family||'reserved')+';color:'+famColor(b.family||'reserved')+'"></span>'+escapeHtml(band)+'</div>' +
       '<div class=val>family: <b>'+escapeHtml(b.family||'reserved')+'</b> · facts <b>'+ (b.facts_count||0) +'</b> · in_cube <b>'+(b.in_cube?'yes':'no')+'</b> · materializer <b>'+(b.has_materializer?'yes':'no')+'</b></div>' +
-      (b.tempo_seconds ? '<div class=val>tempo: '+b.tempo+' ('+b.tempo_seconds+' s)</div>' : '') +
+      (b.tempo_seconds ? '<div class=val>tempo: <b>'+humanTempo(b.tempo_seconds)+'</b> <span style="color:var(--fg-mute)">('+b.tempo_seconds+' s)</span></div>' : '<div class=val>tempo: <b>static</b></div>') +
       (b.last_attested_unix_s ? '<div class=ts>last attested '+new Date(b.last_attested_unix_s*1000).toISOString().slice(0,19).replace('T',' ')+'</div>' : '') +
     '</div>';
   setRightPane(html);
@@ -1256,23 +1447,33 @@ function buildLogView() {
       const row  = btn.closest('.row');
       const pill = row.querySelector('.pill');
       pill.className = 'pill pending'; pill.textContent = 'verifying…';
-      // Pick a dense cell (any cell in the corpus is fine; we just need a
-      // recall to bind a real receipt to this band).
-      const c = STATE.cells[0];
-      if (!c) { pill.className='pill fail'; pill.textContent = 'no cell'; row.dataset.ememVerified='false'; return; }
+      // Sample a cell that's known to have facts — densest cells are the
+      // most likely to actually carry this band on this responder. We try
+      // the top 3 by fact_count; if all return empty receipts, that's an
+      // honest "no fact at this responder for that band" signal, not a
+      // verify failure.
+      const candidates = [...STATE.cells].sort((a,b) => (b.fact_count||0) - (a.fact_count||0)).slice(0,3);
+      if (!candidates.length) { pill.className='pill fail'; pill.textContent = 'no cells loaded'; row.dataset.ememVerified='false'; return; }
       try {
-        const res = await api('POST', '/v1/recall', { cell: c.cell64, bands:[band] });
-        if (res && res.receipt) {
-          const ok = await verifyReceiptCore(res.receipt);
-          pill.className = 'pill ' + (ok ? 'ok' : 'fail');
-          pill.textContent = ok ? 'verified' : 'fail';
-          row.dataset.ememVerified = ok ? 'true' : 'false';
-          if (res.receipt.fact_cids && res.receipt.fact_cids[0]) {
-            row.dataset.ememFactCid = res.receipt.fact_cids[0];
+        let receiptToVerify = null, factCid = null;
+        for (const c of candidates) {
+          const res = await api('POST', '/v1/recall', { cell: c.cell64, bands:[band] });
+          if (res && res.receipt && res.receipt.fact_cids && res.receipt.fact_cids.length) {
+            receiptToVerify = res.receipt;
+            factCid = res.receipt.fact_cids[0];
+            break;
           }
+        }
+        if (receiptToVerify) {
+          const ok = await verifyReceiptCore(receiptToVerify);
+          pill.className = 'pill ' + (ok ? 'ok' : 'fail');
+          pill.textContent = ok ? 'verified' : 'sig fail';
+          row.dataset.ememVerified = ok ? 'true' : 'false';
+          if (factCid) row.dataset.ememFactCid = factCid;
         } else {
-          pill.className = 'pill fail'; pill.textContent = 'no receipt';
-          row.dataset.ememVerified = 'false';
+          pill.className = 'pill'; pill.textContent = 'no fact yet';
+          pill.title = 'No facts for this band at the sampled cells — band is declared but not yet attested at densely-attested cells';
+          row.dataset.ememVerified = 'pending';
         }
       } catch (e) {
         pill.className = 'pill fail'; pill.textContent = 'err';
@@ -1309,15 +1510,19 @@ function drawCurrent() {
   else if (STATE.mode === 'graph') drawGraph();
 }
 
-// continuous twinkle at ~24 fps without overworking CPU
-let _twinkleTimer = null;
+// continuous twinkle on the field view. We use a single rAF loop (no
+// setTimeout chain) so the cadence is honest 60 fps when visible, and the
+// browser pauses us when the tab is hidden. CPU stays low because all we do
+// per frame is fillRect + a few hundred arcs.
+let _twinkleRunning = false;
 function startTwinkleLoop() {
-  if (_twinkleTimer) return;
+  if (_twinkleRunning) return;
+  _twinkleRunning = true;
   function tick() {
     if (STATE.mode === 'field') drawField();
-    _twinkleTimer = setTimeout(() => requestAnimationFrame(tick), 60);
+    requestAnimationFrame(tick);
   }
-  tick();
+  requestAnimationFrame(tick);
 }
 
 // ── 13. Hover / click / pan / zoom / lasso ─────────────────────────────────
@@ -1422,13 +1627,15 @@ window.addEventListener('mouseup', async () => {
     const sel = STATE.cells.filter(c => ptInPoly([c.lng, c.lat], polyLatLng.slice(0,-1)));
     paintLassoSummary(polyLatLng, sel);
 
-    // Issue /v1/recall_polygon — use the geotessera band as a default since
-    // it covers the most cells; agents can change band via the right pane.
+    // Issue /v1/recall_polygon — pick the band with the highest facts_count
+    // on this responder. Hardcoding 'geotessera' previously meant the lasso
+    // silently returned 0 facts when geotessera wasn't materialised here.
+    const lassoBand = pickLassoBand();
     try {
       const res = await api('POST', '/v1/recall_polygon', {
-        polygon: polyLatLng, bands: ['geotessera']
+        polygon: polyLatLng, bands: [lassoBand]
       });
-      paintPolygonResult(polyLatLng, sel, res);
+      paintPolygonResult(polyLatLng, sel, res, lassoBand);
     } catch (e) {
       // result already in console
     }
@@ -1523,23 +1730,56 @@ window.addEventListener('keydown', e => {
     document.getElementById('cmdkBack').classList.remove('on');
     document.getElementById('sheet').classList.remove('on');
     if (STATE.lassoPoints) { STATE.lassoPoints = null; drawField(); }
-    lassoMode = false; canvas.classList.remove('lasso');
+    lassoMode = false;
+    canvas.classList.remove('lasso');
+    const lc = document.getElementById('chipLasso');
+    if (lc) lc.setAttribute('aria-pressed', 'false');
     return;
   }
   if (e.key === '1') setMode('field');
   if (e.key === '2') setMode('graph');
   if (e.key === '3') setMode('registry');
   if (e.key === '4') setMode('log');
-  if (e.key === 'l' || e.key === 'L') { lassoMode = !lassoMode; canvas.classList.toggle('lasso', lassoMode); }
+  if (e.key === 'l' || e.key === 'L') {
+    lassoMode = !lassoMode;
+    canvas.classList.toggle('lasso', lassoMode);
+    const chip = document.getElementById('chipLasso');
+    if (chip) chip.setAttribute('aria-pressed', lassoMode ? 'true' : 'false');
+  }
   if (e.key === '+' || e.key === '=') { STATE.view.scale = Math.min(40, STATE.view.scale*1.4); drawCurrent(); }
   if (e.key === '-' || e.key === '_') { STATE.view.scale = Math.max(0.4, STATE.view.scale/1.4); drawCurrent(); }
   if (e.key === '0') { fitToData(); drawCurrent(); }
 });
 
-document.getElementById('chipCmdk').onclick    = () => openCmdk();
-document.getElementById('chipConsole').onclick = () => { consoleEl.focus(); consoleEl.scrollTop = consoleEl.scrollHeight; };
+document.getElementById('chipCmdk').onclick    = () => { setHeroFade(true); openCmdk(); };
+document.getElementById('chipConsole').onclick = () => { setHeroFade(true); consoleEl.focus(); consoleEl.scrollTop = consoleEl.scrollHeight; };
 document.getElementById('chipHelp').onclick    = () => document.getElementById('helpModal').classList.add('on');
 document.getElementById('helpClose').onclick   = () => document.getElementById('helpModal').classList.remove('on');
+document.getElementById('chipLasso').onclick   = () => {
+  setHeroFade(true);
+  lassoMode = !lassoMode;
+  canvas.classList.toggle('lasso', lassoMode);
+  const chip = document.getElementById('chipLasso');
+  chip.setAttribute('aria-pressed', lassoMode ? 'true' : 'false');
+};
+
+// Mac/iOS uses ⌘ rather than Ctrl. Detect once and rewrite both the chip
+// label and the help-modal kbd.
+(() => {
+  const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+  if (isMac) {
+    const k = document.getElementById('kbdCmdk');
+    const h = document.getElementById('helpKbdCmdk');
+    if (k) k.textContent = '⌘K';
+    if (h) h.textContent = '⌘K';
+  }
+})();
+
+// First interaction with the canvas fades the hero strip — text gets out of
+// the way once the user understands what they're looking at.
+['mousedown','touchstart','wheel'].forEach(ev =>
+  canvas.addEventListener(ev, () => setHeroFade(true), { once:true, passive:true })
+);
 
 // ── 14. Selection: cell card with recall + offline verify ──────────────────
 function setRightPane(html) {
@@ -1736,6 +1976,15 @@ function makeSyntheticCell(cell64, lat, lng) {
 }
 
 // ── 15. Lasso → /v1/recall_polygon ────────────────────────────────────────
+function pickLassoBand() {
+  // Use the band with the most attested facts on this responder. Falls back
+  // to a known-popular band if the matrix hasn't loaded yet.
+  if (STATE.matrix && STATE.matrix.length) {
+    const sorted = [...STATE.matrix].sort((a,b) => (b.facts_count||0) - (a.facts_count||0));
+    if (sorted[0]) return sorted[0].band;
+  }
+  return 'weather.temperature_2m';
+}
 function paintLassoSummary(polyLatLng, sel) {
   const html = '<h3>lasso · in flight</h3>' +
     '<div class=fact data-emem-href="/v1/recall_polygon">' +
@@ -1746,12 +1995,13 @@ function paintLassoSummary(polyLatLng, sel) {
     '</div>';
   setRightPane(html);
 }
-function paintPolygonResult(polyLatLng, sel, res) {
+function paintPolygonResult(polyLatLng, sel, res, lassoBand) {
   const facts = res.facts || (res.by_cell ? Object.values(res.by_cell).flatMap(c => c.facts||[]) : []);
   const cells = res.cells_sampled || res.cells || (res.by_cell ? Object.keys(res.by_cell) : []);
   let html = '<h3>lasso · '+ (cells.length||sel.length) +' cells</h3>' +
     '<div class=fact data-emem-href="/v1/recall_polygon">' +
       '<div class=band>POST /v1/recall_polygon</div>' +
+      '<div class=val>band <b>'+escapeHtml(lassoBand||'?')+'</b></div>' +
       '<div class=val>area '+ (res.area_km2 ? res.area_km2.toFixed(1)+' km²' : '—') +'</div>' +
       '<div class=val>cells_returned <b>'+ cells.length +'</b></div>' +
       '<div class=val>facts_returned <b>'+ facts.length +'</b></div>' +
@@ -1965,12 +2215,32 @@ cmdkInput.addEventListener('keydown', e => {
   if (e.key === 'Escape')    { closeCmdk(); }
 });
 
+async function resolveCellById(c64) {
+  // Pasted cell64 is in our cellById map iff /v1/coverage already returned
+  // it. Otherwise resolve true coords from /v1/cells/{c64}/info — anything
+  // less means a paste lands on the equator off the African coast.
+  const cached = STATE.cellById.get(c64);
+  if (cached) return cached;
+  try {
+    const info = await api('GET', '/v1/cells/'+encodeURIComponent(c64)+'/info');
+    const lat = info?.centre?.lat_deg ?? info?.lat ?? info?.lat_deg ?? null;
+    const lng = info?.centre?.lng_deg ?? info?.lng ?? info?.lng_deg ?? null;
+    if (lat == null || lng == null) return makeSyntheticCell(c64, null, null);
+    const cell = makeSyntheticCell(c64, lat, lng);
+    STATE.cells.push(cell);
+    STATE.cellById.set(c64, cell);
+    computeProjection();
+    return cell;
+  } catch (_) {
+    return makeSyntheticCell(c64, null, null);
+  }
+}
+
 async function promptForCell(q, fn) {
   const c64Re = /^[a-z]{4}\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+$/;
   let target = STATE.cellById.get(q);
-  if (!target && c64Re.test(q)) target = makeSyntheticCell(q, null, null);
+  if (!target && c64Re.test(q)) target = await resolveCellById(q);
   if (!target) {
-    // try locate
     try {
       const res = await api('POST', '/v1/locate', { q });
       const c64 = res.cell64 || res.cell;
@@ -2005,16 +2275,23 @@ function verifyLastReceipt() {
 // ── 19. Boot wire-up ──────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
   resizeCanvas();
+  // Reset the twinkle clock to the first paint so the field "wakes up" in
+  // sync rather than mid-cycle.
+  _twinkleStart = performance.now();
+  // Paint the decorative starfield before any fetch returns — the page is
+  // never a blank rectangle.
+  drawField();
+  startTwinkleLoop();
   try {
     await boot();
-    // Boot banner in the console
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+    const cmdLabel = isMac ? '⌘K' : 'Ctrl-K';
     const div = document.createElement('div');
     div.className = 'log banner';
-    div.innerHTML = '<span class=arrow>// </span> ready. every /v1/* call this UI makes prints above. paste a curl into your shell — same bytes, same CIDs. press <kbd>Ctrl-K</kbd>, <kbd>~</kbd>, <kbd>?</kbd>.';
+    div.innerHTML = '<span class=arrow>// </span> ready. every /v1/* call this UI makes prints above. paste a curl into your shell — same bytes, same CIDs. press <kbd>'+cmdLabel+'</kbd>, <kbd>~</kbd>, <kbd>?</kbd>.';
     consoleBody.appendChild(div);
     consoleEl.scrollTop = consoleEl.scrollHeight;
     drawCurrent();
-    startTwinkleLoop();
   } catch (e) {
     STATE.bootError = e;
     const v = document.getElementById('bootVeil');
