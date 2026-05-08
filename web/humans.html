@@ -223,11 +223,21 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
 .zoomctl button{border:none;border-radius:0;width:30px;height:30px;padding:0;font-size:14px;color:var(--fg-2)}
 .zoomctl button:not(:last-child){border-bottom:1px solid var(--line)}
 .legend{position:absolute;bottom:.7em;left:.7em;z-index:4;background:var(--bg-1);
-  border:1px solid var(--line);padding:.55em .75em;font-size:10.5px;color:var(--fg-3);
+  border:1px solid var(--line);font-size:10.5px;color:var(--fg-3);
   border-radius:3px;max-width:18em;font-family:var(--mono);line-height:1.55;
-  pointer-events:none;display:none}
+  display:none;overflow:hidden}
 @media(min-width:760px){.legend{display:block}}
 .legend b{color:var(--fg-2);font-weight:500}
+.legend-head{display:flex;align-items:center;gap:.4em;cursor:pointer;
+  padding:.5em .75em;width:100%;background:transparent;border:none;
+  color:var(--fg-3);font:inherit;letter-spacing:0;text-align:left}
+.legend-head:hover{color:var(--accent)}
+.legend-head .glyph{margin-left:auto;font-size:11px;color:var(--fg-mute);
+  transition:transform .18s ease}
+.legend-head:hover .glyph{color:var(--accent)}
+.legend-body{padding:.05em .75em .55em;color:var(--fg-3)}
+.legend.collapsed .legend-body{display:none}
+.legend.collapsed .legend-head .glyph{transform:rotate(-90deg)}
 canvas#stage{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
 canvas#stage.lasso{cursor:crosshair}
 canvas#stage.panning{cursor:grabbing}
@@ -485,10 +495,10 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div class=pubkey id=hdrPubkey title="Responder ed25519 public key, base32-nopad-lowercase"><span class=dot></span><span id=hdrPubkeyText>connecting…</span></div>
     <div class=spacer></div>
     <div class=chips>
-      <button class=chip id=chipCmdk type=button aria-label="Open command palette">search<kbd id=kbdCmdk>Ctrl-K</kbd></button>
-      <button class=chip id=chipLasso type=button aria-label="Toggle lasso select" aria-pressed=false>lasso<kbd>L</kbd></button>
-      <button class=chip id=chipConsole type=button aria-label="Focus console">console<kbd>~</kbd></button>
-      <button class=chip id=chipHelp type=button aria-label="Show keyboard help">help<kbd>?</kbd></button>
+      <button class=chip id=chipCmdk   type=button data-emem-action=open-cmdk    aria-label="Open command palette">search<kbd id=kbdCmdk>Ctrl-K</kbd></button>
+      <button class=chip id=chipLasso  type=button data-emem-action=lasso-toggle aria-label="Toggle lasso select" aria-pressed=false>lasso<kbd>L</kbd></button>
+      <button class=chip id=chipConsole type=button data-emem-action=focus-console aria-label="Focus console">console<kbd>~</kbd></button>
+      <button class=chip id=chipHelp   type=button data-emem-action=open-help    aria-label="Show keyboard help">help<kbd>?</kbd></button>
     </div>
   </header>
 
@@ -533,34 +543,39 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <button class=hero-close id=heroClose type=button aria-label="Dismiss intro">×</button>
     </div>
     <div class=modes role=tablist aria-label="View modes">
-      <button id=modeField  role=tab aria-pressed=true  aria-controls=stage>field</button>
-      <button id=modeGraph  role=tab aria-pressed=false aria-controls=stage>graph</button>
-      <button id=modeReg    role=tab aria-pressed=false aria-controls=registry>registry</button>
-      <button id=modeLog    role=tab aria-pressed=false aria-controls=logview>log</button>
+      <button id=modeField role=tab aria-pressed=true  aria-controls=stage    data-emem-action=mode-field>field</button>
+      <button id=modeGraph role=tab aria-pressed=false aria-controls=stage    data-emem-action=mode-graph>graph</button>
+      <button id=modeReg   role=tab aria-pressed=false aria-controls=registry data-emem-action=mode-registry>registry</button>
+      <button id=modeLog   role=tab aria-pressed=false aria-controls=logview  data-emem-action=mode-log>log</button>
     </div>
     <button id=chipProj class=chipProj type=button aria-pressed=false disabled
             aria-label="Toggle projection between lat/lng and embedding PCA"
+            data-emem-action=projection-toggle
             title="Embedding projection unavailable on this responder">
       <span class=proj-axis>x</span><span class=proj-label>lat/lng</span><kbd>p</kbd>
     </button>
     <div class=zoomctl role=group aria-label="Zoom controls">
-      <button id=zoomIn  title="zoom in (+)" aria-label="Zoom in">+</button>
-      <button id=zoomOut title="zoom out (−)" aria-label="Zoom out">−</button>
-      <button id=zoomFit title="fit (0)" aria-label="Reset zoom">·</button>
+      <button id=zoomIn  data-emem-action=zoom-in  title="zoom in (+)" aria-label="Zoom in">+</button>
+      <button id=zoomOut data-emem-action=zoom-out title="zoom out (−)" aria-label="Zoom out">−</button>
+      <button id=zoomFit data-emem-action=zoom-fit title="fit (0)" aria-label="Reset zoom">·</button>
     </div>
     <button class="collapse-handle cl" id=cHandleLeft type=button
+            data-emem-action=collapse-left
             aria-label="Toggle left rail" title="Collapse the corpus rail (or [)">
       <span class=glyph id=cHandleLeftGlyph>‹</span>
     </button>
     <button class="collapse-handle cr" id=cHandleRight type=button
+            data-emem-action=collapse-right
             aria-label="Toggle right rail" title="Collapse the selection rail (or ])">
       <span class=glyph id=cHandleRightGlyph>›</span>
     </button>
     <button class="collapse-handle cc" id=cHandleConsole type=button
-            aria-label="Toggle console" title="Collapse the console (or =)">
+            data-emem-action=collapse-console
+            aria-label="Toggle console" title="Collapse the console (or \\)">
       <span class=glyph id=cHandleConsoleGlyph>▾</span><span class=lbl id=cHandleConsoleLabel>console</span>
     </button>
     <button class=focus-btn id=focusBtn type=button aria-pressed=false
+            data-emem-action=toggle-focus
             aria-label="Toggle focus mode" title="Hide all chrome — F or Esc">⤢ focus<kbd style="margin-left:.4em;background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;font-size:10px;color:var(--fg-3)">F</kbd></button>
     <canvas id=stage aria-label="Constellation of attested cells"></canvas>
     <svg id=registry aria-hidden=true></svg>
@@ -572,13 +587,19 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <div class=body id=logBody></div>
     </div>
     <div class=tooltip id=tip role=tooltip></div>
-    <div class=legend id=legend>
-      <b>constellation</b><br>
-      every star is a cell64 the responder has attested.<br>
-      brightness = log(facts_count + 1).<br>
-      hue = dominant band family.<br>
-      drag to lasso → POST /v1/recall_polygon.<br>
-      click a star → recall + offline-verify.
+    <div class=legend id=legend data-emem-region=legend>
+      <button type=button class=legend-head id=legendToggle
+              aria-controls=legendBody aria-expanded=true
+              data-emem-action=toggle-legend>
+        <b>constellation</b><span class=glyph aria-hidden=true>▾</span>
+      </button>
+      <div class=legend-body id=legendBody>
+        every star is a cell64 the responder has attested.<br>
+        brightness = log(facts_count + 1).<br>
+        hue = dominant band family.<br>
+        drag to lasso → POST /v1/recall_polygon.<br>
+        click a star → recall + offline-verify.
+      </div>
     </div>
     <div class=boot-veil id=bootVeil><span class=dot></span> <span id=bootVeilText>locating the corpus…</span></div>
   </main>
@@ -640,6 +661,8 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <kbd>[</kbd><span>collapse / restore left rail</span>
       <kbd>]</kbd><span>collapse / restore right rail</span>
       <kbd>\</kbd><span>collapse / restore console</span>
+      <kbd>I</kbd><span>collapse / restore legend (the constellation key)</span>
+      <kbd>H</kbd><span>restore intro hero (after dismissing it)</span>
       <kbd>F</kbd><span>focus mode (hide all chrome)</span>
       <kbd>?</kbd><span>this dialog</span>
       <kbd>Esc</kbd><span>close dialogs / cancel lasso / leave focus</span>
@@ -1304,6 +1327,7 @@ function reproject(target) {
   // canvas, so we just mutate c.x,c.y in lock-step.
   if (target === STATE.projection) return;
   STATE.projection = target;
+  echoUI('UI', 'projection', target);
   STATE._projectAnim++;
   const token = STATE._projectAnim;
   const t0 = performance.now();
@@ -1956,6 +1980,7 @@ function setMode(m) {
   if (m==='graph')    STATE.graph = null;
   drawCurrent();
   syncUrlState();
+  echoUI('UI', 'mode', m);
 }
 document.getElementById('modeField').onclick = () => setMode('field');
 document.getElementById('modeGraph').onclick = () => setMode('graph');
@@ -2257,6 +2282,7 @@ window.addEventListener('keydown', e => {
     canvas.classList.toggle('lasso', lassoMode);
     const chip = document.getElementById('chipLasso');
     if (chip) chip.setAttribute('aria-pressed', lassoMode ? 'true' : 'false');
+    echoUI('UI', 'lasso', lassoMode ? 'on ' : 'off');
   }
   if (e.key === '+' || e.key === '=') { STATE.view.scale = Math.min(40, STATE.view.scale*1.4); drawCurrent(); }
   if (e.key === '-' || e.key === '_') { STATE.view.scale = Math.max(0.4, STATE.view.scale/1.4); drawCurrent(); }
@@ -2277,6 +2303,7 @@ document.getElementById('chipLasso').onclick   = () => {
   canvas.classList.toggle('lasso', lassoMode);
   const chip = document.getElementById('chipLasso');
   chip.setAttribute('aria-pressed', lassoMode ? 'true' : 'false');
+  echoUI('UI', 'lasso', lassoMode ? 'on ' : 'off');
 };
 document.getElementById('chipProj').onclick    = () => {
   if (!STATE.embeddingReady) return;
@@ -2310,16 +2337,20 @@ document.getElementById('chipProj').onclick    = () => {
 // shared link reproduces the user's preferred view. Keys: [ left rail,
 // ] right rail, = console, F focus mode, Esc exits focus.
 const LAYOUT_KEY = 'emem-humans-layout-v1';
-const LAYOUT_FLAGS = ['noLeft','noRight','noConsole','focus','heroDismissed'];
+const LAYOUT_FLAGS = ['noLeft','noRight','noConsole','focus','heroDismissed','legendCollapsed'];
 function applyLayout(state) {
   const app = document.getElementById('app');
   app.classList.toggle('no-left',     !!state.noLeft);
   app.classList.toggle('no-right',    !!state.noRight);
   app.classList.toggle('no-console',  !!state.noConsole);
   app.classList.toggle('focus',       !!state.focus);
-  if (state.heroDismissed) {
-    const h = document.getElementById('hero');
-    if (h) h.style.display = 'none';
+  const hero = document.getElementById('hero');
+  if (hero) hero.style.display = state.heroDismissed ? 'none' : '';
+  const legend = document.getElementById('legend');
+  if (legend) {
+    legend.classList.toggle('collapsed', !!state.legendCollapsed);
+    const t = document.getElementById('legendToggle');
+    if (t) t.setAttribute('aria-expanded', state.legendCollapsed ? 'false' : 'true');
   }
   // Update handle glyphs to reflect direction (e.g. ‹ when open, › when collapsed)
   const lG = document.getElementById('cHandleLeftGlyph');
@@ -2328,10 +2359,20 @@ function applyLayout(state) {
   if (lG) lG.textContent = state.noLeft ? '›' : '‹';
   if (rG) rG.textContent = state.noRight ? '‹' : '›';
   if (cG) cG.textContent = state.noConsole ? '▴' : '▾';
+  // Focus button: swap label and aria-pressed so the click visibly registers.
+  // The audit found the button worked in code, but the only delta was a
+  // subtle accent border — not legible. Now the label flips ⤢ focus ↔ ⤢ exit.
   const fb = document.getElementById('focusBtn');
-  if (fb) fb.setAttribute('aria-pressed', state.focus ? 'true' : 'false');
-  // Resize the canvas after the grid template has settled (~300 ms).
-  setTimeout(() => { resizeCanvas(); }, 320);
+  if (fb) {
+    fb.setAttribute('aria-pressed', state.focus ? 'true' : 'false');
+    fb.innerHTML = state.focus
+      ? '⤢ exit<kbd style="margin-left:.4em;background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;font-size:10px;color:var(--fg-3)">Esc</kbd>'
+      : '⤢ focus<kbd style="margin-left:.4em;background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;font-size:10px;color:var(--fg-3)">F</kbd>';
+  }
+  // Repaint the canvas in the same frame the grid resizes. Using rAF instead
+  // of a 320 ms setTimeout removes the dead air that read as "click did
+  // nothing" — the canvas now grows in lockstep with the rails sliding away.
+  requestAnimationFrame(() => requestAnimationFrame(resizeCanvas));
 }
 function loadLayout() {
   try {
@@ -2366,23 +2407,51 @@ function toggleLayout(flag) {
   }
   applyLayout(_layout);
   persistLayout();
+  // Echo to the console pane so the click leaves a paper trail. The page
+  // sells "every action prints below — read the page, learn the protocol";
+  // UI state changes deserve the same treatment as /v1/* calls.
+  echoLayoutToConsole(flag, _layout[flag]);
+}
+function echoLayoutToConsole(flag, on) {
+  const labels = {
+    noLeft:'collapse left rail', noRight:'collapse right rail',
+    noConsole:'collapse console', focus:'focus mode',
+    heroDismissed:'dismiss hero', legendCollapsed:'collapse legend',
+  };
+  echoUI('UI', labels[flag] || flag, on ? 'on ' : 'off');
+}
+function echoUI(method, action, value) {
+  if (!consoleBody) return;
+  const div = document.createElement('div');
+  div.className = 'log';
+  const t = new Date().toISOString().slice(11,19);
+  div.innerHTML = '<time>'+t+'</time>'
+    + '<span class=method style="color:var(--fg-mute)">'+escapeHtml(method)+'</span>'
+    + '<span class=url style="color:var(--fg-3)">'+escapeHtml(action)+'</span>'
+    + '<span class=arrow>→</span><span class="ok-status">'+escapeHtml(value)+'</span>';
+  consoleBody.appendChild(div);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 document.getElementById('cHandleLeft')   .onclick = () => toggleLayout('noLeft');
 document.getElementById('cHandleRight')  .onclick = () => toggleLayout('noRight');
 document.getElementById('cHandleConsole').onclick = () => toggleLayout('noConsole');
 document.getElementById('focusBtn')      .onclick = () => toggleLayout('focus');
+document.getElementById('legendToggle')  .onclick = () => toggleLayout('legendCollapsed');
 document.getElementById('heroClose')     .onclick = () => {
-  _layout.heroDismissed = true;
-  applyLayout(_layout);
-  persistLayout();
+  toggleLayout('heroDismissed');
 };
-// Keyboard: [ left rail   ] right rail   \ console   F focus   Esc-out-of-focus
+// Keyboard: [ left rail   ] right rail   \ console   F focus   I legend
+//           H restore hero   Esc leave focus
 window.addEventListener('keydown', e => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === '[')                { toggleLayout('noLeft'); }
   else if (e.key === ']')           { toggleLayout('noRight'); }
   else if (e.key === '\\')          { toggleLayout('noConsole'); }
+  else if (e.key === 'i' || e.key === 'I') { toggleLayout('legendCollapsed'); }
+  else if (e.key === 'h' || e.key === 'H') {
+    if (_layout.heroDismissed) { toggleLayout('heroDismissed'); }
+  }
   else if (e.key === 'f' || e.key === 'F') { toggleLayout('focus'); }
   else if (e.key === 'Escape' && _layout.focus) { toggleLayout('focus'); }
 });
