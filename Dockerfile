@@ -33,6 +33,7 @@ COPY crates/ crates/
 COPY web/ web/
 COPY docs/ docs/
 COPY examples/ examples/
+COPY claude-skills/ claude-skills/
 # Root-level markdown is include_str!'d directly by emem-api-rest.
 # Without these the build fails with `couldn't read PRIVACY.md`.
 COPY PRIVACY.md TERMS.md SUPPORT.md SECURITY.md ./
