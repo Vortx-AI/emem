@@ -45,18 +45,18 @@ LoC counts captured 2026-05-08.
 | Crate | LoC | Role |
 |-------|-----|------|
 | emem-api-rest | 27.6k | HTTP/MCP router + AppState + inline materializers (lib.rs alone is 23.2k; physics.rs is 2068) |
-| emem-fetch | 8.4k | 15 connector modules: cog, dmsp_ols, firms, hansen_gfc, koppen, overture, terraclimate, wdpa, worldpop, stac, proj, template, cache_window, connectors, lib |
+| emem-fetch | 8.8k | 16 connector modules: cache_window, chirps, cog, connectors, dmsp_ols, firms, hansen_gfc, koppen, lib, overture, proj, stac, template, terraclimate, wdpa, worldpop |
 | emem-primitives | 3.4k | recall / find_similar / trajectory / compare / compare_bands / diff / verify / query_region + binary_embedding + refinement + cbor_ops |
 | emem-core | 3.1k | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
 | emem-cli | 3.0k | 7 binaries: emem, emem-server, emem-demo, emem-livedemo, emem-realdemo, emem-ask-eval, emem-purge-fnkey |
-| emem-storage | 1.2k | MaterializingStorage (cache + fetch + log composite), Server, AttesterRegistry, AttestationLog |
+| emem-storage | 1.3k | MaterializingStorage (cache + fetch + log composite), Server, AttesterRegistry, AttestationLog |
 | emem-mcp | 0.76k | Single-file MCP tool registry |
 | emem-codec | 0.72k | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet |
 | emem-cache | 0.42k | sled cache wrapper (`SledHotCache`) |
 | emem-intent | 0.41k | 7-variant Intent enum and rule-based planner |
-| emem-fact | 0.35k | Fact / Receipt / Attestation CBOR types and signing primitives |
+| emem-fact | 0.35k | Fact / Receipt / Attestation CBOR types and signing primitives (split across lib/fact/cbor/cid/receipt/attest) |
+| emem-attest | 0.22k | `merkle_root`, `merkle_root_and_paths`, `verify_merkle_path` |
 | emem-claim | 0.08k | Claim predicate (Op enum + value, no signature) |
-| emem-attest | 0.07k | Pure `merkle_root` + `merkle_root_and_paths` |
 | emem-cubes | 0.05k | AgriSynth `.npz` handle (Python authoritative) |
 
 `emem-storage` is the keystone: `MaterializingStorage` glues the cache trait to the `Dispatcher` and the `AttestationLog`, then exposes the `Storage` trait that primitives program against.
@@ -357,11 +357,11 @@ There are two surface populations producing live facts:
 - `materialize_firms_active_fires` ~ lib.rs:14281 -> `firms.active_fires` (calls into `emem_fetch::firms`)
 - Sentinel-1/-2 + GeoTessera + Prithvi/Galileo encoders + JRC GSW + Overture + ESA WorldCover + Köppen + WorldPop + WDPA all dispatched the same way
 
-Five `sources-v0.json` schemes are declared with NO materializer in api-rest: `chirps.daily.v2`, `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.{ch4, no2}`, `viirs.dnb.monthly`. They register as discoverable but a recall on those bands will fail `MaterializeMiss`.
+Four `sources-v0.json` schemes are declared with NO materializer in api-rest: `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.{ch4, no2}`, `viirs.dnb.monthly`. They register as discoverable but a recall on those bands will fail `MaterializeMiss`. (The earlier list included `chirps.daily.v2`; CHIRPS daily precipitation is now wired live through `crates/emem-fetch/src/chirps.rs` and the inline materializer at `lib.rs:14948`.)
 
 ## The inference plane
 
-`crates/emem-api-rest/src/gpu_sidecar.rs` is a hand-rolled HTTP/1.1 client over the UDS at `/run/user/{UID}/emem/jepa_sidecar.sock`. It writes raw bytes, reads until `Connection: close`. Timeout via `EMEM_SIDECAR_TIMEOUT_MS` (default 5000). On `SidecarError::Unavailable` the caller falls back to in-process CPU (where wired); on a non-503 error from the sidecar it MUST refuse — no silent downgrade.
+`crates/emem-api-rest/src/gpu_sidecar.rs` is a hand-rolled HTTP/1.1 client over a UDS resolved from `EMEM_SIDECAR_SOCK`. The systemd user unit sets `EMEM_SIDECAR_SOCK=%t/emem/jepa_sidecar.sock` (expanding to `/run/user/<UID>/emem/jepa_sidecar.sock`); the Rust default when the env var is unset is `/run/emem/jepa_sidecar.sock` — useful for ad-hoc dev runs but NOT what the user-mode systemd unit creates, so production must always set the env. The client writes raw bytes, reads until `Connection: close`. Timeout via `EMEM_SIDECAR_TIMEOUT_MS` (default 5000). On `SidecarError::Unavailable` the caller falls back to in-process CPU (where wired); on a non-503 error from the sidecar it MUST refuse — no silent downgrade.
 
 Three models loaded at sidecar start (`python/jepa_v2_sidecar/server.py` registry):
 
@@ -369,7 +369,7 @@ Three models loaded at sidecar start (`python/jepa_v2_sidecar/server.py` registr
 |-------|--------|-------|--------|---------|------------------|
 | Prithvi-EO-2.0-300M-TL | frozen pretrained, production | [B, T=1, H=224, W=224, bands=6] HLS V2 | 1024-D CLS | ~10 s cold / ~20 ms warm | `frozen_pretrained_encoder` |
 | Galileo Tiny (5.7M params) | frozen pretrained, production, S2-only modality | [B=1, T=1, H=8, W=8, C=10] | 192-D | ~4 s cold / ~14 ms warm | `frozen_pretrained_encoder` |
-| JEPA-v2 dynamics | untrained baseline | 3x128-D lags -> [B, 384] | 128-D residual | CPU ort ~50 us | `untrained_baseline`, `upstream_geotessera_single_vintage` |
+| JEPA-v2 dynamics | untrained baseline | 3x128-D lags -> [B, 384] | 128-D residual | CPU ort ~50 us | `untrained_baseline` |
 
 VRAM partition (`server.py:33-44`): `EMEM_SIDECAR_VRAM_BUDGET_GB` default 10 GB, set once via `torch.cuda.set_per_process_memory_fraction`. CUDA OOM surfaces as 503 to Rust.
 
@@ -469,5 +469,6 @@ The 73 REST endpoints split across 13 categories (full list at `/v1/tools`). A n
 - `docs/protocol.md` — wire bytes (CBOR field order, CID rules, receipt preimage, attestation envelope).
 - `docs/agents.md` — calling conventions for LLM agents (REST + MCP), the locate -> recall -> verify chain.
 - `docs/operating.md` — deploy paths (plain HTTP behind a reverse proxy, native TLS via Let's Encrypt TLS-ALPN-01), systemd unit, env knobs.
-- `docs/SPEC.md` — protocol reference.
-- `docs/WHITEPAPER.md` — math + architecture rationale.
+- `docs/protocol.md` — wire-protocol reference (preimages, encodings, fact CBOR).
+- `docs/whitepaper.md` — math + architecture rationale.
+- `docs/agents.md` — primitive walkthroughs + the `/humans` interactive console (data-emem-* contract, console pivots, in-browser BLAKE3 + Ed25519 verify).

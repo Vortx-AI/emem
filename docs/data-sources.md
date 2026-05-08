@@ -54,13 +54,14 @@ fan-out (3+ windows × ~8 samples for `flood_risk@2` cold).
 
 ## Live connector inventory
 
-The `emem-fetch` crate (12 modules, ~8.4 k LoC) handles the fetch half. Some
+The `emem-fetch` crate (16 modules, ~8.8 k LoC) handles the fetch half. Some
 connectors live as inline materializers in `crates/emem-api-rest/src/lib.rs` —
 they hit JSON REST endpoints directly without a dedicated fetch module. Both
 are listed below.
 
 | Connector             | Where         | Source                    | Read path                                         | Bands populated                                                                 | License                          |
 |-----------------------|---------------|---------------------------|---------------------------------------------------|---------------------------------------------------------------------------------|----------------------------------|
+| `chirps.rs`           | emem-fetch    | UCSB CHC (data.chc.ucsb.edu) | HTTPS Range on daily COG (~6.5 MB f32, NoData=-9999) | `chirps.precip_daily_mm` (±50° lat, 0.05°, 1981→present, ~30 d final-quality lag) | Public domain (UCSB CHC)         |
 | `cog.rs`              | emem-fetch    | (any COG source)          | HTTPS Range, Deflate(8)/LZW(5), predictor 1/2/3   | sampler used by every raster connector                                          | (per source)                     |
 | `connectors.rs`       | emem-fetch    | dispatcher                | reqwest + Range, no gzip, 90 s pool-idle          | (HTTPS / GCS / IPLD plumbing)                                                   | n/a                              |
 | `dmsp_ols.rs`         | emem-fetch    | NOAA NCEI V4              | TAR head + gzipped TIFF, cached locally          | `nightlights.dmsp_ols_avg_dn`                                                   | Public domain (NOAA NGDC)        |
@@ -363,11 +364,14 @@ api-rest, so a `/v1/recall` for their bands returns Absence today.
 | `tropomi.s5p.no2`        | ~1.5 weeks  | NO₂ tropospheric column ~5.5 × 3.5 km (traffic + power-plant proxy) | Deferred |
 | `viirs.dnb.monthly`      | ~1 week     | 2012-present nightlights (extends DMSP 2013 freeze) | Deferred (auth-gated upstream — see below) |
 
-Three additional schemes — `chirps.daily.v2`, `sentinel1.grd.iw.vh`,
-`sentinel1.grd.iw` (separate from `sentinel_s1_rtc_mpc`) — are also declared
-without an api-rest materializer. CHIRPS is intentionally deferred because
-ERA5 already covers the same precipitation question at coarser resolution.
-S1 GRD-IW VH is a one-channel addition on top of the live VV path.
+CHIRPS daily precipitation is now wired (UCSB CHC anonymous COG range
+read, ±50° lat, 0.05° pitch, 1981→present with ~30-day final-quality
+lag). The connector lives at `crates/emem-fetch/src/chirps.rs` and
+materialises the `chirps.precip_daily_mm` band via fn_key
+`chirps.precip@1`. Two schemes — `sentinel1.grd.iw.vh` and
+`sentinel1.grd.iw` (separate from `sentinel_s1_rtc_mpc`) — remain
+declared without an api-rest materializer; both are one-channel
+additions on top of the live VV path.
 
 `viirs.dnb.monthly` is in the registry but its upstream
 (`eogdata.mines.edu/...vcmcfg/...avg_rade9h.tif`) requires Earthdata Login

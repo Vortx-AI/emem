@@ -123,7 +123,9 @@ adds an opinion the protocol does not need to take.
 
 ### 2.4 Text form
 
-A cell64 is rendered as four base32 bigrams separated by dots:
+A cell64 is rendered as four CVCV bigrams from a 65 536-entry alphabet
+(21 consonants × 10 vowels × 21 × 10 = 44 100 natural pairs, padded with
+`z<hex4>` synthetic suffixes), separated by dots:
 
 ```text
   damO.zb000.xUti.zde78
@@ -161,7 +163,7 @@ timestamps clamp to `tslot(0)`.
   Tempo       slot_seconds   typical bands
   ----------  -------------  --------------------------------------
   Static      0              copdem30m, gmrt, koppen
-  Slow        31_536_000     geotessera (annual), soilgrids
+  Slow        31_536_000     geotessera.{2017..2024} + .multi_year + .bin128, soilgrids
   Medium      2_592_000      ndvi_monthly, modis composites
   Fast        86_400         s2_raw, s1_raw, modis lst_day_8day
   UltraFast   3_600          weather, air_quality, traffic
@@ -399,7 +401,7 @@ holding only an old pubkey detects the rotation.
 ## 6. Bands — the 1792-D voxel
 
 The band ontology is loaded from `bands-v0.json` (`emem-core/data/`).
-Thirty-four bands sum to exactly **1792 dims**. Offsets are
+Thirty-five bands sum to exactly **1792 dims**. Offsets are
 contiguous; reserved slots leave room for new bands without breaking
 existing offsets.
 
@@ -661,16 +663,16 @@ registered upstream connector, triggers materialisation:
     → Fact::Primary → sign as responder → put_attestation → return
 ```
 
-Gates: `EMEM_AUTO_MATERIALIZE` feature flag, 30 s materialiser
-timeout, 180 s gateway timeout, 16 MiB body cap. A miss with no
-registered connector returns `MaterializeMiss` — structured error,
-never a silent empty.
+Gates: `EMEM_AUTO_MATERIALIZE` env (default **on** — set to `0`/`false`
+to disable), 30 s materialiser timeout, 180 s gateway timeout, 16 MiB
+body cap. A miss with no registered connector returns
+`MaterializeMiss` — structured error, never a silent empty.
 
-Six source schemes are wired inline in `emem-api-rest/src/lib.rs`
-(gmrt, ornl_modis, nasa_power, open_meteo, soilgrids.v2,
-viirs.fire.nrt). Five are declared but unwired: openet.30m.daily,
-dynamic_world.v1, tropomi.s5p.ch4, tropomi.s5p.no2,
-viirs.dnb.monthly, chirps.daily.v2.
+Inline materializers in `emem-api-rest/src/lib.rs` cover gmrt,
+ornl_modis, nasa_power, open_meteo (+ cams/era5/marine variants),
+soilgrids, firms (active fires), and chirps.daily.v2. Four schemes
+remain declared but unwired: openet.30m.daily, dynamic_world.v1,
+tropomi.s5p.ch4 / .no2, viirs.dnb.monthly.
 
 ---
 
@@ -800,26 +802,37 @@ three models. In-process Rust ort CPU fallback would set
 ## 11. Conformance
 
 Two implementations conform when, given byte-identical inputs, they
-produce byte-identical CIDs over four manifests:
+produce byte-identical CIDs over the manifest set exposed at
+`/v1/manifests`:
 
 ```text
   bands_cid        BLAKE3 over canonical_cbor(BandsManifest)
-                   (1792 dims, 34 bands)
+                   (1792 dims, 35 bands)
   algorithms_cid   BLAKE3 over canonical_cbor(AlgorithmsManifest)
                    (107 entries, three kinds)
   sources_cid      BLAKE3 over canonical_cbor(SourcesManifest)
-                   (40+ schemes, 7 connector kinds)
+                   (42 schemes)
   schema_cid       BLAKE3 over canonical_cbor(SchemaBundle)
                    (CDDL pinning hash=blake3, signature=ed25519,
                     cid_encoding=base32-nopad-lowercase)
+  registry_cid     BLAKE3 over canonical_cbor(FunctionRegistry)
+                   (20 functions: 17 primary / 2 derivative / 1 negative)
 ```
 
-`spec/test_vectors/{cell64, tslot, vec64, cbor, cid, sig,
-claim_eval, derivation}/` is the planned per-vector conformance
-gate. The directory layout exists at 0.0.4; vectors will be
-extracted from the existing crate tests in 0.0.5. Until then,
-`cargo test --workspace` is the conformance check — 244+ tests
-pass on the reference responder.
+A receipt directly binds **two** of these — `schema_cid` and
+`registry_cid` — as struct fields. The other four (`bands_cid`,
+`algorithms_cid`, `sources_cid`, `topics_cid`) are exposed at
+`/v1/manifests` and `/.well-known/emem.json`; conformance against
+them is verified by re-pulling the manifests and checking the CIDs
+the verifier holds match what the responder served at the time the
+receipt was signed. The receipt's `registry_cid` pins the function
+registry, and that registry references all the others by their CIDs.
+
+`cargo test --workspace` is the de-facto conformance check today —
+244+ tests pass on the reference responder. Per-vector test fixtures
+under `spec/test_vectors/` are not yet shipped; the crate-internal
+tests at `crates/emem-codec/src/geo.rs`, `tslot_text.rs`, and
+`emem-attest/src/lib.rs` are the de-facto fixtures until they are.
 
 ---
 

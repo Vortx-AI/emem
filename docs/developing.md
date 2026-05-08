@@ -51,14 +51,16 @@ each:
 | `emem-attest` | pure `merkle_root` + `merkle_root_and_paths` |
 | `emem-intent` | 7-variant `Intent` enum → `Plan{calls[]}` rule-based planner |
 | `emem-mcp` | MCP tool registry (single file) |
-| `emem-api-rest` | HTTP/MCP router, ~150 REST routes + 34 MCP tools, all materializers |
+| `emem-api-rest` | HTTP/MCP router, ~160 `.route()` registrations (mapping to ~69 distinct REST paths in `openapi.json`) + 34 MCP tools, all inline materializers |
 | `emem-cli` | 7 binaries (see below) |
 
 The bulk of the codebase is concentrated. `crates/emem-api-rest/src/lib.rs`
-is one file at ~23 k lines; it is the central router and holds every
-materializer. `crates/emem-fetch` is ~8 k lines spread across 15
-modules. Most contributions touch one or two crates at most — usually
-`api-rest` plus one of `fetch`, `primitives`, or `core`.
+is one file at ~23.5 k lines; it is the central router and holds every
+inline materializer. `crates/emem-fetch` is ~8.8 k lines spread across 16
+modules (cache_window, chirps, cog, connectors, dmsp_ols, firms, hansen_gfc,
+koppen, lib, overture, proj, stac, template, terraclimate, wdpa, worldpop).
+Most contributions touch one or two crates at most — usually `api-rest`
+plus one of `fetch`, `primitives`, or `core`.
 
 Out of the workspace:
 
@@ -171,16 +173,24 @@ materializer. Steps:
 | Goal | Command |
 |---|---|
 | Unit + bin tests, no network | `cargo test --workspace --lib --bins --tests` |
-| Live (network-dependent) tests | `cargo test --workspace --features live` |
-| Format | `cargo fmt --all` |
+| Live (network-dependent) tests | `cargo test --workspace --test live_cog_fetch` (or run the file directly — there is no `live` cargo feature, the network-gated tests live in `crates/emem-fetch/tests/live_cog_fetch.rs` and are skipped automatically when offline) |
+| Format (local) | `cargo fmt --all` |
+| Format (CI gate) | `cargo fmt --all --check` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
+
+Unit tests live inline in `src/` next to the code under test
+(`#[cfg(test)] mod tests`); the only crate-level integration tests are
+`crates/emem-fact/tests/round_trip.rs` and `crates/emem-fetch/tests/live_cog_fetch.rs`.
 
 The "no stubs" rule is enforced by `feedback_no_stubs.md` and by the
 contract tests:
 
-- `find_similar` returns `bands_already_attested_at_cell` and
-  `bands_with_no_history` so an empty response distinguishes "wrong
-  query" from "place is empty".
+- `recall` returns `bands_already_attested_at_cell` so an empty
+  response distinguishes "wrong query" from "place is empty"; the
+  same envelope on `recall_many` repeats the list per cell.
+- `compare_bands` returns `bands_with_no_history` for bands the
+  responder has never attested anywhere, separately from bands it
+  has attested but not at this cell.
 - `recall` on a band with no materializer returns a structured
   `MaterializeMiss` error, not an empty list.
 - `compare_bands` with a mismatched fact type errors instead of
@@ -236,6 +246,18 @@ same code path as `POST /v1/verify_receipt`. Pubkey resolution is
 `--pubkey > --base-url's /.well-known/emem.json > the receipt's
 embedded responder`. Round-trip tests live at
 `crates/emem-fact/tests/round_trip.rs`.
+
+A third verification surface lives in the browser: `web/humans.html`
+(served at `/humans`) imports `@noble/curves@1.6.0/ed25519` and
+`@noble/hashes@1.5.0/blake3` from `https://esm.sh` and reproduces the
+exact preimage in JavaScript, so any star you click on the public
+page verifies its own receipt locally without the page calling back
+to the responder. The CSP header is configured to allow esm.sh in
+both `script-src` and `connect-src` (see
+`crates/emem-api-rest/src/lib.rs` `security_headers`); the page falls
+back to `POST /v1/verify_receipt` automatically if the noble libs
+fail to load (CDN slowdown, blocked egress) and labels itself
+accordingly.
 
 ### Driving every primitive against a local server
 

@@ -185,7 +185,7 @@ Defined in `tslot.rs:24-37, 43-54`. Five variants:
 | Variant | `slot_seconds()` | Cadence | Sample bands |
 |---------|------------------|---------|--------------|
 | `Static` | 0 | never changes | DEM, Köppen, lcv-1 |
-| `Slow` | 31_536_000 | 365 d | Tessera v1, soil |
+| `Slow` | 31_536_000 | 365 d | Tessera (2017–2024 vintages + `multi_year` 1024-D + `bin128`), soil |
 | `Medium` | 2_592_000 | 30 d | NDVI composites |
 | `Fast` | 86_400 | 1 d | raw S2 NDVI |
 | `UltraFast` | 3_600 | 1 h | weather, traffic |
@@ -560,14 +560,15 @@ Failure → write rejected. The HTTP layer surfaces this as the
 |-------|------|-------|
 | `request_id` | `String` | ULID generated per request |
 | `served_at` | `String` | ISO 8601 UTC, second precision (`server.rs:194-211`) |
-| `primitive` | `String` | `"recall"`, `"find_similar"`, `"verify"`, … |
-| `intent` | `Option<String>` | populated when served via `/v1/intent` |
+| `primitive` | `String` | namespaced wire form: `"emem.recall"`, `"emem.find_similar"`, `"emem.verify"`, `"emem.query_region"`, … (the bare `"recall"` form is internal-only; wire receipts always include the `emem.` prefix) |
+| `intent` | `Option<String>` | populated when served via `/v1/intent`; omitted from JSON when None |
 | `cells` | `Vec<String>` | cell64 strings cited in the response |
 | `fact_cids` | `Vec<FactCid>` | every fact CID returned |
 | `schema_cid` | `SchemaCid` | active CDDL profile |
-| `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted |
+| `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted; omitted from JSON when None |
 | `responder` | `AttesterKey` | ed25519 pubkey, `[u8; 32]` |
 | `responder_key_epoch` | `KeyEpoch` | `u32` rotation counter |
+| `responder_pubkey_b32` | `String` | base32-nopad-lowercase of `responder`; appended at REST-serialization time so JSON consumers don't need to re-encode the bytes |
 | `signature` | `Signature` | ed25519 `[u8; 64]` |
 | `source_versions` | `BTreeMap<String, String>` | per-source version pins |
 | `registry_cid` | `RegistryCid` | function registry CID in force |
@@ -620,7 +621,7 @@ Given:
 - `request_id = "01HZX0K9V3"` (ULID, 26 chars in practice; this short
   example is illustrative)
 - `served_at = "2026-05-08T11:22:33Z"`
-- `primitive = "recall"`
+- `primitive = "emem.recall"` (every emitted primitive name is namespaced; `crates/emem-primitives/src/recall.rs:115` calls `sign_receipt("emem.recall", …)`)
 - `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]`
 - `fact_cids = ["bn7cabcdefghij1234567890ab"]`
 
@@ -628,7 +629,7 @@ The preimage byte sequence is the concatenation, with no extra
 whitespace:
 
 ```
-01HZX0K9V3|2026-05-08T11:22:33Z|recall|dedi.zaf00.bafi.baba,dedi.zaf00.bafi.babe,|bn7cabcdefghij1234567890ab,
+01HZX0K9V3|2026-05-08T11:22:33Z|emem.recall|dedi.zaf00.bafi.baba,dedi.zaf00.bafi.babe,|bn7cabcdefghij1234567890ab,
 ```
 
 Then `signature = ed25519_sign( blake3(preimage_bytes) )`.
@@ -636,7 +637,7 @@ Then `signature = ed25519_sign( blake3(preimage_bytes) )`.
 The same logic with empty `cells` and one `fact_cids` would be:
 
 ```
-01HZX0K9V3|2026-05-08T11:22:33Z|recall||bn7cabcdefghij1234567890ab,
+01HZX0K9V3|2026-05-08T11:22:33Z|emem.recall||bn7cabcdefghij1234567890ab,
 ```
 
 Two `|` characters in succession is the legal "empty list" shape.

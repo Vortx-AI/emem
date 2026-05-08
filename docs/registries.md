@@ -36,14 +36,14 @@ The eight identifiers are pinned as `pub const` strings in
 
 | Identifier              | File                                       | Struct (in `emem-core`)                      | Role                                                                |
 |-------------------------|--------------------------------------------|----------------------------------------------|---------------------------------------------------------------------|
-| `emem-bands`            | `crates/emem-core/data/bands-v0.json`      | `bands::BandRegistry`                        | 1792-D voxel layout: 34 bands, family + tempo + privacy per slot    |
+| `emem-bands`            | `crates/emem-core/data/bands-v0.json`      | `bands::BandRegistry`                        | 1792-D voxel layout: 35 bands, family + tempo + privacy per slot    |
 | `emem-algorithms`       | `crates/emem-core/data/algorithms-v0.json` | `algorithms::AlgorithmRegistry`              | 107 composition recipes (solo / combined / embedding)               |
-| `emem-functions`        | `crates/emem-core/data/functions-v0.json`  | `functions::FunctionRegistry`                | 19 derivation functions (primary / derivative / negative)           |
+| `emem-functions`        | `crates/emem-core/data/functions-v0.json`  | `functions::FunctionRegistry`                | 20 derivation functions (17 primary / 2 derivative / 1 negative)    |
 | `emem-sources`          | `crates/emem-core/data/sources-v0.json`    | `sources::SourceRegistry`                    | 42 source schemes, ordered providers per scheme                     |
 | `emem-topics`           | `crates/emem-core/data/topics-v0.json`     | `topics::TopicRegistry`                      | 25 topics for `/v1/ask` routing (description + aliases + bands)     |
 | `emem-schema`           | `crates/emem-core/data/schema-v0.json`     | `schema::SchemaRegistry`                     | 8 CDDL fragments + pinned hash/sig/cid encoding                     |
 | `emem-lcv1`             | `crates/emem-core/src/taxonomy.rs`         | `taxonomy::Lcv1` + `LcvFamily`               | 64-leaf land-cover taxonomy (8 families × 8 leaves), u8 encoded     |
-| `emem-cell64-alphabet`  | `crates/emem-codec/data/cell64-alphabet-v0.bin` | (binary, no Rust struct)               | 65,536 Hilbert-ordered bigrams for the 4-chunk text form            |
+| `emem-cell64-alphabet`  | `crates/emem-codec/src/alphabet.rs` (in-code CVCV builder) | (no struct; `build_alphabet_v0()`)  | 65,536 CVCV bigrams (21 consonants × 10 vowels × 21 × 10) padded with `z<hex4>` synthetic suffix |
 
 The first six are JSON+struct pairs validated against `crate::manifest::Manifest`.
 `emem-lcv1` is a taxonomy enum — small enough that it lives entirely in code.
@@ -53,7 +53,7 @@ The first six are JSON+struct pairs validated against `crate::manifest::Manifest
 
 ### 1. emem-bands (bands-v0.json)
 
-The 1792-D voxel layout. 34 bands sum to exactly 1792 dims, validated at load.
+The 1792-D voxel layout. 35 bands sum to exactly 1792 dims, validated at load.
 Each band declares an `offset` and `dims`; the validator at
 `bands.rs:163-180` rejects any manifest where `bands[i].offset !=
 sum(bands[0..i].dims)` or the total ≠ `total_dims`.
@@ -120,12 +120,15 @@ The 4 `PrivacyClass` variants (`privacy.rs:18-41`):
 | `sentinel2_raw` | optical    | 704    | 10   | fast   | public    | Sentinel-2 L2A reflectance × 10 000, ten canonical bands B02..B12  |
 
 The cube layout is byte-stable: any change must preserve subsequent offsets.
-That's why the AlphaEarth slot was renamed `_reserved_576` rather than removed
+That's why the AlphaEarth slot was renamed `_reserved_512` rather than removed
 when Google's Requester-Pays gating closed off the no-key path.
 
 The `geotessera` band's `dims = 128` does NOT mean Tessera was published as
-128-D — Tessera publishes as int8 + per-pixel f32 scale; the recall side decodes
-to f32 before cosine scoring.
+128-D — Tessera publishes as int8 + per-pixel f32 scale; the recall side
+decodes to f32 before cosine scoring. The responder ships eight annual
+vintages addressed as `geotessera.{2017..2024}` (each 128-D), plus
+`geotessera.bin128` (sign-bit binarised) and `geotessera.multi_year`
+(1024-D = 8×128 stacked, zero-padded for missing years).
 
 ---
 
@@ -261,7 +264,7 @@ The `for_band` rules (string-prefix matching):
 
 ### 3. emem-functions (functions-v0.json)
 
-19 derivation functions. Each declares:
+20 derivation functions (17 primary / 2 derivative / 1 negative). Each declares:
 
 - which upstream sources it requires (by canonical scheme)
 - how to derive the band value (formula, deterministically)
@@ -470,13 +473,16 @@ taxonomy CID.
 ### 8. emem-cell64-alphabet
 
 The 65,536 bigrams that turn a 64-bit cell ID into a 4-chunk human-typeable
-text form (spec §3.2). Hilbert-ordered so neighbouring cells share leading
-bigrams, which keeps prefix scans on the index spatially coherent.
+text form (spec §3.2). Each bigram is a CVCV (consonant-vowel-consonant-
+vowel) pattern from `21 consonants × 10 vowels × 21 × 10 = 44,100`
+combinations, padded to the full 65,536 with `z<hex4>` synthetic suffixes
+where the natural alphabet runs out.
 
-The binary lives at `crates/emem-codec/data/cell64-alphabet-v0.bin` and is
-loaded by `emem-codec`'s alphabet module. v0.0.2 shipped a synthetic
-placeholder; v0.0.3+ ships the real measured alphabet produced by
-`tools/measure_alphabet.py` from tokenizer corpora.
+The alphabet is **synthesised in code** by `build_alphabet_v0()` at
+`crates/emem-codec/src/alphabet.rs`. There is no external binary asset
+to ship; the rebuild is deterministic from the consonant/vowel string
+constants in the same file (`b/c/d/f/g/h/j/k/l/m/n/p/q/r/s/t/v/w/x/y/z`
+× `a/e/i/o/u/A/E/I/O/U`).
 
 ---
 
@@ -484,14 +490,14 @@ placeholder; v0.0.3+ ships the real measured alphabet produced by
 
 | manifest         | count today | invariant the validator enforces                      |
 |------------------|-------------|-------------------------------------------------------|
-| `emem-bands`     | 34 bands    | sum of `dims` == 1792; offsets contiguous; no dup keys |
+| `emem-bands`     | 35 bands    | sum of `dims` == 1792; offsets contiguous; no dup keys |
 | `emem-algorithms`| 107         | no dup keys; deterministic flag honest; tier rule for ≤10 m |
-| `emem-functions` | 19          | no dup keys; `deterministic == true` always; sources non-empty for primary/negative; parents_required\|parents_min for derivative |
+| `emem-functions` | 20          | no dup keys; `deterministic == true` always; sources non-empty for primary/negative; parents_required\|parents_min for derivative |
 | `emem-sources`   | 42          | no dup schemes; `providers[]` non-empty                |
 | `emem-topics`    | 25          | no dup keys                                            |
 | `emem-schema`    | 8 fragments | `hash == "blake3"` and `signature == "ed25519"`         |
 | `emem-lcv1`      | 64 leaves   | 8 families × 8 leaves; u8 encoding                     |
-| `emem-cell64-alphabet` | 65 536 | binary asset; rebuilt from corpus offline              |
+| `emem-cell64-alphabet` | 65 536 | in-code CVCV builder, deterministic                    |
 
 ---
 
@@ -546,4 +552,4 @@ expression. If they get the same number, the composition reproduces.
 | `Lcv1` + `LcvFamily`       | `crates/emem-core/src/taxonomy.rs`                |
 | `PrivacyClass`             | `crates/emem-core/src/privacy.rs`                 |
 | `Tempo` + `Tslot`          | `crates/emem-core/src/tslot.rs`                   |
-| Alphabet builder           | `tools/measure_alphabet.py`                       |
+| Alphabet builder           | `crates/emem-codec/src/alphabet.rs::build_alphabet_v0()` |

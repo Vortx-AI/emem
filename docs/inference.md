@@ -136,15 +136,16 @@ S2-L2A is a near-substitute for HLS V2 (same Sen2Cor lineage) but not
 identical — small Landsat-9 cross-sensor harmonization terms are absent.
 The receipt flags this as `s2_l2a_substitute_for_hls_v2`.
 
-### Galileo Tiny — S2-only modality
+### Galileo — S2-only modality
 
 |                  |                                                                          |
 |------------------|--------------------------------------------------------------------------|
-| HuggingFace      | `nasaharvest/galileo` (variant via `EMEM_GALILEO_VARIANT`, default `tiny`) |
+| HuggingFace      | `nasaharvest/galileo` (variant via `EMEM_GALILEO_VARIANT`, default `base`; override to `tiny`/`nano`) |
 | input            | `[batch=1, T=1, H=8, W=8, C=10]` (10 S2 bands)                           |
-| output           | 192-D average-pool over unmasked tokens                                  |
-| cold             | ~4 s                                                                     |
-| warm             | ~14 ms                                                                   |
+| output           | base: 768-D · tiny: 192-D · nano: per Galileo spec (avg-pool over unmasked tokens) |
+| cold             | base ~10 s · tiny ~4 s                                                   |
+| warm             | base ~25 ms · tiny ~14 ms                                                |
+| disk             | base ~330 MB checkpoint · tiny ~22 MB                                    |
 | receipt warning  | `frozen_pretrained_encoder`                                              |
 
 S2 bands in canonical order: B2, B3, B4, B5, B6, B7, B8, B8A, B11, B12.
@@ -170,15 +171,19 @@ not a regression.
 | output            | `last_vintage + delta` (zero-init head → identity baseline)                                      |
 | on-disk           | `<EMEM_DATA>/jepa_v2/dynamics_v2.onnx` (~8 KB) plus `dynamics_v2.metadata.json`                  |
 | inference         | ~50 µs CPU (ort) on the in-process Rust path; ~similar on sidecar CUDA                           |
-| receipt warnings  | `untrained_baseline`, `upstream_geotessera_single_vintage`                                       |
+| receipt warnings  | `untrained_baseline`                                                                              |
 
 Why untrained: training a residual head over Tessera embeddings needs at least
-3 lags per cell. As of 2026-05-08 the public `dl2.geotessera.org` bucket only
-serves the 2024 vintage reliably (verified live: 2017–2023 return null for
-representative cells). All three lags fed into the model collapse to the same
-2024 vector, so the head's contribution is degenerate by construction. The
-training pipeline is ready (`assemble_data.py` + `train.py`, cosine + L2 loss,
-`SEED=42`, `EPOCHS=200`, `BATCH=128`, `LR=3e-4`); the data is not.
+3 lags per cell. The upstream `dl2.geotessera.org` bucket ships eight annual
+vintages (2017–2024) and the responder materialises them as
+`geotessera.{2017..2024}` plus the 1024-D `geotessera.multi_year` stack, but
+**most cells in `/v1/coverage` have only the latest vintage attested locally**
+— the showcase cells used for demos are the only ones with all eight years
+present. The training blocker is therefore candidate-pool selection: a wider
+backfill is needed before the dataset has enough cells with ≥3 distinct
+vintages. The training pipeline is ready (`assemble_data.py` + `train.py`,
+cosine + L2 loss, `SEED=42`, `EPOCHS=200`, `BATCH=128`, `LR=3e-4`); the
+candidate pool is the bottleneck.
 
 The receipt's `untrained_baseline` warning is the only place an LLM reading
 the prediction sees the disclosure, so the field is part of the wire contract
@@ -364,7 +369,9 @@ Subsequent calls are warm. For an agent batching predictions the
 recommendation is: send one synthetic warm-up request after the sidecar's
 `/health` reports it is reachable, then pipeline the real ones.
 
-Galileo Tiny is ~22 MB on disk and ~4 s cold; warm calls are ~14 ms.
+Galileo at the default `base` variant is ~330 MB on disk and ~10 s cold;
+warm calls are ~25 ms. The `tiny` variant (~22 MB, ~4 s cold, ~14 ms warm)
+is available via `EMEM_GALILEO_VARIANT=tiny` for memory-constrained hosts.
 
 Cold-start budget breakdown (Prithvi):
 

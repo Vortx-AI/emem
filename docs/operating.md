@@ -126,6 +126,35 @@ parallel for local MCP clients and the live-demo binary. Set
 `EMEM_REDIRECT_HTTPS=1` if you want plain HTTP to 308-redirect to the
 TLS host instead.
 
+### Content-Security-Policy
+
+The server emits a strict CSP header on every response. The default
+policy allows `https://esm.sh` in **both** `script-src` and
+`connect-src` so the `/humans` page can dynamically import
+`@noble/curves@1.6.0/ed25519` and `@noble/hashes@1.5.0/blake3` to
+verify Ed25519 receipts in the browser. Without those allowances the
+page silently degrades to the server-side `/v1/verify_receipt` path
+and labels itself "CDN libs unavailable" — which reads as a verify
+failure even though the math behind it works.
+
+```text
+content-security-policy: default-src 'self';
+  script-src 'self' https://www.googletagmanager.com https://esm.sh 'unsafe-inline';
+  connect-src 'self' https://www.google-analytics.com https://esm.sh;
+  img-src 'self' data: https:;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' data: https://fonts.gstatic.com;
+  frame-ancestors 'self' https://huggingface.co https://*.hf.space;
+  base-uri 'self'; form-action 'self'
+```
+
+If you put a reverse proxy in front of emem, do not override this
+header with a stricter policy unless you also drop `/humans` from your
+deployment. The header is built once at router construction in
+`crates/emem-api-rest/src/lib.rs` (`security_headers` middleware) and
+intentionally has no env-var override — the offline-verify path is a
+load-bearing trust claim and must remain wired by default.
+
 ## Environment variables
 
 The full set the responder reads. Defaults are what the binary picks
@@ -162,7 +191,7 @@ when the variable is unset.
 | `EMEM_TOPIC_MODEL_DIR` | `<EMEM_DATA>/models/bge-base-en-v1.5` | topic-router ONNX directory |
 | `EMEM_TOPIC_BACKEND` | ort | force `=keyword` to skip the BERT path |
 | `EMEM_TOPIC_USE_GPU` | unset | `=1` to enable CUDA EP on the topic router (requires CUDA dylib) |
-| `EMEM_TOPIC_THRESHOLD` | 0.45 | cosine threshold for ort backend topic match |
+| `EMEM_TOPIC_THRESHOLD` | 0.35 | cosine threshold for ort backend topic match |
 | `EMEM_GA_MEASUREMENT_ID` | unset | substituted into `web/index.html` at startup; unset strips the GA block entirely |
 | `EMEM_NOMINATIM_BASE` | upstream OSM | self-host override for the secondary geocoder |
 | `EMEM_PHOTON_BASE` | komoot Photon | primary geocoder override |
