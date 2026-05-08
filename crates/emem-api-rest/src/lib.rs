@@ -99,8 +99,7 @@ const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
 const SKILL_VERIFY_RECEIPT: &str =
     include_str!("../../../claude-skills/emem-verify-receipt/SKILL.md");
-const SKILL_FIND_SIMILAR: &str =
-    include_str!("../../../claude-skills/emem-find-similar/SKILL.md");
+const SKILL_FIND_SIMILAR: &str = include_str!("../../../claude-skills/emem-find-similar/SKILL.md");
 const SKILL_RECALL_POLYGON: &str =
     include_str!("../../../claude-skills/emem-recall-polygon/SKILL.md");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
@@ -162,10 +161,22 @@ pub fn router(state: AppState) -> Router {
         .route("/humans/llms.txt", get(serve_humans_llms_txt))
         .route("/humans-og.svg", get(serve_humans_og_svg))
         .route("/skills.md", get(serve_skills_md))
-        .route("/skills/emem-locate-and-recall/SKILL.md", get(serve_skill_locate_and_recall))
-        .route("/skills/emem-verify-receipt/SKILL.md",   get(serve_skill_verify_receipt))
-        .route("/skills/emem-find-similar/SKILL.md",     get(serve_skill_find_similar))
-        .route("/skills/emem-recall-polygon/SKILL.md",   get(serve_skill_recall_polygon))
+        .route(
+            "/skills/emem-locate-and-recall/SKILL.md",
+            get(serve_skill_locate_and_recall),
+        )
+        .route(
+            "/skills/emem-verify-receipt/SKILL.md",
+            get(serve_skill_verify_receipt),
+        )
+        .route(
+            "/skills/emem-find-similar/SKILL.md",
+            get(serve_skill_find_similar),
+        )
+        .route(
+            "/skills/emem-recall-polygon/SKILL.md",
+            get(serve_skill_recall_polygon),
+        )
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
         .route("/whitepaper", get(serve_whitepaper_md))
