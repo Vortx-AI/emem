@@ -38,8 +38,7 @@ use crate::cog::{self, CogError};
 /// UCSB CHC mirror — HTTPS, no auth, accept-ranges supported. Tested
 /// against the 2.0 release; 2.1 (when it lands) will need a separate
 /// scheme since the file naming + temporal coverage will differ.
-const CHIRPS_BASE_URL: &str =
-    "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_daily/cogs/p05";
+const CHIRPS_BASE_URL: &str = "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_daily/cogs/p05";
 
 /// Latitude bound — CHIRPS is clipped to ±50°. Pulled out as constants so
 /// callers can reuse the bound for their own coverage tables.
@@ -160,9 +159,7 @@ impl ChirpsError {
 /// The convention is `chirps-v2.0.YYYY.MM.DD.cog` with zero-padded MM/DD
 /// — verified against the upstream directory listing.
 pub fn url_for(year: i32, month: u32, day: u32) -> String {
-    format!(
-        "{CHIRPS_BASE_URL}/{year}/chirps-v2.0.{year}.{month:02}.{day:02}.cog"
-    )
+    format!("{CHIRPS_BASE_URL}/{year}/chirps-v2.0.{year}.{month:02}.{day:02}.cog")
 }
 
 /// Validate calendar (year, month, day). Returns `Some(date)` for a
@@ -360,7 +357,8 @@ mod tests {
     #[test]
     fn from_cog_404_maps_to_not_published() {
         let url = "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_daily/cogs/p05/2099/chirps-v2.0.2099.01.01.cog";
-        let cog_404 = CogError::Transport(format!("status 404 Not Found for range 0-65535 on {url}"));
+        let cog_404 =
+            CogError::Transport(format!("status 404 Not Found for range 0-65535 on {url}"));
         let err = ChirpsError::from_cog(cog_404, url);
         match &err {
             ChirpsError::NotPublished { url: u } => assert_eq!(u, url),

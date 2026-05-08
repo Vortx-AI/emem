@@ -99,7 +99,7 @@ pub async fn query_region(
         let entries = storage.scan_cell(cell, None).await?;
         let cids: Vec<FactCid> = entries.into_iter().map(|(_, c)| c).collect();
         let fetched = storage.get_facts_many(&cids).await?;
-        for (cid, fact) in cids.iter().zip(fetched.into_iter()) {
+        for (cid, fact) in cids.iter().zip(fetched) {
             let Some(fact) = fact else { continue };
             if let Some(filter) = &req.bands {
                 let band = match &fact {
@@ -302,6 +302,29 @@ fn cells_from_bbox(spec: &str) -> Result<Vec<String>, StorageError> {
     Ok(seen.into_iter().collect())
 }
 
+fn agg_vector_centroid(values: &[&ciborium::Value]) -> Option<ciborium::Value> {
+    let vecs: Vec<Vec<f32>> = values.iter().filter_map(|v| as_vec_f32(v)).collect();
+    if vecs.is_empty() {
+        return None;
+    }
+    let dim = vecs[0].len();
+    if !vecs.iter().all(|v| v.len() == dim) {
+        return None;
+    }
+    let mut sum = vec![0f64; dim];
+    for v in &vecs {
+        for (i, x) in v.iter().enumerate() {
+            sum[i] += *x as f64;
+        }
+    }
+    let n = vecs.len() as f64;
+    let mean: Vec<ciborium::Value> = sum
+        .into_iter()
+        .map(|s| ciborium::Value::Float(s / n))
+        .collect();
+    Some(ciborium::Value::Array(mean))
+}
+
 #[cfg(test)]
 mod bbox_tests {
     use super::*;
@@ -367,27 +390,4 @@ mod bbox_tests {
             "expected inverted-box message, got: {msg}"
         );
     }
-}
-
-fn agg_vector_centroid(values: &[&ciborium::Value]) -> Option<ciborium::Value> {
-    let vecs: Vec<Vec<f32>> = values.iter().filter_map(|v| as_vec_f32(v)).collect();
-    if vecs.is_empty() {
-        return None;
-    }
-    let dim = vecs[0].len();
-    if !vecs.iter().all(|v| v.len() == dim) {
-        return None;
-    }
-    let mut sum = vec![0f64; dim];
-    for v in &vecs {
-        for (i, x) in v.iter().enumerate() {
-            sum[i] += *x as f64;
-        }
-    }
-    let n = vecs.len() as f64;
-    let mean: Vec<ciborium::Value> = sum
-        .into_iter()
-        .map(|s| ciborium::Value::Float(s / n))
-        .collect();
-    Some(ciborium::Value::Array(mean))
 }

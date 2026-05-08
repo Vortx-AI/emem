@@ -296,8 +296,15 @@ async fn chirps_daily_samples_pixel_via_anonymous_cog() {
         return;
     }
     use emem_fetch::chirps;
-    match chirps::fetch_chirps_daily(19.07, 72.87, 2023, 7, 26, std::time::Duration::from_secs(60))
-        .await
+    match chirps::fetch_chirps_daily(
+        19.07,
+        72.87,
+        2023,
+        7,
+        26,
+        std::time::Duration::from_secs(60),
+    )
+    .await
     {
         Ok(s) => {
             eprintln!(

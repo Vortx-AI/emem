@@ -44,7 +44,11 @@ pub fn merkle_root_and_paths(leaves: &[[u8; 32]]) -> ([u8; 32], Vec<Vec<[u8; 32]
         }
         // Record each leaf's sibling at this layer.
         for (leaf_pos, idx) in indices.iter_mut().enumerate() {
-            let sibling_idx = if *idx % 2 == 0 { *idx + 1 } else { *idx - 1 };
+            let sibling_idx = if (*idx).is_multiple_of(2) {
+                *idx + 1
+            } else {
+                *idx - 1
+            };
             // Odd-cardinality layer: last element is paired with itself.
             let resolved = sibling_idx.min(layer.len() - 1);
             // If the leaf's pair is itself (last unpaired element), the
@@ -101,7 +105,7 @@ pub fn verify_merkle_path(
     let mut idx = leaf_index;
     for sibling in path {
         let mut h = Hasher::new();
-        if idx % 2 == 0 {
+        if idx.is_multiple_of(2) {
             h.update(&acc);
             h.update(sibling);
         } else {

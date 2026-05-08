@@ -14996,7 +14996,11 @@ async fn materialize_chirps_daily_precip(
             )
             .await
         }
-        Err(chirps::ChirpsError::BeforeRecord { year: y, month: m, day: d }) => {
+        Err(chirps::ChirpsError::BeforeRecord {
+            year: y,
+            month: m,
+            day: d,
+        }) => {
             let url = chirps::url_for(y, m, d);
             let reason = format!(
                 "before_record: {y:04}-{m:02}-{d:02} predates CHIRPS v2.0 \
@@ -15015,7 +15019,13 @@ async fn materialize_chirps_daily_precip(
             )
             .await
         }
-        Err(chirps::ChirpsError::NoData { lat, lng, year: y, month: m, day: d }) => {
+        Err(chirps::ChirpsError::NoData {
+            lat,
+            lng,
+            year: y,
+            month: m,
+            day: d,
+        }) => {
             // -9999.0 sentinel: open-ocean cell on a grid-aligned land
             // pixel, polar IR coverage gap. Distinct from "no rain
             // here" (which is a real 0.0 reading) — the responder must

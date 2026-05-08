@@ -375,7 +375,7 @@ fn persist_fact_proofs(
         a.copy_from_slice(h.as_bytes());
         leaves_with_orig.push((a, i));
     }
-    leaves_with_orig.sort_by(|a, b| a.0.cmp(&b.0));
+    leaves_with_orig.sort_by_key(|a| a.0);
     let leaves: Vec<[u8; 32]> = leaves_with_orig.iter().map(|(l, _)| *l).collect();
     let (root, paths) = emem_attest::merkle_root_and_paths(&leaves);
     let tree = db
