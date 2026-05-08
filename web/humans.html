@@ -1690,15 +1690,28 @@ function drawField() {
 // (Coulomb-style 1/r^2 between all nodes), and a soft centring spring back
 // to the canvas centre. Stops after kinetic energy decays below ε.
 function buildGraph() {
-  const top = STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count).slice(0, 200);
-  // assign each cell a family by sampling matrix's most-popular family present
-  // — when the cell has no recall yet, we keep 'foundation' default.
-  // Edges connect cells that share a 'family'. We can also link by lat-quadrant
-  // proximity to avoid an empty graph when families are uniform.
-  const nodes = top.map((c, i) => ({
-    i, cell: c, x: 0.5 + (Math.random()-0.5)*0.05, y: 0.5 + (Math.random()-0.5)*0.05,
-    px: 0.5, py: 0.5, fx: 0, fy: 0, color: c.color, r: 1.5 + 1.4*c.brightness,
-  }));
+  // Top-80 by fact_count — matches the embedding-fetch budget and keeps
+  // the layout readable. With N=200 the pairwise 1/r² repulsion dominated
+  // every other force and clamped most nodes to the canvas edges.
+  const top = STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count).slice(0, 80);
+  // Seed positions from each cell's lat/lng projection so the layout starts
+  // from a geographically-meaningful state. The previous seed of
+  // `0.5 + (Math.random()-0.5)*0.05` packed all 200 nodes within ±0.025 of
+  // the centre — 1/r² repulsion with so much overlap exploded and clamped
+  // every node to the [0.02, 0.98] boundary, producing a 4-corner pattern
+  // instead of a force layout. Starting from lat/lng (already computed
+  // into c.x_geo, c.y_geo) lets repulsion gently spread same-family
+  // clusters without catastrophic kick-off.
+  const nodes = top.map((c, i) => {
+    const sx = (c.x_geo != null ? c.x_geo : 0.5);
+    const sy = (c.y_geo != null ? c.y_geo : 0.5);
+    // mix lat/lng with a small random jitter so identical-cell positions
+    // don't sit on top of each other (still divide-by-zero in repulsion).
+    const x = sx * 0.78 + 0.11 + (Math.random()-0.5)*0.02;
+    const y = sy * 0.78 + 0.11 + (Math.random()-0.5)*0.02;
+    return { i, cell: c, x, y, px: x, py: y, fx: 0, fy: 0,
+             color: c.color, r: 2.6 + 2.2*c.brightness };
+  });
   // Edges via lat-lng proximity (great-circle-ish in flat coords) — at most 4 per node
   const edges = [];
   for (let a = 0; a < nodes.length; a++) {
@@ -1720,9 +1733,13 @@ function buildGraph() {
 
 function stepGraph(g) {
   const N = g.nodes.length;
-  const k_spring = 0.025, rest = 0.05;
-  const k_repulse = 0.0008;
-  const k_centre  = 0.001;
+  // k_repulse divided by N so total pairwise repulsion stays bounded as
+  // node count grows. k_centre raised so the cluster pulls toward the
+  // canvas centre rather than racing to the boundary clamps. rest length
+  // bumped to 0.08 so connected pairs settle visibly apart.
+  const k_spring = 0.04, rest = 0.08;
+  const k_repulse = 0.0006 / Math.max(1, N/40);
+  const k_centre  = 0.012;
   // forces
   for (const n of g.nodes) { n.fx = 0; n.fy = 0; }
   for (const [a, b] of g.edges) {
@@ -1841,12 +1858,19 @@ function buildRegistryView() {
   const cx = W/2, cy = H/2;
   const R = Math.min(W, H) * 0.42;
   let svg = '';
+  // SVG note: every attribute below is quoted, and self-closing tags use
+  // `" />` (space + slash) instead of `"/>`. Without the space, an unquoted
+  // value like `r=3.5/>` parses as `r="3.5/"` — strict SVG rejected this
+  // with "<circle> attribute r: Expected length, '3.5/'" and the registry
+  // failed to render. The graph view shares the same SVG node so its
+  // errors landed on the same console even though graph paints to canvas.
+
   // Poincaré boundary disk
-  svg += `<circle class=reg-circle cx=${cx} cy=${cy} r=${R}/>`;
+  svg += `<circle class="reg-circle" cx="${cx}" cy="${cy}" r="${R}" />`;
   // 3 nested geodesic rings (depth visualisation)
   for (let k = 1; k <= 3; k++) {
     const rr = R * (k/3);
-    svg += `<circle class=reg-circle cx=${cx} cy=${cy} r=${rr}/>`;
+    svg += `<circle class="reg-circle" cx="${cx}" cy="${cy}" r="${rr}" />`;
   }
   // 8 manifest nodes laid out on a circle
   manifests.forEach((mn, i) => {
@@ -1854,15 +1878,15 @@ function buildRegistryView() {
     // place inside the disk at radius 0.6
     const px = cx + Math.cos(theta) * R * 0.62;
     const py = cy + Math.sin(theta) * R * 0.62;
-    svg += `<line class=reg-edge x1=${cx} y1=${cy} x2=${px} y2=${py}/>`;
-    svg += `<circle class=reg-node cx=${px} cy=${py} r=11
-              data-emem-cid="${escapeHtml(mn.cid||'')}"
-              data-emem-href="${escapeHtml(mn.path)}"
-              tabindex=0 role=button aria-label="${mn.key} manifest"/>`;
+    svg += `<line class="reg-edge" x1="${cx}" y1="${cy}" x2="${px}" y2="${py}" />`;
+    svg += `<circle class="reg-node" cx="${px}" cy="${py}" r="11"`
+         + ` data-emem-cid="${escapeHtml(mn.cid||'')}"`
+         + ` data-emem-href="${escapeHtml(mn.path)}"`
+         + ` tabindex="0" role="button" aria-label="${escapeHtml(mn.key)} manifest" />`;
     const lblY = py + (Math.sin(theta) > 0 ? 26 : -16);
-    svg += `<text class=reg-label x=${px} y=${lblY} text-anchor=middle>${mn.key}</text>`;
+    svg += `<text class="reg-label" x="${px}" y="${lblY}" text-anchor="middle">${escapeHtml(mn.key)}</text>`;
     if (mn.cid) {
-      svg += `<text class=reg-leaf-label x=${px} y=${lblY+12} text-anchor=middle>${mn.cid.slice(0,10)}…</text>`;
+      svg += `<text class="reg-leaf-label" x="${px}" y="${lblY+12}" text-anchor="middle">${escapeHtml(mn.cid.slice(0,10))}…</text>`;
     }
 
     // children: for the bands manifest, lay top bands closer to centre by facts_count
@@ -1875,11 +1899,11 @@ function buildRegistryView() {
         const rr = 36 + 8 * (1 - (b.facts_count||0)/maxFc);
         const lx = px + Math.cos(sub) * rr;
         const ly = py + Math.sin(sub) * rr;
-        svg += `<line class=reg-edge x1=${px} y1=${py} x2=${lx} y2=${ly}/>`;
-        svg += `<circle class=reg-leaf cx=${lx} cy=${ly} r=4
-                  data-emem-band="${escapeHtml(b.band)}"
-                  data-emem-family="${escapeHtml(b.family||'reserved')}"
-                  fill="${famColor(b.family||'reserved')}"/>`;
+        svg += `<line class="reg-edge" x1="${px}" y1="${py}" x2="${lx}" y2="${ly}" />`;
+        svg += `<circle class="reg-leaf" cx="${lx}" cy="${ly}" r="4"`
+             + ` data-emem-band="${escapeHtml(b.band)}"`
+             + ` data-emem-family="${escapeHtml(b.family||'reserved')}"`
+             + ` fill="${famColor(b.family||'reserved')}" />`;
       });
     }
     if (mn.key === 'algorithms' && STATE.algorithms.length) {
@@ -1889,8 +1913,8 @@ function buildRegistryView() {
         const rr = 32;
         const lx = px + Math.cos(sub) * rr;
         const ly = py + Math.sin(sub) * rr;
-        svg += `<line class=reg-edge x1=${px} y1=${py} x2=${lx} y2=${ly}/>`;
-        svg += `<circle class=reg-leaf cx=${lx} cy=${ly} r=3.5/>`;
+        svg += `<line class="reg-edge" x1="${px}" y1="${py}" x2="${lx}" y2="${ly}" />`;
+        svg += `<circle class="reg-leaf" cx="${lx}" cy="${ly}" r="3.5" data-emem-algorithm="${escapeHtml(a.key||a.id||'')}" />`;
       });
     }
     if (mn.key === 'sources' && STATE.sources.length) {
@@ -1900,14 +1924,14 @@ function buildRegistryView() {
         const rr = 32;
         const lx = px + Math.cos(sub) * rr;
         const ly = py + Math.sin(sub) * rr;
-        svg += `<line class=reg-edge x1=${px} y1=${py} x2=${lx} y2=${ly}/>`;
-        svg += `<circle class=reg-leaf cx=${lx} cy=${ly} r=3.5/>`;
+        svg += `<line class="reg-edge" x1="${px}" y1="${py}" x2="${lx}" y2="${ly}" />`;
+        svg += `<circle class="reg-leaf" cx="${lx}" cy="${ly}" r="3.5" data-emem-source="${escapeHtml(s.scheme||s.id||'')}" />`;
       });
     }
   });
   // Centre label
-  svg += `<text x=${cx} y=${cy-4} text-anchor=middle style="font-size:11px;fill:var(--fg-3)">manifests</text>`;
-  svg += `<text x=${cx} y=${cy+10} text-anchor=middle style="font-size:9px;fill:var(--fg-mute)">${escapeHtml((m.registry_cid||'').slice(0,12))}</text>`;
+  svg += `<text x="${cx}" y="${cy-4}" text-anchor="middle" style="font-size:11px;fill:var(--fg-3)">manifests</text>`;
+  svg += `<text x="${cx}" y="${cy+10}" text-anchor="middle" style="font-size:9px;fill:var(--fg-mute)">${escapeHtml((m.registry_cid||'').slice(0,12))}</text>`;
   regSvg.innerHTML = svg;
 
   // wire up click → fetch the manifest
@@ -2126,10 +2150,18 @@ function startTwinkleLoop() {
   _twinkleRunning = true;
   if (_reduceMotion) {
     if (STATE.mode === 'field') drawField();
+    if (STATE.mode === 'graph') drawGraph();
     return; // single paint, no animation loop
   }
   function tick() {
     if (STATE.mode === 'field') drawField();
+    else if (STATE.mode === 'graph') {
+      // The Verlet integrator is inside drawGraph() — without a recurring
+      // tick the graph view drew exactly once on entry and never settled,
+      // so the user saw a random-noise scatter instead of a force layout.
+      // The integrator self-stops at energy < 2e-4 || t >= 600 frames.
+      drawGraph();
+    }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

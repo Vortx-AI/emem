@@ -178,8 +178,10 @@ before any data flows.
   `compare`, `compare_bands`, `trajectory`, `diff`, `query_region`, `verify`.
 - Physics solvers: 1-D wave, 2-D heat, JEPA-v2 dynamics (CPU + Python sidecar
   with CUDA when `EMEM_SIDECAR_SOCK` points at a live UDS).
-- Foundation embeddings: `geotessera` (128-D Tessera, vintage 2024) live;
-  Prithvi-EO-2.0-300M-TL and Galileo through the sidecar.
+- Foundation embeddings: `geotessera` live as 8 annual vintages 2017–2024
+  (each 128-D), plus `geotessera.bin128` (sign-bit) and
+  `geotessera.multi_year` (1024-D = 8×128 stacked); Prithvi-EO-2.0-300M-TL
+  and Galileo through the sidecar.
 - Lazy materialisation: cold-cell recall fans out to the connector for the
   band, signs, persists. Gated by `EMEM_AUTO_MATERIALIZE`.
 - Receipts: ed25519 over a stable preimage, identity persisted at
@@ -192,8 +194,12 @@ before any data flows.
 ## Deferred — not yet shipped
 
 - zkML proofs. Receipts today are signed, not zero-knowledge.
-- Multi-vintage Tessera training data. The upstream is 2024-only, which
-  is why the JEPA-v2 temporal head has no annual stack to train against.
+- Trained JEPA-v2 dynamics head. Upstream Tessera now ships 8 vintages
+  (2017–2024), but only the showcase cells have all 8 attested on the
+  responder. Training the dynamics head needs the multi-year stack
+  materialised across a wider candidate pool — backfill is the
+  unblocker. Until then, `/v1/jepa_predict_v2` returns the residual
+  identity baseline with an `untrained_baseline` warning on the receipt.
 - Polished Python and TypeScript SDKs. `sdks/emem-py` and `sdks/emem-ts`
   exist as empty placeholders. Use REST or MCP directly until they ship;
   `examples/langchain.py` and `examples/llamaindex.py` are the working

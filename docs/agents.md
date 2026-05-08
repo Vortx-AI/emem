@@ -15,6 +15,14 @@ Three discovery URLs: `GET /openapi.json` (full machine surface),
 `GET /.well-known/emem.json` (manifest CIDs + responder pubkey),
 `GET /v1/agent_card` (discover-first card with band taxonomy + tool list).
 
+There's also a fourth surface designed for *learning* the protocol by
+observation: `https://emem.dev/humans` is a single-page interactive
+console where every visible cell carries `data-emem-*` attributes and
+every `/v1/*` call the page makes prints in a live log pane with
+copy-as-curl / copy-as-python / copy-as-MCP pivots. JSON twin at
+`/humans.json` (`schema=emem.humans.v1`); page-scoped manifest at
+`/humans/llms.txt`. See "Watching humans use the API" below.
+
 ---
 
 ## Connect
@@ -885,12 +893,141 @@ that pubkey is published at `/.well-known/emem.json`.
 
 ---
 
+## Watching humans use the API: `/humans`
+
+`https://emem.dev/humans` is an interactive surface designed primarily
+for agents that want to learn the protocol by observation, with humans
+as a secondary audience. The page is its own API console.
+
+### What's on the page
+
+- **Constellation field** — every attested cell in `/v1/coverage` is
+  rendered as a star. Brightness is `log10(1 + facts_count)`, hue is
+  the cell's dominant band family (derived from `/v1/coverage_matrix`,
+  refined per-cell after a `/v1/recall`). Drag-pan, wheel-zoom, hover
+  for a tooltip with `cell64` + lat/lng + family.
+- **Embedding projection** — once `/v1/recall_many` returns the 128-D
+  Tessera vectors for the densest 80 cells, a 2-D power-iteration PCA
+  is computed in JS and the constellation reprojects (eased animation,
+  ~700 ms) from sinusoidal lat/lng to embedding-space coordinates.
+  Cells without a `geotessera` attestation stay at their geographic
+  position so the picture is never partial. Toggle: `p` key or the
+  chip in the dock. Banner is honest about the count
+  ("N of M cells carry a 128-D Tessera vector").
+- **Lasso → `/v1/recall_polygon`** — drag (or hold shift, or press
+  `L`, or tap the dock chip) to draw a polygon. The page picks the
+  band with the highest `facts_count` from the matrix, posts the
+  polygon, and renders the results inline. Touch path mirrors the
+  mouse path on mobile.
+- **Force-graph view** — Verlet force layout in canvas2D (~150 LoC,
+  no library), top 200 cells, edges by lat/lng proximity. Decays at
+  equilibrium; persists across mode switches.
+- **Registry view** — pure-SVG Poincaré-disk over the 8 manifest
+  registries (`bands`, `algorithms`, `sources`, `schema`, `topics`,
+  plus `lcv`, `alphabet`, `registry` placeholders). Top-N children
+  hang off each registry by `facts_count`.
+- **Log view** — Sigstore-Rekor-style scroll of
+  `/v1/coverage_matrix` rows sorted by `last_attested_unix_s`. Each
+  row has an inline `verify` button.
+
+### How agents read it
+
+Every visible cell, fact, manifest CID, pubkey, and interactive control
+carries `data-emem-*` attributes. A scraping LLM extracts everything
+from the rendered DOM:
+
+```html
+<div class=fact data-emem-cell="defi.zb493.xoso.zcb6a"
+                data-emem-band="weather.temperature_2m"
+                data-emem-fact-cid="qi3jo4sqcg…l2hgjtwm"
+                data-emem-tslot="1778237046"
+                data-emem-verified="true">…</div>
+
+<button class=chip data-emem-action=open-cmdk>search<kbd>Ctrl-K</kbd></button>
+<button id=chipLasso data-emem-action=lasso-toggle>lasso<kbd>L</kbd></button>
+<button id=focusBtn  data-emem-action=toggle-focus>⤢ focus<kbd>F</kbd></button>
+```
+
+The full `data-emem-action` map is on every interactive element in the
+header chips, the bottom dock (modes / projection / zoom / focus), the
+collapse handles (`collapse-left/right/console`), and the legend toggle.
+A scraper that walks `[data-emem-action]` learns the affordance map a
+human sees with no extra instrumentation.
+
+### Console pane — the page is the API console
+
+Every `/v1/*` call the page makes prints below as a structured log row:
+
+```
+12:34:56  POST  /v1/recall_many  {"cells":[…80…],"bands":["geotessera"]}  → 200  · 51 ms
+12:34:56  GET   /v1/cells/defi.zb493.xoso.zcb6a/info                       → 200  · 14 ms
+12:35:02  UI    mode                                                       → registry
+12:35:08  UI    lasso                                                      → on
+12:35:09  POST  /v1/recall_polygon  {"polygon":[…],"bands":["weather.temperature_2m"]}  → 200  · 230 ms
+```
+
+Hover any row and four pivots appear: **curl**, **py**, **mcp**, **↻**.
+The MCP pivot emits a JSON-RPC 2.0 `tools/call` payload with the right
+tool name from the `emem-mcp` registry; an agent watching the page
+learns both the REST and MCP surfaces from the same trail. UI state
+toggles (mode, lasso, projection, focus, rail collapse) echo to the
+same log so the trail is complete.
+
+### Sibling artifacts
+
+- `/humans.json` — JSON twin (`schema=emem.humans.v1`): manifest CIDs,
+  responder pubkey, top-10 bands by `facts_count`, dense-20 cells with
+  lat/lng, totals. Agents that prefer JSON over scraping DOM read this
+  directly. Baked at release; the page's live runtime fetches the same
+  shape from `/v1/coverage_matrix` and `/v1/coverage`.
+- `/humans/llms.txt` — page-scoped llms.txt convention. Lists the
+  endpoints the page invokes, the data attributes, the trust model,
+  and the console pane behaviour.
+- `/humans-og.svg` — 1200×630 OpenGraph card so a pasted link previews
+  the constellation, not the generic landing image.
+
+### Offline verification, in the browser
+
+The page imports `@noble/curves@1.6.0/ed25519` and
+`@noble/hashes@1.5.0/blake3` from a pinned `esm.sh` URL (CSP allows the
+host in `script-src` and `connect-src`). Receipts verify locally:
+
+1. Build the canonical preimage —
+   `request_id | served_at | primitive | cell0,cell1,…,cellN, | cid0,cid1,…,cidN,`
+   — byte-for-byte matching `crates/emem-storage/src/server.rs:132-148`.
+2. `digest = blake3(preimage)`.
+3. `ed25519.verify(receipt.signature, digest, responder_pubkey)`.
+
+Pubkey decodes from `responder_pubkey_b32` via in-page base32-nopad. On
+success, the row's pill flips to `verified offline` and the parent
+`<div class=fact>` gets `data-emem-verified="true"`. If the noble libs
+fail to load (CSP block, CDN slowdown), the page races a 2.5 s timeout
+and silently routes to `POST /v1/verify_receipt` instead — the result
+is still trustworthy, but the page labels itself accordingly so the
+trust mode is never silently downgraded.
+
+### URL state encoding
+
+Every interesting state lives in the URL via `replaceState`:
+
+```
+https://emem.dev/humans?cell=defi.zb493.xoso.zcb6a&proj=embed&mode=log&layout=noLeft,focus
+```
+
+A pasted link opens with the cell selected, the projection toggled,
+the log view active, and the left rail collapsed in focus mode. This
+is the same convention Honeycomb's BubbleUp and Sigstore's Rekor UI
+use — the URL is a saved query.
+
+---
+
 ## Where to read more
 
 - `https://emem.dev/openapi.json` — every endpoint, every schema
 - `https://emem.dev/.well-known/emem.json` — manifest CIDs + responder pubkey
 - `https://emem.dev/v1/agent_card`, `/v1/quickstart` — discover-first card + onboarding flow
 - `https://emem.dev/spec.md`, `/whitepaper.md`, `/attesting.md` — protocol, math, write path
+- `https://emem.dev/humans`, `/humans.json`, `/humans/llms.txt` — interactive console + JSON twin
 - `crates/emem-mcp/src/lib.rs` — canonical MCP tool descriptors
 - `crates/emem-primitives/src/*` — the 11 primitive shapes
 - `examples/agent-walkthroughs.md`, `examples/langchain.py`, `examples/llamaindex.py`

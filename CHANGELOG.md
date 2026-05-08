@@ -7,6 +7,69 @@ to verify.
 
 ## [Unreleased]
 
+### `/humans` rebuild — 2026-05-08
+
+Public interactive surface at `https://emem.dev/humans` — the page is its
+own API console. Every visible cell carries `data-emem-cell`, `band`,
+`fact-cid`, `tslot` attributes; every interactive control carries
+`data-emem-action`. A scraping LLM extracts everything from the rendered
+DOM. A live console pane prints every `/v1/*` call the page makes with
+copy-as-curl / copy-as-python / copy-as-MCP pivots and a replay button.
+
+#### Added
+- `web/humans.html` (~3.2 K LoC, single self-contained file) replaces
+  the v1 dashboard. Constellation field, Verlet force-graph, Poincaré
+  registry view, Sigstore-Rekor-style attestation log, lasso →
+  `/v1/recall_polygon`, embedding-PCA reprojection over 128-D Tessera
+  vectors fetched via `/v1/recall_many`, command palette, hash chips
+  with click-to-copy, focus mode, collapsible rails, mobile bottom-sheet,
+  touch-lasso path, URL state encoding (`?cell=…&proj=embed&mode=log&layout=…`)
+  so a tweeted link reproduces the exact view.
+- Sibling routes wired in `crates/emem-api-rest/src/lib.rs`:
+  `/humans.json` (JSON twin, `schema=emem.humans.v1`),
+  `/humans/llms.txt` (page-scoped llms.txt convention),
+  `/humans-og.svg` (1200×630 OpenGraph card).
+- Pinned offline-verify libs from `esm.sh`: `@noble/curves@1.6.0/ed25519`
+  + `@noble/hashes@1.5.0/blake3`. Preimage builder mirrors
+  `crates/emem-storage/src/server.rs:132-148` byte-for-byte; verifies
+  receipts in the browser without re-contacting the responder.
+
+#### Fixed
+- CSP header was blocking `https://esm.sh`, so the page silently fell
+  back to server-side `/v1/verify_receipt` while labelling itself "CDN
+  libs unavailable for offline path" — read as a verify failure.
+  `crates/emem-api-rest/src/lib.rs` CSP now lists esm.sh in `script-src`
+  and `connect-src`. Offline verify actually runs offline.
+- `find_similar` 404 on cold cells (no `geotessera` attested) now
+  auto-materialises via `/v1/recall` and retries instead of swallowing
+  the responder's hint into a bare "HTTP 404".
+- `installChips` was reading `textContent` after `setMan` had ellipsised
+  it, so manifest-CID chips and the rail pubkey chip copied
+  `"abc...123…"` instead of the full base32. Now prefers `el.title`.
+- Family filter no longer blanks the canvas — cells derive a real
+  dominant family from `/v1/coverage_matrix` instead of all defaulting
+  to `'foundation'`.
+- Lasso auto-exits after polygon submission; touch-lasso path added so
+  the chip works on mobile (was unreachable — single-finger drag always
+  routed through pan).
+- rAF twinkle loop honours `prefers-reduced-motion`.
+- Console `aria-live=off` (was announcing every API call to screen
+  readers) + `CONSOLE_MAX_ROWS=250` cap so DOM doesn't grow unbounded.
+- `--fg-mute` lifted from `#5A5C66` (2.96:1, fails WCAG AA) to
+  `#7A7D87` (4.5:1).
+- Five top-edge absolute clusters consolidated into a single bottom
+  dock (`modes | projection | zoom | focus`); top of the canvas is
+  now empty so hover tooltips and the centred hero have room.
+
+#### Doc-only
+- README's "Foundation embeddings" line corrected: ships 8 annual
+  Tessera vintages 2017–2024 plus `bin128` and `multi_year`, not
+  "vintage 2024" only.
+- Deferred-section claim "upstream is 2024-only" rewritten — the
+  upstream has all 8 vintages; the JEPA-v2 training blocker is
+  candidate-pool selection (most cells need backfill before they
+  carry the multi-year stack), not upstream availability.
+
 ### Sweep — 2026-05-08
 
 Fresh memory rebuild from code, full P0+P1+P2 fix sweep, then docs
