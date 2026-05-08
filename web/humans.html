@@ -400,6 +400,59 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   display:flex;gap:.7em;flex-wrap:wrap}
 .cmdk-foot kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .35em;border-radius:2px;font-family:var(--mono)}
 
+/* example-question chips — surfaced when the search box opens with no
+   query, populated from the very_high-volume questions in the consumer
+   eval. Click → fills box → submits as /v1/ask. Hidden once the user
+   starts typing (and during result rendering). */
+.cmdk-chips{padding:.6em .9em .55em;border-bottom:1px solid var(--line);
+  display:flex;flex-wrap:wrap;gap:.35em;background:rgba(124,255,178,.012)}
+.cmdk-chips .lbl{width:100%;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  color:var(--fg-mute);text-transform:uppercase;margin-bottom:.25em}
+.cmdk-chips button{background:var(--bg-2);border:1px solid var(--line);
+  color:var(--fg-2);font-family:var(--mono);font-size:11.5px;
+  padding:.32em .65em;border-radius:99px;cursor:pointer;
+  transition:color .12s,border-color .12s,background .12s;line-height:1.3;
+  text-align:left;letter-spacing:-.005em}
+.cmdk-chips button:hover{color:var(--accent);border-color:var(--accent);
+  background:rgba(124,255,178,.06)}
+.cmdk-chips.hidden{display:none}
+
+/* /v1/ask result card — the place + topic-routed answer surface that
+   shows up in the right rail when a free-form question runs. Same
+   visual language as the .cell-card; just topic-headed rather than
+   cell-headed. */
+.ask-card{border:1px solid var(--line-2);padding:.7em .85em;border-radius:4px;
+  background:linear-gradient(180deg,rgba(124,255,178,.04),transparent 60%)}
+.ask-card .place{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:500;margin-bottom:.2em}
+.ask-card .place-meta{color:var(--fg-3);font-size:11px;font-family:var(--mono);margin-bottom:.55em}
+.ask-card .topics{display:flex;flex-wrap:wrap;gap:.3em;margin:.4em 0}
+.ask-card .topic{font-family:var(--mono);font-size:10.5px;color:var(--fg-2);
+  border:1px solid var(--line);padding:.12em .55em;border-radius:99px;
+  background:var(--bg-2);letter-spacing:.01em}
+.ask-card .topic.primary{color:var(--accent);border-color:var(--accent);background:rgba(124,255,178,.08)}
+.ask-card .caveat{font-family:var(--mono);font-size:10.5px;color:var(--pending);
+  border-left:2px solid var(--pending);padding:.2em .55em;margin:.3em 0;
+  background:rgba(255,193,124,.04);line-height:1.45}
+.ask-card .out-of-scope{font-family:var(--mono);font-size:11.5px;color:var(--warn);
+  border:1px dashed var(--warn);padding:.7em .8em;border-radius:3px;
+  background:rgba(255,124,124,.04);line-height:1.55;margin:.4em 0}
+.ask-card .out-of-scope strong{color:var(--warn);font-weight:500;display:block;margin-bottom:.25em}
+
+/* cold-materialise progress — replaces the silent spinner on /v1/ask
+   calls that exceed 5s. Tells the user we're fanning out to NASA /
+   Copernicus / ECMWF instead of pretending nothing is happening. */
+.progress{font-family:var(--mono);font-size:11.5px;color:var(--fg-2);
+  border:1px solid var(--line);background:var(--bg-2);
+  padding:.7em .85em;border-radius:3px;line-height:1.55}
+.progress .step{color:var(--fg-3);font-size:10.5px;display:block;margin-top:.25em;letter-spacing:.01em}
+.progress .pulse{display:inline-block;width:7px;height:7px;border-radius:50%;
+  background:var(--accent);margin-right:.5em;
+  animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{
+  0%,100%{opacity:.3;transform:scale(.85)}
+  50%{opacity:1;transform:scale(1.1)}
+}
+
 /* mobile bottom-sheet for right pane (toggled when a cell is selected) */
 .sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg-1);
   border-top:1px solid var(--line-2);z-index:60;max-height:65vh;overflow-y:auto;padding:1em;
@@ -644,7 +697,11 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 <!-- command palette -->
 <div class=cmdk-back id=cmdkBack role=dialog aria-modal=true aria-label="Command palette">
   <div class=cmdk-box>
-    <input id=cmdkInput type=text autocomplete=off placeholder="search a place, paste a cell64, jump to a band, run /find_similar /verify /recall …">
+    <input id=cmdkInput type=text autocomplete=off placeholder="ask about a place — flood risk, wildfire smoke, climate haven, heat health, where else looks like this …">
+    <!-- Example-question chips: real queries from the 105-question consumer
+         eval. Click any to populate the box and submit as /v1/ask.
+         Hidden once the user types so the corpus matches surface fully. -->
+    <div class=cmdk-chips id=cmdkChips></div>
     <div class=cmdk-list id=cmdkList></div>
     <div class=cmdk-foot>
       <span><kbd>↑↓</kbd> navigate</span>
@@ -3072,6 +3129,7 @@ function openCmdk() {
   cmdkBack.classList.add('on');
   cmdkInput.value = '';
   cmdkInput.focus();
+  renderAskChips();
   refreshCmdk('');
 }
 function closeCmdk() {
@@ -3108,6 +3166,9 @@ function refreshCmdk(q) {
   // tripping through /v1/locate (which works but is wrong intent).
   const c64Re = /^[a-z]{4}\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+$/;
   let results;
+  // Toggle the example-chip strip: visible only when the input is empty.
+  const chips = document.getElementById('cmdkChips');
+  if (chips) chips.classList.toggle('hidden', !!ql);
   if (!ql) results = corpus.slice(0, 60);
   else {
     results = corpus.filter(r => r.label.toLowerCase().includes(ql)).slice(0, 100);
@@ -3118,8 +3179,19 @@ function refreshCmdk(q) {
         run:async () => { closeCmdk(); const c = await resolveCellById(q.trim()); if (c) selectCell(c); }
       });
     } else {
-      // Free-form query: treat as a place name and geocode.
-      results.unshift({ kind:'geocode', label:'locate "'+q+'"  →  POST /v1/locate', run:() => doLocate(q) });
+      // Routing heuristic — multi-word natural-language queries are
+      // questions about a place, not place names. Top result is /v1/ask
+      // (consumer intent), with /v1/locate as the secondary.
+      const trimmed = q.trim();
+      const looksLikeQuestion = /\s/.test(trimmed) || /\?$/.test(trimmed);
+      if (looksLikeQuestion) {
+        results.unshift({ kind:'geocode', label:'locate "'+q+'"  →  POST /v1/locate', run:() => doLocate(q) });
+        results.unshift({ kind:'ask',     label:'ask "'+q+'"  →  POST /v1/ask',      run:() => doAsk(q) });
+      } else {
+        // Single-word query: a place name. Locate-first, ask as fallback.
+        results.unshift({ kind:'ask',     label:'ask "'+q+'"  →  POST /v1/ask',      run:() => doAsk(q) });
+        results.unshift({ kind:'geocode', label:'locate "'+q+'"  →  POST /v1/locate', run:() => doLocate(q) });
+      }
     }
   }
   _cmdkResults = results;
@@ -3198,6 +3270,296 @@ async function doLocate(q) {
     }
     selectCell(target);
   } catch (e) {}
+}
+
+// ── ask: free-form consumer query → /v1/ask ──────────────────────────────
+//
+// /v1/ask requires `place` — the geocoder doesn't parse a full sentence.
+// So we strip non-place tokens (verbs, modifiers, climate terms) and try
+// the residual through /v1/locate; first hit wins. The 8 chips below are
+// drawn from the very_high-volume questions in the 105-question consumer
+// eval (tests/comprehensive/questions_v2.json). Each chip ships its own
+// `place` so chipped clicks skip the extraction step entirely.
+const ASK_CHIPS = [
+  { q: 'is asheville still a climate haven after helene', place: 'Asheville, North Carolina' },
+  { q: 'wildfire smoke in toronto today',                 place: 'Toronto, Canada' },
+  { q: 'is dubai still flooded after the april rains',    place: 'Dubai, United Arab Emirates' },
+  { q: 'heatwave delhi health risk for kids',             place: 'Connaught Place, New Delhi, India' },
+  { q: 'lower parel mumbai flood risk for buying a flat', place: 'Lower Parel, Mumbai, India' },
+  { q: 'tampa beach house storm surge',                   place: 'Tampa, Florida' },
+  { q: 'is phoenix livable in 2050 with extreme heat',    place: 'Phoenix, Arizona' },
+  { q: 'palisades los angeles fire season risk',          place: 'Pacific Palisades, Los Angeles' },
+];
+
+// Tokens that look like verbs / modifiers / climate concepts but never
+// like place names. The geocoder fuzzes these out, but a clean residual
+// converges on the place faster (1 locate vs 5).
+const NON_PLACE = new Set((
+  'is are was were the a an in at on for from to of with without by ' +
+  'after before during near around about ' +
+  'today tonight tomorrow now still already this that those these ' +
+  'what how where when why who which whose whom ' +
+  'do does did done doing should can will would could might may must ' +
+  'my your our their his her its this that ' +
+  'and or but if so as because since while ' +
+  'it i we you they them us he she ' +
+  'go going gone come came goes ' +
+  'go safe risk risky dangerous good bad best worst better worse ' +
+  'flat house home rooftop solar panel panels beach ' +
+  'flood floods flooded fire wildfire bushfire smoke ' +
+  'heat heatwave hot cold dome wave ' +
+  'climate change climate-change haven havens livable walkable ' +
+  'green tree cover space spaces neighborhood neighbourhood neighborhoods neighbourhoods ' +
+  'storm surge sea level rise threat health kid kids family ' +
+  'school schools retirement escape buy buying live living ' +
+  'year years month months week weeks day days season seasons ' +
+  'rain rains rainfall snow snowfall winter summer monsoon ' +
+  'temperature temperatures degrees ' +
+  'often always sometimes never how-much how-many much many ' +
+  'january february march april may june july august september october november december ' +
+  'jan feb mar apr jun jul aug sept sep oct nov dec ' +
+  'monday tuesday wednesday thursday friday saturday sunday'
+).trim().split(/\s+/));
+
+function extractPlaceCandidates(q) {
+  const tokens = (q || '').toLowerCase().match(/[a-z][a-z'-]*[a-z]|[a-z]/g) || [];
+  const placeTokens = tokens.filter(t => !NON_PLACE.has(t));
+  const out = [];
+  if (placeTokens.length) out.push(placeTokens.join(' '));
+  // Sliding 3-, 2-, 1-grams from the right (place names usually trail)
+  for (const n of [3, 2, 1]) {
+    for (let i = placeTokens.length - n; i >= 0; i--) {
+      const s = placeTokens.slice(i, i + n).join(' ');
+      if (!out.includes(s)) out.push(s);
+    }
+  }
+  return out;
+}
+
+async function extractPlaceFromSentence(q) {
+  for (const cand of extractPlaceCandidates(q)) {
+    try {
+      const r = await api('POST', '/v1/locate', { q: cand });
+      if (r && (r.cell64 || r.cell)) {
+        return { place: cand, label: r.label || cand,
+                 cell64: r.cell64 || r.cell,
+                 lat: r.centre?.lat_deg ?? r.lat,
+                 lng: r.centre?.lng_deg ?? r.lng };
+      }
+    } catch (e) { /* try next candidate */ }
+  }
+  return null;
+}
+
+function armColdProgress(box, askLabel) {
+  // Render the friendly progress shell up front; the timers swap text.
+  const lines = [
+    { ms:  4500, html: 'first call here — fanning out to <span style="color:var(--accent)">NASA</span> · <span style="color:var(--accent)">Copernicus</span> · <span style="color:var(--accent)">ECMWF</span> for ' + escapeHtml(askLabel) + ' …' },
+    { ms: 18000, html: 'still warming up — first attestation per band signs in ~2–8 s, big fan-outs (12–35 bands) take 30–60 s …' },
+    { ms: 45000, html: 'cold materialisation — open-data upstreams are slow on first hit. The signed bytes are caching as they land.' },
+  ];
+  const timers = lines.map(l => setTimeout(() => {
+    if (box.dataset.askDone) return;
+    const p = box.querySelector('.progress .step');
+    if (p) p.innerHTML = l.html;
+  }, l.ms));
+  return () => { timers.forEach(clearTimeout); box.dataset.askDone = '1'; };
+}
+
+async function doAsk(q, opts) {
+  closeCmdk();
+  q = (q || '').trim();
+  if (!q) return;
+  const box = document.getElementById('factsBox') || (() => {
+    setRightPane('<div id=factsBox></div>');
+    return document.getElementById('factsBox');
+  })();
+  // Reset & render progress shell
+  box.dataset.askDone = '';
+  box.innerHTML =
+    '<h3>ask</h3>' +
+    '<div class=ask-card><div class=place>' + escapeHtml(q) + '</div>' +
+    '<div class=progress><span class=pulse></span> resolving place …' +
+    '<span class=step>extracting from natural language</span></div></div>';
+
+  let place = (opts && opts.place) || null;
+  let placeMeta = null;
+  if (!place) {
+    const ext = await extractPlaceFromSentence(q);
+    if (!ext) {
+      box.innerHTML =
+        '<h3>ask</h3>' +
+        '<div class=ask-card>' +
+        '<div class=place>' + escapeHtml(q) + '</div>' +
+        '<div class=out-of-scope><strong>this doesn\'t look like a question about a place.</strong>' +
+        'emem only knows the planet — climate, terrain, atmosphere, vegetation, oceans. ' +
+        'try one of the example chips, or include a place name (city, neighborhood, region).</div>' +
+        '</div>';
+      return;
+    }
+    place = ext.label;
+    placeMeta = ext;
+  }
+  // Update progress shell with resolved place (first cold tick)
+  const card = box.querySelector('.ask-card');
+  const progress = card && card.querySelector('.progress');
+  if (progress) {
+    progress.innerHTML =
+      '<span class=pulse></span> recalling at <span style="color:var(--accent)">' + escapeHtml(place) + '</span> …' +
+      '<span class=step>POST /v1/ask · waiting for first signed fact</span>';
+  }
+  const cancelTimers = armColdProgress(box, place);
+  let res;
+  try {
+    res = await api('POST', '/v1/ask', { q, place });
+  } catch (e) {
+    cancelTimers();
+    const msg = (e && e.body && (e.body.message || e.body.error)) || String(e);
+    box.innerHTML =
+      '<h3>ask</h3>' +
+      '<div class=ask-card>' +
+      '<div class=place>' + escapeHtml(q) + '</div>' +
+      '<div class=place-meta>place: ' + escapeHtml(place) + '</div>' +
+      '<div class=out-of-scope><strong>ask failed.</strong>' + escapeHtml(msg) + '</div>' +
+      '</div>';
+    return;
+  }
+  cancelTimers();
+  paintAskResult(res, q, placeMeta);
+}
+
+function paintAskResult(res, originalQ, placeMeta) {
+  const box = document.getElementById('factsBox');
+  if (!box) return;
+  const tr = res.topic_routing || {};
+  const matched = tr.matched_topics || [];
+  const matchedKw = tr.matched_keywords || [];
+  const place = res.place_resolved || {};
+  const facts = (res.facts && res.facts.facts) || [];
+  const receipt = res.facts && res.facts.receipt;
+  const caveats = res.caveats || [];
+
+  // Out-of-scope honesty: trust the server flag, but also catch the
+  // false-positive case the eval surfaced (Q290/Q291) — every keyword
+  // matched at <0.35 confidence and the topics look like grab-bag.
+  const oos = !!tr.out_of_scope;
+  const allWeak = matchedKw.length > 0 && matchedKw.every(k => (k.score || 0) < 0.35);
+  const looksOOS = oos || (allWeak && matched.length >= 4);
+
+  let html =
+    '<h3>ask</h3>' +
+    '<div class=ask-card data-emem-cell="' + escapeHtml(place.cell64 || '') + '">' +
+    '<div class=place>' + escapeHtml(place.label || place.input || originalQ) + '</div>';
+  if (place.cell64) {
+    html += '<div class=place-meta>' + escapeHtml(place.cell64) + ' · ' +
+            (place.lat != null ? Number(place.lat).toFixed(4) + ', ' + Number(place.lng).toFixed(4) : '') +
+            (place.via ? ' · via ' + escapeHtml(place.via) : '') + '</div>';
+  }
+  if (looksOOS) {
+    html += '<div class=out-of-scope><strong>this doesn\'t look like a question about a place.</strong>' +
+      'emem only knows the planet — climate, terrain, atmosphere, vegetation, oceans. ' +
+      'every topic match here scored under 0.35; the router is groping. ' +
+      'try one of the example chips, or rephrase with a clear geospatial intent.</div>';
+  } else if (matched.length) {
+    html += '<div class=topics>';
+    matched.slice(0, 8).forEach((t, i) => {
+      html += '<span class="topic' + (i === 0 ? ' primary' : '') + '">' + escapeHtml(t) + '</span>';
+    });
+    html += '</div>';
+  }
+  if (caveats && caveats.length) {
+    caveats.slice(0, 2).forEach(c => {
+      if (c && c.human_message) html += '<div class=caveat>' + escapeHtml(c.human_message) + '</div>';
+    });
+  }
+  html += '</div>';
+
+  // Facts (same renderer as doRecall — copy a slim version)
+  if (facts.length) {
+    html += '<h3>facts (' + facts.length + ')</h3>';
+    for (const f of facts.slice(0, 16)) {
+      const fam = STATE.bandFamilyByKey[f.band] || 'reserved';
+      const val = formatVal(f.value ?? f.scalar ?? f.bytes_b64 ?? f.embedding_b64 ?? f.value_decoded);
+      const cid = f.fact_cid || f.cid || '';
+      const ts  = f.tslot_unix_s ? new Date(f.tslot_unix_s*1000).toISOString().slice(0,10) :
+                  (f.signed_at ? f.signed_at.slice(0,10) : '');
+      const tslot = f.tslot_unix_s || (f.signed_at ? Math.floor(Date.parse(f.signed_at)/1000) : '');
+      html += '<div class=fact ' +
+              'data-emem-cell="' + escapeHtml(place.cell64||'') + '" ' +
+              'data-emem-band="' + escapeHtml(f.band) + '" ' +
+              'data-emem-family="' + escapeHtml(fam) + '" ' +
+              'data-emem-fact-cid="' + escapeHtml(cid) + '" ' +
+              'data-emem-tslot="' + tslot + '" ' +
+              'data-emem-responder="' + escapeHtml(STATE.responder||'') + '">' +
+        '<div class=band><span class=fam-dot style="background:'+famColor(fam)+';color:'+famColor(fam)+';width:7px;height:7px"></span>'+escapeHtml(f.band)+'</div>' +
+        (val !== null ? '<div class=val>'+escapeHtml(val)+'</div>' : '') +
+        (cid ? '<div class=cid copyable title="click to copy CID">'+escapeHtml(cid)+'</div>' : '') +
+        (ts  ? '<div class=ts>'+escapeHtml(ts)+'</div>' : '') +
+        '</div>';
+    }
+  }
+
+  if (receipt) {
+    const cidPrev = (receipt.fact_cids||[])[0] || '';
+    html += '<h3>receipt</h3>';
+    html += '<div class=fact data-emem-href="/v1/verify_receipt" data-emem-cell="'+escapeHtml(receipt.cells?.[0]||'')+'" data-emem-fact-cid="'+escapeHtml(cidPrev)+'">' +
+      '<div class=band>'+escapeHtml(receipt.primitive||'ask')+' · '+escapeHtml((receipt.served_at||'').replace('T',' '))+'</div>' +
+      '<div class=val>request_id <span class="cid copyable">'+escapeHtml(receipt.request_id||'')+'</span></div>' +
+      '<div class=val>fact_cids ['+(receipt.fact_cids||[]).length+']'+(cidPrev?' · <span class="cid copyable">'+escapeHtml(cidPrev)+'</span>':'')+'</div>' +
+      '</div>';
+    const lblBase = (typeof nobleStatus !== 'undefined' && nobleStatus === 'ok')
+      ? 'in-browser ed25519 + blake3 ready'
+      : 'noble libs unavailable — will fall back to /v1/verify_receipt';
+    html += '<div class=verify-row id=verifyRow><span class="pill pending"><span class=glyph></span> not verified</span>' +
+      '<button id=btnVerify class=primary type=button>verify offline</button>' +
+      '<span id=verifyMsg style="color:var(--fg-3);font-size:11px;flex:1">'+lblBase+'</span>' +
+      '</div>';
+  }
+
+  // Optionally adopt the resolved cell so the constellation centres on it.
+  if (place.cell64 && place.lat != null && place.lng != null) {
+    let target = STATE.cellById.get(place.cell64);
+    if (!target) {
+      target = makeSyntheticCell(place.cell64, place.lat, place.lng);
+      STATE.cells.push(target); STATE.cellById.set(place.cell64, target);
+      computeProjection();
+    }
+    STATE.selectedCell = target;
+    syncUrlState();
+    drawCurrent();
+  }
+
+  setRightPane(html);
+  const factsBox = document.getElementById('factsBox');
+  if (factsBox) {
+    factsBox.querySelectorAll('.copyable').forEach(el => {
+      el.addEventListener('click', () => navigator.clipboard.writeText(el.textContent.trim()));
+    });
+  }
+  if (receipt) {
+    const btn = document.getElementById('btnVerify');
+    if (btn) btn.onclick = () => verifyReceiptUI(receipt);
+    pushReceiptToLog(receipt, place.cell64 || '');
+  }
+}
+
+function renderAskChips() {
+  const el = document.getElementById('cmdkChips');
+  if (!el) return;
+  let html = '<span class=lbl>try a real consumer question</span>';
+  for (const c of ASK_CHIPS) {
+    html += '<button type=button data-q="'+escapeHtml(c.q)+'" data-place="'+escapeHtml(c.place)+'">'+escapeHtml(c.q)+'</button>';
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const q = btn.getAttribute('data-q');
+      const place = btn.getAttribute('data-place');
+      const input = document.getElementById('cmdkInput');
+      if (input) input.value = q;
+      doAsk(q, { place });
+    });
+  });
 }
 function verifyLastReceipt() {
   closeCmdk();
