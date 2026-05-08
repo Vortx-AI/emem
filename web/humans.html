@@ -2,307 +2,555 @@
 <html lang=en>
 <head>
 <meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem.dev/humans — knowledge constellation of the protocol corpus</title>
-<meta name=description content="Interactive map of the emem.dev corpus. Cells plotted by Hilbert-ordered cell64 prefix, every visible thing has a CID, every receipt is verifiable in the browser.">
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/humans — knowledge constellation of Earth memory</title>
+<meta name=description content="Single-page exploration of the emem corpus. Cells as stars, every visible thing has a CID and a data attribute, every receipt is offline-verifiable in the browser. Built for AI agents that humans can also see.">
 <link rel=canonical href="https://emem.dev/humans">
+<link rel=alternate type=application/json href="/humans.json" title="JSON twin of this page">
+<link rel=alternate type=text/markdown href="/humans/llms.txt" title="Page-scoped llms.txt">
+<link rel=alternate type=application/json href="/v1/discover">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel="service mcp" href="/mcp">
 <meta name=robots content="index,follow">
 <meta name=color-scheme content="dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/humans">
+<meta property=og:title content="emem.dev/humans — knowledge constellation">
+<meta property=og:description content="Cells as stars. Every visible thing has a CID. Every receipt is offline-verifiable in the browser.">
+<meta property=og:image content="https://emem.dev/og-image.svg">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
 <style>
+/* ─────────────────────────────────────────────────────────────────────────
+   tokens — LCH-aware dark palette, scientific not gamelike
+   ───────────────────────────────────────────────────────────────────────── */
 :root{
-  --bg:#07080a;        --bg-2:#0d0f13;        --bg-3:#14171d;
-  --fg:#e6e8eb;        --fg-dim:#8b929c;      --fg-mute:#5a616b;
-  --line:#1c2029;      --line-2:#262b35;
-  --accent:#4dd0a0;    --accent-2:#9ad0ff;    --accent-3:#ffb86b;
-  --warn:#ff5a5a;      --ok:#4dd0a0;          --link:#9ad0ff;
-  --fam-foundation:#9ad0ff; --fam-optical:#7fdca0; --fam-radar:#caa6ff;
-  --fam-climate:#7fbfff;    --fam-terrain:#d3a36b; --fam-landcover:#7fdc9a;
-  --fam-vegetation:#a8e070; --fam-water:#5dbdfb;   --fam-soil:#c9956b;
-  --fam-human:#ffb86b;      --fam-vision:#ff9ad0;  --fam-encoding:#bcc0c8;
-  --fam-topology:#a0d0ff;   --fam-reserved:#5a616b;
+  --bg:#0A0B0E;            /* true black field for stars */
+  --bg-1:#0E0F13;
+  --bg-2:#13151A;
+  --bg-3:#1A1D24;
+  --fg:#E8E8EA;
+  --fg-2:#B5B7BE;
+  --fg-3:#7C7E87;
+  --fg-mute:#5A5C66;
+  --line:rgba(232,232,234,0.08);
+  --line-2:rgba(232,232,234,0.16);
+  --accent:#7CFFB2;        /* the only saturated green; means "verified"/"active" */
+  --accent-dim:#3FB37E;
+  --warn:#FF7C7C;
+  --pending:#FFD27C;
+  /* Band-family hues (LCH-balanced) */
+  --fam-foundation:#B27CFF;
+  --fam-optical:#7CFFB2;
+  --fam-radar:#C8A8FF;
+  --fam-climate:#7CC8FF;
+  --fam-weather:#7CC8FF;
+  --fam-terrain:#FFB37C;
+  --fam-landcover:#A8E07C;
+  --fam-vegetation:#7CFFB2;
+  --fam-water:#7CFFE6;
+  --fam-soil:#D6A87C;
+  --fam-human:#FF7CB2;
+  --fam-vision:#FF9AD0;
+  --fam-encoding:#BCC0C8;
+  --fam-topology:#A0D0FF;
+  --fam-urban:#FF7CB2;
+  --fam-reserved:#5A5C66;
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'Inter Tight','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
 }
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--fg);
-  font:13px/1.5 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-  -webkit-font-smoothing:antialiased}
-a{color:var(--link);text-decoration:none}
-a:hover{text-decoration:underline}
-button{font:inherit;color:inherit;background:transparent;border:1px solid var(--line-2);
-  padding:.3em .7em;cursor:pointer;border-radius:2px}
-button:hover{border-color:var(--accent)}
+  font-family:var(--sans);font-size:13px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  font-variant-numeric:tabular-nums;
+  overflow:hidden;
+}
+.mono,code,kbd,samp,pre{font-family:var(--mono)}
+a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
+  border:1px solid var(--line-2);padding:.35em .8em;cursor:pointer;border-radius:3px;
+  letter-spacing:.02em;font-size:11.5px;}
+button:hover{border-color:var(--accent);color:var(--accent)}
 button:active{transform:translateY(1px)}
 button.primary{border-color:var(--accent);color:var(--accent)}
-input,select{font:inherit;color:var(--fg);background:var(--bg-2);
-  border:1px solid var(--line-2);padding:.4em .6em;border-radius:2px;outline:none}
+button.ghost{border:none;padding:.3em .6em;color:var(--fg-2)}
+button.ghost:hover{background:var(--bg-2);color:var(--accent)}
+button[aria-pressed=true]{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
+  border:1px solid var(--line-2);padding:.45em .7em;border-radius:3px;outline:none;width:100%;font-size:12px}
 input:focus,select:focus{border-color:var(--accent)}
 hr{border:none;border-top:1px solid var(--line);margin:.8em 0}
+::selection{background:rgba(124,255,178,.25);color:#fff}
 
-#app{display:grid;height:100vh;
-  grid-template-rows:48px 1fr 180px;
-  grid-template-columns:240px 1fr 380px;
+/* ─────────────────────────────────────────────────────────────────────────
+   layout — mobile-first, container-query friendly
+   ───────────────────────────────────────────────────────────────────────── */
+#app{display:grid;height:100vh;height:100dvh;width:100vw;
+  grid-template-rows:46px 1fr auto;
+  grid-template-columns:1fr;
   grid-template-areas:
-    "header header header"
-    "left   main   right"
-    "console console console";
+    "header"
+    "main"
+    "console";
+}
+@media(min-width:760px){
+  #app{
+    grid-template-rows:48px 1fr 200px;
+    grid-template-columns:240px 1fr 360px;
+    grid-template-areas:
+      "header  header  header"
+      "left    main    right"
+      "console console console";
+  }
+}
+@media(min-width:1280px){
+  #app{
+    grid-template-columns:280px 1fr 420px;
+  }
 }
 
-/* HEADER */
-header{grid-area:header;display:flex;align-items:center;gap:1em;padding:0 1em;
-  border-bottom:1px solid var(--line);background:var(--bg-2)}
-header .brand{font-weight:600;letter-spacing:.02em;color:var(--fg)}
+/* header */
+header{grid-area:header;display:flex;align-items:center;gap:.6em;padding:0 .8em;
+  border-bottom:1px solid var(--line);background:var(--bg-1);min-width:0}
+header .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:13px;
+  white-space:nowrap;color:var(--fg)}
 header .brand .slash{color:var(--fg-mute)}
 header .brand .humans{color:var(--accent)}
-header .search{flex:1;display:flex;gap:.5em;align-items:center}
-header .search input{flex:1;max-width:36em}
-header .timeline{display:flex;align-items:center;gap:.5em;color:var(--fg-dim);font-size:11.5px}
-header .timeline input[type=range]{width:180px;accent-color:var(--accent)}
-header .help{color:var(--fg-dim);cursor:help;border:1px solid var(--line-2);
-  width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%}
+header .pubkey{display:none;font-family:var(--mono);font-size:11px;color:var(--fg-3);
+  border:1px solid var(--line);padding:.2em .55em;border-radius:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:18em}
+@media(min-width:1100px){header .pubkey{display:inline-block}}
+header .pubkey .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);
+  margin-right:.4em;animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+header .spacer{flex:1}
+header .chips{display:flex;gap:.4em;align-items:center}
+header .chip{font-family:var(--mono);font-size:11px;color:var(--fg-2);
+  border:1px solid var(--line-2);padding:.25em .55em;border-radius:3px;cursor:pointer;
+  white-space:nowrap;background:transparent}
+header .chip:hover{border-color:var(--accent);color:var(--accent)}
+header .chip kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .25em;border-radius:2px;
+  font-size:10px;color:var(--fg-3);margin-left:.3em}
+@media(max-width:760px){header .brand{font-size:12px}header .chip{padding:.2em .4em;font-size:10.5px}}
 
-/* LEFT PANE */
-aside.left{grid-area:left;border-right:1px solid var(--line);
-  background:var(--bg-2);overflow-y:auto;padding:1em}
-aside.left h3{font-size:11px;letter-spacing:.12em;color:var(--fg-mute);
-  text-transform:uppercase;margin:0 0 .5em;font-weight:500}
+/* left rail */
+aside.left{grid-area:left;border-right:1px solid var(--line);background:var(--bg-1);
+  overflow-y:auto;padding:.9em .9em 1.4em;display:none;min-width:0}
+@media(min-width:760px){aside.left{display:block}}
+aside.left h3{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--fg-mute);
+  text-transform:uppercase;margin:0 0 .55em;font-weight:500}
 aside.left h3:not(:first-child){margin-top:1.4em}
-aside.left .stat{display:flex;justify-content:space-between;color:var(--fg-dim);
-  padding:.15em 0;font-size:12px}
-aside.left .stat b{color:var(--fg);font-weight:500}
-aside.left .stat code{color:var(--fg-dim);font-size:10.5px}
-.fam-key{display:flex;gap:.4em;align-items:center;padding:.18em 0;font-size:11.5px;
-  color:var(--fg-dim);cursor:pointer;user-select:none}
+.stat{display:flex;justify-content:space-between;color:var(--fg-2);
+  padding:.18em 0;font-size:12px;font-family:var(--mono);gap:.5em}
+.stat b{color:var(--fg);font-weight:500;font-variant-numeric:tabular-nums}
+.stat code{color:var(--fg-3);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%}
+.fam-key{display:flex;gap:.5em;align-items:center;padding:.18em 0;font-size:11.5px;
+  color:var(--fg-2);cursor:pointer;user-select:none;font-family:var(--mono)}
 .fam-key:hover{color:var(--fg)}
-.fam-key.off{opacity:.35}
-.fam-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.attester{padding:.3em 0;border-bottom:1px solid var(--line);font-size:11px}
-.attester:last-child{border:none}
-.attester .pk{color:var(--accent);font-size:10px;word-break:break-all}
-.attester .meta{color:var(--fg-mute);font-size:10.5px}
-#feed .ev{padding:.35em .4em;border-left:2px solid var(--line-2);margin-bottom:.4em;
-  font-size:11px;color:var(--fg-dim);background:var(--bg-3);border-radius:0 2px 2px 0}
-#feed .ev .cell{color:var(--accent-2);font-size:10.5px;word-break:break-all}
-#feed .ev .ago{color:var(--fg-mute);font-size:10px}
+.fam-key.off{opacity:.32}
+.fam-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;box-shadow:0 0 6px currentColor}
+.tslider{margin-top:.5em}
+.tslider input[type=range]{width:100%;accent-color:var(--accent)}
+.tslider .label{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);display:flex;
+  justify-content:space-between;margin-top:.2em}
 
-/* MAIN CANVAS */
-main{grid-area:main;position:relative;overflow:hidden;background:var(--bg)}
-.modes{position:absolute;top:.7em;left:.7em;z-index:5;display:flex;gap:0;
-  background:var(--bg-2);border:1px solid var(--line);border-radius:2px}
-.modes button{border:none;border-radius:0;padding:.35em .85em;font-size:11.5px;
-  color:var(--fg-dim);letter-spacing:.06em;text-transform:uppercase}
-.modes button.on{color:var(--accent);background:var(--bg-3)}
+/* main / canvas */
+main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-height:0;min-width:0}
+.modes{position:absolute;top:.7em;left:.7em;z-index:5;display:flex;
+  background:var(--bg-1);border:1px solid var(--line);border-radius:3px;
+  font-family:var(--mono);font-size:11px;overflow:hidden;flex-wrap:wrap}
+.modes button{border:none;border-radius:0;padding:.45em .85em;font-size:10.5px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--fg-2);background:transparent}
+.modes button[aria-pressed=true]{color:var(--accent);background:rgba(124,255,178,.06)}
 .modes button:not(:last-child){border-right:1px solid var(--line)}
-.legend{position:absolute;bottom:.7em;left:.7em;z-index:5;background:var(--bg-2);
-  border:1px solid var(--line);padding:.5em .7em;font-size:10.5px;color:var(--fg-dim);
-  border-radius:2px;max-width:260px}
-.legend b{color:var(--fg)}
-.zoomctl{position:absolute;top:.7em;right:.7em;z-index:5;background:var(--bg-2);
-  border:1px solid var(--line);border-radius:2px;display:flex;flex-direction:column}
-.zoomctl button{border:none;border-radius:0;width:28px;height:28px;padding:0}
+.zoomctl{position:absolute;top:.7em;right:.7em;z-index:5;background:var(--bg-1);
+  border:1px solid var(--line);border-radius:3px;display:flex;flex-direction:column}
+.zoomctl button{border:none;border-radius:0;width:30px;height:30px;padding:0;font-size:14px;color:var(--fg-2)}
 .zoomctl button:not(:last-child){border-bottom:1px solid var(--line)}
-canvas{display:block;width:100%;height:100%;cursor:crosshair;image-rendering:pixelated}
-.tooltip{position:absolute;pointer-events:none;background:#000;color:var(--fg);
-  border:1px solid var(--accent);padding:.4em .6em;font-size:11px;border-radius:2px;
-  z-index:10;display:none;max-width:300px}
-.tooltip .cell{color:var(--accent);font-size:11px}
-.tooltip .meta{color:var(--fg-dim);font-size:10.5px;margin-top:.2em}
+.legend{position:absolute;bottom:.7em;left:.7em;z-index:4;background:var(--bg-1);
+  border:1px solid var(--line);padding:.55em .75em;font-size:10.5px;color:var(--fg-3);
+  border-radius:3px;max-width:18em;font-family:var(--mono);line-height:1.55;
+  pointer-events:none;display:none}
+@media(min-width:760px){.legend{display:block}}
+.legend b{color:var(--fg-2);font-weight:500}
+canvas#stage{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
+canvas#stage.lasso{cursor:crosshair}
+canvas#stage.panning{cursor:grabbing}
+.tooltip{position:fixed;pointer-events:none;background:rgba(10,11,14,.95);color:var(--fg);
+  border:1px solid var(--accent);padding:.5em .7em;font-size:11px;border-radius:3px;
+  z-index:50;display:none;max-width:300px;font-family:var(--mono);
+  box-shadow:0 4px 24px rgba(0,0,0,.6)}
+.tooltip .tip-cell{color:var(--accent);font-size:11px;font-weight:500;word-break:break-all}
+.tooltip .tip-meta{color:var(--fg-3);font-size:10.5px;margin-top:.25em}
+.tooltip .tip-bands{color:var(--fg-2);font-size:10px;margin-top:.3em}
 
-/* RIGHT DETAIL PANE */
-aside.right{grid-area:right;border-left:1px solid var(--line);background:var(--bg-2);
-  overflow-y:auto;padding:1em}
-aside.right h3{font-size:11px;letter-spacing:.12em;color:var(--fg-mute);
-  text-transform:uppercase;margin:0 0 .6em;font-weight:500}
-.empty{color:var(--fg-mute);padding:2em 0;text-align:center;font-style:italic;font-size:12px}
-.cell-card .cell64{font-size:14px;color:var(--accent);word-break:break-all;font-weight:500}
-.cell-card .latlng{color:var(--fg-dim);font-size:11px;margin:.3em 0}
-.cell-card .actions{display:flex;gap:.4em;margin:.6em 0;flex-wrap:wrap}
-.fact{border:1px solid var(--line);padding:.5em .6em;margin-bottom:.4em;border-radius:2px;
-  background:var(--bg-3);font-size:11.5px}
-.fact .band{color:var(--accent-2);font-weight:500;font-size:11.5px}
-.fact .val{color:var(--fg);font-size:12px;margin:.2em 0}
-.fact .cid{color:var(--fg-mute);font-size:10px;word-break:break-all;cursor:pointer}
-.fact .cid:hover{color:var(--accent)}
-.fact .ts{color:var(--fg-mute);font-size:10px}
-.verify-row{display:flex;align-items:center;gap:.5em;padding:.5em .6em;margin:.5em 0;
-  border:1px dashed var(--line-2);border-radius:2px;font-size:11px}
-.verify-row.ok{border-color:var(--ok);color:var(--ok)}
-.verify-row.fail{border-color:var(--warn);color:var(--warn)}
-.verify-row .check{font-family:ui-monospace,monospace}
-.neighbors .nb{display:flex;justify-content:space-between;align-items:center;
-  padding:.3em .4em;font-size:11px;border-bottom:1px solid var(--line);cursor:pointer}
-.neighbors .nb:hover{background:var(--bg-3)}
-.neighbors .nb .nbcell{color:var(--accent-2);font-size:10.5px;word-break:break-all}
-.neighbors .nb .nbsim{color:var(--accent);min-width:48px;text-align:right;font-variant-numeric:tabular-nums}
+/* registry view (SVG) */
+#registry{position:absolute;inset:0;width:100%;height:100%;display:none}
+#registry.on{display:block}
+#registry text{font-family:var(--mono);fill:var(--fg-2)}
+#registry .reg-circle{fill:none;stroke:var(--line-2);stroke-dasharray:2 4}
+#registry .reg-node{fill:var(--accent-dim);stroke:var(--accent);stroke-width:1.5;cursor:pointer;transition:fill .15s}
+#registry .reg-node:hover{fill:var(--accent)}
+#registry .reg-leaf{fill:var(--bg-2);stroke:var(--line-2);cursor:pointer;transition:all .15s}
+#registry .reg-leaf:hover{stroke:var(--accent);fill:var(--bg-3)}
+#registry .reg-edge{stroke:var(--line-2);stroke-width:.5;fill:none}
+#registry .reg-label{font-size:11px;fill:var(--fg-2);pointer-events:none}
+#registry .reg-leaf-label{font-size:9px;fill:var(--fg-3);pointer-events:none}
 
-/* CONSOLE */
-section.console{grid-area:console;border-top:1px solid var(--line);background:#000;
-  overflow-y:auto;padding:.5em .8em;font-size:11px;color:var(--fg-dim);
-  font-family:ui-monospace,monospace}
-section.console .log{padding:.1em 0;white-space:pre-wrap;word-break:break-all;line-height:1.45}
-section.console .log .method{color:var(--accent-3);display:inline-block;min-width:42px}
-section.console .log .url{color:var(--accent-2)}
-section.console .log .arrow{color:var(--fg-mute)}
-section.console .log .ok{color:var(--ok)}
-section.console .log .err{color:var(--warn)}
-section.console .log .hint{color:var(--fg-mute);padding-left:1em;display:block}
-section.console .log time{color:var(--fg-mute);margin-right:.5em}
-section.console-bar{display:flex;align-items:center;gap:.5em;padding:.3em .8em;
-  background:var(--bg-2);border-top:1px solid var(--line);font-size:10.5px;color:var(--fg-mute)}
-
-/* RESPONSIVE */
-@media(max-width:900px){
-  #app{grid-template-rows:auto 320px auto auto 160px;
-    grid-template-columns:1fr;
-    grid-template-areas:"header" "main" "left" "right" "console";}
-  header{flex-wrap:wrap;height:auto;padding:.6em}
-  aside.left,aside.right{border:none;border-top:1px solid var(--line);max-height:280px}
-  section.console{height:160px}
+/* log view */
+#logview{position:absolute;inset:0;display:none;flex-direction:column;background:var(--bg);overflow:hidden}
+#logview.on{display:flex}
+#logview .head{padding:.7em .9em;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--fg-3);
+  display:flex;align-items:center;justify-content:space-between;gap:.5em;flex-wrap:wrap}
+#logview .body{flex:1;overflow-y:auto;padding:.4em 0}
+#logview .row{display:grid;grid-template-columns:130px 1fr auto;gap:.7em;
+  padding:.55em .9em;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;
+  align-items:center}
+#logview .row:hover{background:var(--bg-1)}
+#logview .row .ts{color:var(--fg-3);font-size:10.5px;white-space:nowrap}
+#logview .row .key{color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#logview .row .key .band{color:var(--fg-2);font-size:10.5px}
+#logview .row .key .meta{color:var(--fg-3);font-size:10px;margin-top:.15em}
+#logview .row .actions{display:flex;gap:.4em;align-items:center;flex-wrap:nowrap}
+@media(max-width:600px){
+  #logview .row{grid-template-columns:1fr;gap:.2em}
+  #logview .row .ts{font-size:10px}
 }
 
-/* dialog */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:50;
+/* right pane */
+aside.right{grid-area:right;border-left:1px solid var(--line);background:var(--bg-1);
+  overflow-y:auto;padding:.9em;display:none;min-width:0}
+@media(min-width:760px){aside.right{display:block}}
+aside.right h3{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--fg-mute);
+  text-transform:uppercase;margin:0 0 .55em;font-weight:500}
+.empty{color:var(--fg-mute);padding:1.6em .4em;text-align:center;font-style:normal;font-size:12px;
+  border:1px dashed var(--line);border-radius:3px;font-family:var(--mono)}
+.cell-card .cell64{font-family:var(--mono);font-size:13px;color:var(--accent);word-break:break-all;font-weight:500;
+  letter-spacing:-.01em}
+.cell-card .latlng{color:var(--fg-3);font-size:11px;margin:.3em 0;font-family:var(--mono)}
+.cell-card .actions{display:flex;gap:.4em;margin:.7em 0;flex-wrap:wrap}
+.cell-card .scene{margin:.5em 0;border:1px solid var(--line);border-radius:3px;overflow:hidden;
+  background:var(--bg-2);height:120px;display:flex;align-items:center;justify-content:center;color:var(--fg-mute);font-size:10.5px;font-family:var(--mono)}
+.cell-card .scene img{width:100%;height:100%;object-fit:cover;display:block}
+.fact{border:1px solid var(--line);padding:.55em .65em;margin-bottom:.4em;border-radius:3px;
+  background:var(--bg-2);font-size:11.5px;font-family:var(--mono)}
+.fact .band{color:var(--fg);font-weight:500;font-size:11.5px;display:flex;align-items:center;gap:.4em}
+.fact .val{color:var(--fg-2);font-size:11.5px;margin:.25em 0;word-break:break-word}
+.fact .cid{color:var(--fg-mute);font-size:10px;word-break:break-all;cursor:pointer;display:block;margin-top:.2em}
+.fact .cid:hover{color:var(--accent)}
+.fact .ts{color:var(--fg-mute);font-size:10px}
+.pill{display:inline-flex;align-items:center;gap:.3em;padding:.15em .55em;
+  font-family:var(--mono);font-size:10px;letter-spacing:.04em;
+  border:1px solid var(--line-2);border-radius:99px;color:var(--fg-3)}
+.pill.ok{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+.pill.fail{border-color:var(--warn);color:var(--warn);background:rgba(255,124,124,.06)}
+.pill.pending{border-color:var(--pending);color:var(--pending)}
+.pill .glyph{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor}
+.verify-row{display:flex;align-items:center;gap:.5em;padding:.55em .65em;margin:.5em 0;
+  border:1px dashed var(--line-2);border-radius:3px;font-size:11px;font-family:var(--mono);flex-wrap:wrap}
+.verify-row.ok{border-color:var(--accent);background:rgba(124,255,178,.04)}
+.verify-row.fail{border-color:var(--warn);background:rgba(255,124,124,.04)}
+
+/* console */
+section.console{grid-area:console;border-top:1px solid var(--line);background:#06070a;
+  overflow-y:auto;padding:.5em .8em .6em;font-size:11px;color:var(--fg-3);
+  font-family:var(--mono);height:160px;min-height:0;line-height:1.55;
+  scroll-behavior:smooth}
+@media(min-width:760px){section.console{height:auto}}
+section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+.log{padding:.12em 0;white-space:pre-wrap;word-break:break-word}
+.log time{color:var(--fg-mute);margin-right:.5em;font-size:10.5px}
+.log .method{color:var(--accent);display:inline-block;min-width:42px;font-weight:500}
+.log .url{color:var(--fg-2)}
+.log .url:hover{color:var(--accent);text-decoration:underline;cursor:pointer}
+.log .arrow{color:var(--fg-mute)}
+.log .ok-status{color:var(--accent)}
+.log .err-status{color:var(--warn)}
+.log .body{color:var(--fg-3);padding-left:1em;display:block;font-size:10.5px}
+.log .err-body{color:var(--warn);padding-left:1em;display:block;font-size:10.5px}
+.log.banner{color:var(--fg-3);border-left:2px solid var(--accent);padding:.3em .5em;margin:.3em 0;background:rgba(124,255,178,.04)}
+.console-toolbar{position:sticky;top:0;background:#06070a;display:flex;gap:.5em;align-items:center;
+  padding:.2em 0 .4em;border-bottom:1px solid var(--line);margin-bottom:.4em;font-size:10.5px;color:var(--fg-mute);z-index:1}
+.console-toolbar button{padding:.15em .5em;font-size:10px;border-radius:2px}
+.console-toolbar a{color:var(--fg-3);font-size:10.5px;border-bottom:none}
+.console-toolbar a:hover{color:var(--accent)}
+
+/* command palette */
+.cmdk-back{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:none;
+  align-items:flex-start;justify-content:center;padding:8vh 1em 1em;backdrop-filter:blur(4px)}
+.cmdk-back.on{display:flex}
+.cmdk-box{background:var(--bg-1);border:1px solid var(--line-2);border-radius:6px;
+  width:100%;max-width:580px;box-shadow:0 24px 64px rgba(0,0,0,.6);
+  display:flex;flex-direction:column;max-height:80vh;overflow:hidden}
+.cmdk-box input{border:none;border-radius:0;border-bottom:1px solid var(--line);
+  padding:.85em 1em;font-size:14px;background:transparent}
+.cmdk-box input:focus{border-color:var(--line)}
+.cmdk-list{overflow-y:auto;padding:.4em 0;font-family:var(--mono);font-size:12px}
+.cmdk-row{display:flex;align-items:center;gap:.6em;padding:.45em .9em;cursor:pointer}
+.cmdk-row.active,.cmdk-row:hover{background:var(--bg-2)}
+.cmdk-row .kind{font-size:10px;color:var(--fg-mute);text-transform:uppercase;letter-spacing:.1em;
+  min-width:60px}
+.cmdk-row .label{flex:1;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmdk-row .label .h{color:var(--accent)}
+.cmdk-foot{padding:.4em .9em;border-top:1px solid var(--line);font-size:10.5px;color:var(--fg-mute);
+  display:flex;gap:.7em;flex-wrap:wrap}
+.cmdk-foot kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .35em;border-radius:2px;font-family:var(--mono)}
+
+/* mobile bottom-sheet for right pane (toggled when a cell is selected) */
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg-1);
+  border-top:1px solid var(--line-2);z-index:60;max-height:65vh;overflow-y:auto;padding:1em;
+  border-radius:14px 14px 0 0;box-shadow:0 -8px 32px rgba(0,0,0,.5);display:none}
+.sheet.on{display:block}
+.sheet .grab{width:36px;height:4px;background:var(--line-2);border-radius:99px;margin:0 auto .8em}
+.sheet .close{float:right}
+@media(min-width:760px){.sheet{display:none!important}}
+
+/* keyboard help dialog */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:90;
   display:none;align-items:center;justify-content:center;padding:1em}
 .modal.on{display:flex}
-.modal .box{background:var(--bg-2);border:1px solid var(--line-2);max-width:640px;
-  width:100%;padding:1.5em;border-radius:3px;font-size:12.5px}
-.modal h2{margin:0 0 .5em;font-size:14px;color:var(--accent);font-weight:500}
-.modal p{color:var(--fg-dim);margin:.5em 0}
-.modal code{background:var(--bg-3);padding:.1em .3em;border-radius:2px;font-size:11.5px}
+.modal .box{background:var(--bg-1);border:1px solid var(--line-2);max-width:540px;
+  width:100%;padding:1.4em 1.6em;border-radius:6px;font-size:12.5px}
+.modal h2{margin:0 0 .6em;font-size:14px;color:var(--accent);font-weight:500;font-family:var(--mono)}
+.modal p{color:var(--fg-2);margin:.5em 0}
+.modal .keys{display:grid;grid-template-columns:auto 1fr;gap:.4em 1em;font-family:var(--mono);font-size:11.5px}
+.modal kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .4em;border-radius:2px;font-family:var(--mono)}
 .modal .close{float:right}
+
+/* skip link for a11y */
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+
+/* stars (CSS twinkle for the static splash before the canvas paints) */
+.boot-veil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:11px;color:var(--fg-3);letter-spacing:.08em;pointer-events:none;z-index:3}
+.boot-veil .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);
+  margin:0 .5em;animation:twinkle 1.4s ease-in-out infinite}
+@keyframes twinkle{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:1;transform:scale(1.1)}}
+
+/* utility */
+.copyable{cursor:copy}
+.copyable:hover{color:var(--accent)}
+.hidden{display:none!important}
+.scroll{overflow-y:auto}
 </style>
 </head>
 <body>
-<div id=app>
-  <header>
-    <div class=brand>emem.dev<span class=slash>/</span><span class=humans>humans</span></div>
-    <form class=search id=searchForm onsubmit="return false">
-      <input id=searchInput type=text placeholder="search a place or paste a cell64 (e.g. Bengaluru, defi.zb493.xoso.zcb6a)" autocomplete=off>
-      <button id=searchBtn class=primary type=submit>locate</button>
-    </form>
-    <div class=timeline title="time scrub: hide cells last attested before this point">
-      <span id=tlLabel>all time</span>
-      <input id=tlSlider type=range min=0 max=100 value=100 step=1>
+<a class=skip href="#main">Skip to map</a>
+
+<div id=app role=application aria-label="emem knowledge constellation">
+  <header role=banner>
+    <div class=brand aria-label="emem.dev humans page">emem.dev<span class=slash>/</span><span class=humans>humans</span></div>
+    <div class=pubkey id=hdrPubkey title="Responder ed25519 public key, base32-nopad-lowercase"><span class=dot></span><span id=hdrPubkeyText>connecting…</span></div>
+    <div class=spacer></div>
+    <div class=chips>
+      <button class=chip id=chipCmdk type=button aria-label="Open command palette">search<kbd>Ctrl-K</kbd></button>
+      <button class=chip id=chipConsole type=button aria-label="Focus console">console<kbd>~</kbd></button>
+      <button class=chip id=chipHelp type=button aria-label="Show keyboard help">?</button>
     </div>
-    <span class=help id=helpBtn title="about this map">?</span>
   </header>
 
-  <aside class=left>
+  <aside class=left aria-label="Corpus stats and filters">
+    <h3>responder</h3>
+    <div class=stat><span>pubkey</span><code id=sPubkey class=copyable title="click to copy">—</code></div>
+    <div class=stat><span>key epoch</span><b id=sEpoch>—</b></div>
+
     <h3>corpus</h3>
     <div class=stat><span>cells</span><b id=sCells>—</b></div>
     <div class=stat><span>facts</span><b id=sFacts>—</b></div>
     <div class=stat><span>bands declared</span><b id=sBandsDec>—</b></div>
     <div class=stat><span>bands attested</span><b id=sBandsAtt>—</b></div>
-    <div class=stat><span>responder</span></div>
-    <div class=stat><code id=sResponder title="ed25519 public key (base32)">—</code></div>
+    <div class=stat><span>materializers</span><b id=sMat>—</b></div>
 
     <h3>manifests</h3>
-    <div class=stat><span>registry</span><code id=mReg>—</code></div>
-    <div class=stat><span>bands</span><code id=mBand>—</code></div>
-    <div class=stat><span>schema</span><code id=mSch>—</code></div>
+    <div class=stat><span>registry</span><code id=mReg class=copyable>—</code></div>
+    <div class=stat><span>bands</span><code id=mBand class=copyable>—</code></div>
+    <div class=stat><span>algorithms</span><code id=mAlg class=copyable>—</code></div>
+    <div class=stat><span>schema</span><code id=mSch class=copyable>—</code></div>
+    <div class=stat><span>sources</span><code id=mSrc class=copyable>—</code></div>
+    <div class=stat><span>topics</span><code id=mTop class=copyable>—</code></div>
 
     <h3>filter — band family</h3>
     <div id=famKey></div>
 
-    <h3>attesters</h3>
-    <div id=attList><span class=empty>—</span></div>
+    <h3>time window</h3>
+    <div class=tslider>
+      <input id=tlSlider type=range min=0 max=100 value=100 step=1 aria-label="Time window">
+      <div class=label><span id=tlLabel>all time</span><span id=tlBounds>—</span></div>
+    </div>
 
-    <h3>recent attestations</h3>
-    <div id=feed><span class=empty>—</span></div>
+    <h3>data source toggles</h3>
+    <div class=stat><span>auto-materialize</span><b id=sAuto>—</b></div>
   </aside>
 
-  <main>
-    <div class=modes>
-      <button id=modeField class=on>field</button>
-      <button id=modeGraph>graph</button>
+  <main id=main>
+    <div class=modes role=tablist aria-label="View modes">
+      <button id=modeField  role=tab aria-pressed=true  aria-controls=stage>field</button>
+      <button id=modeGraph  role=tab aria-pressed=false aria-controls=stage>graph</button>
+      <button id=modeReg    role=tab aria-pressed=false aria-controls=registry>registry</button>
+      <button id=modeLog    role=tab aria-pressed=false aria-controls=logview>log</button>
     </div>
-    <canvas id=stage></canvas>
-    <div class=tooltip id=tip></div>
+    <div class=zoomctl role=group aria-label="Zoom controls">
+      <button id=zoomIn  title="zoom in (+)" aria-label="Zoom in">+</button>
+      <button id=zoomOut title="zoom out (−)" aria-label="Zoom out">−</button>
+      <button id=zoomFit title="fit (0)" aria-label="Reset zoom">·</button>
+    </div>
+    <canvas id=stage aria-label="Constellation of attested cells"></canvas>
+    <svg id=registry aria-hidden=true></svg>
+    <div id=logview aria-hidden=true>
+      <div class=head>
+        <span><b style="color:var(--fg-2)">attestation log</b> · sourced from <code style="color:var(--fg-2)">/v1/coverage_matrix</code> — newest first</span>
+        <span id=logCount>—</span>
+      </div>
+      <div class=body id=logBody></div>
+    </div>
+    <div class=tooltip id=tip role=tooltip></div>
     <div class=legend id=legend>
-      <b>knowledge constellation</b><br>
-      cells plotted by Hilbert-curve order over the<br>
-      cell64 first bigram (256×256). near in this<br>
-      grid ⇔ near on Earth, by construction. brightness<br>
-      = log facts_count, hue = dominant band family.
+      <b>constellation</b><br>
+      every star is a cell64 the responder has attested.<br>
+      brightness = log(facts_count + 1).<br>
+      hue = dominant band family.<br>
+      drag to lasso → POST /v1/recall_polygon.<br>
+      click a star → recall + offline-verify.
     </div>
-    <div class=zoomctl>
-      <button id=zoomIn  title="zoom in (+)">+</button>
-      <button id=zoomOut title="zoom out (−)">−</button>
-      <button id=zoomFit title="fit (0)">·</button>
-    </div>
+    <div class=boot-veil id=bootVeil><span class=dot></span> wiring up — fetching /v1/discover · /v1/coverage · /v1/coverage_matrix · /.well-known/emem.json</div>
   </main>
 
-  <aside class=right id=rightPane>
-    <div class=empty id=rightEmpty>click a star, search a place, or paste a cell64.<br>every visible thing has a CID.</div>
+  <aside class=right id=rightPane aria-label="Selection details">
+    <div id=rightInner>
+      <div class=empty>click a star, search a place, or paste a cell64.<br>every visible thing has a CID.</div>
+    </div>
   </aside>
 
-  <section class=console id=console></section>
-  <div class=console-bar>
-    <span id=callCount>0 calls</span>
-    <span style="margin-left:auto"><a href="/openapi.json">openapi.json</a> · <a href="/v1/discover">/v1/discover</a> · <a href="/agents.md">/agents.md</a> · <a href="/spec.md">/spec.md</a></span>
+  <section class=console id=console role=log aria-live=polite tabindex=0>
+    <div class=console-toolbar>
+      <span id=callCount>0 calls</span>
+      <button id=consoleClear class=ghost type=button>clear</button>
+      <button id=consoleCopy class=ghost type=button>copy as curl</button>
+      <span style="margin-left:auto"><a href="/openapi.json">openapi</a> · <a href="/v1/discover">discover</a> · <a href="/humans.json">humans.json</a> · <a href="/agents.md">agents.md</a></span>
+    </div>
+    <div id=consoleBody></div>
+  </section>
+</div>
+
+<!-- mobile bottom-sheet for selection details -->
+<div class=sheet id=sheet aria-label="Selection details">
+  <div class=grab></div>
+  <button class="ghost close" id=sheetClose type=button>close</button>
+  <div id=sheetInner></div>
+</div>
+
+<!-- command palette -->
+<div class=cmdk-back id=cmdkBack role=dialog aria-modal=true aria-label="Command palette">
+  <div class=cmdk-box>
+    <input id=cmdkInput type=text autocomplete=off placeholder="search a place, paste a cell64, jump to a band, run /find_similar /verify /recall …">
+    <div class=cmdk-list id=cmdkList></div>
+    <div class=cmdk-foot>
+      <span><kbd>↑↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> run</span>
+      <span><kbd>Esc</kbd> close</span>
+      <span style="margin-left:auto;color:var(--fg-3)">command palette</span>
+    </div>
   </div>
 </div>
 
+<!-- keyboard help -->
 <div class=modal id=helpModal>
   <div class=box>
-    <button class=close onclick="document.getElementById('helpModal').classList.remove('on')">close</button>
-    <h2>what you are looking at</h2>
-    <p>This is a <b>knowledge constellation</b>, not a Mercator map. Every attested cell64 in the corpus is plotted in a 256×256 Hilbert-curve grid keyed on its first bigram. The cell64 alphabet itself is Hilbert-ordered, so spatial proximity on this grid implies geographic proximity on Earth — without a single line of cartographic projection.</p>
-    <p>Five things to try:</p>
-    <p>1. <b>click a star</b> → its cell64, recall facts, and the offline-verified ed25519 receipt appear on the right.</p>
-    <p>2. <b>search a place</b> → the geocoder routes through <code>/v1/locate</code>, the matching star pulses and zooms.</p>
-    <p>3. <b>switch to graph mode</b> → the selected cell goes to the centre and <code>/v1/find_similar</code>'s top-K neighbours orbit it, edge weight = cosine similarity.</p>
-    <p>4. <b>watch the console</b> → every <code>/v1/*</code> call this UI makes prints below. An LLM watching the page learns the API by observation.</p>
-    <p>5. <b>verify in browser</b> → the verify button on each fact runs <code>blake3 → ed25519.verify_strict</code> in <code>@noble/*</code>, no server roundtrip. If the libraries fail to load it falls back to <code>POST /v1/verify_receipt</code> and labels itself accordingly.</p>
+    <button class=close id=helpClose type=button>close</button>
+    <h2>keyboard</h2>
+    <div class=keys>
+      <kbd>Ctrl-K</kbd><span>command palette (places, cells, bands, primitives)</span>
+      <kbd>~</kbd><span>focus console</span>
+      <kbd>1</kbd><span>field view</span>
+      <kbd>2</kbd><span>graph view</span>
+      <kbd>3</kbd><span>registry view</span>
+      <kbd>4</kbd><span>log view</span>
+      <kbd>L</kbd><span>start lasso (drag to draw polygon)</span>
+      <kbd>+ −</kbd><span>zoom in / out</span>
+      <kbd>0</kbd><span>fit to data</span>
+      <kbd>?</kbd><span>this dialog</span>
+      <kbd>Esc</kbd><span>close dialogs / cancel lasso</span>
+    </div>
+    <p style="font-family:var(--mono);font-size:11px;color:var(--fg-3);margin-top:1em">
+      Sibling JSON twin: <a href="/humans.json">/humans.json</a>.
+      Page-scoped llms.txt: <a href="/humans/llms.txt">/humans/llms.txt</a>.
+      Every <code>/v1/*</code> call this UI makes prints in the console — a scraping LLM learns the API by observation.
+    </p>
   </div>
 </div>
 
 <script type="module">
-//=============================================================================
-// emem.dev/humans — knowledge constellation
+//==============================================================================
+// emem.dev/humans — single-file, vendor-free, agent-first.
 //
 // All comments below describe what is actually shipped at this responder.
 // No placeholder data, no fabricated cells. If a CDN fails, the feature
-// downgrades gracefully and the UI says so.
-//=============================================================================
+// downgrades gracefully and the UI labels itself accordingly.
+//==============================================================================
 
-// ── 1. CDN imports (best-effort; offline verify falls back to server) ──────
-let nobleEd = null, nobleBlake3 = null;
+// ── 1. Esm.sh pinned crypto libs (offline verify path) ──────────────────────
+let nobleEd = null, nobleBlake3 = null, nobleStatus = 'pending';
 try {
-  const ed = await import('https://cdn.jsdelivr.net/npm/@noble/ed25519@2/+esm');
-  const hashes = await import('https://cdn.jsdelivr.net/npm/@noble/hashes@1/blake3/+esm');
-  nobleEd = ed;
-  nobleBlake3 = hashes.blake3;
+  const ed     = await import('https://esm.sh/@noble/curves@1.6.0/ed25519');
+  const blake3 = await import('https://esm.sh/@noble/hashes@1.5.0/blake3');
+  nobleEd     = ed.ed25519;
+  nobleBlake3 = blake3.blake3;
+  nobleStatus = 'ok';
 } catch (e) {
-  console.warn('[emem/humans] noble libs unavailable, verify will route through /v1/verify_receipt:', e);
+  console.warn('[emem/humans] crypto libs unavailable, falling back to /v1/verify_receipt:', e);
+  nobleStatus = 'fallback';
 }
 
-// ── 2. Console pane: every API call this UI makes is printed here ──────────
-const consolePane = document.getElementById('console');
-const callCount   = document.getElementById('callCount');
+// ── 2. Console pane: every API call this UI makes prints below ──────────────
+const consoleEl     = document.getElementById('console');
+const consoleBody   = document.getElementById('consoleBody');
+const callCountEl   = document.getElementById('callCount');
 let _calls = 0;
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
 function logCall(method, url, body) {
   _calls++;
-  callCount.textContent = _calls + (_calls === 1 ? ' call' : ' calls');
-  const t  = new Date().toISOString().slice(11,19);
+  callCountEl.textContent = _calls + (_calls === 1 ? ' call' : ' calls');
+  const t = new Date().toISOString().slice(11,19);
   const div = document.createElement('div');
   div.className = 'log';
-  const summary = body ? ' ' + JSON.stringify(body).slice(0, 90) : '';
-  div.innerHTML = '<time>'+t+'</time><span class=method>'+method+'</span> <span class=url>'+url+'</span>'+escapeHtml(summary);
-  consolePane.appendChild(div);
-  consolePane.scrollTop = consolePane.scrollHeight;
+  const summary = body ? ' ' + JSON.stringify(body).slice(0, 100) : '';
+  div.innerHTML = '<time>'+t+'</time><span class=method>'+method+'</span> ' +
+    '<a class=url href="'+escapeHtml(url)+'" target=_blank rel=noopener>'+escapeHtml(url)+'</a>' +
+    escapeHtml(summary);
+  consoleBody.appendChild(div);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+  div._curl = curlFor(method, url, body);
   return div;
 }
-function logResult(div, ok, status, hint) {
+function curlFor(method, url, body) {
+  const u = location.origin.replace(/\/$/, '') + url;
+  if (method === 'GET') return `curl -s '${u}'`;
+  const b = body ? ` -d '${JSON.stringify(body).replace(/'/g,"'\\''")}'` : '';
+  return `curl -sX ${method} '${u}' -H 'content-type: application/json'${b}`;
+}
+function logResult(div, ok, status, ms, hint) {
   const tail = document.createElement('span');
-  tail.innerHTML = ' <span class=arrow>→</span> <span class="'+(ok?'ok':'err')+'">'+status+'</span>';
+  const cls = ok ? 'ok-status' : 'err-status';
+  tail.innerHTML = ' <span class=arrow>→</span> <span class="'+cls+'">'+status+'</span>'
+    + ' <span class=arrow>·</span> <span class=arrow>'+ms+' ms</span>';
   div.appendChild(tail);
   if (hint) {
-    const h = document.createElement('span'); h.className='hint'; h.textContent = hint;
+    const h = document.createElement('span');
+    h.className = ok ? 'body' : 'err-body';
+    h.textContent = hint;
     div.appendChild(h);
   }
-  consolePane.scrollTop = consolePane.scrollHeight;
+  consoleEl.scrollTop = consoleEl.scrollHeight;
 }
-function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}
-
 async function api(method, path, body) {
   const div = logCall(method, path, body);
   const t0 = performance.now();
@@ -318,230 +566,283 @@ async function api(method, path, body) {
     let data = null;
     if (ct.includes('json')) data = await r.json();
     else                     data = await r.text();
-    logResult(div, r.ok, r.status + ' (' + ms + ' ms)',
-      r.ok ? null : (typeof data === 'string' ? data.slice(0,160) : (data && data.error)));
+    const summary = typeof data === 'string'
+      ? data.slice(0, 200)
+      : (data && data.error ? String(data.error)
+        : (Array.isArray(data?.facts) ? data.facts.length+' facts'
+        : Array.isArray(data?.cells) ? data.cells.length+' cells'
+        : Array.isArray(data?.neighbors) ? data.neighbors.length+' neighbors'
+        : Array.isArray(data?.bands) ? data.bands.length+' bands'
+        : (data?.cell64 ? 'cell64='+data.cell64 : null)));
+    logResult(div, r.ok, r.status, ms, r.ok ? summary : (typeof data === 'string' ? data.slice(0,200) : JSON.stringify(data).slice(0,200)));
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return data;
   } catch (e) {
-    logResult(div, false, 'ERR', String(e).slice(0,140));
+    const ms = (performance.now() - t0).toFixed(0);
+    logResult(div, false, 'ERR', ms, String(e).slice(0,160));
     throw e;
   }
 }
 
-// ── 3. cell64 → 2D Hilbert grid via the first bigram (256×256) ────────────
-//
-// The cell64 alphabet is itself Hilbert-ordered (see emem repo
-// tools/measure_alphabet.py). That means index i ∈ [0, 256) maps to
-// (xi, yi) on a 16×16 Hilbert curve such that adjacency is preserved.
-// Two bigrams ⇒ two indices ⇒ a 256×256 cell on the constellation.
-//
-// We compute the canonical Hilbert d→(x,y) here directly — no external
-// dep — and use it for both axes.
-
-function hilbertD2XY(n, d) {
-  let x = 0, y = 0, t = d;
-  for (let s = 1; s < n; s *= 2) {
-    const rx = 1 & (t / 2);
-    const ry = 1 & (t ^ rx);
-    if (ry === 0) {
-      if (rx === 1) { x = s - 1 - x; y = s - 1 - y; }
-      const tmp = x; x = y; y = tmp;
-    }
-    x += s * rx; y += s * ry;
-    t = Math.floor(t / 4);
-  }
-  return [x, y];
-}
-
-// emem cell64 alphabet first 256 bytes are Hilbert-ordered. We don't
-// have the alphabet exposed at /v1, so we approximate "first bigram
-// index" as the byte-pair hash of the cell64 string's first two real
-// chars. This still groups geographic neighbours because the lat/lng
-// of returned cells is supplied by /v1/coverage; we use lat/lng as
-// the source of truth for layout and treat Hilbert as the *visual
-// metaphor* (a square frame with consistent neighbour locality), not
-// as a black-box re-derivation of the bit layout.
-function cellToGrid(cell64, lat, lng) {
-  // Use lat/lng to deterministically index a 256×256 Hilbert curve.
-  // Convert (lat,lng) → (gx, gy) on a 256×256 lattice. This frames
-  // continents as Hilbert-contiguous lobes, not as a flat Mercator
-  // strip. Antarctica/poles compress into the bottom band.
-  const lat01 = Math.max(0, Math.min(0.999999, (90 - lat) / 180));
-  const lng01 = Math.max(0, Math.min(0.999999, (lng + 180) / 360));
-  // Pseudo-Hilbert: interleave bits of lng01,lat01 to get a Z-curve d,
-  // then run Hilbert on that. Z-curve gives geographic locality;
-  // Hilbert improves on Z by removing the diagonal jumps. Net effect:
-  // North America stays as one lobe, Asia stays as one lobe.
-  const ix = Math.floor(lng01 * 256);
-  const iy = Math.floor(lat01 * 256);
-  // Bit-interleave 8+8 → 16-bit z, then Hilbert.
-  let d = 0;
-  for (let b = 0; b < 8; b++) {
-    d |= ((ix >> b) & 1) << (2*b);
-    d |= ((iy >> b) & 1) << (2*b + 1);
-  }
-  const [hx, hy] = hilbertD2XY(256, d);
-  return [hx, hy];
-}
-
-// ── 4. Boot: pull manifests, bands, coverage, contributors in parallel ────
-const STATE = {
-  cells: [],          // [{cell64, lat, lng, fact_count, gx, gy, family, color, brightness}]
-  bands: [],
-  bandFamilyByKey: {},
-  totals: {},
-  manifests: {},
-  responder: null,    // base32 pubkey
-  responderBytes: null, // 32-byte Uint8Array
-  contributors: [],
-  selectedCell: null,
-  selectedFacts: [],
-  filter: { families: new Set() }, // empty = show all
-  mode: 'field',
-  view: { cx: 128, cy: 128, scale: 1 }, // canvas pan/zoom
-  graph: null,        // {center, neighbors:[]}
-  tslot: 1.0,         // 0..1, fraction of corpus by last_attested time
+document.getElementById('consoleClear').onclick = () => { consoleBody.innerHTML = ''; _calls = 0; callCountEl.textContent = '0 calls'; };
+document.getElementById('consoleCopy').onclick  = () => {
+  const all = [...consoleBody.querySelectorAll('.log')].map(d => d._curl).filter(Boolean).join('\n');
+  if (all) navigator.clipboard.writeText(all);
 };
 
-async function boot() {
-  const [manifests, well, bands, cov, mat, contribs] = await Promise.all([
-    api('GET', '/v1/manifests'),
-    api('GET', '/.well-known/emem.json'),
-    api('GET', '/v1/bands'),
-    api('GET', '/v1/coverage'),
-    api('GET', '/v1/coverage_matrix'),
-    api('GET', '/v1/contributors').catch(()=>({leaderboard:[]})),
-  ]);
-  STATE.manifests = manifests;
-  STATE.responder = (well && well.responder && well.responder.pubkey_b32) || null;
-  STATE.bands = bands.bands || [];
-  STATE.totals = mat.totals || {};
-  STATE.contributors = (contribs && contribs.leaderboard) || [];
+// ── 3. Family palette + helpers ─────────────────────────────────────────────
+function famColor(family) {
+  const m = {
+    foundation:'#B27CFF', optical:'#7CFFB2', radar:'#C8A8FF',
+    climate:'#7CC8FF',    weather:'#7CC8FF',
+    terrain:'#FFB37C',    landcover:'#A8E07C', vegetation:'#7CFFB2',
+    water:'#7CFFE6',      soil:'#D6A87C',      human:'#FF7CB2',
+    vision:'#FF9AD0',     encoding:'#BCC0C8',  topology:'#A0D0FF',
+    urban:'#FF7CB2',      reserved:'#5A5C66',
+  };
+  return m[family] || '#BCC0C8';
+}
 
+// base32-nopad-lowercase decoder (RFC 4648)
+function b32decode(s) {
+  const A = 'abcdefghijklmnopqrstuvwxyz234567';
+  let bits = 0, val = 0;
+  const out = [];
+  for (const ch of String(s||'').toLowerCase()) {
+    const i = A.indexOf(ch);
+    if (i < 0) continue;
+    val = (val << 5) | i; bits += 5;
+    if (bits >= 8) { bits -= 8; out.push((val >>> bits) & 0xff); }
+  }
+  return new Uint8Array(out);
+}
+
+// Best-effort: try to find an embedding seed from a fact for PCA layout. The
+// /v1/recall response carries a value field which may be a number, string,
+// list of numbers (geotessera 12-byte prefix), or base64 bytes. We fall back
+// to lat/lng when no embedding is available — and we never fabricate one.
+
+// ── 4. STATE ────────────────────────────────────────────────────────────────
+const STATE = {
+  cells: [],          // [{cell64, lat, lng, fact_count, x, y, family, color, brightness, twinkle}]
+  cellById: new Map(),
+  bands: [],          // /v1/bands
+  bandFamilyByKey: {},
+  matrix: [],         // /v1/coverage_matrix bands[]
+  matrixByBand: new Map(),
+  totals: {},
+  manifests: {},
+  responder: null,
+  responderBytes: null,
+  selectedCell: null,
+  filter: { families: new Set(), tslot: 1.0 },
+  mode: 'field',
+  view: { tx: 0, ty: 0, scale: 1 },
+  graph: null,
+  algorithms: [],
+  sources: [],
+  recentReceipts: [], // last seen Receipts (for log view that came back from primary calls)
+  responderEpoch: 0,
+  autoMaterialize: null,
+  bootError: null,
+  // PCA basis vectors (computed from any embedding samples we can scrape)
+  pcaBasis: null,
+};
+
+// ── 5. Boot: parallel fetch ─────────────────────────────────────────────────
+async function boot() {
+  // /v1/discover, /.well-known, /v1/coverage, /v1/coverage_matrix, /v1/bands,
+  // /v1/algorithms, /v1/sources, /v1/data_availability — in parallel.
+  const settled = await Promise.allSettled([
+    api('GET', '/v1/discover'),
+    api('GET', '/.well-known/emem.json'),
+    api('GET', '/v1/coverage'),
+    api('GET', '/v1/coverage_matrix?limit=200'),
+    api('GET', '/v1/bands'),
+    api('GET', '/v1/algorithms'),
+    api('GET', '/v1/sources').catch(()=>null),
+    api('GET', '/v1/data_availability').catch(()=>null),
+  ]);
+  const [discover, well, cov, mat, bandsRes, algoRes, srcRes, availRes] = settled.map(s => s.status==='fulfilled' ? s.value : null);
+  if (!discover && !cov && !mat) {
+    throw new Error('All bootstrap endpoints failed; the responder is unreachable from this browser.');
+  }
+
+  STATE.manifests = (well && well.manifests) || (discover && discover.manifests) || {};
+  STATE.responder = (well && well.responder && well.responder.pubkey_b32)
+    || (discover && discover.responder_pubkey_b32) || null;
+  STATE.responderEpoch = (well && well.responder && well.responder.key_epoch) || 0;
+  if (STATE.responder) STATE.responderBytes = b32decode(STATE.responder);
+
+  STATE.bands  = (bandsRes && bandsRes.bands) || [];
+  STATE.totals = (mat && mat.totals) || {};
+  STATE.matrix = (mat && mat.bands) || [];
+  for (const b of STATE.matrix) STATE.matrixByBand.set(b.band, b);
   for (const b of STATE.bands) STATE.bandFamilyByKey[b.key] = b.family || 'reserved';
-  for (const b of (mat.bands || [])) {
+  for (const b of STATE.matrix) {
     if (!STATE.bandFamilyByKey[b.band]) STATE.bandFamilyByKey[b.band] = b.family || 'reserved';
   }
 
-  // Cells from /v1/coverage: { cells:[{cell64, fact_count, lat_deg, lng_deg}], total_cells }
-  const rawCells = cov.cells || [];
+  STATE.algorithms = (algoRes && (algoRes.algorithms || algoRes.items)) || [];
+  STATE.sources    = (srcRes && (srcRes.sources || srcRes.items)) || [];
+  STATE.autoMaterialize = (availRes && availRes.auto_materialize_enabled) ?? null;
+
+  // Cells from /v1/coverage
+  const rawCells = (cov && cov.cells) || [];
+  if (!rawCells.length) {
+    document.getElementById('bootVeil').innerHTML = 'no attested cells in this responder yet — empty corpus is the protocol\'s honest "no"';
+  } else {
+    document.getElementById('bootVeil').remove();
+  }
+
+  // Compute per-cell dominant family from the matrix's family signal:
+  //   for each cell, pick a family weighted by per-band fact counts; we don't
+  //   have that mapping at /v1/coverage, so default to 'foundation' and let
+  //   selectCell() refine it after a /v1/recall.
   for (const c of rawCells) {
-    const lat = c.lat_deg, lng = c.lng_deg;
-    const [gx, gy] = cellToGrid(c.cell64, lat, lng);
-    STATE.cells.push({
-      cell64: c.cell64, lat, lng, fact_count: c.fact_count,
-      gx, gy,
-      // Family will be inferred lazily after a recall populates it.
-      family: 'foundation', // default until we know better
+    const cell = {
+      cell64: c.cell64,
+      lat: c.lat_deg,
+      lng: c.lng_deg,
+      fact_count: c.fact_count || 0,
+      family: 'foundation',
       color: famColor('foundation'),
       brightness: Math.log10(1 + (c.fact_count || 1)),
-    });
+      twinkle: Math.random() * 6.28,
+      twinkleSpeed: 0.4 + Math.random()*0.9,
+    };
+    STATE.cells.push(cell);
+    STATE.cellById.set(cell.cell64, cell);
   }
 
-  // Stats panel
-  document.getElementById('sCells').textContent    = (cov.total_cells || rawCells.length).toLocaleString();
-  document.getElementById('sFacts').textContent    = (STATE.totals.total_facts || 0).toLocaleString();
-  document.getElementById('sBandsDec').textContent = STATE.totals.bands_declared || STATE.bands.length;
-  document.getElementById('sBandsAtt').textContent = STATE.totals.bands_with_facts || '—';
-  document.getElementById('sResponder').textContent = STATE.responder ? STATE.responder.slice(0,12) + '…' : '—';
-  document.getElementById('sResponder').title = STATE.responder || '';
-  document.getElementById('mReg').textContent  = (manifests.registry_cid||'').slice(0,8) + '…';
-  document.getElementById('mBand').textContent = (manifests.bands_cid||'').slice(0,8) + '…';
-  document.getElementById('mSch').textContent  = (manifests.schema_cid||'').slice(0,8) + '…';
-
-  // Family key (filter)
+  computeProjection();
+  paintLeftPane();
   buildFamilyKey();
-
-  // Attesters list
-  buildAttesters();
-
-  // Render initial constellation
+  buildLogView();
+  buildRegistryView();
+  primeTimeWindow();
   fitToData();
-  drawField();
+  drawCurrent();
+}
 
-  // Recent attestations feed: synthesize from the cells (sorted by fact_count
-  // proxy until /v1/recent_attestations exists). Honest label.
-  buildFeed();
-
-  // Pre-fill responder bytes for in-browser verify (well-known returns
-  // base32). We need the [u8; 32] form; ask /v1/well-known again via
-  // its richer shape — already in `well`.
-  if (well && well.responder && well.responder.pubkey_b32) {
-    STATE.responderBytes = b32decode(well.responder.pubkey_b32);
+// ── 6. Projection: PCA when we can, equal-area lat/lng otherwise ────────────
+//
+// We don't have raw 1792-D embeddings on the public corpus surface for *every*
+// cell, so we use an equal-area-ish projection of (lat, lng) into a unit
+// square, then translate-scale into canvas coordinates. The "constellation"
+// metaphor still holds: each cell is a star in a 2-D plane that compactly
+// represents Earth, with a deterministic neighbour-preserving layout.
+//
+// The lat axis is compressed using a sinusoidal projection (cos(lat) on the
+// lng axis) so high latitudes don't stretch. This is honest: if/when more
+// /v1/cells/{cell}/embedding samples become public, we'll swap in a real
+// PCA — but not until we can read them.
+function computeProjection() {
+  for (const c of STATE.cells) {
+    const lng01 = (c.lng + 180) / 360;
+    const lat01 = (90 - c.lat) / 180;
+    // Sinusoidal-ish: x is lng adjusted by cos(lat), y is lat normalized.
+    const cosLat = Math.cos(c.lat * Math.PI / 180);
+    c.x = 0.5 + (lng01 - 0.5) * cosLat;
+    c.y = lat01;
   }
 }
 
-// ── 5. Family palette & filter ────────────────────────────────────────────
-function famColor(family) {
-  const m = {
-    foundation:'#9ad0ff', optical:'#7fdca0', radar:'#caa6ff',
-    climate:'#7fbfff',    terrain:'#d3a36b', landcover:'#7fdc9a',
-    vegetation:'#a8e070', water:'#5dbdfb',   soil:'#c9956b',
-    human:'#ffb86b',      vision:'#ff9ad0',  encoding:'#bcc0c8',
-    topology:'#a0d0ff',   reserved:'#5a616b',
+// ── 7. Left pane stats ──────────────────────────────────────────────────────
+function paintLeftPane() {
+  const el = id => document.getElementById(id);
+  el('sCells').textContent    = STATE.cells.length.toLocaleString();
+  el('sFacts').textContent    = (STATE.totals.total_facts || 0).toLocaleString();
+  el('sBandsDec').textContent = (STATE.totals.bands_declared || STATE.bands.length || 0).toLocaleString();
+  el('sBandsAtt').textContent = (STATE.totals.bands_with_facts || 0).toLocaleString();
+  el('sMat').textContent      = (STATE.totals.bands_with_materializer || 0).toLocaleString();
+  const pk = STATE.responder || '—';
+  el('sPubkey').textContent   = pk.length > 24 ? pk.slice(0,18)+'…' : pk;
+  el('sPubkey').title         = pk;
+  el('sPubkey').onclick       = () => { if (STATE.responder) navigator.clipboard.writeText(STATE.responder); };
+  el('hdrPubkeyText').textContent = pk.length > 24 ? pk.slice(0,18)+'…' : pk;
+  el('hdrPubkey').title       = pk;
+  el('sEpoch').textContent    = String(STATE.responderEpoch);
+  el('sAuto').textContent     = STATE.autoMaterialize === null ? '—' : (STATE.autoMaterialize ? 'on' : 'off');
+
+  const setMan = (id, v) => {
+    const e = el(id);
+    e.textContent = v ? v.slice(0,10)+'…' : '—';
+    e.title = v || '';
+    e.onclick = () => { if (v) navigator.clipboard.writeText(v); };
   };
-  return m[family] || '#bcc0c8';
+  const m = STATE.manifests || {};
+  setMan('mReg',  m.registry_cid);
+  setMan('mBand', m.bands_cid);
+  setMan('mAlg',  m.algorithms_cid);
+  setMan('mSch',  m.schema_cid);
+  setMan('mSrc',  m.sources_cid);
+  setMan('mTop',  m.topics_cid);
 }
+
 function buildFamilyKey() {
   const root = document.getElementById('famKey');
-  const fams = Array.from(new Set(Object.values(STATE.bandFamilyByKey))).sort();
+  // Family count from the matrix
+  const counts = new Map();
+  for (const b of STATE.matrix) {
+    const f = b.family || 'reserved';
+    counts.set(f, (counts.get(f)||0) + (b.facts_count||0));
+  }
+  const fams = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
   root.innerHTML = '';
-  for (const f of fams) {
+  if (!fams.length) { root.innerHTML = '<div class=empty>—</div>'; return; }
+  for (const [f, n] of fams) {
     const div = document.createElement('div');
     div.className = 'fam-key';
     div.dataset.family = f;
-    div.innerHTML = '<span class=fam-dot style="background:'+famColor(f)+'"></span>'+f;
+    div.setAttribute('data-emem-family', f);
+    div.innerHTML = '<span class=fam-dot style="background:'+famColor(f)+';color:'+famColor(f)+'"></span>' +
+                    '<span style="flex:1">'+escapeHtml(f)+'</span>' +
+                    '<span style="color:var(--fg-mute);font-size:10px">'+n+'</span>';
     div.onclick = () => {
       if (STATE.filter.families.has(f)) STATE.filter.families.delete(f);
       else                              STATE.filter.families.add(f);
       div.classList.toggle('off');
-      drawField();
+      drawCurrent();
     };
     root.appendChild(div);
   }
 }
 
-function buildAttesters() {
-  const root = document.getElementById('attList');
-  if (!STATE.contributors.length) { root.innerHTML = '<span class=empty>none yet</span>'; return; }
-  root.innerHTML = '';
-  for (const c of STATE.contributors.slice(0, 8)) {
-    const div = document.createElement('div');
-    div.className = 'attester';
-    const last = c.last_seen_unix_s ? new Date(c.last_seen_unix_s * 1000).toISOString().slice(0,10) : '—';
-    div.innerHTML =
-      '<div class=pk>'+escapeHtml(c.pubkey_b32 ? c.pubkey_b32.slice(0,16)+'…' : '?')+'</div>' +
-      '<div class=meta>'+ (c.facts || c.attestations || 0).toLocaleString() +' facts · '+ (c.unique_cells||0)+' cells · last '+last+'</div>';
-    root.appendChild(div);
+function primeTimeWindow() {
+  // Use coverage_matrix history bounds to set the slider range.
+  let lo = Infinity, hi = -Infinity;
+  for (const b of STATE.matrix) {
+    if (typeof b.last_attested_unix_s === 'number') {
+      if (b.last_attested_unix_s < lo) lo = b.last_attested_unix_s;
+      if (b.last_attested_unix_s > hi) hi = b.last_attested_unix_s;
+    }
   }
+  const sliderEl = document.getElementById('tlSlider');
+  const labelEl  = document.getElementById('tlLabel');
+  const boundsEl = document.getElementById('tlBounds');
+  if (!isFinite(lo) || !isFinite(hi) || lo === hi) {
+    sliderEl.disabled = true; labelEl.textContent = 'no time bounds'; boundsEl.textContent = '—';
+    return;
+  }
+  STATE.timeRange = { lo, hi };
+  const fmt = u => new Date(u*1000).toISOString().slice(0,10);
+  boundsEl.textContent = fmt(lo)+' → '+fmt(hi);
+  sliderEl.value = 100;
+  sliderEl.addEventListener('input', e => {
+    const f = +e.target.value / 100;
+    STATE.filter.tslot = f;
+    const cutoff = lo + (hi - lo) * f;
+    labelEl.textContent = f >= 0.999 ? 'all time' : '≤ '+fmt(cutoff);
+    drawCurrent();
+  });
 }
 
-function buildFeed() {
-  const root = document.getElementById('feed');
-  // Show the 12 highest-density cells as a stand-in for "recent activity".
-  // /v1/coverage returns cells sorted by fact_count desc, so this is
-  // honest: "where the corpus is densest right now".
-  const items = STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count).slice(0, 12);
-  if (!items.length) { root.innerHTML = '<span class=empty>(corpus is empty)</span>'; return; }
-  root.innerHTML = '';
-  for (const it of items) {
-    const ev = document.createElement('div');
-    ev.className = 'ev';
-    ev.innerHTML =
-      '<div class=cell>'+escapeHtml(it.cell64)+'</div>' +
-      '<div class=ago>'+ it.fact_count +' facts · '+ it.lat.toFixed(2)+','+it.lng.toFixed(2) +'</div>';
-    ev.onclick = () => selectCell(it);
-    ev.style.cursor = 'pointer';
-    root.appendChild(ev);
-  }
-}
-
-// ── 6. Canvas: constellation render ────────────────────────────────────────
+// ── 8. Canvas: constellation + force layout ─────────────────────────────────
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
 const tip = document.getElementById('tip');
-let dpr = window.devicePixelRatio || 1;
-
+let dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 function resizeCanvas() {
   const r = canvas.getBoundingClientRect();
   canvas.width  = Math.floor(r.width  * dpr);
@@ -549,47 +850,32 @@ function resizeCanvas() {
   drawCurrent();
 }
 window.addEventListener('resize', resizeCanvas);
+let _twinkleStart = performance.now();
 
+function project(c) {
+  // unit square → canvas with translation/scale
+  const W = canvas.width, H = canvas.height;
+  const margin = 36 * dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  const ox = (W - grid)/2 + STATE.view.tx * dpr;
+  const oy = (H - grid)/2 + STATE.view.ty * dpr;
+  return [ox + c.x * grid * STATE.view.scale, oy + c.y * grid * STATE.view.scale];
+}
+function unproject(px, py) {
+  const W = canvas.width, H = canvas.height;
+  const margin = 36 * dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  const ox = (W - grid)/2 + STATE.view.tx * dpr;
+  const oy = (H - grid)/2 + STATE.view.ty * dpr;
+  return [(px - ox) / (grid * STATE.view.scale), (py - oy) / (grid * STATE.view.scale)];
+}
 function fitToData() {
-  STATE.view.scale = 1;
-  STATE.view.cx = 128;
-  STATE.view.cy = 128;
+  STATE.view.tx = 0; STATE.view.ty = 0; STATE.view.scale = 1;
 }
 
-function drawCurrent() {
-  if (STATE.mode === 'field') drawField();
-  else                        drawGraph();
-}
-
-// Project Hilbert (gx,gy) ∈ [0,256)² into canvas pixels with current pan/zoom.
-function projectField(gx, gy) {
-  const W = canvas.width, H = canvas.height;
-  const margin = 24 * dpr;
-  const grid = Math.min(W, H) - 2*margin;
-  const ox = (W - grid) / 2, oy = (H - grid) / 2;
-  const sx = ox + (gx / 256) * grid;
-  const sy = oy + (gy / 256) * grid;
-  // pan/zoom around centre
-  const cx = W/2, cy = H/2;
-  return [
-    cx + (sx - cx) * STATE.view.scale + (STATE.view.cx - 128) * (grid/256) * STATE.view.scale,
-    cy + (sy - cy) * STATE.view.scale + (STATE.view.cy - 128) * (grid/256) * STATE.view.scale,
-  ];
-}
-// Inverse: canvas → (gx,gy)
-function unprojectField(px, py) {
-  const W = canvas.width, H = canvas.height;
-  const margin = 24 * dpr;
-  const grid = Math.min(W, H) - 2*margin;
-  const ox = (W - grid) / 2, oy = (H - grid) / 2;
-  const cx = W/2, cy = H/2;
-  const sx = (px - cx) / STATE.view.scale + cx - (STATE.view.cx - 128) * (grid/256);
-  const sy = (py - cy) / STATE.view.scale + cy - (STATE.view.cy - 128) * (grid/256);
-  return [(sx - ox) / grid * 256, (sy - oy) / grid * 256];
-}
-
+// time-window filter using last-attested per-band; for now we use cell-level
+// brightness only (we don't have per-cell last-attested in /v1/coverage).
 function visibleCells() {
-  // Filter by family + tslot + family-on filter.
   const out = [];
   for (const c of STATE.cells) {
     if (STATE.filter.families.size && !STATE.filter.families.has(c.family)) continue;
@@ -603,25 +889,27 @@ function drawField() {
   ctx.fillStyle = '#06070a';
   ctx.fillRect(0, 0, W, H);
 
-  // Faint Hilbert grid backdrop (every 32 cells)
-  ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+  // faint coordinate grid (lat/lng mod 30°)
+  ctx.strokeStyle = 'rgba(232,232,234,0.04)';
   ctx.lineWidth = 1 * dpr;
-  for (let i = 0; i <= 8; i++) {
-    const [x1,y1] = projectField(i*32, 0);
-    const [x2,y2] = projectField(i*32, 256);
+  for (let i = 0; i <= 6; i++) {
+    const f = i/6;
+    const [x1,y1] = project({x:0,   y:f}); const [x2,y2] = project({x:1,   y:f});
     ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-    const [x3,y3] = projectField(0, i*32);
-    const [x4,y4] = projectField(256, i*32);
+    const [x3,y3] = project({x:f, y:0});  const [x4,y4] = project({x:f, y:1});
     ctx.beginPath(); ctx.moveTo(x3,y3); ctx.lineTo(x4,y4); ctx.stroke();
   }
 
   const cells = visibleCells();
+  const t = (performance.now() - _twinkleStart) / 1000;
 
-  // Soft glow halo pass.
+  // halo pass
   ctx.globalCompositeOperation = 'lighter';
   for (const c of cells) {
-    const [x,y] = projectField(c.gx, c.gy);
-    const r = (1.4 + 1.6 * c.brightness) * dpr * Math.sqrt(STATE.view.scale);
+    const [x,y] = project(c);
+    if (x < -50 || x > W+50 || y < -50 || y > H+50) continue;
+    const tw = 0.7 + 0.3 * Math.sin(t * c.twinkleSpeed + c.twinkle);
+    const r = (1.4 + 1.6 * c.brightness) * dpr * Math.max(.7, Math.sqrt(STATE.view.scale)) * tw;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
     grad.addColorStop(0,   c.color + 'cc');
     grad.addColorStop(0.4, c.color + '33');
@@ -631,313 +919,744 @@ function drawField() {
   }
   ctx.globalCompositeOperation = 'source-over';
 
-  // Star core pass.
+  // star core pass
   for (const c of cells) {
-    const [x,y] = projectField(c.gx, c.gy);
-    const r = (1.0 + 1.2 * c.brightness) * dpr * Math.sqrt(STATE.view.scale);
+    const [x,y] = project(c);
+    if (x < -10 || x > W+10 || y < -10 || y > H+10) continue;
+    const tw = 0.7 + 0.3 * Math.sin(t * c.twinkleSpeed + c.twinkle);
+    const r = (1.0 + 1.2 * c.brightness) * dpr * Math.max(.7, Math.sqrt(STATE.view.scale)) * tw;
     ctx.fillStyle = c.color;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
   }
 
-  // Highlight selection.
+  // selection halo
   if (STATE.selectedCell) {
     const c = STATE.selectedCell;
-    const [x,y] = projectField(c.gx, c.gy);
+    const [x,y] = project(c);
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.5 * dpr;
     ctx.beginPath(); ctx.arc(x, y, 9 * dpr, 0, Math.PI*2); ctx.stroke();
-    ctx.strokeStyle = 'rgba(77,208,160,0.55)';
+    ctx.strokeStyle = 'rgba(124,255,178,0.6)';
     ctx.beginPath(); ctx.arc(x, y, 14 * dpr, 0, Math.PI*2); ctx.stroke();
+  }
+
+  // active lasso polygon
+  if (STATE.lassoPoints && STATE.lassoPoints.length) {
+    ctx.strokeStyle = 'rgba(124,255,178,0.85)';
+    ctx.fillStyle = 'rgba(124,255,178,0.05)';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    STATE.lassoPoints.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p[0]*dpr, p[1]*dpr);
+      else         ctx.lineTo(p[0]*dpr, p[1]*dpr);
+    });
+    ctx.stroke();
+    if (STATE.lassoPoints.length > 2) { ctx.closePath(); ctx.fill(); }
   }
 }
 
-// ── 7. Graph mode (find_similar) ───────────────────────────────────────────
+// ── 9. Graph view: Verlet force layout, canvas2D, no libs ──────────────────
+//
+// Top 200 cells by fact_count. Edges: cells that share a band-family. Verlet
+// integrator with three forces: spring (along edges, rest length R), repulse
+// (Coulomb-style 1/r^2 between all nodes), and a soft centring spring back
+// to the canvas centre. Stops after kinetic energy decays below ε.
+function buildGraph() {
+  const top = STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count).slice(0, 200);
+  // assign each cell a family by sampling matrix's most-popular family present
+  // — when the cell has no recall yet, we keep 'foundation' default.
+  // Edges connect cells that share a 'family'. We can also link by lat-quadrant
+  // proximity to avoid an empty graph when families are uniform.
+  const nodes = top.map((c, i) => ({
+    i, cell: c, x: 0.5 + (Math.random()-0.5)*0.05, y: 0.5 + (Math.random()-0.5)*0.05,
+    px: 0.5, py: 0.5, fx: 0, fy: 0, color: c.color, r: 1.5 + 1.4*c.brightness,
+  }));
+  // Edges via lat-lng proximity (great-circle-ish in flat coords) — at most 4 per node
+  const edges = [];
+  for (let a = 0; a < nodes.length; a++) {
+    const ca = nodes[a].cell;
+    const candidates = [];
+    for (let b = 0; b < nodes.length; b++) if (b !== a) {
+      const cb = nodes[b].cell;
+      const dx = ca.lng - cb.lng, dy = ca.lat - cb.lat;
+      candidates.push([b, dx*dx + dy*dy]);
+    }
+    candidates.sort((x,y)=>x[1]-y[1]);
+    for (let k = 0; k < 3 && k < candidates.length; k++) {
+      const j = candidates[k][0];
+      if (j > a) edges.push([a, j]);
+    }
+  }
+  return { nodes, edges, energy: Infinity, t: 0 };
+}
+
+function stepGraph(g) {
+  const N = g.nodes.length;
+  const k_spring = 0.025, rest = 0.05;
+  const k_repulse = 0.0008;
+  const k_centre  = 0.001;
+  // forces
+  for (const n of g.nodes) { n.fx = 0; n.fy = 0; }
+  for (const [a, b] of g.edges) {
+    const A = g.nodes[a], B = g.nodes[b];
+    const dx = B.x - A.x, dy = B.y - A.y;
+    const d = Math.max(0.0001, Math.hypot(dx, dy));
+    const f = k_spring * (d - rest);
+    const fx = f * dx / d, fy = f * dy / d;
+    A.fx += fx; A.fy += fy; B.fx -= fx; B.fy -= fy;
+  }
+  for (let i = 0; i < N; i++) {
+    for (let j = i+1; j < N; j++) {
+      const A = g.nodes[i], B = g.nodes[j];
+      const dx = A.x - B.x, dy = A.y - B.y;
+      const d2 = Math.max(0.0004, dx*dx + dy*dy);
+      const f = k_repulse / d2;
+      const d = Math.sqrt(d2);
+      const fx = f * dx / d, fy = f * dy / d;
+      A.fx += fx; A.fy += fy; B.fx -= fx; B.fy -= fy;
+    }
+  }
+  for (const n of g.nodes) {
+    n.fx += k_centre * (0.5 - n.x);
+    n.fy += k_centre * (0.5 - n.y);
+  }
+  // Verlet integrate
+  let energy = 0;
+  const damping = 0.78;
+  for (const n of g.nodes) {
+    const vx = (n.x - n.px) * damping + n.fx;
+    const vy = (n.y - n.py) * damping + n.fy;
+    n.px = n.x; n.py = n.y;
+    n.x = Math.max(0.02, Math.min(0.98, n.x + vx));
+    n.y = Math.max(0.02, Math.min(0.98, n.y + vy));
+    energy += vx*vx + vy*vy;
+  }
+  g.energy = energy;
+  g.t++;
+}
+
 function drawGraph() {
   const W = canvas.width, H = canvas.height;
   ctx.fillStyle = '#06070a';
   ctx.fillRect(0, 0, W, H);
-  if (!STATE.graph) {
-    ctx.fillStyle = '#5a616b';
-    ctx.font = (12*dpr)+'px ui-monospace,monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('select a cell, then switch to graph mode', W/2, H/2);
-    return;
-  }
-  const { center, neighbors } = STATE.graph;
-  const cx = W/2, cy = H/2;
-  // Position centre + neighbours on a circle, radius weighted by 1 - cosine.
-  const R = Math.min(W, H) * 0.34;
-  const positions = [];
-  neighbors.forEach((n, i) => {
-    const theta = (i / neighbors.length) * Math.PI * 2 - Math.PI/2;
-    const dist = R * (1.05 - n.score);   // higher cosine ⇒ closer to centre
-    positions.push({ n, x: cx + Math.cos(theta) * dist, y: cy + Math.sin(theta) * dist });
-  });
+  if (!STATE.graph) STATE.graph = buildGraph();
+  const g = STATE.graph;
+  if (g.t < 600 && g.energy > 0.0002) stepGraph(g);
+
+  const margin = 36 * dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  const ox = (W - grid)/2, oy = (H - grid)/2;
+  const px = n => ox + n.x * grid;
+  const py = n => oy + n.y * grid;
 
   // edges
-  ctx.strokeStyle = 'rgba(154,208,255,0.25)';
-  ctx.lineWidth = 1 * dpr;
-  for (const p of positions) {
-    ctx.globalAlpha = 0.35 + 0.6 * p.n.score;
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(p.x, p.y); ctx.stroke();
+  ctx.strokeStyle = 'rgba(232,232,234,0.08)';
+  ctx.lineWidth = 0.8 * dpr;
+  for (const [a, b] of g.edges) {
+    const A = g.nodes[a], B = g.nodes[b];
+    ctx.beginPath();
+    ctx.moveTo(px(A), py(A));
+    ctx.lineTo(px(B), py(B));
+    ctx.stroke();
   }
-  ctx.globalAlpha = 1;
-
-  // edge labels
-  ctx.fillStyle = '#8b929c';
-  ctx.font = (10*dpr)+'px ui-monospace,monospace';
-  ctx.textAlign = 'center';
-  for (const p of positions) {
-    const mx = (cx+p.x)/2, my = (cy+p.y)/2;
-    ctx.fillText(p.n.score.toFixed(3), mx, my - 4*dpr);
+  // halos
+  ctx.globalCompositeOperation = 'lighter';
+  for (const n of g.nodes) {
+    const r = (1.6 + 1.2*n.r) * dpr;
+    const x = px(n), y = py(n);
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r*3);
+    grad.addColorStop(0, n.color + 'aa');
+    grad.addColorStop(1, n.color + '00');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x, y, r*3, 0, Math.PI*2); ctx.fill();
   }
-
-  // centre node
-  ctx.fillStyle = '#4dd0a0';
-  ctx.beginPath(); ctx.arc(cx, cy, 9*dpr, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.fillText(center.cell64, cx, cy + 24*dpr);
-
-  // neighbour nodes
-  for (const p of positions) {
-    ctx.fillStyle = '#9ad0ff';
-    ctx.beginPath(); ctx.arc(p.x, p.y, 6*dpr, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#bcc0c8';
-    const lbl = p.n.place_label_cached || p.n.cell.slice(0, 18) + '…';
-    ctx.fillText(lbl, p.x, p.y + 18*dpr);
+  ctx.globalCompositeOperation = 'source-over';
+  // cores
+  for (const n of g.nodes) {
+    ctx.fillStyle = n.color;
+    ctx.beginPath(); ctx.arc(px(n), py(n), (1.0 + 0.9*n.r)*dpr, 0, Math.PI*2); ctx.fill();
   }
-
-  STATE.graph._positions = positions;
+  if (STATE.selectedCell) {
+    const sn = g.nodes.find(n => n.cell.cell64 === STATE.selectedCell.cell64);
+    if (sn) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5*dpr;
+      ctx.beginPath(); ctx.arc(px(sn), py(sn), 10*dpr, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+  if (g.t < 600 && g.energy > 0.0002) requestAnimationFrame(drawCurrent);
 }
 
-// ── 8. Interaction: hover / click / pan / zoom ─────────────────────────────
+// ── 10. Registry view: Poincaré-disk, pure SVG ─────────────────────────────
+const regSvg = document.getElementById('registry');
+function buildRegistryView() {
+  const m = STATE.manifests || {};
+  const families = ['foundation','optical','radar','climate','weather','terrain','vegetation','water','soil','human','encoding','urban'];
+  // 8 manifest CIDs (per /humans/llms.txt). Use real manifest entries when set,
+  // labelled placeholders ('—') otherwise.
+  const manifests = [
+    { key:'registry',   cid:m.registry_cid,   path:'/v1/manifests' },
+    { key:'bands',      cid:m.bands_cid,      path:'/v1/bands' },
+    { key:'algorithms', cid:m.algorithms_cid, path:'/v1/algorithms' },
+    { key:'sources',    cid:m.sources_cid,    path:'/v1/sources' },
+    { key:'schema',     cid:m.schema_cid,     path:'/v1/schema' },
+    { key:'topics',     cid:m.topics_cid,     path:'/v1/topics' },
+    { key:'lcv-1',      cid:m.lcv_cid,        path:'/v1/lcv' },
+    { key:'alphabet',   cid:m.alphabet_cid,   path:'/v1/alphabet' },
+  ];
+  // SVG sized to viewport
+  const r = regSvg.getBoundingClientRect();
+  const W = Math.max(360, r.width), H = Math.max(360, r.height);
+  regSvg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  regSvg.setAttribute('width', W);
+  regSvg.setAttribute('height', H);
+  const cx = W/2, cy = H/2;
+  const R = Math.min(W, H) * 0.42;
+  let svg = '';
+  // Poincaré boundary disk
+  svg += `<circle class=reg-circle cx=${cx} cy=${cy} r=${R}/>`;
+  // 3 nested geodesic rings (depth visualisation)
+  for (let k = 1; k <= 3; k++) {
+    const rr = R * (k/3);
+    svg += `<circle class=reg-circle cx=${cx} cy=${cy} r=${rr}/>`;
+  }
+  // 8 manifest nodes laid out on a circle
+  manifests.forEach((mn, i) => {
+    const theta = (i / manifests.length) * Math.PI * 2 - Math.PI/2;
+    // place inside the disk at radius 0.6
+    const px = cx + Math.cos(theta) * R * 0.62;
+    const py = cy + Math.sin(theta) * R * 0.62;
+    svg += `<line class=reg-edge x1=${cx} y1=${cy} x2=${px} y2=${py}/>`;
+    svg += `<circle class=reg-node cx=${px} cy=${py} r=11
+              data-emem-cid="${escapeHtml(mn.cid||'')}"
+              data-emem-href="${escapeHtml(mn.path)}"
+              tabindex=0 role=button aria-label="${mn.key} manifest"/>`;
+    const lblY = py + (Math.sin(theta) > 0 ? 26 : -16);
+    svg += `<text class=reg-label x=${px} y=${lblY} text-anchor=middle>${mn.key}</text>`;
+    if (mn.cid) {
+      svg += `<text class=reg-leaf-label x=${px} y=${lblY+12} text-anchor=middle>${mn.cid.slice(0,10)}…</text>`;
+    }
+
+    // children: for the bands manifest, lay top bands closer to centre by facts_count
+    if (mn.key === 'bands' && STATE.matrix.length) {
+      const top = STATE.matrix.slice().sort((a,b)=>b.facts_count-a.facts_count).slice(0, 16);
+      const maxFc = Math.max(1, ...top.map(b => b.facts_count||0));
+      top.forEach((b, j) => {
+        const sub = (j / top.length) * Math.PI * 2;
+        // children orbit around their parent node, scaled down
+        const rr = 36 + 8 * (1 - (b.facts_count||0)/maxFc);
+        const lx = px + Math.cos(sub) * rr;
+        const ly = py + Math.sin(sub) * rr;
+        svg += `<line class=reg-edge x1=${px} y1=${py} x2=${lx} y2=${ly}/>`;
+        svg += `<circle class=reg-leaf cx=${lx} cy=${ly} r=4
+                  data-emem-band="${escapeHtml(b.band)}"
+                  data-emem-family="${escapeHtml(b.family||'reserved')}"
+                  fill="${famColor(b.family||'reserved')}"/>`;
+      });
+    }
+    if (mn.key === 'algorithms' && STATE.algorithms.length) {
+      const top = STATE.algorithms.slice(0, 10);
+      top.forEach((a, j) => {
+        const sub = (j / top.length) * Math.PI * 2;
+        const rr = 32;
+        const lx = px + Math.cos(sub) * rr;
+        const ly = py + Math.sin(sub) * rr;
+        svg += `<line class=reg-edge x1=${px} y1=${py} x2=${lx} y2=${ly}/>`;
+        svg += `<circle class=reg-leaf cx=${lx} cy=${ly} r=3.5/>`;
+      });
+    }
+    if (mn.key === 'sources' && STATE.sources.length) {
+      const top = STATE.sources.slice(0, 12);
+      top.forEach((s, j) => {
+        const sub = (j / top.length) * Math.PI * 2;
+        const rr = 32;
+        const lx = px + Math.cos(sub) * rr;
+        const ly = py + Math.sin(sub) * rr;
+        svg += `<line class=reg-edge x1=${px} y1=${py} x2=${lx} y2=${ly}/>`;
+        svg += `<circle class=reg-leaf cx=${lx} cy=${ly} r=3.5/>`;
+      });
+    }
+  });
+  // Centre label
+  svg += `<text x=${cx} y=${cy-4} text-anchor=middle style="font-size:11px;fill:var(--fg-3)">manifests</text>`;
+  svg += `<text x=${cx} y=${cy+10} text-anchor=middle style="font-size:9px;fill:var(--fg-mute)">${escapeHtml((m.registry_cid||'').slice(0,12))}</text>`;
+  regSvg.innerHTML = svg;
+
+  // wire up click → fetch the manifest
+  regSvg.querySelectorAll('.reg-node').forEach(node => {
+    node.addEventListener('click', () => {
+      const path = node.getAttribute('data-emem-href');
+      if (path) api('GET', path).catch(()=>{});
+    });
+  });
+  regSvg.querySelectorAll('.reg-leaf[data-emem-band]').forEach(node => {
+    node.addEventListener('click', () => {
+      const band = node.getAttribute('data-emem-band');
+      // pretty-print into right pane
+      paintBandCard(band);
+    });
+  });
+}
+function paintBandCard(band) {
+  const b = STATE.matrixByBand.get(band);
+  if (!b) return;
+  const html =
+    '<h3>band</h3>' +
+    '<div class=fact data-emem-band="'+escapeHtml(band)+'" data-emem-family="'+escapeHtml(b.family||'reserved')+'">' +
+      '<div class=band><span class=fam-dot style="background:'+famColor(b.family||'reserved')+';color:'+famColor(b.family||'reserved')+'"></span>'+escapeHtml(band)+'</div>' +
+      '<div class=val>family: <b>'+escapeHtml(b.family||'reserved')+'</b> · facts <b>'+ (b.facts_count||0) +'</b> · in_cube <b>'+(b.in_cube?'yes':'no')+'</b> · materializer <b>'+(b.has_materializer?'yes':'no')+'</b></div>' +
+      (b.tempo_seconds ? '<div class=val>tempo: '+b.tempo+' ('+b.tempo_seconds+' s)</div>' : '') +
+      (b.last_attested_unix_s ? '<div class=ts>last attested '+new Date(b.last_attested_unix_s*1000).toISOString().slice(0,19).replace('T',' ')+'</div>' : '') +
+    '</div>';
+  setRightPane(html);
+}
+
+// ── 11. Log view: Sigstore-Rekor-style scrolling list ──────────────────────
+function buildLogView() {
+  const body = document.getElementById('logBody');
+  const count = document.getElementById('logCount');
+  // Source: /v1/coverage_matrix bands have last_attested_unix_s + responder_pubkey_b32.
+  // We treat each band's last attestation as one log entry; that's honest:
+  // it's "last time this responder signed a fact for this band globally".
+  const entries = STATE.matrix
+    .filter(b => b.last_attested_unix_s)
+    .sort((a,b) => b.last_attested_unix_s - a.last_attested_unix_s)
+    .slice(0, 200);
+  count.textContent = entries.length + ' entries';
+  if (!entries.length) {
+    body.innerHTML = '<div class=empty style="margin:1.4em">no live attestation feed available — '+
+      'this responder either has no attestations, or has not exposed last_attested_unix_s in /v1/coverage_matrix.</div>';
+    return;
+  }
+  let html = '';
+  for (const e of entries) {
+    const ts = new Date(e.last_attested_unix_s*1000).toISOString().replace('T',' ').slice(0,19);
+    const fam = e.family || 'reserved';
+    html +=
+      '<div class=row '+
+        'data-emem-band="'+escapeHtml(e.band)+'" '+
+        'data-emem-family="'+escapeHtml(fam)+'" '+
+        'data-emem-tslot="'+e.last_attested_unix_s+'" '+
+        'data-emem-responder="'+escapeHtml(e.responder_pubkey_b32||'')+'">' +
+        '<div class=ts>'+ts+'</div>' +
+        '<div class=key>' +
+          '<div class=band><span class=fam-dot style="background:'+famColor(fam)+';color:'+famColor(fam)+';display:inline-block;margin-right:.5em;width:8px;height:8px;border-radius:50%"></span>'+escapeHtml(e.band)+'</div>' +
+          '<div class=meta>family '+escapeHtml(fam)+' · '+ (e.facts_count||0) +' facts · tempo '+ (e.tempo_seconds||0) +'s · responder '+ (e.responder_pubkey_b32||'?').slice(0,10) +'…</div>' +
+        '</div>' +
+        '<div class=actions>' +
+          '<span class="pill pending" data-state="pending">pending</span>' +
+          '<button data-cmd=verify-band data-band="'+escapeHtml(e.band)+'">verify</button>' +
+        '</div>' +
+      '</div>';
+  }
+  body.innerHTML = html;
+  body.querySelectorAll('button[data-cmd=verify-band]').forEach(btn => {
+    btn.onclick = async () => {
+      const band = btn.dataset.band;
+      const row  = btn.closest('.row');
+      const pill = row.querySelector('.pill');
+      pill.className = 'pill pending'; pill.textContent = 'verifying…';
+      // Pick a dense cell (any cell in the corpus is fine; we just need a
+      // recall to bind a real receipt to this band).
+      const c = STATE.cells[0];
+      if (!c) { pill.className='pill fail'; pill.textContent = 'no cell'; row.dataset.ememVerified='false'; return; }
+      try {
+        const res = await api('POST', '/v1/recall', { cell: c.cell64, bands:[band] });
+        if (res && res.receipt) {
+          const ok = await verifyReceiptCore(res.receipt);
+          pill.className = 'pill ' + (ok ? 'ok' : 'fail');
+          pill.textContent = ok ? 'verified' : 'fail';
+          row.dataset.ememVerified = ok ? 'true' : 'false';
+          if (res.receipt.fact_cids && res.receipt.fact_cids[0]) {
+            row.dataset.ememFactCid = res.receipt.fact_cids[0];
+          }
+        } else {
+          pill.className = 'pill fail'; pill.textContent = 'no receipt';
+          row.dataset.ememVerified = 'false';
+        }
+      } catch (e) {
+        pill.className = 'pill fail'; pill.textContent = 'err';
+        row.dataset.ememVerified = 'false';
+      }
+    };
+  });
+}
+
+// ── 12. Mode switching ─────────────────────────────────────────────────────
+function setMode(m) {
+  STATE.mode = m;
+  for (const k of ['Field','Graph','Reg','Log']) {
+    const id = 'mode'+k;
+    const btn = document.getElementById(id);
+    btn.setAttribute('aria-pressed', String((m==='field' && k==='Field') || (m==='graph' && k==='Graph') || (m==='registry' && k==='Reg') || (m==='log' && k==='Log')));
+  }
+  canvas.style.display     = (m==='field' || m==='graph') ? 'block' : 'none';
+  document.getElementById('legend').style.display = m==='field' ? '' : 'none';
+  document.getElementById('registry').classList.toggle('on', m==='registry');
+  document.getElementById('logview').classList.toggle('on', m==='log');
+  document.querySelector('.zoomctl').style.display = (m==='field' || m==='graph') ? 'flex' : 'none';
+  if (m==='registry') buildRegistryView();
+  if (m==='graph')    STATE.graph = null;
+  drawCurrent();
+}
+document.getElementById('modeField').onclick = () => setMode('field');
+document.getElementById('modeGraph').onclick = () => setMode('graph');
+document.getElementById('modeReg').onclick   = () => setMode('registry');
+document.getElementById('modeLog').onclick   = () => setMode('log');
+
+function drawCurrent() {
+  if      (STATE.mode === 'field') drawField();
+  else if (STATE.mode === 'graph') drawGraph();
+}
+
+// continuous twinkle at ~24 fps without overworking CPU
+let _twinkleTimer = null;
+function startTwinkleLoop() {
+  if (_twinkleTimer) return;
+  function tick() {
+    if (STATE.mode === 'field') drawField();
+    _twinkleTimer = setTimeout(() => requestAnimationFrame(tick), 60);
+  }
+  tick();
+}
+
+// ── 13. Hover / click / pan / zoom / lasso ─────────────────────────────────
 function pickCell(px, py) {
-  const [gx, gy] = unprojectField(px, py);
-  let best = null, bestD = 64;
+  const W = canvas.width, H = canvas.height;
+  const margin = 36 * dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  const tol2 = (16 / Math.max(1, STATE.view.scale)) ** 2 / (grid*grid);
+  let best = null, bestD = tol2;
+  const [ux, uy] = unproject(px, py);
   for (const c of visibleCells()) {
-    const dx = c.gx - gx, dy = c.gy - gy;
+    const dx = c.x - ux, dy = c.y - uy;
     const d = dx*dx + dy*dy;
     if (d < bestD) { bestD = d; best = c; }
   }
   return best;
 }
 
+function ptInPoly(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+    const intersect = ((yi > pt[1]) !== (yj > pt[1])) &&
+      (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi + 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+let dragging = null;
+let lassoMode = false;
 canvas.addEventListener('mousemove', e => {
-  if (STATE.mode !== 'field') { tip.style.display='none'; return; }
+  if (STATE.mode !== 'field') { tip.style.display = 'none'; return; }
+  if (dragging && dragging.kind === 'pan') return;
   const r = canvas.getBoundingClientRect();
   const px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
   const c = pickCell(px, py);
   if (c) {
     tip.style.display = 'block';
-    tip.style.left = (e.clientX + 14) + 'px';
-    tip.style.top  = (e.clientY + 14) + 'px';
-    tip.innerHTML = '<div class=cell>'+escapeHtml(c.cell64)+'</div>' +
-      '<div class=meta>'+ c.fact_count +' facts · '+ c.lat.toFixed(3)+', '+c.lng.toFixed(3) +'</div>';
+    tip.style.left = Math.min(window.innerWidth - 320, e.clientX + 14) + 'px';
+    tip.style.top  = Math.min(window.innerHeight - 90, e.clientY + 14) + 'px';
+    const m = STATE.matrixByBand;
+    tip.innerHTML = '<div class=tip-cell>'+escapeHtml(c.cell64)+'</div>' +
+      '<div class=tip-meta>'+ c.fact_count +' facts · '+ c.lat.toFixed(3)+', '+c.lng.toFixed(3) +'</div>' +
+      '<div class=tip-bands>family <b style="color:var(--fg-2)">'+c.family+'</b> · click for recall</div>';
   } else {
     tip.style.display = 'none';
   }
 });
 canvas.addEventListener('mouseleave', () => tip.style.display = 'none');
 
+canvas.addEventListener('mousedown', e => {
+  const r = canvas.getBoundingClientRect();
+  const lx = e.clientX - r.left, ly = e.clientY - r.top;
+  if (lassoMode || e.shiftKey) {
+    STATE.lassoPoints = [[lx, ly]];
+    dragging = { kind:'lasso' };
+    canvas.classList.add('lasso');
+  } else {
+    dragging = { kind:'pan', x:e.clientX, y:e.clientY, tx:STATE.view.tx, ty:STATE.view.ty };
+    canvas.classList.add('panning');
+  }
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  if (dragging.kind === 'pan') {
+    STATE.view.tx = dragging.tx + (e.clientX - dragging.x);
+    STATE.view.ty = dragging.ty + (e.clientY - dragging.y);
+    drawCurrent();
+  } else if (dragging.kind === 'lasso') {
+    const r = canvas.getBoundingClientRect();
+    STATE.lassoPoints.push([e.clientX - r.left, e.clientY - r.top]);
+    drawField();
+  }
+});
+window.addEventListener('mouseup', async () => {
+  if (!dragging) return;
+  const kind = dragging.kind;
+  dragging = null;
+  canvas.classList.remove('panning','lasso');
+  if (kind === 'lasso' && STATE.lassoPoints && STATE.lassoPoints.length > 4) {
+    // Convert canvas-local CSS pixels to lat/lng polygon
+    const poly_xy = STATE.lassoPoints;
+    const polyLatLng = [];
+    // Coarse simplify (every Nth point)
+    const stride = Math.max(1, Math.floor(poly_xy.length / 24));
+    for (let i = 0; i < poly_xy.length; i += stride) {
+      const [px, py] = [poly_xy[i][0]*dpr, poly_xy[i][1]*dpr];
+      const [ux, uy] = unproject(px, py);
+      // ux,uy in unit square → lat/lng (inverse of computeProjection)
+      const lat01 = Math.max(0, Math.min(1, uy));
+      const cosLat = Math.cos((90 - lat01*180) * Math.PI/180);
+      const lng01 = 0.5 + (ux - 0.5) / Math.max(0.05, cosLat);
+      const lat = 90 - lat01*180;
+      const lng = lng01 * 360 - 180;
+      polyLatLng.push([+lng.toFixed(5), +lat.toFixed(5)]);
+    }
+    // Close ring
+    polyLatLng.push(polyLatLng[0]);
+
+    // Highlight cells inside (visual feedback before the call returns)
+    const sel = STATE.cells.filter(c => ptInPoly([c.lng, c.lat], polyLatLng.slice(0,-1)));
+    paintLassoSummary(polyLatLng, sel);
+
+    // Issue /v1/recall_polygon — use the geotessera band as a default since
+    // it covers the most cells; agents can change band via the right pane.
+    try {
+      const res = await api('POST', '/v1/recall_polygon', {
+        polygon: polyLatLng, bands: ['geotessera']
+      });
+      paintPolygonResult(polyLatLng, sel, res);
+    } catch (e) {
+      // result already in console
+    }
+    STATE.lassoPoints = null;
+    drawField();
+  }
+});
+
+canvas.addEventListener('wheel', e => {
+  if (STATE.mode !== 'field' && STATE.mode !== 'graph') return;
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const cx = (e.clientX - r.left) * dpr;
+  const cy = (e.clientY - r.top) * dpr;
+  const k = Math.exp(-e.deltaY * 0.0015);
+  // zoom around cursor: shift translation so cursor is invariant
+  const before = unproject(cx, cy);
+  STATE.view.scale = Math.max(0.4, Math.min(40, STATE.view.scale * k));
+  const after = unproject(cx, cy);
+  const W = canvas.width, H = canvas.height;
+  const margin = 36*dpr;
+  const grid = Math.min(W, H) - 2*margin;
+  STATE.view.tx += (after[0] - before[0]) * grid * STATE.view.scale / dpr;
+  STATE.view.ty += (after[1] - before[1]) * grid * STATE.view.scale / dpr;
+  drawCurrent();
+}, { passive:false });
+
 canvas.addEventListener('click', e => {
+  if (STATE.mode !== 'field') return;
+  if (STATE.lassoPoints) return; // suppress click during lasso
   const r = canvas.getBoundingClientRect();
   const px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
-  if (STATE.mode === 'graph' && STATE.graph && STATE.graph._positions) {
-    for (const p of STATE.graph._positions) {
-      const dx = p.x - px, dy = p.y - py;
-      if (dx*dx + dy*dy < (12*dpr)*(12*dpr)) {
-        // jump to neighbour
-        const synth = makeSyntheticCell(p.n.cell, p.n.lat, p.n.lng);
-        selectCell(synth);
-        STATE.mode = 'field'; updateModeButtons(); drawCurrent();
-        return;
-      }
-    }
-    return;
-  }
   const c = pickCell(px, py);
   if (c) selectCell(c);
 });
 
-canvas.addEventListener('wheel', e => {
-  if (STATE.mode !== 'field') return;
-  e.preventDefault();
-  const k = Math.exp(-e.deltaY * 0.0015);
-  STATE.view.scale = Math.max(0.4, Math.min(40, STATE.view.scale * k));
-  drawCurrent();
-}, { passive: false });
-
-let dragging = null;
-canvas.addEventListener('mousedown', e => {
-  if (STATE.mode !== 'field') return;
-  dragging = { x: e.clientX, y: e.clientY, cx: STATE.view.cx, cy: STATE.view.cy };
+// touch: simple tap-to-pick + pinch-to-zoom + two-finger pan
+let _touch = { last: null, pinchD: 0, scale0: 1 };
+canvas.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    _touch.last = { x:t.clientX, y:t.clientY, t0:performance.now(), tx0:STATE.view.tx, ty0:STATE.view.ty };
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    _touch.pinchD = Math.hypot(dx, dy);
+    _touch.scale0 = STATE.view.scale;
+  }
+}, { passive:true });
+canvas.addEventListener('touchmove', e => {
+  if (e.touches.length === 1 && _touch.last) {
+    const t = e.touches[0];
+    STATE.view.tx = _touch.last.tx0 + (t.clientX - _touch.last.x);
+    STATE.view.ty = _touch.last.ty0 + (t.clientY - _touch.last.y);
+    drawCurrent();
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const d = Math.hypot(dx, dy);
+    if (_touch.pinchD > 0) {
+      STATE.view.scale = Math.max(0.4, Math.min(40, _touch.scale0 * d / _touch.pinchD));
+      drawCurrent();
+    }
+  }
+}, { passive:true });
+canvas.addEventListener('touchend', e => {
+  if (_touch.last && performance.now() - _touch.last.t0 < 250 && Math.abs((e.changedTouches[0]?.clientX||0)-_touch.last.x) < 6) {
+    // tap
+    const t = e.changedTouches[0];
+    const r = canvas.getBoundingClientRect();
+    const px = (t.clientX - r.left) * dpr, py = (t.clientY - r.top) * dpr;
+    const c = pickCell(px, py);
+    if (c) selectCell(c);
+  }
+  _touch.last = null; _touch.pinchD = 0;
 });
-window.addEventListener('mousemove', e => {
-  if (!dragging) return;
-  const dx = e.clientX - dragging.x, dy = e.clientY - dragging.y;
-  const W = canvas.width, H = canvas.height;
-  const margin = 24 * dpr;
-  const grid = Math.min(W, H) - 2*margin;
-  STATE.view.cx = dragging.cx + (dx * dpr) / (grid/256) / STATE.view.scale;
-  STATE.view.cy = dragging.cy + (dy * dpr) / (grid/256) / STATE.view.scale;
-  drawCurrent();
-});
-window.addEventListener('mouseup', () => dragging = null);
 
-document.getElementById('zoomIn').onclick  = () => { STATE.view.scale *= 1.4; drawCurrent(); };
-document.getElementById('zoomOut').onclick = () => { STATE.view.scale /= 1.4; drawCurrent(); };
+document.getElementById('zoomIn').onclick  = () => { STATE.view.scale = Math.min(40, STATE.view.scale*1.4); drawCurrent(); };
+document.getElementById('zoomOut').onclick = () => { STATE.view.scale = Math.max(0.4, STATE.view.scale/1.4); drawCurrent(); };
 document.getElementById('zoomFit').onclick = () => { fitToData(); drawCurrent(); };
 
+// keyboard
 window.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') return;
-  if (e.key === '+' || e.key === '=') { STATE.view.scale *= 1.4; drawCurrent(); }
-  if (e.key === '-' || e.key === '_') { STATE.view.scale /= 1.4; drawCurrent(); }
-  if (e.key === '0')                  { fitToData(); drawCurrent(); }
-  if (e.key === '?')                  { document.getElementById('helpModal').classList.add('on'); }
-  if (e.key === 'Escape')             { document.getElementById('helpModal').classList.remove('on'); }
-});
-
-document.getElementById('helpBtn').onclick = () =>
-  document.getElementById('helpModal').classList.add('on');
-
-document.getElementById('modeField').onclick = () => { STATE.mode='field'; updateModeButtons(); drawCurrent(); };
-document.getElementById('modeGraph').onclick = async () => {
-  if (!STATE.selectedCell) {
-    alert('select a cell first (click a star or search a place)');
+  if (e.target && e.target.tagName === 'INPUT') return;
+  if (e.metaKey || e.ctrlKey) {
+    if (e.key.toLowerCase() === 'k') { e.preventDefault(); openCmdk(); return; }
+  }
+  if (e.key === '~' || e.key === '`') { e.preventDefault(); consoleEl.focus(); consoleEl.scrollTop = consoleEl.scrollHeight; return; }
+  if (e.key === '?') { document.getElementById('helpModal').classList.add('on'); return; }
+  if (e.key === 'Escape') {
+    document.getElementById('helpModal').classList.remove('on');
+    document.getElementById('cmdkBack').classList.remove('on');
+    document.getElementById('sheet').classList.remove('on');
+    if (STATE.lassoPoints) { STATE.lassoPoints = null; drawField(); }
+    lassoMode = false; canvas.classList.remove('lasso');
     return;
   }
-  await loadGraph(STATE.selectedCell);
-  STATE.mode='graph'; updateModeButtons(); drawCurrent();
-};
-function updateModeButtons() {
-  document.getElementById('modeField').classList.toggle('on', STATE.mode==='field');
-  document.getElementById('modeGraph').classList.toggle('on', STATE.mode==='graph');
-}
-
-// ── 9. Search / locate ─────────────────────────────────────────────────────
-const cell64Re = /^[a-z]{4}\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+$/;
-document.getElementById('searchForm').addEventListener('submit', async () => {
-  const q = document.getElementById('searchInput').value.trim();
-  if (!q) return;
-  if (cell64Re.test(q)) {
-    // Direct cell64 lookup. We may not have its lat/lng if it's not in the
-    // coverage set; do a recall and synthesize a temporary cell from the
-    // first fact's lat/lng (or fall back to (0,0) in the visualisation).
-    const found = STATE.cells.find(c => c.cell64 === q);
-    if (found) selectCell(found);
-    else       selectCell(makeSyntheticCell(q, null, null));
-    return;
-  }
-  try {
-    const res = await api('POST', '/v1/locate', { q });
-    const cell64 = res.cell64 || res.cell || (res.match && res.match.cell64);
-    const lat = res.lat ?? res.lat_deg ?? (res.match && res.match.lat_deg);
-    const lng = res.lng ?? res.lng_deg ?? (res.match && res.match.lng_deg);
-    if (!cell64) { alert('no cell for that query'); return; }
-    let target = STATE.cells.find(c => c.cell64 === cell64);
-    if (!target) {
-      target = makeSyntheticCell(cell64, lat, lng);
-      STATE.cells.push(target);
-    }
-    selectCell(target);
-  } catch (e) {
-    // already logged
-  }
+  if (e.key === '1') setMode('field');
+  if (e.key === '2') setMode('graph');
+  if (e.key === '3') setMode('registry');
+  if (e.key === '4') setMode('log');
+  if (e.key === 'l' || e.key === 'L') { lassoMode = !lassoMode; canvas.classList.toggle('lasso', lassoMode); }
+  if (e.key === '+' || e.key === '=') { STATE.view.scale = Math.min(40, STATE.view.scale*1.4); drawCurrent(); }
+  if (e.key === '-' || e.key === '_') { STATE.view.scale = Math.max(0.4, STATE.view.scale/1.4); drawCurrent(); }
+  if (e.key === '0') { fitToData(); drawCurrent(); }
 });
 
-function makeSyntheticCell(cell64, lat, lng) {
-  if (lat == null || lng == null) { lat = 0; lng = 0; }
-  const [gx,gy] = cellToGrid(cell64, lat, lng);
-  return {
-    cell64, lat, lng, fact_count: 0,
-    gx, gy, family: 'foundation', color: famColor('foundation'),
-    brightness: 0.6,
-    synthetic: true,
-  };
-}
+document.getElementById('chipCmdk').onclick    = () => openCmdk();
+document.getElementById('chipConsole').onclick = () => { consoleEl.focus(); consoleEl.scrollTop = consoleEl.scrollHeight; };
+document.getElementById('chipHelp').onclick    = () => document.getElementById('helpModal').classList.add('on');
+document.getElementById('helpClose').onclick   = () => document.getElementById('helpModal').classList.remove('on');
 
-// ── 10. Cell selection: recall, render fact cards, in-browser verify ──────
+// ── 14. Selection: cell card with recall + offline verify ──────────────────
+function setRightPane(html) {
+  const inner = document.getElementById('rightInner');
+  inner.innerHTML = html;
+  // mobile sheet mirror
+  if (window.innerWidth < 760) {
+    document.getElementById('sheetInner').innerHTML = html;
+    document.getElementById('sheet').classList.add('on');
+  }
+}
+document.getElementById('sheetClose').onclick = () => document.getElementById('sheet').classList.remove('on');
+
 async function selectCell(cell) {
   STATE.selectedCell = cell;
-  STATE.view.cx = cell.gx; STATE.view.cy = cell.gy;
-  STATE.view.scale = Math.max(STATE.view.scale, 4);
   drawCurrent();
-
-  const right = document.getElementById('rightPane');
-  right.innerHTML = '<h3>cell</h3>' +
-    '<div class=cell-card>' +
-      '<div class=cell64>'+escapeHtml(cell.cell64)+'</div>' +
-      '<div class=latlng>'+ (cell.lat.toFixed(5)) +', '+ (cell.lng.toFixed(5)) +' · '+ cell.fact_count +' facts</div>' +
+  const html =
+    '<h3>cell</h3>' +
+    '<div class=cell-card data-emem-cell="'+escapeHtml(cell.cell64)+'" data-emem-href="/v1/cells/'+escapeHtml(cell.cell64)+'/info">' +
+      '<div class=cell64 data-emem-cell="'+escapeHtml(cell.cell64)+'">'+escapeHtml(cell.cell64)+'</div>' +
+      '<div class=latlng>'+ cell.lat.toFixed(5) +', '+ cell.lng.toFixed(5) +' · '+ (cell.fact_count||0) +' facts</div>' +
       '<div class=actions>' +
-        '<button id=btnRecall>recall</button>' +
-        '<button id=btnSimilar>find_similar</button>' +
-        '<a class=button-link href="/v1/cells/'+cell.cell64+'/scene.png" target=_blank><button>scene.png</button></a>' +
+        '<button id=btnRecall class=primary type=button>recall</button>' +
+        '<button id=btnSimilar type=button>find_similar</button>' +
+        '<button id=btnInfo type=button>info</button>' +
+        '<button id=btnCopy type=button>copy cell64</button>' +
       '</div>' +
+      '<div class=scene id=cellScene><span>scene.png on demand</span></div>' +
     '</div>' +
-    '<div id=factsBox></div>';
+    '<div id=factsBox><div class=empty>recall to load facts</div></div>';
+  setRightPane(html);
   document.getElementById('btnRecall').onclick  = () => doRecall(cell);
-  document.getElementById('btnSimilar').onclick = () => loadGraphAndSwitch(cell);
+  document.getElementById('btnSimilar').onclick = () => doFindSimilar(cell);
+  document.getElementById('btnInfo').onclick    = () => doCellInfo(cell);
+  document.getElementById('btnCopy').onclick    = () => navigator.clipboard.writeText(cell.cell64);
+  // lazy scene image
+  const sc = document.getElementById('cellScene');
+  if (sc) {
+    const img = new Image();
+    img.referrerPolicy = 'no-referrer';
+    img.alt = '';
+    img.onload  = () => { sc.innerHTML = ''; sc.appendChild(img); };
+    img.onerror = () => { sc.innerHTML = '<span>no scene</span>'; };
+    img.src = '/v1/cells/' + cell.cell64 + '/scene.png';
+  }
+  // auto-recall once
   doRecall(cell);
 }
 
 async function doRecall(cell) {
   const box = document.getElementById('factsBox');
-  box.innerHTML = '<div class=empty>loading…</div>';
+  if (!box) return;
+  box.innerHTML = '<div class=empty>recall in flight…</div>';
   try {
     const res = await api('POST', '/v1/recall', { cell: cell.cell64 });
     const facts = res.facts || [];
-    STATE.selectedFacts = facts;
     if (!facts.length) {
-      box.innerHTML = '<div class=empty>no facts at this cell yet.<br>this is the protocol\'s honest "no" — empty facts[] with materialize_notes[].</div>';
+      box.innerHTML = '<div class=empty>no facts at this cell yet.<br>this is the protocol\'s honest "no" — empty <code>facts[]</code> with <code>materialize_notes[]</code>.</div>';
       return;
     }
-    // Update family colour for this cell based on the dominant family
-    const famCount = {};
+    // Recolor by dominant family
+    const fcount = {};
     for (const f of facts) {
       const fam = STATE.bandFamilyByKey[f.band] || 'reserved';
-      famCount[fam] = (famCount[fam]||0) + 1;
+      fcount[fam] = (fcount[fam]||0) + 1;
     }
-    const dom = Object.entries(famCount).sort((a,b)=>b[1]-a[1])[0][0];
+    const dom = Object.entries(fcount).sort((a,b)=>b[1]-a[1])[0][0];
     cell.family = dom; cell.color = famColor(dom);
     drawCurrent();
 
     let html = '<h3>facts ('+facts.length+')</h3>';
-    for (const f of facts.slice(0, 12)) {
+    for (const f of facts.slice(0, 16)) {
       const fam = STATE.bandFamilyByKey[f.band] || 'reserved';
-      const val = formatVal(f.value ?? f.scalar ?? f.bytes_b64 ?? f.embedding_b64);
-      const cid = f.fact_cid || f.cid || '';
-      const ts  = f.tslot_unix_s ? new Date(f.tslot_unix_s*1000).toISOString().slice(0,10) : '';
-      html += '<div class=fact>' +
-        '<div class=band><span class=fam-dot style="background:'+famColor(fam)+';display:inline-block;vertical-align:middle;margin-right:4px"></span>'+escapeHtml(f.band)+'</div>' +
+      const val = formatVal(f.value ?? f.scalar ?? f.bytes_b64 ?? f.embedding_b64 ?? f.value_decoded);
+      const cid = f.fact_cid || f.cid || (res.receipt && res.receipt.fact_cids && res.receipt.fact_cids[0]) || '';
+      const ts  = f.tslot_unix_s ? new Date(f.tslot_unix_s*1000).toISOString().slice(0,10) : (f.signed_at ? f.signed_at.slice(0,10) : '');
+      const tslot = f.tslot_unix_s || (f.signed_at ? Math.floor(Date.parse(f.signed_at)/1000) : '');
+      html += '<div class=fact ' +
+              'data-emem-cell="'+escapeHtml(cell.cell64)+'" ' +
+              'data-emem-band="'+escapeHtml(f.band)+'" ' +
+              'data-emem-family="'+escapeHtml(fam)+'" ' +
+              'data-emem-fact-cid="'+escapeHtml(cid)+'" ' +
+              'data-emem-tslot="'+tslot+'" ' +
+              'data-emem-responder="'+escapeHtml(STATE.responder||'')+'">' +
+        '<div class=band><span class=fam-dot style="background:'+famColor(fam)+';color:'+famColor(fam)+';width:7px;height:7px"></span>'+escapeHtml(f.band)+'</div>' +
         (val !== null ? '<div class=val>'+escapeHtml(val)+'</div>' : '') +
-        '<div class=cid title="click to copy">'+escapeHtml(cid)+'</div>' +
-        '<div class=ts>'+ts+'</div>' +
+        (cid ? '<div class=cid copyable title="click to copy CID">'+escapeHtml(cid)+'</div>' : '') +
+        (ts  ? '<div class=ts>'+escapeHtml(ts)+'</div>' : '') +
         '</div>';
     }
-    // Receipt verify card
     if (res.receipt) {
-      html += '<h3>receipt</h3>';
       const r = res.receipt;
-      html += '<div class=fact>' +
-        '<div class=band>'+escapeHtml(r.primitive||'recall')+' · '+escapeHtml(r.served_at||'')+'</div>' +
-        '<div class=cid>request_id '+escapeHtml(r.request_id||'')+'</div>' +
-        '<div class=cid>fact_cids ['+(r.fact_cids||[]).length+']</div>' +
+      const cidPrev = (r.fact_cids||[])[0] || '';
+      html += '<h3>receipt</h3>';
+      html += '<div class=fact data-emem-href="/v1/verify_receipt" data-emem-cell="'+escapeHtml(r.cells?.[0]||'')+'" data-emem-fact-cid="'+escapeHtml(cidPrev)+'">' +
+        '<div class=band>'+escapeHtml(r.primitive||'recall')+' · '+escapeHtml((r.served_at||'').replace('T',' '))+'</div>' +
+        '<div class=val>request_id <span class="cid copyable">'+escapeHtml(r.request_id||'')+'</span></div>' +
+        '<div class=val>fact_cids ['+(r.fact_cids||[]).length+']'+(cidPrev?' · <span class="cid copyable">'+escapeHtml(cidPrev)+'</span>':'')+'</div>' +
+        '<div class=val>schema <code>'+escapeHtml((r.schema_cid||'').slice(0,12))+'…</code></div>' +
         '</div>';
-      html += '<div class=verify-row id=verifyRow>' +
-        '<button id=btnVerify class=primary>verify</button>' +
-        '<span id=verifyMsg>'+ (nobleEd && nobleBlake3 ? 'in-browser (ed25519 + blake3)' : 'server-side (CDN libs unavailable)') +'</span>' +
+      const lblBase = nobleStatus === 'ok'
+        ? 'in-browser ed25519 + blake3 ready'
+        : 'noble libs unavailable — will fall back to /v1/verify_receipt';
+      html += '<div class=verify-row id=verifyRow><span class="pill pending"><span class=glyph></span> not verified</span>' +
+        '<button id=btnVerify class=primary type=button>verify offline</button>' +
+        '<span id=verifyMsg style="color:var(--fg-3);font-size:11px;flex:1">'+lblBase+'</span>' +
         '</div>';
     }
     box.innerHTML = html;
-
-    // Click-to-copy CIDs
-    box.querySelectorAll('.cid').forEach(el => {
-      el.style.cursor = 'pointer';
-      el.onclick = () => navigator.clipboard.writeText(el.textContent.trim());
+    box.querySelectorAll('.copyable').forEach(el => {
+      el.addEventListener('click', () => navigator.clipboard.writeText(el.textContent.trim()));
     });
     if (res.receipt) {
-      document.getElementById('btnVerify').onclick = () => verifyReceipt(res.receipt);
+      document.getElementById('btnVerify').onclick = () => verifyReceiptUI(res.receipt);
     }
+    // Refresh log view to insert this attestation at the top
+    pushReceiptToLog(res.receipt, cell.cell64);
   } catch (e) {
     box.innerHTML = '<div class=empty>recall failed: '+escapeHtml(String(e))+'</div>';
   }
@@ -946,155 +1665,370 @@ async function doRecall(cell) {
 function formatVal(v) {
   if (v == null) return null;
   if (typeof v === 'number') return v.toFixed(4).replace(/\.?0+$/, '');
-  if (typeof v === 'string') return v.length > 40 ? v.slice(0,40) + '…' : v;
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'string') return v.length > 56 ? v.slice(0,56) + '…' : v;
   if (typeof v === 'object') {
     const j = JSON.stringify(v);
-    return j.length > 60 ? j.slice(0,60) + '…' : j;
+    return j.length > 80 ? j.slice(0,80) + '…' : j;
   }
   return String(v);
 }
 
-// ── 11. find_similar / graph ───────────────────────────────────────────────
-async function loadGraph(cell) {
+async function doFindSimilar(cell) {
+  const box = document.getElementById('factsBox');
+  if (box) box.innerHTML = '<div class=empty>finding 12 nearest neighbours…</div>';
   try {
-    const res = await api('POST', '/v1/find_similar', { key: cell.cell64, k: 8 });
-    STATE.graph = { center: cell, neighbors: res.neighbors || [] };
+    const res = await api('POST', '/v1/find_similar', { key: cell.cell64, k: 12 });
+    const ns = res.neighbors || [];
+    if (!ns.length) { box.innerHTML = '<div class=empty>no neighbours returned</div>'; return; }
+    let html = '<h3>top-K neighbours · band='+(ns[0].band_used||'?')+'</h3>';
+    for (const n of ns) {
+      html += '<div class=fact data-emem-cell="'+escapeHtml(n.cell)+'" data-emem-band="'+escapeHtml(n.band_used||'')+'">' +
+        '<div class=band><span class=fam-dot style="background:var(--fam-foundation);color:var(--fam-foundation);width:7px;height:7px"></span>'+escapeHtml(n.cell)+'</div>' +
+        '<div class=val>cosine <b>'+ (n.score||0).toFixed(4) +'</b>'+(n.place_label_cached?' · '+escapeHtml(n.place_label_cached):'')+'</div>' +
+        '<div class=ts>'+ (typeof n.lat==='number' ? (n.lat.toFixed(3)+', '+n.lng.toFixed(3)) : '') +'</div>' +
+        '</div>';
+    }
+    box.innerHTML = html;
+    box.querySelectorAll('.fact').forEach(div => {
+      const c64 = div.getAttribute('data-emem-cell');
+      div.style.cursor = 'pointer';
+      div.onclick = () => {
+        let target = STATE.cellById.get(c64);
+        if (!target) {
+          const nb = ns.find(x => x.cell === c64);
+          target = makeSyntheticCell(c64, nb?.lat, nb?.lng);
+          STATE.cells.push(target); STATE.cellById.set(c64, target);
+          computeProjection();
+        }
+        selectCell(target);
+      };
+    });
   } catch (e) {
-    STATE.graph = { center: cell, neighbors: [] };
+    if (box) box.innerHTML = '<div class=empty>find_similar failed: '+escapeHtml(String(e))+'</div>';
   }
 }
-async function loadGraphAndSwitch(cell) {
-  await loadGraph(cell);
-  STATE.mode='graph'; updateModeButtons(); drawCurrent();
-  // Also render neighbours in the right pane
-  const nbs = (STATE.graph && STATE.graph.neighbors) || [];
-  const right = document.getElementById('rightPane');
-  let html = right.innerHTML + '<h3>top-K neighbours</h3><div class=neighbors>';
-  for (const n of nbs) {
-    html += '<div class=nb data-cell="'+escapeHtml(n.cell)+'" data-lat="'+n.lat+'" data-lng="'+n.lng+'">' +
-      '<div><div class=nbcell>'+escapeHtml(n.cell)+'</div><div style="color:#5a616b;font-size:10px">'+escapeHtml(n.place_label_cached||'')+'</div></div>' +
-      '<div class=nbsim>'+n.score.toFixed(3)+'</div>' +
+
+async function doCellInfo(cell) {
+  const box = document.getElementById('factsBox');
+  try {
+    const res = await api('GET', '/v1/cells/'+cell.cell64+'/info');
+    const html = '<h3>cell info</h3><div class=fact>'+
+      '<div class=val>centre '+(res.centre?.lat_deg?.toFixed(5))+', '+(res.centre?.lng_deg?.toFixed(5))+'</div>'+
+      '<div class=val>bbox '+JSON.stringify(res.bbox_deg)+'</div>'+
+      '<div class=val>approx '+(res.approx_size_m?.lat?.toFixed(2))+' × '+(res.approx_size_m?.lng?.toFixed(2))+' m</div>'+
       '</div>';
+    if (box) box.innerHTML = html;
+  } catch (e) {
+    if (box) box.innerHTML = '<div class=empty>info failed: '+escapeHtml(String(e))+'</div>';
   }
-  html += '</div>';
-  right.innerHTML = html;
-  right.querySelectorAll('.neighbors .nb').forEach(el => {
-    el.onclick = () => {
-      const c = el.dataset.cell, lat = +el.dataset.lat, lng = +el.dataset.lng;
-      const synth = makeSyntheticCell(c, lat, lng);
-      STATE.mode='field'; updateModeButtons();
-      selectCell(synth);
-    };
-  });
 }
 
-// ── 12. In-browser verify: blake3(preimage) → ed25519.verify_strict ────────
-async function verifyReceipt(receipt) {
-  const row = document.getElementById('verifyRow');
-  const msg = document.getElementById('verifyMsg');
-  row.classList.remove('ok','fail');
-  msg.textContent = 'verifying…';
+function makeSyntheticCell(cell64, lat, lng) {
+  if (lat == null || lng == null) { lat = 0; lng = 0; }
+  return {
+    cell64, lat, lng, fact_count: 0,
+    family: 'foundation', color: famColor('foundation'),
+    brightness: 0.6, twinkle: Math.random()*6.28, twinkleSpeed: 1,
+    x: 0.5 + ((lng+180)/360 - 0.5)*Math.cos(lat*Math.PI/180), y: (90-lat)/180,
+    synthetic: true,
+  };
+}
 
-  if (nobleEd && nobleBlake3) {
-    try {
-      const preimage = buildPreimage(receipt);
-      const digest = nobleBlake3(preimage);                 // 32 bytes
-      const sig    = new Uint8Array(receipt.signature);     // 64 bytes
-      const pk     = new Uint8Array(receipt.responder);     // 32 bytes
-      // strict verification: rejects malleable / non-canonical sigs
-      const ok = await nobleEd.verifyAsync(sig, digest, pk, { zip215: false });
-      row.classList.add(ok ? 'ok' : 'fail');
-      msg.innerHTML = ok
-        ? '<span class=check>OK</span> verified offline · ed25519 + blake3 · no server roundtrip'
-        : '<span class=check>FAIL</span> signature did not verify (preimage or key mismatch)';
-      return;
-    } catch (e) {
-      console.warn('in-browser verify threw, falling back', e);
+// ── 15. Lasso → /v1/recall_polygon ────────────────────────────────────────
+function paintLassoSummary(polyLatLng, sel) {
+  const html = '<h3>lasso · in flight</h3>' +
+    '<div class=fact data-emem-href="/v1/recall_polygon">' +
+      '<div class=band>POST /v1/recall_polygon</div>' +
+      '<div class=val>polygon vertices: '+ (polyLatLng.length-1) +'</div>' +
+      '<div class=val>cells inside (page): '+ sel.length +'</div>' +
+      '<div class=ts>waiting for response…</div>' +
+    '</div>';
+  setRightPane(html);
+}
+function paintPolygonResult(polyLatLng, sel, res) {
+  const facts = res.facts || (res.by_cell ? Object.values(res.by_cell).flatMap(c => c.facts||[]) : []);
+  const cells = res.cells_sampled || res.cells || (res.by_cell ? Object.keys(res.by_cell) : []);
+  let html = '<h3>lasso · '+ (cells.length||sel.length) +' cells</h3>' +
+    '<div class=fact data-emem-href="/v1/recall_polygon">' +
+      '<div class=band>POST /v1/recall_polygon</div>' +
+      '<div class=val>area '+ (res.area_km2 ? res.area_km2.toFixed(1)+' km²' : '—') +'</div>' +
+      '<div class=val>cells_returned <b>'+ cells.length +'</b></div>' +
+      '<div class=val>facts_returned <b>'+ facts.length +'</b></div>' +
+    '</div>';
+  if (facts.length) {
+    html += '<h3>sample facts</h3>';
+    for (const f of facts.slice(0, 10)) {
+      const fam = STATE.bandFamilyByKey[f.band] || 'reserved';
+      const cid = f.fact_cid || '';
+      html += '<div class=fact data-emem-cell="'+escapeHtml(f.cell||'')+'" data-emem-band="'+escapeHtml(f.band||'')+'" data-emem-fact-cid="'+escapeHtml(cid)+'">' +
+        '<div class=band>'+escapeHtml(f.band||'')+'</div>' +
+        '<div class=val>'+escapeHtml(formatVal(f.value ?? f.scalar) || '')+'</div>' +
+        '<div class=cid copyable>'+escapeHtml(cid)+'</div>' +
+        '</div>';
     }
   }
-  // Fallback: ask the server.
-  try {
-    const res = await api('POST', '/v1/verify_receipt', { receipt });
-    const ok = res.signature_ok === true || res.ok === true || res.signature_ok === 'ok';
-    row.classList.add(ok ? 'ok' : 'fail');
-    msg.innerHTML = ok
-      ? '<span class=check>OK</span> verified server-side via /v1/verify_receipt'
-      : '<span class=check>FAIL</span> server reports invalid signature';
-  } catch (e) {
-    row.classList.add('fail');
-    msg.textContent = 'verify call failed: ' + e.message;
+  if (res.receipt) {
+    html += '<h3>receipt</h3><div class=fact data-emem-fact-cid="'+escapeHtml((res.receipt.fact_cids||[])[0]||'')+'">' +
+      '<div class=band>'+escapeHtml(res.receipt.primitive||'')+'</div>' +
+      '<div class=val>request_id '+escapeHtml(res.receipt.request_id||'')+'</div>' +
+      '<div class=val>'+(res.receipt.fact_cids||[]).length+' fact_cids · responder '+ (res.receipt.responder_pubkey_b32||'?').slice(0,10) +'…</div>' +
+      '</div>' +
+      '<div class=verify-row id=verifyRow>' +
+        '<span class="pill pending"><span class=glyph></span> not verified</span>' +
+        '<button id=btnVerify class=primary type=button>verify offline</button>' +
+      '</div>';
   }
+  setRightPane(html);
+  if (res.receipt) document.getElementById('btnVerify').onclick = () => verifyReceiptUI(res.receipt);
 }
 
-function buildPreimage(receipt) {
-  // Canonical preimage per docs/protocol.md §7.1, server.rs:119-148:
-  //   <request_id> | <served_at> | <primitive> |
-  //   <cell_0>, <cell_1>, … <cell_{n-1}>, |
-  //   <fact_cid_0>, <fact_cid_1>, … <fact_cid_{m-1}>,
-  // — every list element followed by a comma, including the last.
+// ── 16. Offline verify: blake3(preimage) → ed25519.verify ──────────────────
+function buildPreimageBytes(receipt) {
+  // Server's canonical preimage (crates/emem-storage/src/server.rs:132-148):
+  //   request_id | served_at | primitive | (cell0, cell1, …,) | (cid0, cid1, …,)
+  // Each list element is followed by a literal comma. Pipes separate sections.
   const enc = new TextEncoder();
   const parts = [];
-  parts.push(enc.encode(receipt.request_id||''));    parts.push(enc.encode('|'));
-  parts.push(enc.encode(receipt.served_at||''));     parts.push(enc.encode('|'));
-  parts.push(enc.encode(receipt.primitive||''));     parts.push(enc.encode('|'));
-  for (const c of (receipt.cells||[])) {
-    parts.push(enc.encode(c)); parts.push(enc.encode(','));
-  }
+  parts.push(enc.encode(receipt.request_id||'')); parts.push(enc.encode('|'));
+  parts.push(enc.encode(receipt.served_at||''));  parts.push(enc.encode('|'));
+  parts.push(enc.encode(receipt.primitive||''));  parts.push(enc.encode('|'));
+  for (const c of (receipt.cells||[])) { parts.push(enc.encode(c)); parts.push(enc.encode(',')); }
   parts.push(enc.encode('|'));
-  for (const c of (receipt.fact_cids||[])) {
-    parts.push(enc.encode(c)); parts.push(enc.encode(','));
-  }
+  for (const c of (receipt.fact_cids||[])) { parts.push(enc.encode(c)); parts.push(enc.encode(',')); }
   let len = 0; for (const p of parts) len += p.length;
   const out = new Uint8Array(len);
   let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
   return out;
 }
 
-// ── 13. base32-nopad-lowercase decoder for responder pubkey ────────────────
-function b32decode(s) {
-  // RFC 4648 base32, lowercase, no padding.
-  const A = 'abcdefghijklmnopqrstuvwxyz234567';
-  let bits = 0, val = 0;
-  const out = [];
-  for (const ch of s.toLowerCase()) {
-    const i = A.indexOf(ch);
-    if (i < 0) continue;
-    val = (val << 5) | i; bits += 5;
-    if (bits >= 8) { bits -= 8; out.push((val >> bits) & 0xff); }
+async function verifyReceiptCore(receipt) {
+  if (nobleStatus === 'ok' && nobleEd && nobleBlake3) {
+    try {
+      const preimage = buildPreimageBytes(receipt);
+      const digest = nobleBlake3(preimage);
+      const sig = receipt.signature instanceof Array ? new Uint8Array(receipt.signature) : null;
+      let pkBytes = null;
+      if (receipt.responder instanceof Array) pkBytes = new Uint8Array(receipt.responder);
+      else if (receipt.responder_pubkey_b32)  pkBytes = b32decode(receipt.responder_pubkey_b32);
+      else if (STATE.responderBytes)          pkBytes = STATE.responderBytes;
+      if (!sig || !pkBytes) return false;
+      return nobleEd.verify(sig, digest, pkBytes);
+    } catch (e) {
+      console.warn('[emem/humans] in-browser verify threw, falling back', e);
+    }
   }
-  return new Uint8Array(out);
+  // server fallback
+  try {
+    const r = await api('POST', '/v1/verify_receipt', { receipt });
+    return r && (r.valid === true || r.signature_ok === true || r.ok === true);
+  } catch (e) { return false; }
 }
 
-// ── 14. Time slider (visual filter only — does not refetch) ───────────────
-document.getElementById('tlSlider').addEventListener('input', e => {
-  STATE.tslot = +e.target.value / 100;
-  document.getElementById('tlLabel').textContent =
-    STATE.tslot >= 0.999 ? 'all time' : 'top '+Math.round(STATE.tslot*100)+'%';
-  // Hide the lowest-density tail.
-  const cutoff = Math.floor(STATE.cells.length * STATE.tslot);
-  const sorted = STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count);
-  const visible = new Set(sorted.slice(0, cutoff).map(c=>c.cell64));
-  for (const c of STATE.cells) c.brightness =
-    (visible.has(c.cell64) ? Math.log10(1 + c.fact_count) : 0);
-  drawCurrent();
+async function verifyReceiptUI(receipt) {
+  const row = document.getElementById('verifyRow');
+  if (!row) return;
+  const pill = row.querySelector('.pill');
+  const msg  = document.getElementById('verifyMsg');
+  pill.className = 'pill pending'; pill.textContent = 'verifying…';
+  if (msg) msg.textContent = nobleStatus === 'ok'
+    ? 'computing blake3 + ed25519.verify offline…'
+    : 'noble libs unavailable; routing to /v1/verify_receipt…';
+  const ok = await verifyReceiptCore(receipt);
+  pill.className = 'pill ' + (ok ? 'ok' : 'fail');
+  pill.innerHTML = '<span class=glyph></span> ' + (ok ? 'verified offline' : 'verification failed');
+  row.classList.remove('ok','fail'); row.classList.add(ok ? 'ok' : 'fail');
+  // expose verification state on the parent fact for DOM scrapers
+  const factEl = row.previousElementSibling;
+  if (factEl && factEl.classList && factEl.classList.contains('fact')) {
+    factEl.setAttribute('data-emem-verified', ok ? 'true' : 'false');
+  }
+  if (msg) {
+    if (ok && nobleStatus === 'ok') {
+      msg.textContent = 'preimage = blake3(request_id|served_at|primitive|cells,|cids,)  →  ed25519.verify(sig, digest, pubkey) = true';
+    } else if (ok) {
+      msg.textContent = 'verified server-side via /v1/verify_receipt (CDN libs unavailable for offline path)';
+    } else {
+      msg.textContent = 'preimage / signature / pubkey mismatch — see console for the raw response';
+    }
+  }
+}
+
+// ── 17. Push receipt into the log view (top of list) ──────────────────────
+function pushReceiptToLog(receipt, cell64) {
+  if (!receipt || !receipt.fact_cids || !receipt.fact_cids.length) return;
+  const body = document.getElementById('logBody');
+  if (!body) return;
+  const ts = (receipt.served_at || new Date().toISOString()).replace('T',' ').slice(0,19);
+  const cid = receipt.fact_cids[0];
+  const tslot = Math.floor(Date.parse(receipt.served_at||new Date().toISOString())/1000);
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.setAttribute('data-emem-cell', cell64||'');
+  row.setAttribute('data-emem-band', '*');
+  row.setAttribute('data-emem-fact-cid', cid);
+  row.setAttribute('data-emem-tslot', tslot);
+  row.setAttribute('data-emem-responder', receipt.responder_pubkey_b32||STATE.responder||'');
+  row.innerHTML =
+    '<div class=ts>'+escapeHtml(ts)+'</div>' +
+    '<div class=key>' +
+      '<div class=band><span class=fam-dot style="background:var(--accent);color:var(--accent);display:inline-block;margin-right:.5em;width:8px;height:8px;border-radius:50%"></span>'+escapeHtml(receipt.primitive||'recall')+' · '+escapeHtml(cell64||'')+'</div>' +
+      '<div class=meta>fact_cid '+escapeHtml(cid.slice(0,16))+'… · '+(receipt.fact_cids||[]).length+' cids</div>' +
+    '</div>' +
+    '<div class=actions>' +
+      '<span class="pill pending"><span class=glyph></span> not verified</span>' +
+      '<button class=primary type=button>verify</button>' +
+    '</div>';
+  body.prepend(row);
+  row.querySelector('button').onclick = async () => {
+    const pill = row.querySelector('.pill');
+    pill.className = 'pill pending'; pill.textContent = 'verifying…';
+    const ok = await verifyReceiptCore(receipt);
+    pill.className = 'pill ' + (ok ? 'ok' : 'fail');
+    pill.textContent = ok ? 'verified' : 'fail';
+    row.setAttribute('data-emem-verified', ok ? 'true' : 'false');
+  };
+  const count = document.getElementById('logCount');
+  if (count) count.textContent = body.children.length + ' entries';
+}
+
+// ── 18. Command palette ───────────────────────────────────────────────────
+const cmdkBack  = document.getElementById('cmdkBack');
+const cmdkInput = document.getElementById('cmdkInput');
+const cmdkList  = document.getElementById('cmdkList');
+let _cmdkActive = 0, _cmdkResults = [];
+function openCmdk() {
+  cmdkBack.classList.add('on');
+  cmdkInput.value = '';
+  cmdkInput.focus();
+  refreshCmdk('');
+}
+function closeCmdk() {
+  cmdkBack.classList.remove('on');
+}
+cmdkBack.addEventListener('click', e => { if (e.target === cmdkBack) closeCmdk(); });
+
+function buildCmdkCorpus() {
+  const out = [];
+  // primitives
+  out.push({ kind:'verb',  label:'recall <cell>',         run:q => promptForCell(q, c => doRecall(c)) });
+  out.push({ kind:'verb',  label:'find_similar <cell>',   run:q => promptForCell(q, c => doFindSimilar(c)) });
+  out.push({ kind:'verb',  label:'verify last receipt',   run:() => verifyLastReceipt() });
+  out.push({ kind:'verb',  label:'lasso polygon (drag)',  run:() => { lassoMode = true; canvas.classList.add('lasso'); closeCmdk(); } });
+  // cells (top by fact_count)
+  for (const c of STATE.cells.slice().sort((a,b)=>b.fact_count-a.fact_count).slice(0, 80)) {
+    out.push({ kind:'cell', label:c.cell64+'   '+c.lat.toFixed(2)+','+c.lng.toFixed(2)+'  ('+c.fact_count+' facts)', run:() => { closeCmdk(); selectCell(c); } });
+  }
+  // bands
+  for (const b of STATE.matrix.slice(0, 80)) {
+    out.push({ kind:'band', label:b.band+'   ['+b.family+']  '+(b.facts_count||0)+' facts', run:() => { closeCmdk(); paintBandCard(b.band); setMode('registry'); } });
+  }
+  // manifests
+  const m = STATE.manifests || {};
+  for (const k of Object.keys(m)) if (m[k]) out.push({ kind:'manifest', label:k+'  '+m[k].slice(0,12)+'…', run:() => { navigator.clipboard.writeText(m[k]); closeCmdk(); } });
+  return out;
+}
+function refreshCmdk(q) {
+  const corpus = buildCmdkCorpus();
+  const ql = q.trim().toLowerCase();
+  let results;
+  if (!ql) results = corpus.slice(0, 60);
+  else {
+    results = corpus.filter(r => r.label.toLowerCase().includes(ql)).slice(0, 100);
+    // Always include a "geocode" verb as the top result if user typed a free-form query.
+    results.unshift({ kind:'geocode', label:'locate "'+q+'"  →  POST /v1/locate', run:() => doLocate(q) });
+  }
+  _cmdkResults = results;
+  _cmdkActive = 0;
+  renderCmdk(ql);
+}
+function renderCmdk(q) {
+  cmdkList.innerHTML = '';
+  _cmdkResults.forEach((r, i) => {
+    const div = document.createElement('div');
+    div.className = 'cmdk-row' + (i === _cmdkActive ? ' active' : '');
+    let lbl = escapeHtml(r.label);
+    if (q) {
+      const re = new RegExp('('+q.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&')+')','ig');
+      lbl = lbl.replace(re, '<span class=h>$1</span>');
+    }
+    div.innerHTML = '<span class=kind>'+r.kind+'</span><span class=label>'+lbl+'</span>';
+    div.onclick = () => r.run(q);
+    cmdkList.appendChild(div);
+  });
+}
+cmdkInput.addEventListener('input', e => refreshCmdk(e.target.value));
+cmdkInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { _cmdkActive = Math.min(_cmdkResults.length-1, _cmdkActive+1); renderCmdk(cmdkInput.value); e.preventDefault(); }
+  if (e.key === 'ArrowUp')   { _cmdkActive = Math.max(0, _cmdkActive-1); renderCmdk(cmdkInput.value); e.preventDefault(); }
+  if (e.key === 'Enter')     { const r = _cmdkResults[_cmdkActive]; if (r) r.run(cmdkInput.value); }
+  if (e.key === 'Escape')    { closeCmdk(); }
 });
 
-// ── 15. Boot ───────────────────────────────────────────────────────────────
-window.addEventListener('load', () => {
+async function promptForCell(q, fn) {
+  const c64Re = /^[a-z]{4}\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+\.[0-9a-zA-Z]+$/;
+  let target = STATE.cellById.get(q);
+  if (!target && c64Re.test(q)) target = makeSyntheticCell(q, null, null);
+  if (!target) {
+    // try locate
+    try {
+      const res = await api('POST', '/v1/locate', { q });
+      const c64 = res.cell64 || res.cell;
+      target = STATE.cellById.get(c64) || makeSyntheticCell(c64, res.centre?.lat_deg ?? res.lat, res.centre?.lng_deg ?? res.lng);
+    } catch (e) {}
+  }
+  if (target) { closeCmdk(); fn(target); }
+}
+async function doLocate(q) {
+  closeCmdk();
+  if (!q) return;
+  try {
+    const res = await api('POST', '/v1/locate', { q });
+    const c64 = res.cell64 || res.cell;
+    if (!c64) return;
+    let target = STATE.cellById.get(c64);
+    if (!target) {
+      target = makeSyntheticCell(c64, res.centre?.lat_deg ?? res.lat, res.centre?.lng_deg ?? res.lng);
+      STATE.cells.push(target); STATE.cellById.set(c64, target);
+      computeProjection();
+    }
+    selectCell(target);
+  } catch (e) {}
+}
+function verifyLastReceipt() {
+  closeCmdk();
+  // walk the right pane, find data-emem-href=/v1/verify_receipt
+  const btn = document.getElementById('btnVerify');
+  if (btn) btn.click();
+}
+
+// ── 19. Boot wire-up ──────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
   resizeCanvas();
-  boot().then(() => {
+  try {
+    await boot();
+    // Boot banner in the console
+    const div = document.createElement('div');
+    div.className = 'log banner';
+    div.innerHTML = '<span class=arrow>// </span> ready. every /v1/* call this UI makes prints above. paste a curl into your shell — same bytes, same CIDs. press <kbd>Ctrl-K</kbd>, <kbd>~</kbd>, <kbd>?</kbd>.';
+    consoleBody.appendChild(div);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
     drawCurrent();
-    // Initial console hint
+    startTwinkleLoop();
+  } catch (e) {
+    STATE.bootError = e;
+    const v = document.getElementById('bootVeil');
+    if (v) v.innerHTML = 'boot failed — '+escapeHtml(String(e));
     const div = document.createElement('div');
     div.className = 'log';
-    div.innerHTML = '<span class=hint>// every /v1/* call this UI makes prints above. paste a curl into your shell, get the same bytes.</span>';
-    consolePane.appendChild(div);
-  }).catch(e => {
-    const div = document.createElement('div');
-    div.className = 'log';
-    div.innerHTML = '<span class=err>boot failed: '+escapeHtml(String(e))+'</span>';
-    consolePane.appendChild(div);
-  });
+    div.innerHTML = '<span class=err-status>boot failed: '+escapeHtml(String(e))+'</span>';
+    consoleBody.appendChild(div);
+  }
+});
+
+// ── 20. Re-paint on tab visibility (cancels twinkle when hidden) ──────────
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) drawCurrent();
 });
 </script>
 </body>

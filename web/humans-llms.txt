@@ -1,0 +1,101 @@
+# emem.dev/humans — knowledge constellation for AI agents
+
+> A single-page exploration of the emem corpus. Every visible thing carries
+> structured data attributes (cell64, band, fact_cid, tslot) so a scraping
+> LLM can extract everything from the rendered DOM. Every /v1/* call the
+> page makes is printed in a live console pane — read the page, learn the
+> API by observation. Sibling JSON twin: /humans.json.
+
+## Endpoints discoverable on this page
+
+- `GET /v1/discover` — typed bootstrap, manifest CIDs, primitive list
+- `GET /.well-known/emem.json` — responder pubkey, key epoch, manifests
+- `GET /v1/coverage` — `cells[].{cell64, fact_count, lat_deg, lng_deg}` (densest first)
+- `GET /v1/coverage_matrix?limit=200` — per-band facts_count, last_attested_unix_s, family, tempo_seconds, history bounds
+- `GET /v1/data_availability` — per-band tempo_seconds + history_available_{from,to}_unix
+- `GET /v1/bands` — band registry (35 bands, family, dims, in_cube)
+- `GET /v1/algorithms` — algorithm registry (composition recipes)
+- `GET /v1/sources` — fetch-source registry (12 connectors, 23 schemes)
+- `GET /v1/cells/{cell64}/info` — bbox, centre, approximate metres
+- `GET /v1/cells/{cell64}/scene.png` — optional thumbnail
+- `POST /v1/recall` — `{cell, bands?}` → signed `facts[] + receipt`
+- `POST /v1/recall_polygon` — `{polygon|place, bands}` → fanout fact set + receipt
+- `POST /v1/find_similar` — `{key|cell, band?, k}` → cosine top-K + receipt
+- `POST /v1/locate` — `{q}` → cell64 + bbox + topic-grouped band index at that cell
+- `POST /v1/verify_receipt` — `{receipt}` → `{valid, preimage_blake3_hex, signer_pubkey_b32}`
+
+## Data attributes (DOM scraping)
+
+Every star, fact card, receipt row, and registry node carries:
+
+- `data-emem-cell="defi.<bigram>.<bigram>.<bigram>"` — cell64 string
+- `data-emem-band="<band-key>"` — band key (e.g. `copdem30m.elevation_mean`)
+- `data-emem-fact-cid="<base32-32B>"` — content-addressed CID
+- `data-emem-tslot="<unix_s>"` — Unix-epoch tslot
+- `data-emem-family="<family-key>"` — band family for colour mapping
+- `data-emem-responder="<pubkey-b32>"` — responder public key (32B base32-nopad-lowercase)
+- `data-emem-verified="true|false|pending"` — Ed25519+BLAKE3 verification state
+- `data-emem-href="<endpoint-path>"` — primary endpoint that produced the row
+
+## Trust model
+
+The page implements offline receipt verification in-browser:
+
+```
+preimage_bytes = utf8(request_id) | "|" |
+                 utf8(served_at)  | "|" |
+                 utf8(primitive)  | "|" |
+                 utf8(cell0) "," utf8(cell1) "," ... |
+                 utf8(cid0) "," utf8(cid1) "," ...
+digest         = blake3(preimage_bytes, 32 B)
+ok             = ed25519.verify(signature_64B, digest, responder_pubkey_32B)
+```
+
+Libraries are pinned esm.sh imports:
+- `https://esm.sh/@noble/curves@1.6.0/ed25519`
+- `https://esm.sh/@noble/hashes@1.5.0/blake3`
+
+If the libraries fail to load, the page falls back to `POST /v1/verify_receipt`
+and labels the receipt row accordingly. A green "verified offline" pill is
+only shown when the in-browser path returns true.
+
+## Console pane
+
+Every `fetch()` the page issues prints to a live console at the bottom (or
+bottom sheet on mobile). Each row shows:
+
+- ISO timestamp (HH:MM:SS)
+- HTTP method
+- Path (clickable → opens raw response in a new tab)
+- Truncated request body (when applicable)
+- Status code, latency in ms
+- Truncated response body or error reason
+
+Press `~` or click the chip in the top-right to focus the console. Press
+`Cmd+K` (or `Ctrl+K`) to open the command palette. Press `?` for the
+keyboard shortcut sheet.
+
+## Views
+
+- `field` — constellation: every attested cell as a star, positioned by 2-D
+  PCA over the `geotessera` 12-byte embedding prefix when available, or by
+  Hilbert-projected lat/lng otherwise. Brightness ∝ log(fact_count + 1),
+  hue ∝ band family. Drag to lasso a polygon → calls `POST /v1/recall_polygon`.
+- `graph` — force-directed layout (Verlet integrator, canvas2D) of the top
+  200 cells linked by shared bands. No third-party graph libraries.
+- `registry` — Poincaré-disk hyperbolic projection of the 8 manifest CIDs
+  (registry, bands, algorithms, sources, schema, lcv-1, alphabet, topics)
+  with their children placed by facts_count.
+- `log` — Sigstore-Rekor-style scroll of recent attestations sourced from
+  `/v1/coverage_matrix`. Each row is independently verifiable.
+
+## JSON twin
+
+`GET /humans.json` returns the structured snapshot the page renders from:
+manifests, top-10 bands, dense-20 cells, responder pubkey, and the list of
+endpoints invoked by the page. Use it as a static fallback when JS cannot
+run.
+
+## Operator
+
+Vortx AI Private Limited (India) · avijeet@vortx.ai · github.com/Vortx-AI/emem · Apache-2.0

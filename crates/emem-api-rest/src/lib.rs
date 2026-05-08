@@ -91,6 +91,8 @@ const TEMPORAL_MD: &str = include_str!("../../../docs/protocol.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const HUMANS_HTML: &str = include_str!("../../../web/humans.html");
+const HUMANS_JSON: &str = include_str!("../../../web/humans.json");
+const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 // Lowercase canonical docs (post-2026-05-08 docs sweep). CLIENTS_MD was
@@ -146,6 +148,8 @@ pub fn router(state: AppState) -> Router {
         // Landing & agent-targeted pages
         .route("/", get(landing))
         .route("/humans", get(serve_humans_html))
+        .route("/humans.json", get(serve_humans_json))
+        .route("/humans/llms.txt", get(serve_humans_llms_txt))
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
         .route("/whitepaper", get(serve_whitepaper_md))
@@ -1210,6 +1214,22 @@ async fn serve_llms_txt() -> Response {
 /// SEO landing page; analytics live on `/`.
 async fn serve_humans_html() -> Response {
     text_response("text/html; charset=utf-8", HUMANS_HTML)
+}
+
+/// `/humans.json` — JSON twin of the `/humans` constellation.
+///
+/// A static snapshot of the same data the page renders (manifest CIDs, the
+/// densest-cell list, top bands by `facts_count`, responder pubkey). Agents
+/// that prefer JSON over scraping DOM read this directly; the file is baked
+/// from `/v1/coverage_matrix` at release time and refreshed each rebuild.
+async fn serve_humans_json() -> Response {
+    text_response("application/json; charset=utf-8", HUMANS_JSON)
+}
+
+/// `/humans/llms.txt` — page-scoped llms.txt describing the surface at
+/// `/humans` (endpoints invoked, data attributes, trust model, console pane).
+async fn serve_humans_llms_txt() -> Response {
+    text_response("text/plain; charset=utf-8", HUMANS_LLMS_TXT)
 }
 async fn serve_llms_full() -> Response {
     // Historical artifact — earlier release shipped a 25 KB "full" variant

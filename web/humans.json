@@ -1,0 +1,278 @@
+{
+  "schema": "emem.humans.v1",
+  "served_by": "https://emem.dev",
+  "responder_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+  "manifests": {
+    "algorithms_cid": "7yjjwz4lw6d4punnnhlcpaf7rkf4xtfr4zyieqfd43bkpwfurhkq",
+    "bands_cid": "shgsnyynty7uugxn3tksew5a3h2oqwn3bmnmyedooinfav7egdlq",
+    "registry_cid": "g5bv5bin2xlegkwmhk7bimis3l7642t5lvzfs4isenb32faxi35q",
+    "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
+    "sources_cid": "3gasd2lldf5nx4xtfdx4vpdwk2fpmvhyl6gsr33osukxbipfjbha",
+    "topics_cid": "kqq64h3otdp2yn3vtkllzlralseks7edc7wecfrbcauyg7r3wsuq"
+  },
+  "totals": {
+    "bands_declared": 82,
+    "bands_with_facts": 51,
+    "bands_with_materializer": 62,
+    "iter_index_limit": 50000,
+    "total_facts": 3552
+  },
+  "bands_top10": [
+    {
+      "band": "indices",
+      "family": "optical",
+      "facts_count": 363,
+      "has_materializer": true,
+      "tempo_seconds": 86400,
+      "last_attested_unix_s": 1778224403,
+      "history_available_from_unix": null,
+      "history_available_to_unix": null,
+      "in_cube": true
+    },
+    {
+      "band": "indices.ndvi",
+      "family": "vegetation",
+      "facts_count": 263,
+      "has_materializer": true,
+      "tempo_seconds": 86400,
+      "last_attested_unix_s": 1778224403,
+      "history_available_from_unix": 1543881600,
+      "history_available_to_unix": null,
+      "in_cube": false
+    },
+    {
+      "band": "air_quality",
+      "family": "climate",
+      "facts_count": 251,
+      "has_materializer": true,
+      "tempo_seconds": 86400,
+      "last_attested_unix_s": 1778056725,
+      "history_available_from_unix": null,
+      "history_available_to_unix": null,
+      "in_cube": true
+    },
+    {
+      "band": "climate",
+      "family": "climate",
+      "facts_count": 235,
+      "has_materializer": true,
+      "tempo_seconds": 2592000,
+      "last_attested_unix_s": 1778146176,
+      "history_available_from_unix": null,
+      "history_available_to_unix": null,
+      "in_cube": true
+    },
+    {
+      "band": "cop_dem",
+      "family": "terrain",
+      "facts_count": 230,
+      "has_materializer": true,
+      "tempo_seconds": 0,
+      "last_attested_unix_s": 1778238008,
+      "history_available_from_unix": null,
+      "history_available_to_unix": null,
+      "in_cube": true
+    },
+    {
+      "band": "copdem30m.elevation_mean",
+      "family": "terrain",
+      "facts_count": 230,
+      "has_materializer": true,
+      "tempo_seconds": 0,
+      "last_attested_unix_s": 1778238008,
+      "history_available_from_unix": null,
+      "history_available_to_unix": null,
+      "in_cube": false
+    },
+    {
+      "band": "surface_water",
+      "family": "water",
+      "facts_count": 176,
+      "has_materializer": true,
+      "tempo_seconds": 86400,
+      "last_attested_unix_s": 1778146179,
+      "history_available_from_unix": null,
+      "history_available_to_unix": null,
+      "in_cube": true
+    },
+    {
+      "band": "surface_water.recurrence",
+      "family": "water",
+      "facts_count": 176,
+      "has_materializer": true,
+      "tempo_seconds": 0,
+      "last_attested_unix_s": 1778146179,
+      "history_available_from_unix": 448243200,
+      "history_available_to_unix": 1640995199,
+      "in_cube": false
+    },
+    {
+      "band": "modis.ndvi_mean",
+      "family": "vegetation",
+      "facts_count": 168,
+      "has_materializer": true,
+      "tempo_seconds": 2592000,
+      "last_attested_unix_s": 1778146175,
+      "history_available_from_unix": 950832000,
+      "history_available_to_unix": null,
+      "in_cube": false
+    },
+    {
+      "band": "indices.ndwi",
+      "family": "water",
+      "facts_count": 156,
+      "has_materializer": true,
+      "tempo_seconds": 86400,
+      "last_attested_unix_s": 1778146173,
+      "history_available_from_unix": 1543881600,
+      "history_available_to_unix": null,
+      "in_cube": false
+    }
+  ],
+  "cells_dense20": [
+    {
+      "cell64": "defi.zb493.xoso.zcb6a",
+      "fact_count": 54,
+      "lat_deg": 12.971641050167591,
+      "lng_deg": 77.59460868706907
+    },
+    {
+      "cell64": "defi.zb544.pico.zd392",
+      "fact_count": 51,
+      "lat_deg": 28.508118871745523,
+      "lng_deg": 77.77382320733625
+    },
+    {
+      "cell64": "defi.zb4d9.cojE.zf4be",
+      "fact_count": 50,
+      "lat_deg": 19.076008356098342,
+      "lng_deg": 72.87769624655158
+    },
+    {
+      "cell64": "defi.zb523.zccef.yUfe",
+      "fact_count": 48,
+      "lat_deg": 25.64652235342139,
+      "lng_deg": 87.96458911051491
+    },
+    {
+      "cell64": "defi.zb520.zbd2f.notu",
+      "fact_count": 46,
+      "lat_deg": 25.37744301674033,
+      "lng_deg": 86.24479919548014
+    },
+    {
+      "cell64": "defi.zb4e2.bibU.fOlO",
+      "fact_count": 46,
+      "lat_deg": 19.863848621296228,
+      "lng_deg": 73.81754250944675
+    },
+    {
+      "cell64": "defi.zb5cb.ze110.wimi",
+      "fact_count": 44,
+      "lat_deg": 40.4191066833051,
+      "lng_deg": -86.8918769101803
+    },
+    {
+      "cell64": "defi.zb44a.kisu.xIna",
+      "fact_count": 43,
+      "lat_deg": 6.524379980268463,
+      "lng_deg": 3.379197926330079
+    },
+    {
+      "cell64": "defi.zb532.pEru.rAru",
+      "fact_count": 41,
+      "lat_deg": 26.927374328314926,
+      "lng_deg": 81.19486360427464
+    },
+    {
+      "cell64": "defi.zb27e.bogA.lAyO",
+      "fact_count": 41,
+      "lat_deg": -33.9248962044221,
+      "lng_deg": 18.424119573621653
+    },
+    {
+      "cell64": "defi.zb563.noxo.xAvu",
+      "fact_count": 38,
+      "lat_deg": 31.230412116247223,
+      "lng_deg": 121.47367035714876
+    },
+    {
+      "cell64": "defi.zb555.ze2ad.zb606",
+      "fact_count": 38,
+      "lat_deg": 30.04852297235631,
+      "lng_deg": 77.12459972491257
+    },
+    {
+      "cell64": "defi.zb5d0.mIxO.zceb9",
+      "fact_count": 38,
+      "lat_deg": 40.80886402552795,
+      "lng_deg": -96.7077342767082
+    },
+    {
+      "cell64": "defi.zb48c.ze36d.saxi",
+      "fact_count": 38,
+      "lat_deg": 12.382756415727812,
+      "lng_deg": 75.66410438158618
+    },
+    {
+      "cell64": "defi.zb3b9.pevu.zfea9",
+      "fact_count": 37,
+      "lat_deg": -6.208780388250531,
+      "lng_deg": 106.84562846317971
+    },
+    {
+      "cell64": "defi.zb46e.zf1b2.zb4ca",
+      "fact_count": 37,
+      "lat_deg": 9.750928760017757,
+      "lng_deg": 105.2224839264116
+    },
+    {
+      "cell64": "defi.zb509.ze62f.hisO",
+      "fact_count": 37,
+      "lat_deg": 23.370033917443237,
+      "lng_deg": 85.32503731847697
+    },
+    {
+      "cell64": "defi.zb595.zeaf8.zd3a0",
+      "fact_count": 36,
+      "lat_deg": 35.67635806863693,
+      "lng_deg": 139.65003958941452
+    },
+    {
+      "cell64": "defi.zb4f5.sIlO.zf8fd",
+      "fact_count": 36,
+      "lat_deg": 21.574712550503037,
+      "lng_deg": 84.22099690937921
+    },
+    {
+      "cell64": "defi.zb557.zafad.neca",
+      "fact_count": 36,
+      "lat_deg": 30.206794837377004,
+      "lng_deg": 74.94638799342823
+    }
+  ],
+  "endpoints_invoked_by_page": [
+    "GET /v1/discover",
+    "GET /.well-known/emem.json",
+    "GET /v1/coverage",
+    "GET /v1/coverage_matrix?limit=200",
+    "GET /v1/data_availability",
+    "GET /v1/bands",
+    "GET /v1/algorithms",
+    "GET /v1/sources",
+    "POST /v1/recall",
+    "POST /v1/recall_polygon",
+    "POST /v1/find_similar",
+    "POST /v1/locate",
+    "POST /v1/verify_receipt",
+    "GET /v1/cells/{cell64}/info",
+    "GET /v1/cells/{cell64}/scene.png"
+  ],
+  "trust_model": {
+    "hash_alg": "blake3",
+    "sig_alg": "ed25519",
+    "preimage": "request_id | served_at | primitive | cells (each + ',') | fact_cids (each + ',')",
+    "encoding": "base32-nopad-lowercase",
+    "verify_path": "POST /v1/verify_receipt {receipt}, or in-browser via @noble/curves + @noble/hashes"
+  }
+}
