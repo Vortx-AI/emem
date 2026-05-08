@@ -893,7 +893,15 @@ async function api(method, path, body) {
         : Array.isArray(data?.bands) ? data.bands.length+' bands'
         : (data?.cell64 ? 'cell64='+data.cell64 : null)));
     logResult(div, r.ok, r.status, ms, r.ok ? summary : (typeof data === 'string' ? data.slice(0,200) : JSON.stringify(data).slice(0,200)));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      // Carry the response body on the error so callers can surface the
+      // responder's hint (e.g. "no fact at this cell, call /v1/recall first")
+      // instead of dropping a bare "HTTP 404" on the user.
+      const err = new Error('HTTP ' + r.status);
+      err.status = r.status;
+      err.body = data;
+      throw err;
+    }
     return data;
   } catch (e) {
     const ms = (performance.now() - t0).toFixed(0);
@@ -2772,8 +2780,33 @@ function formatVal(v) {
 async function doFindSimilar(cell) {
   const box = document.getElementById('factsBox');
   if (box) box.innerHTML = '<div class=empty>finding 12 nearest neighbours…</div>';
+  let res;
   try {
-    const res = await api('POST', '/v1/find_similar', { key: cell.cell64, k: 12 });
+    res = await api('POST', '/v1/find_similar', { key: cell.cell64, k: 12 });
+  } catch (e) {
+    // 404 cid_not_found means the cell has no geotessera vector attested
+    // yet on this responder. Auto-recall to materialise it (auto-materialise
+    // is on for /v1/recall when EMEM_AUTO_MATERIALIZE=1, which is the
+    // default for emem.dev), then retry. This makes the button just work
+    // for any cell the user can locate.
+    const hint = (e && e.body && (e.body.code === 'cid_not_found' || /no vector found/.test(String(e.body.message||''))));
+    if (e?.status === 404 && hint) {
+      if (box) box.innerHTML = '<div class=empty>materialising geotessera embedding for this cell, then retrying…</div>';
+      try {
+        await api('POST', '/v1/recall', { cell: cell.cell64, bands: ['geotessera'] });
+        res = await api('POST', '/v1/find_similar', { key: cell.cell64, k: 12 });
+      } catch (e2) {
+        const msg = (e2 && e2.body && (e2.body.message || e2.body.error)) || String(e2);
+        if (box) box.innerHTML = '<div class=empty>find_similar still unavailable after recall: '+escapeHtml(String(msg))+'</div>';
+        return;
+      }
+    } else {
+      const msg = (e && e.body && (e.body.message || e.body.error)) || String(e);
+      if (box) box.innerHTML = '<div class=empty>find_similar failed: '+escapeHtml(String(msg))+'</div>';
+      return;
+    }
+  }
+  try {
     const ns = res.neighbors || [];
     if (!ns.length) { box.innerHTML = '<div class=empty>no neighbours returned</div>'; return; }
     let html = '<h3>top-K neighbours · band='+(ns[0].band_used||'?')+'</h3>';
@@ -2800,7 +2833,8 @@ async function doFindSimilar(cell) {
       };
     });
   } catch (e) {
-    if (box) box.innerHTML = '<div class=empty>find_similar failed: '+escapeHtml(String(e))+'</div>';
+    const msg = (e && e.body && (e.body.message || e.body.error)) || String(e);
+    if (box) box.innerHTML = '<div class=empty>find_similar render failed: '+escapeHtml(String(msg))+'</div>';
   }
 }
 
