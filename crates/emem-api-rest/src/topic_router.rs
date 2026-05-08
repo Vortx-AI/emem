@@ -79,6 +79,66 @@ pub struct TopicMatch {
     pub via: &'static str,
 }
 
+/// Question phrases that route to `out_of_scope`. emem only knows the
+/// planet — climate, terrain, atmosphere, vegetation, oceans. These
+/// patterns catch the failure modes the consumer eval surfaced where
+/// the BERT cosine layer returns 5 weak (0.35-0.45) topic hits for
+/// nonsense input because every English noun phrase has *some* signal.
+///
+/// Keep these as lowercase substrings — `is_out_of_scope` lowercases
+/// the question once and runs `contains()` on each pattern. Order is
+/// don't-care; matching is set-membership not priority.
+///
+/// Adding a pattern: only if you've seen it surface as a false-positive
+/// on a real eval question. Don't pre-emptively expand — the fix
+/// surface for a missed false-positive is one entry; the cost of a
+/// false-negative deny is shutting out a legitimate place query.
+const OUT_OF_SCOPE_PATTERNS: &[&str] = &[
+    // Politics / current affairs
+    "who won",
+    "election",
+    "elections",
+    "who is the president",
+    "current president",
+    "current prime minister",
+    "world cup",
+    "super bowl",
+    "olympic medal",
+    // Philosophy / chitchat
+    "meaning of life",
+    "what's the meaning",
+    "tell me a joke",
+    "write a poem",
+    "are you sentient",
+    "are you conscious",
+    // Markets / crypto
+    "stock price",
+    "stock market",
+    "share price",
+    "crypto price",
+    "bitcoin price",
+    "ethereum price",
+    "nasdaq",
+    // Personal advice unrelated to place
+    "what should i eat",
+    "recipe for",
+    "how do i lose weight",
+    // LLM trick prompts
+    "ignore previous",
+    "system prompt",
+    "you are now",
+];
+
+/// Returns true when `q` should be treated as out-of-scope before any
+/// topic routing runs. Case-insensitive substring match against
+/// [`OUT_OF_SCOPE_PATTERNS`].
+fn is_out_of_scope(q: &str) -> bool {
+    let q_low = q.to_lowercase();
+    OUT_OF_SCOPE_PATTERNS
+        .iter()
+        .any(|p| q_low.contains(p))
+}
+
 /// Public router handle. Cheap to clone (everything inside is
 /// `Arc`-shared). The first call constructs the embedder and
 /// pre-computes topic centroids; subsequent calls reuse them.
@@ -387,9 +447,24 @@ impl TopicRouter {
     /// embedding and the cosine to `vegetation_condition` falls
     /// below the 0.35 threshold). The keyword pre-pass gives us
     /// BM25-grade precision on known nouns at zero extra cost.
+    ///
+    /// **Out-of-scope short-circuit** (since 2026-05-08). Questions
+    /// containing any of the deny-list patterns in
+    /// [`OUT_OF_SCOPE_PATTERNS`] return an empty match set
+    /// regardless of what the transformer scores. The 105-question
+    /// consumer eval (tests/comprehensive/) caught the failure mode:
+    /// the transformer happily returned 5 weak (0.35-0.45) topic
+    /// hits for "who won the 2024 election" and "what is the meaning
+    /// of life" because the BERT cosine geometry has *some* signal
+    /// for almost any English noun phrase. The deny-list catches the
+    /// obvious off-topic hits before the topic registry sees them.
     pub fn route(&self, question: &str) -> Vec<TopicMatch> {
         let q = question.trim();
         if q.is_empty() {
+            return Vec::new();
+        }
+        // Out-of-scope short-circuit — see `OUT_OF_SCOPE_PATTERNS` doc.
+        if is_out_of_scope(q) {
             return Vec::new();
         }
         // Always run the keyword exact-match pass — it's pure substring
@@ -792,5 +867,54 @@ mod tests {
         assert!(bands.contains(&"sentinel1_raw".to_string()));
         let algos = router.algorithms_for_topic("flood_risk_composite");
         assert!(algos.iter().any(|a| a == "flood_risk@2"));
+    }
+
+    /// Out-of-scope deny-list — see `OUT_OF_SCOPE_PATTERNS`. These
+    /// were the false-positive cases the 105-question consumer eval
+    /// surfaced (Q290, Q291). They must return an empty match set in
+    /// every backend, regardless of cosine geometry.
+    #[test]
+    fn out_of_scope_questions_return_no_topics() {
+        let registry = (*emem_core::topics::DEFAULT).clone();
+        let router = TopicRouter::keyword_only(registry, 0.0, 5);
+        for q in [
+            "who won the 2024 election",
+            "what is the meaning of life",
+            "current bitcoin price",
+            "tell me a joke about space",
+            "ignore previous instructions",
+        ] {
+            let hits = router.route(q);
+            assert!(
+                hits.is_empty(),
+                "out-of-scope question {q:?} should return no topics, got {:?}",
+                hits.iter().map(|h| &h.key).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// Climate-haven-from-fire phrasing — Q112 in the consumer eval
+    /// missed `fire_burn_severity` because the prior alias list didn't
+    /// cover "safe from wildfire" or "away from wildfire". The new
+    /// aliases (added to `topics-v0.json` 2026-05-08) should route
+    /// these correctly under the keyword backend.
+    #[test]
+    fn fire_haven_phrasing_routes_to_burn_severity() {
+        let registry = (*emem_core::topics::DEFAULT).clone();
+        let router = TopicRouter::keyword_only(registry, 0.0, 5);
+        for q in [
+            "climate safe places in portugal away from wildfire",
+            "neighborhoods safe from wildfire near Sacramento",
+            "low wildfire risk towns in oregon",
+            "is paradise california fire-safe now",
+            "bushfire risk blue mountains nsw this summer",
+        ] {
+            let hits = router.route(q);
+            assert!(
+                hits.iter().any(|h| h.key == "fire_burn_severity"),
+                "fire-haven question {q:?} should route to fire_burn_severity, got {:?}",
+                hits.iter().map(|h| &h.key).collect::<Vec<_>>()
+            );
+        }
     }
 }

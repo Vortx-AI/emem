@@ -125,7 +125,7 @@
     },
     {
       "key": "fire_burn_severity",
-      "description": "Whether a place burned recently, how severely, and post-fire recovery. Uses the Normalized Burn Ratio (NBR) and dNBR for burn-scar detection and severity classification. Answers questions about wildfire, burn scars, fire damage, and post-fire vegetation.",
+      "description": "Whether a place burned recently, how severely, and post-fire recovery — and whether a candidate location is wildfire-safe. Uses the Normalized Burn Ratio (NBR) and dNBR for burn-scar detection and severity classification. Answers questions about wildfire risk, burn scars, fire damage, post-fire vegetation, and climate-haven-from-fire siting.",
       "aliases": [
         "did this area burn",
         "burn severity",
@@ -134,7 +134,21 @@
         "is there a burn scar",
         "post-fire recovery",
         "how badly did it burn",
-        "stubble burning"
+        "stubble burning",
+        "safe from wildfire",
+        "away from wildfire",
+        "wildfire risk",
+        "low wildfire risk",
+        "fire risk",
+        "fire season",
+        "fire season risk",
+        "climate haven fire",
+        "climate-safe from fire",
+        "fire-safe",
+        "bushfire risk",
+        "wildfire smoke",
+        "smoke from wildfires",
+        "is it safe from fire"
       ],
       "bands": ["indices.nbr"],
       "algorithms": ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "residue_burn_multisensor@1"]
