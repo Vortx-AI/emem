@@ -859,7 +859,7 @@ bodies are not captured; GET query strings are captured for the
 The protocol stays small until each item has a working code path:
 
 - **Zero-knowledge verifier.** `verify Mode::Zk` was advertised in 0.0.3 and returned 500; removed in 0.0.4. No halo2 / Circom circuits in the workspace.
-- **Stake / economics.** `Attestation.stake` was a reserved-for-v2.5 field; removed from the struct and 9 call sites. v2.5 will add a properly-named field if and when economics is designed.
+- **Stake / economics.** `Attestation.stake` was a reserved field; removed from the struct and its 9 call sites. There is no roadmap commitment to bring it back — if economics is ever designed for the protocol, a properly-named field will be added at that time.
 - **Multi-host clustering.** Single primary; replicas are read-only.
 - **Trained JEPA-v2.** Loader is wired; no upstream training data exists yet (§10.3).
 - **Filecoin / IPFS bridge.** `IpldConnector` is a stub; operators register their own.
@@ -888,7 +888,7 @@ surface, agent-readable end-to-end.
 
 - **H3 hex migration.** Spec target is an H3-equivalent DGGS at resolution 13 (~3.4 m equal-area cells). cell64 is square at the equator, progressively non-square poleward. Migration requires a new manifest CID for the band ontology and an in-flight-fact story. No timeline; raised so the gap is explicit.
 - **Trained JEPA-v2.** Gated on upstream Tessera publishing multi-vintage history. Training script ready; data is not.
-- **Sub-second WorldPop population.** Currently 2-4 s/cell because the responder reads upstream COG at request time. Pre-baking the global 1 km² raster to S3 would drop this to ~50 ms; infrastructure decision sits outside code.
+- **WorldPop population latency.** Currently 2–4 s/cell because the responder reads upstream COG at request time. Pre-baking the global 1 km² raster locally would amortise the fetch — the actual win depends on disk vs CDN trade-offs and is an infrastructure decision that sits outside the protocol.
 - **Multi-modal Galileo.** S1 / ERA5 / TC / VIIRS / SRTM / DW / WC / LandScan / location modalities are zero-masked. Each needs a connector + chip fetcher; the model already accepts the full multimodal shape.
 - **Five unwired source schemes.** openet.30m.daily, dynamic_world.v1, tropomi.s5p.ch4, tropomi.s5p.no2, viirs.dnb.monthly. Declared, no materialiser, no facts today.
 

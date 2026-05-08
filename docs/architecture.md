@@ -165,7 +165,7 @@ sequenceDiagram
     Router-->>Agent: 200 JSON + ETag
 ```
 
-Three policies drive what gets materialized (`recall_with_auto_materialize`, lib.rs:3680-3756):
+Three policies drive what gets materialized (`recall_with_auto_materialize`, lib.rs:3742-…):
 
 1. Bands are explicitly requested: every band missing from the cache-hit response becomes a candidate.
 2. No bands are requested AND the cell is empty: a small default set fires (`copdem30m.elevation_mean`, `weather.temperature_2m`) so a bare `recall` returns *something* cite-able instead of `[]`.
@@ -349,12 +349,13 @@ There are two surface populations producing live facts:
 
 **Inline materializers in `emem-api-rest/src/lib.rs`** — produce live facts but live in the router crate (architectural debt, tracked in project_fetch_inventory):
 
-- `materialize_gmrt_topobathy` ~ lib.rs:10235 -> `gmrt.topobathy_mean`
-- `materialize_ornl_modis_band` ~ lib.rs:12313 -> 7 MODIS bands (`modis.{ndvi_mean, lst_day_8day, lst_night_8day, et_8day, gpp_8day, lai_8day, burned_area_monthly}`)
-- `materialize_power_band` ~ lib.rs:11510 -> 7 NASA POWER bands
-- `materialize_weather_current` / `_cams_band` / `_era5_band` / `_marine_band` ~ lib.rs:11351/11668/11798/11917 -> ~25 Open-Meteo bands
-- `materialize_soilgrids_band` ~ lib.rs:14493 -> 6 SoilGrids depths
-- `materialize_firms_active_fires` ~ lib.rs:14281 -> `firms.active_fires` (calls into `emem_fetch::firms`)
+- `materialize_gmrt_topobathy` ~ lib.rs:10297 -> `gmrt.topobathy_mean`
+- `materialize_ornl_modis_band` ~ lib.rs:12375 -> 7 MODIS bands (`modis.{ndvi_mean, lst_day_8day, lst_night_8day, et_8day, gpp_8day, lai_8day, burned_area_monthly}`)
+- `materialize_power_band` ~ lib.rs:11572 -> 7 NASA POWER bands
+- `materialize_weather_current` / `materialize_cams_band` / `materialize_era5_band` / `materialize_marine_band` ~ lib.rs:11413/11730/11860/11979 -> ~25 Open-Meteo bands
+- `materialize_soilgrids_band` ~ lib.rs:14552 -> 6 SoilGrids depths
+- `materialize_firms_active_fires` ~ lib.rs:14340 -> `firms.active_fires` (calls into `emem_fetch::firms`)
+- `materialize_chirps_daily_precip` ~ lib.rs:14948 -> `chirps.precip_daily_mm` (calls into `emem_fetch::chirps`)
 - Sentinel-1/-2 + GeoTessera + Prithvi/Galileo encoders + JRC GSW + Overture + ESA WorldCover + Köppen + WorldPop + WDPA all dispatched the same way
 
 Four `sources-v0.json` schemes are declared with NO materializer in api-rest: `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.{ch4, no2}`, `viirs.dnb.monthly`. They register as discoverable but a recall on those bands will fail `MaterializeMiss`. (The earlier list included `chirps.daily.v2`; CHIRPS daily precipitation is now wired live through `crates/emem-fetch/src/chirps.rs` and the inline materializer at `lib.rs:14948`.)
