@@ -134,9 +134,7 @@ const OUT_OF_SCOPE_PATTERNS: &[&str] = &[
 /// [`OUT_OF_SCOPE_PATTERNS`].
 fn is_out_of_scope(q: &str) -> bool {
     let q_low = q.to_lowercase();
-    OUT_OF_SCOPE_PATTERNS
-        .iter()
-        .any(|p| q_low.contains(p))
+    OUT_OF_SCOPE_PATTERNS.iter().any(|p| q_low.contains(p))
 }
 
 /// Public router handle. Cheap to clone (everything inside is
