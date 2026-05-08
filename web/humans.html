@@ -96,30 +96,43 @@ hr{border:none;border-top:1px solid var(--line);margin:.8em 0}
 
 /* ─────────────────────────────────────────────────────────────────────────
    layout — mobile-first, container-query friendly
+   Every chrome region is collapsible. CSS variables hold the current
+   column / row sizes so a runtime class on #app can collapse a rail to
+   0 px without re-defining the whole grid template.
    ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --col-left:0px;
+  --col-right:0px;
+  --row-console:160px;
+}
 #app{display:grid;height:100vh;height:100dvh;width:100vw;
-  grid-template-rows:46px 1fr auto;
-  grid-template-columns:1fr;
+  grid-template-rows:46px 1fr var(--row-console);
+  grid-template-columns:var(--col-left) 1fr var(--col-right);
   grid-template-areas:
-    "header"
-    "main"
-    "console";
+    "header  header  header"
+    "left    main    right"
+    "console console console";
+  transition:grid-template-columns .28s cubic-bezier(.4,.0,.2,1),
+             grid-template-rows .28s cubic-bezier(.4,.0,.2,1);
 }
 @media(min-width:760px){
-  #app{
-    grid-template-rows:48px 1fr 200px;
-    grid-template-columns:240px 1fr 360px;
-    grid-template-areas:
-      "header  header  header"
-      "left    main    right"
-      "console console console";
-  }
+  :root{ --col-left:240px; --col-right:360px; --row-console:200px; }
+  #app{ grid-template-rows:48px 1fr var(--row-console); }
 }
 @media(min-width:1280px){
-  #app{
-    grid-template-columns:280px 1fr 420px;
-  }
+  :root{ --col-left:280px; --col-right:420px; }
 }
+/* Collapsed states. The handles outside the rail switch these classes. */
+#app.no-left  { --col-left:0px; }
+#app.no-right { --col-right:0px; }
+#app.no-console { --row-console:0px; }
+#app.no-left  aside.left { display:none; }
+#app.no-right aside.right { display:none; }
+#app.no-console section.console { display:none; }
+/* Focus mode — every rail collapsed, hero hidden. Map fills the screen. */
+#app.focus { --col-left:0px; --col-right:0px; --row-console:0px; }
+#app.focus aside.left, #app.focus aside.right, #app.focus section.console { display:none; }
+#app.focus .hero { opacity:0; pointer-events:none; }
 
 /* header */
 header{grid-area:header;display:flex;align-items:center;gap:.6em;padding:0 .8em;
@@ -189,6 +202,21 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
 .modes button:hover{color:var(--fg);background:var(--bg-2)}
 .modes button[aria-pressed=true]{color:var(--accent);background:rgba(124,255,178,.08);
   box-shadow:inset 0 -2px 0 var(--accent)}
+.chipProj{position:absolute;top:.7em;left:auto;right:auto;z-index:5;
+  display:inline-flex;align-items:center;gap:.45em;
+  background:var(--bg-1);border:1px solid var(--line);border-radius:3px;
+  font-family:var(--mono);font-size:11px;color:var(--fg-2);
+  padding:.45em .7em;text-transform:none;letter-spacing:0}
+@media(min-width:760px){.chipProj{left:auto;right:auto;margin-left:.45em;position:absolute;top:.7em}}
+.chipProj{left:calc(.7em + 12.4em);}
+.chipProj[disabled]{opacity:.55;cursor:not-allowed}
+.chipProj:not([disabled]):hover{border-color:var(--accent);color:var(--accent)}
+.chipProj[aria-pressed=true]{color:var(--accent);border-color:var(--accent);
+  background:rgba(124,255,178,.06);box-shadow:inset 0 -2px 0 var(--accent)}
+.chipProj .proj-axis{color:var(--fg-mute);font-weight:500}
+.chipProj kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;
+  font-size:10px;color:var(--fg-3)}
+@media(max-width:760px){.chipProj{display:none}}
 .modes button:not(:last-child){border-right:1px solid var(--line)}
 .zoomctl{position:absolute;top:.7em;right:.7em;z-index:5;background:var(--bg-1);
   border:1px solid var(--line);border-radius:3px;display:flex;flex-direction:column}
@@ -286,17 +314,43 @@ section.console{grid-area:console;border-top:1px solid var(--line);background:#0
   scroll-behavior:smooth}
 @media(min-width:760px){section.console{height:auto}}
 section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
-.log{padding:.12em 0;white-space:pre-wrap;word-break:break-word}
-.log time{color:var(--fg-mute);margin-right:.5em;font-size:10.5px}
-.log .method{color:var(--accent);display:inline-block;min-width:42px;font-weight:500}
-.log .url{color:var(--fg-2)}
-.log .url:hover{color:var(--accent);text-decoration:underline;cursor:pointer}
-.log .arrow{color:var(--fg-mute)}
-.log .ok-status{color:var(--accent)}
-.log .err-status{color:var(--warn)}
-.log .body{color:var(--fg-3);padding-left:1em;display:block;font-size:10.5px}
-.log .err-body{color:var(--warn);padding-left:1em;display:block;font-size:10.5px}
-.log.banner{color:var(--fg-3);border-left:2px solid var(--accent);padding:.3em .5em;margin:.3em 0;background:rgba(124,255,178,.04)}
+.log{padding:.18em 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  display:flex;align-items:center;gap:.45em;position:relative;
+  border-radius:2px;padding-right:.45em}
+.log:hover{background:rgba(232,232,234,.025)}
+.log time{color:var(--fg-mute);font-size:10.5px;flex-shrink:0}
+.log .method{color:var(--accent);font-weight:500;font-size:10.5px;flex-shrink:0;
+  min-width:38px;text-align:right}
+.log .url{color:var(--fg-2);flex-shrink:0;border-bottom:none}
+.log .url:hover{color:var(--accent);text-decoration:underline;cursor:pointer;border-bottom:none}
+.log .req-body{color:var(--fg-3);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;
+  min-width:0;flex:1}
+.log .arrow{color:var(--fg-mute);flex-shrink:0}
+.log .ok-status{color:var(--accent);flex-shrink:0}
+.log .err-status{color:var(--warn);flex-shrink:0}
+.log .body{color:var(--fg-3);font-size:10.5px;flex-shrink:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.log .err-body{color:var(--warn);font-size:10.5px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.log.banner{color:var(--fg-3);border-left:2px solid var(--accent);padding:.3em .5em;margin:.3em 0;
+  background:rgba(124,255,178,.04);white-space:normal;display:block}
+.log.banner kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .35em;border-radius:2px;
+  font-size:10px;color:var(--fg-2)}
+.log .row-pivots{margin-left:auto;display:none;gap:.18em;flex-shrink:0}
+.log:hover .row-pivots,.log:focus-within .row-pivots{display:flex}
+.log .pivot{font-family:var(--mono);font-size:9.5px;padding:.05em .45em;border:1px solid var(--line);
+  border-radius:2px;color:var(--fg-3);background:var(--bg-1);cursor:pointer;
+  text-transform:lowercase;letter-spacing:.02em;line-height:1.4}
+.log .pivot:hover{color:var(--accent);border-color:var(--accent);background:transparent}
+.log .pivot.flash{background:rgba(124,255,178,.15);color:var(--accent);border-color:var(--accent)}
+
+.toast{position:fixed;left:50%;bottom:calc(160px + 1.2em);transform:translateX(-50%) translateY(8px);
+  background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);
+  padding:.45em .9em;border-radius:3px;font-family:var(--mono);font-size:11px;
+  z-index:200;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;
+  letter-spacing:.02em;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+@media(min-width:760px){.toast{bottom:calc(200px + 1.2em)}}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .console-toolbar{position:sticky;top:0;background:#06070a;display:flex;gap:.5em;align-items:center;
   padding:.2em 0 .4em;border-bottom:1px solid var(--line);margin-bottom:.4em;font-size:10.5px;color:var(--fg-mute);z-index:1}
 .console-toolbar button{padding:.15em .5em;font-size:10px;border-radius:2px}
@@ -349,6 +403,49 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .skip{position:absolute;left:-999px;top:0}
 .skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
 
+/* Collapse handles — thin tabs anchored to canvas edges that toggle each
+   rail. They follow the rail when it's open and stick to the canvas edge
+   when collapsed. Discoverable via hover-glow + visible chevron. */
+.collapse-handle{
+  position:absolute;z-index:8;
+  background:var(--bg-1);border:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--fg-3);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:color .12s,border-color .12s,background .12s;
+  user-select:none;line-height:1
+}
+.collapse-handle:hover{color:var(--accent);border-color:var(--accent)}
+.collapse-handle .glyph{display:inline-block;font-size:14px;line-height:1}
+.collapse-handle .lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.14em;
+  margin-left:.4em;color:var(--fg-mute)}
+.collapse-handle:hover .lbl{color:var(--fg-2)}
+/* Left + right handles: vertical tabs at top of canvas edge */
+.collapse-handle.cl{ left:.4em; top:50%; transform:translateY(-50%);
+  width:18px; height:54px; border-radius:0 3px 3px 0; border-left:none;
+  writing-mode:vertical-rl; text-orientation:mixed }
+.collapse-handle.cr{ right:.4em; top:50%; transform:translateY(-50%);
+  width:18px; height:54px; border-radius:3px 0 0 3px; border-right:none;
+  writing-mode:vertical-rl; text-orientation:mixed }
+.collapse-handle.cc{ bottom:.4em; left:50%; transform:translateX(-50%);
+  height:18px; padding:0 .8em; border-radius:3px 3px 0 0; border-bottom:none }
+@media(max-width:760px){ .collapse-handle.cl, .collapse-handle.cr { display:none } }
+/* Focus button (top-right of canvas, near zoom ctl) */
+.focus-btn{position:absolute;top:.7em;right:calc(.7em + 38px);z-index:5;
+  background:var(--bg-1);border:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--fg-2);
+  padding:.45em .7em;border-radius:3px;cursor:pointer;
+  letter-spacing:.02em}
+.focus-btn:hover{border-color:var(--accent);color:var(--accent)}
+.focus-btn[aria-pressed=true]{color:var(--accent);border-color:var(--accent);
+  background:rgba(124,255,178,.06)}
+/* Hero close button so it's dismissable */
+.hero-close{position:absolute;top:0;right:-26px;width:20px;height:20px;
+  background:var(--bg-1);border:1px solid var(--line);border-radius:99px;
+  color:var(--fg-3);font-family:var(--mono);font-size:14px;line-height:1;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  pointer-events:auto}
+.hero-close:hover{color:var(--accent);border-color:var(--accent)}
+
 /* stars (CSS twinkle for the static splash before the canvas paints) */
 .boot-veil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-family:var(--mono);font-size:11px;color:var(--fg-3);letter-spacing:.08em;pointer-events:none;z-index:3}
@@ -359,6 +456,22 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 /* utility */
 .copyable{cursor:copy}
 .copyable:hover{color:var(--accent)}
+
+/* hash chips — every cell64 / cid / pubkey is a copyable, hover-previewed
+   chip with a leading dot whose colour signals what kind of hash it is. */
+.ememchip{display:inline-flex;align-items:center;gap:.35em;
+  font-family:var(--mono);font-size:11px;color:var(--fg-2);
+  background:var(--bg-2);border:1px solid var(--line);
+  padding:.05em .45em;border-radius:99px;cursor:pointer;
+  vertical-align:baseline;letter-spacing:.01em;
+  transition:border-color .12s,color .12s}
+.ememchip:hover{color:var(--accent);border-color:var(--accent)}
+.ememchip .chip-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;
+  background:var(--fg-mute)}
+.ememchip[data-kind=cell] .chip-dot{background:var(--accent)}
+.ememchip[data-kind=cid]  .chip-dot{background:var(--fam-foundation)}
+.ememchip[data-kind=pub]  .chip-dot{background:var(--fam-weather)}
+.ememchip .chip-text{font-variant-numeric:tabular-nums}
 .hidden{display:none!important}
 .scroll{overflow-y:auto}
 </style>
@@ -417,6 +530,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div class=hero id=hero aria-hidden=true>
       <h1><b>knowledge constellation</b> of Earth memory</h1>
       <p>every star is a signed cell · click one, the receipt verifies offline · every <kbd>/v1/*</kbd> call this UI makes prints below — read the page, learn the protocol</p>
+      <button class=hero-close id=heroClose type=button aria-label="Dismiss intro">×</button>
     </div>
     <div class=modes role=tablist aria-label="View modes">
       <button id=modeField  role=tab aria-pressed=true  aria-controls=stage>field</button>
@@ -424,11 +538,30 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <button id=modeReg    role=tab aria-pressed=false aria-controls=registry>registry</button>
       <button id=modeLog    role=tab aria-pressed=false aria-controls=logview>log</button>
     </div>
+    <button id=chipProj class=chipProj type=button aria-pressed=false disabled
+            aria-label="Toggle projection between lat/lng and embedding PCA"
+            title="Embedding projection unavailable on this responder">
+      <span class=proj-axis>x</span><span class=proj-label>lat/lng</span><kbd>p</kbd>
+    </button>
     <div class=zoomctl role=group aria-label="Zoom controls">
       <button id=zoomIn  title="zoom in (+)" aria-label="Zoom in">+</button>
       <button id=zoomOut title="zoom out (−)" aria-label="Zoom out">−</button>
       <button id=zoomFit title="fit (0)" aria-label="Reset zoom">·</button>
     </div>
+    <button class="collapse-handle cl" id=cHandleLeft type=button
+            aria-label="Toggle left rail" title="Collapse the corpus rail (or [)">
+      <span class=glyph id=cHandleLeftGlyph>‹</span>
+    </button>
+    <button class="collapse-handle cr" id=cHandleRight type=button
+            aria-label="Toggle right rail" title="Collapse the selection rail (or ])">
+      <span class=glyph id=cHandleRightGlyph>›</span>
+    </button>
+    <button class="collapse-handle cc" id=cHandleConsole type=button
+            aria-label="Toggle console" title="Collapse the console (or =)">
+      <span class=glyph id=cHandleConsoleGlyph>▾</span><span class=lbl id=cHandleConsoleLabel>console</span>
+    </button>
+    <button class=focus-btn id=focusBtn type=button aria-pressed=false
+            aria-label="Toggle focus mode" title="Hide all chrome — F or Esc">⤢ focus<kbd style="margin-left:.4em;background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;border-radius:2px;font-size:10px;color:var(--fg-3)">F</kbd></button>
     <canvas id=stage aria-label="Constellation of attested cells"></canvas>
     <svg id=registry aria-hidden=true></svg>
     <div id=logview aria-hidden=true>
@@ -501,10 +634,15 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <kbd>3</kbd><span>registry view</span>
       <kbd>4</kbd><span>log view</span>
       <kbd>L</kbd><span>start lasso (drag to draw polygon)</span>
+      <kbd>P</kbd><span>toggle projection · lat/lng ↔ embedding</span>
       <kbd>+ −</kbd><span>zoom in / out</span>
       <kbd>0</kbd><span>fit to data</span>
+      <kbd>[</kbd><span>collapse / restore left rail</span>
+      <kbd>]</kbd><span>collapse / restore right rail</span>
+      <kbd>\</kbd><span>collapse / restore console</span>
+      <kbd>F</kbd><span>focus mode (hide all chrome)</span>
       <kbd>?</kbd><span>this dialog</span>
-      <kbd>Esc</kbd><span>close dialogs / cancel lasso</span>
+      <kbd>Esc</kbd><span>close dialogs / cancel lasso / leave focus</span>
     </div>
     <p style="font-family:var(--mono);font-size:11px;color:var(--fg-3);margin-top:1em">
       Sibling JSON twin: <a href="/humans.json">/humans.json</a>.
@@ -566,13 +704,53 @@ function logCall(method, url, body) {
   const t = new Date().toISOString().slice(11,19);
   const div = document.createElement('div');
   div.className = 'log';
-  const summary = body ? ' ' + JSON.stringify(body).slice(0, 100) : '';
-  div.innerHTML = '<time>'+t+'</time><span class=method>'+method+'</span> ' +
+  const summary = body ? JSON.stringify(body).slice(0, 100) : '';
+  div.innerHTML =
+    '<time>'+t+'</time>' +
+    '<span class=method>'+method+'</span>' +
     '<a class=url href="'+escapeHtml(url)+'" target=_blank rel=noopener>'+escapeHtml(url)+'</a>' +
-    escapeHtml(summary);
+    (summary ? '<span class=req-body>'+escapeHtml(summary)+'</span>' : '') +
+    '<span class=row-pivots>' +
+      '<button class=pivot data-pivot=curl title="Copy as curl">curl</button>' +
+      '<button class=pivot data-pivot=py   title="Copy as Python (httpx)">py</button>' +
+      '<button class=pivot data-pivot=mcp  title="Copy as MCP tool call">mcp</button>' +
+      '<button class=pivot data-pivot=replay title="Re-run this call">↻</button>' +
+    '</span>';
   consoleBody.appendChild(div);
   consoleEl.scrollTop = consoleEl.scrollHeight;
-  div._curl = curlFor(method, url, body);
+  div._curl   = curlFor(method, url, body);
+  div._py     = pyFor(method, url, body);
+  div._mcp    = mcpFor(method, url, body);
+  div._method = method;
+  div._url    = url;
+  div._body   = body;
+  // Pivot click handlers — copy or replay. Toast + pivot pulse to confirm.
+  const pivots = div.querySelectorAll('.pivot');
+  pivots.forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      const which = btn.dataset.pivot;
+      if (which === 'replay') {
+        // Same method+url+body: don't go through `api()` because that
+        // would log a duplicate row; just fetch raw and toast the result.
+        try {
+          const opts = { method: div._method, headers: { 'accept':'application/json' } };
+          if (div._body !== undefined) {
+            opts.headers['content-type'] = 'application/json';
+            opts.body = JSON.stringify(div._body);
+          }
+          api(div._method, div._url, div._body).catch(()=>{});
+          showToast('replayed ' + div._method + ' ' + div._url);
+        } catch (_) {}
+        return;
+      }
+      const text = which === 'curl' ? div._curl : which === 'py' ? div._py : div._mcp;
+      try { navigator.clipboard.writeText(text); showToast('copied as ' + which); }
+      catch(_) { showToast('clipboard blocked'); }
+      btn.classList.add('flash');
+      setTimeout(() => btn.classList.remove('flash'), 220);
+    });
+  });
   return div;
 }
 function curlFor(method, url, body) {
@@ -580,6 +758,55 @@ function curlFor(method, url, body) {
   if (method === 'GET') return `curl -s '${u}'`;
   const b = body ? ` -d '${JSON.stringify(body).replace(/'/g,"'\\''")}'` : '';
   return `curl -sX ${method} '${u}' -H 'content-type: application/json'${b}`;
+}
+function pyFor(method, url, body) {
+  const base = location.origin.replace(/\/$/, '');
+  const head = "import httpx\n";
+  if (method === 'GET') {
+    return head + `r = httpx.get('${base}${url}', timeout=30)\nprint(r.status_code, r.json() if r.headers.get('content-type','').startswith('application/json') else r.text)`;
+  }
+  const bodyLine = body !== undefined ? `json=${JSON.stringify(body)}` : '';
+  return head + `r = httpx.${method.toLowerCase()}('${base}${url}', ${bodyLine}, timeout=30)\nprint(r.status_code, r.json())`;
+}
+function mcpFor(method, url, body) {
+  // Map REST primitive paths to their canonical MCP tool name. The tool
+  // surface lives at /mcp (Streamable HTTP, JSON-RPC 2.0) — see the
+  // emem-mcp registry for the full mapping.
+  const m = url.match(/^\/v1\/([a-z_]+)/);
+  const prim = m ? m[1] : null;
+  const restToTool = {
+    recall: 'emem_recall', recall_many: 'emem_recall', recall_polygon: 'emem_recall_polygon',
+    find_similar: 'emem_find_similar', verify_receipt: 'emem_verify',
+    locate: 'emem_locate', diff: 'emem_diff', trajectory: 'emem_trajectory',
+    compare: 'emem_compare', compare_bands: 'emem_compare_bands',
+    backfill: 'emem_backfill', fetch: 'emem_fetch', ask: 'emem_ask',
+    intent: 'emem_intent', query_region: 'emem_query_region',
+    bands: 'emem_bands', algorithms: 'emem_algorithms', sources: 'emem_sources',
+    schema: 'emem_schema', topics: 'emem_topics', manifests: 'emem_manifests',
+    grid_info: 'emem_grid_info', coverage_matrix: 'emem_coverage_matrix',
+    data_availability: 'emem_data_availability',
+  };
+  const tool = (prim && restToTool[prim]) || ('emem_' + (prim||'unknown'));
+  const args = body || {};
+  const payload = {
+    jsonrpc: '2.0', id: 1, method: 'tools/call',
+    params: { name: tool, arguments: args }
+  };
+  return `// POST ${location.origin}/mcp\n${JSON.stringify(payload, null, 2)}`;
+}
+let _toastTimer = null;
+function showToast(msg) {
+  let t = document.getElementById('emem-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'emem-toast';
+    t.className = 'toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add('on');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('on'), 1400);
 }
 function logResult(div, ok, status, ms, hint) {
   const tail = document.createElement('span');
@@ -698,8 +925,19 @@ const STATE = {
   responderEpoch: 0,
   autoMaterialize: null,
   bootError: null,
-  // PCA basis vectors (computed from any embedding samples we can scrape)
-  pcaBasis: null,
+  // Projection mode + embedding-PCA scaffold. Cells carry both a lat/lng
+  // projection (x_geo, y_geo) and — once /v1/recall_many returns the 128-D
+  // Tessera vectors — an embedding projection (x_embed, y_embed). The
+  // active `projection` decides which one drives `c.x, c.y` for paint.
+  // Animated reprojection lerps between the two over ~700 ms.
+  projection: 'latlng',
+  embeddingReady: false,
+  embeddingFetching: false,
+  embeddingByCell: new Map(),     // cell64 → Float32Array(128)
+  pcaBasis: null,                 // { mean: [128], v1: [128], v2: [128] }
+  // Animation token: each reproject() call increments this; in-flight
+  // animations check the token at every frame and bail if it changed.
+  _projectAnim: 0,
 };
 
 // ── 5. Boot: progressive — paint stars on first useful response ─────────────
@@ -836,6 +1074,68 @@ async function boot() {
     STATE.autoMaterialize = availRes.auto_materialize_enabled ?? null;
     paintLeftPane();
   }).catch(()=>{});
+
+  // Phase 3: embedding-PCA scatter. Fire /v1/recall_many for the densest
+  // ~80 cells with the geotessera band; once we have the 128-D vectors,
+  // run a power-iteration PCA and offer the embedding projection toggle.
+  // Background-only — never blocks the lat/lng paint.
+  fetchEmbeddingProjection().catch(e => console.warn('[humans] embedding projection unavailable:', e));
+}
+
+async function fetchEmbeddingProjection() {
+  if (STATE.embeddingFetching || STATE.embeddingReady) return;
+  if (!STATE.cells.length) return;
+  STATE.embeddingFetching = true;
+  updateProjectionChip();
+  // Pick the top 80 cells by attestation density. Recall_many at this
+  // responder caps at 256 cells per call (per the API contract); 80 is a
+  // comfortable budget that produces a meaningful PCA in ≈1 round-trip.
+  const top = [...STATE.cells]
+    .sort((a,b) => (b.fact_count||0) - (a.fact_count||0))
+    .slice(0, 80);
+  const cells = top.map(c => c.cell64);
+  let res;
+  try {
+    res = await api('POST', '/v1/recall_many', { cells, bands: ['geotessera'] });
+  } catch (_) {
+    STATE.embeddingFetching = false;
+    updateProjectionChip();
+    return;
+  }
+  const byCell = res?.by_cell || {};
+  const rows = [];
+  const rowCells = [];
+  for (const c64 of Object.keys(byCell)) {
+    const facts = byCell[c64]?.facts || [];
+    const f = facts.find(x => x.band === 'geotessera');
+    const v = Array.isArray(f?.value) ? f.value : null;
+    if (!v || !v.length) continue;
+    const dim = Math.min(128, v.length);
+    const arr = new Float32Array(dim);
+    for (let j=0; j<dim; j++) arr[j] = +v[j] || 0;
+    STATE.embeddingByCell.set(c64, arr);
+    rows.push(arr);
+    rowCells.push(c64);
+  }
+  STATE.embeddingFetching = false;
+  if (rows.length < 4) {
+    // Not enough vectors to produce a stable basis. Stay in lat/lng.
+    updateProjectionChip();
+    return;
+  }
+  STATE.pcaBasis = pcaTop2(rows);
+  applyEmbeddingProjection();
+  STATE.embeddingReady = true;
+  updateProjectionChip();
+  // Be honest about partial data: not every dense cell has the geotessera
+  // band materialised. Cells without a vector stay at their lat/lng coords
+  // when the user toggles to embedding view.
+  const total = STATE.cells.length;
+  const div = document.createElement('div');
+  div.className = 'log banner';
+  div.innerHTML = '<span class=arrow>// </span> embedding projection ready — <b>'+ rows.length +'</b> cells carry a 128-D Tessera vector ('+ total +' total in view). press <kbd>p</kbd> or click <kbd>lat/lng ↔ embed</kbd> to toggle. cells without an embedding stay at their geographic position.';
+  consoleBody.appendChild(div);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 
 function hydrateCellsFromCoverage(rawCells) {
@@ -873,27 +1173,176 @@ function paintHeaderResponder() {
   }
 }
 
-// ── 6. Projection: PCA when we can, equal-area lat/lng otherwise ────────────
+// ── 6. Projection ──────────────────────────────────────────────────────────
 //
-// We don't have raw 1792-D embeddings on the public corpus surface for *every*
-// cell, so we use an equal-area-ish projection of (lat, lng) into a unit
-// square, then translate-scale into canvas coordinates. The "constellation"
-// metaphor still holds: each cell is a star in a 2-D plane that compactly
-// represents Earth, with a deterministic neighbour-preserving layout.
+// Two projections are available:
+//   • lat/lng — sinusoidal equal-area-ish projection into a unit square.
+//     This is the bootstrap layout that paints the moment /v1/coverage
+//     resolves, and the honest fallback for cells without an embedding
+//     attestation.
+//   • embedding — 2-D power-iteration PCA over the 128-D Tessera (geotessera
+//     band) vectors fetched via /v1/recall_many. Cells without geotessera
+//     are kept at their lat/lng position so the picture is never partial.
 //
-// The lat axis is compressed using a sinusoidal projection (cos(lat) on the
-// lng axis) so high latitudes don't stretch. This is honest: if/when more
-// /v1/cells/{cell}/embedding samples become public, we'll swap in a real
-// PCA — but not until we can read them.
+// `c.x, c.y` always reflect the active projection. `c.x_geo, y_geo` and
+// `c.x_embed, y_embed` are the per-projection caches. `reproject()`
+// animates the swap.
 function computeProjection() {
   for (const c of STATE.cells) {
     const lng01 = (c.lng + 180) / 360;
     const lat01 = (90 - c.lat) / 180;
-    // Sinusoidal-ish: x is lng adjusted by cos(lat), y is lat normalized.
     const cosLat = Math.cos(c.lat * Math.PI / 180);
-    c.x = 0.5 + (lng01 - 0.5) * cosLat;
-    c.y = lat01;
+    c.x_geo = 0.5 + (lng01 - 0.5) * cosLat;
+    c.y_geo = lat01;
+    if (STATE.projection !== 'embedding' || c.x_embed == null) {
+      c.x = c.x_geo; c.y = c.y_geo;
+    }
   }
+}
+
+// Power-iteration PCA: returns the top-2 unit eigenvectors of X^T X without
+// allocating an N×N covariance matrix. ~25 iterations is enough for D≤128.
+function pcaTop2(rows) {
+  const N = rows.length;
+  if (!N) return null;
+  const D = rows[0].length;
+  const mean = new Float64Array(D);
+  for (const r of rows) for (let j=0; j<D; j++) mean[j] += r[j];
+  for (let j=0; j<D; j++) mean[j] /= N;
+  // Centre rows in place into Float32Array copies; rows[] stays untouched
+  // for reuse across re-projections.
+  const X = new Array(N);
+  for (let i=0; i<N; i++) {
+    const out = new Float32Array(D);
+    for (let j=0; j<D; j++) out[j] = rows[i][j] - mean[j];
+    X[i] = out;
+  }
+  const apply = (v) => {
+    // X^T X v, computed as X^T (X v)
+    const xv = new Float64Array(N);
+    for (let i=0; i<N; i++) {
+      let s = 0;
+      const row = X[i];
+      for (let j=0; j<D; j++) s += row[j] * v[j];
+      xv[i] = s;
+    }
+    const out = new Float64Array(D);
+    for (let i=0; i<N; i++) {
+      const s = xv[i];
+      const row = X[i];
+      for (let j=0; j<D; j++) out[j] += row[j] * s;
+    }
+    return out;
+  };
+  const norm = (v) => { let s=0; for (let j=0; j<v.length; j++) s += v[j]*v[j]; s = Math.sqrt(s)||1; for (let j=0; j<v.length; j++) v[j] /= s; return v; };
+  // v1
+  let v1 = new Float64Array(D);
+  for (let j=0; j<D; j++) v1[j] = (j*0x9E3779B1 % 256) / 256 - 0.5;
+  norm(v1);
+  for (let it=0; it<30; it++) v1 = norm(apply(v1));
+  // Deflate: subtract v1 component from each row, then iterate again.
+  for (let i=0; i<N; i++) {
+    let s = 0;
+    const row = X[i];
+    for (let j=0; j<D; j++) s += row[j] * v1[j];
+    for (let j=0; j<D; j++) row[j] -= s * v1[j];
+  }
+  let v2 = new Float64Array(D);
+  for (let j=0; j<D; j++) v2[j] = ((j+1)*0xC2B2AE35 % 256) / 256 - 0.5;
+  norm(v2);
+  for (let it=0; it<30; it++) v2 = norm(apply(v2));
+  return { mean, v1, v2 };
+}
+
+function applyEmbeddingProjection() {
+  if (!STATE.pcaBasis) return;
+  const { mean, v1, v2 } = STATE.pcaBasis;
+  const D = mean.length;
+  // First pass: project every cell that has an embedding into raw (a,b).
+  let aMin=Infinity, aMax=-Infinity, bMin=Infinity, bMax=-Infinity;
+  const buf = [];
+  for (const c of STATE.cells) {
+    const v = STATE.embeddingByCell.get(c.cell64);
+    if (!v) continue;
+    let a=0, b=0;
+    for (let j=0; j<D; j++) {
+      const x = v[j] - mean[j];
+      a += x * v1[j];
+      b += x * v2[j];
+    }
+    buf.push([c, a, b]);
+    if (a<aMin) aMin=a; if (a>aMax) aMax=a;
+    if (b<bMin) bMin=b; if (b>bMax) bMax=b;
+  }
+  if (!buf.length) return;
+  const aSpan = aMax - aMin || 1, bSpan = bMax - bMin || 1;
+  const span = Math.max(aSpan, bSpan);
+  // Centre + uniform-scale into [0.08, 0.92] so the embed view feels
+  // intentional, not tightly cropped.
+  const aMid = (aMin + aMax)/2, bMid = (bMin + bMax)/2;
+  for (const [c,a,b] of buf) {
+    c.x_embed = 0.5 + ((a - aMid) / span) * 0.84;
+    c.y_embed = 0.5 + ((b - bMid) / span) * 0.84;
+  }
+  // Cells that lack an embedding fall back to their lat/lng coords so the
+  // picture is never partial. Surface that on the cell metadata so the
+  // legend can label it honestly.
+  for (const c of STATE.cells) {
+    if (c.x_embed == null) {
+      c.x_embed = c.x_geo;
+      c.y_embed = c.y_geo;
+      c.embed_fallback = true;
+    } else {
+      c.embed_fallback = false;
+    }
+  }
+}
+
+function reproject(target) {
+  // Animate cells from current (x,y) to the target projection's coords.
+  // 700 ms ease-out cubic. On every tick the twinkle loop re-paints the
+  // canvas, so we just mutate c.x,c.y in lock-step.
+  if (target === STATE.projection) return;
+  STATE.projection = target;
+  STATE._projectAnim++;
+  const token = STATE._projectAnim;
+  const t0 = performance.now();
+  const dur = 700;
+  const starts = STATE.cells.map(c => [c.x, c.y]);
+  const ends = STATE.cells.map(c =>
+    target === 'embedding' && c.x_embed != null
+      ? [c.x_embed, c.y_embed]
+      : [c.x_geo, c.y_geo]
+  );
+  function tick() {
+    if (STATE._projectAnim !== token) return;
+    const t = (performance.now() - t0) / dur;
+    const k = t >= 1 ? 1 : 1 - Math.pow(1 - t, 3);
+    for (let i=0; i<STATE.cells.length; i++) {
+      const [sx,sy] = starts[i], [ex,ey] = ends[i];
+      const c = STATE.cells[i];
+      c.x = sx + (ex - sx) * k;
+      c.y = sy + (ey - sy) * k;
+    }
+    if (t < 1) requestAnimationFrame(tick);
+    else updateProjectionChip();
+  }
+  requestAnimationFrame(tick);
+  updateProjectionChip();
+}
+
+function updateProjectionChip() {
+  const chip = document.getElementById('chipProj');
+  if (!chip) return;
+  const isEmbed = STATE.projection === 'embedding';
+  chip.setAttribute('aria-pressed', isEmbed ? 'true' : 'false');
+  chip.querySelector('.proj-label').textContent = isEmbed ? 'embed' : 'lat/lng';
+  chip.disabled = !STATE.embeddingReady;
+  chip.title = STATE.embeddingReady
+    ? 'Toggle between lat/lng and 2-D PCA of geotessera embeddings'
+    : (STATE.embeddingFetching
+        ? 'Fetching embeddings via /v1/recall_many…'
+        : 'Embedding projection unavailable on this responder');
 }
 
 // ── 7. Left pane stats ──────────────────────────────────────────────────────
@@ -924,6 +1373,10 @@ function paintLeftPane() {
   setMan('mSch',  m.schema_cid);
   setMan('mSrc',  m.sources_cid);
   setMan('mTop',  m.topics_cid);
+  // Decorate the responder pubkey + manifest CIDs as chips so the same
+  // affordance (dot + click-to-copy + toast) applies on the rail too.
+  const left = document.querySelector('aside.left');
+  if (left) installChips(left);
 }
 
 function buildFamilyKey() {
@@ -1441,6 +1894,7 @@ function buildLogView() {
       '</div>';
   }
   body.innerHTML = html;
+  installChips(body);
   body.querySelectorAll('button[data-cmd=verify-band]').forEach(btn => {
     btn.onclick = async () => {
       const band = btn.dataset.band;
@@ -1496,14 +1950,72 @@ function setMode(m) {
   document.getElementById('registry').classList.toggle('on', m==='registry');
   document.getElementById('logview').classList.toggle('on', m==='log');
   document.querySelector('.zoomctl').style.display = (m==='field' || m==='graph') ? 'flex' : 'none';
+  const projChip = document.getElementById('chipProj');
+  if (projChip) projChip.style.display = (m === 'field' && window.innerWidth >= 760) ? '' : 'none';
   if (m==='registry') buildRegistryView();
   if (m==='graph')    STATE.graph = null;
   drawCurrent();
+  syncUrlState();
 }
 document.getElementById('modeField').onclick = () => setMode('field');
 document.getElementById('modeGraph').onclick = () => setMode('graph');
 document.getElementById('modeReg').onclick   = () => setMode('registry');
 document.getElementById('modeLog').onclick   = () => setMode('log');
+
+// ── URL state ──────────────────────────────────────────────────────────
+//
+// The page's interesting state lives in the URL: ?cell=, ?mode=, ?proj=.
+// A pasted link is a working demo — exactly what BubbleUp / crt.sh do.
+// We use replaceState (not pushState) because each interaction is a
+// continuation of the same view, not a navigation step.
+function syncUrlState() {
+  try {
+    const params = new URLSearchParams();
+    if (STATE.mode && STATE.mode !== 'field') params.set('mode', STATE.mode);
+    if (STATE.projection === 'embedding') params.set('proj', 'embed');
+    if (STATE.selectedCell && STATE.selectedCell.cell64) params.set('cell', STATE.selectedCell.cell64);
+    // Layout flags — collapsed rails, focus mode, dismissed hero.
+    if (typeof _layout !== 'undefined' && _layout) {
+      const layoutTokens = [];
+      if (_layout.noLeft)        layoutTokens.push('noLeft');
+      if (_layout.noRight)       layoutTokens.push('noRight');
+      if (_layout.noConsole)     layoutTokens.push('noConsole');
+      if (_layout.focus)         layoutTokens.push('focus');
+      if (_layout.heroDismissed) layoutTokens.push('heroDismissed');
+      if (layoutTokens.length) params.set('layout', layoutTokens.join(','));
+    }
+    const q = params.toString();
+    const next = location.pathname + (q ? ('?' + q) : '');
+    history.replaceState({}, '', next);
+  } catch (_) { /* incognito or sandboxed contexts may forbid; non-fatal */ }
+}
+function readUrlState() {
+  try {
+    const p = new URLSearchParams(location.search || '');
+    return {
+      mode: p.get('mode'),
+      proj: p.get('proj'),
+      cell: p.get('cell'),
+    };
+  } catch (_) { return {}; }
+}
+async function applyInitialUrlState() {
+  const s = readUrlState();
+  if (s.mode && ['field','graph','registry','log'].includes(s.mode)) setMode(s.mode);
+  if (s.cell) {
+    const c = await resolveCellById(s.cell);
+    if (c) selectCell(c);
+  }
+  if (s.proj === 'embed') {
+    // Wait for the embedding fetch to land before flipping. Poll up to ~10s.
+    let waited = 0;
+    while (!STATE.embeddingReady && waited < 10000) {
+      await new Promise(r => setTimeout(r, 250));
+      waited += 250;
+    }
+    if (STATE.embeddingReady) reproject('embedding');
+  }
+}
 
 function drawCurrent() {
   if      (STATE.mode === 'field') drawField();
@@ -1749,6 +2261,10 @@ window.addEventListener('keydown', e => {
   if (e.key === '+' || e.key === '=') { STATE.view.scale = Math.min(40, STATE.view.scale*1.4); drawCurrent(); }
   if (e.key === '-' || e.key === '_') { STATE.view.scale = Math.max(0.4, STATE.view.scale/1.4); drawCurrent(); }
   if (e.key === '0') { fitToData(); drawCurrent(); }
+  if ((e.key === 'p' || e.key === 'P') && STATE.embeddingReady) {
+    reproject(STATE.projection === 'embedding' ? 'latlng' : 'embedding');
+    syncUrlState();
+  }
 });
 
 document.getElementById('chipCmdk').onclick    = () => { setHeroFade(true); openCmdk(); };
@@ -1761,6 +2277,11 @@ document.getElementById('chipLasso').onclick   = () => {
   canvas.classList.toggle('lasso', lassoMode);
   const chip = document.getElementById('chipLasso');
   chip.setAttribute('aria-pressed', lassoMode ? 'true' : 'false');
+};
+document.getElementById('chipProj').onclick    = () => {
+  if (!STATE.embeddingReady) return;
+  reproject(STATE.projection === 'embedding' ? 'latlng' : 'embedding');
+  syncUrlState();
 };
 
 // Mac/iOS uses ⌘ rather than Ctrl. Detect once and rewrite both the chip
@@ -1781,20 +2302,159 @@ document.getElementById('chipLasso').onclick   = () => {
   canvas.addEventListener(ev, () => setHeroFade(true), { once:true, passive:true })
 );
 
+// ── Layout: collapsible rails, expandable canvas, focus mode ──────────────
+//
+// The page is a thinking surface, not a chrome-heavy dashboard. Every rail
+// is collapsible; the canvas can take the full screen. Layout state is
+// remembered in localStorage and surfaced in the URL via ?layout=… so a
+// shared link reproduces the user's preferred view. Keys: [ left rail,
+// ] right rail, = console, F focus mode, Esc exits focus.
+const LAYOUT_KEY = 'emem-humans-layout-v1';
+const LAYOUT_FLAGS = ['noLeft','noRight','noConsole','focus','heroDismissed'];
+function applyLayout(state) {
+  const app = document.getElementById('app');
+  app.classList.toggle('no-left',     !!state.noLeft);
+  app.classList.toggle('no-right',    !!state.noRight);
+  app.classList.toggle('no-console',  !!state.noConsole);
+  app.classList.toggle('focus',       !!state.focus);
+  if (state.heroDismissed) {
+    const h = document.getElementById('hero');
+    if (h) h.style.display = 'none';
+  }
+  // Update handle glyphs to reflect direction (e.g. ‹ when open, › when collapsed)
+  const lG = document.getElementById('cHandleLeftGlyph');
+  const rG = document.getElementById('cHandleRightGlyph');
+  const cG = document.getElementById('cHandleConsoleGlyph');
+  if (lG) lG.textContent = state.noLeft ? '›' : '‹';
+  if (rG) rG.textContent = state.noRight ? '‹' : '›';
+  if (cG) cG.textContent = state.noConsole ? '▴' : '▾';
+  const fb = document.getElementById('focusBtn');
+  if (fb) fb.setAttribute('aria-pressed', state.focus ? 'true' : 'false');
+  // Resize the canvas after the grid template has settled (~300 ms).
+  setTimeout(() => { resizeCanvas(); }, 320);
+}
+function loadLayout() {
+  try {
+    const fromUrl = new URLSearchParams(location.search).get('layout');
+    if (fromUrl) {
+      const tokens = new Set(fromUrl.split(','));
+      const out = {};
+      for (const f of LAYOUT_FLAGS) out[f] = tokens.has(f);
+      return out;
+    }
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return {};
+}
+let _layout = loadLayout();
+applyLayout(_layout);
+function persistLayout() {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(_layout)); } catch (_) {}
+  syncUrlState();
+}
+function toggleLayout(flag) {
+  _layout[flag] = !_layout[flag];
+  if (flag === 'focus' && _layout.focus) {
+    _layout._restoreNoLeft = _layout.noLeft;
+    _layout._restoreNoRight = _layout.noRight;
+    _layout._restoreNoConsole = _layout.noConsole;
+  } else if (flag === 'focus' && !_layout.focus) {
+    _layout.noLeft    = _layout._restoreNoLeft    || false;
+    _layout.noRight   = _layout._restoreNoRight   || false;
+    _layout.noConsole = _layout._restoreNoConsole || false;
+  }
+  applyLayout(_layout);
+  persistLayout();
+}
+document.getElementById('cHandleLeft')   .onclick = () => toggleLayout('noLeft');
+document.getElementById('cHandleRight')  .onclick = () => toggleLayout('noRight');
+document.getElementById('cHandleConsole').onclick = () => toggleLayout('noConsole');
+document.getElementById('focusBtn')      .onclick = () => toggleLayout('focus');
+document.getElementById('heroClose')     .onclick = () => {
+  _layout.heroDismissed = true;
+  applyLayout(_layout);
+  persistLayout();
+};
+// Keyboard: [ left rail   ] right rail   \ console   F focus   Esc-out-of-focus
+window.addEventListener('keydown', e => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === '[')                { toggleLayout('noLeft'); }
+  else if (e.key === ']')           { toggleLayout('noRight'); }
+  else if (e.key === '\\')          { toggleLayout('noConsole'); }
+  else if (e.key === 'f' || e.key === 'F') { toggleLayout('focus'); }
+  else if (e.key === 'Escape' && _layout.focus) { toggleLayout('focus'); }
+});
+
 // ── 14. Selection: cell card with recall + offline verify ──────────────────
 function setRightPane(html) {
   const inner = document.getElementById('rightInner');
   inner.innerHTML = html;
+  installChips(inner);
   // mobile sheet mirror
   if (window.innerWidth < 760) {
-    document.getElementById('sheetInner').innerHTML = html;
+    const sheet = document.getElementById('sheetInner');
+    sheet.innerHTML = html;
+    installChips(sheet);
     document.getElementById('sheet').classList.add('on');
   }
+}
+
+// installChips: walk a freshly-rendered subtree, swap any inline cell64 /
+// fact_cid / pubkey strings inside .cid, .copyable, .cell64 elements (and
+// any element with a recognisable hash payload) into a uniform chip with
+// a dot, a truncated text body, and click-to-copy. Hover shows the full
+// hash via title.
+function installChips(root) {
+  if (!root) return;
+  const sels = [
+    'code.copyable',
+    '.fact .cid',
+    '.cell-card .cell64',
+    '.tip-cell',
+  ];
+  for (const sel of sels) {
+    root.querySelectorAll(sel).forEach(el => {
+      if (el.classList.contains('ememchip')) return;
+      const raw = (el.textContent || '').trim();
+      if (!raw || raw === '—') return;
+      const kind = guessChipKind(el, raw);
+      const short = truncateHash(raw, kind);
+      el.innerHTML = '';
+      el.classList.add('ememchip');
+      el.setAttribute('data-kind', kind);
+      el.setAttribute('title', kind+': '+raw+' — click to copy');
+      el.innerHTML = '<span class=chip-dot aria-hidden=true></span><span class=chip-text></span>';
+      el.querySelector('.chip-text').textContent = short;
+      el.style.cursor = 'copy';
+      el.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        try { navigator.clipboard.writeText(raw); showToast('copied '+kind+' '+short); }
+        catch(_) { showToast('clipboard blocked'); }
+      });
+    });
+  }
+}
+function guessChipKind(el, raw) {
+  if (el.matches('.cell-card .cell64')) return 'cell';
+  if (el.matches('.fact .cid'))         return 'cid';
+  if (el.dataset?.kind)                 return el.dataset.kind;
+  if (/^[a-z]{4}\.[a-z0-9]+\.[a-z0-9]+\.[a-z0-9]+$/i.test(raw)) return 'cell';
+  if (/^[a-z2-7]{26,}$/.test(raw))      return 'cid';
+  if (raw.length > 40)                  return 'pub';
+  return 'cid';
+}
+function truncateHash(raw, kind) {
+  if (kind === 'cell') return raw;
+  if (raw.length <= 22) return raw;
+  return raw.slice(0,10) + '…' + raw.slice(-4);
 }
 document.getElementById('sheetClose').onclick = () => document.getElementById('sheet').classList.remove('on');
 
 async function selectCell(cell) {
   STATE.selectedCell = cell;
+  syncUrlState();
   drawCurrent();
   const html =
     '<h3>cell</h3>' +
@@ -2292,6 +2952,9 @@ window.addEventListener('load', async () => {
     consoleBody.appendChild(div);
     consoleEl.scrollTop = consoleEl.scrollHeight;
     drawCurrent();
+    // Restore any state encoded in the URL after boot lands. Awaiting is
+    // safe here — selectCell + reproject() are both idempotent.
+    applyInitialUrlState().catch(()=>{});
   } catch (e) {
     STATE.bootError = e;
     const v = document.getElementById('bootVeil');
