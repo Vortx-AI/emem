@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="disaster response: a common operating picture with one address and signed receipts">
+  <title>emem for disaster response</title>
+  <desc>Six agencies, one common operating picture. They write through different consoles but read the same signed (cell, band, tslot) facts, so a unit on the ground and the operations centre never disagree about where the line is.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · FEMA · NDMA · CIVIL PROTECTION · NGOs · FIRST RESPONDERS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">every responder is looking at the same address.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">16 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: 6 agency icons orbiting a central map cell -->
+  <g transform="translate(960,580)">
+    <!-- the common cell card -->
+    <g>
+      <rect x="-220" y="-160" width="440" height="320" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="2"/>
+      <text x="0" y="-126" text-anchor="middle" font-size="13" fill="#9aa3b8" letter-spacing="2">COMMON OPERATING PICTURE</text>
+      <text x="0" y="-92" text-anchor="middle" font-size="22" fill="#eaeaea" font-weight="700">cell defi.zb5cf.nura.zd83c</text>
+
+      <!-- mini bands -->
+      <g transform="translate(-200,-60)" font-family="ui-monospace" font-size="11" fill="#cfd9ff">
+        <rect width="400" height="28" rx="4" fill="#10153a"/><text x="10" y="19">flood.depth_now            cid qi3jo4…</text>
+        <rect y="36" width="400" height="28" rx="4" fill="#10153a"/><text x="10" y="55">fire.perimeter_t-15min     cid fb24m9…</text>
+        <rect y="72" width="400" height="28" rx="4" fill="#10153a"/><text x="10" y="91">roads.passability          cid k7r2nw…</text>
+        <rect y="108" width="400" height="28" rx="4" fill="#10153a"/><text x="10" y="127">shelter.capacity_remaining cid m81pq3…</text>
+        <rect y="144" width="400" height="28" rx="4" fill="#10153a"/><text x="10" y="163">power.grid_status          cid h9c4d8…</text>
+        <rect y="180" width="400" height="28" rx="4" fill="#62f5a3" opacity="0.16"/><text x="10" y="199" fill="#62f5a3">fused_view (merkle root)   0xb12a…ce</text>
+      </g>
+    </g>
+
+    <!-- 6 agencies on a circle -->
+    <g font-size="13" fill="#cfd9ff">
+      <g transform="translate(-460,-280)">
+        <rect x="-110" y="-32" width="220" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="0" y="-8" text-anchor="middle" font-size="11" fill="#9aa3b8" letter-spacing="2">FEDERAL EM</text>
+        <text x="0" y="18" text-anchor="middle">situation report</text>
+      </g>
+      <g transform="translate(460,-280)">
+        <rect x="-110" y="-32" width="220" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="0" y="-8" text-anchor="middle" font-size="11" fill="#9aa3b8" letter-spacing="2">FIRE SERVICE</text>
+        <text x="0" y="18" text-anchor="middle">tactical map</text>
+      </g>
+      <g transform="translate(-580,80)">
+        <rect x="-110" y="-32" width="220" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="0" y="-8" text-anchor="middle" font-size="11" fill="#9aa3b8" letter-spacing="2">RED CROSS · NGO</text>
+        <text x="0" y="18" text-anchor="middle">shelter routing</text>
+      </g>
+      <g transform="translate(580,80)">
+        <rect x="-110" y="-32" width="220" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="0" y="-8" text-anchor="middle" font-size="11" fill="#9aa3b8" letter-spacing="2">UTILITY OPS</text>
+        <text x="0" y="18" text-anchor="middle">restoration crew</text>
+      </g>
+      <g transform="translate(-460,360)">
+        <rect x="-110" y="-32" width="220" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="0" y="-8" text-anchor="middle" font-size="11" fill="#9aa3b8" letter-spacing="2">EMS · 911</text>
+        <text x="0" y="18" text-anchor="middle">dispatch</text>
+      </g>
+      <g transform="translate(460,360)">
+        <rect x="-110" y="-32" width="220" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="0" y="-8" text-anchor="middle" font-size="11" fill="#9aa3b8" letter-spacing="2">PUBLIC PORTAL</text>
+        <text x="0" y="18" text-anchor="middle">citizens · press</text>
+      </g>
+    </g>
+
+    <!-- spokes -->
+    <g fill="none" stroke="#3a3f6f" stroke-width="1.2" stroke-dasharray="4 4">
+      <line x1="-360" y1="-260" x2="-160" y2="-100"/>
+      <line x1="360"  y1="-260" x2="160"  y2="-100"/>
+      <line x1="-470" y1="80"   x2="-220" y2="0"/>
+      <line x1="470"  y1="80"   x2="220"  y2="0"/>
+      <line x1="-360" y1="340"  x2="-160" y2="120"/>
+      <line x1="360"  y1="340"  x2="160"  y2="120"/>
+    </g>
+
+    <!-- moving packets between centre and each agency -->
+    <g>
+      <circle r="5" fill="#7af9ff">
+        <animateMotion dur="4s" repeatCount="indefinite" path="M-160 -100 L-360 -260"/>
+      </circle>
+      <circle r="5" fill="#7af9ff">
+        <animateMotion dur="4s" begin="0.6s" repeatCount="indefinite" path="M160 -100 L360 -260"/>
+      </circle>
+      <circle r="5" fill="#62f5a3">
+        <animateMotion dur="4s" begin="1.2s" repeatCount="indefinite" path="M-220 0 L-470 80"/>
+      </circle>
+      <circle r="5" fill="#62f5a3">
+        <animateMotion dur="4s" begin="1.8s" repeatCount="indefinite" path="M220 0 L470 80"/>
+      </circle>
+      <circle r="5" fill="#ffb86b">
+        <animateMotion dur="4s" begin="2.4s" repeatCount="indefinite" path="M-160 120 L-360 340"/>
+      </circle>
+      <circle r="5" fill="#ffb86b">
+        <animateMotion dur="4s" begin="3.0s" repeatCount="indefinite" path="M160 120 L360 340"/>
+      </circle>
+    </g>
+  </g>
+
+  <!-- left rail: pain summary -->
+  <g transform="translate(80,240)">
+    <text font-size="13" fill="#9aa3b8" letter-spacing="2">TODAY · 6 INCOMPATIBLE PICTURES</text>
+    <text x="0" y="32" font-size="14" fill="#cfd9ff">— each agency runs its own GIS</text>
+    <text x="0" y="54" font-size="14" fill="#cfd9ff">— stale flood polygons, fresh fire perimeter</text>
+    <text x="0" y="76" font-size="14" fill="#cfd9ff">— a unit is dispatched to a road that is gone</text>
+    <text x="0" y="98" font-size="14" fill="#cfd9ff">— the press finds it before the IC does</text>
+  </g>
+  <g transform="translate(1640,240)">
+    <text font-size="13" fill="#9aa3b8" letter-spacing="2">WITH EMEM · ONE</text>
+    <text x="0" y="32" font-size="14" fill="#62f5a3">— same cell · same tslot · same cid</text>
+    <text x="0" y="54" font-size="14" fill="#62f5a3">— signed at the moment of attest</text>
+    <text x="0" y="76" font-size="14" fill="#62f5a3">— verifies on a tablet without signal</text>
+    <text x="0" y="98" font-size="14" fill="#62f5a3">— public portal sees the same bytes</text>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">An incident commander and a citizen, looking at the same byte.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Wraps existing CAD, Esri, QGIS, FEMA IPAWS — does not replace them. Bridges them with a content-addressed truth layer.</text>
+    <text x="1760" y="0" text-anchor="end">single binary · runs offline at the EOC · ed25519 receipts</text>
+  </g>
+</svg>

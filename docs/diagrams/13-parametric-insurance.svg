@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="parametric insurance: signed weather facts trigger payouts deterministically">
+  <title>emem for parametric insurance</title>
+  <desc>A weather index crosses its trigger; the underlying fact is content-addressed and signed; the contract fires automatically with offline-verifiable evidence — collapsing basis-risk disputes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · PARAMETRIC INSURERS · ILS · MGA</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">when the signed fact crosses the trigger, the contract pays.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">13 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: 14-day temperature curve, threshold line, trigger event -->
+  <g transform="translate(160,240)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">2 M AIR TEMPERATURE · BENGALURU · 14 DAYS · °C</text>
+    <text x="1600" y="0" text-anchor="end" font-size="13" fill="#6c7396">band: weather.temperature_2m · cell: defi.zb493.xoso.zcb6a</text>
+
+    <!-- axes -->
+    <g stroke="#2a335f" stroke-width="1">
+      <line x1="0" y1="600" x2="1600" y2="600"/>
+      <line x1="0" y1="40" x2="0" y2="600"/>
+    </g>
+    <g font-size="12" fill="#6c7396">
+      <text x="-10" y="606" text-anchor="end">25</text>
+      <text x="-10" y="466" text-anchor="end">30</text>
+      <text x="-10" y="326" text-anchor="end">35</text>
+      <text x="-10" y="186" text-anchor="end">40</text>
+      <text x="-10" y="46" text-anchor="end">45</text>
+      <text x="0" y="630">d-14</text>
+      <text x="800" y="630" text-anchor="middle">days</text>
+      <text x="1590" y="630" text-anchor="end">today</text>
+    </g>
+
+    <!-- trigger threshold line -->
+    <g>
+      <line x1="0" y1="218" x2="1600" y2="218" stroke="#ff5d8f" stroke-dasharray="6 6" stroke-width="1.5"/>
+      <text x="1610" y="222" font-size="13" fill="#ff5d8f">trigger 39 °C</text>
+    </g>
+
+    <!-- temperature curve -->
+    <path d="M0 470 L114 460 L228 440 L342 420 L456 380 L570 340 L684 280 L798 240 L912 200 L1026 170 L1140 200 L1254 230 L1368 270 L1482 320 L1600 360"
+          fill="none" stroke="#7af9ff" stroke-width="3"/>
+
+    <!-- shaded area above threshold (only where curve > 218) -->
+    <path d="M456 218 L570 340 L684 280 L798 240 L912 200 L1026 170 L1140 200 L1254 218 L1254 218 L456 218 Z"
+          fill="#ff5d8f" opacity="0.18"/>
+
+    <!-- crossing markers -->
+    <g>
+      <circle cx="912" cy="200" r="9" fill="#ff5d8f"/>
+      <circle cx="912" cy="200" r="22" fill="none" stroke="#ff5d8f" stroke-width="1.5">
+        <animate attributeName="r" values="9;28;9" dur="2.4s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.9;0;0.9" dur="2.4s" repeatCount="indefinite"/>
+      </circle>
+      <text x="912" y="170" text-anchor="middle" font-size="14" fill="#ff5d8f">peak 41.2 °C · d-5</text>
+    </g>
+
+    <!-- packet flowing along the curve -->
+    <circle r="5" fill="#62f5a3">
+      <animateMotion dur="6s" repeatCount="indefinite"
+        path="M0 470 L114 460 L228 440 L342 420 L456 380 L570 340 L684 280 L798 240 L912 200 L1026 170 L1140 200 L1254 230 L1368 270 L1482 320 L1600 360"/>
+    </circle>
+  </g>
+
+  <!-- right rail: trigger pipeline -->
+  <g transform="translate(160,860)">
+    <g font-size="14" fill="#cfd9ff">
+      <g transform="translate(0,0)">
+        <rect width="320" height="60" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="12" fill="#9aa3b8" letter-spacing="2">01 · OBSERVE</text>
+        <text x="16" y="48">recall(temp_2m, cell, t)</text>
+      </g>
+      <g transform="translate(340,0)">
+        <rect width="320" height="60" rx="10" fill="#0a0e26" stroke="#ff5d8f"/>
+        <text x="16" y="24" font-size="12" fill="#9aa3b8" letter-spacing="2">02 · CROSS THRESHOLD</text>
+        <text x="16" y="48">value ≥ 39 °C → fact_cid</text>
+      </g>
+      <g transform="translate(680,0)">
+        <rect width="320" height="60" rx="10" fill="#0a0e26" stroke="url(#acc)"/>
+        <text x="16" y="24" font-size="12" fill="#9aa3b8" letter-spacing="2">03 · VERIFY</text>
+        <text x="16" y="48">ed25519 · offline · zero callbacks</text>
+      </g>
+      <g transform="translate(1020,0)">
+        <rect width="320" height="60" rx="10" fill="#0a0e26" stroke="#62f5a3"/>
+        <text x="16" y="24" font-size="12" fill="#9aa3b8" letter-spacing="2">04 · PAYOUT</text>
+        <text x="16" y="48">wire · disputable only on the cid</text>
+      </g>
+      <g transform="translate(1360,0)">
+        <rect width="240" height="60" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="12" fill="#9aa3b8" letter-spacing="2">BASIS RISK</text>
+        <text x="16" y="48" fill="#62f5a3">cell-pinned · auditable</text>
+      </g>
+      <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+        <path d="M320 30 L340 30"/>
+        <path d="M660 30 L680 30"/>
+        <path d="M1000 30 L1020 30"/>
+        <path d="M1340 30 L1360 30"/>
+      </g>
+    </g>
+  </g>
+
+  <text x="960" y="980" text-anchor="middle" font-size="28" fill="#eaeaea">A trigger you can argue with — but only by recomputing the CID.</text>
+  <g transform="translate(80,1058)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Index sources: met.no · Open-Meteo · NASA POWER · Tessera embeddings · ERA5</text>
+    <text x="1760" y="0" text-anchor="end">parametric market · ~$22B · 13% CAGR · basis-risk premium is the prize</text>
+  </g>
+</svg>

@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="defense GEOINT: multi-source fact fusion with provenance preserved">
+  <title>emem for defense &amp; GEOINT</title>
+  <desc>Many sensors, one address. Each source signs its own fact at a cell; analysts fuse the layer they need with full chain of custody, while NGA-grade Luno-style commercial vendors plug in without bilateral data deals.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · GEOINT · NGA · ALLIED INTEL · COMMERCIAL FUSION</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">fuse classified and open intel without losing chain of custody.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">15 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: 6 sensors converging on one cell, with provenance threads kept distinct -->
+  <g transform="translate(120,220)">
+    <!-- sensors on left -->
+    <g font-size="13" fill="#cfd9ff">
+      <g transform="translate(0,40)">
+        <rect width="280" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="11" fill="#9aa3b8" letter-spacing="2">01 · EO · COMMERCIAL</text>
+        <text x="16" y="50">Maxar · Planet · BlackSky</text>
+      </g>
+      <g transform="translate(0,128)">
+        <rect width="280" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="11" fill="#9aa3b8" letter-spacing="2">02 · SAR</text>
+        <text x="16" y="50">Capella · ICEYE · Sentinel-1</text>
+      </g>
+      <g transform="translate(0,216)">
+        <rect width="280" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="11" fill="#9aa3b8" letter-spacing="2">03 · RF · ELINT</text>
+        <text x="16" y="50">HawkEye 360 · Spire</text>
+      </g>
+      <g transform="translate(0,304)">
+        <rect width="280" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="11" fill="#9aa3b8" letter-spacing="2">04 · MULTISPECTRAL</text>
+        <text x="16" y="50">Sentinel-2 · Landsat · Pléiades</text>
+      </g>
+      <g transform="translate(0,392)">
+        <rect width="280" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="11" fill="#9aa3b8" letter-spacing="2">05 · OSINT FEEDS</text>
+        <text x="16" y="50">OSM · maritime AIS · social</text>
+      </g>
+      <g transform="translate(0,480)">
+        <rect width="280" height="64" rx="10" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="16" y="24" font-size="11" fill="#9aa3b8" letter-spacing="2">06 · CLASSIFIED · SCI</text>
+        <text x="16" y="50">held in own enclave · same cid</text>
+      </g>
+    </g>
+
+    <!-- centre: a cell stack with bands -->
+    <g transform="translate(720,40)">
+      <rect width="420" height="544" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">ONE CELL · DEFI.…  · 9.55 M SQUARE</text>
+      <text x="20" y="68" font-size="22" fill="#eaeaea" font-weight="700">stack of bands</text>
+
+      <!-- 9 stacked bands -->
+      <g transform="translate(20,100)" font-size="11" fill="#cfd9ff" font-family="ui-monospace">
+        <g>
+          <rect width="380" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+          <text x="14" y="24">eo.rgb_chip                attester=A · cid qi3jo4…</text>
+        </g>
+        <g transform="translate(0,44)">
+          <rect width="380" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+          <text x="14" y="24">sar.coherence_change       attester=B · cid fb24m9…</text>
+        </g>
+        <g transform="translate(0,88)">
+          <rect width="380" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+          <text x="14" y="24">rf.emitters_density        attester=C · cid k7r2nw…</text>
+        </g>
+        <g transform="translate(0,132)">
+          <rect width="380" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+          <text x="14" y="24">multi.ndvi_anomaly         attester=D · cid m81pq3…</text>
+        </g>
+        <g transform="translate(0,176)">
+          <rect width="380" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+          <text x="14" y="24">osint.ais_dwell_min        attester=E · cid h9c4d8…</text>
+        </g>
+        <g transform="translate(0,220)">
+          <rect width="380" height="36" rx="6" fill="#10153a" stroke="url(#acc)" stroke-width="1.5"/>
+          <text x="14" y="24" fill="#7af9ff">classified.activity_score  attester=F · cid █████…</text>
+        </g>
+        <g transform="translate(0,264)">
+          <rect width="380" height="36" rx="6" fill="#10153a" stroke="#62f5a3"/>
+          <text x="14" y="24" fill="#62f5a3">tessera.embedding_2024     attester=A · cid g8j2ly…</text>
+        </g>
+        <g transform="translate(0,316)">
+          <rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#62f5a3"/>
+          <text x="14" y="24" font-size="12" fill="#9aa3b8" letter-spacing="2">FUSION RECEIPT</text>
+          <text x="14" y="48" font-family="ui-monospace" fill="#62f5a3">merkle_root: 0xb12a…ce · 7 leaves</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- right: analyst -->
+    <g transform="translate(1180,40)">
+      <rect width="600" height="544" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">ANALYST QUERY · MCP TOOL CALL</text>
+      <g font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <text x="20" y="78">{</text>
+        <text x="40" y="102">"tool":  "emem.recall",</text>
+        <text x="40" y="124">"cell":  "defi.zb56e.kxma.zh71f",</text>
+        <text x="40" y="146">"bands": ["sar.coherence_change",</text>
+        <text x="40" y="166">          "rf.emitters_density",</text>
+        <text x="40" y="186">          "classified.activity_score"]</text>
+        <text x="20" y="208">}</text>
+      </g>
+      <text x="20" y="260" font-size="13" fill="#9aa3b8" letter-spacing="2">RESPONSE</text>
+      <g font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <text x="20" y="290">facts: 3 · receipt · 7 attestations</text>
+        <text x="20" y="312">latency: 3.1 ms (warm) · 0 callbacks</text>
+        <text x="20" y="334">provenance: 3 distinct attesters</text>
+        <text x="20" y="356">verifier: ed25519 offline</text>
+      </g>
+      <text x="20" y="412" font-size="13" fill="#7af9ff" letter-spacing="2">WHAT BREAKS WITHOUT EMEM</text>
+      <g font-size="13" fill="#cfd9ff">
+        <text x="20" y="442">— bilateral integrations per vendor</text>
+        <text x="20" y="464">— provenance lost in fusion step</text>
+        <text x="20" y="486">— classified ↔ open colour-mixing</text>
+      </g>
+    </g>
+
+    <!-- arrows from sensors to centre stack -->
+    <g fill="none" stroke="#3a3f6f" stroke-width="1.2">
+      <path d="M280 72 L720 116"/>
+      <path d="M280 160 L720 160"/>
+      <path d="M280 248 L720 204"/>
+      <path d="M280 336 L720 248"/>
+      <path d="M280 424 L720 292"/>
+      <path d="M280 512 L720 336"/>
+    </g>
+
+    <!-- packet animation along sensor → cell -->
+    <g>
+      <circle r="5" fill="#7af9ff">
+        <animateMotion dur="3s" repeatCount="indefinite" path="M280 72 L720 116"/>
+      </circle>
+      <circle r="5" fill="#7af9ff">
+        <animateMotion dur="3s" begin="0.4s" repeatCount="indefinite" path="M280 248 L720 204"/>
+      </circle>
+      <circle r="5" fill="#ff5d8f">
+        <animateMotion dur="3s" begin="0.8s" repeatCount="indefinite" path="M280 512 L720 336"/>
+      </circle>
+      <!-- centre to analyst -->
+      <circle r="5" fill="#62f5a3">
+        <animateMotion dur="3s" repeatCount="indefinite" path="M1140 280 L1180 280"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="950" text-anchor="middle" font-size="32" fill="#eaeaea">Multi-vendor fusion that survives the FOIA, the courtroom, and the shift change.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Compatible with NGA Luno-style multi-vendor commercial buys; classified attesters keep their CID and stay in their enclave.</text>
+    <text x="1760" y="0" text-anchor="end">latency · provenance · interoperability — the three axes of GEOINT 2026</text>
+  </g>
+</svg>

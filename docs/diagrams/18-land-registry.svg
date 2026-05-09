@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="land registry: a parcel record where tampering is mathematical, not legal">
+  <title>emem for land registry &amp; cadastre</title>
+  <desc>Each parcel is a small set of facts at a polygon: boundary, owner-of-record CID, encumbrances, geophysics. Mutating any cell-level fact changes the CID. Tampering becomes mathematically detectable, not just legally actionable.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · NATIONAL LAND REGISTRIES · CADASTRES · TITLE INSURERS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">a parcel record where tampering is mathematical, not legal.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">18 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: parcel grid + before/after CID for one mutated parcel -->
+  <g transform="translate(120,210)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">CADASTRE TILE · 8 × 5 PARCELS · ONE TAMPERED</text>
+
+    <!-- grid -->
+    <g transform="translate(0,40)" font-family="ui-monospace" font-size="10" fill="#9aa3b8">
+      <g>
+        <!-- 8 cols x 5 rows of parcels with CID label -->
+        <g>
+          <g transform="translate(0,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0001</text><text x="10" y="42">qi3jo4sq</text><text x="10" y="60" fill="#6c7396">cgklqfcv</text><text x="10" y="78" fill="#6c7396">rfl55ctz</text></g>
+          <g transform="translate(154,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0002</text><text x="10" y="42">fb24m9pw</text><text x="10" y="60" fill="#6c7396">kbq2x14r</text><text x="10" y="78" fill="#6c7396">vxn8s31q</text></g>
+          <g transform="translate(308,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0003</text><text x="10" y="42">k7r2nw9w</text><text x="10" y="60" fill="#6c7396">vc3lpa78</text><text x="10" y="78" fill="#6c7396">w91emn4u</text></g>
+          <g transform="translate(462,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0004</text><text x="10" y="42">m81pq3vr</text><text x="10" y="60" fill="#6c7396">nthvjfm5</text><text x="10" y="78" fill="#6c7396">b2c84oxg</text></g>
+          <g transform="translate(616,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0005</text><text x="10" y="42">h9c4d8sx</text><text x="10" y="60" fill="#6c7396">bm4xz9li</text><text x="10" y="78" fill="#6c7396">7g03kcyt</text></g>
+          <g transform="translate(770,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0006</text><text x="10" y="42">g8j2lyne</text><text x="10" y="60" fill="#6c7396">vqr5pukf</text><text x="10" y="78" fill="#6c7396">w28alc9s</text></g>
+          <g transform="translate(924,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0007</text><text x="10" y="42">x4f7tnae</text><text x="10" y="60" fill="#6c7396">d9rwlb22</text><text x="10" y="78" fill="#6c7396">m6kjuoqz</text></g>
+          <g transform="translate(1078,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0008</text><text x="10" y="42">v3w8fdyu</text><text x="10" y="60" fill="#6c7396">qj1n7lkr</text><text x="10" y="78" fill="#6c7396">2ae5pxhc</text></g>
+        </g>
+        <g transform="translate(0,108)">
+          <g><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0009</text><text x="10" y="42">b1d6erlt</text><text x="10" y="60" fill="#6c7396">w8mpv29c</text><text x="10" y="78" fill="#6c7396">k0saqj37</text></g>
+          <g transform="translate(154,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0010</text><text x="10" y="42">n2m4xrgi</text><text x="10" y="60" fill="#6c7396">s7tlc5fz</text><text x="10" y="78" fill="#6c7396">u3ev08hd</text></g>
+          <g transform="translate(308,0)">
+            <rect width="146" height="100" rx="6" fill="#10153a" stroke="#ff5d8f" stroke-width="2"/>
+            <text x="10" y="18" fill="#ff5d8f">P-0011 ⚠</text><text x="10" y="42" fill="#ff5d8f">y9p1koac</text><text x="10" y="60" fill="#ff5d8f">2hwvm5jq</text><text x="10" y="78" fill="#ff5d8f">l4t8nbrx</text>
+            <animate attributeName="stroke-opacity" values="1;0.4;1" dur="2.4s" repeatCount="indefinite"/>
+          </g>
+          <g transform="translate(462,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0012</text><text x="10" y="42">a5q3wojf</text><text x="10" y="60" fill="#6c7396">tvg2yshe</text><text x="10" y="78" fill="#6c7396">9bukl7id</text></g>
+          <g transform="translate(616,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0013</text><text x="10" y="42">e6r9hnct</text><text x="10" y="60" fill="#6c7396">pxa14kbm</text><text x="10" y="78" fill="#6c7396">d8sj0vez</text></g>
+          <g transform="translate(770,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0014</text><text x="10" y="42">i7s2qmbu</text><text x="10" y="60" fill="#6c7396">cf4nlh8a</text><text x="10" y="78" fill="#6c7396">o1z3rkvw</text></g>
+          <g transform="translate(924,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0015</text><text x="10" y="42">j5p7nxoa</text><text x="10" y="60" fill="#6c7396">lf9bk1eu</text><text x="10" y="78" fill="#6c7396">w26icgyv</text></g>
+          <g transform="translate(1078,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0016</text><text x="10" y="42">u8t5ypjw</text><text x="10" y="60" fill="#6c7396">khr3manc</text><text x="10" y="78" fill="#6c7396">f7vbleq2</text></g>
+        </g>
+        <g transform="translate(0,216)">
+          <g><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0017</text><text x="10" y="42">o9w0lkbx</text><text x="10" y="60" fill="#6c7396">enr5cup7</text><text x="10" y="78" fill="#6c7396">m1y8shdj</text></g>
+          <g transform="translate(154,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0018</text><text x="10" y="42">d3l2bvfh</text><text x="10" y="60" fill="#6c7396">qjm6npxs</text><text x="10" y="78" fill="#6c7396">a48twkrz</text></g>
+          <g transform="translate(308,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0019</text><text x="10" y="42">r4z7ucyo</text><text x="10" y="60" fill="#6c7396">vlkn0sgw</text><text x="10" y="78" fill="#6c7396">h2qe9bid</text></g>
+          <g transform="translate(462,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0020</text><text x="10" y="42">t7n5jakp</text><text x="10" y="60" fill="#6c7396">ws8mxhcg</text><text x="10" y="78" fill="#6c7396">b3lvqfye</text></g>
+          <g transform="translate(616,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0021</text><text x="10" y="42">c1k6vxlf</text><text x="10" y="60" fill="#6c7396">jz7tmwon</text><text x="10" y="78" fill="#6c7396">e8ydashr</text></g>
+          <g transform="translate(770,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0022</text><text x="10" y="42">l9o3qmzs</text><text x="10" y="60" fill="#6c7396">pbf4xkae</text><text x="10" y="78" fill="#6c7396">i5ngjvcw</text></g>
+          <g transform="translate(924,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0023</text><text x="10" y="42">s2u8wpdh</text><text x="10" y="60" fill="#6c7396">crl1omkn</text><text x="10" y="78" fill="#6c7396">y6tzjegv</text></g>
+          <g transform="translate(1078,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0024</text><text x="10" y="42">f6e9ihcu</text><text x="10" y="60" fill="#6c7396">qa3vskmx</text><text x="10" y="78" fill="#6c7396">d7tbylpr</text></g>
+        </g>
+        <g transform="translate(0,324)">
+          <g><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0025</text><text x="10" y="42">k4a7zuxv</text><text x="10" y="60" fill="#6c7396">ws9hbqln</text><text x="10" y="78" fill="#6c7396">c8jirmpe</text></g>
+          <g transform="translate(154,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0026</text><text x="10" y="42">m1n6obdg</text><text x="10" y="60" fill="#6c7396">eyq3lfsr</text><text x="10" y="78" fill="#6c7396">v2akcuhx</text></g>
+          <g transform="translate(308,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0027</text><text x="10" y="42">j8h2tcwi</text><text x="10" y="60" fill="#6c7396">spf5xnbm</text><text x="10" y="78" fill="#6c7396">u4ovklqz</text></g>
+          <g transform="translate(462,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0028</text><text x="10" y="42">b9p3eqmr</text><text x="10" y="60" fill="#6c7396">azlwjkht</text><text x="10" y="78" fill="#6c7396">y7socfdu</text></g>
+          <g transform="translate(616,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0029</text><text x="10" y="42">i5l8gxno</text><text x="10" y="60" fill="#6c7396">zd4cumkf</text><text x="10" y="78" fill="#6c7396">e1qrwbah</text></g>
+          <g transform="translate(770,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0030</text><text x="10" y="42">w3y6lpke</text><text x="10" y="60" fill="#6c7396">tqz9hbsj</text><text x="10" y="78" fill="#6c7396">u8maxcvr</text></g>
+          <g transform="translate(924,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0031</text><text x="10" y="42">a4d7nqom</text><text x="10" y="60" fill="#6c7396">jvsbfk1l</text><text x="10" y="78" fill="#6c7396">x9hpetcw</text></g>
+          <g transform="translate(1078,0)"><rect width="146" height="100" rx="6" fill="#10153a" stroke="#2a335f"/><text x="10" y="18">P-0032</text><text x="10" y="42">o1c5jvub</text><text x="10" y="60" fill="#6c7396">myq7eahk</text><text x="10" y="78" fill="#6c7396">f8lwrxnz</text></g>
+        </g>
+      </g>
+    </g>
+
+    <!-- callout for the mutated parcel -->
+    <g transform="translate(1240,148)">
+      <rect width="540" height="540" rx="14" fill="#0a0e26" stroke="#ff5d8f" stroke-width="1.5"/>
+      <text x="20" y="38" font-size="13" fill="#9aa3b8" letter-spacing="2">PARCEL P-0011 · TAMPER DETECTION</text>
+
+      <text x="20" y="76" font-size="14" fill="#cfd9ff">recorded fields</text>
+      <g font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <text x="20" y="106">boundary    polygon · 8 vertices</text>
+        <text x="20" y="128">owner_cid   v8h2…rxn3</text>
+        <text x="20" y="150">area_m2     1842.07</text>
+        <text x="20" y="172">encumbrance lien · cid c2pr…wx9k</text>
+        <text x="20" y="194">last_change 2026-04-12</text>
+      </g>
+
+      <text x="20" y="240" font-size="13" fill="#9aa3b8" letter-spacing="2">SOMEONE EDITED area_m2 → 1942.07</text>
+      <text x="20" y="270" font-size="14" fill="#ff5d8f">cid before  qi3jo4sqcg…l2hgjt</text>
+      <text x="20" y="294" font-size="14" fill="#ff5d8f">cid after   y9p1koac2h…l4t8nb</text>
+      <text x="20" y="328" font-size="13" fill="#9aa3b8">— two characters changed in the value</text>
+      <text x="20" y="350" font-size="13" fill="#9aa3b8">— every character changed in the cid</text>
+
+      <text x="20" y="400" font-size="13" fill="#62f5a3" letter-spacing="2">DETECTION</text>
+      <text x="20" y="430" font-size="14" fill="#cfd9ff">— old cid is referenced by 17 receipts</text>
+      <text x="20" y="454" font-size="14" fill="#cfd9ff">— new cid breaks the chain</text>
+      <text x="20" y="478" font-size="14" fill="#cfd9ff">— alert fires before the writ does</text>
+
+      <!-- mini chain visualization -->
+      <g transform="translate(20,498)">
+        <rect width="38" height="20" rx="4" fill="#10153a" stroke="#2a335f"/>
+        <rect x="42" width="38" height="20" rx="4" fill="#10153a" stroke="#2a335f"/>
+        <rect x="84" width="38" height="20" rx="4" fill="#10153a" stroke="#ff5d8f">
+          <animate attributeName="stroke-opacity" values="1;0.4;1" dur="1.6s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="126" width="38" height="20" rx="4" fill="#10153a" stroke="#2a335f"/>
+        <rect x="168" width="38" height="20" rx="4" fill="#10153a" stroke="#2a335f"/>
+      </g>
+    </g>
+
+    <!-- packet -->
+    <g>
+      <circle r="5" fill="#ff5d8f">
+        <animateMotion dur="3s" repeatCount="indefinite" path="M380 188 L1240 408"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">Forging a parcel record means forging the rest of the universe.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Coexists with national systems (Torrens, deed-recording, Land-eXML) — emem layers a content-addressed integrity check on top.</text>
+    <text x="1760" y="0" text-anchor="end">title-insurer-friendly · transition-grade for digital cadastres</text>
+  </g>
+</svg>

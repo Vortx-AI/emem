@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="CSRD/ESRS E1 climate disclosure: drill from filing to per-asset CIDs">
+  <title>emem for CSRD / ESRS E1 climate disclosure</title>
+  <desc>An auditor drills from a CSRD filing to a single asset, to a single signed fact, to the upstream open-data source — every step content-addressed and offline-verifiable.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · CFOs · SUSTAINABILITY · LIMITED-ASSURANCE AUDITORS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">disclose with the receipts auditors can verify on a flight.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">14 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: a Sankey-style drill from filing → assets → facts → sources -->
+  <g transform="translate(120,230)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">AUDIT DRILL · ESRS E1 PHYSICAL RISK · 1,200-ASSET PORTFOLIO</text>
+
+    <!-- 4 columns -->
+    <g font-size="14">
+      <!-- col 1: filing -->
+      <g transform="translate(0,80)">
+        <rect width="340" height="540" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+        <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">01 · CSRD FILING</text>
+        <text x="20" y="74" font-size="22" fill="#eaeaea" font-weight="700">acme group · FY 2026</text>
+        <text x="20" y="106" fill="#cfd9ff">€18.4 bn revenue</text>
+        <text x="20" y="132" fill="#cfd9ff">1,243 assets in scope</text>
+        <text x="20" y="158" fill="#cfd9ff">42 jurisdictions</text>
+        <text x="20" y="206" font-size="13" fill="#9aa3b8" letter-spacing="2">PHYSICAL-RISK CLAIM</text>
+        <text x="20" y="240" fill="#7af9ff">"3.2% revenue exposed</text>
+        <text x="20" y="262" fill="#7af9ff">to flood under SSP3-7.0"</text>
+        <text x="20" y="320" font-size="13" fill="#9aa3b8" letter-spacing="2">ASSURANCE LEVEL</text>
+        <text x="20" y="348" fill="#cfd9ff">limited → reasonable by 2028</text>
+      </g>
+
+      <!-- col 2: assets list -->
+      <g transform="translate(380,80)">
+        <rect width="340" height="540" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">02 · ASSETS (40 SHOWN)</text>
+        <g font-size="11" fill="#cfd9ff" font-family="ui-monospace">
+          <g transform="translate(20,68)">
+            <!-- 8 columns x 5 rows of small cells -->
+            <g>
+              <rect width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="40" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="80" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="120" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="160" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="200" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="240" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="280" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+            </g>
+            <g transform="translate(0,40)">
+              <rect width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="40" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="80" width="36" height="36" rx="3" fill="#ff5d8f" opacity="0.5"/>
+              <rect x="120" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="160" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="200" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="240" width="36" height="36" rx="3" fill="#ff5d8f" opacity="0.5"/>
+              <rect x="280" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+            </g>
+            <g transform="translate(0,80)">
+              <rect width="36" height="36" rx="3" fill="#ffb86b" opacity="0.4"/>
+              <rect x="40" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="80" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="120" width="36" height="36" rx="3" fill="#10153a" stroke="url(#acc)" stroke-width="2"/>
+              <rect x="160" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="200" width="36" height="36" rx="3" fill="#ffb86b" opacity="0.4"/>
+              <rect x="240" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="280" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+            </g>
+            <g transform="translate(0,120)">
+              <rect width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="40" width="36" height="36" rx="3" fill="#ff5d8f" opacity="0.5"/>
+              <rect x="80" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="120" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="160" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="200" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="240" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="280" width="36" height="36" rx="3" fill="#ff5d8f" opacity="0.5"/>
+            </g>
+            <g transform="translate(0,160)">
+              <rect width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="40" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="80" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="120" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="160" width="36" height="36" rx="3" fill="#ffb86b" opacity="0.4"/>
+              <rect x="200" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="240" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+              <rect x="280" width="36" height="36" rx="3" fill="#10153a" stroke="#2a335f"/>
+            </g>
+          </g>
+        </g>
+        <text x="20" y="368" font-size="13" fill="#9aa3b8" letter-spacing="2">AUDITOR PICKS · ASSET 0387</text>
+        <text x="20" y="394" font-size="13" fill="#cfd9ff">cell: defi.zb5cf.nura.zd83c</text>
+        <text x="20" y="416" font-size="13" fill="#cfd9ff">site: rotterdam · NL</text>
+        <text x="20" y="450" font-size="11" fill="#9aa3b8">red = flagged · amber = watch</text>
+      </g>
+
+      <!-- col 3: facts cited for that asset -->
+      <g transform="translate(760,80)">
+        <rect width="340" height="540" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+        <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">03 · FACTS BEHIND THE CLAIM</text>
+        <g font-family="ui-monospace" font-size="12" fill="#cfd9ff">
+          <text x="20" y="74">flood.return_period_100yr  qi3jo4sqcg…</text>
+          <text x="20" y="100">copdem30m.elevation_mean  fb24m9pwkb…</text>
+          <text x="20" y="126">jrcgsw.water_occurrence   k7r2nw9wvc…</text>
+          <text x="20" y="152">overture.buildings_count  m81pq3vrnt…</text>
+          <text x="20" y="178">tessera.embedding_2024    h9c4d8sxbm…</text>
+        </g>
+        <text x="20" y="220" font-size="13" fill="#9aa3b8" letter-spacing="2">EACH FACT CARRIES</text>
+        <g font-size="13" fill="#cfd9ff">
+          <text x="20" y="248">— ed25519 signature</text>
+          <text x="20" y="270">— derivation.fn_key</text>
+          <text x="20" y="292">— captured_at · signed_at</text>
+          <text x="20" y="314">— merkle inclusion path</text>
+        </g>
+        <text x="20" y="368" font-size="13" fill="#7af9ff">→ verified offline by the auditor</text>
+      </g>
+
+      <!-- col 4: upstream sources -->
+      <g transform="translate(1140,80)">
+        <rect width="340" height="540" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+        <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">04 · UPSTREAM (sources_cid)</text>
+        <g font-size="13" fill="#cfd9ff">
+          <text x="20" y="74">JRC GSW · CC-BY 4.0</text>
+          <text x="20" y="98">Copernicus DEM</text>
+          <text x="20" y="122">Sentinel-1 RTC · Sentinel-2 L2A</text>
+          <text x="20" y="146">Overture Maps</text>
+          <text x="20" y="170">Tessera 2017–2024</text>
+        </g>
+        <text x="20" y="220" font-size="13" fill="#9aa3b8" letter-spacing="2">PROPERTY</text>
+        <g font-size="13" fill="#cfd9ff">
+          <text x="20" y="250">— open data, no licence trap</text>
+          <text x="20" y="272">— pinned by sources_cid manifest</text>
+          <text x="20" y="294">— a peer with drift advertises</text>
+          <text x="20" y="316">  a different cid in /health</text>
+        </g>
+        <text x="20" y="368" font-size="13" fill="#62f5a3">→ no vendor lock-in, no SaaS bridge</text>
+      </g>
+
+      <!-- right edge: stamp -->
+      <g transform="translate(1500,80)">
+        <rect width="280" height="540" rx="14" fill="#0a0e26" stroke="#62f5a3" stroke-width="1.5"/>
+        <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">05 · ASSURANCE STAMP</text>
+        <text x="20" y="84" font-size="18" fill="#62f5a3" font-weight="700">REASONABLE-READY</text>
+        <g font-size="13" fill="#cfd9ff">
+          <text x="20" y="130">— full lineage from claim to byte</text>
+          <text x="20" y="152">— re-runnable in any year</text>
+          <text x="20" y="174">— no dependency on the issuer</text>
+          <text x="20" y="196">— signed at every link</text>
+        </g>
+        <text x="20" y="250" font-size="13" fill="#9aa3b8" letter-spacing="2">SAVED PER FILING</text>
+        <text x="20" y="280" font-size="22" fill="#7af9ff">~ 5,200 audit-hours</text>
+        <text x="20" y="304" font-size="11" fill="#6c7396">illustrative · vs questionnaire-based</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- packets flowing across columns -->
+  <g>
+    <circle r="5" fill="#7af9ff">
+      <animateMotion dur="6s" repeatCount="indefinite" path="M460 530 L500 530 L880 530 L1260 530 L1620 530"/>
+    </circle>
+    <circle r="5" fill="#62f5a3" opacity="0.7">
+      <animateMotion dur="6s" begin="2s" repeatCount="indefinite" path="M460 530 L500 530 L880 530 L1260 530 L1620 530"/>
+    </circle>
+  </g>
+
+  <text x="960" y="930" text-anchor="middle" font-size="32" fill="#eaeaea">From a 200-page filing to a 26-character handle, in four hops.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Aligned with ESRS E1 (climate change), TCFD-style scenarios, and ISSB IFRS S2 — without binding the company to any single vendor.</text>
+    <text x="1760" y="0" text-anchor="end">CSRD applies wave-2 from FY 2026 · limited assurance from day one</text>
+  </g>
+</svg>

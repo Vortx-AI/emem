@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="precision agriculture: per-field decisions citing per-pixel facts">
+  <title>emem for precision agriculture</title>
+  <desc>A 64-hectare wheat field decomposes into a 16×9 cell grid of (cell, band, tslot) facts. The agronomist's decision — variable-rate fertiliser, irrigation cut, harvest window — cites the pixels that justify it.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · GROWERS · AGRONOMISTS · CO-OPS · LENDERS · INPUT BRANDS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">per-field decisions citing per-pixel facts.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">27 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: a heatmap of NDVI / yield potential, grid of cells -->
+  <g transform="translate(120,220)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">FIELD · 64 HA · NDVI ANOMALY · 16 × 9 CELL GRID</text>
+
+    <!-- heatmap 16x9 = 144 cells -->
+    <g transform="translate(0,30)" font-family="ui-monospace" font-size="9" fill="#9aa3b8">
+      <!-- Use a simple gradient pattern for cells: greens central, ambers top-left, red small patch -->
+      <g>
+        <!-- 9 rows × 16 cols, each cell 70x60 -->
+        <g transform="translate(0,0)">
+          <rect x="0"    width="70" height="60" fill="#3d2c11"/><rect x="74"  width="70" height="60" fill="#3d2c11"/><rect x="148" width="70" height="60" fill="#5a4119"/><rect x="222" width="70" height="60" fill="#13402a"/><rect x="296" width="70" height="60" fill="#13402a"/><rect x="370" width="70" height="60" fill="#13402a"/><rect x="444" width="70" height="60" fill="#1e5638"/><rect x="518" width="70" height="60" fill="#1e5638"/><rect x="592" width="70" height="60" fill="#13402a"/><rect x="666" width="70" height="60" fill="#13402a"/><rect x="740" width="70" height="60" fill="#1e5638"/><rect x="814" width="70" height="60" fill="#1e5638"/><rect x="888" width="70" height="60" fill="#13402a"/><rect x="962" width="70" height="60" fill="#13402a"/><rect x="1036" width="70" height="60" fill="#13402a"/><rect x="1110" width="70" height="60" fill="#13402a"/>
+        </g>
+        <g transform="translate(0,64)">
+          <rect x="0"    width="70" height="60" fill="#3d2c11"/><rect x="74"  width="70" height="60" fill="#5a4119"/><rect x="148" width="70" height="60" fill="#13402a"/><rect x="222" width="70" height="60" fill="#13402a"/><rect x="296" width="70" height="60" fill="#1e5638"/><rect x="370" width="70" height="60" fill="#1e5638"/><rect x="444" width="70" height="60" fill="#22754d"/><rect x="518" width="70" height="60" fill="#22754d"/><rect x="592" width="70" height="60" fill="#1e5638"/><rect x="666" width="70" height="60" fill="#1e5638"/><rect x="740" width="70" height="60" fill="#22754d"/><rect x="814" width="70" height="60" fill="#22754d"/><rect x="888" width="70" height="60" fill="#1e5638"/><rect x="962" width="70" height="60" fill="#1e5638"/><rect x="1036" width="70" height="60" fill="#13402a"/><rect x="1110" width="70" height="60" fill="#13402a"/>
+        </g>
+        <g transform="translate(0,128)">
+          <rect x="0"    width="70" height="60" fill="#5a4119"/><rect x="74"  width="70" height="60" fill="#13402a"/><rect x="148" width="70" height="60" fill="#13402a"/><rect x="222" width="70" height="60" fill="#1e5638"/><rect x="296" width="70" height="60" fill="#22754d"/><rect x="370" width="70" height="60" fill="#22754d"/><rect x="444" width="70" height="60" fill="#2c8d5d"/><rect x="518" width="70" height="60" fill="#2c8d5d"/><rect x="592" width="70" height="60" fill="#22754d"/><rect x="666" width="70" height="60" fill="#22754d"/><rect x="740" width="70" height="60" fill="#22754d"/><rect x="814" width="70" height="60" fill="#22754d"/><rect x="888" width="70" height="60" fill="#22754d"/><rect x="962" width="70" height="60" fill="#1e5638"/><rect x="1036" width="70" height="60" fill="#1e5638"/><rect x="1110" width="70" height="60" fill="#13402a"/>
+        </g>
+        <g transform="translate(0,192)">
+          <rect x="0"    width="70" height="60" fill="#13402a"/><rect x="74"  width="70" height="60" fill="#13402a"/><rect x="148" width="70" height="60" fill="#1e5638"/><rect x="222" width="70" height="60" fill="#22754d"/><rect x="296" width="70" height="60" fill="#2c8d5d"/><rect x="370" width="70" height="60" fill="#2c8d5d"/><rect x="444" width="70" height="60" fill="#33a76e"/><rect x="518" width="70" height="60" fill="#33a76e"/><rect x="592" width="70" height="60" fill="#2c8d5d"/><rect x="666" width="70" height="60" fill="#2c8d5d"/><rect x="740" width="70" height="60" fill="#2c8d5d"/><rect x="814" width="70" height="60" fill="#22754d"/><rect x="888" width="70" height="60" fill="#22754d"/><rect x="962" width="70" height="60" fill="#22754d"/><rect x="1036" width="70" height="60" fill="#1e5638"/><rect x="1110" width="70" height="60" fill="#13402a"/>
+        </g>
+        <g transform="translate(0,256)">
+          <rect x="0"    width="70" height="60" fill="#13402a"/><rect x="74"  width="70" height="60" fill="#1e5638"/><rect x="148" width="70" height="60" fill="#22754d"/><rect x="222" width="70" height="60" fill="#2c8d5d"/><rect x="296" width="70" height="60" fill="#33a76e"/><rect x="370" width="70" height="60" fill="#33a76e"/><rect x="444" width="70" height="60" fill="#33a76e" stroke="url(#acc)" stroke-width="2"/><rect x="518" width="70" height="60" fill="#33a76e"/><rect x="592" width="70" height="60" fill="#2c8d5d"/><rect x="666" width="70" height="60" fill="#2c8d5d"/><rect x="740" width="70" height="60" fill="#2c8d5d"/><rect x="814" width="70" height="60" fill="#22754d"/><rect x="888" width="70" height="60" fill="#22754d"/><rect x="962" width="70" height="60" fill="#1e5638"/><rect x="1036" width="70" height="60" fill="#1e5638"/><rect x="1110" width="70" height="60" fill="#13402a"/>
+        </g>
+        <g transform="translate(0,320)">
+          <rect x="0"    width="70" height="60" fill="#1e5638"/><rect x="74"  width="70" height="60" fill="#1e5638"/><rect x="148" width="70" height="60" fill="#22754d"/><rect x="222" width="70" height="60" fill="#2c8d5d"/><rect x="296" width="70" height="60" fill="#2c8d5d"/><rect x="370" width="70" height="60" fill="#2c8d5d"/><rect x="444" width="70" height="60" fill="#2c8d5d"/><rect x="518" width="70" height="60" fill="#2c8d5d"/><rect x="592" width="70" height="60" fill="#22754d"/><rect x="666" width="70" height="60" fill="#22754d"/><rect x="740" width="70" height="60" fill="#22754d"/><rect x="814" width="70" height="60" fill="#1e5638"/><rect x="888" width="70" height="60" fill="#1e5638"/><rect x="962" width="70" height="60" fill="#13402a"/><rect x="1036" width="70" height="60" fill="#5c1730"/><rect x="1110" width="70" height="60" fill="#5c1730"/>
+        </g>
+        <g transform="translate(0,384)">
+          <rect x="0"    width="70" height="60" fill="#13402a"/><rect x="74"  width="70" height="60" fill="#13402a"/><rect x="148" width="70" height="60" fill="#1e5638"/><rect x="222" width="70" height="60" fill="#22754d"/><rect x="296" width="70" height="60" fill="#22754d"/><rect x="370" width="70" height="60" fill="#22754d"/><rect x="444" width="70" height="60" fill="#22754d"/><rect x="518" width="70" height="60" fill="#22754d"/><rect x="592" width="70" height="60" fill="#1e5638"/><rect x="666" width="70" height="60" fill="#1e5638"/><rect x="740" width="70" height="60" fill="#1e5638"/><rect x="814" width="70" height="60" fill="#13402a"/><rect x="888" width="70" height="60" fill="#13402a"/><rect x="962" width="70" height="60" fill="#5c1730"/><rect x="1036" width="70" height="60" fill="#7a1e3f"/><rect x="1110" width="70" height="60" fill="#5c1730"/>
+        </g>
+        <g transform="translate(0,448)">
+          <rect x="0"    width="70" height="60" fill="#3d2c11"/><rect x="74"  width="70" height="60" fill="#13402a"/><rect x="148" width="70" height="60" fill="#13402a"/><rect x="222" width="70" height="60" fill="#1e5638"/><rect x="296" width="70" height="60" fill="#1e5638"/><rect x="370" width="70" height="60" fill="#1e5638"/><rect x="444" width="70" height="60" fill="#1e5638"/><rect x="518" width="70" height="60" fill="#1e5638"/><rect x="592" width="70" height="60" fill="#13402a"/><rect x="666" width="70" height="60" fill="#13402a"/><rect x="740" width="70" height="60" fill="#13402a"/><rect x="814" width="70" height="60" fill="#3d2c11"/><rect x="888" width="70" height="60" fill="#3d2c11"/><rect x="962" width="70" height="60" fill="#5c1730"/><rect x="1036" width="70" height="60" fill="#5c1730"/><rect x="1110" width="70" height="60" fill="#3d2c11"/>
+        </g>
+        <g transform="translate(0,512)">
+          <rect x="0"    width="70" height="60" fill="#5a4119"/><rect x="74"  width="70" height="60" fill="#3d2c11"/><rect x="148" width="70" height="60" fill="#13402a"/><rect x="222" width="70" height="60" fill="#13402a"/><rect x="296" width="70" height="60" fill="#13402a"/><rect x="370" width="70" height="60" fill="#13402a"/><rect x="444" width="70" height="60" fill="#13402a"/><rect x="518" width="70" height="60" fill="#13402a"/><rect x="592" width="70" height="60" fill="#3d2c11"/><rect x="666" width="70" height="60" fill="#3d2c11"/><rect x="740" width="70" height="60" fill="#3d2c11"/><rect x="814" width="70" height="60" fill="#5a4119"/><rect x="888" width="70" height="60" fill="#5a4119"/><rect x="962" width="70" height="60" fill="#3d2c11"/><rect x="1036" width="70" height="60" fill="#3d2c11"/><rect x="1110" width="70" height="60" fill="#3d2c11"/>
+        </g>
+      </g>
+    </g>
+
+    <!-- right pane: agronomist plan -->
+    <g transform="translate(1240,30)">
+      <rect width="540" height="572" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="38" font-size="13" fill="#9aa3b8" letter-spacing="2">VARIABLE-RATE PLAN · CITED PER ZONE</text>
+      <g font-size="13" fill="#cfd9ff">
+        <g transform="translate(20,80)"><rect width="500" height="56" rx="8" fill="#10153a"/><text x="14" y="22">zone NW · low NDVI · stressed</text><text x="14" y="42" font-family="ui-monospace" fill="#7af9ff">+38 kg/ha N · cid qi3jo4…</text></g>
+        <g transform="translate(20,144)"><rect width="500" height="56" rx="8" fill="#10153a"/><text x="14" y="22">zone CENTER · sweet spot</text><text x="14" y="42" font-family="ui-monospace" fill="#7af9ff">baseline · cid fb24m9…</text></g>
+        <g transform="translate(20,208)"><rect width="500" height="56" rx="8" fill="#10153a"/><text x="14" y="22">zone SE · severe stress · waterlog</text><text x="14" y="42" font-family="ui-monospace" fill="#ff5d8f">skip pass · drainage · cid k7r2nw…</text></g>
+        <g transform="translate(20,272)"><rect width="500" height="56" rx="8" fill="#10153a"/><text x="14" y="22">zone S · headland low yield</text><text x="14" y="42" font-family="ui-monospace" fill="#ffb86b">−15% rate · cid m81pq3…</text></g>
+        <g transform="translate(20,336)"><rect width="500" height="56" rx="8" fill="#10153a"/><text x="14" y="22">harvest window · GDD model</text><text x="14" y="42" font-family="ui-monospace" fill="#62f5a3">2026-08-12 ± 3 d · cid h9c4d8…</text></g>
+
+        <g transform="translate(20,420)">
+          <rect width="500" height="120" rx="10" fill="#0a0e26" stroke="#62f5a3"/>
+          <text x="14" y="32" font-size="13" fill="#9aa3b8" letter-spacing="2">SEASON RECEIPT</text>
+          <text x="14" y="58" font-family="ui-monospace" fill="#62f5a3">144 cells · 6 bands · 1 receipt</text>
+          <text x="14" y="80" font-size="12" fill="#9aa3b8">— input-brand auditor verifies ROI</text>
+          <text x="14" y="100" font-size="12" fill="#9aa3b8">— lender uses for crop-loan basis</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- pulsing zone marker -->
+    <g>
+      <rect x="444" y="316" width="74" height="60" fill="none" stroke="#7af9ff" stroke-width="2"/>
+      <animate attributeName="opacity" values="0.4;1;0.4" dur="2.4s" repeatCount="indefinite"/>
+    </g>
+  </g>
+
+  <text x="960" y="950" text-anchor="middle" font-size="32" fill="#eaeaea">Per-zone math the input brand can audit and the bank can underwrite.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Inputs: Sentinel-2 NDVI, SoilGrids, ERA5 GDD, CHIRPS rainfall, Tessera embeddings, FIRMS heat alerts.</text>
+    <text x="1760" y="0" text-anchor="end">FAO digital-ag · CAP eco-scheme reporting · regen-ag MRV ready</text>
+  </g>
+</svg>

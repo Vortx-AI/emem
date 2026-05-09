@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="ESG investing: a fund whose every holding has a citation">
+  <title>emem for ESG &amp; sustainability investing</title>
+  <desc>A fund-level ESG score is decomposed into its underlying asset-level facts, each one a content-addressed CID. The score becomes a pointer that an LP can drill into and an auditor can verify offline.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · ESG FUNDS · ASSET MANAGERS · LPs · DUE-DILIGENCE TEAMS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">ESG scores with the receipts attached.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">19 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: bar of fund + decomposition into holdings + drill into one -->
+  <g transform="translate(160,230)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">FUND-LEVEL ENVIRONMENTAL SCORE · 0–100</text>
+
+    <!-- fund bar -->
+    <g transform="translate(0,40)">
+      <rect width="1600" height="60" rx="8" fill="#0a0e26" stroke="#2a335f"/>
+      <rect width="1148" height="60" rx="8" fill="url(#acc)" opacity="0.85"/>
+      <text x="20" y="38" font-size="22" fill="#eaeaea" font-weight="700">acme green growth fund · score 71.8 / 100</text>
+      <text x="1580" y="38" text-anchor="end" font-size="14" fill="#cfd9ff">aggregate of 124 holdings · 6,420 assets</text>
+    </g>
+
+    <!-- holdings strip -->
+    <g transform="translate(0,140)">
+      <text x="0" y="0" font-size="13" fill="#9aa3b8" letter-spacing="2">DECOMPOSED · 124 HOLDINGS (16 SHOWN)</text>
+      <g transform="translate(0,18)">
+        <!-- 16 little bars -->
+        <g>
+          <rect x="0"   y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="0"   y="50" width="92" height="70" fill="#62f5a3" opacity="0.7"/><text x="46" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-01</text>
+          <rect x="100" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="100" y="64" width="92" height="56" fill="#62f5a3" opacity="0.6"/><text x="146" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-02</text>
+          <rect x="200" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="200" y="38" width="92" height="82" fill="#62f5a3" opacity="0.8"/><text x="246" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-03</text>
+          <rect x="300" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="300" y="84" width="92" height="36" fill="#ffb86b" opacity="0.7"/><text x="346" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-04</text>
+          <rect x="400" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="400" y="62" width="92" height="58" fill="#62f5a3" opacity="0.6"/><text x="446" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-05</text>
+          <rect x="500" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="url(#acc)" stroke-width="2"/><rect x="500" y="32" width="92" height="88" fill="url(#acc)"/><text x="546" y="138" text-anchor="middle" font-size="10" fill="#7af9ff">H-06 ◀</text>
+          <rect x="600" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="600" y="44" width="92" height="76" fill="#62f5a3" opacity="0.7"/><text x="646" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-07</text>
+          <rect x="700" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="700" y="92" width="92" height="28" fill="#ff5d8f" opacity="0.6"/><text x="746" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-08</text>
+          <rect x="800" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="800" y="40" width="92" height="80" fill="#62f5a3" opacity="0.7"/><text x="846" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-09</text>
+          <rect x="900" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="900" y="56" width="92" height="64" fill="#62f5a3" opacity="0.6"/><text x="946" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-10</text>
+          <rect x="1000" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="1000" y="74" width="92" height="46" fill="#ffb86b" opacity="0.6"/><text x="1046" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-11</text>
+          <rect x="1100" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="1100" y="36" width="92" height="84" fill="#62f5a3" opacity="0.7"/><text x="1146" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-12</text>
+          <rect x="1200" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="1200" y="58" width="92" height="62" fill="#62f5a3" opacity="0.6"/><text x="1246" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-13</text>
+          <rect x="1300" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="1300" y="48" width="92" height="72" fill="#62f5a3" opacity="0.7"/><text x="1346" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-14</text>
+          <rect x="1400" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="1400" y="78" width="92" height="42" fill="#ffb86b" opacity="0.6"/><text x="1446" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-15</text>
+          <rect x="1500" y="0" width="92" height="120" rx="4" fill="#10153a" stroke="#2a335f"/><rect x="1500" y="42" width="92" height="78" fill="#62f5a3" opacity="0.7"/><text x="1546" y="138" text-anchor="middle" font-size="10" fill="#9aa3b8">H-16</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- drilldown card -->
+    <g transform="translate(0,360)">
+      <rect width="1600" height="290" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">DRILL · HOLDING H-06 · 184 ASSETS · score 78.4</text>
+      <text x="20" y="68" font-size="22" fill="#eaeaea" font-weight="700">"green steelmaker · 12 plants"</text>
+
+      <!-- 4 cited band rows -->
+      <g transform="translate(20,90)" font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <g>
+          <rect width="1560" height="38" rx="6" fill="#10153a"/>
+          <text x="14" y="24">co2.scope1_intensity         qi3jo4sqcg…l2hgjt   ·  attester emem.dev</text>
+          <text x="1546" y="24" text-anchor="end" fill="#62f5a3">verified</text>
+        </g>
+        <g transform="translate(0,46)">
+          <rect width="1560" height="38" rx="6" fill="#10153a"/>
+          <text x="14" y="24">water.use_per_tonne          fb24m9pwkb…q2x14r   ·  attester company.attest</text>
+          <text x="1546" y="24" text-anchor="end" fill="#62f5a3">verified</text>
+        </g>
+        <g transform="translate(0,92)">
+          <rect width="1560" height="38" rx="6" fill="#10153a"/>
+          <text x="14" y="24">flood.return_period_100yr    k7r2nw9wvc…lpa78w   ·  attester emem.dev</text>
+          <text x="1546" y="24" text-anchor="end" fill="#62f5a3">verified</text>
+        </g>
+        <g transform="translate(0,138)">
+          <rect width="1560" height="38" rx="6" fill="#10153a"/>
+          <text x="14" y="24">tessera.embedding_2024       m81pq3vrnt…hvjfm5   ·  attester peer.example</text>
+          <text x="1546" y="24" text-anchor="end" fill="#62f5a3">verified</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- packet -->
+    <g>
+      <circle r="6" fill="#7af9ff">
+        <animateMotion dur="4s" repeatCount="indefinite" path="M546 220 L546 360"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">A fund factsheet that lets the LP click through to the actual fact.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Compatible with SFDR PAI indicators, EU Taxonomy DNSH, ISSB IFRS S1/S2, and TNFD location-based metrics.</text>
+    <text x="1760" y="0" text-anchor="end">no greenwash without forging the universe</text>
+  </g>
+</svg>

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="real estate due diligence: every property attribute is a CID">
+  <title>emem for commercial real estate &amp; REIT due diligence</title>
+  <desc>A standard commercial property card extended so every attribute (flood, heat, transit, energy, contamination) carries a 26-character handle. Due diligence becomes a deterministic walk over signed facts.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · CRE · REITs · BROKERS · CMBS DESKS · LENDERS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">due diligence where every claim about the parcel has a 26-character handle.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">22 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: a clean property dossier -->
+  <g transform="translate(160,220)">
+    <rect width="1600" height="700" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+    <text x="32" y="50" font-size="13" fill="#9aa3b8" letter-spacing="3">PROPERTY DOSSIER · SIGNED · OFFLINE-VERIFIABLE</text>
+    <text x="32" y="96" font-size="32" fill="#eaeaea" font-weight="700">187 west · 14 / 16-storey office · 32,400 m²</text>
+    <text x="32" y="124" font-size="14" fill="#9aa3b8">cell defi.zb5cf.nura.zd83c · NYC · sourced FY-2026 Q2</text>
+
+    <!-- two columns of attributes with CIDs -->
+    <g transform="translate(32,170)" font-family="ui-monospace" font-size="14" fill="#cfd9ff">
+      <!-- left col -->
+      <g>
+        <text x="0" y="-8" font-family="ui-monospace, SF Mono" font-size="12" fill="#9aa3b8" letter-spacing="2">PHYSICAL RISK</text>
+        <g transform="translate(0,16)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">flood.return_period_100yr   no exposure</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">qi3jo4sqcg…</text></g>
+        <g transform="translate(0,68)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">heat.lst_day_8day           +3.7 °C ward</text><text x="726" y="28" text-anchor="end" fill="#ffb86b">fb24m9pwkb…</text></g>
+        <g transform="translate(0,120)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">earthquake.pga_475yr        0.18 g</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">k7r2nw9wvc…</text></g>
+        <g transform="translate(0,172)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">subsidence.insar_velocity   -1.2 mm/yr</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">m81pq3vrnt…</text></g>
+        <g transform="translate(0,224)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">contamination.histo_zoning  none flagged</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">h9c4d8sxbm…</text></g>
+      </g>
+      <text x="0" y="328" font-family="ui-monospace, SF Mono" font-size="12" fill="#9aa3b8" letter-spacing="2">CLIMATE TRANSITION RISK</text>
+      <g transform="translate(0,344)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">energy.intensity_kwh_m2     142 (median 178)</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">g8j2lyne…</text></g>
+      <g transform="translate(0,396)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">co2e.scope_estimate         28 t/m²·decade</text><text x="726" y="28" text-anchor="end" fill="#ffb86b">x4f7tnae…</text></g>
+      <g transform="translate(0,448)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">crrem.stranding_year        2034 (BAU)</text><text x="726" y="28" text-anchor="end" fill="#ffb86b">v3w8fdyu…</text></g>
+
+      <!-- right col -->
+      <g transform="translate(800,0)">
+        <text x="0" y="-8" font-family="ui-monospace, SF Mono" font-size="12" fill="#9aa3b8" letter-spacing="2">CATCHMENT &amp; ACCESSIBILITY</text>
+        <g transform="translate(0,16)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">walkscore.alg_v1            0.82 (top quartile)</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">b1d6erlt…</text></g>
+        <g transform="translate(0,68)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">transit.headway_minutes     6.4 mean weekday</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">n2m4xrgi…</text></g>
+        <g transform="translate(0,120)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">density.workforce_5km       1.8M FTE</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">y9p1koac…</text></g>
+        <g transform="translate(0,172)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">amenity.f_b_density_500m    0.94 (high)</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">a5q3wojf…</text></g>
+        <g transform="translate(0,224)"><rect width="740" height="44" rx="6" fill="#10153a"/><text x="14" y="28">tenure.zoning_overlay       C5-3 commercial</text><text x="726" y="28" text-anchor="end" fill="#62f5a3">e6r9hnct…</text></g>
+
+        <text x="0" y="328" font-family="ui-monospace, SF Mono" font-size="12" fill="#9aa3b8" letter-spacing="2">RECEIPT</text>
+        <g transform="translate(0,344)">
+          <rect width="740" height="148" rx="10" fill="#0a0e26" stroke="#62f5a3"/>
+          <text x="14" y="32" font-size="13" fill="#9aa3b8" letter-spacing="2">DOSSIER MERKLE ROOT</text>
+          <text x="14" y="60" fill="#62f5a3">0xb12ace7f8e0c…22a9</text>
+          <text x="14" y="92" font-size="13" fill="#9aa3b8" letter-spacing="2">SIGNED BY</text>
+          <text x="14" y="120" fill="#62f5a3">attester pubkey 0x4a91…ce</text>
+          <text x="14" y="138" font-size="11" fill="#9aa3b8">38 facts · 6 attesters · re-runnable</text>
+        </g>
+      </g>
+    </g>
+
+    <!-- timeline: dossier evolves over years, but each fact is fixed by cid -->
+    <g transform="translate(32,640)">
+      <text x="0" y="0" font-size="13" fill="#9aa3b8" letter-spacing="2">EVERY ROW SURVIVES A TURNOVER · A DEAL · A REGULATOR</text>
+    </g>
+    <g>
+      <circle r="6" fill="#7af9ff">
+        <animateMotion dur="6s" repeatCount="indefinite" path="M40 360 L1560 360"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="30" fill="#eaeaea">An OM page that the lender can re-verify the night before close.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Hooks into Argus, MRI, Yardi, AcreTrader-style platforms via REST or MCP — does not replace, augments with verifiable inputs.</text>
+    <text x="1760" y="0" text-anchor="end">CRREM-ready · BREEAM/LEED-friendly · CMBS-defensible</text>
+  </g>
+</svg>

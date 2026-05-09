@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="reinsurance: cat-model spread converges when vendors cite the same CIDs">
+  <title>emem for reinsurance &amp; cat modeling</title>
+  <desc>Three vendor cat models give three different AALs. When all three cite the same content-addressed hazard facts, the answer cone collapses to a treaty-pricable band.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · REINSURERS &amp; CAT-MODEL VENDORS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">treaty negotiations should converge on facts, not vendors.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">12 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: model spread over a 20-year return period -->
+  <g transform="translate(160,240)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">MODELLED ANNUAL AVERAGE LOSS · GULF COAST PORTFOLIO · USD M</text>
+    <text x="1600" y="0" text-anchor="end" font-size="13" fill="#6c7396">illustrative · 1-in-N return period</text>
+
+    <!-- axes -->
+    <g stroke="#2a335f" stroke-width="1">
+      <line x1="0" y1="600" x2="1600" y2="600"/>
+      <line x1="0" y1="40" x2="0" y2="600"/>
+    </g>
+    <g font-size="12" fill="#6c7396">
+      <text x="-10" y="606" text-anchor="end">$200M</text>
+      <text x="-10" y="466" text-anchor="end">$400M</text>
+      <text x="-10" y="326" text-anchor="end">$600M</text>
+      <text x="-10" y="186" text-anchor="end">$800M</text>
+      <text x="-10" y="46" text-anchor="end">$1.0B</text>
+      <text x="0" y="630">1-in-10</text>
+      <text x="400" y="630">1-in-50</text>
+      <text x="800" y="630">1-in-100</text>
+      <text x="1200" y="630">1-in-250</text>
+      <text x="1590" y="630" text-anchor="end">1-in-500</text>
+    </g>
+
+    <!-- vendor A B C without emem (wide spread) -->
+    <g fill="none" stroke-width="2" opacity="0.85">
+      <path d="M0 540 L400 470 L800 380 L1200 240 L1590 100" stroke="#ff5d8f"/>
+      <path d="M0 560 L400 510 L800 440 L1200 360 L1590 280" stroke="#ffb86b"/>
+      <path d="M0 530 L400 450 L800 320 L1200 160 L1590 40"  stroke="#7af9ff"/>
+    </g>
+    <!-- envelope shading -->
+    <path d="M0 530 L400 450 L800 320 L1200 160 L1590 40 L1590 280 L1200 360 L800 440 L400 510 L0 560 Z"
+          fill="#ffb86b" opacity="0.07"/>
+
+    <!-- with emem: tight cone (animates in) -->
+    <g fill="none" stroke="#62f5a3" stroke-width="2" opacity="0">
+      <path d="M0 545 L400 475 L800 360 L1200 220 L1590 110"/>
+      <path d="M0 552 L400 482 L800 368 L1200 228 L1590 118"/>
+      <path d="M0 538 L400 468 L800 352 L1200 212 L1590 102"/>
+      <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.3;0.55;1" dur="6s" repeatCount="indefinite"/>
+    </g>
+
+    <!-- packet sweeping the converged path -->
+    <circle r="6" fill="#62f5a3">
+      <animateMotion dur="6s" repeatCount="indefinite" path="M0 545 L400 475 L800 360 L1200 220 L1590 110"/>
+    </circle>
+
+    <g font-size="14">
+      <text x="20" y="40" fill="#ff5d8f">vendor A · proprietary peril library</text>
+      <text x="430" y="40" fill="#ffb86b">vendor B · in-house downscaling</text>
+      <text x="900" y="40" fill="#7af9ff">vendor C · third-party cat tool</text>
+      <text x="1180" y="40" fill="#62f5a3">all three citing same emem CIDs ⇒</text>
+    </g>
+
+    <!-- spread callout -->
+    <g transform="translate(1180,170)">
+      <rect x="-10" y="-30" width="280" height="60" rx="10" fill="#0a0e26" stroke="#ffb86b"/>
+      <text x="0" y="-10" font-size="13" fill="#9aa3b8">vendor spread @ 1-in-250</text>
+      <text x="0" y="14" font-size="22" fill="#ff5d8f">≈ ±42% AAL</text>
+    </g>
+    <g transform="translate(1180,260)">
+      <rect x="-10" y="-30" width="280" height="60" rx="10" fill="#0a0e26" stroke="#62f5a3"/>
+      <text x="0" y="-10" font-size="13" fill="#9aa3b8">cited-CID spread @ 1-in-250</text>
+      <text x="0" y="14" font-size="22" fill="#62f5a3">≈ ±4% AAL</text>
+    </g>
+  </g>
+
+  <text x="960" y="950" text-anchor="middle" font-size="32" fill="#eaeaea">When everyone cites the same facts, the cone closes — and the treaty does too.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Hazard inputs: hurricane wind/surge, hail swath, wildfire perimeter, flood — every band manifest-pinned by sources_cid.</text>
+    <text x="1760" y="0" text-anchor="end">supports model-agnostic disclosure under NAIC 2026 climate scenario guidance</text>
+  </g>
+</svg>

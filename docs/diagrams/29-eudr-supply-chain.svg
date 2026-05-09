@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="EUDR supply chain origin: 6-decimal polygon to CID, customs-ready">
+  <title>emem for EU Deforestation Regulation (EUDR) compliance</title>
+  <desc>An EUDR shipment requires per-plot polygons (≥4 ha) with 6-decimal-precision coordinates and a deforestation-free attestation since 31 December 2020. Each plot becomes a content-addressed bundle of facts that crosses customs in a CID.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · IMPORTERS · TRADERS · CUSTOMS · SOY · CACAO · PALM · COFFEE · TIMBER · CATTLE · RUBBER</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">proof of origin that crosses customs in a CID.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">29 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: shipment → plots → emem facts → TRACES NT submission -->
+  <g transform="translate(120,220)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">SHIPMENT · 1,400 t COCOA · 38 PLOTS · GHANA → ROTTERDAM</text>
+
+    <!-- step 1: shipment node -->
+    <g transform="translate(0,40)">
+      <rect width="280" height="120" rx="12" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="20" y="34" font-size="12" fill="#9aa3b8" letter-spacing="2">01 · CONSIGNMENT</text>
+      <text x="20" y="62" font-size="18" fill="#eaeaea" font-weight="700">REF-2026-MX-7842</text>
+      <text x="20" y="86" font-size="13" fill="#cfd9ff">HS 1801 · Theobroma cacao</text>
+      <text x="20" y="106" font-size="13" fill="#cfd9ff">net 1,400 t · 38 plots</text>
+    </g>
+
+    <!-- step 2: plots fan -->
+    <g transform="translate(320,40)">
+      <rect width="540" height="500" rx="12" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="34" font-size="12" fill="#9aa3b8" letter-spacing="2">02 · PLOTS · POLYGON OR POINT</text>
+      <text x="20" y="62" font-size="13" fill="#cfd9ff">≥ 4 ha → polygon · &lt; 4 ha → point</text>
+      <text x="20" y="80" font-size="13" fill="#cfd9ff">all coords 6-decimal precision (~11 cm)</text>
+
+      <g transform="translate(20,110)" font-family="ui-monospace" font-size="12" fill="#cfd9ff">
+        <g><rect width="500" height="32" rx="4" fill="#10153a"/><text x="14" y="22">P-001  polygon  6.214817,-1.578239 …  area 8.4 ha</text></g>
+        <g transform="translate(0,38)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="14" y="22">P-002  point    6.218112,-1.566921    area 1.7 ha</text></g>
+        <g transform="translate(0,76)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="14" y="22">P-003  polygon  6.231084,-1.541873 …  area 12.6 ha</text></g>
+        <g transform="translate(0,114)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="14" y="22">P-004  polygon  6.252918,-1.510338 …  area 6.1 ha</text></g>
+        <g transform="translate(0,152)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="14" y="22">P-005  point    6.276413,-1.498105    area 2.9 ha</text></g>
+        <g transform="translate(0,190)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="14" y="22">…</text></g>
+        <g transform="translate(0,228)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="14" y="22">P-038  polygon  6.428173,-1.327551 …  area 4.7 ha</text></g>
+      </g>
+
+      <text x="20" y="402" font-size="13" fill="#9aa3b8" letter-spacing="2">EMEM ENVELOPE PER PLOT</text>
+      <g transform="translate(20,418)" font-family="ui-monospace" font-size="12" fill="#cfd9ff">
+        <text y="14">forest_change.lossyear_2020-26   no loss   cid qi3jo4…</text>
+        <text y="34">tree_cover.esa_worldcover_2026   84%       cid fb24m9…</text>
+        <text y="54">tessera.embedding_2024           v=…       cid k7r2nw…</text>
+      </g>
+    </g>
+
+    <!-- step 3: bundle into one shipment receipt -->
+    <g transform="translate(900,40)">
+      <rect width="380" height="500" rx="12" fill="#0a0e26" stroke="#62f5a3" stroke-width="1.5"/>
+      <text x="20" y="34" font-size="12" fill="#9aa3b8" letter-spacing="2">03 · SHIPMENT BUNDLE</text>
+      <text x="20" y="62" font-size="18" fill="#eaeaea" font-weight="700">38 plots · 114 facts</text>
+      <text x="20" y="84" font-size="13" fill="#cfd9ff">merkle batch · 1 receipt</text>
+
+      <g transform="translate(20,116)" font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <text y="20">batch_root</text>
+        <text y="40" fill="#62f5a3">0xb12ace7f…ceaa</text>
+        <text y="76">attester</text>
+        <text y="96" fill="#62f5a3">co-op CITES-listed pubkey</text>
+        <text y="132">since</text>
+        <text y="152" fill="#62f5a3">2020-12-31 baseline</text>
+      </g>
+
+      <text x="20" y="312" font-size="13" fill="#9aa3b8" letter-spacing="2">DEFENCE</text>
+      <g font-size="13" fill="#cfd9ff">
+        <text x="20" y="338">— deterministic recompute</text>
+        <text x="20" y="360">— EUDR Art. 9 due-diligence ready</text>
+        <text x="20" y="382">— offline-verifiable by border officer</text>
+        <text x="20" y="404">— Art. 25 fines: ≥4% EU turnover</text>
+      </g>
+    </g>
+
+    <!-- step 4: TRACES NT system -->
+    <g transform="translate(1320,40)">
+      <rect width="420" height="500" rx="12" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="20" y="34" font-size="12" fill="#9aa3b8" letter-spacing="2">04 · TRACES NT · DUE-DILIGENCE STATEMENT</text>
+      <text x="20" y="62" font-size="18" fill="#eaeaea" font-weight="700">DDS-2026-NL-4209</text>
+
+      <g font-size="13" fill="#cfd9ff">
+        <text x="20" y="100">— operator EU EORI</text>
+        <text x="20" y="122">— commodity: cocoa beans</text>
+        <text x="20" y="144">— country of production: Ghana</text>
+        <text x="20" y="166">— geolocations: 38 plots</text>
+        <text x="20" y="188">— deforestation-free: confirmed</text>
+        <text x="20" y="210">— legal in country: confirmed</text>
+        <text x="20" y="232">— evidence: emem batch_root</text>
+        <text x="20" y="254" font-family="ui-monospace" fill="#7af9ff">  0xb12ace7f…ceaa</text>
+      </g>
+
+      <g transform="translate(20,290)">
+        <rect width="380" height="80" rx="10" fill="#0a0e26" stroke="#62f5a3"/>
+        <text x="14" y="32" font-size="13" fill="#9aa3b8" letter-spacing="2">CUSTOMS · TARGETED INSPECTION</text>
+        <text x="14" y="56" font-size="12" fill="#cfd9ff">low-risk: 1% · standard: 3% · high: 9%</text>
+        <text x="14" y="74" font-size="12" fill="#62f5a3">match found in seconds, not days</text>
+      </g>
+
+      <g transform="translate(20,400)" font-size="13">
+        <text y="0" fill="#9aa3b8" letter-spacing="2">DEADLINE</text>
+        <text y="22" fill="#7af9ff" font-size="16">apply 30 Dec 2026 (large) · 30 Jun 2027 (SME)</text>
+        <text y="46" fill="#9aa3b8" font-size="11">enforcement obligations active 30 Jun 2026</text>
+      </g>
+    </g>
+
+    <!-- arrows -->
+    <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+      <path d="M280 100 L320 100"/>
+      <path d="M860 290 L900 290"/>
+      <path d="M1280 290 L1320 290"/>
+    </g>
+
+    <!-- packets -->
+    <g>
+      <circle r="6" fill="#7af9ff">
+        <animateMotion dur="5s" repeatCount="indefinite" path="M280 100 L320 100 L900 290 L1320 290"/>
+      </circle>
+      <circle r="6" fill="#62f5a3">
+        <animateMotion dur="5s" begin="2s" repeatCount="indefinite" path="M280 100 L320 100 L900 290 L1320 290"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="940" text-anchor="middle" font-size="32" fill="#eaeaea">A 38-plot bundle becomes one 26-character handle in the customs filing.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Replaces brittle CSV exchanges with cooperatives — they sign their own facts; you cite their CIDs.</text>
+    <text x="1760" y="0" text-anchor="end">EU Reg. 2023/1115 · Art. 9 due diligence · Art. 25 penalties</text>
+  </g>
+</svg>
