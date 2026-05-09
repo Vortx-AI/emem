@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="emem architecture: one Rust binary, two wire surfaces, one sidecar">
+  <title>emem — the simple architecture</title>
+  <desc>One binary, two wire surfaces (REST and MCP) sharing handlers. Primitives sit on a Storage trait that fans out to a sled hot cache, an append-only Merkle log, and a fetch dispatcher of open-data connectors. An optional Python sidecar serves GPU inference over a Unix socket.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0a18"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e3aff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#161a3a"/>
+      <stop offset="1" stop-color="#0c0f28"/>
+    </linearGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <!-- header -->
+  <g fill="#eaeaea">
+    <text x="80" y="100" font-size="46" font-weight="700">emem · system architecture</text>
+    <text x="80" y="138" font-size="22" fill="#9aa3b8" letter-spacing="2">ONE BINARY · TWO WIRE SURFACES · ONE SIDECAR</text>
+  </g>
+  <text x="1840" y="100" text-anchor="end" font-size="20" fill="#9aa3b8">01 / 10</text>
+  <line x1="80" y1="160" x2="1840" y2="160" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- clients column -->
+  <g transform="translate(120,260)">
+    <text x="0" y="-12" font-size="18" fill="#9aa3b8" letter-spacing="2">CLIENTS</text>
+    <g font-size="20" fill="#cfd9ff">
+      <rect x="0" y="0" width="240" height="64" rx="10" fill="#0e1330" stroke="#2a335f"/>
+      <text x="20" y="40">curl · fetch</text>
+      <rect x="0" y="84" width="240" height="64" rx="10" fill="#0e1330" stroke="#2a335f"/>
+      <text x="20" y="124">Claude · ChatGPT</text>
+      <rect x="0" y="168" width="240" height="64" rx="10" fill="#0e1330" stroke="#2a335f"/>
+      <text x="20" y="208">Cline · Cursor</text>
+      <rect x="0" y="252" width="240" height="64" rx="10" fill="#0e1330" stroke="#2a335f"/>
+      <text x="20" y="292">LangChain · Llama</text>
+    </g>
+    <text x="0" y="354" font-size="14" fill="#6c7396">no auth on reads</text>
+  </g>
+
+  <!-- wire surfaces -->
+  <g transform="translate(440,260)">
+    <text x="0" y="-12" font-size="18" fill="#9aa3b8" letter-spacing="2">WIRE</text>
+    <rect x="0" y="0" width="180" height="148" rx="12" fill="url(#core)" stroke="url(#acc)" stroke-width="1.5"/>
+    <text x="90" y="44" text-anchor="middle" font-size="22" fill="#eaeaea" font-weight="700">REST</text>
+    <text x="90" y="76" text-anchor="middle" font-size="14" fill="#9aa3b8">axum · OpenAPI 3.1</text>
+    <text x="90" y="100" text-anchor="middle" font-size="14" fill="#9aa3b8">79 routes</text>
+    <text x="90" y="124" text-anchor="middle" font-size="14" fill="#9aa3b8">/v1/*</text>
+
+    <rect x="0" y="172" width="180" height="148" rx="12" fill="url(#core)" stroke="url(#acc)" stroke-width="1.5"/>
+    <text x="90" y="216" text-anchor="middle" font-size="22" fill="#eaeaea" font-weight="700">MCP</text>
+    <text x="90" y="248" text-anchor="middle" font-size="14" fill="#9aa3b8">JSON-RPC 2.0</text>
+    <text x="90" y="272" text-anchor="middle" font-size="14" fill="#9aa3b8">34 tools</text>
+    <text x="90" y="296" text-anchor="middle" font-size="14" fill="#9aa3b8">POST /mcp</text>
+  </g>
+
+  <!-- bracket: same handlers -->
+  <g stroke="#3a3f6f" stroke-width="1" fill="none">
+    <path d="M620 320 L660 320 L660 410" />
+    <path d="M620 432 L660 432 L660 410" />
+  </g>
+  <text x="678" y="416" font-size="14" fill="#7af9ff">same handlers</text>
+
+  <!-- core: emem-server -->
+  <g transform="translate(800,240)">
+    <rect x="0" y="0" width="540" height="600" rx="16" fill="#0a0e26" stroke="url(#acc)" stroke-width="2"/>
+    <text x="24" y="42" font-size="22" fill="#eaeaea" font-weight="700">emem-server (Rust)</text>
+    <text x="24" y="68" font-size="14" fill="#9aa3b8">single bind · 0.0.0.0:5051 · stateless router</text>
+
+    <!-- primitives -->
+    <g transform="translate(28,100)">
+      <rect width="484" height="120" rx="12" fill="#10153a" stroke="#2a335f"/>
+      <text x="20" y="32" font-size="16" fill="#9aa3b8" letter-spacing="2">PRIMITIVES (10 read · 4 physics · 14 introspect)</text>
+      <g font-size="16" fill="#cfd9ff">
+        <text x="20" y="64">recall</text>
+        <text x="120" y="64">find_similar</text>
+        <text x="270" y="64">trajectory</text>
+        <text x="400" y="64">compare</text>
+        <text x="20" y="92">diff</text>
+        <text x="120" y="92">verify</text>
+        <text x="270" y="92">query_region</text>
+        <text x="400" y="92">heat_solve</text>
+      </g>
+    </g>
+
+    <!-- storage trait -->
+    <g transform="translate(28,244)">
+      <rect width="484" height="86" rx="12" fill="#10153a" stroke="#2a335f"/>
+      <text x="20" y="32" font-size="16" fill="#9aa3b8" letter-spacing="2">STORAGE TRAIT</text>
+      <text x="20" y="62" font-size="16" fill="#cfd9ff">MaterializingStorage = cache ∘ fetch ∘ log</text>
+    </g>
+
+    <!-- identity -->
+    <g transform="translate(28,354)">
+      <rect width="484" height="86" rx="12" fill="#10153a" stroke="#2a335f"/>
+      <text x="20" y="32" font-size="16" fill="#9aa3b8" letter-spacing="2">IDENTITY · ed25519</text>
+      <text x="20" y="62" font-size="16" fill="#cfd9ff">sign_receipt(blake3(req · time · prim · cells · cids))</text>
+    </g>
+
+    <!-- manifests -->
+    <g transform="translate(28,464)">
+      <rect width="484" height="110" rx="12" fill="#10153a" stroke="#2a335f"/>
+      <text x="20" y="32" font-size="16" fill="#9aa3b8" letter-spacing="2">CONTENT-ADDRESSED MANIFESTS</text>
+      <g font-size="14" fill="#cfd9ff">
+        <text x="20" y="60">bands_cid</text>
+        <text x="170" y="60">algorithms_cid</text>
+        <text x="340" y="60">sources_cid</text>
+        <text x="20" y="86">schema_cid</text>
+        <text x="170" y="86" fill="#7af9ff">→ pinned per receipt</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- right column: data + persistence -->
+  <g transform="translate(1420,240)">
+    <text x="0" y="22" font-size="18" fill="#9aa3b8" letter-spacing="2">PERSISTENCE</text>
+    <g transform="translate(0,40)">
+      <rect width="380" height="100" rx="12" fill="#0e1330" stroke="#2a335f"/>
+      <text x="20" y="36" font-size="18" fill="#eaeaea">sled hot cache</text>
+      <text x="20" y="64" font-size="13" fill="#9aa3b8">canonical_index · facts · fact_proofs</text>
+      <text x="20" y="84" font-size="13" fill="#9aa3b8">attesters · in-process lock</text>
+    </g>
+    <g transform="translate(0,160)">
+      <rect width="380" height="100" rx="12" fill="#0e1330" stroke="#2a335f"/>
+      <text x="20" y="36" font-size="18" fill="#eaeaea">append-only Merkle log</text>
+      <text x="20" y="64" font-size="13" fill="#9aa3b8">[len][CBOR][blake3] · 1 GiB segments</text>
+      <text x="20" y="84" font-size="13" fill="#9aa3b8">fsync before ack</text>
+    </g>
+    <g transform="translate(0,280)">
+      <rect width="380" height="80" rx="12" fill="#0e1330" stroke="#2a335f"/>
+      <text x="20" y="36" font-size="18" fill="#eaeaea">identity.secret.b32</text>
+      <text x="20" y="62" font-size="13" fill="#9aa3b8">0600 · 32-byte ed25519 seed</text>
+    </g>
+
+    <text x="0" y="400" font-size="18" fill="#9aa3b8" letter-spacing="2">UPSTREAM (open data)</text>
+    <g transform="translate(0,418)">
+      <rect width="380" height="180" rx="12" fill="#0e1330" stroke="#2a335f"/>
+      <g font-size="14" fill="#cfd9ff">
+        <text x="20" y="36">Copernicus DEM · ESA WorldCover</text>
+        <text x="20" y="60">Sentinel-1/2 · MODIS · GMRT</text>
+        <text x="20" y="84">JRC GSW · Hansen GFC · Köppen</text>
+        <text x="20" y="108">Overture · OSM · WDPA</text>
+        <text x="20" y="132">met.no · Open-Meteo · NASA POWER</text>
+        <text x="20" y="156">Tessera · CHIRPS · FIRMS · …</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- sidecar -->
+  <g transform="translate(800,890)">
+    <rect width="540" height="130" rx="14" fill="#0a0e26" stroke="#3a3f6f" stroke-dasharray="4 4"/>
+    <text x="24" y="38" font-size="20" fill="#eaeaea" font-weight="700">Python sidecar (optional)</text>
+    <text x="24" y="66" font-size="14" fill="#9aa3b8">Unix socket · HTTP/1.1 · falls back to in-process CPU</text>
+    <g font-size="14" fill="#cfd9ff">
+      <text x="24" y="98">Prithvi-EO-2.0</text>
+      <text x="220" y="98">Galileo</text>
+      <text x="360" y="98">JEPA-v2 dynamics</text>
+    </g>
+  </g>
+
+  <!-- connecting wires -->
+  <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+    <!-- clients to wire -->
+    <path d="M360 296 L440 296" marker-end="url(#a1)"/>
+    <path d="M360 380 L440 296" marker-end="url(#a1)"/>
+    <path d="M360 464 L440 480" marker-end="url(#a1)"/>
+    <path d="M360 548 L440 480" marker-end="url(#a1)"/>
+    <!-- wire to core -->
+    <path d="M620 320 L800 320" />
+    <path d="M620 432 L800 432" />
+    <!-- core to persistence -->
+    <path d="M1340 360 L1420 290" marker-end="url(#a1)"/>
+    <path d="M1340 432 L1420 410" marker-end="url(#a1)"/>
+    <path d="M1340 528 L1420 530" marker-end="url(#a1)"/>
+    <!-- core to upstream (right) -->
+    <path d="M1340 600 L1420 508" marker-end="url(#a1)"/>
+    <path d="M1340 720 L1420 660" marker-end="url(#a1)"/>
+    <!-- core to sidecar -->
+    <path d="M1070 840 L1070 890" marker-end="url(#a1)"/>
+  </g>
+
+  <!-- moving packets: agent → REST, REST → primitives, primitives → cache, cache → primitives -->
+  <g>
+    <circle r="4" fill="#7af9ff">
+      <animateMotion dur="3.6s" repeatCount="indefinite" rotate="auto" path="M360 296 L440 296 L620 320 L800 320 L828 350 L828 380"/>
+    </circle>
+    <circle r="4" fill="#7af9ff" opacity="0.7">
+      <animateMotion dur="3.6s" begin="1.2s" repeatCount="indefinite" rotate="auto" path="M360 380 L440 296 L620 320 L800 320 L828 350 L828 380"/>
+    </circle>
+    <circle r="4" fill="#62f5a3">
+      <animateMotion dur="2.4s" repeatCount="indefinite" rotate="auto" path="M828 380 L1070 280 L1340 290 L1420 290"/>
+    </circle>
+    <circle r="4" fill="#ffb86b">
+      <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto" path="M1340 720 L1420 660 L1340 600 L1070 600 L1070 840"/>
+    </circle>
+  </g>
+
+  <!-- footer legend -->
+  <g transform="translate(80,1000)" font-size="14" fill="#9aa3b8">
+    <circle cx="6" cy="-4" r="5" fill="#7af9ff"/>
+    <text x="20" y="0">request</text>
+    <circle cx="116" cy="-4" r="5" fill="#62f5a3"/>
+    <text x="130" y="0">cache write</text>
+    <circle cx="246" cy="-4" r="5" fill="#ffb86b"/>
+    <text x="260" y="0">materialize from upstream</text>
+    <text x="1760" y="0" text-anchor="end" fill="#6c7396">v0.0.4 · 14 crates · 50k LoC</text>
+  </g>
+</svg>

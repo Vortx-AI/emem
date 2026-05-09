@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="address algebra: cell64 plus band plus tslot becomes a CID">
+  <title>emem — address algebra</title>
+  <desc>Three small addresses combine into one big one. cell64 packs lat-lng into 64 bits, tslot packs time into 64 bits, band names a measurement. Their canonical CBOR hashes to a 32-byte CID written as 26 base32 characters. Every fact in the universe lives at one of these.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0a18"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e3aff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <g fill="#eaeaea">
+    <text x="80" y="100" font-size="46" font-weight="700">address algebra</text>
+    <text x="80" y="138" font-size="22" fill="#9aa3b8" letter-spacing="2">CELL · BAND · TSLOT  →  CID</text>
+  </g>
+  <text x="1840" y="100" text-anchor="end" font-size="20" fill="#9aa3b8">09 / 10</text>
+  <line x1="80" y1="160" x2="1840" y2="160" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- top three address pieces -->
+  <g transform="translate(120,240)">
+    <rect width="540" height="320" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">cell · 64 bits</text>
+    <text x="24" y="70" font-size="13" fill="#9aa3b8">a square ~9.55 m at the equator</text>
+    <!-- bit ribbon -->
+    <g transform="translate(24,98)">
+      <g font-size="10" fill="#9aa3b8">
+        <text x="0" y="-4">63                52              44                       22                       0</text>
+      </g>
+      <rect x="0" y="0" width="40" height="34" rx="3" fill="#10153a" stroke="#2a335f"/>
+      <text x="20" y="22" text-anchor="middle" font-size="11" fill="#7af9ff">mode</text>
+      <rect x="46" y="0" width="80" height="34" rx="3" fill="#10153a" stroke="#2a335f"/>
+      <text x="86" y="22" text-anchor="middle" font-size="11" fill="#7af9ff">res 21</text>
+      <rect x="132" y="0" width="80" height="34" rx="3" fill="#10153a" stroke="#2a335f"/>
+      <text x="172" y="22" text-anchor="middle" font-size="11" fill="#7af9ff">base 0xab</text>
+      <rect x="218" y="0" width="146" height="34" rx="3" fill="#10153a" stroke="url(#acc)"/>
+      <text x="291" y="22" text-anchor="middle" font-size="11" fill="#cfd9ff">lat_q · 21 bits</text>
+      <rect x="370" y="0" width="146" height="34" rx="3" fill="#10153a" stroke="url(#acc)"/>
+      <text x="443" y="22" text-anchor="middle" font-size="11" fill="#cfd9ff">lng_q · 22 bits</text>
+    </g>
+    <text x="24" y="180" font-size="14" fill="#9aa3b8">wire form</text>
+    <text x="24" y="210" font-size="22" fill="#7af9ff">defi.zb493.xoso.zcb6a</text>
+    <text x="24" y="244" font-size="13" fill="#9aa3b8">four base-1024 bigrams · Hilbert-ordered</text>
+    <text x="24" y="266" font-size="13" fill="#9aa3b8">prefix neighbours = string-near neighbours</text>
+    <text x="24" y="296" font-size="13" fill="#cfd9ff">12.97°N, 77.59°E → Bengaluru</text>
+  </g>
+
+  <g transform="translate(700,240)">
+    <rect width="540" height="320" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">band · name</text>
+    <text x="24" y="70" font-size="13" fill="#9aa3b8">what is being measured</text>
+    <g font-size="14" fill="#cfd9ff">
+      <text x="24" y="116">weather.temperature_2m</text>
+      <text x="24" y="140">copdem30m.elevation_mean</text>
+      <text x="24" y="164">forest_change.lossyear</text>
+      <text x="24" y="188">geotessera.embedding_2024</text>
+      <text x="24" y="212">jrcgsw.water_occurrence</text>
+      <text x="24" y="236">overture.buildings_count</text>
+    </g>
+    <text x="24" y="282" font-size="13" fill="#9aa3b8">34 bands today · pinned by bands_cid manifest</text>
+  </g>
+
+  <g transform="translate(1280,240)">
+    <rect width="520" height="320" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">tslot · 64 bits</text>
+    <text x="24" y="70" font-size="13" fill="#9aa3b8">when it was observed</text>
+    <text x="24" y="118" font-size="14" fill="#cfd9ff">epoch · cadence-aware bucket</text>
+    <text x="24" y="142" font-size="14" fill="#cfd9ff">e.g. weather → hourly · NDVI → 8-day</text>
+    <text x="24" y="180" font-size="14" fill="#9aa3b8">wire form</text>
+    <text x="24" y="212" font-size="22" fill="#7af9ff">t.aaaaagy</text>
+    <text x="24" y="244" font-size="13" fill="#9aa3b8">base32-nopad-leb128 with t. prefix</text>
+    <text x="24" y="280" font-size="13" fill="#cfd9ff">2026-05-09 08:55Z</text>
+  </g>
+
+  <!-- middle: combine bracket -->
+  <g transform="translate(120,600)">
+    <rect width="1680" height="80" rx="14" fill="#0e1330" stroke="url(#acc)" stroke-width="1.5"/>
+    <text x="24" y="32" font-size="15" fill="#9aa3b8" letter-spacing="2">CANONICAL CBOR · DETERMINISTIC FIELD ORDER</text>
+    <text x="24" y="62" font-family="ui-monospace" font-size="20" fill="#cfd9ff">PrimaryFact { cell, band, tslot, value, unit, derivation, source, captured_at, signed_at }</text>
+  </g>
+
+  <!-- arrows down to hash -->
+  <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+    <path d="M390 560 L390 600" marker-end="url(#a1)"/>
+    <path d="M970 560 L970 600" marker-end="url(#a1)"/>
+    <path d="M1540 560 L1540 600" marker-end="url(#a1)"/>
+  </g>
+
+  <!-- bottom: hash to CID -->
+  <g transform="translate(120,720)">
+    <rect width="1680" height="240" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="2"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">blake3 · 32 bytes · base32-nopad-lowercase</text>
+    <text x="24" y="74" font-size="14" fill="#9aa3b8">the CID is the address that survives every translation</text>
+
+    <!-- hash visualization: thin column of bytes -->
+    <g transform="translate(24,100)">
+      <g>
+        <rect x="0" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <rect x="16" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <rect x="32" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <rect x="48" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <rect x="64" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <rect x="80" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <rect x="96" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <rect x="112" y="0" width="14" height="40" fill="#10153a" stroke="#2a335f"/>
+        <text x="64" y="64" text-anchor="middle" font-size="12" fill="#9aa3b8">… 32 bytes …</text>
+      </g>
+      <!-- mini animation: bytes light up -->
+      <rect x="0" y="0" width="14" height="40" fill="#7c3aed">
+        <animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite"/>
+      </rect>
+      <rect x="32" y="0" width="14" height="40" fill="#1e3aff">
+        <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.3s" repeatCount="indefinite"/>
+      </rect>
+      <rect x="64" y="0" width="14" height="40" fill="#7af9ff">
+        <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.6s" repeatCount="indefinite"/>
+      </rect>
+      <rect x="96" y="0" width="14" height="40" fill="#62f5a3">
+        <animate attributeName="opacity" values="0;1;0" dur="2s" begin="0.9s" repeatCount="indefinite"/>
+      </rect>
+    </g>
+
+    <!-- arrow to CID string -->
+    <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+      <path d="M170 122 L240 122" marker-end="url(#a1)"/>
+    </g>
+
+    <!-- CID string broken into chunks -->
+    <g transform="translate(260,80)">
+      <g font-size="34" fill="#7af9ff" font-family="ui-monospace">
+        <text y="46">qi3jo4sqcg klqfcvrfl5 5ctz4l2hgj twmvzxunsr kmifyfq4h2 5a</text>
+      </g>
+      <text x="0" y="100" font-size="13" fill="#9aa3b8">26-character base32 · the durable handle</text>
+      <text x="0" y="124" font-size="13" fill="#cfd9ff">re-querying it from any responder, in any year, returns the same bytes</text>
+    </g>
+  </g>
+
+  <!-- side annotations on the cell -->
+  <g transform="translate(80,1010)" font-size="14" fill="#9aa3b8">
+    <text x="0" y="0">Three addresses, one identity. Mutate any field of the fact and the CID changes deterministically.</text>
+    <text x="1760" y="0" text-anchor="end" fill="#6c7396">target migration: H3 res-13 hex DGGS · cell64 active in 0.0.4</text>
+  </g>
+</svg>

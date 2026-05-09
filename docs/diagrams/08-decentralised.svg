@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="how emem stays decentralised: many responders, same CIDs, offline verify">
+  <title>emem — the decentralised way</title>
+  <desc>Any number of independent responders run the same Rust binary against the same content-addressed registries. Two responders given the same upstream produce the same CID. A receipt verifies offline against any responder's pubkey. There is no central registry, no shared database, no kingmaker.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0a18"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e3aff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <radialGradient id="globe" cx="50%" cy="40%" r="60%">
+      <stop offset="0" stop-color="#1a1f4a"/>
+      <stop offset="0.7" stop-color="#0e1130"/>
+      <stop offset="1" stop-color="#020812"/>
+    </radialGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <g fill="#eaeaea">
+    <text x="80" y="100" font-size="46" font-weight="700">the decentralised way</text>
+    <text x="80" y="138" font-size="22" fill="#9aa3b8" letter-spacing="2">SAME CIDS · DIFFERENT RESPONDERS · OFFLINE TRUST</text>
+  </g>
+  <text x="1840" y="100" text-anchor="end" font-size="20" fill="#9aa3b8">08 / 10</text>
+  <line x1="80" y1="160" x2="1840" y2="160" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- centre: open data world -->
+  <g transform="translate(960,580)">
+    <circle r="220" fill="url(#globe)" stroke="#7c3aed" stroke-width="1.4"/>
+    <g stroke="#7c3aed" stroke-width="0.7" fill="none" opacity="0.55">
+      <ellipse rx="220" ry="80"/>
+      <ellipse rx="220" ry="150"/>
+      <ellipse rx="80"  ry="220"/>
+      <ellipse rx="150" ry="220"/>
+      <line x1="-220" y1="0" x2="220" y2="0"/>
+      <line x1="0" y1="-220" x2="0" y2="220"/>
+    </g>
+    <text y="-244" text-anchor="middle" font-size="16" fill="#9aa3b8" letter-spacing="2">OPEN UPSTREAM (one truth)</text>
+    <text y="248" text-anchor="middle" font-size="13" fill="#cfd9ff">Sentinel · Cop-DEM · met.no · Tessera · OSM …</text>
+  </g>
+
+  <!-- 5 responders around -->
+  <g font-size="14" fill="#cfd9ff">
+    <g transform="translate(280,300)">
+      <rect x="-130" y="-50" width="260" height="100" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="-114" y="-22" font-size="13" fill="#9aa3b8" letter-spacing="2">RESPONDER · A</text>
+      <text x="-114" y="6" font-size="15" fill="#eaeaea">emem.dev</text>
+      <text x="-114" y="32" font-size="13" fill="#9aa3b8">pubkey 0x4a91…ce</text>
+    </g>
+    <g transform="translate(1640,300)">
+      <rect x="-130" y="-50" width="260" height="100" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="-114" y="-22" font-size="13" fill="#9aa3b8" letter-spacing="2">RESPONDER · B</text>
+      <text x="-114" y="6" font-size="15" fill="#eaeaea">peer.example</text>
+      <text x="-114" y="32" font-size="13" fill="#9aa3b8">pubkey 0xb217…0d</text>
+    </g>
+    <g transform="translate(220,860)">
+      <rect x="-130" y="-50" width="260" height="100" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="-114" y="-22" font-size="13" fill="#9aa3b8" letter-spacing="2">RESPONDER · C</text>
+      <text x="-114" y="6" font-size="15" fill="#eaeaea">your homeserver</text>
+      <text x="-114" y="32" font-size="13" fill="#9aa3b8">pubkey 0x7f4a…11</text>
+    </g>
+    <g transform="translate(1700,860)">
+      <rect x="-130" y="-50" width="260" height="100" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="-114" y="-22" font-size="13" fill="#9aa3b8" letter-spacing="2">RESPONDER · D</text>
+      <text x="-114" y="6" font-size="15" fill="#eaeaea">org cluster</text>
+      <text x="-114" y="32" font-size="13" fill="#9aa3b8">pubkey 0xe303…7c</text>
+    </g>
+    <g transform="translate(960,250)">
+      <rect x="-130" y="-50" width="260" height="100" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="-114" y="-22" font-size="13" fill="#9aa3b8" letter-spacing="2">REGISTRIES · CAS</text>
+      <text x="-114" y="6" font-size="15" fill="#eaeaea">bands · algorithms</text>
+      <text x="-114" y="32" font-size="13" fill="#9aa3b8">sources · schema (cids)</text>
+    </g>
+  </g>
+
+  <!-- lines from each responder to the world -->
+  <g fill="none" stroke="#3a3f6f" stroke-width="1.2" stroke-dasharray="3 5">
+    <path d="M280 350 L820 460"/>
+    <path d="M1640 350 L1100 460"/>
+    <path d="M220 810 L820 700"/>
+    <path d="M1700 810 L1100 700"/>
+    <path d="M960 300 L960 360"/>
+  </g>
+
+  <!-- the agent (verifier) -->
+  <g transform="translate(960,950)">
+    <rect x="-220" y="-50" width="440" height="100" rx="14" fill="#0a0e26" stroke="#62f5a3" stroke-width="1.5"/>
+    <text x="-200" y="-22" font-size="13" fill="#9aa3b8" letter-spacing="2">ANY CLIENT · OFFLINE VERIFIER</text>
+    <text x="-200" y="8" font-size="15" fill="#eaeaea">verify(receipt, pubkey) → ok</text>
+    <text x="-200" y="32" font-size="13" fill="#9aa3b8">no callback to issuer · works on a plane</text>
+  </g>
+
+  <!-- the receipt traveling -->
+  <g>
+    <g>
+      <rect x="-30" y="-14" width="60" height="28" rx="6" fill="#0a0e26" stroke="#7af9ff">
+        <animateMotion dur="5s" repeatCount="indefinite"
+          path="M280 300 L960 950 L1640 300 L960 250 L220 860 L960 950 L1700 860 L960 950"/>
+      </rect>
+      <text font-size="11" fill="#7af9ff" text-anchor="middle">
+        <animateMotion dur="5s" repeatCount="indefinite"
+          path="M280 300 L960 950 L1640 300 L960 250 L220 860 L960 950 L1700 860 L960 950"/>
+        receipt
+      </text>
+    </g>
+  </g>
+
+  <!-- side notes -->
+  <g transform="translate(80,260)">
+    <text x="0" y="0" font-size="18" fill="#9aa3b8" letter-spacing="2">PROPERTY</text>
+    <text x="0" y="32" font-size="14" fill="#cfd9ff">Same upstream + same registries</text>
+    <text x="0" y="54" font-size="14" fill="#cfd9ff">⇒ same CID, byte-for-byte.</text>
+    <text x="0" y="76" font-size="14" fill="#cfd9ff">A peer with drifted registries</text>
+    <text x="0" y="98" font-size="14" fill="#cfd9ff">advertises a different bands_cid in</text>
+    <text x="0" y="120" font-size="14" fill="#cfd9ff">/health → divergence is loud.</text>
+  </g>
+
+  <g transform="translate(1660,260)">
+    <text x="0" y="0" font-size="18" fill="#9aa3b8" letter-spacing="2">NOT IN THE PICTURE</text>
+    <text x="0" y="32" font-size="14" fill="#cfd9ff">No central registry.</text>
+    <text x="0" y="54" font-size="14" fill="#cfd9ff">No shared database.</text>
+    <text x="0" y="76" font-size="14" fill="#cfd9ff">No coordinator.</text>
+    <text x="0" y="98" font-size="14" fill="#cfd9ff">No required token.</text>
+    <text x="0" y="120" font-size="14" fill="#cfd9ff">No SaaS lock-in.</text>
+  </g>
+
+  <text x="80" y="1050" font-size="13" fill="#6c7396">Apache-2.0 · single-binary · self-host with one cargo run · acme-on-:443 native</text>
+</svg>

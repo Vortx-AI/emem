@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="the cite-economy: facts, citations, attester reputation">
+  <title>emem — cite-economy (the honest tokenomics)</title>
+  <desc>emem has no token. The unit of value is the citation: when a fact CID is cited, its attester's score grows. Score formula: citations*1.0 + ln(1+facts)*8.0 + ln(1+atts)*4.0. Receipts are the receipts; CIDs are the currency.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0a18"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e3aff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <g fill="#eaeaea">
+    <text x="80" y="100" font-size="46" font-weight="700">the cite-economy</text>
+    <text x="80" y="138" font-size="22" fill="#9aa3b8" letter-spacing="2">NO TOKEN · CITATIONS ARE THE UNIT · CIDS ARE THE CURRENCY</text>
+  </g>
+  <text x="1840" y="100" text-anchor="end" font-size="20" fill="#9aa3b8">07 / 10</text>
+  <line x1="80" y1="160" x2="1840" y2="160" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- top row: 3 actors -->
+  <g transform="translate(120,240)">
+    <rect width="500" height="200" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">attester</text>
+    <text x="24" y="70" font-size="14" fill="#9aa3b8">a responder that signs facts</text>
+    <text x="24" y="118" font-size="14" fill="#cfd9ff">— ed25519 pubkey identity</text>
+    <text x="24" y="142" font-size="14" fill="#cfd9ff">— pays compute + bandwidth</text>
+    <text x="24" y="166" font-size="14" fill="#cfd9ff">— earns score on every citation</text>
+  </g>
+  <g transform="translate(710,240)">
+    <rect width="500" height="200" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">fact</text>
+    <text x="24" y="70" font-size="14" fill="#9aa3b8">a value at (cell, band, tslot)</text>
+    <text x="24" y="118" font-size="14" fill="#cfd9ff">— content-addressed (CID)</text>
+    <text x="24" y="142" font-size="14" fill="#cfd9ff">— immutable, deduplicates</text>
+    <text x="24" y="166" font-size="14" fill="#cfd9ff">— freely re-attestable by peers</text>
+  </g>
+  <g transform="translate(1300,240)">
+    <rect width="500" height="200" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">citation</text>
+    <text x="24" y="70" font-size="14" fill="#9aa3b8">when an agent uses a CID</text>
+    <text x="24" y="118" font-size="14" fill="#cfd9ff">— recorded in attester registry</text>
+    <text x="24" y="142" font-size="14" fill="#cfd9ff">— increments unique_cells, citations</text>
+    <text x="24" y="166" font-size="14" fill="#cfd9ff">— atomic CAS update, no double-count</text>
+  </g>
+
+  <!-- middle: the loop -->
+  <g transform="translate(120,500)">
+    <rect width="1680" height="200" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="18" fill="#9aa3b8" letter-spacing="2">THE LOOP</text>
+    <text x="24" y="80" font-size="16" fill="#cfd9ff">attester materializes fact → signs → caller cites the CID → registry credits citation → score increases → discovery weights toward higher-score peers</text>
+
+    <!-- nodes along the row -->
+    <g transform="translate(24,110)">
+      <g>
+        <rect width="240" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+        <text x="16" y="38" font-size="15" fill="#cfd9ff">materialize · sign</text>
+      </g>
+      <g transform="translate(310,0)">
+        <rect width="240" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+        <text x="16" y="38" font-size="15" fill="#cfd9ff">caller cites CID</text>
+      </g>
+      <g transform="translate(620,0)">
+        <rect width="240" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+        <text x="16" y="38" font-size="15" fill="#cfd9ff">registry CAS update</text>
+      </g>
+      <g transform="translate(930,0)">
+        <rect width="240" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+        <text x="16" y="38" font-size="15" fill="#cfd9ff">score grows</text>
+      </g>
+      <g transform="translate(1240,0)">
+        <rect width="240" height="60" rx="10" fill="#10153a" stroke="url(#acc)"/>
+        <text x="16" y="38" font-size="15" fill="#7af9ff">peer discovery favours it</text>
+      </g>
+    </g>
+
+    <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+      <path d="M288 640 L334 640" marker-end="url(#a1)"/>
+      <path d="M598 640 L644 640" marker-end="url(#a1)"/>
+      <path d="M908 640 L954 640" marker-end="url(#a1)"/>
+      <path d="M1218 640 L1264 640" marker-end="url(#a1)"/>
+    </g>
+  </g>
+
+  <!-- bottom: score formula and what it does NOT have -->
+  <g transform="translate(120,760)">
+    <rect width="820" height="240" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">attester score (live, in-process)</text>
+    <text x="24" y="92" font-family="ui-monospace" font-size="22" fill="#7af9ff">score = citations·1.0  +  ln(1+facts)·8.0  +  ln(1+atts)·4.0</text>
+    <g font-size="14" fill="#cfd9ff">
+      <text x="24" y="138">— per-pubkey stats: attestations, facts, citations, unique_cells</text>
+      <text x="24" y="160">— first_seen, last_seen, last_cited (live for replay)</text>
+      <text x="24" y="182">— atomic CAS per attest call · best-effort tracker</text>
+      <text x="24" y="204">— never blocks a read or write; reputation is observation, not gating</text>
+    </g>
+  </g>
+
+  <g transform="translate(980,760)">
+    <rect width="820" height="240" rx="14" fill="#0a0e26" stroke="#2a335f" stroke-dasharray="4 4"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">what emem does NOT have</text>
+    <g font-size="15" fill="#cfd9ff">
+      <text x="24" y="86">— no native token, no chain, no bonding curve, no ICO</text>
+      <text x="24" y="112">— no staking, no slashing (deferred · whitepaper §scope)</text>
+      <text x="24" y="138">— no mandatory payment for reads</text>
+      <text x="24" y="164">— no operator API key, no SaaS lock-in</text>
+      <text x="24" y="200" fill="#9aa3b8">value flows through citations and verifiability, not minting.</text>
+    </g>
+  </g>
+
+  <!-- moving packet around the loop -->
+  <g>
+    <circle r="6" fill="#7af9ff">
+      <animateMotion dur="6s" repeatCount="indefinite" rotate="0"
+        path="M168 640 L478 640 L788 640 L1098 640 L1408 640 L1098 640 L788 640 L478 640 L168 640"/>
+    </circle>
+    <circle r="6" fill="#7c3aed" opacity="0.7">
+      <animateMotion dur="6s" begin="2s" repeatCount="indefinite" rotate="0"
+        path="M168 640 L478 640 L788 640 L1098 640 L1408 640 L1098 640 L788 640 L478 640 L168 640"/>
+    </circle>
+  </g>
+
+  <!-- breathing score badge -->
+  <g transform="translate(720,378)">
+    <rect x="-60" y="-20" width="120" height="40" rx="10" fill="#0e1330" stroke="#62f5a3"/>
+    <text text-anchor="middle" y="6" font-size="15" fill="#62f5a3">+1 citation</text>
+    <animate attributeName="opacity" values="0;1;0" dur="3s" repeatCount="indefinite"/>
+  </g>
+
+  <text x="80" y="1050" font-size="13" fill="#6c7396">An economy where the unit is "I cited this and you can re-derive it" — not a coin, not a fee, not a vote.</text>
+</svg>

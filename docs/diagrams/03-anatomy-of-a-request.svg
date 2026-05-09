@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="anatomy of a recall request, millisecond by millisecond">
+  <title>emem — anatomy of a request</title>
+  <desc>What happens after a POST /v1/recall lands. A timeline of resolve cell, scan_cell, lookup, get facts, sign receipt, ETag, return — with the materialize branch when the cell is cold.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0a18"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e3aff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <g fill="#eaeaea">
+    <text x="80" y="100" font-size="46" font-weight="700">anatomy of a request</text>
+    <text x="80" y="138" font-size="22" fill="#9aa3b8" letter-spacing="2">POST /v1/recall · what happens, in order</text>
+  </g>
+  <text x="1840" y="100" text-anchor="end" font-size="20" fill="#9aa3b8">03 / 10</text>
+  <line x1="80" y1="160" x2="1840" y2="160" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- swim lanes -->
+  <g font-size="14" fill="#9aa3b8" letter-spacing="2">
+    <text x="120" y="240">AGENT</text>
+    <text x="120" y="340">ROUTER</text>
+    <text x="120" y="440">PRIMITIVE</text>
+    <text x="120" y="540">STORAGE</text>
+    <text x="120" y="640">SIGN</text>
+    <text x="120" y="740">UPSTREAM</text>
+  </g>
+  <g stroke="#1f2752" stroke-width="1">
+    <line x1="280" y1="220" x2="1840" y2="220"/>
+    <line x1="280" y1="320" x2="1840" y2="320"/>
+    <line x1="280" y1="420" x2="1840" y2="420"/>
+    <line x1="280" y1="520" x2="1840" y2="520"/>
+    <line x1="280" y1="620" x2="1840" y2="620"/>
+    <line x1="280" y1="720" x2="1840" y2="720"/>
+    <line x1="280" y1="820" x2="1840" y2="820"/>
+  </g>
+
+  <!-- time scale -->
+  <g font-size="11" fill="#6c7396">
+    <text x="280" y="860">t=0</text>
+    <text x="500" y="860">~0.2 ms</text>
+    <text x="720" y="860">~0.4 ms</text>
+    <text x="940" y="860">~0.8 ms</text>
+    <text x="1160" y="860">~1.2 ms</text>
+    <text x="1380" y="860">~1.5 ms</text>
+    <text x="1600" y="860">~2.0 ms</text>
+    <text x="1800" y="860" text-anchor="end">~2.5 ms (warm)</text>
+  </g>
+  <g stroke="#1f2752" stroke-width="1" stroke-dasharray="2 6">
+    <line x1="280" y1="200" x2="280" y2="840"/>
+    <line x1="500" y1="200" x2="500" y2="840"/>
+    <line x1="720" y1="200" x2="720" y2="840"/>
+    <line x1="940" y1="200" x2="940" y2="840"/>
+    <line x1="1160" y1="200" x2="1160" y2="840"/>
+    <line x1="1380" y1="200" x2="1380" y2="840"/>
+    <line x1="1600" y1="200" x2="1600" y2="840"/>
+    <line x1="1800" y1="200" x2="1800" y2="840"/>
+  </g>
+
+  <!-- Steps as nodes connected by arrows -->
+  <g font-size="13" fill="#cfd9ff">
+    <!-- agent emits -->
+    <g>
+      <rect x="280" y="225" width="180" height="50" rx="8" fill="#0e1330" stroke="#2a335f"/>
+      <text x="290" y="248" font-size="13" fill="#eaeaea">POST /v1/recall</text>
+      <text x="290" y="266" font-size="11" fill="#9aa3b8">cell, bands?, tslot?</text>
+    </g>
+
+    <!-- router resolve -->
+    <g>
+      <rect x="500" y="325" width="200" height="50" rx="8" fill="#0e1330" stroke="#2a335f"/>
+      <text x="510" y="348" font-size="13" fill="#eaeaea">resolve_cell_field</text>
+      <text x="510" y="366" font-size="11" fill="#9aa3b8">place name → cell64</text>
+    </g>
+
+    <!-- primitive recall -->
+    <g>
+      <rect x="720" y="425" width="200" height="50" rx="8" fill="#0e1330" stroke="#2a335f"/>
+      <text x="730" y="448" font-size="13" fill="#eaeaea">recall(req, &amp;Server)</text>
+      <text x="730" y="466" font-size="11" fill="#9aa3b8">scan_cell or lookup_many</text>
+    </g>
+
+    <!-- storage sled -->
+    <g>
+      <rect x="940" y="525" width="200" height="50" rx="8" fill="#0e1330" stroke="#2a335f"/>
+      <text x="950" y="548" font-size="13" fill="#eaeaea">sled prefix scan</text>
+      <text x="950" y="566" font-size="11" fill="#9aa3b8">→ Vec&lt;FactCid&gt;</text>
+    </g>
+
+    <!-- get facts -->
+    <g>
+      <rect x="1160" y="525" width="200" height="50" rx="8" fill="#0e1330" stroke="#2a335f"/>
+      <text x="1170" y="548" font-size="13" fill="#eaeaea">get_facts_many(cids)</text>
+      <text x="1170" y="566" font-size="11" fill="#9aa3b8">canonical CBOR bytes</text>
+    </g>
+
+    <!-- sign -->
+    <g>
+      <rect x="1380" y="625" width="200" height="50" rx="8" fill="#0e1330" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="1390" y="648" font-size="13" fill="#eaeaea">sign_receipt</text>
+      <text x="1390" y="666" font-size="11" fill="#9aa3b8">ed25519 over preimage</text>
+    </g>
+
+    <!-- ETag -->
+    <g>
+      <rect x="1600" y="325" width="200" height="50" rx="8" fill="#0e1330" stroke="#2a335f"/>
+      <text x="1610" y="348" font-size="13" fill="#eaeaea">ETag · Cache-Control</text>
+      <text x="1610" y="366" font-size="11" fill="#9aa3b8">blake3(sorted CIDs)</text>
+    </g>
+
+    <!-- response back to agent -->
+    <g>
+      <rect x="1600" y="225" width="200" height="50" rx="8" fill="#0e1330" stroke="#62f5a3" stroke-width="1.5"/>
+      <text x="1610" y="248" font-size="13" fill="#eaeaea">200 JSON + receipt</text>
+      <text x="1610" y="266" font-size="11" fill="#9aa3b8">facts · receipt · cids</text>
+    </g>
+  </g>
+
+  <!-- the cold path callout (upstream + materializer) -->
+  <g font-size="13" fill="#cfd9ff">
+    <g>
+      <rect x="940" y="725" width="200" height="50" rx="8" fill="#0e1330" stroke="#ffb86b" stroke-width="1.5"/>
+      <text x="950" y="748" font-size="13" fill="#eaeaea">try_materialize_bands</text>
+      <text x="950" y="766" font-size="11" fill="#9aa3b8">cold cell only</text>
+    </g>
+    <g>
+      <rect x="1160" y="725" width="200" height="50" rx="8" fill="#0e1330" stroke="#ffb86b" stroke-width="1.5"/>
+      <text x="1170" y="748" font-size="13" fill="#eaeaea">connector.fetch_range</text>
+      <text x="1170" y="766" font-size="11" fill="#9aa3b8">vsicurl · STAC · REST</text>
+    </g>
+    <g>
+      <rect x="1380" y="725" width="200" height="50" rx="8" fill="#0e1330" stroke="#ffb86b" stroke-width="1.5"/>
+      <text x="1390" y="748" font-size="13" fill="#eaeaea">sign_and_persist</text>
+      <text x="1390" y="766" font-size="11" fill="#9aa3b8">re-run recall · cache hit</text>
+    </g>
+  </g>
+
+  <!-- arrows down/up the lanes -->
+  <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+    <path d="M460 250 L500 350" marker-end="url(#a1)"/>
+    <path d="M700 350 L720 450" marker-end="url(#a1)"/>
+    <path d="M920 450 L940 550" marker-end="url(#a1)"/>
+    <path d="M1140 550 L1160 550" marker-end="url(#a1)"/>
+    <path d="M1360 550 L1380 650" marker-end="url(#a1)"/>
+    <path d="M1580 650 L1600 350" marker-end="url(#a1)"/>
+    <path d="M1700 320 L1700 280" marker-end="url(#a1)"/>
+    <!-- cold path -->
+    <path d="M820 470 L940 750" marker-end="url(#a1)" stroke="#ffb86b" stroke-dasharray="6 4"/>
+    <path d="M1140 750 L1160 750" marker-end="url(#a1)" stroke="#ffb86b" stroke-dasharray="6 4"/>
+    <path d="M1360 750 L1380 750" marker-end="url(#a1)" stroke="#ffb86b" stroke-dasharray="6 4"/>
+    <path d="M1480 720 L1280 580" marker-end="url(#a1)" stroke="#ffb86b" stroke-dasharray="6 4"/>
+  </g>
+
+  <!-- moving packet warm path -->
+  <g>
+    <circle r="5" fill="#7af9ff">
+      <animateMotion dur="4.5s" repeatCount="indefinite" rotate="auto"
+        path="M370 250 L500 350 L600 350 L720 450 L820 450 L940 550 L1160 550 L1380 650 L1600 350 L1700 280 L1700 250"/>
+    </circle>
+    <circle r="5" fill="#7af9ff" opacity="0.55">
+      <animateMotion dur="4.5s" begin="1.5s" repeatCount="indefinite" rotate="auto"
+        path="M370 250 L500 350 L600 350 L720 450 L820 450 L940 550 L1160 550 L1380 650 L1600 350 L1700 280 L1700 250"/>
+    </circle>
+    <!-- cold-path packet -->
+    <circle r="5" fill="#ffb86b">
+      <animateMotion dur="6s" repeatCount="indefinite" rotate="auto"
+        path="M820 470 L940 750 L1160 750 L1380 750 L1280 580"/>
+    </circle>
+  </g>
+
+  <!-- legend -->
+  <g transform="translate(80,1010)" font-size="14" fill="#9aa3b8">
+    <circle cx="6" cy="-4" r="5" fill="#7af9ff"/><text x="20" y="0">warm path · ~2 ms</text>
+    <circle cx="166" cy="-4" r="5" fill="#ffb86b"/><text x="180" y="0">cold path · materializer · seconds</text>
+    <text x="1760" y="0" text-anchor="end" fill="#6c7396">If-None-Match → 304 Not Modified, no body</text>
+  </g>
+</svg>
