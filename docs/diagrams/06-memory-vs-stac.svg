@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="why a memory protocol instead of a STAC catalog">
+  <title>emem — memory vs STAC</title>
+  <desc>STAC is a catalog of scenes: it points to where bytes live. emem is a memory of facts: each value is addressed, signed, and reproducible. The diagram contrasts the two from the perspective of an agent that just wants the answer at a place.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0a18"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e3aff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#62f5a3"/>
+    </marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <g fill="#eaeaea">
+    <text x="80" y="100" font-size="46" font-weight="700">why a memory, not a catalog</text>
+    <text x="80" y="138" font-size="22" fill="#9aa3b8" letter-spacing="2">STAC POINTS TO BYTES · EMEM ANSWERS THE QUESTION</text>
+  </g>
+  <text x="1840" y="100" text-anchor="end" font-size="20" fill="#9aa3b8">06 / 10</text>
+  <line x1="80" y1="160" x2="1840" y2="160" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- left half: STAC -->
+  <g transform="translate(120,220)">
+    <rect width="780" height="800" rx="16" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="42" font-size="22" fill="#eaeaea" font-weight="700">STAC catalog</text>
+    <text x="24" y="68" font-size="14" fill="#9aa3b8">scene metadata · "where the tile is"</text>
+
+    <!-- nodes -->
+    <g transform="translate(40,110)">
+      <rect width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="16" y="38" font-size="15" fill="#cfd9ff">agent question</text>
+      <rect x="260" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="276" y="30" font-size="13" fill="#9aa3b8">/search · bbox · time</text>
+      <text x="276" y="50" font-size="13" fill="#9aa3b8">→ list of items</text>
+      <rect x="520" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="536" y="38" font-size="15" fill="#cfd9ff">scene URLs</text>
+    </g>
+    <g transform="translate(40,200)">
+      <rect width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="16" y="38" font-size="15" fill="#cfd9ff">pick a scene</text>
+      <rect x="260" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="276" y="30" font-size="13" fill="#9aa3b8">vsicurl Range</text>
+      <text x="276" y="50" font-size="13" fill="#9aa3b8">read pixels</text>
+      <rect x="520" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="536" y="38" font-size="15" fill="#cfd9ff">raw DN values</text>
+    </g>
+    <g transform="translate(40,290)">
+      <rect width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="16" y="38" font-size="15" fill="#cfd9ff">apply scaling</text>
+      <rect x="260" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="276" y="30" font-size="13" fill="#9aa3b8">choose mask</text>
+      <text x="276" y="50" font-size="13" fill="#9aa3b8">reproject · resample</text>
+      <rect x="520" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="536" y="38" font-size="15" fill="#cfd9ff">a number</text>
+    </g>
+
+    <text x="40" y="400" font-size="14" fill="#9aa3b8" letter-spacing="2">WHAT THE AGENT MUST CARRY ITSELF</text>
+    <g font-size="14" fill="#cfd9ff">
+      <text x="40" y="430">— which scene, which band index, which scale_factor</text>
+      <text x="40" y="454">— which cloud-mask, which interpolation, which CRS</text>
+      <text x="40" y="478">— which library version, which date of compute</text>
+      <text x="40" y="502">— and re-do all of it on every run</text>
+    </g>
+
+    <text x="40" y="560" font-size="14" fill="#ff5d8f" letter-spacing="2">FAILURE MODES</text>
+    <g font-size="14" fill="#cfd9ff">
+      <text x="40" y="590">— two runs ≠ same number (different scene picked)</text>
+      <text x="40" y="614">— no signature on the value, no offline verify</text>
+      <text x="40" y="638">— no shared address: "this place" is a bbox not a key</text>
+      <text x="40" y="662">— provenance is documentation, not bytes</text>
+    </g>
+
+    <text x="40" y="730" font-size="14" fill="#9aa3b8">STAC is a great catalog. It is not an answer.</text>
+  </g>
+
+  <!-- right half: emem -->
+  <g transform="translate(1020,220)">
+    <rect width="780" height="800" rx="16" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+    <text x="24" y="42" font-size="22" fill="#eaeaea" font-weight="700">emem memory</text>
+    <text x="24" y="68" font-size="14" fill="#9aa3b8">facts at addresses · "the answer at this place"</text>
+
+    <g transform="translate(40,110)">
+      <rect width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="16" y="38" font-size="15" fill="#cfd9ff">agent question</text>
+      <rect x="260" width="200" height="60" rx="10" fill="#10153a" stroke="url(#acc)"/>
+      <text x="276" y="30" font-size="13" fill="#9aa3b8">/v1/recall</text>
+      <text x="276" y="50" font-size="13" fill="#9aa3b8">cell · band · tslot</text>
+      <rect x="520" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="536" y="38" font-size="15" fill="#7af9ff">value + cid</text>
+    </g>
+    <g transform="translate(40,200)">
+      <rect width="200" height="60" rx="10" fill="#10153a" stroke="#62f5a3"/>
+      <text x="16" y="38" font-size="15" fill="#62f5a3">verify offline</text>
+      <rect x="260" width="200" height="60" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="276" y="30" font-size="13" fill="#9aa3b8">ed25519 · blake3</text>
+      <text x="276" y="50" font-size="13" fill="#9aa3b8">no callback</text>
+      <rect x="520" width="200" height="60" rx="10" fill="#10153a" stroke="#62f5a3"/>
+      <text x="536" y="38" font-size="15" fill="#62f5a3">trusted answer</text>
+    </g>
+
+    <text x="40" y="320" font-size="14" fill="#9aa3b8" letter-spacing="2">WHAT THE PROTOCOL PINS FOR YOU</text>
+    <g font-size="14" fill="#cfd9ff">
+      <text x="40" y="350">— which algorithm: function-keyed in derivation</text>
+      <text x="40" y="374">— which source: pinned in sources_cid manifest</text>
+      <text x="40" y="398">— which schema: pinned in schema_cid</text>
+      <text x="40" y="422">— which place &amp; time: cell64 · tslot</text>
+    </g>
+
+    <text x="40" y="480" font-size="14" fill="#62f5a3" letter-spacing="2">PROPERTIES</text>
+    <g font-size="14" fill="#cfd9ff">
+      <text x="40" y="510">— two runs = same cid, byte-for-byte</text>
+      <text x="40" y="534">— receipt verifies offline against published pubkey</text>
+      <text x="40" y="558">— STAC is just one of seven upstream connector kinds</text>
+      <text x="40" y="582">— second caller pays nothing</text>
+    </g>
+
+    <text x="40" y="660" font-size="14" fill="#9aa3b8">emem is the protocol; the data stays where it is.</text>
+  </g>
+
+  <!-- arrows within each side -->
+  <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+    <!-- STAC chain -->
+    <path d="M360 340 L420 340" marker-end="url(#a1)"/>
+    <path d="M620 340 L680 340" marker-end="url(#a1)"/>
+    <path d="M360 430 L420 430" marker-end="url(#a1)"/>
+    <path d="M620 430 L680 430" marker-end="url(#a1)"/>
+    <path d="M360 520 L420 520" marker-end="url(#a1)"/>
+    <path d="M620 520 L680 520" marker-end="url(#a1)"/>
+    <!-- emem chain -->
+    <path d="M1260 340 L1320 340" marker-end="url(#a2)" stroke="#3f7a5b"/>
+    <path d="M1520 340 L1580 340" marker-end="url(#a2)" stroke="#3f7a5b"/>
+    <path d="M1260 430 L1320 430" marker-end="url(#a2)" stroke="#3f7a5b"/>
+    <path d="M1520 430 L1580 430" marker-end="url(#a2)" stroke="#3f7a5b"/>
+  </g>
+
+  <!-- moving packets: STAC slow zigzag, emem clean line -->
+  <g>
+    <circle r="4" fill="#ff5d8f">
+      <animateMotion dur="5s" repeatCount="indefinite"
+        path="M180 340 L360 340 L420 340 L620 340 L680 340 L860 340 L860 430 L680 430 L620 430 L420 430 L360 430 L180 430 L180 520 L360 520 L420 520 L620 520 L680 520 L860 520"/>
+    </circle>
+    <circle r="5" fill="#62f5a3">
+      <animateMotion dur="2.6s" repeatCount="indefinite"
+        path="M1080 340 L1260 340 L1320 340 L1520 340 L1580 340 L1760 340"/>
+    </circle>
+    <circle r="5" fill="#62f5a3" opacity="0.6">
+      <animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite"
+        path="M1080 430 L1260 430 L1320 430 L1520 430 L1580 430 L1760 430"/>
+    </circle>
+  </g>
+
+  <text x="80" y="1050" font-size="13" fill="#6c7396">STAC, GeoParquet, IPLD, Web of Things — all useful, all neighbours, none of them this.</text>
+</svg>

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>emem — visual suite</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="color-scheme" content="dark"/>
+<meta name="description" content="Ten diagrams that say what emem is, how it moves data, how agents use it, and why a memory protocol beats a catalog."/>
+<style>
+  :root {
+    --bg: #0a0a18;
+    --bg2: #02050f;
+    --ink: #eaeaea;
+    --mut: #9aa3b8;
+    --line: #1f2752;
+    --acc1: #1e3aff;
+    --acc2: #7c3aed;
+    --hi: #7af9ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: linear-gradient(180deg,var(--bg),var(--bg2)); color: var(--ink); font-family: ui-monospace, SF Mono, Menlo, Consolas, monospace; }
+  header { padding: 64px 80px 24px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 42px; margin: 0 0 8px; letter-spacing: -0.5px; }
+  header p { color: var(--mut); margin: 0; font-size: 16px; max-width: 64ch; line-height: 1.55; }
+  header .crumbs { font-size: 13px; color: var(--mut); letter-spacing: 2px; margin-bottom: 18px; }
+  header .crumbs a { color: var(--mut); text-decoration: none; }
+  header .crumbs a:hover { color: var(--hi); }
+  nav { padding: 24px 80px 0; color: var(--mut); font-size: 13px; }
+  nav a { color: var(--mut); text-decoration: none; margin-right: 18px; }
+  nav a:hover { color: var(--hi); }
+  main { padding: 32px 80px 96px; }
+  .grid {
+    display: grid;
+    gap: 28px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (max-width: 1100px) {
+    .grid { grid-template-columns: 1fr; }
+    header, main, nav { padding-left: 32px; padding-right: 32px; }
+  }
+  figure {
+    margin: 0;
+    background: #0a0e26;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color .2s ease, transform .2s ease;
+  }
+  figure:hover { border-color: var(--acc2); transform: translateY(-2px); }
+  figure a { display: block; color: inherit; text-decoration: none; }
+  figure .frame {
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    background: #02050f;
+    border-bottom: 1px solid var(--line);
+    display: block;
+    pointer-events: none; /* clicks fall through to the wrapping <a> */
+  }
+  figure .frame object,
+  figure .frame img { width: 100%; height: 100%; display: block; border: 0; }
+  figcaption { padding: 18px 22px 22px; }
+  figcaption .num { font-size: 11px; color: var(--mut); letter-spacing: 3px; }
+  figcaption h2 { font-size: 20px; margin: 6px 0 6px; font-weight: 700; }
+  figcaption p { margin: 0; color: var(--mut); font-size: 14px; line-height: 1.5; }
+  footer { padding: 24px 80px 64px; color: #6c7396; font-size: 13px; border-top: 1px solid var(--line); }
+  footer a { color: var(--mut); text-decoration: none; }
+  footer a:hover { color: var(--hi); }
+</style>
+</head>
+<body>
+<header>
+  <div class="crumbs"><a href="../">DOCS</a> · DIAGRAMS</div>
+  <h1>the visual suite</h1>
+  <p>Ten diagrams that say what emem is. Each one is a 16:9 SVG with calm motion;
+     open any tile to see it full size. They were made to read on a monitor across the
+     room and not lie to you.</p>
+</header>
+<nav>
+  <a href="#01">01 architecture</a>
+  <a href="#02">02 data flow</a>
+  <a href="#03">03 request</a>
+  <a href="#04">04 agent loop</a>
+  <a href="#05">05 reasoning</a>
+  <a href="#06">06 vs STAC</a>
+  <a href="#07">07 cite-economy</a>
+  <a href="#08">08 decentralised</a>
+  <a href="#09">09 address algebra</a>
+  <a href="#10">10 trust plane</a>
+</nav>
+<main>
+  <div class="grid">
+
+    <figure id="01"><a href="01-architecture.svg">
+      <object class="frame" type="image/svg+xml" data="01-architecture.svg" aria-label="emem system architecture diagram"><img src="01-architecture.svg" alt="emem system architecture diagram"/></object>
+      <figcaption>
+        <div class="num">01 / 10 · ARCHITECTURE</div>
+        <h2>the simple architecture</h2>
+        <p>One Rust binary, two wire surfaces (REST, MCP) sharing handlers, one optional sidecar. Storage is sled plus an append-only Merkle log. Everything else is open data on the wire.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="02"><a href="02-data-flow.svg">
+      <object class="frame" type="image/svg+xml" data="02-data-flow.svg" aria-label="how data moves through emem"><img src="02-data-flow.svg" alt="how data moves through emem"/></object>
+      <figcaption>
+        <div class="num">02 / 10 · DATA FLOW</div>
+        <h2>how data moves</h2>
+        <p>From an open pixel to a signed receipt, in eight steps. Same upstream + same registries ⇒ same CID, byte-for-byte.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="03"><a href="03-anatomy-of-a-request.svg">
+      <object class="frame" type="image/svg+xml" data="03-anatomy-of-a-request.svg" aria-label="anatomy of a recall request"><img src="03-anatomy-of-a-request.svg" alt="anatomy of a recall request"/></object>
+      <figcaption>
+        <div class="num">03 / 10 · REQUEST</div>
+        <h2>anatomy of a recall</h2>
+        <p>A swimlane timeline of <code>POST /v1/recall</code> — warm path is ~2 ms; the cold-path branch shows the lazy materializer in dashed amber.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="04"><a href="04-agent-loop.svg">
+      <object class="frame" type="image/svg+xml" data="04-agent-loop.svg" aria-label="how an agent uses emem"><img src="04-agent-loop.svg" alt="how an agent uses emem"/></object>
+      <figcaption>
+        <div class="num">04 / 10 · AGENT LOOP</div>
+        <h2>how an agent actually uses us</h2>
+        <p>Discover, locate, recall, reason, verify. The loop is open; skip steps once first contact is done.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="05"><a href="05-fact-to-reasoning.svg">
+      <object class="frame" type="image/svg+xml" data="05-fact-to-reasoning.svg" aria-label="how a fact reaches the model context"><img src="05-fact-to-reasoning.svg" alt="how a fact reaches the model context"/></object>
+      <figcaption>
+        <div class="num">05 / 10 · REASONING</div>
+        <h2>fact → reasoning</h2>
+        <p>The shape of a signed fact in the LLM's context window. The agent reasons over the value but cites the CID — grounded and reproducible.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="06"><a href="06-memory-vs-stac.svg">
+      <object class="frame" type="image/svg+xml" data="06-memory-vs-stac.svg" aria-label="memory vs STAC catalog"><img src="06-memory-vs-stac.svg" alt="memory vs STAC catalog"/></object>
+      <figcaption>
+        <div class="num">06 / 10 · NEIGHBOURS</div>
+        <h2>why a memory, not a catalog</h2>
+        <p>STAC points to where the bytes live; emem answers the question at the place. STAC is one of seven upstream connectors, not the protocol.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="07"><a href="07-cite-economy.svg">
+      <object class="frame" type="image/svg+xml" data="07-cite-economy.svg" aria-label="the cite-economy"><img src="07-cite-economy.svg" alt="the cite-economy"/></object>
+      <figcaption>
+        <div class="num">07 / 10 · ECONOMICS</div>
+        <h2>the cite-economy</h2>
+        <p>No token, no chain, no minting. The unit is the citation; the currency is the CID; the receipt is the receipt.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="08"><a href="08-decentralised.svg">
+      <object class="frame" type="image/svg+xml" data="08-decentralised.svg" aria-label="the decentralised topology"><img src="08-decentralised.svg" alt="the decentralised topology"/></object>
+      <figcaption>
+        <div class="num">08 / 10 · TOPOLOGY</div>
+        <h2>the decentralised way</h2>
+        <p>Many independent responders, the same registries, the same CIDs. Verification needs only the pubkey — no central anything.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="09"><a href="09-address-algebra.svg">
+      <object class="frame" type="image/svg+xml" data="09-address-algebra.svg" aria-label="cell64 plus band plus tslot becomes a CID"><img src="09-address-algebra.svg" alt="cell64 plus band plus tslot becomes a CID"/></object>
+      <figcaption>
+        <div class="num">09 / 10 · ALGEBRA</div>
+        <h2>address algebra</h2>
+        <p>cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID. The address that survives every translation.</p>
+      </figcaption>
+    </a></figure>
+
+    <figure id="10"><a href="10-trust-plane.svg">
+      <object class="frame" type="image/svg+xml" data="10-trust-plane.svg" aria-label="receipts, merkle log, offline verify"><img src="10-trust-plane.svg" alt="receipts, merkle log, offline verify"/></object>
+      <figcaption>
+        <div class="num">10 / 10 · TRUST</div>
+        <h2>the trust plane</h2>
+        <p>Preimage, signature, Merkle path, offline verify. Five steps to accept a fact without ever calling the issuer back.</p>
+      </figcaption>
+    </a></figure>
+
+  </div>
+</main>
+<footer>
+  Ten SVGs · 1920×1080 · animated SMIL · standalone, no JS · made to be embedded anywhere.
+  <br/>
+  <a href="../architecture.md">architecture.md</a> ·
+  <a href="../whitepaper.md">whitepaper.md</a> ·
+  <a href="../agents.md">agents.md</a> ·
+  <a href="https://emem.dev">emem.dev</a>
+</footer>
+</body>
+</html>

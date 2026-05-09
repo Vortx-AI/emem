@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="trust plane: receipts, merkle log, offline verification">
+  <title>emem — the trust plane</title>
+  <desc>Every response is signed. The signature covers a stable preimage of the request id, served-at, primitive, cited cells, and cited CIDs. Receipts also carry a Merkle inclusion path back to the batch root in the append-only log. Verification needs only the public key — no callback, no internet.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0a18"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1e3aff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b5cf6"/>
+    </marker>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#62f5a3"/>
+    </marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/>
+    </pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <g fill="#eaeaea">
+    <text x="80" y="100" font-size="46" font-weight="700">the trust plane</text>
+    <text x="80" y="138" font-size="22" fill="#9aa3b8" letter-spacing="2">RECEIPTS · MERKLE LOG · OFFLINE VERIFY</text>
+  </g>
+  <text x="1840" y="100" text-anchor="end" font-size="20" fill="#9aa3b8">10 / 10</text>
+  <line x1="80" y1="160" x2="1840" y2="160" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- left: preimage construction -->
+  <g transform="translate(120,240)">
+    <rect width="540" height="780" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">the receipt preimage</text>
+    <text x="24" y="70" font-size="13" fill="#9aa3b8">stable byte concatenation</text>
+
+    <g transform="translate(24,100)" font-family="ui-monospace" font-size="14" fill="#cfd9ff">
+      <rect x="0" y="0" width="492" height="40" rx="6" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="26">request_id</text>
+      <text x="478" y="26" text-anchor="end" fill="#9aa3b8">uuid</text>
+
+      <rect x="0" y="50" width="492" height="40" rx="6" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="76">served_at</text>
+      <text x="478" y="76" text-anchor="end" fill="#9aa3b8">ISO 8601 UTC</text>
+
+      <rect x="0" y="100" width="492" height="40" rx="6" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="126">primitive</text>
+      <text x="478" y="126" text-anchor="end" fill="#9aa3b8">"emem.recall"</text>
+
+      <rect x="0" y="150" width="492" height="40" rx="6" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="176">cells[]</text>
+      <text x="478" y="176" text-anchor="end" fill="#9aa3b8">defi.zb493… · …</text>
+
+      <rect x="0" y="200" width="492" height="40" rx="6" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="226">fact_cids[]</text>
+      <text x="478" y="226" text-anchor="end" fill="#9aa3b8">qi3jo4sqcg… · …</text>
+    </g>
+
+    <!-- blake3 box -->
+    <g transform="translate(24,380)">
+      <rect width="492" height="80" rx="10" fill="#0e1330" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="14" y="34" font-size="14" fill="#9aa3b8" letter-spacing="2">BLAKE3 · 32 BYTES</text>
+      <text x="14" y="62" font-family="ui-monospace" font-size="14" fill="#7af9ff">digest := blake3(req · t · prim · cells · cids)</text>
+    </g>
+
+    <!-- ed25519 box -->
+    <g transform="translate(24,484)">
+      <rect width="492" height="80" rx="10" fill="#0e1330" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="14" y="34" font-size="14" fill="#9aa3b8" letter-spacing="2">ED25519 · SIGN</text>
+      <text x="14" y="62" font-family="ui-monospace" font-size="14" fill="#7af9ff">sig := signing_key.sign(digest)</text>
+    </g>
+
+    <text x="24" y="600" font-size="14" fill="#9aa3b8">identity persisted at</text>
+    <text x="24" y="624" font-family="ui-monospace" font-size="14" fill="#cfd9ff">&lt;EMEM_DATA&gt;/identity.secret.b32 · 0600</text>
+    <text x="24" y="660" font-size="14" fill="#9aa3b8">pubkey published at</text>
+    <text x="24" y="684" font-family="ui-monospace" font-size="14" fill="#cfd9ff">/.well-known/emem.json</text>
+
+    <text x="24" y="740" font-size="13" fill="#7af9ff">a verifier with only the pubkey can check the receipt</text>
+  </g>
+
+  <!-- centre: merkle log diagram -->
+  <g transform="translate(720,240)">
+    <rect width="540" height="780" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">the merkle log</text>
+    <text x="24" y="70" font-size="13" fill="#9aa3b8">append-only · 1 GiB segments · fsync before ack</text>
+
+    <!-- merkle tree -->
+    <g transform="translate(60,140)">
+      <!-- leaves -->
+      <g font-family="ui-monospace" font-size="11" fill="#9aa3b8">
+        <rect x="0"  y="320" width="80" height="40" rx="6" fill="#10153a" stroke="#2a335f"/><text x="40" y="346" text-anchor="middle">f1</text>
+        <rect x="100" y="320" width="80" height="40" rx="6" fill="#10153a" stroke="#2a335f"/><text x="140" y="346" text-anchor="middle">f2</text>
+        <rect x="200" y="320" width="80" height="40" rx="6" fill="#10153a" stroke="#2a335f"/><text x="240" y="346" text-anchor="middle">f3</text>
+        <rect x="300" y="320" width="80" height="40" rx="6" fill="#10153a" stroke="#2a335f"/><text x="340" y="346" text-anchor="middle">f4</text>
+        <rect x="400" y="320" width="80" height="40" rx="6" fill="#10153a" stroke="url(#acc)"/><text x="440" y="346" text-anchor="middle" fill="#7af9ff">cid*</text>
+        <text x="40" y="378" text-anchor="middle">leaf₁</text>
+        <text x="140" y="378" text-anchor="middle">leaf₂</text>
+        <text x="240" y="378" text-anchor="middle">leaf₃</text>
+        <text x="340" y="378" text-anchor="middle">leaf₄</text>
+        <text x="440" y="378" text-anchor="middle">leaf₅</text>
+      </g>
+      <!-- intermediate -->
+      <g>
+        <rect x="40" y="220" width="100" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+        <text x="90" y="244" text-anchor="middle" font-size="12" fill="#cfd9ff">h(l₁,l₂)</text>
+        <rect x="240" y="220" width="100" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+        <text x="290" y="244" text-anchor="middle" font-size="12" fill="#cfd9ff">h(l₃,l₄)</text>
+        <rect x="400" y="220" width="80" height="36" rx="6" fill="#10153a" stroke="url(#acc)"/>
+        <text x="440" y="244" text-anchor="middle" font-size="12" fill="#7af9ff">l₅·l₅</text>
+      </g>
+      <g>
+        <rect x="100" y="120" width="180" height="36" rx="6" fill="#10153a" stroke="#2a335f"/>
+        <text x="190" y="144" text-anchor="middle" font-size="12" fill="#cfd9ff">h(h₁,h₂)</text>
+        <rect x="340" y="120" width="140" height="36" rx="6" fill="#10153a" stroke="url(#acc)"/>
+        <text x="410" y="144" text-anchor="middle" font-size="12" fill="#7af9ff">h₅</text>
+      </g>
+      <g>
+        <rect x="180" y="20" width="240" height="42" rx="8" fill="#0e1330" stroke="url(#acc)" stroke-width="1.5"/>
+        <text x="300" y="48" text-anchor="middle" font-size="14" fill="#7af9ff">batch_root</text>
+      </g>
+
+      <!-- edges -->
+      <g fill="none" stroke="#3a3f6f" stroke-width="1.2">
+        <path d="M40 320 L90 256"/>
+        <path d="M140 320 L90 256"/>
+        <path d="M240 320 L290 256"/>
+        <path d="M340 320 L290 256"/>
+        <path d="M440 320 L440 256"/>
+        <path d="M90 220 L190 156"/>
+        <path d="M290 220 L190 156"/>
+        <path d="M440 220 L410 156"/>
+        <path d="M190 120 L300 62"/>
+        <path d="M410 120 L300 62"/>
+      </g>
+
+      <!-- highlighted path for cid* -->
+      <g fill="none" stroke="#7af9ff" stroke-width="2">
+        <path d="M440 320 L440 256"/>
+        <path d="M440 220 L410 156"/>
+        <path d="M410 120 L300 62"/>
+      </g>
+    </g>
+
+    <!-- segment record -->
+    <g transform="translate(24,580)">
+      <rect width="492" height="120" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="34" font-size="14" fill="#9aa3b8" letter-spacing="2">SEGMENT RECORD</text>
+      <text x="14" y="64" font-family="ui-monospace" font-size="14" fill="#cfd9ff">[u32_LE len] [CBOR attestation] [blake3-32]</text>
+      <text x="14" y="92" font-family="ui-monospace" font-size="14" fill="#cfd9ff">segment_hash := blake3(records)</text>
+    </g>
+    <text x="24" y="730" font-size="13" fill="#7af9ff">verify-on-write rejects bad-root or bad-sig before persistence</text>
+  </g>
+
+  <!-- right: offline verifier -->
+  <g transform="translate(1320,240)">
+    <rect width="480" height="780" rx="14" fill="#0a0e26" stroke="#62f5a3" stroke-width="1.5"/>
+    <text x="24" y="44" font-size="20" fill="#eaeaea" font-weight="700">offline verifier</text>
+    <text x="24" y="70" font-size="13" fill="#9aa3b8">runs anywhere · needs only the pubkey</text>
+
+    <g transform="translate(24,110)" font-size="14" fill="#cfd9ff">
+      <rect x="0" y="0" width="432" height="80" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="32" fill="#9aa3b8" letter-spacing="2" font-size="13">01 · REBUILD PREIMAGE</text>
+      <text x="14" y="62">request_id · served_at · primitive · cells · cids</text>
+
+      <rect x="0" y="100" width="432" height="80" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="132" fill="#9aa3b8" letter-spacing="2" font-size="13">02 · BLAKE3</text>
+      <text x="14" y="162">digest := blake3(preimage)</text>
+
+      <rect x="0" y="200" width="432" height="80" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="232" fill="#9aa3b8" letter-spacing="2" font-size="13">03 · ED25519 · VERIFY</text>
+      <text x="14" y="262">vk.verify_strict(digest, signature)</text>
+
+      <rect x="0" y="300" width="432" height="80" rx="10" fill="#10153a" stroke="#2a335f"/>
+      <text x="14" y="332" fill="#9aa3b8" letter-spacing="2" font-size="13">04 · MERKLE PATH</text>
+      <text x="14" y="362">leaf → batch_root via embedded path</text>
+
+      <rect x="0" y="400" width="432" height="80" rx="10" fill="#0e1330" stroke="#62f5a3"/>
+      <text x="14" y="432" fill="#62f5a3" letter-spacing="2" font-size="13">05 · ACCEPT</text>
+      <text x="14" y="462" fill="#62f5a3">all four checks pass · cite it</text>
+    </g>
+
+    <text x="24" y="660" font-size="14" fill="#9aa3b8">in-browser implementation runs on the</text>
+    <text x="24" y="684" font-size="14" fill="#9aa3b8">/humans page · BLAKE3 + Ed25519 in JS</text>
+
+    <text x="24" y="740" font-size="13" fill="#7af9ff">no network, no callback, no fallback to "trust the issuer"</text>
+  </g>
+
+  <!-- arrows linking the panels -->
+  <g fill="none" stroke="#3a3f6f" stroke-width="1.5">
+    <path d="M660 580 L720 380" marker-end="url(#a1)"/>
+    <path d="M1260 380 L1320 580" marker-end="url(#a2)" stroke="#3f7a5b"/>
+  </g>
+
+  <!-- moving signature packet -->
+  <g>
+    <rect x="-30" y="-12" width="60" height="24" rx="6" fill="#0a0e26" stroke="#7c3aed">
+      <animateMotion dur="6s" repeatCount="indefinite"
+        path="M390 524 L660 580 L720 380 L990 380 L990 580 L1260 380 L1320 580 L1560 720"/>
+    </rect>
+    <text font-size="11" fill="#7c3aed" text-anchor="middle">
+      <animateMotion dur="6s" repeatCount="indefinite"
+        path="M390 524 L660 580 L720 380 L990 380 L990 580 L1260 380 L1320 580 L1560 720"/>
+      sig
+    </text>
+  </g>
+
+  <text x="80" y="1050" font-size="13" fill="#6c7396">No zero-knowledge proofs yet · receipts today are signed, not zk · upgrade is registry-versioned</text>
+</svg>
