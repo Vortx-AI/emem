@@ -1,0 +1,269 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="carbon credit MRV: a tonne with content-addressed measurement, reporting, and verification">
+  <title>emem for voluntary carbon market MRV</title>
+  <desc>A 100,000-tonne biocarbon project: each tonne is anchored to specific (cell, band, tslot) facts — biomass, NDVI, fire perimeters, leakage perimeters — every value content-addressed and signed. ICVCM-grade integrity, audit-ready by default.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · CARBON DEVELOPERS · ICVCM · CCP-LABEL BUYERS · ART/VERRA</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">a carbon credit where the carbon is content-addressed.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">20 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: project polygon decomposing into cells, each with bands -->
+  <g transform="translate(120,220)">
+    <!-- left: project polygon stylized -->
+    <g>
+      <text x="0" y="0" font-size="13" fill="#9aa3b8" letter-spacing="2">PROJECT · 84,200 ha · 100,000 tCO2e</text>
+      <g transform="translate(0,30)">
+        <rect width="640" height="660" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+        <!-- a stylized project polygon as a subdivided grid -->
+        <g transform="translate(40,40)">
+          <!-- 12 wide x 12 tall cells -->
+          <g>
+            <!-- generate via repeated rects (12*12 = 144) - small cells -->
+            <g>
+              <!-- Row generators -->
+              <g>
+                <g><rect x="0"   y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="44"  y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="88"  y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="132" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="176" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="220" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="264" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="308" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="352" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="396" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="440" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+                <g><rect x="484" y="0"  width="40" height="40" fill="#10153a" stroke="#2a335f"/></g>
+              </g>
+            </g>
+          </g>
+          <!-- replace this with a script-generated 12x12 forest pattern by listing rects -->
+        </g>
+        <!-- pre-built 12x12 grid with mostly green (forest) cells, a few amber (loss), a few red (fire) -->
+        <g transform="translate(40,40)">
+          <g fill="#10153a" stroke="#2a335f">
+            <!-- row 0..11 ; we'll use procedural placement via coordinate math by writing each rect -->
+          </g>
+          <!-- 144 cells -->
+          <g>
+            <g transform="translate(0,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,44)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,88)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#5c1730" stroke="#7a1e3f"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,132)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,176)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="url(#acc)" stroke-width="2"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,220)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,264)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,308)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,352)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,396)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#5c1730" stroke="#7a1e3f"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,440)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#3d2c11" stroke="#5a4119"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+          <g transform="translate(0,484)">
+            <g><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(44,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(88,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(132,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(176,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(220,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(264,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(308,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(352,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(396,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(440,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+            <g transform="translate(484,0)"><rect width="40" height="40" fill="#13402a" stroke="#1e5638"/></g>
+          </g>
+        </g>
+      </g>
+      <g transform="translate(0,710)" font-size="12" fill="#9aa3b8">
+        <rect width="14" height="14" fill="#13402a"/><text x="22" y="12">canopy</text>
+        <rect x="100" width="14" height="14" fill="#3d2c11"/><text x="122" y="12">loss</text>
+        <rect x="180" width="14" height="14" fill="#5c1730"/><text x="202" y="12">fire</text>
+      </g>
+    </g>
+
+    <!-- right: certificate / band detail -->
+    <g transform="translate(700,30)">
+      <rect width="980" height="660" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="42" font-size="13" fill="#9aa3b8" letter-spacing="2">CREDIT VINTAGE 2026 · BATCH AAA-0142</text>
+      <text x="20" y="84" font-size="28" fill="#eaeaea" font-weight="700">100,000 tCO2e</text>
+      <text x="20" y="116" font-size="14" fill="#9aa3b8">issued under VM0048 / IFM · CCP-eligible · ICVCM-aligned</text>
+
+      <text x="20" y="170" font-size="13" fill="#9aa3b8" letter-spacing="2">SUPPORTING FACTS · 6 BANDS · 14,724 CELLS</text>
+      <g transform="translate(20,200)" font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <g><rect width="940" height="36" rx="6" fill="#10153a"/><text x="14" y="24">biomass.agb_tonnes_per_ha   cid qi3jo4sqcg…l2hgjt</text></g>
+        <g transform="translate(0,42)"><rect width="940" height="36" rx="6" fill="#10153a"/><text x="14" y="24">forest_change.lossyear      cid fb24m9pwkb…q2x14r</text></g>
+        <g transform="translate(0,84)"><rect width="940" height="36" rx="6" fill="#10153a"/><text x="14" y="24">tessera.embedding_2024      cid k7r2nw9wvc…lpa78w</text></g>
+        <g transform="translate(0,126)"><rect width="940" height="36" rx="6" fill="#10153a"/><text x="14" y="24">fire.perimeter_t            cid m81pq3vrnt…hvjfm5</text></g>
+        <g transform="translate(0,168)"><rect width="940" height="36" rx="6" fill="#10153a"/><text x="14" y="24">leakage.buffer_canopy       cid h9c4d8sxbm…4xz9li</text></g>
+        <g transform="translate(0,210)"><rect width="940" height="36" rx="6" fill="#10153a"/><text x="14" y="24">tenure.community_polygon    cid g8j2lyne…vqr5pu</text></g>
+      </g>
+
+      <text x="20" y="490" font-size="13" fill="#9aa3b8" letter-spacing="2">CERTIFICATE RECEIPT</text>
+      <text x="20" y="522" font-family="ui-monospace" font-size="14" fill="#62f5a3">merkle_root: 0xb12ace7f…ceaa  ·  ed25519 sig 0x4a91…ce</text>
+      <text x="20" y="544" font-size="13" fill="#9aa3b8">verifies offline · re-issuable via deterministic recompute</text>
+      <text x="20" y="582" font-size="13" fill="#7af9ff">— retire credit via attest call · same merkle log</text>
+      <text x="20" y="606" font-size="13" fill="#7af9ff">— double-issuance impossible across responders</text>
+    </g>
+
+    <!-- packet -->
+    <g>
+      <circle r="6" fill="#7af9ff">
+        <animateMotion dur="4s" repeatCount="indefinite" path="M640 360 L700 360"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">Each tonne carries the pixels that justify it.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Aligned with ICVCM Core Carbon Principles, Verra VCS 4.7, ART TREES, Gold Standard digital MRV — and the EU Empowering Consumers Directive 2026.</text>
+    <text x="1760" y="0" text-anchor="end">retroactive audit on a 10-year vintage is just a recall</text>
+  </g>
+</svg>

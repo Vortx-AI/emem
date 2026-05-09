@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="forestry: forest loss with a receipt for every claim">
+  <title>emem for forestry &amp; timber inventory</title>
+  <desc>A 25-year forest-loss curve where each annual data point is a content-addressed fact derived from open data — Hansen GFC, Sentinel, ESA WorldCover, Tessera. Buyers, insurers, and certifiers cite the same CIDs.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · CONCESSION HOLDERS · TIMBER BUYERS · FSC/PEFC AUDITORS · INSURERS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">forest loss with a receipt for every claim.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">28 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: stacked area of canopy loss by year, with markers for cited facts -->
+  <g transform="translate(160,230)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">CONCESSION · 1.6 M HA · ANNUAL CANOPY LOSS · ha · 2001 → 2026</text>
+    <text x="1600" y="0" text-anchor="end" font-size="13" fill="#6c7396">cells: 86,420 · bands: 6 · attestations: ~520k</text>
+
+    <!-- axes -->
+    <g stroke="#2a335f" stroke-width="1">
+      <line x1="0" y1="540" x2="1600" y2="540"/>
+      <line x1="0" y1="40" x2="0" y2="540"/>
+    </g>
+    <g font-size="12" fill="#6c7396">
+      <text x="-10" y="546" text-anchor="end">0</text>
+      <text x="-10" y="446" text-anchor="end">5k</text>
+      <text x="-10" y="346" text-anchor="end">10k</text>
+      <text x="-10" y="246" text-anchor="end">15k</text>
+      <text x="-10" y="146" text-anchor="end">20k</text>
+      <text x="-10" y="46" text-anchor="end">25k</text>
+      <text x="0" y="566">2001</text>
+      <text x="640" y="566">2010</text>
+      <text x="1180" y="566">2020</text>
+      <text x="1590" y="566" text-anchor="end">2026</text>
+    </g>
+
+    <!-- area chart of loss by year -->
+    <path d="M0 540 L60 510 L120 504 L180 488 L240 470 L300 450 L360 430 L420 408 L480 380 L540 350 L600 320 L660 300 L720 270 L780 240 L840 210 L900 180 L960 200 L1020 240 L1080 280 L1140 320 L1200 350 L1260 380 L1320 400 L1380 416 L1440 430 L1500 446 L1560 458 L1600 462 L1600 540 Z"
+          fill="url(#acc)" opacity="0.25"/>
+    <path d="M0 540 L60 510 L120 504 L180 488 L240 470 L300 450 L360 430 L420 408 L480 380 L540 350 L600 320 L660 300 L720 270 L780 240 L840 210 L900 180 L960 200 L1020 240 L1080 280 L1140 320 L1200 350 L1260 380 L1320 400 L1380 416 L1440 430 L1500 446 L1560 458 L1600 462"
+          fill="none" stroke="url(#acc)" stroke-width="3"/>
+
+    <!-- yearly markers + a cited fact callout -->
+    <g>
+      <circle cx="840" cy="210" r="8" fill="#7af9ff"/>
+      <line x1="840" y1="210" x2="840" y2="100" stroke="#3a3f6f" stroke-dasharray="2 4"/>
+      <g transform="translate(700,30)">
+        <rect width="380" height="80" rx="10" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+        <text x="14" y="24" font-size="11" fill="#9aa3b8" letter-spacing="2">2014 · PEAK LOSS · 21,840 ha</text>
+        <text x="14" y="48" font-family="ui-monospace" font-size="13" fill="#cfd9ff">forest_change.lossyear  qi3jo4sqcg…</text>
+        <text x="14" y="68" font-family="ui-monospace" font-size="13" fill="#cfd9ff">attester: emem.dev · re-runnable</text>
+      </g>
+    </g>
+
+    <!-- packet -->
+    <circle r="6" fill="#62f5a3">
+      <animateMotion dur="6s" repeatCount="indefinite"
+        path="M0 540 L60 510 L120 504 L180 488 L240 470 L300 450 L360 430 L420 408 L480 380 L540 350 L600 320 L660 300 L720 270 L780 240 L840 210 L900 180 L960 200 L1020 240 L1080 280 L1140 320 L1200 350 L1260 380 L1320 400 L1380 416 L1440 430 L1500 446 L1560 458 L1600 462"/>
+    </circle>
+  </g>
+
+  <!-- bottom strip: parallel buyers -->
+  <g transform="translate(160,820)" font-size="13" fill="#cfd9ff">
+    <text font-size="13" fill="#9aa3b8" letter-spacing="2">SAME FACTS · DIFFERENT BUYERS</text>
+    <g transform="translate(0,20)"><rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">TIMBER BUYER</text><text x="14" y="42">cell-level legality screen</text></g>
+    <g transform="translate(400,20)"><rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">FSC / PEFC AUDIT</text><text x="14" y="42">re-attest spot-check on cid</text></g>
+    <g transform="translate(800,20)"><rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">CARBON CO-BENEFIT</text><text x="14" y="42">REDD+ project baseline</text></g>
+    <g transform="translate(1200,20)"><rect width="400" height="60" rx="8" fill="#0a0e26" stroke="#62f5a3"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">INSURER · WILDFIRE PARAM</text><text x="14" y="42">canopy-loss trigger by polygon</text></g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">A 25-year curve where every dot is a 26-character handle.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Inputs: Hansen GFC, JRC TMF, ESA WorldCover, Sentinel-2 L2A, FIRMS, Tessera vintages 2017–2024.</text>
+    <text x="1760" y="0" text-anchor="end">EUDR-aligned · FSC traceability-friendly · REDD+ MRV ready</text>
+  </g>
+</svg>

@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="renewable energy siting: a site score where every input has a public address">
+  <title>emem for renewable energy siting</title>
+  <desc>A solar/wind candidate site is scored from a stack of cited bands — irradiance, slope, soil, transmission proximity, biodiversity, social — and the score becomes a re-runnable, attest-able artefact for permitting and PPA pricing.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · DEVELOPERS · IPP · PPA DESKS · COMMUNITY ENGAGEMENT</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">a site score where every input has a public address.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">25 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: a horizontal scorecard with input bars contributing to total -->
+  <g transform="translate(160,230)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">CANDIDATE SITE · 8 BANDS · CONTRIBUTION TO TOTAL SCORE</text>
+    <text x="1600" y="0" text-anchor="end" font-size="13" fill="#6c7396">illustrative · 240 MW utility-scale PV</text>
+
+    <!-- scorecard rows -->
+    <g transform="translate(0,40)" font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+      <g>
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">irradiance.ghi_annual</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="780" height="28" rx="4" fill="#62f5a3" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">2148 kWh/m² · cid qi3jo4sqcg…</text>
+      </g>
+      <g transform="translate(0,46)">
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">slope.copdem30m_pct</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="690" height="28" rx="4" fill="#62f5a3" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">3.1% · cid fb24m9pwkb…</text>
+      </g>
+      <g transform="translate(0,92)">
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">grid.proximity_km</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="540" height="28" rx="4" fill="#62f5a3" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">2.4 km to 132 kV · cid k7r2nw9wvc…</text>
+      </g>
+      <g transform="translate(0,138)">
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">land.use_overture</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="500" height="28" rx="4" fill="#62f5a3" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">82% bare/scrub · cid m81pq3vrnt…</text>
+      </g>
+      <g transform="translate(0,184)">
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">protected_areas.wdpa</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="820" height="28" rx="4" fill="#62f5a3" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">none within 5 km · cid h9c4d8sxbm…</text>
+      </g>
+      <g transform="translate(0,230)">
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">flood.return_period_100yr</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="700" height="28" rx="4" fill="#62f5a3" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">no exposure · cid g8j2lyne…</text>
+      </g>
+      <g transform="translate(0,276)">
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">biodiversity.tessera</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="430" height="28" rx="4" fill="#ffb86b" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">moderate · review · cid x4f7tnae…</text>
+      </g>
+      <g transform="translate(0,322)">
+        <text x="0" y="20" font-size="13" fill="#9aa3b8">social.density_5km</text>
+        <rect x="320" y="0" width="900" height="28" rx="4" fill="#10153a"/>
+        <rect x="320" y="0" width="610" height="28" rx="4" fill="#62f5a3" opacity="0.7"/>
+        <text x="1240" y="20" font-size="13" fill="#cfd9ff">low · cid v3w8fdyu…</text>
+      </g>
+    </g>
+
+    <!-- score gauge -->
+    <g transform="translate(0,460)">
+      <rect width="1600" height="120" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">COMPOSITE SCORE · alg_key v1 · weights pinned in algorithms_cid</text>
+      <text x="20" y="80" font-size="34" fill="#eaeaea" font-weight="700">site_score = 0.83 / 1.0</text>
+      <g transform="translate(20,98)">
+        <rect width="1560" height="14" rx="6" fill="#10153a"/>
+        <rect width="1295" height="14" rx="6" fill="url(#acc)"/>
+      </g>
+      <text x="1580" y="80" text-anchor="end" font-size="14" fill="#62f5a3">receipt: merkle 0xb12a…ce · ed25519 sig 0x4a91…ce</text>
+    </g>
+
+    <!-- reuse: other stakeholders consume the same artefact -->
+    <g transform="translate(0,610)" font-size="13" fill="#cfd9ff">
+      <text x="0" y="0" font-size="13" fill="#9aa3b8" letter-spacing="2">SAME ARTEFACT · 5 STAKEHOLDERS</text>
+      <g transform="translate(0,16)"><rect width="300" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">DEVELOPER</text><text x="14" y="40">EPC tender input</text></g>
+      <g transform="translate(320,16)"><rect width="300" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">PERMITTING</text><text x="14" y="40">objection-period evidence</text></g>
+      <g transform="translate(640,16)"><rect width="300" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">PPA OFF-TAKER</text><text x="14" y="40">P50/P90 with citation chain</text></g>
+      <g transform="translate(960,16)"><rect width="300" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">LENDER · ESG DESK</text><text x="14" y="40">EU Taxonomy DNSH check</text></g>
+      <g transform="translate(1280,16)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#62f5a3"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">COMMUNITY</text><text x="14" y="40">verifies on phone, no callback</text></g>
+    </g>
+
+    <!-- packet -->
+    <g>
+      <circle r="6" fill="#7af9ff">
+        <animateMotion dur="5s" repeatCount="indefinite" path="M0 460 L1600 460"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">A scorecard the EPC, the lender, and the village can all click through.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Algorithm weights stay yours; sources_cid + algorithms_cid pin the recipe so a 2031 audit reproduces the 2026 number.</text>
+    <text x="1760" y="0" text-anchor="end">EU Taxonomy · IFC PS-6 · Equator Principles aligned</text>
+  </g>
+</svg>

@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="P&amp;C insurance: parcel-level pricing error collapses with signed facts">
+  <title>emem for property &amp; casualty insurance</title>
+  <desc>Underwriting error per parcel collapses from a wide cloud to a tight band when every input is a signed, content-addressed fact instead of a broker spreadsheet.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <g fill="#9aa3b8" font-size="15" letter-spacing="3">
+    <text x="80" y="86">FOR · PROPERTY &amp; CASUALTY UNDERWRITERS</text>
+  </g>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">price every parcel from the same signed truth.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">11 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart -->
+  <g transform="translate(160,240)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">PRICING ERROR ACROSS A 50,000-PARCEL PORTFOLIO</text>
+    <text x="1600" y="0" text-anchor="end" font-size="13" fill="#6c7396">illustrative · USD per quote</text>
+
+    <!-- axes -->
+    <g stroke="#2a335f" stroke-width="1">
+      <line x1="0" y1="600" x2="1600" y2="600"/>
+      <line x1="0" y1="40" x2="0" y2="600"/>
+    </g>
+    <g font-size="12" fill="#6c7396">
+      <text x="-10" y="46" text-anchor="end">+$2k</text>
+      <text x="-10" y="206" text-anchor="end">+$1k</text>
+      <text x="-10" y="324" text-anchor="end">0</text>
+      <text x="-10" y="446" text-anchor="end">−$1k</text>
+      <text x="-10" y="606" text-anchor="end">−$2k</text>
+      <text x="0" y="630">parcel #1</text>
+      <text x="780" y="630" text-anchor="middle">portfolio walk →</text>
+      <text x="1600" y="630" text-anchor="end">#50,000</text>
+      <line x1="0" y1="320" x2="1600" y2="320" stroke-dasharray="4 6" stroke="#2a335f" stroke-width="1"/>
+    </g>
+
+    <!-- "without emem": a wide stochastic cloud (procedurally placed dots) -->
+    <g fill="#ff5d8f" opacity="0.55">
+      <!-- many small dots scattered widely -->
+      <g>
+        <circle cx="20" cy="180" r="3"/><circle cx="55" cy="450" r="3"/><circle cx="92" cy="120" r="3"/>
+        <circle cx="135" cy="510" r="3"/><circle cx="178" cy="220" r="3"/><circle cx="221" cy="390" r="3"/>
+        <circle cx="265" cy="80" r="3"/><circle cx="312" cy="540" r="3"/><circle cx="358" cy="260" r="3"/>
+        <circle cx="404" cy="160" r="3"/><circle cx="442" cy="470" r="3"/><circle cx="488" cy="320" r="3"/>
+        <circle cx="530" cy="100" r="3"/><circle cx="575" cy="430" r="3"/><circle cx="618" cy="240" r="3"/>
+        <circle cx="660" cy="500" r="3"/><circle cx="704" cy="180" r="3"/><circle cx="748" cy="340" r="3"/>
+        <circle cx="788" cy="60" r="3"/><circle cx="831" cy="520" r="3"/><circle cx="874" cy="270" r="3"/>
+        <circle cx="918" cy="440" r="3"/><circle cx="961" cy="140" r="3"/><circle cx="1003" cy="380" r="3"/>
+        <circle cx="1045" cy="220" r="3"/><circle cx="1088" cy="500" r="3"/><circle cx="1131" cy="90" r="3"/>
+        <circle cx="1174" cy="350" r="3"/><circle cx="1217" cy="450" r="3"/><circle cx="1260" cy="160" r="3"/>
+        <circle cx="1303" cy="280" r="3"/><circle cx="1346" cy="540" r="3"/><circle cx="1389" cy="200" r="3"/>
+        <circle cx="1432" cy="430" r="3"/><circle cx="1475" cy="110" r="3"/><circle cx="1518" cy="370" r="3"/>
+        <circle cx="1560" cy="490" r="3"/><circle cx="1590" cy="240" r="3"/>
+      </g>
+    </g>
+    <!-- transition arrow + animated gather -->
+    <g>
+      <line x1="800" y1="600" x2="800" y2="40" stroke="#3a3f6f" stroke-dasharray="4 6"/>
+      <text x="800" y="34" text-anchor="middle" font-size="13" fill="#7af9ff">⇣ adopt emem ⇣</text>
+    </g>
+    <!-- "with emem": a tight band of dots near 0 -->
+    <g fill="#62f5a3">
+      <g>
+        <circle cx="822" cy="320" r="3"/><circle cx="848" cy="328" r="3"/><circle cx="874" cy="314" r="3"/>
+        <circle cx="900" cy="324" r="3"/><circle cx="930" cy="316" r="3"/><circle cx="960" cy="332" r="3"/>
+        <circle cx="990" cy="318" r="3"/><circle cx="1020" cy="326" r="3"/><circle cx="1050" cy="312" r="3"/>
+        <circle cx="1080" cy="330" r="3"/><circle cx="1110" cy="320" r="3"/><circle cx="1140" cy="316" r="3"/>
+        <circle cx="1170" cy="328" r="3"/><circle cx="1200" cy="322" r="3"/><circle cx="1230" cy="314" r="3"/>
+        <circle cx="1260" cy="326" r="3"/><circle cx="1290" cy="318" r="3"/><circle cx="1320" cy="324" r="3"/>
+        <circle cx="1350" cy="316" r="3"/><circle cx="1380" cy="330" r="3"/><circle cx="1410" cy="320" r="3"/>
+        <circle cx="1440" cy="322" r="3"/><circle cx="1470" cy="314" r="3"/><circle cx="1500" cy="326" r="3"/>
+        <circle cx="1530" cy="318" r="3"/><circle cx="1560" cy="324" r="3"/><circle cx="1590" cy="320" r="3"/>
+      </g>
+    </g>
+
+    <!-- envelope outlines -->
+    <g fill="none">
+      <rect x="0" y="60" width="800" height="520" rx="6" stroke="#ff5d8f" stroke-dasharray="2 4" opacity="0.55"/>
+      <rect x="800" y="305" width="800" height="34" rx="6" stroke="#62f5a3" stroke-dasharray="2 4"/>
+    </g>
+
+    <!-- moving signed-fact packet sweeping the right band -->
+    <circle r="6" fill="#7af9ff">
+      <animateMotion dur="6s" repeatCount="indefinite" path="M810 320 L1590 320"/>
+    </circle>
+
+    <!-- annotations -->
+    <g font-size="14" fill="#cfd9ff">
+      <text x="20" y="40" fill="#ff5d8f">today · broker spreadsheets · stale flood maps · mixed vendors</text>
+      <text x="820" y="40" fill="#62f5a3">with emem · cell-level facts · signed · re-runnable</text>
+    </g>
+    <g font-size="13" fill="#9aa3b8">
+      <text x="400" y="660" text-anchor="middle">σ ≈ $730 mispricing</text>
+      <text x="1200" y="660" text-anchor="middle">σ ≈ $40 mispricing · auditor-ready</text>
+    </g>
+  </g>
+
+  <!-- pitch line -->
+  <g>
+    <text x="960" y="950" text-anchor="middle" font-size="32" fill="#eaeaea">Underwriting that the regulator can replay, parcel by parcel.</text>
+  </g>
+
+  <!-- footer -->
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Inputs: flood, wildfire, wind, hail, subsidence, elevation — all (cell, band, tslot) with ed25519 receipts.</text>
+    <text x="1760" y="0" text-anchor="end">aligned with NAIC model audit + EU Solvency II Pillar 3</text>
+  </g>
+</svg>

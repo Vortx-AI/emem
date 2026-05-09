@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="urban planning: a permit decision a citizen can audit on their phone">
+  <title>emem for urban planning &amp; municipal decisions</title>
+  <desc>A planning permit shows the cited facts behind it — heat island, flood, walkability, tree canopy, transit — every value content-addressed and signed. A citizen verifies the receipt offline before the comment window closes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · CITY PLANNERS · MUNICIPALITIES · ZONING BOARDS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">a permit a citizen can audit on their phone.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">17 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: a permit card -->
+  <g transform="translate(280,220)">
+    <rect width="900" height="700" rx="18" fill="#0a0e26" stroke="url(#acc)" stroke-width="2"/>
+    <text x="32" y="48" font-size="13" fill="#9aa3b8" letter-spacing="3">PLANNING PERMIT · PUBLIC RECORD</text>
+    <text x="32" y="92" font-size="32" fill="#eaeaea" font-weight="700">PR-2026-08442 · approved with conditions</text>
+    <text x="32" y="124" font-size="14" fill="#9aa3b8">7-storey mixed-use · 124 dwellings · 0.41 ha site · cell defi.zb5cf.nura.zd83c</text>
+
+    <!-- factors -->
+    <g transform="translate(32,170)" font-size="13" fill="#cfd9ff">
+      <text font-size="13" fill="#9aa3b8" letter-spacing="2">CITED EVIDENCE · 8 FACTS · 1 RECEIPT</text>
+
+      <g transform="translate(0,30)">
+        <rect width="836" height="56" rx="8" fill="#10153a" stroke="#2a335f"/>
+        <text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">HEAT ISLAND · LST_DAY_8DAY</text>
+        <text x="14" y="44" font-family="ui-monospace">+3.7 °C vs ward median · cid qi3jo4sqcg…l2hgjt</text>
+        <text x="820" y="36" text-anchor="end" font-size="13" fill="#ffb86b">⚠ above threshold</text>
+      </g>
+      <g transform="translate(0,96)">
+        <rect width="836" height="56" rx="8" fill="#10153a" stroke="#2a335f"/>
+        <text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">FLOOD 1-IN-100</text>
+        <text x="14" y="44" font-family="ui-monospace">depth 0.0 m · cid fb24m9pwkb…</text>
+        <text x="820" y="36" text-anchor="end" font-size="13" fill="#62f5a3">✓ outside zone</text>
+      </g>
+      <g transform="translate(0,162)">
+        <rect width="836" height="56" rx="8" fill="#10153a" stroke="#2a335f"/>
+        <text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">TREE CANOPY · ESA WORLDCOVER</text>
+        <text x="14" y="44" font-family="ui-monospace">12% · cid k7r2nw9wvc…</text>
+        <text x="820" y="36" text-anchor="end" font-size="13" fill="#ffb86b">⚠ below 25% goal</text>
+      </g>
+      <g transform="translate(0,228)">
+        <rect width="836" height="56" rx="8" fill="#10153a" stroke="#2a335f"/>
+        <text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">WALKABILITY SCORE · ALG_KEY V1</text>
+        <text x="14" y="44" font-family="ui-monospace">0.78 · cid m81pq3vrnt…</text>
+        <text x="820" y="36" text-anchor="end" font-size="13" fill="#62f5a3">✓ high</text>
+      </g>
+      <g transform="translate(0,294)">
+        <rect width="836" height="56" rx="8" fill="#10153a" stroke="#2a335f"/>
+        <text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">AIR QUALITY · NO2 ANNUAL</text>
+        <text x="14" y="44" font-family="ui-monospace">28 µg/m³ · cid h9c4d8sxbm…</text>
+        <text x="820" y="36" text-anchor="end" font-size="13" fill="#62f5a3">✓ within limit</text>
+      </g>
+      <g transform="translate(0,360)">
+        <rect width="836" height="56" rx="8" fill="#10153a" stroke="#62f5a3" stroke-width="1.5"/>
+        <text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">RECEIPT · MERKLE ROOT</text>
+        <text x="14" y="44" font-family="ui-monospace" fill="#62f5a3">0xb12ace7f…22a · ed25519 sig 0x4a91…ce</text>
+        <text x="820" y="36" text-anchor="end" font-size="13" fill="#62f5a3">verifies offline</text>
+      </g>
+
+      <!-- conditions -->
+      <text x="0" y="466" font-size="13" fill="#9aa3b8" letter-spacing="2">CONDITIONS</text>
+      <text x="0" y="494" font-size="13">— 35% canopy by occupation · re-attest annually</text>
+      <text x="0" y="516" font-size="13">— heat-mitigation roof · re-attest cell after build</text>
+    </g>
+  </g>
+
+  <!-- right side: phone verifier -->
+  <g transform="translate(1320,220)">
+    <rect width="380" height="700" rx="40" fill="#0a0e26" stroke="#2a335f" stroke-width="2"/>
+    <rect x="20" y="60" width="340" height="600" rx="14" fill="#02050f" stroke="#1f2752"/>
+    <text x="190" y="92" text-anchor="middle" font-size="11" fill="#9aa3b8" letter-spacing="3">CITIZEN VERIFIER · OFFLINE</text>
+    <g transform="translate(40,114)" font-size="12" fill="#cfd9ff" font-family="ui-monospace">
+      <text y="20">scan QR on permit ▣</text>
+      <text y="44">┌──────────────────┐</text>
+      <text y="64">│  fact_cid match  │</text>
+      <text y="84">│  ✓ qi3jo4sqcg…   │</text>
+      <text y="104">│  ✓ fb24m9pwkb…   │</text>
+      <text y="124">│  ✓ k7r2nw9wvc…   │</text>
+      <text y="144">│  ✓ m81pq3vrnt…   │</text>
+      <text y="164">│  ✓ h9c4d8sxbm…   │</text>
+      <text y="184">└──────────────────┘</text>
+      <text y="220">merkle path</text>
+      <text y="240">  leaf → root ✓</text>
+      <text y="276">ed25519 verify</text>
+      <text y="296">  pubkey 0x4a91…ce ✓</text>
+      <text y="334" fill="#62f5a3">all 8 facts attested</text>
+      <text y="354" fill="#62f5a3">no callback to issuer</text>
+      <text y="374" fill="#62f5a3">verification: 47 ms</text>
+      <text y="430">[ comment / contest ]</text>
+    </g>
+    <!-- pulsing tick -->
+    <g transform="translate(210,580)">
+      <circle r="32" fill="none" stroke="#62f5a3" stroke-width="2"/>
+      <text y="6" text-anchor="middle" font-size="22" fill="#62f5a3">✓</text>
+      <animate attributeName="opacity" values="0.5;1;0.5" dur="2.4s" repeatCount="indefinite"/>
+    </g>
+  </g>
+
+  <!-- packet flowing permit → phone -->
+  <g>
+    <circle r="5" fill="#7af9ff">
+      <animateMotion dur="3s" repeatCount="indefinite" path="M1180 540 L1320 540"/>
+    </circle>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="30" fill="#eaeaea">Public records that survive a court challenge — and a Saturday-afternoon citizen.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Decision factors stay the planner's — emem only ensures every cited number has a public, durable address.</text>
+    <text x="1760" y="0" text-anchor="end">aligns with EU Aarhus Convention · US Sunshine laws</text>
+  </g>
+</svg>

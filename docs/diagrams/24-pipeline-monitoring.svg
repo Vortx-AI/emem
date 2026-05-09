@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="pipeline monitoring: every alert carries its own evidence">
+  <title>emem for pipeline &amp; midstream asset monitoring</title>
+  <desc>A 480 km pipeline corridor; an InSAR-detected ground motion anomaly fires an alert. The alert carries its evidence — the cell, the bands, the receipt — so operations, integrity, regulator, and contractor are looking at the same artefact.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · MIDSTREAM OPERATORS · TSO · INTEGRITY ENGINEERS · DOT/PHMSA</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">every alert on the line carries its own evidence.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">24 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: pipeline corridor as a long horizontal line, with evenly spaced cells, one alert -->
+  <g transform="translate(80,260)">
+    <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">CORRIDOR · 480 KM · 50,400 CELLS · INSAR + WEATHER + LANDCOVER</text>
+
+    <!-- corridor backbone -->
+    <line x1="40" y1="60" x2="1720" y2="60" stroke="url(#acc)" stroke-width="6"/>
+
+    <!-- tick marks for kilometre stations -->
+    <g font-size="11" fill="#6c7396">
+      <line x1="40" y1="50" x2="40" y2="80" stroke="#3a3f6f"/><text x="40" y="100" text-anchor="middle">km 0</text>
+      <line x1="376" y1="50" x2="376" y2="80" stroke="#3a3f6f"/><text x="376" y="100" text-anchor="middle">120</text>
+      <line x1="712" y1="50" x2="712" y2="80" stroke="#3a3f6f"/><text x="712" y="100" text-anchor="middle">240</text>
+      <line x1="1048" y1="50" x2="1048" y2="80" stroke="#3a3f6f"/><text x="1048" y="100" text-anchor="middle">360</text>
+      <line x1="1384" y1="50" x2="1384" y2="80" stroke="#3a3f6f"/><text x="1384" y="100" text-anchor="middle">480</text>
+    </g>
+
+    <!-- normal cells dotted along the line -->
+    <g fill="#10153a" stroke="#2a335f">
+      <g>
+        <rect x="60" y="50" width="14" height="20" rx="2"/>
+        <rect x="120" y="50" width="14" height="20" rx="2"/>
+        <rect x="180" y="50" width="14" height="20" rx="2"/>
+        <rect x="240" y="50" width="14" height="20" rx="2"/>
+        <rect x="300" y="50" width="14" height="20" rx="2"/>
+        <rect x="360" y="50" width="14" height="20" rx="2"/>
+        <rect x="420" y="50" width="14" height="20" rx="2"/>
+        <rect x="480" y="50" width="14" height="20" rx="2"/>
+        <rect x="540" y="50" width="14" height="20" rx="2"/>
+        <rect x="600" y="50" width="14" height="20" rx="2"/>
+        <rect x="660" y="50" width="14" height="20" rx="2"/>
+        <rect x="720" y="50" width="14" height="20" rx="2"/>
+        <rect x="780" y="50" width="14" height="20" rx="2"/>
+        <rect x="840" y="50" width="14" height="20" rx="2"/>
+        <rect x="960" y="50" width="14" height="20" rx="2"/>
+        <rect x="1020" y="50" width="14" height="20" rx="2"/>
+        <rect x="1080" y="50" width="14" height="20" rx="2"/>
+        <rect x="1140" y="50" width="14" height="20" rx="2"/>
+        <rect x="1200" y="50" width="14" height="20" rx="2"/>
+        <rect x="1260" y="50" width="14" height="20" rx="2"/>
+        <rect x="1320" y="50" width="14" height="20" rx="2"/>
+        <rect x="1380" y="50" width="14" height="20" rx="2"/>
+        <rect x="1440" y="50" width="14" height="20" rx="2"/>
+        <rect x="1500" y="50" width="14" height="20" rx="2"/>
+        <rect x="1560" y="50" width="14" height="20" rx="2"/>
+        <rect x="1620" y="50" width="14" height="20" rx="2"/>
+        <rect x="1680" y="50" width="14" height="20" rx="2"/>
+      </g>
+    </g>
+    <!-- alert cell at km ~360 -->
+    <g>
+      <rect x="894" y="44" width="20" height="32" rx="3" fill="#5c1730" stroke="#ff5d8f" stroke-width="2"/>
+      <circle cx="904" cy="60" r="32" fill="none" stroke="#ff5d8f" stroke-width="1.5">
+        <animate attributeName="r" values="14;42;14" dur="2.4s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.9;0;0.9" dur="2.4s" repeatCount="indefinite"/>
+      </circle>
+      <text x="904" y="22" text-anchor="middle" font-size="12" fill="#ff5d8f">⚠ alert · km 318 · 18:42 UTC</text>
+    </g>
+
+    <!-- cell drilldown card under alert -->
+    <g transform="translate(660,160)">
+      <rect width="900" height="380" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="36" font-size="13" fill="#9aa3b8" letter-spacing="2">EVIDENCE BUNDLE · CELL DEFI.ZB44A.W6IO.ZN18C</text>
+      <g transform="translate(20,60)" font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <g><rect width="860" height="36" rx="6" fill="#10153a"/><text x="14" y="24">insar.vertical_velocity_30d   −12.4 mm   ⚠ 4.6σ        cid qi3jo4sqcg…l2hgjt</text></g>
+        <g transform="translate(0,42)"><rect width="860" height="36" rx="6" fill="#10153a"/><text x="14" y="24">soil.moisture_anomaly_7d      +0.12 m³/m³                cid fb24m9pwkb…q2x14r</text></g>
+        <g transform="translate(0,84)"><rect width="860" height="36" rx="6" fill="#10153a"/><text x="14" y="24">precip.total_30d              +218 mm above climatology  cid k7r2nw9wvc…lpa78w</text></g>
+        <g transform="translate(0,126)"><rect width="860" height="36" rx="6" fill="#10153a"/><text x="14" y="24">landcover.change_2026         agriculture → bare soil   cid m81pq3vrnt…hvjfm5</text></g>
+        <g transform="translate(0,168)"><rect width="860" height="36" rx="6" fill="#10153a"/><text x="14" y="24">overture.heavy_vehicle_track  +14 passes/day            cid h9c4d8sxbm…4xz9li</text></g>
+      </g>
+
+      <g transform="translate(20,294)">
+        <rect width="860" height="60" rx="8" fill="#0a0e26" stroke="#62f5a3"/>
+        <text x="14" y="24" font-size="12" fill="#9aa3b8" letter-spacing="2">ALERT RECEIPT · OFFLINE-VERIFIABLE</text>
+        <text x="14" y="48" font-family="ui-monospace" font-size="14" fill="#62f5a3">merkle_root 0xb12ace7f…ceaa  ·  ed25519 sig 0x4a91…ce  ·  attested by emem.midstream</text>
+      </g>
+    </g>
+
+    <!-- four roles consuming the bundle -->
+    <g transform="translate(0,580)" font-size="13" fill="#cfd9ff">
+      <text x="40" y="0" font-size="13" fill="#9aa3b8" letter-spacing="2">CONSUMERS · ALL READING THE SAME RECEIPT</text>
+      <g transform="translate(40,20)"><rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">CONTROL ROOM</text><text x="14" y="46">throttle assessed · pig run scheduled</text></g>
+      <g transform="translate(440,20)"><rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">INTEGRITY · MGM</text><text x="14" y="46">RBI delta queued · ILI scope updated</text></g>
+      <g transform="translate(840,20)"><rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">REGULATOR · PHMSA</text><text x="14" y="46">part-191 incident pre-cached</text></g>
+      <g transform="translate(1240,20)"><rect width="380" height="60" rx="8" fill="#0a0e26" stroke="#62f5a3"/><text x="14" y="22" font-size="11" fill="#9aa3b8" letter-spacing="2">CONTRACTOR · CREW</text><text x="14" y="46">QR on tablet · same cid · offline ✓</text></g>
+    </g>
+
+    <!-- packet from alert to bundle to consumers -->
+    <g>
+      <circle r="6" fill="#ff5d8f">
+        <animateMotion dur="6s" repeatCount="indefinite" path="M904 60 L1110 160 L1110 540 L230 600"/>
+      </circle>
+      <circle r="6" fill="#7af9ff">
+        <animateMotion dur="6s" begin="2s" repeatCount="indefinite" path="M904 60 L1110 160 L1110 540 L1430 600"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">An alert that argues for itself — and survives the inquiry.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Bands and thresholds stay configurable per operator; emem just makes every byte of evidence content-addressed.</text>
+    <text x="1760" y="0" text-anchor="end">PHMSA · TSA Pipeline Security Directive · ISO 55000-friendly</text>
+  </g>
+</svg>

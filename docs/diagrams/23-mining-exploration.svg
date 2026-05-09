@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="mining exploration: vendor data lake without a vendor">
+  <title>emem for mining &amp; mineral exploration</title>
+  <desc>Eight commercial geophysical and remote-sensing vendors, eight contracts today, eight integration projects. With emem they all push facts at the same cell — the explorer queries one address and gets a fused, signed answer.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0a18"/><stop offset="1" stop-color="#02050f"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1e3aff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0 L0 0 0 40" fill="none" stroke="#101637" stroke-width="0.6"/></pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)" opacity="0.7"/>
+
+  <text x="80" y="86" font-size="15" fill="#9aa3b8" letter-spacing="3">FOR · JUNIOR MINERS · MAJORS · GEOPHYSICAL VENDORS · COMMODITY MAJORS</text>
+  <text x="80" y="138" font-size="38" fill="#eaeaea" font-weight="700">a vendor data lake that doesn't need a vendor.</text>
+  <text x="1840" y="86" text-anchor="end" font-size="15" fill="#9aa3b8" letter-spacing="3">23 / 30 · emem.dev</text>
+  <line x1="80" y1="170" x2="1840" y2="170" stroke="#1f2752"/>
+
+  <!-- chart: 8 vendors fan into a single cell with bands -->
+  <g transform="translate(160,210)">
+    <!-- vendors stack -->
+    <g transform="translate(0,40)" font-size="13" fill="#cfd9ff">
+      <text x="0" y="-8" font-size="13" fill="#9aa3b8" letter-spacing="2">8 INDEPENDENT ATTESTERS · TODAY 8 INTEGRATION PROJECTS</text>
+      <g><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · A</text><text x="14" y="40">aeromag · Bouguer corrected</text></g>
+      <g transform="translate(0,60)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · B</text><text x="14" y="40">grav.gradient_full_tensor</text></g>
+      <g transform="translate(0,120)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · C</text><text x="14" y="40">hyperspectral.aviris-ng</text></g>
+      <g transform="translate(0,180)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · D</text><text x="14" y="40">radar.l-band_polarimetric</text></g>
+      <g transform="translate(0,240)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · E</text><text x="14" y="40">mt.audio-tipper_modes</text></g>
+      <g transform="translate(0,300)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · F</text><text x="14" y="40">geochem.stream_sediments</text></g>
+      <g transform="translate(0,360)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · G</text><text x="14" y="40">lidar.dtm_high_res</text></g>
+      <g transform="translate(0,420)"><rect width="320" height="50" rx="8" fill="#0a0e26" stroke="#2a335f"/><text x="14" y="20" font-size="11" fill="#9aa3b8" letter-spacing="2">VENDOR · H</text><text x="14" y="40">drill.assay_log_partial</text></g>
+    </g>
+
+    <!-- centre: a target cell + bands list -->
+    <g transform="translate(420,40)">
+      <rect width="540" height="490" rx="14" fill="#0a0e26" stroke="url(#acc)" stroke-width="1.5"/>
+      <text x="20" y="38" font-size="13" fill="#9aa3b8" letter-spacing="2">TARGET CELL · 9.55 M SQUARE</text>
+      <text x="20" y="78" font-size="20" fill="#eaeaea" font-weight="700">defi.zb56e.kxma.zh71f</text>
+
+      <g transform="translate(20,108)" font-family="ui-monospace" font-size="12" fill="#cfd9ff">
+        <g><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">aeromag.bouguer_anomaly       attester=A</text></g>
+        <g transform="translate(0,38)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">grav.gradient_zz              attester=B</text></g>
+        <g transform="translate(0,76)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">spectral.alteration_clay      attester=C</text></g>
+        <g transform="translate(0,114)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">radar.surface_roughness       attester=D</text></g>
+        <g transform="translate(0,152)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">mt.conductivity_2km           attester=E</text></g>
+        <g transform="translate(0,190)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">geochem.cu_ppm                attester=F</text></g>
+        <g transform="translate(0,228)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">lidar.dtm_residual            attester=G</text></g>
+        <g transform="translate(0,266)"><rect width="500" height="32" rx="4" fill="#10153a"/><text x="12" y="22">drill.cu_grade_partial        attester=H</text></g>
+      </g>
+
+      <g transform="translate(20,408)">
+        <rect width="500" height="60" rx="8" fill="#0a0e26" stroke="#62f5a3"/>
+        <text x="12" y="22" font-size="12" fill="#9aa3b8" letter-spacing="2">FUSED PROSPECTIVITY SCORE</text>
+        <text x="12" y="46" font-family="ui-monospace" font-size="14" fill="#62f5a3">0.84 · merkle root 0xb12a…ce · 8 leaves</text>
+      </g>
+    </g>
+
+    <!-- right: explorer console -->
+    <g transform="translate(1020,40)">
+      <rect width="600" height="490" rx="14" fill="#0a0e26" stroke="#2a335f"/>
+      <text x="20" y="38" font-size="13" fill="#9aa3b8" letter-spacing="2">EXPLORER · ONE QUERY · ONE RECEIPT</text>
+      <g font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <text x="20" y="78">{</text>
+        <text x="40" y="100">"tool":  "emem.recall",</text>
+        <text x="40" y="122">"cell":  "defi.zb56e.kxma.zh71f",</text>
+        <text x="40" y="144">"bands": ["mt.conductivity_2km",</text>
+        <text x="40" y="166">          "geochem.cu_ppm",</text>
+        <text x="40" y="188">          "drill.cu_grade_partial"]</text>
+        <text x="20" y="210">}</text>
+      </g>
+      <text x="20" y="262" font-size="13" fill="#9aa3b8" letter-spacing="2">RESPONSE</text>
+      <g font-family="ui-monospace" font-size="13" fill="#cfd9ff">
+        <text x="20" y="290">facts: 3 · receipt · 8 attestations</text>
+        <text x="20" y="312">latency: 2.4 ms (warm)</text>
+        <text x="20" y="334">data sourcing fee: per-vendor settled</text>
+      </g>
+      <text x="20" y="386" font-size="13" fill="#7af9ff" letter-spacing="2">WHAT BREAKS WITHOUT EMEM</text>
+      <g font-size="13" fill="#cfd9ff">
+        <text x="20" y="416">— bilateral SFTP feeds per vendor</text>
+        <text x="20" y="438">— bespoke schemas per project</text>
+        <text x="20" y="460">— provenance lost in fusion step</text>
+      </g>
+    </g>
+
+    <!-- arrows from each vendor to centre -->
+    <g fill="none" stroke="#3a3f6f" stroke-width="1.2">
+      <path d="M320 65 L420 90" />
+      <path d="M320 125 L420 130"/>
+      <path d="M320 185 L420 168"/>
+      <path d="M320 245 L420 206"/>
+      <path d="M320 305 L420 244"/>
+      <path d="M320 365 L420 282"/>
+      <path d="M320 425 L420 320"/>
+      <path d="M320 485 L420 358"/>
+    </g>
+
+    <!-- packets -->
+    <g>
+      <circle r="5" fill="#7af9ff">
+        <animateMotion dur="3s" repeatCount="indefinite" path="M320 65 L420 90"/>
+      </circle>
+      <circle r="5" fill="#7af9ff">
+        <animateMotion dur="3s" begin="0.4s" repeatCount="indefinite" path="M320 245 L420 206"/>
+      </circle>
+      <circle r="5" fill="#ffb86b">
+        <animateMotion dur="3s" begin="0.8s" repeatCount="indefinite" path="M320 485 L420 358"/>
+      </circle>
+      <circle r="5" fill="#62f5a3">
+        <animateMotion dur="3s" begin="1.2s" repeatCount="indefinite" path="M960 280 L1020 280"/>
+      </circle>
+    </g>
+  </g>
+
+  <text x="960" y="970" text-anchor="middle" font-size="32" fill="#eaeaea">Stop building n×n integrations. Start citing one address.</text>
+  <g transform="translate(80,1040)" font-size="13" fill="#6c7396">
+    <text x="0" y="0">Vendors keep their data, keys, and pricing — emem just gives them a deterministic place to sign on.</text>
+    <text x="1760" y="0" text-anchor="end">JORC / NI 43-101 lineage friendly · attesters tracked per pubkey</text>
+  </g>
+</svg>
