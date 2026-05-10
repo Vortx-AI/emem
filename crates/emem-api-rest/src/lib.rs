@@ -34,7 +34,13 @@
 //!    emits identity bytes so byte-exact merkle agreement is preserved.
 
 #![forbid(unsafe_code)]
-#![recursion_limit = "256"]
+// The openapi.json handler (lib.rs:openapi) builds a single nested
+// `json!{}` literal with ~70 path entries; the serde_json macro expands
+// recursively per pair. Doctest expansion on stable rust trips at the
+// default recursion_limit (256) — bumped to 1024 to keep headroom as
+// new endpoints land. `cargo test --workspace --release` is the CI
+// signal that catches this; bumping here fixes the doctest phase.
+#![recursion_limit = "1024"]
 
 use std::sync::{Arc, LazyLock};
 
@@ -725,6 +731,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/functions"
         | "/v1/sources"
         | "/v1/manifests"
+        | "/v1/capabilities"
         | "/v1/errors"
         | "/v1/topics"
         | "/v1/quickstart"
@@ -9006,6 +9013,17 @@ async fn mcp_tool_call(
             "algorithms_cid": ALGORITHMS_CID.clone(),
             "topics_cid": TOPICS_CID.clone(),
         })),
+        "emem_capabilities" => {
+            let c = cached_capabilities();
+            Ok(json!({
+                "schema": "emem.capabilities.v1",
+                "extensions":         c.extensions,
+                "models_loaded":      c.models_loaded,
+                "cuda_available":     c.cuda_available,
+                "healthy":            c.healthy,
+                "last_polled_unix_s": c.last_polled_unix_s,
+            }))
+        }
         "emem_errors" => Ok(errors_payload()),
         "emem_topics" => Ok(json!({
             "schema": "emem.topics.v1",
@@ -9188,6 +9206,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
             "/v1/quickstart":        {"get":{"summary":"6-step playbook","operationId":"emem_quickstart","responses":{"200":json_ok}}},
             "/v1/manifests":         {"get":{"summary":"active manifest CIDs","operationId":"emem_manifests","responses":{"200":json_ok}}},
+            "/v1/capabilities":      {"get":{"summary":"cached upstream capability snapshot (extensions[], cuda_available, models_loaded). 30 s background poll; agents read this to filter algorithms whose inference.required_extension is missing instead of hitting /health per request.","operationId":"emem_capabilities","responses":{"200":json_ok}}},
             "/v1/bands":             {"get":{"summary":"band ontology","operationId":"emem_bands","responses":{"200":json_ok}}},
             "/v1/materializers":     {"get":{"summary":"per-band auto-fetch registry (which bands the responder will materialize on a recall miss)","operationId":"emem_materializers","responses":{"200":json_ok}}},
             "/v1/data_availability": {"get":{"summary":"per-band temporal coverage catalog (window + tempo + kind + upstream wire path)","operationId":"emem_data_availability","responses":{"200":json_ok}}},

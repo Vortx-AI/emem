@@ -505,6 +505,16 @@ pub const TOOLS: &[ToolDescriptor] = &[
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },
     ToolDescriptor {
+        name: "emem_capabilities",
+        title: "Cached upstream capability snapshot",
+        description: "Live capability snapshot of the responder's GPU sidecar — extensions[] (e.g. gpu, clay-v1.5, prithvi-eo2), cuda_available, models_loaded[], healthy, last_polled_unix_s. Refreshed every 30 s by a background poller; reads are constant-time.",
+        when_to_use: "Call before scheduling a GPU-heavy plan (Clay / Prithvi / Galileo embeddings, foundation-anchored algorithms) so the agent knows whether the GPU tier is up *right now* without per-request /health round-trips. Pair with `emem_topics` (its `algorithm_availability` map says which algorithm keys can run given the current capabilities) and `emem_explain_algorithm` (full inference-tier metadata per algorithm). When `extensions[]` is empty the sidecar is unreachable — only CPU/scalar/cached tiers will produce facts; foundation-anchored materializers will sign Absence with `gpu_unavailable` reason.",
+        input_schema: SCHEMA_NONE,
+        example_args: r#"{}"#,
+        level: "L0", category: ToolCategory::Introspect,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+    ToolDescriptor {
         name: "emem_grid_info",
         title: "Active grid encoding",
         description: "Active grid encoding: cell64 ground resolution, lat/lng axis sizes, DGGS lineage.",
