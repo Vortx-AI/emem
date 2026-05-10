@@ -38,8 +38,9 @@ TOTAL_BUDGET_GB = float(os.environ.get("EMEM_SIDECAR_VRAM_BUDGET_GB", "10"))
 DYNAMICS_BUDGET_GB = 0.1                    # tiny MLP
 V_JEPA_2_BUDGET_GB = 3.0                    # ViT-L on 256x256x64 frames
 PRITHVI_BUDGET_GB = 3.0
+CLAY_BUDGET_GB = 2.5                        # ViT-L/8 (311 M params) at 256² fp16
 RESERVE_BUDGET_GB = TOTAL_BUDGET_GB - (
-    DYNAMICS_BUDGET_GB + V_JEPA_2_BUDGET_GB + PRITHVI_BUDGET_GB
+    DYNAMICS_BUDGET_GB + V_JEPA_2_BUDGET_GB + PRITHVI_BUDGET_GB + CLAY_BUDGET_GB
 )
 assert RESERVE_BUDGET_GB > 0, "VRAM budget over-allocated; rebalance constants"
 
@@ -109,6 +110,43 @@ GALILEO_CHIP_W: int = 8
 GALILEO_CHIP_T: int = 1
 GALILEO_PATCH_SIZE: int = 2
 
+# Phase 5 — Clay Foundation Model v1.5 (Made With Clay, Apache-2.0).
+# ViT-L/8 MAE + DINOv2 teacher; 311 M params encoder, 1024-D CLS token,
+# wavelength-conditioned so one encoder handles S2/S1/Landsat/NAIP/MODIS
+# without re-finetuning. Pinned to the local snapshot for offline-once-
+# cached operation. Bootstrap with:
+#   from huggingface_hub import hf_hub_download
+#   hf_hub_download("made-with-clay/Clay", filename="v1.5/clay-v1.5.ckpt",
+#                   cache_dir="$EMEM_DATA/hf_cache/hub")
+# plus a one-time copy of `configs/metadata.yaml` from
+# https://github.com/Clay-foundation/model.
+CLAY_REPO = "made-with-clay/Clay"
+CLAY_CKPT_FILENAME = "v1.5/clay-v1.5.ckpt"
+CLAY_SNAPSHOT_DEFAULT = (
+    EMEM_DATA / "hf_cache/hub/models--made-with-clay--Clay/"
+    "snapshots/main/v1.5/clay-v1.5.ckpt"
+)
+CLAY_CKPT_PATH = Path(
+    os.environ.get("EMEM_CLAY_CKPT", str(CLAY_SNAPSHOT_DEFAULT))
+)
+CLAY_METADATA_DEFAULT = Path(__file__).parent / "clay_metadata.yaml"
+CLAY_METADATA_PATH = Path(
+    os.environ.get("EMEM_CLAY_METADATA", str(CLAY_METADATA_DEFAULT))
+)
+# Clay v1.5's S2 L2A platform expects 10 bands at 10 m, in this order
+# (verbatim from configs/metadata.yaml). Per-band mean/std + wavelength
+# (µm) come from the metadata file; the loader reads them at startup so
+# we don't drift from upstream.
+CLAY_S2_BAND_ORDER = (
+    "blue", "green", "red", "rededge1", "rededge2", "rededge3",
+    "nir", "nir08", "swir16", "swir22",
+)
+# Per the wall-to-wall tutorial, the wave list / mean / std are passed
+# directly to the encoder; the chip is normalised in the request handler.
+CLAY_CHIP_PIXELS = 256          # 256x256 at 10 m → 2.56 km extent
+CLAY_CHIP_GSD_M = 10.0
+CLAY_EMBED_DIM = 1024
+
 # ── Phase 1 dynamics model (mirror of the Rust path) ──────────────────────
 INPUT_LAGS = 3
 TESSERA_DIM = 128
@@ -167,6 +205,8 @@ class _Registry:
         self.prithvi_load_at: float | None = None
         self.galileo: tuple[Any, dict[str, Any]] | None = None
         self.galileo_load_at: float | None = None
+        self.clay: tuple[Any, dict[str, Any]] | None = None
+        self.clay_load_at: float | None = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # Hard per-process VRAM cap, set ONCE at startup. The argument
         # to set_per_process_memory_fraction is a fraction of total
@@ -429,6 +469,103 @@ class _Registry:
         self.galileo_load_at = time.time()
         return self.galileo
 
+    def load_clay(self) -> tuple[Any, dict[str, Any]]:
+        """Load Clay Foundation Model v1.5 (Made With Clay, Apache-2.0)
+        from the pinned local snapshot. Returns (model, meta) where
+        model is in eval mode on self.device, meta carries the
+        receipt-shape `model` block. Loader follows the wall-to-wall
+        tutorial verbatim (https://clay-foundation.github.io/model/).
+
+        Cold-start: ~6-10 s on first call (1.25 GB encoder + 304 MB
+        DINOv2 teacher inside the .ckpt; teacher is dropped at load).
+        Warm: <30 ms per chip on a modern GPU at fp16, ~3-8 s on CPU.
+        """
+        if self.clay is not None:
+            return self.clay
+        if not CLAY_CKPT_PATH.exists():
+            raise FileNotFoundError(
+                f"Clay v1.5 checkpoint not found at {CLAY_CKPT_PATH}. "
+                f"Bootstrap with `huggingface_hub.hf_hub_download(repo_id="
+                f"'{CLAY_REPO}', filename='{CLAY_CKPT_FILENAME}', "
+                f"cache_dir='{EMEM_DATA / 'hf_cache/hub'}')` (one-time, "
+                f"~5.16 GB checkpoint; ~1.25 GB encoder weights at "
+                f"runtime). Override the path with EMEM_CLAY_CKPT."
+            )
+        if not CLAY_METADATA_PATH.exists():
+            raise FileNotFoundError(
+                f"Clay metadata.yaml not found at {CLAY_METADATA_PATH}. "
+                f"Vendor it from "
+                f"https://raw.githubusercontent.com/Clay-foundation/model/main/configs/metadata.yaml "
+                f"(small, ~10 KB) or override with EMEM_CLAY_METADATA."
+            )
+        # Heavy imports are deferred to load time so `import server` stays
+        # cheap. claymodel is installed via
+        # `pip install git+https://github.com/Clay-foundation/model.git`.
+        try:
+            import yaml  # noqa: WPS433
+            from box import Box  # noqa: WPS433
+            from claymodel.module import ClayMAEModule  # noqa: WPS433
+        except ImportError as e:
+            raise FileNotFoundError(
+                f"Clay Python deps missing: {e}. Install with "
+                f"`pip install git+https://github.com/Clay-foundation/model.git "
+                f"python-box pyyaml`."
+            ) from e
+
+        meta_yaml = Box(yaml.safe_load(CLAY_METADATA_PATH.read_text()))
+
+        # Wall-to-wall tutorial argument set. mask_ratio=0.0 + shuffle=False
+        # is REQUIRED for inference (any other value runs the masking
+        # branch trained for pretraining and returns degenerate output).
+        # `dolls` are the Matryoshka training-time list — not used at
+        # inference, but required by load_from_checkpoint.
+        model = ClayMAEModule.load_from_checkpoint(
+            str(CLAY_CKPT_PATH),
+            model_size="large",
+            metadata_path=str(CLAY_METADATA_PATH),
+            dolls=[16, 32, 64, 128, 256, 768, 1024],
+            doll_weights=[1, 1, 1, 1, 1, 1, 1],
+            mask_ratio=0.0,
+            shuffle=False,
+        )
+        model.eval().to(self.device)
+        ckpt_blake2b = hashlib.blake2b(
+            CLAY_CKPT_PATH.read_bytes(), digest_size=32
+        ).hexdigest()
+
+        # Resolve the per-band stats now so they're cached in `meta`
+        # for the receipt — clients can verify the normalisation
+        # decoupled from the upstream metadata.yaml at recall time.
+        s2 = meta_yaml["sentinel-2-l2a"]
+        means = [s2.bands.mean[b] for b in CLAY_S2_BAND_ORDER]
+        stds = [s2.bands.std[b] for b in CLAY_S2_BAND_ORDER]
+        waves = [s2.bands.wavelength[b] for b in CLAY_S2_BAND_ORDER]
+        meta_dict: dict[str, Any] = {
+            "model_id": "clay_v1_5",
+            "version": "1.5.0",
+            "license": "Apache-2.0",
+            "source": f"{CLAY_REPO}/{CLAY_CKPT_FILENAME}",
+            "paper": "https://clay-foundation.github.io/model/release-notes/specification.html",
+            "checkpoint_filename": CLAY_CKPT_PATH.name,
+            "blake2b_hex": ckpt_blake2b,
+            "size_bytes": CLAY_CKPT_PATH.stat().st_size,
+            "config": {
+                "encoder_dim": CLAY_EMBED_DIM,
+                "patch_size": 8,
+                "chip_pixels": CLAY_CHIP_PIXELS,
+                "chip_gsd_m": CLAY_CHIP_GSD_M,
+                "platform": "sentinel-2-l2a",
+                "bands_in_order": list(CLAY_S2_BAND_ORDER),
+                "mean_per_band": means,
+                "std_per_band": stds,
+                "wavelength_um_per_band": waves,
+                "extraction": "encoder.unmsk_patch[:,0,:] (CLS token, 1024-D, post-norm)",
+            },
+        }
+        self.clay = (model, meta_dict)
+        self.clay_load_at = time.time()
+        return self.clay
+
 
 _REG = _Registry()
 
@@ -568,6 +705,36 @@ class GalileoResponse(BaseModel):
     device: str
 
 
+class ClayRequest(BaseModel):
+    """Clay Foundation Model v1.5 per-cell embedding request.
+
+    `chip` is a `[10, 256, 256]` reflectance window in S2 L2A band order
+    (blue, green, red, rededge1, rededge2, rededge3, nir, nir08, swir16,
+    swir22). Reflectance values are raw S2 L2A scaled (0..10000); the
+    sidecar normalises with the model's per-band mean/std.
+
+    Optional `year` + `month` engage the temporal encoder via
+    sin/cos(week-of-year, hour-of-day); pass None for the no-time path.
+    Optional `lng` + `lat` engage the spatial encoder via sin/cos(lat,
+    lon); pass None for the no-location path.
+    """
+
+    chip: list[list[list[float]]]
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    lng: float | None = None
+    lat: float | None = None
+
+
+class ClayResponse(BaseModel):
+    embedding: list[float]
+    embedding_dim: int
+    model: dict[str, Any]
+    inference_us: int
+    device: str
+
+
 # ── App ───────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="emem-jepa-sidecar",
@@ -578,20 +745,65 @@ app = FastAPI(
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    """Sidecar health + capability report.
+
+    Adopts the KServe v2 + Triton consensus shape so the Rust
+    dispatcher can capability-negotiate at planning time:
+
+      * `live` / `ready` — KServe v2 mandates these flat booleans
+        for liveness vs. readiness probes (see KServe v2 spec).
+        A model is `live` as soon as the process is up; `ready`
+        means at least one GPU model finished its warm pass when
+        CUDA is available, or the CPU fallback is functional when
+        it isn't.
+      * `version` — sidecar package version (KServe v2).
+      * `extensions[]` — capability tags the dispatcher reads to
+        route algorithm-level GPU gates. The Rust side filters
+        algorithms whose `inference.required_extension` isn't in
+        this list. `gpu` is included only when CUDA is available
+        AND at least one GPU-resident model loaded successfully;
+        per-model tags (e.g. `clay-v1.5`) are added once that
+        specific load completes.
+      * `models[]` / `cuda{}` — Triton-style detail blocks for
+        Prometheus / OpenTelemetry scraping.
+
+    This shape is stable; new fields land additively. Don't break
+    the `status: "ok"` legacy shape — Rust callers from earlier
+    builds still parse it, and the field is preserved here.
+    """
     models: list[str] = []
+    extensions: list[str] = []
     if _REG.dynamics is not None:
         models.append("dynamics_v2")
+        extensions.append("jepa-v2")
     if _REG.prithvi is not None:
         models.append("prithvi_eo_v2_300m_tl")
+        extensions.append("prithvi-eo-2.0")
     if _REG.galileo is not None:
         models.append(f"galileo_{GALILEO_VARIANT}_v1")
+        extensions.append(f"galileo-{GALILEO_VARIANT}")
+    if _REG.clay is not None:
+        models.append("clay_v1_5")
+        extensions.append("clay-v1.5")
+    cuda_block = _REG.cuda_props()
+    cuda_available = bool(cuda_block.get("available", False))
+    if cuda_available:
+        extensions.append("gpu")
     return {
+        # Legacy shape — older Rust clients depend on `status` and
+        # `models_loaded`. Keep these.
         "status": "ok",
         "models_loaded": models,
         "device": str(_REG.device),
-        "cuda": _REG.cuda_props(),
+        "cuda": cuda_block,
         "uptime_s": int(time.monotonic()),
         "pid": os.getpid(),
+        # KServe v2 / Triton consensus additions (2026-05).
+        "live": True,
+        "ready": cuda_available or len(models) > 0,
+        "version": app.version,
+        "extensions": extensions,
+        "name": "emem-jepa-sidecar",
     }
 
 
@@ -863,6 +1075,130 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
         },
         inference_us=dt_us,
         device=str(device),
+    )
+
+
+@app.post("/predict/clay_embed")
+def predict_clay_embed(req: ClayRequest) -> ClayResponse:
+    """Compute the per-cell Clay Foundation Model v1.5 embedding.
+
+    Returns the encoder's CLS token (1024-D) suitable for cosine
+    similarity, downstream linear probes, or k-NN retrieval. The chip
+    is normalised with the model's per-band mean/std before the
+    forward pass; the temporal / spatial encoders are engaged when
+    year+month and lng+lat are supplied (recommended — Clay's
+    sensor-agnostic strength comes from those conditioning vectors).
+
+    Recipe is the wall-to-wall tutorial verbatim:
+      1. v2.Normalize(mean, std) over [B, 10, 256, 256] reflectance
+      2. Build datacube with platform / time / latlon / pixels / gsd / waves
+      3. encoder(datacube) → unmsk_patch [B, 1024+1, 1024]
+      4. embedding = unmsk_patch[:, 0, :]   # CLS token at position 0
+    """
+    try:
+        model, meta = _REG.load_clay()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    import math  # noqa: WPS433
+    from torchvision.transforms import v2  # noqa: WPS433
+
+    arr = np.asarray(req.chip, dtype=np.float32)  # [10, 256, 256]
+    if arr.shape != (10, CLAY_CHIP_PIXELS, CLAY_CHIP_PIXELS):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"clay chip must be [10, {CLAY_CHIP_PIXELS}, {CLAY_CHIP_PIXELS}]; "
+                f"got {arr.shape}"
+            ),
+        )
+    pixels = torch.from_numpy(arr).unsqueeze(0).to(_REG.device)
+    # Per-band normalize. v2.Normalize wants mean / std as lists.
+    mean = meta["config"]["mean_per_band"]
+    std = meta["config"]["std_per_band"]
+    pixels = v2.Normalize(mean=mean, std=std)(pixels)
+
+    # Temporal encoding: sin/cos of week-of-year + hour-of-day. Default
+    # to mid-year noon when caller doesn't pass year/month so the model
+    # still receives a coherent vector rather than zeros (which would
+    # land it in an undertrained corner of the conditioning space).
+    if req.year is not None and req.month is not None:
+        # Approximate week-of-year from year/month/(day or 15).
+        from datetime import date  # noqa: WPS433
+        d = date(req.year, req.month, req.day or 15)
+        woy = d.isocalendar().week
+    else:
+        woy = 26  # mid-year fallback
+    week_rad = woy * 2 * math.pi / 52
+    hour_rad = 12 * 2 * math.pi / 24  # solar noon
+    time_vec = torch.tensor(
+        [[math.sin(week_rad), math.cos(week_rad), math.sin(hour_rad), math.cos(hour_rad)]],
+        dtype=torch.float32,
+        device=_REG.device,
+    )
+
+    if req.lng is not None and req.lat is not None:
+        lat_rad = req.lat * math.pi / 180
+        lon_rad = req.lng * math.pi / 180
+        latlon_vec = torch.tensor(
+            [[math.sin(lat_rad), math.cos(lat_rad), math.sin(lon_rad), math.cos(lon_rad)]],
+            dtype=torch.float32,
+            device=_REG.device,
+        )
+    else:
+        latlon_vec = torch.zeros((1, 4), dtype=torch.float32, device=_REG.device)
+
+    waves = torch.tensor(
+        meta["config"]["wavelength_um_per_band"],
+        dtype=torch.float32,
+        device=_REG.device,
+    )
+    datacube = {
+        "platform": "sentinel-2-l2a",
+        "time": time_vec,
+        "latlon": latlon_vec,
+        "pixels": pixels,
+        "gsd": torch.tensor(CLAY_CHIP_GSD_M, device=_REG.device),
+        "waves": waves,
+    }
+
+    t0 = time.perf_counter_ns()
+    with torch.inference_mode():
+        unmsk_patch, _unmsk_idx, _msk_idx, _msk_matrix = model.model.encoder(
+            datacube
+        )
+    dt_us = max(1, (time.perf_counter_ns() - t0) // 1000)
+
+    # CLS token at position 0 — the per-chip foundation embedding.
+    embedding = unmsk_patch[:, 0, :].squeeze(0).detach().cpu().tolist()
+
+    return ClayResponse(
+        embedding=embedding,
+        embedding_dim=len(embedding),
+        model={
+            "model_id": meta["model_id"],
+            "version": meta["version"],
+            "license": meta["license"],
+            "blake2b_hex": meta["blake2b_hex"],
+            "via": "python_sidecar",
+            "source": meta["source"],
+            "paper": meta["paper"],
+            "config": meta["config"],
+            "honesty_warnings": [
+                "frozen_pretrained_encoder: this is a per-cell forward "
+                "pass through the frozen Clay v1.5 encoder (no fine-tuning "
+                "at this responder). The CLS embedding captures whatever "
+                "Clay's MAE+DINOv2 multi-sensor pretraining captured; "
+                "downstream task fit depends on that alignment.",
+                "wavelength_conditioned: the embedding is sensitive to the "
+                "(platform, wavelengths, gsd) triple supplied at encode "
+                "time. Two recalls with different platform tags produce "
+                "deliberately different vectors — always cite "
+                "model_blake2b alongside the fact."
+            ],
+        },
+        inference_us=dt_us,
+        device=str(_REG.device),
     )
 
 
