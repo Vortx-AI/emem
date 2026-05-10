@@ -553,10 +553,10 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div class=pubkey id=hdrPubkey title="Responder ed25519 public key, base32-nopad-lowercase"><span class=dot></span><span id=hdrPubkeyText>connecting…</span></div>
     <div class=spacer></div>
     <div class=chips>
-      <button class=chip id=chipCmdk   type=button data-emem-action=open-cmdk    aria-label="Open command palette">search<kbd id=kbdCmdk>Ctrl-K</kbd></button>
-      <button class=chip id=chipLasso  type=button data-emem-action=lasso-toggle aria-label="Toggle lasso select" aria-pressed=false>lasso<kbd>L</kbd></button>
-      <button class=chip id=chipConsole type=button data-emem-action=focus-console aria-label="Focus console">console<kbd>~</kbd></button>
-      <button class=chip id=chipHelp   type=button data-emem-action=open-help    aria-label="Show keyboard help">help<kbd>?</kbd></button>
+      <button class=chip id=chipCmdk   type=button data-emem-action=open-cmdk    aria-label="Ask about a place" title="Ask about any place — flood risk, wildfire smoke, heat health, climate impact. Click or press Ctrl-K.">ask<kbd id=kbdCmdk>Ctrl-K</kbd></button>
+      <button class=chip id=chipLasso  type=button data-emem-action=lasso-toggle aria-label="Toggle lasso select" aria-pressed=false title="Drag a region on the map to recall every cell inside it.">lasso<kbd>L</kbd></button>
+      <button class=chip id=chipConsole type=button data-emem-action=focus-console aria-label="Focus the API console" title="Every /v1/* call this page makes is logged below. Copy as curl, Python, or MCP.">console<kbd>~</kbd></button>
+      <button class=chip id=chipHelp   type=button data-emem-action=open-help    aria-label="Show keyboard help" title="Keyboard shortcuts and concept glossary.">help<kbd>?</kbd></button>
     </div>
   </header>
 
@@ -595,8 +595,8 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 
   <main id=main tabindex="-1">
     <div class=hero id=hero role=note>
-      <h1><b>knowledge constellation</b> of Earth memory</h1>
-      <p>every star is a signed cell · click one, the receipt verifies offline · every <kbd>/v1/*</kbd> call this UI makes prints below — read the page, learn the protocol</p>
+      <h1>ask about <b>any place</b> — flood risk, wildfire smoke, heat health</h1>
+      <p>press <kbd>Ctrl-K</kbd> to ask, or click any star on the map · every dot is a place where verified Earth data lives · every answer ships with a cryptographic receipt you can verify offline · every <kbd>/v1/*</kbd> call prints in the console below so an LLM scraping this page learns the API by observation</p>
       <button class=hero-close id=heroClose type=button aria-label="Dismiss intro">×</button>
     </div>
     <!-- Single bottom dock — modes + projection + zoom + focus. The top
@@ -647,7 +647,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <svg id=registry aria-hidden=true></svg>
     <div id=logview aria-hidden=true>
       <div class=head>
-        <span><b style="color:var(--fg-2)">attestation log</b> · sourced from <code style="color:var(--fg-2)">/v1/coverage_matrix</code> — newest first</span>
+        <span><b style="color:var(--fg-2)">API console</b> · every <code style="color:var(--fg-2)">/v1/*</code> call this page makes · copy as curl, Python, or MCP — newest first</span>
         <span id=logCount>—</span>
       </div>
       <div class=body id=logBody></div>
@@ -672,7 +672,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 
   <aside class=right id=rightPane aria-label="Selection details">
     <div id=rightInner>
-      <div class=empty>click a star, search a place, or paste a cell64.<br>every visible thing has a CID.</div>
+      <div class=empty>press <kbd>Ctrl-K</kbd> to ask about a place (e.g. <i>flood risk in asheville</i>),<br>or click a star on the map to see its facts.</div>
     </div>
   </aside>
 
