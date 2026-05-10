@@ -860,17 +860,37 @@ def health() -> dict[str, Any]:
         extensions.append("jepa-v2")
     if _REG.prithvi is not None:
         models.append("prithvi_eo_v2_300m_tl")
-        extensions.append("prithvi-eo-2.0")
     if _REG.galileo is not None:
         models.append(f"galileo_{GALILEO_VARIANT}_v1")
-        extensions.append(f"galileo-{GALILEO_VARIANT}")
     if _REG.clay is not None:
         models.append("clay_v1_5")
-        extensions.append("clay-v1.5")
     cuda_block = _REG.cuda_props()
     cuda_available = bool(cuda_block.get("available", False))
     if cuda_available:
         extensions.append("gpu")
+    # Per-model capability tags advertise *reachability*, not load
+    # state. We declare a model "available" the moment its checkpoint
+    # is resolvable in the local HF cache — even before the lazy load
+    # has kicked in. Otherwise an agent that hits /v1/topics on a cold
+    # box sees `available_now=false` for every GPU algorithm and gives
+    # up before the first /predict warms the model. The first call
+    # pays the cold-start latency, but the dispatcher's planning-time
+    # filter no longer mis-classifies cold-but-cacheable as offline.
+    if cuda_available:
+        prithvi_ckpt, prithvi_cfg = _resolve_prithvi_files()
+        if prithvi_ckpt is not None and prithvi_cfg is not None \
+                and prithvi_ckpt.exists() and prithvi_cfg.exists():
+            extensions.append("prithvi-eo-2.0")
+        galileo_dir = _resolve_galileo_dir()
+        if galileo_dir is not None and (galileo_dir / "encoder.pt").exists():
+            extensions.append(f"galileo-{GALILEO_VARIANT}")
+        clay_ckpt = _resolve_clay_ckpt()
+        if (
+            clay_ckpt is not None
+            and clay_ckpt.exists()
+            and CLAY_METADATA_PATH.exists()
+        ):
+            extensions.append("clay-v1.5")
     return {
         # Legacy shape — older Rust clients depend on `status` and
         # `models_loaded`. Keep these.

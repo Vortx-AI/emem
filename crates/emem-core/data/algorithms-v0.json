@@ -6321,7 +6321,7 @@
         "vram_estimate_bytes": 3000000000,
         "p95_budget_ms": 350,
         "fallback_strategy": "absence_with_reason",
-        "required_extension": "prithvi-eo2"
+        "required_extension": "prithvi-eo-2.0"
       }
     },
     {
@@ -6750,7 +6750,7 @@
         "p95_budget_ms": 350,
         "fallback_strategy": "degrade_with_tier_label",
         "accuracy_band_demoted": "cached vintage may be > 6 months stale \u21d2 confidence demoted to 0.7.",
-        "required_extension": "prithvi-eo2"
+        "required_extension": "prithvi-eo-2.0"
       }
     },
     {
