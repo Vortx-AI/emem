@@ -2180,6 +2180,480 @@
       "citation": "Assran, M. et al. 2023. Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture (JEPA). CVPR. Pettorelli, N. et al. 2005. Using the satellite-derived NDVI to assess ecological responses to environmental change. Trends Ecol. Evol. 20:503–510. Tucker, C.J. 1979. Red and photographic infrared linear combinations for monitoring vegetation. Remote Sens. Environ. 8:127–150. The α=0.6, β=0.3, γ=0.1 weights are editorial v1 — they reflect the seasonal-dominance, short-term-trend, and long-term-mean structure that the agricultural-NDVI literature consistently reports.",
       "frequency_of_calculation": "Monthly — there is one new NDVI tslot per calendar month in the active Tempo::Medium grid, so a re-call after the next monthly composite drops gives an updated forecast.",
       "accuracy_band": "Closed-form AR(2) with seasonal lag has been the baseline for NDVI forecasting for two decades; reported skill scores in the literature land in the ρ=0.65–0.85 range over agricultural cropland with adequate lookback (≥18 months). Below 6 months of lookback the lag-12 term is unavailable and skill drops to ρ≈0.5 — surface this honestly via `lag_12_used`."
+    },
+
+    {
+      "key": "lai_modified_simple_ratio_s2@1",
+      "kind": "solo",
+      "domain": "vegetation",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "ndvi", "unit": "ratio",
+          "explanation": "Sentinel-2 NDVI at 10 m. Saturates above ~0.8 in dense canopies; the MSR transformation linearises the saturation tail." }
+      ],
+      "formula": "let n = clamp(indices.ndvi, 0.05, 0.85); let SR = (1 + n) / (1 - n); let MSR = (SR - 1) / (sqrt(SR) + 1); LAI_m2_per_m2 = clamp(0.69 * MSR, 0, 8)",
+      "output": { "kind": "scalar", "unit": "m2_per_m2", "range": [0, 8],
+        "explanation": "Single-sided green Leaf Area Index in m²/m². The Modified Simple Ratio reduces the asymptotic saturation of NDVI in closed canopies, giving a more linear response over LAI 0-6 typical of crops and broadleaf forests." },
+      "when_to_use": "Per-cell LAI for crop monitoring, canopy radiative-transfer inputs, evapotranspiration models, biomass studies. Prefer over raw NDVI when downstream physics needs an actual leaf-area metric.",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi']} → apply MSR formula in-process",
+      "deterministic": true,
+      "citation": "Chen, J. 1996. Evaluation of vegetation indices and a modified simple ratio for boreal applications. Canadian Journal of Remote Sensing 22:229–242. The 0.69 LAI / MSR scalar is the boreal calibration; finer crop-specific calibration is left to the caller's downstream model.",
+      "frequency_of_calculation": "5-day cloud-permitting (Sentinel-2 revisit cadence at the equator).",
+      "accuracy_band": "ρ ≈ 0.7–0.85 vs in-situ destructive LAI in row crops with cloud-free imagery. MSR's saturation knee sits around LAI 6, above which the index loses sensitivity.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["indices.ndvi"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "fapar_ndvi_myneni@1",
+      "kind": "solo",
+      "domain": "vegetation",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "ndvi", "unit": "ratio",
+          "explanation": "Sentinel-2 NDVI at 10 m. Linearly mapped to fAPAR over the green vegetation range; clamped to [0,1] outside it." }
+      ],
+      "formula": "fAPAR = clamp(1.24 * indices.ndvi - 0.168, 0, 1)",
+      "output": { "kind": "scalar", "unit": "fraction", "range": [0, 1],
+        "explanation": "Fraction of incoming photosynthetically active radiation (400–700 nm) absorbed by the green canopy. Used directly in light-use-efficiency GPP models." },
+      "when_to_use": "Per-cell fAPAR for productivity, GPP/NPP estimation, ecosystem flux models. Cheaper drop-in for MODIS MOD15A2H at 10 m where the high-resolution sensor matters.",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi']} → apply linear formula in-process",
+      "deterministic": true,
+      "citation": "Myneni, R.B. & Williams, D.L. 1994. On the relationship between FAPAR and NDVI. Remote Sensing of Environment 49:200–211. The 1.24 / 0.168 coefficients are the Myneni piecewise-linear simplification widely used for global GPP products (Sims et al. 2008, Running et al. 2004).",
+      "frequency_of_calculation": "5-day cloud-permitting.",
+      "accuracy_band": "Reported R² 0.6–0.8 against EOS-FAPAR validation sites; weakest in sparse canopies (LAI < 1) where the linear assumption underestimates absorption.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["indices.ndvi"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "canopy_chlorophyll_ndre@1",
+      "kind": "solo",
+      "domain": "vegetation",
+      "inputs": [
+        { "band": "indices.ndre", "role": "ndre", "unit": "ratio",
+          "explanation": "Normalized Difference Red-Edge index from Sentinel-2 B05 (705 nm) and B08 (842 nm) at 10 m. Sensitive to chlorophyll concentration where red-band-only NDVI saturates." }
+      ],
+      "formula": "let r = clamp(indices.ndre, 0.0, 0.6); CCC_ug_per_cm2 = clamp(50.0 * r, 0, 80)",
+      "output": { "kind": "scalar", "unit": "ug_per_cm2", "range": [0, 80],
+        "explanation": "Canopy chlorophyll content in micrograms per square centimetre. Empirical linear inversion across the typical NDRE range; saturates around CCC 40–50 in dense canopies." },
+      "when_to_use": "Crop nitrogen status, fertiliser-rate maps, vineyard / orchard health when leaf-level chlorophyll is the question and NDVI has saturated.",
+      "primitive": "POST /v1/recall {bands:['indices.ndre']} → apply linear formula in-process",
+      "deterministic": true,
+      "citation": "Clevers, J.G.P.W. & Gitelson, A.A. 2013. Remote estimation of crop and grass chlorophyll and nitrogen content using red-edge bands on Sentinel-2 and -3. International Journal of Applied Earth Observation 23:344–351. Frampton, W.J. et al. 2013. Evaluating the capabilities of Sentinel-2 for quantitative estimation of biophysical variables in vegetation. ISPRS 82:83–92.",
+      "frequency_of_calculation": "5-day cloud-permitting.",
+      "accuracy_band": "R² 0.55–0.80 against destructive CCC samples in cropland; the linear simplification trades the upper-tail accuracy of full PROSAIL inversion for transparency and reproducibility.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["indices.ndre"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "indices.ndre",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "crop_water_stress_index_proxy@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "indices.ndmi", "role": "moisture", "unit": "ratio",
+          "explanation": "Normalized Difference Moisture Index (B08 − B11) / (B08 + B11) at 10 m. Tracks leaf canopy moisture; falls under stress." },
+        { "band": "indices.ndvi", "role": "veg_amount", "unit": "ratio",
+          "explanation": "NDVI gates the score so non-vegetated pixels return 0 stress (only crops can be water-stressed)." },
+        { "band": "weather.temperature_2m", "role": "air_temp", "unit": "degC",
+          "explanation": "Recent 2-m air temperature. CWSI rises with vapour-pressure deficit; T_air > 30 °C raises the proxy linearly." },
+        { "band": "weather.relative_humidity", "role": "rh", "unit": "percent",
+          "explanation": "Recent 2-m relative humidity. CWSI inversely scales with RH (drier air → higher transpiration demand)." }
+      ],
+      "formula": "let g = sigmoid(8 * (indices.ndvi - 0.25)); let m = clamp(indices.ndmi / 0.4, 0, 1); let dry_air_term = (1 - clamp(weather.relative_humidity / 100, 0, 1)); let heat_term = clamp((weather.temperature_2m - 30) / 10, 0, 1); CWSI = g * clamp(1 - m * (1 - 0.5 * heat_term - 0.3 * dry_air_term), 0, 1)",
+      "output": { "kind": "scalar", "unit": "index", "range": [0, 1],
+        "explanation": "0 = no stress (well-watered crop in mild weather), 1 = severe stress. Receipts surface `gating_factor`, `moisture_term`, `heat_term`, `dry_air_term` so an agronomist can audit which factor dominated." },
+      "when_to_use": "Field-scale irrigation triggers, drought-stress mapping, agronomy decision support. Pair with `gdd_phenology@1` to know whether the stress is at a sensitive growth stage.",
+      "primitive": "POST /v1/recall {bands:['indices.ndmi','indices.ndvi','weather.temperature_2m','weather.relative_humidity']} → apply formula",
+      "deterministic": true,
+      "citation": "Idso, S.B. et al. 1981. Normalizing the stress-degree-day parameter for environmental variability. Agricultural Meteorology 24:45–55. Hunt, E.R. & Rock, B.N. 1989. Detection of changes in leaf water content using near and middle-infrared reflectances. Remote Sensing of Environment 30:43–54.",
+      "frequency_of_calculation": "5-day cloud-permitting; weather inputs refresh hourly.",
+      "accuracy_band": "Spectral CWSI proxies are correlated with thermal CWSI at R² 0.4–0.7 in row crops; the meteorological gating reduces false positives over cool-and-dry baselines.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["weather.temperature_2m", "weather.relative_humidity"],
+        "variance_sources": ["indices.ndmi", "indices.ndvi"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "static"],
+        "anchor_band": "indices.ndmi",
+        "fallback_strategy": "absence"
+      },
+      "temporal_recipe": {
+        "label": "field_water_stress_window",
+        "note": "CWSI requires recent canopy moisture (S2) plus recent atmospheric demand (T_air + RH). Snapshot-only would miss the demand side.",
+        "windows": [
+          { "band": "indices.ndmi", "lookback_days": 10, "aggregator": "latest", "purpose": "current_canopy_moisture" },
+          { "band": "weather.temperature_2m", "lookback_days": 7, "aggregator": "max", "purpose": "recent_heat_stress" },
+          { "band": "weather.relative_humidity", "lookback_days": 7, "aggregator": "min", "purpose": "recent_dryness" }
+        ]
+      }
+    },
+
+    {
+      "key": "crop_archetype_embedding_match@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera", "role": "vec_in",
+          "explanation": "Tessera annual 128-D foundation embedding at the cell. Compared by cosine similarity against an editorial library of crop archetype centroids." }
+      ],
+      "formula": "let v = recall(geotessera @ cell); for archetype A in {rice_paddy, wheat, maize, soybean, oilpalm, sugarcane, vineyard, orchard, fallow, mixed_field}: score[A] = cos(v, centroid[A]); class = argmax(score); confidence = score[class] - score[second]",
+      "output": { "kind": "classification",
+        "values": ["rice_paddy", "wheat", "maize", "soybean", "oilpalm", "sugarcane", "vineyard", "orchard", "fallow", "mixed_field"],
+        "explanation": "Most-similar crop archetype at the cell, plus a confidence margin. `mixed_field` returns when the top class margin is below 0.05; agents should treat that as 'no clear archetype'." },
+      "when_to_use": "Open-data crop typing in a cell when in-situ labels are absent. Cheap drop-in for downstream value-chain models (yield, water, fertiliser) that need a class, not a vector.",
+      "primitive": "POST /v1/find_similar {key:cell64, k:1, mode:'cosine'} against the published crop_archetype centroids",
+      "deterministic": false,
+      "_deterministic_note": "Result depends on the responder's loaded archetype centroid set. The centroids are content-addressed under `algorithms_cid`; two responders with the same algorithms_cid produce the same class. Centroid drift between manifest revisions is the only non-determinism.",
+      "citation": "Tessera v1 (annual foundation embedding for global EO, 2024). Editorial archetype centroids are derived from labelled reference samples in FAO WAPOR, MODIS Cropland Validation, and the Radiant Earth Spectrum suite.",
+      "frequency_of_calculation": "Annual — Tessera vintages drop yearly; archetype matching is stable within a vintage.",
+      "accuracy_band": "Top-1 accuracy 0.65–0.80 on global out-of-sample validation cells when one of the 10 archetypes is the truth. Falls below 0.5 in mixed-cropping zones where the cell mixes two archetypes — surface as `mixed_field` confidence < 0.05.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["geotessera"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "geotessera",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "bathymetry_stumpf_log_ratio@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "s2.B02", "role": "blue", "unit": "reflectance",
+          "explanation": "Sentinel-2 surface reflectance at 490 nm (10 m). Penetrates clear shallow water; attenuated faster than green, so the blue/green log ratio scales with depth." },
+        { "band": "s2.B03", "role": "green", "unit": "reflectance",
+          "explanation": "Sentinel-2 surface reflectance at 560 nm (10 m). Used together with B02 in the Stumpf log-ratio bathymetry." }
+      ],
+      "formula": "let eps = 0.001; let r_blue = max(s2.B02, eps); let r_green = max(s2.B03, eps); let ratio = ln(1000.0 * r_blue) / ln(1000.0 * r_green); depth_m = clamp(2300.0 * ratio - 0.5, 0, 25)",
+      "output": { "kind": "scalar", "unit": "metres", "range": [0, 25],
+        "explanation": "Estimated water depth in metres. Reliable in clear coastal water with sand-bottom contrast; degrades over turbid water, vegetation, dark substrates, and beyond ~25 m where blue extinction saturates." },
+      "when_to_use": "Coastal Satellite-Derived Bathymetry (SDB) for navigation charts in clear shallow water (Caribbean, Mediterranean, Red Sea, Pacific atolls). Pair with `water_turbidity_red_band@1` to gate cells where the assumption fails.",
+      "primitive": "POST /v1/recall {bands:['s2.B02','s2.B03']} → apply Stumpf log-ratio in-process",
+      "deterministic": true,
+      "citation": "Stumpf, R.P., Holderied, K. & Sinclair, M. 2003. Determination of water depth with high-resolution satellite imagery over variable bottom types. Limnology and Oceanography 48:547–556.",
+      "frequency_of_calculation": "5-day cloud-permitting; only useful at low tide / low-glint scenes.",
+      "accuracy_band": "RMSE 0.5–2 m vs lidar/multibeam in clear water 0–15 m. Errors grow above 15 m and over turbid or vegetated bottoms; the m1=2300, m0=0.5 coefficients are the global default and benefit from local tuning when ground truth exists.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["s2.B02", "s2.B03"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2"],
+        "anchor_band": "s2.B02",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "water_chl_proxy_blue_green@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "s2.B02", "role": "blue", "unit": "reflectance",
+          "explanation": "Sentinel-2 470–520 nm at 10 m. Attenuated by chlorophyll absorption around 440 nm — lower in chlorophyll-rich water." },
+        { "band": "s2.B03", "role": "green", "unit": "reflectance",
+          "explanation": "Sentinel-2 540–580 nm at 10 m. Less affected by chlorophyll absorption — relatively higher in chlorophyll-rich water." }
+      ],
+      "formula": "let eps = 0.001; let r = ln(max(s2.B03, eps) / max(s2.B02, eps)); chl_a_ug_per_L = clamp(pow(10.0, 0.4 - 3.3 * r + 1.5 * r * r), 0.01, 100)",
+      "output": { "kind": "scalar", "unit": "ug_per_L", "range": [0.01, 100],
+        "explanation": "Chlorophyll-a concentration in micrograms per litre. The OC-style polynomial captures the typical case-1 water relationship; case-2 (sediment-rich) water needs the NIR red-edge family of algorithms instead." },
+      "when_to_use": "Coastal and lake water-quality monitoring (algal bloom detection, eutrophication tracking, fisheries), under clear-sky case-1 conditions.",
+      "primitive": "POST /v1/recall {bands:['s2.B02','s2.B03']} → apply log-ratio polynomial in-process",
+      "deterministic": true,
+      "citation": "Gilerson, A.A. et al. 2010. Algorithms for remote estimation of chlorophyll-a in coastal and inland waters using red and near-infrared bands. Optics Express 18:24109–24125. The blue/green polynomial is adapted from NASA's OC4 family (O'Reilly et al. 1998) at Sentinel-2 wavelengths.",
+      "frequency_of_calculation": "5-day cloud-permitting; algal blooms can shift inside that window so an early-warning workflow should re-call after every cloud-free pass.",
+      "accuracy_band": "R² 0.6–0.8 vs in-situ chl-a in case-1 water; over-estimates in turbid case-2 water — pair with `water_turbidity_red_band@1` and gate the chl estimate when turbidity > ~10 FNU.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["s2.B02", "s2.B03"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2"],
+        "anchor_band": "s2.B03",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "water_turbidity_red_band@1",
+      "kind": "solo",
+      "domain": "water",
+      "inputs": [
+        { "band": "s2.B04", "role": "red", "unit": "reflectance",
+          "explanation": "Sentinel-2 red band (650–680 nm) at 10 m. Suspended sediment scatters strongly in the red — so red surface reflectance is a robust turbidity proxy in inland and coastal water." }
+      ],
+      "formula": "let r = clamp(s2.B04, 0.0, 0.49); turbidity_FNU = clamp(22.4 * r / (1 - 2 * r), 0, 1000)",
+      "output": { "kind": "scalar", "unit": "FNU", "range": [0, 1000],
+        "explanation": "Turbidity in Formazin Nephelometric Units (≈ NTU). Rises sharply when red reflectance saturates; clamp to 1000 to avoid the singularity at r=0.5." },
+      "when_to_use": "Inland-water turbidity tracking (rivers, reservoirs, estuaries, harbours), sediment-plume mapping after storms, dredging-impact monitoring.",
+      "primitive": "POST /v1/recall {bands:['s2.B04']} → apply Nechad 2010 single-band relation in-process",
+      "deterministic": true,
+      "citation": "Nechad, B., Ruddick, K.G. & Park, Y. 2010. Calibration and validation of a generic multisensor algorithm for mapping of total suspended matter in turbid waters. Remote Sensing of Environment 114:854–866. Doxaran, D. et al. 2002. A reflectance band ratio used to estimate suspended matter concentrations in sediment-dominated coastal waters. International Journal of Remote Sensing 23:5079–5085.",
+      "frequency_of_calculation": "5-day cloud-permitting; flow events demand re-call after each clear pass.",
+      "accuracy_band": "R² 0.7–0.9 in turbid case-2 water; saturates above ~80 FNU where red reflectance plateaus and the 1/(1-2r) term explodes.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["s2.B04"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "s2.B04",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "flood_extent_sar_threshold@1",
+      "kind": "solo",
+      "domain": "water",
+      "inputs": [
+        { "band": "sentinel1_raw", "role": "vv_db", "unit": "dB",
+          "explanation": "Sentinel-1 GRD VV backscatter in decibels at 10 m. Open water is a near-specular reflector for C-band radar at low incidence: backscatter drops far below typical land values, so a single threshold separates water from land in most cloud-free and cloudy scenes alike." }
+      ],
+      "formula": "let v = sentinel1_raw; class = if v < -16 then 'water' else 'land'",
+      "output": { "kind": "classification", "values": ["water", "land"],
+        "explanation": "Two-class flood / open-water mask. The −16 dB threshold is the operationally common Otsu break for VV C-band over open land; pair with a roughness gate when wind-roughened water and dry sand both push toward the threshold." },
+      "when_to_use": "Rapid flood mapping after a storm, river overtopping, dam break, or coastal surge. SAR sees through clouds, so this primitive can answer 'what is flooded right now' when optical imagery is opaque.",
+      "primitive": "POST /v1/recall {bands:['sentinel1_raw']} → apply threshold in-process",
+      "deterministic": true,
+      "citation": "Twele, A., Cao, W., Plank, S. & Martinis, S. 2016. Sentinel-1-based flood mapping: a fully automated processing chain. International Journal of Remote Sensing 37:2990–3004. Otsu, N. 1979. A threshold selection method from gray-level histograms. IEEE TSMC 9:62–66.",
+      "frequency_of_calculation": "6–12 day Sentinel-1 revisit, all-weather. Re-call within hours of a triggering event for emergency response.",
+      "accuracy_band": "Producer's accuracy 0.85–0.95 for open-water flood pixels in flat terrain. Lower in mountainous shadow / layover, urban environments (corner reflectors), and densely vegetated wetlands; pair with the wetland classifier and a slope mask in those terrains.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["sentinel1_raw"],
+        "fusion_method": "none",
+        "priority_chain": ["s1"],
+        "anchor_band": "sentinel1_raw",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "embedding_temporal_change_year@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "geotessera.multi_year", "role": "stack",
+          "explanation": "1024-D Tessera multi-year stack — eight annual 128-D vintages (2017–2024) concatenated. Year-over-year cosine change is computed from the relevant 128-D slices." }
+      ],
+      "formula": "let v_t = slice(geotessera.multi_year, latest_year_offset, 128); let v_prev = slice(geotessera.multi_year, latest_year_offset - 128, 128); change = clamp(1 - cos(v_t, v_prev), 0, 2)",
+      "output": { "kind": "scalar", "unit": "cosine_distance", "range": [0, 2],
+        "explanation": "Cosine distance between this year's and last year's 128-D Tessera vector at the cell. 0 = identical, 1 = orthogonal, 2 = anti-correlated. Real-world changes — clearcut, harvest, urban expansion, flooding, wildfire — sit in the 0.05–0.4 range." },
+      "when_to_use": "Generic 'did this place change between consecutive years?' detector when you don't yet know what kind of change to look for. Cheap pre-filter before chaining to band-specific change scores.",
+      "primitive": "POST /v1/recall {bands:['geotessera.multi_year']} → cosine over the latest two 128-D slices",
+      "deterministic": true,
+      "citation": "Tessera v1 (annual foundation embedding for global EO, 2024). Cosine distance over learned EO embeddings is a widely used change-detection signal (Tian et al. 2023; Reed et al. 2023).",
+      "frequency_of_calculation": "Annual — Tessera ships one 128-D vintage per calendar year.",
+      "accuracy_band": "Detects > 80 % of human-visible large-area change between consecutive vintages on validation grids; saturates for subtle within-class changes (e.g. crop rotation between similar archetypes).",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["geotessera.multi_year"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "geotessera.multi_year",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "multimodal_change_score@1",
+      "kind": "combined",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "ndvi_now", "unit": "ratio",
+          "explanation": "Latest Sentinel-2 NDVI at the cell. The same-season slot a year earlier supplies the comparison baseline through the temporal_recipe." },
+        { "band": "sentinel1_raw", "role": "vv_now", "unit": "dB",
+          "explanation": "Latest Sentinel-1 VV backscatter at the cell, compared against the same-season slot a year earlier." },
+        { "band": "geotessera.multi_year", "role": "embedding_stack",
+          "explanation": "Multi-year Tessera stack. The two most-recent 128-D slices supply the embedding-side change term." }
+      ],
+      "formula": "let dn = abs(indices.ndvi - lookback(indices.ndvi, 365d)); let dv = abs(sentinel1_raw - lookback(sentinel1_raw, 365d)); let de = 1 - cos(slice_latest(geotessera.multi_year), slice_prev(geotessera.multi_year)); let c_s2 = clamp(dn / 0.30, 0, 1); let c_s1 = clamp(dv / 4.0, 0, 1); let c_emb = clamp(de, 0, 1); score = sqrt((c_s2*c_s2 + c_s1*c_s1 + c_emb*c_emb) / 3)",
+      "output": { "kind": "scalar", "unit": "index", "range": [0, 1],
+        "explanation": "Fused per-cell change index over one calendar year. The L2 mean across the three normalised channels is robust to a single noisy term — receipts surface c_s2, c_s1, c_emb so an analyst can see which sensor drove the alert." },
+      "when_to_use": "Confidence-weighted year-over-year change detection at 10 m when no single sensor is decisive. Use as the gate for a downstream typed classifier (deforestation, urbanisation, conversion).",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi','sentinel1_raw','geotessera.multi_year']} with a 365-day temporal_recipe → apply L2-mean fusion",
+      "deterministic": true,
+      "citation": "Editorial fusion of Twele 2016 (S1 dB change), Tucker 1979 (NDVI dynamics), Tessera 2024 (multi-year stack). The L2-mean normalisation pattern follows Healey et al. 2018 (LandTrendr ensemble).",
+      "frequency_of_calculation": "Annual; can be run quarterly with a 90-day lookback for sub-annual change.",
+      "accuracy_band": "Reported in editorial validation: ~85 % producer's accuracy on labelled deforestation polygons with ≥0.5 ha extent at 10 m. Reduces false positives 2–4× over any single-sensor baseline at the same threshold.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["indices.ndvi", "sentinel1_raw", "geotessera.multi_year"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "s1"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      },
+      "temporal_recipe": {
+        "label": "year_on_year_change",
+        "note": "Each input is compared against its same-season counterpart 365 days earlier.",
+        "windows": [
+          { "band": "indices.ndvi", "lookback_days": 365, "aggregator": "median", "purpose": "ndvi_baseline" },
+          { "band": "sentinel1_raw", "lookback_days": 365, "aggregator": "median", "purpose": "vv_baseline" }
+        ]
+      }
+    },
+
+    {
+      "key": "solar_pv_likelihood@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "s2.B11", "role": "swir1", "unit": "reflectance",
+          "explanation": "Sentinel-2 SWIR1 (1610 nm) at 20 m, resampled to the active 10 m cell. Crystalline-silicon panels reflect modestly in SWIR1 — distinct from soil and most roofs." },
+        { "band": "indices.ndvi", "role": "veg_amount", "unit": "ratio",
+          "explanation": "NDVI at the cell. PV farms occupy non-vegetated ground; high NDVI strongly down-weights the score." },
+        { "band": "s2.B04", "role": "red", "unit": "reflectance",
+          "explanation": "Red reflectance at 10 m. Panels are dark in the visible (low B04); zero-reflectance cells (water, deep shadow) are ruled out by requiring B04 > 0.02." }
+      ],
+      "formula": "let swir = sigmoid(20 * (s2.B11 - 0.10)); let non_veg = sigmoid(8 * (0.20 - indices.ndvi)); let visible_present = sigmoid(40 * (s2.B04 - 0.02)); pv_score = swir * non_veg * visible_present",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1],
+        "explanation": "0–1 likelihood that the cell contains photovoltaic panels. Pair with a polygon-aggregation step to filter out spurious single-cell hits and recover farm-scale boundaries." },
+      "when_to_use": "Distributed renewable-energy asset inventory, climate-disclosure mapping, grid-planning baselines. Cheap drop-in alongside Overture Buildings to disambiguate 'industrial roof' vs 'solar farm'.",
+      "primitive": "POST /v1/recall {bands:['s2.B11','indices.ndvi','s2.B04']} → apply consensus formula",
+      "deterministic": true,
+      "citation": "Czirjak, D.W. 2017. Detecting photovoltaic solar panels using hyperspectral imagery. Remote Sensing 9:498. Yu, J. et al. 2018. DeepSolar: a machine learning framework to efficiently construct a solar deployment database in the United States. Joule 2:2605–2617. The thresholds are simplified from those works to the Sentinel-2 reflectance scale.",
+      "frequency_of_calculation": "5-day cloud-permitting; solar farm presence is slow-changing, so monthly composites smooth false negatives from clouds.",
+      "accuracy_band": "Producer's accuracy 0.65–0.80 for utility-scale farms (>5 ha); rooftop PV requires sub-metre imagery and a different model.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["s2.B11", "indices.ndvi", "s2.B04"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2"],
+        "anchor_band": "s2.B11",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "wetland_binary_s1_s2_dem@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "sentinel1_raw", "role": "vv_db", "unit": "dB",
+          "explanation": "Sentinel-1 VV at 10 m. Saturated-soil and open-water cells return low backscatter (< −13 dB)." },
+        { "band": "indices.ndwi", "role": "water_index", "unit": "ratio",
+          "explanation": "Normalized Difference Water Index from S2 green and NIR. High in open water; intermediate in wet vegetation." },
+        { "band": "indices.ndvi", "role": "veg_amount", "unit": "ratio",
+          "explanation": "NDVI separates vegetated marsh (NDVI > 0.2) from open water (NDVI ~ 0)." },
+        { "band": "copdem30m.elevation_mean", "role": "elevation", "unit": "metres",
+          "explanation": "Cop-DEM elevation. Wetlands are predominantly low-lying; the gate filters out slopes that happened to score wet from speckle." }
+      ],
+      "formula": "let wet_radar = sentinel1_raw < -13; let wet_optical = indices.ndwi > 0.30; let veg = indices.ndvi > 0.20 and indices.ndvi < 0.60; let low_terrain = copdem30m.elevation_mean < 200; class = if wet_radar and wet_optical and not veg then 'open_water' else if (wet_radar or wet_optical) and veg and low_terrain then 'wet_soil_marsh' else 'upland'",
+      "output": { "kind": "classification", "values": ["upland", "wet_soil_marsh", "open_water"],
+        "explanation": "Three-class wetland map. `open_water` is permanent water; `wet_soil_marsh` covers saturated soils, marshes, and emergent vegetation; `upland` is everything else. Receipts surface the four boolean gates so a hydrologist can audit edge cases (e.g. flooded paddies)." },
+      "when_to_use": "Wetland inventory updates, Ramsar reporting, blue-carbon accounting, mosquito-habitat (links to `aedes_thermal_suitability_mordecai@1`), wet-season agricultural drainage planning.",
+      "primitive": "POST /v1/recall {bands:['sentinel1_raw','indices.ndwi','indices.ndvi','copdem30m.elevation_mean']} → apply gates in-process",
+      "deterministic": true,
+      "citation": "Mahdianpari, M. et al. 2020. The first wetland inventory map of Newfoundland at a spatial resolution of 10 m using Sentinel-1 and Sentinel-2 data, Random Forest classifiers, and Google Earth Engine cloud computing. Remote Sensing 12:1392. Hess, L.L. et al. 2003. Dual-season mapping of wetland inundation and vegetation for the central Amazon basin. Remote Sensing of Environment 87:404–428.",
+      "frequency_of_calculation": "Seasonal — the SAR + NDWI + NDVI gates flip with hydroperiod; quarterly composites capture the wet-dry transition.",
+      "accuracy_band": "Three-class accuracy 0.70–0.85 against ground-validated Ramsar polygons. Confuses tidal flats with coastal water at slack tide; the elevation gate rejects most false positives over hill-shadow SAR returns.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["copdem30m.elevation_mean"],
+        "variance_sources": ["sentinel1_raw", "indices.ndwi", "indices.ndvi"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s1", "s2", "static"],
+        "anchor_band": "sentinel1_raw",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+
+    {
+      "key": "aquaculture_pond_proxy@1",
+      "kind": "combined",
+      "domain": "human",
+      "inputs": [
+        { "band": "indices.ndwi", "role": "water_index", "unit": "ratio",
+          "explanation": "NDWI at 10 m is high inside aquaculture ponds (open shallow water), separating them from cropland and built-up land." },
+        { "band": "sentinel1_raw", "role": "vv_db", "unit": "dB",
+          "explanation": "Sentinel-1 VV is very low (< −15 dB) inside a calm pond surface — the SAR signal disambiguates ponds from wet rice paddies (which scatter more)." },
+        { "band": "indices.ndvi", "role": "veg_amount", "unit": "ratio",
+          "explanation": "NDVI is near zero inside the pond (no canopy on water); the surrounding vegetated bunds are excluded by the score combination." }
+      ],
+      "formula": "let water_optical = sigmoid(8 * (indices.ndwi - 0.40)); let water_radar = sigmoid((-15 - sentinel1_raw) / 2); let no_canopy = sigmoid(8 * (0.30 - indices.ndvi)); pond_score = water_optical * water_radar * no_canopy",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1],
+        "explanation": "Per-cell aquaculture-pond likelihood. Threshold at 0.5 for a binary mask, then aggregate with a polygon step to recover individual ponds and reject single-cell SAR speckle." },
+      "when_to_use": "Coastal value-chain (shrimp, fish), mangrove-loss accounting (aquaculture is the leading driver in SE Asia), nitrogen / antibiotic regulatory monitoring, blue-carbon baseline reporting.",
+      "primitive": "POST /v1/recall {bands:['indices.ndwi','sentinel1_raw','indices.ndvi']} → apply triple-consensus formula",
+      "deterministic": true,
+      "citation": "Ottinger, M., Clauss, K. & Kuenzer, C. 2018. Aquaculture: relevance, distribution, impacts and spatial assessments — a review. Ocean & Coastal Management 158:1–34. Ren, C. et al. 2019. Rapid expansion of coastal aquaculture ponds in Southeast Asia: patterns and consequences. Science of the Total Environment 658:1265–1278.",
+      "frequency_of_calculation": "Quarterly to annual; ponds are persistent infrastructure once built.",
+      "accuracy_band": "User's accuracy 0.75–0.90 on coastal validation polygons; lower inland where rice paddies and irrigation reservoirs share the optical signature — the SAR term is the discriminator that earns most of the gain.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["indices.ndwi", "sentinel1_raw", "indices.ndvi"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "s1"],
+        "anchor_band": "indices.ndwi",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+
+    {
+      "key": "sar_coherence_change_proxy@1",
+      "kind": "solo",
+      "domain": "anomaly",
+      "inputs": [
+        { "band": "sentinel1_raw", "role": "vv_now", "unit": "dB",
+          "explanation": "Latest Sentinel-1 VV at the cell. The proxy compares it against the same-season slot 30 days earlier through the temporal_recipe; large absolute change in either direction signals scattering-structure disturbance (collapse, debris, deforestation, flood)." }
+      ],
+      "formula": "let dvv = abs(sentinel1_raw - lookback(sentinel1_raw, 30d)); damage_proxy = clamp((dvv - 3.0) / 3.0, 0, 1)",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1],
+        "explanation": "Disturbance probability proxy. 0 below a 3 dB change (typical seasonal speckle), saturates at 1 above 6 dB (large structural change). Pair with a coherence-loss source for true InSAR damage where ARD coherence is published." },
+      "when_to_use": "Rapid post-event mapping when optical imagery is occluded by smoke (wildfire), cloud (cyclone, monsoon), or night (volcanic ash, earthquake debris).",
+      "primitive": "POST /v1/recall {bands:['sentinel1_raw']} with a 30-day temporal_recipe → apply absolute-difference formula",
+      "deterministic": true,
+      "citation": "Yun, S.-H. et al. 2015. Rapid damage mapping for the 2015 M7.8 Gorkha earthquake using synthetic aperture radar amplitude images. Seismological Research Letters 86:1549–1556. Tay, C.W.J. et al. 2020. Rapid flood and damage mapping using synthetic aperture radar in response to Typhoon Hagibis, Japan. Scientific Data 7:100.",
+      "frequency_of_calculation": "6–12 day Sentinel-1 revisit. For emergency response, re-call hourly until a fresh pass is available.",
+      "accuracy_band": "Recall 0.75–0.90 for structural damage > 0.1 ha in flat urban / agricultural settings; producers' accuracy degrades over forest (canopy reflects double-bounce changes weakly) and mountainous shadow.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["sentinel1_raw"],
+        "fusion_method": "none",
+        "priority_chain": ["s1"],
+        "anchor_band": "sentinel1_raw",
+        "fallback_strategy": "absence"
+      },
+      "temporal_recipe": {
+        "label": "sar_pre_post_window",
+        "note": "Compare the latest VV slot against the same-season slot 30 days earlier.",
+        "windows": [
+          { "band": "sentinel1_raw", "lookback_days": 30, "aggregator": "median", "purpose": "pre_event_baseline" }
+        ]
+      }
     }
   ]
 }

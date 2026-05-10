@@ -59,7 +59,7 @@
         "flooded today"
       ],
       "bands": ["indices.ndwi", "indices.mndwi", "sentinel1_raw"],
-      "algorithms": ["water_consensus@1", "water_likelihood_from_vv@1"]
+      "algorithms": ["water_consensus@1", "water_likelihood_from_vv@1", "flood_extent_sar_threshold@1", "wetland_binary_s1_s2_dem@1"]
     },
     {
       "key": "flood_risk_composite",
@@ -121,7 +121,7 @@
         "is the forest stressed"
       ],
       "bands": ["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "modis.ndvi_mean"],
-      "algorithms": ["vegetation_class_from_ndvi@1", "crop_stress_score@1", "jepa_temporal_predictor@1"]
+      "algorithms": ["vegetation_class_from_ndvi@1", "crop_stress_score@1", "jepa_temporal_predictor@1", "lai_modified_simple_ratio_s2@1", "fapar_ndvi_myneni@1", "canopy_chlorophyll_ndre@1"]
     },
     {
       "key": "fire_burn_severity",
@@ -180,7 +180,7 @@
         "settlement"
       ],
       "bands": ["indices.ndbi", "overture.buildings.count", "overture.places.count", "overture.transportation.road_length_m"],
-      "algorithms": ["built_up_from_ndbi@1", "urban_density_score@1", "noise_exposure_proxy@1"]
+      "algorithms": ["built_up_from_ndbi@1", "urban_density_score@1", "noise_exposure_proxy@1", "solar_pv_likelihood@1"]
     },
     {
       "key": "weather_now",
@@ -304,7 +304,7 @@
         "orchard health"
       ],
       "bands": ["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "indices.ndre", "indices.ndti", "modis.ndvi_mean", "modis.lai_8day", "modis.gpp_8day", "power.t2m", "power.t2m_min", "power.t2m_max", "power.precip", "sentinel1_raw"],
-      "algorithms": ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1"]
+      "algorithms": ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1", "crop_water_stress_index_proxy@1", "crop_archetype_embedding_match@1"]
     },
     {
       "key": "soil_intelligence",
@@ -426,7 +426,7 @@
         "what does this place look like geographically"
       ],
       "bands": ["geotessera", "geotessera.multi_year", "geotessera.bin128"],
-      "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1"]
+      "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1", "embedding_temporal_change_year@1", "multimodal_change_score@1"]
     },
     {
       "key": "optical_raw_reflectance",
@@ -525,7 +525,28 @@
         "change-point"
       ],
       "bands": ["geotessera", "modis.ndvi_mean", "indices.ndvi"],
-      "algorithms": ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1"]
+      "algorithms": ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1", "sar_coherence_change_proxy@1"]
+    },
+    {
+      "key": "water_quality",
+      "description": "Coastal and inland water quality from Sentinel-2 at 10 m: chlorophyll-a, turbidity, satellite-derived bathymetry, and aquaculture-pond detection. Answers questions about how clean or shallow a body of water is, whether algal blooms or sediment plumes are visible, and where fish or shrimp farms operate.",
+      "aliases": [
+        "water quality",
+        "chlorophyll in the lake",
+        "algal bloom",
+        "is the water clean",
+        "how shallow is this water",
+        "turbidity",
+        "sediment plume",
+        "satellite bathymetry",
+        "shrimp farm",
+        "fish farm",
+        "aquaculture pond",
+        "harbor depth",
+        "lake clarity"
+      ],
+      "bands": ["s2.B02", "s2.B03", "s2.B04", "indices.ndwi"],
+      "algorithms": ["bathymetry_stumpf_log_ratio@1", "water_chl_proxy_blue_green@1", "water_turbidity_red_band@1", "aquaculture_pond_proxy@1"]
     }
   ]
 }
