@@ -11,7 +11,7 @@
 # preferred when the GHCR build emits one; the major-tag is the next-best
 # stability anchor when no SHA is published yet.
 
-FROM ghcr.io/vortx-ai/emem:0.0
+FROM ghcr.io/vortx-ai/emem:0.0.4
 
 # HuggingFace runs Spaces as UID 1000 (`user`) — re-grant the runtime data
 # directory and the binary's net-bind capability for that user.

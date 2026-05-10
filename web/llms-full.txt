@@ -1,18 +1,18 @@
 # emem, Earth memory protocol for AI agents (full agent context)
 
 > Cite-able, content-addressed, signed memory of every place on Earth.
-> 1 protocol. 30 primitives across REST + MCP. ed25519 receipts.
+> 1 protocol. 34 MCP tools across REST + MCP. ed25519 receipts.
 > No API keys for L0/L1 reads. Apache-2.0. Pure Rust + open data only.
 > github.com/Vortx-AI/emem  •  https://emem.dev
 >
-> Counts (33 canonical bands in the 1792-D voxel layout, 25 wired
-> auto-materializers, 28 MCP tools / 30 primitives across REST + MCP,
-> 102 algorithms) are the live values at time of last refresh; the
+> Counts (35 canonical bands in the 1792-D voxel layout, 25 topics, 16
+> open-data connectors, 34 MCP tools, 107 algorithms) are the live
+> values at time of last refresh; the
 > wire-stable source of truth is `/v1/manifests`,
 > `/v1/materializers`, `/v1/data_availability`, `/v1/algorithms`,
 > and `/v1/tools`.
 >
-> 0.0.3 highlights — `temporal_composition[]` (additive sibling on
+> 0.0.4 highlights — `temporal_composition[]` (additive sibling on
 > `/v1/ask` and `/v1/intent` results), `Algorithm.temporal_recipe`
 > (declared lookback windows so the responder can compose
 > "rained-recently + radar-water + optical-water" without hardcoding),
@@ -26,7 +26,7 @@
 > S1 > S2 > Landsat > IoT > OtherSat > Static. Algorithms that claim
 > a delivery resolution of ≤10 m are mechanically validated to anchor
 > on S1/S2/Landsat. The validator (rules R1–R4) blocks over-claim at
-> compile time. 17 of the 102 algorithms carry an explicit
+> compile time. 17 of the 107 algorithms carry an explicit
 > `multimodal` block today; the rest declare their inputs only.
 
 This file is the single-call agent context dump for emem. It includes
@@ -412,7 +412,7 @@ geographic primitive, the band is a typed channel from a published
 ontology (`/v1/bands`), and the tslot maps to a real-world clock. The
 fact's value can be a scalar, a vector, a histogram, or a signed
 Absence; the CID is reproducible across responders. Vector search
-(`/v1/find_similar`) is one of 30 primitives, not the only one.
+(`/v1/find_similar`) is one of 34 MCP tools, not the only one.
 
 ---
 

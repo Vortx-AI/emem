@@ -10,7 +10,7 @@ domain sections).
 ## Markdown to add (single line)
 
 ```markdown
-- **[emem](https://emem.dev)** ([repo](https://github.com/Vortx-AI/emem)) — Cite-able, content-addressed, signed Earth-memory protocol. 28 MCP tools, 33+ live materializable Earth-observation bands (Sentinel-1/2, MODIS, ERA5, CAMS, JRC GSW, Hansen GFC, ESA WorldCover, SoilGrids, Open-Meteo, MET Norway), no API key, ed25519 receipts. Streamable-HTTP at `https://emem.dev/mcp`. By **[Vortx-AI](https://github.com/Vortx-AI)**.
+- **[emem](https://emem.dev)** ([repo](https://github.com/Vortx-AI/emem)) — Cite-able, content-addressed, signed Earth-memory protocol. 34 MCP tools, 35 live materializable Earth-observation bands (Sentinel-1/2, MODIS, ERA5, CAMS, JRC GSW, Hansen GFC, ESA WorldCover, SoilGrids, Open-Meteo, MET Norway), no API key, ed25519 receipts. Streamable-HTTP at `https://emem.dev/mcp`. By **[Vortx-AI](https://github.com/Vortx-AI)**.
 ```
 
 ## PR title
@@ -42,7 +42,7 @@ its blake3 CID and signed with the responder's ed25519 key. Receipts
 verify offline against the public key at `/.well-known/emem.json` —
 no callback to the server needed.
 
-28 MCP tools. 33+ materializable Earth-observation bands wired today
+34 MCP tools. 35 materializable Earth-observation bands wired today
 (Sentinel-1/2, MODIS LST/NDVI/ET/GPP/LAI, NASA POWER, ERA5, CAMS air
 quality, JRC Global Surface Water, Hansen Global Forest Change, ESA
 WorldCover, SoilGrids 2.0, Copernicus DEM, GMRT bathymetry, Open-Meteo,

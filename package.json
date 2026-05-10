@@ -1,6 +1,6 @@
 {
   "name": "emem-dev",
-  "version": "1.0.0",
+  "version": "0.0.4",
   "description": "emem.dev: location memory for people and AI agents.",
   "type": "module",
   "main": "dist-server/server/index.js",

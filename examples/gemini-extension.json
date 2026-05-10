@@ -1,8 +1,8 @@
 {
   "_doc": "Gemini CLI extension manifest. Install with one command: `gemini extensions install https://emem.dev/gemini-extension.json`. After install, every Gemini CLI session can call emem_recall, emem_compare, emem_find_similar, etc. against any place on Earth without an API key. The hosted instance at https://emem.dev/mcp is HTTPS-only Streamable HTTP transport (MCP 2025-03-26+). For self-hosted, change `url` to your own emem responder.",
   "name": "emem",
-  "version": "0.0.3",
-  "description": "Cite-able, content-addressed, signed Earth memory protocol. Recall any place on Earth (cell × band × tslot) and get back ed25519 receipts you can quote in your reply. 30 primitives (28 read + 2 write). 33 materializable bands. 102 composition algorithms — flood_risk@2 carries a temporal_recipe (antecedent rainfall + recent radar water + optical water). No API keys.",
+  "version": "0.0.4",
+  "description": "Cite-able, content-addressed, signed Earth memory protocol. Recall any place on Earth (cell × band × tslot) and get back ed25519 receipts you can quote in your reply. 34 MCP tools across read + write primitives. 35 materializable bands. 107 composition algorithms — flood_risk@2 carries a temporal_recipe (antecedent rainfall + recent radar water + optical water). No API keys.",
   "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
   "license": "Apache-2.0",
   "homepage": "https://emem.dev",

@@ -12,7 +12,7 @@ Every vector is a single JSON file matching:
 {
   "id":       "cell.cell64.roundtrip.0001",
   "kind":     "cell64",
-  "spec":     "v0.0.3",
+  "spec":     "v0.0.4",
   "level":    "L0",
   "input":    { "...": "kind-specific" },
   "expected": { "...": "kind-specific" },

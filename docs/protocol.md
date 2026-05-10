@@ -923,7 +923,7 @@ responder MUST be able to compute from the same JSON inputs:
 
 | CID | Source manifest | Pinned shape |
 |-----|-----------------|--------------|
-| `bands_cid` | `bands-v0.json` | 34 bands summing to exactly 1792 dims |
+| `bands_cid` | `bands-v0.json` | 35 bands summing to exactly 1792 dims |
 | `algorithms_cid` | `algorithms-v0.json` | 107 algorithms in three kinds (Solo, Combined, Embedding) |
 | `sources_cid` | `sources-v0.json` | ~40 source schemes across 7 connector kinds |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
