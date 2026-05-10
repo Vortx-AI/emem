@@ -191,6 +191,132 @@ pub async fn predict_galileo_embed(req: &GalileoRequest) -> Result<GalileoRespon
         .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
 }
 
+/// Phase 5 — Clay Foundation Model v1.5 per-cell embedding request.
+///
+/// `chip` is `[10, 256, 256]` reflectance in S2 L2A band order
+/// (blue, green, red, rededge1, rededge2, rededge3, nir, nir08,
+/// swir16, swir22), raw S2 L2A scaled (0..10000). The sidecar
+/// normalizes via the model's per-band mean/std. `year`+`month`
+/// engage the temporal encoder (sin/cos week-of-year + hour);
+/// `lng`+`lat` engage the spatial encoder (sin/cos lat/lon).
+/// Skipping any of those falls back to mid-year-noon and
+/// origin-coords respectively — Clay was trained with conditioning
+/// dropout so a no-metadata path exists, but quality is best with
+/// real values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClayRequest {
+    pub chip: Vec<Vec<Vec<f32>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub month: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub day: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lng: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+}
+
+/// Clay v1.5 response — 1024-D CLS embedding from the encoder's
+/// last block. The `model` JSON object is the receipt-shape block
+/// the Rust caller forwards verbatim into the signed receipt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClayResponse {
+    pub embedding: Vec<f32>,
+    pub embedding_dim: usize,
+    pub model: JsonValue,
+    pub inference_us: u64,
+    pub device: String,
+}
+
+/// Call the sidecar's `/predict/clay_embed` endpoint.
+///
+/// The first request after sidecar restart pays the model load cost
+/// (~6-10 s — copying the 1.25 GB encoder weights to VRAM and
+/// dropping the 304 MB DINOv2 teacher). Subsequent calls are
+/// ~25-40 ms warm at fp16 / 70-120 ms at fp32. As with Prithvi and
+/// Galileo, there is NO in-process CPU fallback: a CPU pass through
+/// Clay's ViT-L/8 takes 3-8 s per chip and would change the
+/// embedding's distribution (different kernel order accumulation).
+/// Callers should treat `SidecarError::Unavailable` as "Clay band
+/// is not available at this responder; sign Absence with
+/// `gpu_unavailable` reason and let the agent route elsewhere."
+pub async fn predict_clay_embed(req: &ClayRequest) -> Result<ClayResponse, SidecarError> {
+    let body =
+        serde_json::to_vec(req).map_err(|e| SidecarError::Protocol(format!("encode req: {e}")))?;
+    let resp_bytes = post_json("/predict/clay_embed", &body).await?;
+    serde_json::from_slice::<ClayResponse>(&resp_bytes)
+        .map_err(|e| SidecarError::Protocol(format!("decode resp: {e}")))
+}
+
+/// Capability snapshot of the sidecar at last poll. Mirrors the
+/// fields agents downstream actually query.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SidecarHealth {
+    pub live: bool,
+    pub ready: bool,
+    pub cuda_available: bool,
+    pub extensions: Vec<String>,
+    pub models_loaded: Vec<String>,
+}
+
+/// Query the sidecar's `/health` endpoint and parse the consensus
+/// shape (live / ready / extensions). Returns `Err(Unavailable)`
+/// when the sidecar isn't reachable so callers can treat that as a
+/// negative capability advertisement (no extensions, no GPU).
+pub async fn health() -> Result<SidecarHealth, SidecarError> {
+    let req = "GET /health HTTP/1.1\r\n\
+               host: localhost\r\n\
+               accept: application/json\r\n\
+               connection: close\r\n\r\n";
+    let resp_bytes = round_trip(req.as_bytes(), &[]).await?;
+    let v: JsonValue = serde_json::from_slice(&resp_bytes)
+        .map_err(|e| SidecarError::Protocol(format!("decode /health: {e}")))?;
+    let cuda_available = v
+        .get("cuda")
+        .and_then(|c| c.get("available"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let extensions = v
+        .get("extensions")
+        .and_then(|e| e.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let models_loaded = v
+        .get("models_loaded")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Ok(SidecarHealth {
+        live: v.get("live").and_then(|b| b.as_bool()).unwrap_or(true),
+        ready: v.get("ready").and_then(|b| b.as_bool()).unwrap_or(true),
+        cuda_available,
+        extensions,
+        models_loaded,
+    })
+}
+
+/// True when the sidecar advertises `gpu` in its `extensions[]`.
+/// Used as the gate for algorithms that declare
+/// `inference.tier = gpu` so the dispatcher can filter them at
+/// planning time and skip honest Absence at materialize time when
+/// the GPU is missing.
+pub async fn is_gpu_available() -> bool {
+    matches!(
+        health().await,
+        Ok(h) if h.cuda_available && h.extensions.iter().any(|e| e == "gpu")
+    )
+}
+
 // ── HTTP/1 over Unix socket ──────────────────────────────────────────────
 
 async fn post_json(path: &str, body: &[u8]) -> Result<Vec<u8>, SidecarError> {

@@ -96,15 +96,28 @@
       "_source_note": "Pollutant scalars in µg/m³ — CAMS native units. AOD-550 is unitless. All seven exposed via the unified Open-Meteo air-quality endpoint, which avoids the CDS API key required by the upstream CAMS ECMWF endpoint. Hourly cadence; tempo:fast."
     },
     {
-      "key": "_reserved_512",
+      "key": "clay_v1",
       "family": "foundation",
       "offset": 199,
-      "dims": 505,
+      "dims": 384,
+      "tempo": "slow",
+      "privacy": {"class": "l2_only_with_model_cid"},
+      "description": "Clay Foundation Model v1.5 per-cell foundation embedding (Made With Clay, Apache-2.0). The cell's 10-band 256×256 Sentinel-2 L2A chip (blue, green, red, rededge1, rededge2, rededge3, nir, nir08, swir16, swir22 in metadata.yaml order, 10 m equivalent) is encoded by a wavelength-conditioned ViT-L/8 MAE; the materializer signs the encoder's last-block CLS token (1024-D, post-norm) as the fact value alongside the temporal+spatial conditioning vectors (sin/cos week-of-year + lat/lng). The cube slot allocates 384 dims at offset 199 as the layout reservation; fact `value` carries the full 1024-D vector and downstream similarity reads that directly. Carved out of the historic `_reserved_512` slot — `_reserved_128` (121 dims at offset 583) is what's left of that slack.",
+      "units": "unitless (learned embedding)",
+      "interpretation": "Compare via cosine similarity. Two cells with cosine > 0.85 share a 2.56 km × 2.56 km chip-archetype (urban core, mangrove, irrigated cropland, etc.). Wavelength-conditioned: the same encoder produces different embeddings for S2 vs Landsat vs NAIP vs MODIS chips, so always cite the platform tag alongside the model_cid.",
+      "pitfalls": "Receptive field is 2.56 km × 2.56 km at 10 m pixel pitch — finer than Prithvi (6.7 km) but coarser than Tessera per-pixel (10 m). For sub-chip discrimination chain to `geotessera`. Privacy class is `l2_only_with_model_cid` because the embedding can leak chip content; every fact carries the model checkpoint hash so agents can verify the encoder version (Clay v1.5 = blake2b of clay-v1.5.ckpt).",
+      "references": "https://clay-foundation.github.io/model/release-notes/specification.html ; https://github.com/Clay-foundation/model ; https://huggingface.co/made-with-clay/Clay/tree/main/v1.5"
+    },
+    {
+      "key": "_reserved_128",
+      "family": "foundation",
+      "offset": 583,
+      "dims": 121,
       "tempo": "slow",
       "privacy": {"class": "public"},
-      "description": "Forward-compatibility reservation slot, currently zero-padded. Reserved for a future no-key foundation embedding to claim without shifting any subsequent offset.",
+      "description": "Forward-compatibility reservation slot, currently zero-padded. Carries what's left of the historic `_reserved_512` block after `clay_v1` carved 384 dims for the Clay Foundation Model v1.5 embedding (Made With Clay, Apache-2.0).",
       "interpretation": "Recall on this band returns Absence facts today. Do not include it in similarity queries.",
-      "_source_note": "Foundation-embedding reservation slot, 505 dims (was 512 before air_quality carved 7 dims at offset 192). Currently unattested — kept zero-padded so subsequent band offsets stay byte-stable."
+      "_source_note": "Reservation slot, 121 dims (was 505 before clay_v1 carved 384 dims at offset 199 in 2026-05). Currently unattested — kept zero-padded so subsequent band offsets stay byte-stable."
     },
     {
       "key": "sentinel2_raw",

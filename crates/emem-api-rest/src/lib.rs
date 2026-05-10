@@ -38,6 +38,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod clay_chip;
 mod galileo_chip;
 mod gpu_sidecar;
 mod jepa_v2;
@@ -10942,6 +10943,121 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
     sign_and_persist(s, fact, &signed_at).await
 }
 
+/// Phase 5 — Clay Foundation Model v1.5 per-cell foundation embedding.
+///
+/// Pulls a 10-band 256×256 S2 L2A chip via `clay_chip::fetch_clay_chip`,
+/// posts to the GPU sidecar at `/predict/clay_embed`, signs the
+/// returned 1024-D CLS embedding under the `clay_v1` band. The
+/// receipt cites:
+///   * each S2 L2A asset URL the chip drew from (one Source per band),
+///   * the Clay v1.5 checkpoint blake2b (embedded in `derivation.args`)
+///     so a verifier with the same chip + same model produces the
+///     same embedding.
+///
+/// On `SidecarError::Unavailable` (no GPU / sidecar down) the
+/// materializer surfaces the error verbatim — there is no in-process
+/// CPU fallback because a CPU pass through Clay's ViT-L/8 takes
+/// 3-8 s per chip and would change the embedding's distribution
+/// (different kernel-order accumulation). The recall path catches
+/// this and signs an Absence with `gpu_unavailable` reason.
+async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+
+    let chip = clay_chip::fetch_clay_chip(cell64, s, None).await?;
+    let scene_unix = if chip.scene_unix > 0 {
+        chip.scene_unix
+    } else {
+        0
+    };
+    // Decompose scene_unix → (year, month, day) without pulling chrono;
+    // civil_from_days is the Hinnant civil-date helper we use elsewhere.
+    let (year, month, day) = if scene_unix > 0 {
+        civil_from_days(scene_unix.div_euclid(86_400))
+    } else {
+        (2024, 7, 15)
+    };
+
+    let req = gpu_sidecar::ClayRequest {
+        chip: chip.as_3d(),
+        year: Some(year),
+        month: Some(month as u8),
+        day: Some(day as u8),
+        lng: Some(lng),
+        lat: Some(lat),
+    };
+    let resp = gpu_sidecar::predict_clay_embed(&req)
+        .await
+        .map_err(|e| format!("clay sidecar: {e}"))?;
+    if resp.embedding.len() != 1024 {
+        return Err(format!(
+            "clay sidecar returned dim={} (want 1024)",
+            resp.embedding.len()
+        ));
+    }
+
+    let signed_at = chrono_iso8601_utc();
+    let value = ciborium::Value::Array(
+        resp.embedding
+            .iter()
+            .map(|v| ciborium::Value::Float(*v as f64))
+            .collect(),
+    );
+
+    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 1);
+    for url in &chip.asset_urls {
+        sources.push(Source {
+            scheme: "sentinel-2-l2a.cog".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(chip.scene_iso.clone()),
+            url: Some(url.clone()),
+        });
+    }
+    let model_blake2b = resp
+        .model
+        .get("blake2b_hex")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    sources.push(Source {
+        scheme: "model.clay_v1_5".into(),
+        id: format!("made-with-clay/Clay@{model_blake2b}"),
+        cid: None,
+        hash: None,
+        captured_at: Some(signed_at.clone()),
+        url: Some("https://huggingface.co/made-with-clay/Clay/tree/main/v1.5".into()),
+    });
+
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: "clay_v1".into(),
+        tslot: 0,
+        value,
+        unit: None,
+        confidence: 0.85,
+        uncertainty: None,
+        sources,
+        derivation: Derivation {
+            fn_key: "clay_v1_5_embed@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(chip.scene_id.clone()),
+                ciborium::Value::Integer(scene_unix.into()),
+                ciborium::Value::Text(model_blake2b),
+            ])),
+        },
+        privacy_class: "l2_only_with_model_cid".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 /// Phase 4 — Galileo Base per-cell foundation embedding.
 ///
 /// Pulls a 10-band S2 L2A chip (8×8 at 30 m equiv) via
@@ -16178,6 +16294,20 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "Element84/MPC Sentinel-2 L2A 6-band chip (B02/B03/B04/B8A/B11/B12, 224×224 @ 30m equiv) → emem-jepa-sidecar /predict/prithvi_eo2_embed (CUDA, ViT-L 1024-D CLS)",
         },
+        "clay_v1" => MaterializerMeta {
+            // Clay Foundation Model v1.5 ViT-L/8 MAE + DINOv2 teacher.
+            // 10-band S2 L2A chip resampled to 256×256 at 10 m equiv,
+            // wavelength-conditioned encoder, 1024-D CLS token. GPU-only:
+            // SidecarError::Unavailable surfaces as Absence with
+            // gpu_unavailable reason — the CPU pass is too slow and
+            // would change the embedding distribution. Tempo follows S2.
+            tempo: Tempo::Medium,
+            kind: BandKind::TimeSeries,
+            history_from_unix: Some(s2_l2a_start),
+            history_to_unix: None,
+            wire_path:
+                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/B03/B04/B05/B06/B07/B08/B8A/B11/B12, 256×256 @ 10m equiv) → emem-jepa-sidecar /predict/clay_embed (CUDA, ViT-L/8 1024-D CLS)",
+        },
         "galileo_base_v1" => MaterializerMeta {
             // Galileo (NASA Harvest, MIT) — Base variant by default
             // (86.5 M params, 768-D embedding). Per-cell embedding from a
@@ -16445,6 +16575,12 @@ async fn materialize_band_at(
         // it to the GPU sidecar, and signs the returned 1024-D CLS
         // embedding under the `prithvi_eo2` band.
         "prithvi_eo2" => return materialize_prithvi_eo2(cell64, s).await,
+        // Phase 5 — Clay v1.5 Foundation Model embedding. Pulls a
+        // 10-band S2 chip at 10 m × 256², sends to the GPU sidecar,
+        // signs the returned 1024-D CLS under the `clay_v1` band.
+        // Returns SidecarError::Unavailable when the GPU is missing;
+        // the recall path catches that and signs an honest Absence.
+        "clay_v1" => return materialize_clay_v1(cell64, s).await,
         // Phase 4 — Galileo Base S2-only embedding. Pulls a 10-band
         // 8×8 chip at 30 m equiv, sends to the GPU sidecar, signs the
         // returned 768-D average-pooled embedding under
@@ -17369,6 +17505,41 @@ async fn try_materialize_bands(
             // the returned 1024-D embedding. Cold call ~10-30 s
             // (chip range-reads + sidecar inference); warm cache hits
             // are under 1 s.
+            // Clay v1.5 Foundation Model — fetches a 10-band S2 L2A
+            // chip, resamples to 10 m × 256², sends to GPU sidecar,
+            // signs the returned 1024-D CLS under `clay_v1`. GPU-only
+            // by design (CPU pass would change the embedding's
+            // distribution); SidecarError::Unavailable surfaces as a
+            // skip_reason so the recall path can sign honest Absence.
+            "clay_v1" => match materialize_clay_v1(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary",
+                        "clay_v1 materialised via GPU sidecar"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "clay_v1 materialise failed (likely no GPU); honest Absence will be signed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             "prithvi_eo2" => match materialize_prithvi_eo2(cell64, s).await {
                 Ok(cid) => {
                     tracing::info!(

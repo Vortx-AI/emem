@@ -96,6 +96,8 @@ impl SourceTier {
             || band.starts_with("prithvi_eo2.")
             || band == "galileo_base"
             || band.starts_with("galileo_base.")
+            || band == "clay_v1"
+            || band.starts_with("clay_v1.")
         {
             // Tessera, Prithvi-EO-2.0, and Galileo are learned
             // representations of S2 (and for Tessera also S1) fused at
@@ -342,6 +344,107 @@ pub struct Algorithm {
     /// composes itself. Added in 0.0.3 alongside `temporal_recipe`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation: Option<Expr>,
+    /// Optional inference-tier declaration — see [`InferenceTier`]. When
+    /// present, the dispatcher consults the sidecar's `/health.extensions`
+    /// at planning time and filters algorithms whose required hardware is
+    /// not currently advertised. The `tier_chain` lists the responder's
+    /// preference order (e.g. `["gpu","cpu","absence"]`); the receipt
+    /// names which tier actually served (`served_via.tier`). Added 2026-05
+    /// alongside the Clay Foundation Model band — Clay-anchored algorithms
+    /// require a working GPU, so the tier metadata is what lets us route
+    /// to them when GPU is up and skip them honestly when it isn't,
+    /// without silent CPU fallback that would ship a different embedding
+    /// distribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inference: Option<InferenceTier>,
+}
+
+/// Where an algorithm wants to run. Mirrors Triton's `instance_group.kind`
+/// (`KIND_GPU` / `KIND_CPU`) and the device-kind attribute in BentoML
+/// `resources={"gpu":1}` / Ray Serve `accelerator_type`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InferenceTierKind {
+    /// Requires a CUDA / ROCm device. Refuses to run when the sidecar's
+    /// `/health.cuda.available` is false (or the sidecar is unreachable).
+    Gpu,
+    /// Runs on CPU. May still call the sidecar (for the model registry's
+    /// Galileo-Tiny CPU path), but does not require a GPU.
+    Cpu,
+    /// Pure scalar formula — no model, no sidecar, no GPU. Most existing
+    /// `solo` and `combined` entries fit here once their tier is set
+    /// explicitly. Default behaviour for entries without an `inference`
+    /// block is to be treated as `Scalar` so legacy registries stay valid.
+    Scalar,
+    /// Reads only from the cache / persisted facts — does not invoke any
+    /// upstream connector or model inference. Used by `find_similar`
+    /// over a band the responder already materialised.
+    Cached,
+    /// Sentinel: serve a signed `Absence` instead of attempting the
+    /// algorithm. Only valid as a `tier_chain` terminal — never a
+    /// primary `tier`.
+    Absence,
+}
+
+/// What to do when the primary tier is unavailable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TierFallbackStrategy {
+    /// Sign an `Absence` fact with `unavailable_capability` reason. Use
+    /// when the CPU path would change the embedding's distribution
+    /// (e.g. swapping a 1024-D ViT for a 192-D distillation produces a
+    /// different cosine surface — silently shipping that breaks the
+    /// `bands_cid` contract).
+    AbsenceWithReason,
+    /// Walk the `tier_chain` to the next entry, attach `served_via.tier`
+    /// to the receipt, and continue. Only safe when every tier produces
+    /// a byte-compatible output schema.
+    DegradeWithTierLabel,
+    /// Retry the primary tier (typically `gpu`) `max_retries` times with
+    /// jitter, then sign `Absence`. Used when the sidecar is briefly
+    /// busy but expected to recover.
+    RetryThenAbsence,
+}
+
+/// Inference-tier declaration. Lifted from Triton's `instance_group`,
+/// Modal's `gpu=["h100","a100","any"]` fallback list, KServe v2's
+/// `extensions[]` capability set, and the MCP capability-negotiation
+/// pattern (the dispatcher filters at planning time so an agent never
+/// sees a tool whose hardware is currently absent).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceTier {
+    /// Primary tier — the responder's first-choice runtime for this
+    /// algorithm.
+    pub tier: InferenceTierKind,
+    /// Ordered preference. The dispatcher walks this list and picks the
+    /// first tier whose capability is currently advertised by the
+    /// sidecar's `/health.extensions`. Example: `["gpu","absence"]` for
+    /// a Clay encoder call (refuse rather than CPU-fallback).
+    /// `["gpu","cpu","cached"]` for a degradable embedding lookup.
+    pub tier_chain: Vec<InferenceTierKind>,
+    /// Editorial label for the device kind (`"cuda"`, `"cpu"`). Surfaced
+    /// to clients via `served_via.device_kind`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_kind: Option<String>,
+    /// Estimated VRAM in bytes for batch=1 fp16 / fp32 inference. Used
+    /// by the admission queue to decide whether the in-flight set fits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vram_estimate_bytes: Option<u64>,
+    /// P95 latency budget the responder treats as the SLA. Above this
+    /// the dispatcher prefers the next tier in `tier_chain`. Optional;
+    /// when unset, no budget gating is applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p95_budget_ms: Option<u32>,
+    /// Behaviour when the primary tier can't serve. See
+    /// [`TierFallbackStrategy`].
+    pub fallback_strategy: TierFallbackStrategy,
+    /// Capability tag the algorithm needs in `/health.extensions`. Set
+    /// to `Some("clay-v1.5")` for a Clay-anchored algorithm so the
+    /// dispatcher only routes to it when the responder advertises
+    /// Clay. Optional — pure GPU primitives that don't depend on a
+    /// specific model leave it `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_extension: Option<String>,
 }
 
 /// One temporal lookback window an algorithm wants alongside the snapshot.
@@ -827,6 +930,60 @@ impl Manifest for AlgorithmRegistry {
                             mm.anchor_band,
                             anchor_tier
                         )));
+                    }
+                }
+            }
+
+            // I1 — when an `inference` block is present, the primary
+            // tier must appear at position 0 of `tier_chain`. Without
+            // this rule an entry could declare `tier=gpu` while the
+            // chain led with `cpu`, and the dispatcher would skip the
+            // GPU path entirely. `Absence` is never valid as a primary
+            // tier — it's a terminal sentinel only.
+            if let Some(inf) = &a.inference {
+                if matches!(inf.tier, InferenceTierKind::Absence) {
+                    return Err(ManifestError::Invalid(format!(
+                        "algorithm {}: inference.tier cannot be Absence; \
+                         Absence is a tier_chain terminal sentinel only",
+                        a.key
+                    )));
+                }
+                if !inf.tier_chain.is_empty() && inf.tier_chain.first() != Some(&inf.tier) {
+                    return Err(ManifestError::Invalid(format!(
+                        "algorithm {}: inference.tier_chain[0] = {:?} but inference.tier = {:?}; \
+                         the primary tier must lead the chain",
+                        a.key,
+                        inf.tier_chain.first(),
+                        inf.tier
+                    )));
+                }
+                // I2 — DegradeWithTierLabel is only safe when every
+                // chain step produces a byte-compatible output schema
+                // (Cached and Scalar are both schema-stable; Cpu may
+                // not be — flag as editorial caution rather than
+                // hard-reject so the manifest stays additive).
+                if matches!(
+                    inf.fallback_strategy,
+                    TierFallbackStrategy::DegradeWithTierLabel
+                ) {
+                    let has_unsafe_cpu_in_chain = inf
+                        .tier_chain
+                        .iter()
+                        .any(|t| matches!(t, InferenceTierKind::Cpu));
+                    if has_unsafe_cpu_in_chain && matches!(inf.tier, InferenceTierKind::Gpu) {
+                        // Editorial caution: encoder swap mid-chain
+                        // breaks the bands_cid contract. We allow it
+                        // (some algorithms genuinely have a contract-
+                        // safe CPU twin) but every such entry SHOULD
+                        // also declare `accuracy_band` so the contract
+                        // gap is visible to clients.
+                        if a.accuracy_band.is_none() {
+                            return Err(ManifestError::Invalid(format!(
+                                "algorithm {}: gpu→cpu degrade_with_tier_label requires \
+                                 accuracy_band so clients see the contract gap",
+                                a.key
+                            )));
+                        }
                     }
                 }
             }

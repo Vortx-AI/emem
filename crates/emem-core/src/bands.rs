@@ -225,7 +225,11 @@ mod tests {
         // offset 894) reclaimed for prithvi_eo2 (384 dims at 894); count
         // dropped 35 → 34 because two placeholder bands collapse into one
         // live foundation band. terrain_derived offset stays 1278.
-        assert_eq!(r.bands.len(), 34);
+        // 2026-05-11: _reserved_512 (505 dims at 199) split into
+        // clay_v1 (384 dims at 199) + _reserved_128 (121 dims at 583);
+        // count rose 34 → 35 because one slot split into two. Subsequent
+        // band offsets stay byte-stable.
+        assert_eq!(r.bands.len(), 35);
     }
 
     #[test]
@@ -234,7 +238,8 @@ mod tests {
         for k in &[
             "geotessera",
             "overture",
-            "_reserved_512",
+            "clay_v1",
+            "_reserved_128",
             "sentinel2_raw",
             "indices",
             "dem",
@@ -256,8 +261,14 @@ mod tests {
         assert_eq!(idx["overture"].dims, 64);
         assert_eq!(idx["air_quality"].offset, 192);
         assert_eq!(idx["air_quality"].dims, 7);
-        assert_eq!(idx["_reserved_512"].offset, 199);
-        assert_eq!(idx["_reserved_512"].dims, 505);
+        // 2026-05-11: clay_v1 (384 dims at offset 199) carved out of
+        // the historic _reserved_512 (505 dims) → _reserved_128
+        // (121 dims at offset 583). Subsequent band offsets stay
+        // byte-stable: clay_v1 + _reserved_128 = 384 + 121 = 505.
+        assert_eq!(idx["clay_v1"].offset, 199);
+        assert_eq!(idx["clay_v1"].dims, 384);
+        assert_eq!(idx["_reserved_128"].offset, 583);
+        assert_eq!(idx["_reserved_128"].dims, 121);
         assert_eq!(idx["sentinel2_raw"].offset, 704);
         // sam3_visual + qwen_visual placeholders (192+192=384 dims at 894)
         // were reclaimed for prithvi_eo2 (384 dims at 894). Subsequent

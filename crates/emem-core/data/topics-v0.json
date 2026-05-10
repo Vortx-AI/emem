@@ -59,7 +59,7 @@
         "flooded today"
       ],
       "bands": ["indices.ndwi", "indices.mndwi", "sentinel1_raw"],
-      "algorithms": ["water_consensus@1", "water_likelihood_from_vv@1", "flood_extent_sar_threshold@1", "wetland_binary_s1_s2_dem@1"]
+      "algorithms": ["water_consensus@1", "water_likelihood_from_vv@1", "flood_extent_sar_threshold@1", "wetland_binary_s1_s2_dem@1", "prithvi_cafe_flood_segmentation@1"]
     },
     {
       "key": "flood_risk_composite",
@@ -151,7 +151,7 @@
         "is it safe from fire"
       ],
       "bands": ["indices.nbr"],
-      "algorithms": ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "residue_burn_multisensor@1"]
+      "algorithms": ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "residue_burn_multisensor@1", "wildfire_burn_intensity_dnbr_finetune@1"]
     },
     {
       "key": "soil_bare",
@@ -304,7 +304,7 @@
         "orchard health"
       ],
       "bands": ["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "indices.ndre", "indices.ndti", "modis.ndvi_mean", "modis.lai_8day", "modis.gpp_8day", "power.t2m", "power.t2m_min", "power.t2m_max", "power.precip", "sentinel1_raw"],
-      "algorithms": ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1", "crop_water_stress_index_proxy@1", "crop_archetype_embedding_match@1"]
+      "algorithms": ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1", "crop_water_stress_index_proxy@1", "crop_archetype_embedding_match@1", "prithvi_canola_yield_frozen_encoder@1"]
     },
     {
       "key": "soil_intelligence",
@@ -425,8 +425,8 @@
         "embedding similarity",
         "what does this place look like geographically"
       ],
-      "bands": ["geotessera", "geotessera.multi_year", "geotessera.bin128", "prithvi_eo2"],
-      "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1", "embedding_temporal_change_year@1", "multimodal_change_score@1", "prithvi_archetype_match@1", "prithvi_temporal_change@1", "prithvi_tessera_ensemble_change@1"]
+      "bands": ["geotessera", "geotessera.multi_year", "geotessera.bin128", "prithvi_eo2", "clay_v1"],
+      "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1", "embedding_temporal_change_year@1", "multimodal_change_score@1", "prithvi_archetype_match@1", "prithvi_temporal_change@1", "prithvi_tessera_ensemble_change@1", "clay_archetype_match@1", "clay_temporal_change@1", "clay_prithvi_tessera_triple_consensus@1", "cross_modal_s1_s2_consistency@1"]
     },
     {
       "key": "optical_raw_reflectance",
@@ -525,7 +525,7 @@
         "change-point"
       ],
       "bands": ["geotessera", "modis.ndvi_mean", "indices.ndvi"],
-      "algorithms": ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1", "sar_coherence_change_proxy@1"]
+      "algorithms": ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1", "sar_coherence_change_proxy@1", "methane_plume_swir_anomaly@1", "landslide_post_event_sar_dnn@1", "cross_modal_s1_s2_consistency@1"]
     },
     {
       "key": "water_quality",

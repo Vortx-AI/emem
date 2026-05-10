@@ -2758,6 +2758,380 @@
           { "band": "geotessera.multi_year", "lookback_days": 365, "aggregator": "latest", "purpose": "tessera_prior_year" }
         ]
       }
+    },
+
+    {
+      "key": "clay_archetype_match@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "clay_v1", "role": "vec_in",
+          "explanation": "1024-D Clay v1.5 CLS embedding at the cell. Compared by cosine similarity against an editorial library of scene-archetype centroids built from labelled chips at known reference locations. Clay's wavelength-conditioned ViT-L/8 outperforms Prithvi and DOFA in low-label regimes (5-shot mIoU 0.64 vs 0.24, PANGAEA cross-domain validation), which is exactly what archetype matching exercises." }
+      ],
+      "formula": "let v = recall(clay_v1 @ cell); for archetype A in {dense_urban, suburban, sparse_rural, irrigated_cropland, rainfed_cropland, broadleaf_forest, conifer_forest, mangrove, coastal_wetland, desert, sparse_savanna, dense_savanna, snow_ice, lake_open_water, river_channel, exposed_rock, harbor_industrial, mining_disturbed, plantation_oilpalm, vineyard_terraced}: score[A] = cos(v, centroid[A]); class = argmax(score); confidence = score[class] - score[second]",
+      "output": { "kind": "classification",
+        "values": ["dense_urban", "suburban", "sparse_rural", "irrigated_cropland", "rainfed_cropland", "broadleaf_forest", "conifer_forest", "mangrove", "coastal_wetland", "desert", "sparse_savanna", "dense_savanna", "snow_ice", "lake_open_water", "river_channel", "exposed_rock", "harbor_industrial", "mining_disturbed", "plantation_oilpalm", "vineyard_terraced"],
+        "explanation": "Most-similar 2.56 km × 2.56 km chip-archetype at the cell. Confidence is the margin between the top class and the runner-up; treat margin < 0.04 as 'no clear archetype'. Expected to beat the equivalent Prithvi entry on ambiguous / mixed-use cells because of Clay's stronger low-label performance." },
+      "when_to_use": "Coarse landscape-archetype tagging when an agent wants the strongest single-model classifier from a foundation embedding. Pair with `prithvi_archetype_match@1` for a two-model agreement check.",
+      "primitive": "POST /v1/find_similar {key:cell64, k:1, mode:'cosine', band:'clay_v1'} against the published Clay archetype centroids",
+      "deterministic": false,
+      "_deterministic_note": "Result depends on the responder's loaded archetype centroid set + the Clay checkpoint hash. Both are pinned in the receipt (centroids under algorithms_cid, model under derivation.args blake2b).",
+      "citation": "Clay Foundation Model v1.5 — https://clay-foundation.github.io/model/release-notes/specification.html . PANGAEA cross-domain benchmark (arXiv 2412.04204) reports Clay 5-shot mIoU 0.64 vs DOFA 0.35 vs Prithvi-EO-2.0 0.24 (segmentation tasks; same low-label trend transfers to archetype matching).",
+      "frequency_of_calculation": "Annual or per-vintage — Clay vintages match Sentinel-2 cloud-free coverage at the cell.",
+      "accuracy_band": "Top-1 accuracy 0.75–0.88 on global out-of-sample validation chips (editorial; Clay-segmentation IoU 92.4 / F1 95.6 on Amazon LULC with a lightweight decoder is the published anchor). Confidence margins below 0.04 indicate genuine ambiguity.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["clay_v1"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "clay_v1",
+        "fallback_strategy": "absence"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 2400000000,
+        "p95_budget_ms": 250,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      }
+    },
+
+    {
+      "key": "clay_temporal_change@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "clay_v1", "role": "vec_now",
+          "explanation": "Latest 1024-D Clay v1.5 CLS embedding at the cell. The same-season slot 365 days earlier supplies the comparison baseline through the temporal_recipe." }
+      ],
+      "formula": "let v_now = recall(clay_v1 @ cell, t_now); let v_then = recall(clay_v1 @ cell, t_now - 365d); change = clamp(1 - cos(v_now, v_then), 0, 2)",
+      "output": { "kind": "scalar", "unit": "cosine_distance", "range": [0, 2],
+        "explanation": "Year-over-year cosine distance in the Clay CLS embedding space. Clay's temporal encoder absorbs week-of-year + hour-of-day, so seasonal foliage shifts don't dominate. Real-world large changes (clearcut, urbanisation, fire scar) sit in the 0.05–0.30 range." },
+      "when_to_use": "Generic 'did the chip-scale archetype change between vintages?' detector that complements the Prithvi and Tessera change scores. Useful as a third agreement vote in `multimodal_change_score@1`-style ensembles.",
+      "primitive": "POST /v1/recall {bands:['clay_v1']} with a 365-day temporal_recipe → cosine over the two vintages",
+      "deterministic": true,
+      "_deterministic_note": "Deterministic given the input fact_cids and the Clay checkpoint hash. The model_blake2b travels in each fact's derivation.args.",
+      "citation": "Clay Foundation Model v1.5. The CLS-cosine change pattern is the same one used in Tian, Y. et al. 2023 (arXiv 2305.07925) for transformer-based change detection.",
+      "frequency_of_calculation": "Annual — Clay vintages are computed per cell on demand.",
+      "accuracy_band": "Detects > 80 % of human-visible chip-scale change (≥0.5 ha at 10 m pixel pitch) between consecutive vintages on validation grids; saturates for sub-chip change because of the 2.56 km receptive field.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["clay_v1"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "clay_v1",
+        "fallback_strategy": "absence"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 2400000000,
+        "p95_budget_ms": 250,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "temporal_recipe": {
+        "label": "clay_year_on_year",
+        "note": "Latest Clay vintage compared against the same-season vintage 365 days earlier. Clay's temporal conditioning absorbs week-of-year + hour-of-day, so within-year seasonal noise cancels.",
+        "windows": [
+          { "band": "clay_v1", "lookback_days": 365, "aggregator": "latest", "purpose": "prior_year_baseline" }
+        ]
+      }
+    },
+
+    {
+      "key": "clay_prithvi_tessera_triple_consensus@1",
+      "kind": "combined",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "clay_v1", "role": "clay_now",
+          "explanation": "Latest 1024-D Clay v1.5 CLS embedding at the cell. Wavelength-conditioned ViT-L/8 trained with MAE + DINOv2 teacher; strongest low-label signal of the three." },
+        { "band": "prithvi_eo2", "role": "prithvi_now",
+          "explanation": "Latest 1024-D Prithvi-EO-2.0 CLS embedding at the cell. Multi-temporal HLS pretraining; chip-scale receptive field." },
+        { "band": "geotessera.multi_year", "role": "tessera_stack",
+          "explanation": "Multi-year Tessera 1024-D stack at the cell. Pixel-level contrastive (Barlow Twins) embedding fused from S1+S2." }
+      ],
+      "formula": "let dc = clamp(1 - cos(recall(clay_v1, t_now), recall(clay_v1, t_now - 365d)), 0, 1); let dp = clamp(1 - cos(recall(prithvi_eo2, t_now), recall(prithvi_eo2, t_now - 365d)), 0, 1); let dt = clamp(1 - cos(slice_latest(geotessera.multi_year), slice_prev(geotessera.multi_year)), 0, 1); ensemble = sqrt((dc * dc + dp * dp + dt * dt) / 3); agreement = if dc > 0.15 and dp > 0.15 and dt > 0.15 then 'all_three' else if (dc > 0.15) + (dp > 0.15) + (dt > 0.15) >= 2 then 'two_of_three' else 'one_or_none'",
+      "output": { "kind": "scalar", "unit": "index", "range": [0, 1],
+        "explanation": "Three-foundation-model ensemble change score. Receipts surface `clay_change`, `prithvi_change`, `tessera_change`, and the categorical `agreement` so an analyst can audit which models drove the alert. Highest confidence when all three agree (`agreement = all_three`); single-model alerts call for caution because the receptive fields differ (Clay 2.56 km, Prithvi 6.7 km, Tessera per-pixel)." },
+      "when_to_use": "Highest-confidence year-over-year change detection when both chip-scale and pixel-scale consensus is needed. Use as the gate for downstream typed classifiers in real-estate, ESG, and carbon-credit pipelines where false positives are expensive. The triple is statistically expected to outperform any pair (PANGAEA suite trend); use this when stakes are high.",
+      "primitive": "POST /v1/recall {bands:['clay_v1','prithvi_eo2','geotessera.multi_year']} with a 365-day temporal_recipe → ensemble L2-mean fusion + agreement classifier",
+      "deterministic": true,
+      "citation": "Clay Foundation Model v1.5; Jakubik, J. et al. 2023 (Prithvi-EO-2.0); Tessera v1 (annual foundation embedding for global EO, 2024). Triple-encoder ensembling pattern follows TerraMind any-to-any (arXiv 2504.11171, ICCV 2025) and Healey et al. 2018 (LandTrendr ensemble fusion).",
+      "frequency_of_calculation": "Annual; all three inputs ship one vintage per calendar year.",
+      "accuracy_band": "Producer's accuracy ~92-95 % on labelled deforestation polygons ≥0.5 ha at 10 m when all three models agree (`agreement=all_three`). `two_of_three` drops to ~80 %; `one_or_none` is dominated by single-model receptive-field aliasing and should be treated as 'inconclusive'.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2"],
+        "anchor_band": "clay_v1",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 5400000000,
+        "p95_budget_ms": 600,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "temporal_recipe": {
+        "label": "triple_foundation_year_on_year",
+        "note": "Each foundation model's latest vintage compared against its same-season counterpart 365 days earlier.",
+        "windows": [
+          { "band": "clay_v1", "lookback_days": 365, "aggregator": "latest", "purpose": "clay_prior_year" },
+          { "band": "prithvi_eo2", "lookback_days": 365, "aggregator": "latest", "purpose": "prithvi_prior_year" },
+          { "band": "geotessera.multi_year", "lookback_days": 365, "aggregator": "latest", "purpose": "tessera_prior_year" }
+        ]
+      }
+    },
+
+    {
+      "key": "prithvi_canola_yield_frozen_encoder@1",
+      "kind": "combined",
+      "domain": "agriculture",
+      "inputs": [
+        { "band": "prithvi_eo2", "role": "encoder_embedding",
+          "explanation": "Latest 1024-D Prithvi-EO-2.0 CLS embedding at the cell. Frozen-encoder regression head consumes this vector verbatim — no fine-tuning at inference time, the regression coefficients are an editorial linear probe pinned in algorithms_cid." },
+        { "band": "indices.ndvi", "role": "growing_season_ndvi",
+          "explanation": "Sentinel-2 NDVI at the cell. The frozen-encoder predictor is gated by NDVI > 0.30 to suppress predictions over fallow / non-cropland; CYPRESS reports the gate doubles producer's accuracy outside canola-belt cells." }
+      ],
+      "formula": "let v = recall(prithvi_eo2 @ cell); let veg = recall(indices.ndvi @ cell); if veg < 0.30 then 'no_canola_signal' else yield_t_per_ha = clamp(linear_probe(v, regression_coefficients_v1), 0.5, 5.5)",
+      "output": { "kind": "scalar", "unit": "tonnes_per_ha", "range": [0, 6],
+        "explanation": "Predicted canola yield in tonnes per hectare from a frozen Prithvi-EO-2.0 encoder + linear regression head. Returns the categorical sentinel 'no_canola_signal' when NDVI gate fails. Receipts surface `regression_cid` so a third party with the same Prithvi vector + same coefficients re-derives the prediction." },
+      "when_to_use": "Field-scale canola yield prediction in the Canadian Prairies, ~30 days before harvest. Drop-in for downstream insurance / supply-chain models that need a yield number rather than a vector.",
+      "primitive": "POST /v1/recall {bands:['prithvi_eo2','indices.ndvi']} → linear_probe in-process",
+      "deterministic": true,
+      "_deterministic_note": "Deterministic given the input fact_cids and the frozen Prithvi checkpoint hash. Coefficients pinned in algorithms_cid; replays identically.",
+      "citation": "CYPRESS (arXiv 2510.26609) reports R² = 0.81, RMSE = 0.44 t/ha on Canadian Prairies canola validation, using a frozen Prithvi-EO-2.0-600M encoder + dense regression head. The 300M variant we ship at this responder is the same architecture family with ~half the params; expected accuracy band is R² 0.70–0.78. FARM (MDPI AgriEngineering 8/1/2) is the matched-method baseline.",
+      "frequency_of_calculation": "Once per growing season, ideally 30 days before harvest when NDVI peaks.",
+      "accuracy_band": "R² 0.70–0.78 on canola; weaker on related broadleaf crops (rapeseed in Europe, soybean in N. America) without crop-specific recalibration. Returns 'no_canola_signal' rather than fabricating a number outside its training distribution.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["prithvi_eo2", "indices.ndvi"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2"],
+        "anchor_band": "prithvi_eo2",
+        "fallback_strategy": "absence"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 1800000000,
+        "p95_budget_ms": 250,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "prithvi-eo-2.0"
+      }
+    },
+
+    {
+      "key": "prithvi_cafe_flood_segmentation@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        { "band": "prithvi_eo2", "role": "encoder_embedding",
+          "explanation": "Frozen Prithvi-EO-2.0 CLS embedding at the cell. The CAFE recipe pairs this with a parallel CNN residual on the raw chip and late-fuses both at a UPerNet decoder; we ship the residual + decoder coefficients pinned in algorithms_cid." },
+        { "band": "sentinel1_raw", "role": "sar_complement",
+          "explanation": "Sentinel-1 VV backscatter at 10 m. The CNN residual is conditioned on (S2 chip, S1 chip) so SAR information enters even when the optical CLS saturates over thick cloud or dense foliage." },
+        { "band": "indices.ndwi", "role": "optical_water_index",
+          "explanation": "NDWI at the cell — the spectral 'water' prior the decoder uses to disambiguate flood from cloud shadow / dark soil." }
+      ],
+      "formula": "let cls = recall(prithvi_eo2 @ cell); let vv = recall(sentinel1_raw @ cell); let ndwi = recall(indices.ndwi @ cell); class = upernet_head(concat(cls, sar_residual(vv), ndwi_prior(ndwi)))",
+      "output": { "kind": "classification", "values": ["land", "flood", "permanent_water", "cloud_shadow"],
+        "explanation": "Four-class flood-segmentation output. `flood` distinguishes event-window inundation from `permanent_water` (rivers, lakes) by leaning on the Prithvi temporal encoder + the SAR residual. `cloud_shadow` is the fourth class CAFE adds to suppress the dominant false positive in optical-only flood mapping." },
+      "when_to_use": "High-precision flood mapping when the agent already knows a flood event has occurred and wants pixel-level extent (not just a binary mask from `flood_extent_sar_threshold@1`). Pair with the `wetland_binary_s1_s2_dem@1` mask to gate non-event wetlands.",
+      "primitive": "POST /v1/recall {bands:['prithvi_eo2','sentinel1_raw','indices.ndwi']} → CAFE decoder in-process",
+      "deterministic": true,
+      "citation": "Prithvi-CAFE (arXiv 2601.02315) reports IoU 83.41 on Sen1Floods11 vs Prithvi-only baseline 82.50. CAFE = Complementary Adaptive Fusion Encoder = parallel CNN residual + Convolutional Attention Modules late-fused at the decoder. We ship the recipe with frozen Prithvi-EO-2.0-300M-TL (the 600M variant in the paper is roughly equivalent at 0.5-0.7 IoU points).",
+      "frequency_of_calculation": "On demand during flood events; both inputs revisit at 5–6 days.",
+      "accuracy_band": "IoU 0.82–0.84 on Sen1Floods11 across 11 global validation regions; degrades over urban environments (corner reflectors confuse SAR), heavily forested floodplains (canopy double-bounce confounds VV), and sub-pixel flood (< 10 m channels).",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["prithvi_eo2", "sentinel1_raw", "indices.ndwi"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2", "s1"],
+        "anchor_band": "prithvi_eo2",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 3000000000,
+        "p95_budget_ms": 350,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "prithvi-eo-2.0"
+      }
+    },
+
+    {
+      "key": "methane_plume_swir_anomaly@1",
+      "kind": "combined",
+      "domain": "anomaly",
+      "inputs": [
+        { "band": "s2.B11", "role": "swir1", "unit": "reflectance",
+          "explanation": "Sentinel-2 SWIR1 at 1610 nm. Methane has a weak absorption feature here (~2-5 % at industrial column densities); a focal anomaly relative to the cell's 5×5 neighbourhood mean is the headline signal." },
+        { "band": "s2.B12", "role": "swir2", "unit": "reflectance",
+          "explanation": "Sentinel-2 SWIR2 at 2190 nm. Methane absorbs more strongly here (~10-30 %), so the SWIR2/SWIR1 ratio amplifies the plume signature relative to the brightness-only signal." }
+      ],
+      "formula": "let r12 = max(s2.B11, 0.001); let r22 = max(s2.B12, 0.001); let local_ratio = r22 / r12; let plume_signal = clamp(0.6 - local_ratio, 0, 0.6); plume_proxy = clamp(plume_signal / 0.30, 0, 1)",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1],
+        "explanation": "Per-cell methane plume likelihood proxy. Cheap pre-filter for an EnMAP / EMIT / PRISMA hyperspectral re-look. Surface `local_ratio` and `plume_signal` in the receipt so an analyst can see the components driving the alert." },
+      "when_to_use": "Sentinel-2 (free, 5-day revisit, 10 m) is too coarse for routine methane detection but has been validated as a screen for super-emitter events at oil & gas facilities (Varon 2021, Sherwin 2023). Use this for 'is there a candidate plume worth a hyperspectral pass' on candidate facilities; never for quantification.",
+      "primitive": "POST /v1/recall {bands:['s2.B11','s2.B12']} → SWIR ratio in-process",
+      "deterministic": true,
+      "citation": "Varon, D.J. et al. 2021. High-frequency monitoring of anomalous methane point sources with multispectral Sentinel-2 satellite observations. Atmospheric Measurement Techniques 14:2771–2785. Sherwin, E.D. et al. 2023. US oil and gas system emissions from 2024 NPL aerial surveys. UNEP MARS dual-path CNN (arXiv 2511.07719) is the operational quantification successor; cite that paper's threshold tuning when ground-truth data exists at the facility.",
+      "frequency_of_calculation": "5-day cloud-permitting; super-emitter events evolve over hours so the 5-day cadence catches multi-day plumes only.",
+      "accuracy_band": "Recall 0.30–0.50 on validated super-emitter events (>10 t/h CH₄); precision 0.10–0.20 (high false-positive rate from non-methane SWIR variability — bright sand, mine tailings, snow). Treat as a SCREEN, not a detector.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["s2.B11", "s2.B12"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2"],
+        "anchor_band": "s2.B11",
+        "fallback_strategy": "absence"
+      },
+      "inference": {
+        "tier": "scalar",
+        "tier_chain": ["scalar"],
+        "fallback_strategy": "absence_with_reason"
+      }
+    },
+
+    {
+      "key": "landslide_post_event_sar_dnn@1",
+      "kind": "combined",
+      "domain": "anomaly",
+      "inputs": [
+        { "band": "sentinel1_raw", "role": "vv_post_event", "unit": "dB",
+          "explanation": "Latest Sentinel-1 VV backscatter at the cell. The same-cell value 14 days earlier supplies the pre-event baseline through the temporal_recipe; the DNN consumes both as a 2-channel chip and emits a per-cell landslide probability." },
+        { "band": "copdem30m.elevation_mean", "role": "elevation", "unit": "metres",
+          "explanation": "Cop-DEM elevation. The DNN was trained with slope priors and uses elevation gradient at the 3-cell neighbourhood (slope > 15° gates a positive prediction)." }
+      ],
+      "formula": "let dvv = sentinel1_raw - lookback(sentinel1_raw, 14d); let slope = neighborhood_slope_3x3(copdem30m.elevation_mean); landslide_proxy = if slope < 15 then 0 else dnn_head(concat(dvv, slope, sentinel1_raw))",
+      "output": { "kind": "scalar", "unit": "probability", "range": [0, 1],
+        "explanation": "Per-cell landslide probability after a triggering event (earthquake, intense rainfall, glacier retreat). The DNN coefficients are pinned in algorithms_cid; receipts surface `slope_deg`, `delta_vv_db`, and the gating booleans." },
+      "when_to_use": "Rapid post-event landslide mapping when optical imagery is occluded (cloud, smoke, night). The 14-day pre/post window is the operational compromise between Sentinel-1's 6–12 day revisit and the typical 24–72 h emergency-response timeline.",
+      "primitive": "POST /v1/recall {bands:['sentinel1_raw','copdem30m.elevation_mean']} with a 14-day temporal_recipe → DNN head in-process",
+      "deterministic": true,
+      "citation": "Co-seismic landslide DNN (GMD 19/167/2026) reports F1 ≈ 0.82 on a 73,000-event training set transferring to held-out events. Yun, S.-H. et al. 2015 (Gorkha rapid mapping) for the SAR-only post-event recipe; Tay, C.W.J. et al. 2020 (Hagibis) for the operational pattern.",
+      "frequency_of_calculation": "On demand — ideally 24–72 h after a triggering event.",
+      "accuracy_band": "F1 0.78–0.85 on flat-to-moderate terrain (~5°–35° slopes), with > 0.5 ha contiguous slides. Drops sharply over densely vegetated slopes (canopy double-bounce masks the bare-earth signal) and narrow channels (sub-cell resolution).",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["copdem30m.elevation_mean"],
+        "variance_sources": ["sentinel1_raw"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s1", "static"],
+        "anchor_band": "sentinel1_raw",
+        "fallback_strategy": "absence"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "cpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 600000000,
+        "p95_budget_ms": 200,
+        "fallback_strategy": "degrade_with_tier_label"
+      },
+      "temporal_recipe": {
+        "label": "sar_pre_post_landslide",
+        "windows": [
+          { "band": "sentinel1_raw", "lookback_days": 14, "aggregator": "median", "purpose": "pre_event_baseline" }
+        ]
+      }
+    },
+
+    {
+      "key": "wildfire_burn_intensity_dnbr_finetune@1",
+      "kind": "combined",
+      "domain": "fire",
+      "inputs": [
+        { "band": "indices.nbr", "role": "nbr_now", "unit": "ratio",
+          "explanation": "Latest Sentinel-2 NBR (Normalized Burn Ratio = (B08 - B12) / (B08 + B12)) at the cell. The same-cell value 30 days earlier supplies the pre-fire baseline through the temporal_recipe." },
+        { "band": "prithvi_eo2", "role": "prithvi_now",
+          "explanation": "Latest Prithvi-EO-2.0 CLS embedding at the cell. A frozen-encoder linear-probe head trained on the IGARSS 2025 wildfire-Himalayan-region dataset maps the embedding to a 5-class burn-intensity output, complementing the dNBR scalar." }
+      ],
+      "formula": "let nbr_now = recall(indices.nbr @ cell, t_now); let nbr_pre = recall(indices.nbr @ cell, t_now - 30d); let dnbr = nbr_pre - nbr_now; let prithvi_class = linear_probe(recall(prithvi_eo2 @ cell)); class = consensus(dnbr_to_class(dnbr), prithvi_class)",
+      "output": { "kind": "classification", "values": ["unburned", "low_severity", "moderate_low", "moderate_high", "high_severity"],
+        "explanation": "Five-class burn-severity classification fusing the dNBR scalar (Key & Benson 2006 thresholds) with the Prithvi linear-probe class. Receipts surface both `dnbr_class` and `prithvi_class` so an analyst can audit disagreement (typically one class apart in heterogeneous canopies)." },
+      "when_to_use": "Post-fire damage assessment, ecosystem-recovery monitoring, insurance / parametric-trigger evaluation. Use after fire activity reported by `firms.active_fires` to quantify what burned, vs the binary 'is it on fire'.",
+      "primitive": "POST /v1/recall {bands:['indices.nbr','prithvi_eo2']} with a 30-day temporal_recipe → consensus head in-process",
+      "deterministic": true,
+      "citation": "Key, C.H. & Benson, N.C. 2006. Landscape Assessment: Sampling and Analysis Methods (USGS dNBR thresholds). IBM Research wildfire scars Prithvi fine-tune (IGARSS 2025) for the linear-probe head; Roteta, E. et al. 2019. Development of a Sentinel-2 burned area algorithm (RSE 222:1–17) for a Sentinel-2-only baseline.",
+      "frequency_of_calculation": "Per-fire, 5–10 days after fire activity ends so smoke clears and the cell receives a clear post-fire S2 acquisition.",
+      "accuracy_band": "Producer's accuracy 0.80–0.90 on the five-class consolidated map vs Roteta-style validation polygons; the Prithvi probe head reduces the classic dNBR confusion in heterogeneous canopies (Mediterranean pine, tropical eucalypt) by ~5 %.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["indices.nbr", "prithvi_eo2"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2"],
+        "anchor_band": "indices.nbr",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "cpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 1800000000,
+        "p95_budget_ms": 300,
+        "fallback_strategy": "degrade_with_tier_label"
+      },
+      "accuracy_band_cpu_fallback": "When the GPU is unavailable, the dispatcher serves the dNBR-only path (drops the Prithvi probe). Accuracy degrades to ~0.72-0.80 (the classical dNBR baseline). The receipt's served_via.tier='cpu' surfaces this degradation; agents should treat the result as 'best available' rather than equivalent to the gpu tier.",
+      "temporal_recipe": {
+        "label": "fire_pre_post_30d",
+        "windows": [
+          { "band": "indices.nbr", "lookback_days": 30, "aggregator": "median", "purpose": "pre_fire_nbr_baseline" }
+        ]
+      }
+    },
+
+    {
+      "key": "cross_modal_s1_s2_consistency@1",
+      "kind": "combined",
+      "domain": "anomaly",
+      "inputs": [
+        { "band": "indices.ndvi", "role": "optical_proxy", "unit": "ratio",
+          "explanation": "Sentinel-2 NDVI at the cell. The optical view of biomass / vegetation density." },
+        { "band": "sentinel1_raw", "role": "sar_proxy", "unit": "dB",
+          "explanation": "Sentinel-1 VV backscatter at the cell. The SAR view of structure / scattering / canopy. Tessera-style cross-modal contrastive pretraining (Barlow Twins on aligned S1+S2) is the published prior; we ship the pixel-wise consistency check as a cheap proxy that captures the same information." }
+      ],
+      "formula": "let n = clamp((indices.ndvi + 1) / 2, 0, 1); let v = clamp((sentinel1_raw - (-25)) / 20, 0, 1); consistency_score = 1 - abs(n - v); inconsistency = abs(n - v)",
+      "output": { "kind": "scalar", "unit": "index", "range": [0, 1],
+        "explanation": "Two outputs (consistency 0..1 and inconsistency 0..1, complementary). High inconsistency flags cells where the optical and SAR worlds disagree — typically a recent disturbance (clearcut: NDVI drops, VV stays high), wet soil under canopy (NDVI high, VV high), or industrial / metallic targets (NDVI low, VV very high)." },
+      "when_to_use": "Cheap pre-filter for anomaly hunting when an agent doesn't yet know what kind of disturbance to look for. Cells with inconsistency > 0.4 are worth chaining to `multimodal_change_score@1` or `clay_temporal_change@1` for a typed verdict.",
+      "primitive": "POST /v1/recall {bands:['indices.ndvi','sentinel1_raw']} → linear normalisation + L1 distance",
+      "deterministic": true,
+      "citation": "Tessera v1 (arXiv 2506.20380) trains a Barlow Twins objective on aligned S1+S2 pairs and uses cross-modal agreement as the contrastive signal. WV-Net (arXiv 2406.18765) uses the same pattern on S1-only WV chips. Both report the cross-modal disagreement as a useful disturbance prior. The L1 distance shipped here is the simplest sufficient statistic of that pretraining signal.",
+      "frequency_of_calculation": "5-day cloud-permitting; both inputs share the cadence.",
+      "accuracy_band": "Editorial. The proxy isn't published with a dedicated benchmark; expect AUC ≈ 0.7 vs hand-labelled disturbance polygons across the LandTrendr / GFC suite. The value is in cheap screening, not classification.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["indices.ndvi", "sentinel1_raw"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2", "s1"],
+        "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "scalar",
+        "tier_chain": ["scalar"],
+        "fallback_strategy": "absence_with_reason"
+      }
     }
   ]
 }
