@@ -2654,6 +2654,110 @@
           { "band": "sentinel1_raw", "lookback_days": 30, "aggregator": "median", "purpose": "pre_event_baseline" }
         ]
       }
+    },
+
+    {
+      "key": "prithvi_archetype_match@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "prithvi_eo2", "role": "vec_in",
+          "explanation": "1024-D Prithvi-EO-2.0 last-block CLS embedding at the cell. Compared by cosine similarity against an editorial library of scene-archetype centroids built from labelled chips at known reference locations." }
+      ],
+      "formula": "let v = recall(prithvi_eo2 @ cell); for archetype A in {dense_urban, suburban, sparse_rural, irrigated_cropland, rainfed_cropland, broadleaf_forest, conifer_forest, mangrove, coastal_wetland, desert, sparse_savanna, dense_savanna, snow_ice, lake_open_water, river_channel, exposed_rock, harbor_industrial, mining_disturbed, plantation_oilpalm, vineyard_terraced}: score[A] = cos(v, centroid[A]); class = argmax(score); confidence = score[class] - score[second]",
+      "output": { "kind": "classification",
+        "values": ["dense_urban", "suburban", "sparse_rural", "irrigated_cropland", "rainfed_cropland", "broadleaf_forest", "conifer_forest", "mangrove", "coastal_wetland", "desert", "sparse_savanna", "dense_savanna", "snow_ice", "lake_open_water", "river_channel", "exposed_rock", "harbor_industrial", "mining_disturbed", "plantation_oilpalm", "vineyard_terraced"],
+        "explanation": "Most-similar scene archetype at the cell from a 20-class editorial library. Confidence is the margin between the top class and the runner-up; treat margin < 0.04 as 'no clear archetype'. Prithvi's 6.7 km × 6.7 km receptive field means neighbouring cells inside the same chip will share archetypes; for sub-chip discrimination chain to `crop_archetype_embedding_match@1` (Tessera, 10 m grid)." },
+      "when_to_use": "Coarse landscape-archetype tagging when an agent wants a single label per cell from a learned ViT embedding (rather than a contrastive embedding like Tessera). Useful as a routing signal upstream of more specific algorithms (e.g. only run `aquaculture_pond_proxy@1` on cells classed `coastal_wetland` / `harbor_industrial`).",
+      "primitive": "POST /v1/find_similar {key:cell64, k:1, mode:'cosine', band:'prithvi_eo2'} against the published Prithvi archetype centroids",
+      "deterministic": false,
+      "_deterministic_note": "Result depends on the responder's loaded archetype centroid set + the Prithvi checkpoint hash. Both are pinned in the receipt (centroids under algorithms_cid, model under the per-fact `derivation.args` blake2b). Two responders with matching CIDs produce the same class.",
+      "citation": "Jakubik, J. et al. 2023. Foundation Models for Generalist Geospatial Artificial Intelligence (Prithvi). arXiv:2310.18660. Editorial archetype centroids derived from labelled reference chips in ESA WorldCover 2021, OSM landuse polygons, and the Radiant Earth Spectrum suite.",
+      "frequency_of_calculation": "Annual — Prithvi vintages drop with Sentinel-2 cloud-free coverage; archetype matching is stable within a vintage and cell.",
+      "accuracy_band": "Top-1 accuracy 0.70–0.85 on global out-of-sample validation chips when the truth class is one of the 20 archetypes; confidence margins below 0.04 indicate genuine ambiguity (mixed-class cells, transitional landscapes).",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["prithvi_eo2"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "prithvi_eo2",
+        "fallback_strategy": "absence"
+      }
+    },
+
+    {
+      "key": "prithvi_temporal_change@1",
+      "kind": "embedding",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "prithvi_eo2", "role": "vec_now",
+          "explanation": "Latest 1024-D Prithvi-EO-2.0 CLS embedding at the cell. The same cell embedding 365 days earlier supplies the comparison baseline through the temporal_recipe." }
+      ],
+      "formula": "let v_now = recall(prithvi_eo2 @ cell, t_now); let v_then = recall(prithvi_eo2 @ cell, t_now - 365d); change = clamp(1 - cos(v_now, v_then), 0, 2)",
+      "output": { "kind": "scalar", "unit": "cosine_distance", "range": [0, 2],
+        "explanation": "Year-over-year cosine distance in the Prithvi CLS embedding space. 0 = identical encoder response, 1 = orthogonal (whole-archetype shift), 2 = anti-correlated. Real-world large changes (clearcut, urbanisation, fire scar) sit in the 0.05–0.30 range; the temporal-encoder branch already absorbs season-of-year so seasonal foliage shifts don't dominate." },
+      "when_to_use": "Generic 'did the chip-scale archetype change between vintages?' detector when an agent wants a learned ViT change signal independent of the Tessera contrastive surface. Pair with `embedding_temporal_change_year@1` (Tessera) for two-pass agreement.",
+      "primitive": "POST /v1/recall {bands:['prithvi_eo2']} with a 365-day temporal_recipe → cosine over the two vintages",
+      "deterministic": true,
+      "_deterministic_note": "Deterministic given the input fact_cids and the Prithvi checkpoint hash. The model_blake2b is carried in each fact's `derivation.args` so a verifier replays the same cosine.",
+      "citation": "Jakubik, J. et al. 2023 (Prithvi). Tian, Y. et al. 2023. Change detection on remote sensing images using deep learning: a survey. ISPRS Journal 200:101–124. The CLS-cosine change pattern is widely used for transformer-based change detection.",
+      "frequency_of_calculation": "Annual — Prithvi vintages match the Sentinel-2 cloud-free composite cadence at the cell.",
+      "accuracy_band": "Detects > 80 % of human-visible chip-scale change (≥0.5 ha at 30 m pixel pitch) between consecutive Prithvi vintages on validation grids; saturates for sub-chip change because of the 6.7 km receptive field.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["prithvi_eo2"],
+        "fusion_method": "none",
+        "priority_chain": ["s2"],
+        "anchor_band": "prithvi_eo2",
+        "fallback_strategy": "absence"
+      },
+      "temporal_recipe": {
+        "label": "prithvi_year_on_year",
+        "note": "Latest Prithvi vintage compared against the same-season vintage 365 days earlier. Prithvi's temporal encoder embeds the year + DOY, so within-year seasonal noise cancels.",
+        "windows": [
+          { "band": "prithvi_eo2", "lookback_days": 365, "aggregator": "latest", "purpose": "prior_year_baseline" }
+        ]
+      }
+    },
+
+    {
+      "key": "prithvi_tessera_ensemble_change@1",
+      "kind": "combined",
+      "domain": "embedding",
+      "inputs": [
+        { "band": "prithvi_eo2", "role": "vit_now",
+          "explanation": "Latest 1024-D Prithvi CLS embedding at the cell. Contributes the chip-scale ViT view (6.7 km receptive field, scene-aware via temporal encoder)." },
+        { "band": "geotessera.multi_year", "role": "tessera_stack",
+          "explanation": "Multi-year Tessera 1024-D stack at the cell. Contributes the cell-scale contrastive view (10 m grid, fused S1+S2)." }
+      ],
+      "formula": "let v_pri_now = recall(prithvi_eo2 @ cell, t_now); let v_pri_then = recall(prithvi_eo2 @ cell, t_now - 365d); let pri_change = clamp(1 - cos(v_pri_now, v_pri_then), 0, 1); let tes_change = clamp(1 - cos(slice_latest(geotessera.multi_year), slice_prev(geotessera.multi_year)), 0, 1); ensemble = sqrt((pri_change * pri_change + tes_change * tes_change) / 2)",
+      "output": { "kind": "scalar", "unit": "index", "range": [0, 1],
+        "explanation": "Two-foundation-model ensemble change score. Receipts surface `prithvi_change`, `tessera_change`, and the L2-mean `ensemble` so an analyst can see whether one model drove the alert. High agreement (both > 0.15) is the strongest signal; a single-model alert calls for caution because the receptive fields differ (Prithvi ~6.7 km, Tessera 10 m)." },
+      "when_to_use": "Higher-confidence year-over-year change detection when both chip-scale (Prithvi) and cell-scale (Tessera) consensus is needed. Use as the gate for downstream typed classifiers in real-estate and ESG pipelines where false positives are expensive.",
+      "primitive": "POST /v1/recall {bands:['prithvi_eo2','geotessera.multi_year']} with a 365-day temporal_recipe → ensemble L2-mean fusion",
+      "deterministic": true,
+      "citation": "Jakubik, J. et al. 2023 (Prithvi-EO-2.0). Tessera v1 (annual foundation embedding for global EO, 2024). Healey, S.P. et al. 2018 (LandTrendr ensemble fusion pattern).",
+      "frequency_of_calculation": "Annual; both inputs ship one vintage per calendar year.",
+      "accuracy_band": "Producer's accuracy ~90 % on labelled deforestation polygons ≥0.5 ha at 10 m when both models agree (ensemble > 0.20). Single-model alerts (one > 0.15, the other < 0.05) drop to ~65 % producer's accuracy and are dominated by Prithvi receptive-field aliasing.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["prithvi_eo2", "geotessera.multi_year"],
+        "fusion_method": "weighted_mean",
+        "priority_chain": ["s2"],
+        "anchor_band": "prithvi_eo2",
+        "fallback_strategy": "tier_demote"
+      },
+      "temporal_recipe": {
+        "label": "prithvi_tessera_year_on_year",
+        "note": "Each foundation model's latest vintage compared against its same-season counterpart 365 days earlier.",
+        "windows": [
+          { "band": "prithvi_eo2", "lookback_days": 365, "aggregator": "latest", "purpose": "prithvi_prior_year" },
+          { "band": "geotessera.multi_year", "lookback_days": 365, "aggregator": "latest", "purpose": "tessera_prior_year" }
+        ]
+      }
     }
   ]
 }

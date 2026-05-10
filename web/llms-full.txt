@@ -139,8 +139,7 @@ without a full deserialise. Selected v0 layout:
 |   731  |    3 | `indices`          | optical    |
 |   734  |   96 | `spatial_fourier`  | encoding   |
 |   830  |   64 | `temporal_fourier` | encoding   |
-|   894  |  192 | `sam3_visual`      | vision     |
-|  1086  |  192 | `qwen_visual`      | vision     |
+|   894  |  384 | `prithvi_eo2`      | foundation |
 |  1278  |   32 | `terrain_derived`  | terrain    |
 |  1310  |   64 | `temporal_diff`    | vegetation |
 |  1374  |   32 | `phenology`        | vegetation |

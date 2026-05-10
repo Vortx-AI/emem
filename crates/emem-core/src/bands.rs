@@ -218,10 +218,14 @@ mod tests {
     fn default_loads_and_validates() {
         let r = &*DEFAULT;
         assert_eq!(r.total_dims, 1792);
-        // 34 cube bands + chirps.precip_daily_mm (offset 1672) = 35.
+        // 33 cube bands + chirps.precip_daily_mm (offset 1672) = 34.
         // Adding new tail bands shifts `reserved` forward and decrements
         // its dims by the same total so Σ stays at 1792.
-        assert_eq!(r.bands.len(), 35);
+        // 2026-05-10: sam3_visual + qwen_visual (192+192=384 dims at
+        // offset 894) reclaimed for prithvi_eo2 (384 dims at 894); count
+        // dropped 35 → 34 because two placeholder bands collapse into one
+        // live foundation band. terrain_derived offset stays 1278.
+        assert_eq!(r.bands.len(), 34);
     }
 
     #[test]
@@ -255,8 +259,11 @@ mod tests {
         assert_eq!(idx["_reserved_512"].offset, 199);
         assert_eq!(idx["_reserved_512"].dims, 505);
         assert_eq!(idx["sentinel2_raw"].offset, 704);
-        assert_eq!(idx["sam3_visual"].offset, 894);
-        assert_eq!(idx["qwen_visual"].offset, 1086);
+        // sam3_visual + qwen_visual placeholders (192+192=384 dims at 894)
+        // were reclaimed for prithvi_eo2 (384 dims at 894). Subsequent
+        // band offsets stay byte-stable because 192+192 = 384.
+        assert_eq!(idx["prithvi_eo2"].offset, 894);
+        assert_eq!(idx["prithvi_eo2"].dims, 384);
         // chirps.precip_daily_mm sits at the head of the new tail block;
         // reserved was 1672 → moved to 1673 (one slot taken).
         assert_eq!(idx["chirps.precip_daily_mm"].offset, 1672);

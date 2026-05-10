@@ -425,8 +425,8 @@
         "embedding similarity",
         "what does this place look like geographically"
       ],
-      "bands": ["geotessera", "geotessera.multi_year", "geotessera.bin128"],
-      "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1", "embedding_temporal_change_year@1", "multimodal_change_score@1"]
+      "bands": ["geotessera", "geotessera.multi_year", "geotessera.bin128", "prithvi_eo2"],
+      "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1", "embedding_temporal_change_year@1", "multimodal_change_score@1", "prithvi_archetype_match@1", "prithvi_temporal_change@1", "prithvi_tessera_ensemble_change@1"]
     },
     {
       "key": "optical_raw_reflectance",

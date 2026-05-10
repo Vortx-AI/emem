@@ -92,9 +92,18 @@ impl SourceTier {
         } else if band.starts_with("s2.")
             || band.starts_with("indices.")
             || band.starts_with("geotessera")
+            || band == "prithvi_eo2"
+            || band.starts_with("prithvi_eo2.")
+            || band == "galileo_base"
+            || band.starts_with("galileo_base.")
         {
-            // Tessera is a learned representation of S2/S1 fused at the
-            // S2 grid — anchors at 10 m and inherits the S2 tier.
+            // Tessera, Prithvi-EO-2.0, and Galileo are learned
+            // representations of S2 (and for Tessera also S1) fused at
+            // the S2 grid. They anchor on the Sentinel-2 chip and
+            // inherit the S2 tier so algorithms grounded on them can
+            // claim delivery_resolution_m=10 (Prithvi/Galileo carry a
+            // 30 m chip receptive field — agents reading the cell-level
+            // fact get the chip-aware embedding, not a 30 m sample).
             SourceTier::S2
         } else if band.starts_with("landsat.") {
             SourceTier::Landsat
