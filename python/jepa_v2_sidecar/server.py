@@ -878,7 +878,7 @@ def main() -> None:
     """
     import uvicorn
 
-    sock = os.environ.get("EMEM_SIDECAR_SOCK", "/tmp/emem-jepa.sock")
+    sock = os.environ.get("EMEM_SIDECAR_SOCK", "/run/emem/jepa_sidecar.sock")
     print(f"emem-jepa-sidecar listening on {sock}", file=sys.stderr, flush=True)
     uvicorn.run(app, uds=sock, log_level="info")
 
