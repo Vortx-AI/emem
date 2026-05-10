@@ -1814,7 +1814,7 @@ async fn health(State(s): State<AppState>) -> Json<JsonValue> {
 async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
     Json(json!({
         "protocol": "emem",
-        "version": "0.1",
+        "version": env!("CARGO_PKG_VERSION"),
         "manifests": {
             "bands_cid": &s.manifests.bands_cid,
             "sources_cid": &s.manifests.sources_cid,
@@ -3299,53 +3299,58 @@ async fn algorithm_detail(
 /// honest "slot reserved, no connector" hint — agents should report
 /// these as gaps rather than concluding the protocol can't answer.
 fn topics_payload() -> JsonValue {
+    // Drive the topic groupings from `topics-v0.json` (the content-addressed
+    // registry under `topics_cid`) so /v1/topics surfaces every routable
+    // topic instead of the partial inline subset the function originally
+    // hardcoded. `live_bands_by_topic` keeps its old contract — only bands
+    // the responder will actually materialise — by filtering each topic's
+    // declared bands against `all_materializable_bands()`. Algorithms are
+    // surfaced verbatim from the registry; the existing `topics_payload_
+    // algorithm_keys_resolve_in_registry` test guards against drift between
+    // topics-v0.json and algorithms-v0.json.
+    let topic_reg = &*emem_core::topics::DEFAULT;
+    let materializable: Vec<String> = all_materializable_bands();
+    let live: std::collections::HashSet<&str> = materializable.iter().map(|s| s.as_str()).collect();
+
+    let mut live_bands_by_topic = serde_json::Map::new();
+    let mut algorithms_for_topic = serde_json::Map::new();
+    for t in &topic_reg.topics {
+        let live_only: Vec<JsonValue> = t
+            .bands
+            .iter()
+            .filter(|b| live.contains(b.as_str()))
+            .cloned()
+            .map(JsonValue::String)
+            .collect();
+        if !live_only.is_empty() {
+            live_bands_by_topic.insert(t.key.clone(), JsonValue::Array(live_only));
+        }
+        if !t.algorithms.is_empty() {
+            algorithms_for_topic.insert(
+                t.key.clone(),
+                JsonValue::Array(
+                    t.algorithms
+                        .iter()
+                        .cloned()
+                        .map(JsonValue::String)
+                        .collect(),
+                ),
+            );
+        }
+    }
+
     json!({
         "_purpose": "Topic-grouped list of every band you can recall at this cell, plus the algorithm recipes that compose those bands into named scores. Read this BEFORE concluding the responder doesn't have data on a topic, and BEFORE inventing a synthesis formula in your own reasoning.",
+        "_source": format!(
+            "Driven from the content-addressed topic registry (topics-v0.json, {} topics). `live_bands_by_topic` filters each topic's declared bands against this responder's wired materializers; `algorithms_for_topic` is verbatim from the registry. Topics absent from `live_bands_by_topic` have all their bands declared-but-not-wired here — see `declared_but_no_materializer_at_this_responder`.",
+            topic_reg.topics.len()
+        ),
         "_pointer_to_algorithms": format!(
             "GET /v1/algorithms for the full content-addressed registry of {} composition recipes (flood_risk, walkability, embedding_novelty, carbon-MRV, SDG indicators, etc.) used by `algorithms_for_topic` below. Cite the algorithm key + algorithms_cid in the receipt.",
             emem_core::algorithms::DEFAULT.algorithms.len()
         ),
-        "live_bands_by_topic": {
-            "flood_history_long_term":    ["surface_water.recurrence"],
-            "flood_water_event_window":   ["indices.ndwi","indices.mndwi","sentinel1_raw"],
-            "vegetation_condition":       ["indices.ndvi","indices.evi","indices.savi","indices.ndmi","modis.ndvi_mean"],
-            "fire_burn_severity":         ["indices.nbr"],
-            "fire_active_realtime":       ["firms.active_fires"],
-            "soil_bare":                  ["indices.bsi"],
-            "built_up_human_geography":   ["indices.ndbi","overture.buildings.count","overture.places.count","overture.transportation.road_length_m"],
-            "human_population":            ["population","nightlights.dmsp_ols_avg_dn","nightlights.year","nightlights.satellite"],
-            "weather_now":                ["weather.temperature_2m","weather.cloud_cover","weather.precipitation_mm","weather.wind_speed_10m"],
-            "elevation_global_topobathy": ["gmrt.topobathy_mean"],
-            "elevation_land_only":        ["copdem30m.elevation_mean"],
-            "optical_raw_reflectance":    ["s2.B02","s2.B03","s2.B04","s2.B08","s2.B11","s2.B12"],
-            "scene_classification":       ["s2.scl"],
-            "foundation_embedding":       ["geotessera","geotessera.multi_year"],
-            "radar_all_weather_sar":      ["sentinel1_raw"],
-            "conservation_protected_areas": ["protected"],
-        },
-        "algorithms_for_topic": {
-            "flood_history_long_term":    ["flood_history_class@1"],
-            "flood_water_event_window":   ["water_consensus@1", "water_likelihood_from_vv@1"],
-            "flood_risk_composite":       ["flood_risk@2", "route_flood_exposure@1"],
-            "vegetation_condition":       ["vegetation_class_from_ndvi@1", "crop_stress_score@1", "agb_ndvi_powerlaw@1", "jepa_temporal_predictor@1"],
-            "fire_burn_severity":         ["burn_likelihood_from_nbr@1", "burn_severity_from_dnbr@1", "wildfire_exposure_score@1", "fosberg_fire_weather_index@1"],
-            "soil_bare":                  ["bare_soil_class@1"],
-            "snow":                       ["snow_likelihood_from_ndsi@1"],
-            "built_up_human_geography":   ["built_up_from_ndbi@1", "urban_density_score@1", "population_ghsl_dasymetric@1", "noise_exposure_proxy@1"],
-            "weather_now":                ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1", "vapor_pressure_deficit@1", "heat_equation_2d@1"],
-            "topography":                 ["slope_from_dem_neighborhood@1", "ruggedness_index@1", "topo_position_index@1", "coastal_proximity@1", "wave_equation_1d@1"],
-            "foundation_embedding":       ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "embedding_novelty@1", "embedding_neighborhood_consistency@1", "embedding_centroid@1", "region_similarity@1", "place_archetype_match@1", "region_outlier_score@1", "embedding_corridor_consistency@1", "embedding_diversity_score@1"],
-            "real_estate":                ["property_climate_risk_score@1", "insurance_premium_proxy@1", "coastal_erosion_proxy@1", "multi_peril_score@1"],
-            "esg":                        ["carbon_sink_score@1", "biodiversity_proxy@1", "esg_environmental_pressure@1", "physical_climate_risk_index@1", "transition_risk_proxy@1"],
-            "agriculture":                ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1"],
-            "soil_intelligence":          ["soil_moisture_sar@1", "soc_estimate_s2_dem@1", "soil_salinity_index@1", "rusle_soil_erosion@1", "land_degradation_trend@1"],
-            "carbon_credits":             ["soc_change_credit@1", "eudr_compliance@1", "rice_methane_awd_modeled@1", "carbon_sink_score@1"],
-            "parametric_insurance":       ["parametric_trigger@1", "spi_meteorological_drought@1", "crop_loss_event_assessment@1", "carbon.drought_carbon_stress@1", "physical_climate_risk_index@1"],
-            "energy":                     ["wind_power_density@1", "hydro_theoretical_power@1", "ghi_clearsky_haurwitz@1"],
-            "public_health":              ["air_stagnation_wang_angell@1", "aedes_thermal_suitability_mordecai@1", "heat_vulnerability_index@1"],
-            "urban_livability":           ["walkability_score@1", "bikeability_score@1", "urban_heat_island_imhoff@1", "green_space_access@1", "outdoor_comfort_score@1", "construction_site_exposure@1", "livability_index@1"],
-            "analytics":                  ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1", "visual_search_match@1"],
-        },
+        "live_bands_by_topic": live_bands_by_topic,
+        "algorithms_for_topic": algorithms_for_topic,
         "visual_surfaces": {
             "rgb_scene_png": "GET /v1/cells/{cell64}/scene.png?max_cloud=20  (or MCP `emem_cell_scene_rgb`) — true-colour Sentinel-2 L2A 256×256 thumbnail",
             "cell_geojson":  "GET /v1/cells/{cell64}/geojson — polygon hexagon for any GIS / map renderer",
@@ -8990,13 +8995,24 @@ async fn openapi() -> Json<JsonValue> {
             // and ChatGPT plugin pickers ignore endpoints not in
             // `paths`, so any tool we want them to route to MUST appear
             // here.
-            "/v1/locate":            {"post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string"},"q":{"type":"string"},"query":{"type":"string"},"name":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/locate":            {
+                "get":{"summary":"resolve a place (or lat/lng) to a cell64 via query string — convenience wrapper around POST /v1/locate","operationId":"emem_locate_get","parameters":[
+                    {"name":"place","in":"query","required":false,"schema":{"type":"string","description":"Free-text place name. REQUIRED unless lat+lng are provided."}},
+                    {"name":"q","in":"query","required":false,"schema":{"type":"string","description":"Alias for `place`."}},
+                    {"name":"query","in":"query","required":false,"schema":{"type":"string","description":"Alias for `place`."}},
+                    {"name":"name","in":"query","required":false,"schema":{"type":"string","description":"Alias for `place`."}},
+                    {"name":"lat","in":"query","required":false,"schema":{"type":"number","description":"WGS-84 latitude. REQUIRED with `lng` unless `place` is provided."}},
+                    {"name":"lng","in":"query","required":false,"schema":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."}},
+                    {"name":"lon","in":"query","required":false,"schema":{"type":"number","description":"Alias for `lng`."}}
+                ],"responses":{"200":json_ok}},
+                "post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
+            },
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"single algorithm detail","operationId":"emem_algorithms_one","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
-            "/v1/compare_bands":     {"post":{"summary":"per-band diff between two cells (delta + percent change)","operationId":"emem_compare_bands","responses":{"200":json_ok}}},
+            "/v1/compare_bands":     {"post":{"summary":"per-band diff at one cell: scalar delta or vector cosine between band A and band B (optionally pinned to specific tslots), with optional consistency predicate","operationId":"emem_compare_bands","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareBandsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":json_ok}}},
             "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","responses":{"200":json_ok}}},
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
@@ -9067,7 +9083,9 @@ async fn openapi() -> Json<JsonValue> {
                 "WaveSolveReq":    {"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{"coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},"offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},"period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); 6–18 s is the typical wind-wave + swell envelope."},"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Number of seaward cells to sample for the bathymetric profile."}}},
                 "JepaPredictReq":  {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 to forecast at."},"band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},"lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1; multi-step rollout lands in @2."}}},
                 "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively. When `place` resolves to an OSM feature with extent (airport, park, lake, region) the response includes a `polygon` block + per-band `stats` (mean/median/min/max/std for numeric bands, mode + class distribution for categorical bands like esa_worldcover.lc_2021); pass `n_cells: 1` to force point behaviour at the centroid instead. Single-band endpoints default to 16 sample cells when polygon detected; /v1/at defaults to 1 (multi-band × multi-cell explodes upstream fetch count). Use POST /v1/recall_polygon for raw per-cell facts.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"},"n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon-aggregation knob. When `place` resolves to a feature with extent and `n_cells` is unset, single-band endpoints fan out to 16 sample cells; /v1/at defaults to 1. `n_cells: 1` forces point behaviour at the centroid; values in 2..=64 are honoured. Anything else returns 400 — heavy queries belong on POST /v1/recall_polygon."}}},
-                "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}}
+                "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}},
+                "LocateReq":       {"type":"object","description":"Body for POST /v1/locate. Provide `place` (free-text, geocoded via embedded gazetteer → cache → Photon → Nominatim) OR `lat`+`lng`. Mutually exclusive: at least one of (`place`/`q`/`query`/`name`) or (`lat`+`lng`) must be present.","oneOf":[{"required":["place"]},{"required":["q"]},{"required":["query"]},{"required":["name"]},{"required":["lat","lng"]}],"properties":{"place":{"type":"string","description":"Free-text place name. Resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number","description":"WGS-84 latitude. REQUIRED with `lng` unless `place` is provided."},"lng":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."}}},
+                "CompareBandsReq": {"type":"object","required":["cell","a","b"],"description":"Body for POST /v1/compare_bands. Compares two bands at the same cell. Returns scalar delta + percent change for scalar pairs, cosine + L2 for vector pairs. Optional `predicate` folds a consistency check (e.g. \"DEM and GMRT agree within 200 m\") into a signed verdict.","properties":{"cell":{"type":"string","description":"cell64 string. `cell64` accepted as alias."},"a":{"type":"string","description":"Band A key, e.g. 'copdem30m.elevation_mean'."},"b":{"type":"string","description":"Band B key, e.g. 'gmrt.elevation_mean'."},"tslot_a":{"type":"integer","description":"Optional tslot pin for band A. When omitted, the responder picks the latest tslot with an attested fact for band A at this cell."},"tslot_b":{"type":"integer","description":"Optional tslot pin for band B. Same semantics as `tslot_a`."},"predicate":{"type":"object","description":"Optional consistency predicate. Tagged enum: {kind: 'abs_diff_le'|'abs_diff_lt'|'cosine_ge'|'cosine_gt'|'l2_distance_le', threshold: number}.","required":["kind","threshold"],"properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}}}}}
             }
         }
     }))
