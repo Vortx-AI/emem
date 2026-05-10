@@ -64,6 +64,52 @@ pub struct PrimaryFact {
     pub signer: AttesterKey,
     /// ISO 8601 wall clock at signing time (NOT the data time — that's `tslot`).
     pub signed_at: String,
+    /// Inference-tier provenance: which compute path actually produced
+    /// this value (GPU sidecar, CPU fallback, cached vintage, etc.).
+    /// Optional — purely-numeric facts (NDVI, elevation) leave it
+    /// unset; foundation-embedding facts (Clay, Prithvi, Galileo,
+    /// Tessera-derivative) populate it so an agent can read the
+    /// receipt and tell whether a recall was served from the
+    /// preferred tier or a degraded one. Helps reproduce-from-receipt
+    /// without re-executing the recipe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub served_via: Option<ServedVia>,
+}
+
+/// The compute tier that actually produced a fact value, recorded in
+/// the receipt so agents can reason about provenance and accuracy
+/// without re-executing the recipe. Captures the negotiation outcome
+/// from `InferenceTier`: which tier was attempted, which one
+/// succeeded, and (when applicable) why the upstream tier was
+/// skipped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServedVia {
+    /// Tier kind: `"gpu" | "cpu" | "scalar" | "cached" | "absence"`.
+    /// Matches `emem_core::algorithms::InferenceTierKind` serialised
+    /// as snake_case.
+    pub tier: String,
+    /// Stable model identifier (e.g. `"clay_v1_5"`,
+    /// `"prithvi_eo_v2_300m_tl"`, `"galileo_base_v1"`,
+    /// `"jepa_v2_mlp_4block"`). Empty string is reserved for
+    /// scalar/derivative paths that don't run a learned model.
+    pub model: String,
+    /// Compute device: `"cuda:0" | "cuda:1" | "cpu" | "n/a"` for
+    /// non-tensor paths.
+    pub device: String,
+    /// Reason the preferred tier was not used, when `tier` is a
+    /// fallback. `None` means the preferred tier ran. Examples:
+    /// `"gpu_sidecar_unavailable"`, `"vram_exhausted"`,
+    /// `"required_extension_missing"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+    /// blake2b-256 of the model checkpoint that produced this fact,
+    /// hex-encoded. Populated for GPU/CPU/Scalar tiers that load a
+    /// pinned artifact (Clay, Prithvi, Galileo); blank for cached /
+    /// absence tiers. Lets an agent verify the receipt matches a
+    /// specific weights revision without trusting `model` as a
+    /// version string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_blake2b_hex: Option<String>,
 }
 
 /// A derivative fact: deterministic function over parent fact CIDs.

@@ -141,6 +141,139 @@ const EXAMPLE_LANGCHAIN: &str = include_str!("../../../examples/langchain.py");
 const EXAMPLE_LLAMAINDEX: &str = include_str!("../../../examples/llamaindex.py");
 
 /// Build the full HTTP router.
+/// Cached capability snapshot. The router spawns a background poller
+/// at startup (`spawn_capability_cache_poller`) that calls
+/// `gpu_sidecar::health()` on a 30 s cadence and updates this cell.
+/// Filter callers (`/v1/topics`, `/v1/explain_algorithm`, the topic
+/// router) read it cheaply without re-hitting the sidecar per request,
+/// so a 50-algorithm topics page costs zero sidecar round-trips.
+static CAPABILITY_CACHE: std::sync::OnceLock<std::sync::RwLock<CapabilityState>> =
+    std::sync::OnceLock::new();
+
+/// Snapshot of upstream capabilities. `extensions` mirrors the sidecar
+/// `/health` response's `extensions[]`; `models_loaded` is informational
+/// and surfaces in `/v1/capabilities`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CapabilityState {
+    /// Extensions the upstream sidecar advertises (e.g. `["gpu",
+    /// "vjepa2", "prithvi", "clay"]`). Empty when the sidecar is
+    /// unreachable or hasn't been polled yet.
+    pub extensions: Vec<String>,
+    /// `models_loaded[]` from the sidecar — informational only.
+    pub models_loaded: Vec<String>,
+    /// Whether the sidecar's last poll declared CUDA available.
+    pub cuda_available: bool,
+    /// True after a successful poll; false on transport failure.
+    pub healthy: bool,
+    /// Unix-time the cache was last refreshed. Zero when never polled.
+    pub last_polled_unix_s: i64,
+}
+
+fn capability_cache() -> &'static std::sync::RwLock<CapabilityState> {
+    CAPABILITY_CACHE.get_or_init(|| std::sync::RwLock::new(CapabilityState::default()))
+}
+
+/// Read-only view of the capability cache for downstream callers.
+/// Returns an `extensions: []` snapshot when the cache hasn't been
+/// populated yet, so callers don't have to special-case startup.
+pub fn cached_capabilities() -> CapabilityState {
+    capability_cache()
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_default()
+}
+
+/// True when the cache says `gpu` is in `extensions[]`. Used by
+/// algorithm-list filters and the `/v1/explain_algorithm` UX so an
+/// agent can tell at planning time whether a GPU-required algorithm
+/// will run or surface honest Absence at materialize time.
+pub fn cached_gpu_available() -> bool {
+    let c = cached_capabilities();
+    c.cuda_available && c.extensions.iter().any(|e| e == "gpu")
+}
+
+/// True when the named extension (`required_extension` from
+/// `InferenceTier`) is currently advertised. Falls back to true for
+/// algorithms that declare no required_extension — they don't depend
+/// on a GPU/sidecar capability and run on the CPU/scalar tier.
+pub fn cached_extension_available(required: Option<&str>) -> bool {
+    match required {
+        None => true,
+        Some(ext) => cached_capabilities().extensions.iter().any(|e| e == ext),
+    }
+}
+
+/// Spawn the background poller that refreshes [`CAPABILITY_CACHE`]
+/// every 30 s. Only one poller runs per process: subsequent calls are
+/// no-ops (`OnceLock` semantics on `POLLER_STARTED`). The first poll
+/// happens immediately so warm-start latency for capability-aware
+/// callers is one tokio tick, not 30 s.
+fn spawn_capability_cache_poller() {
+    static POLLER_STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if POLLER_STARTED.set(()).is_err() {
+        return;
+    }
+    tokio::spawn(async {
+        // 30 s is a balance between freshness and sidecar load. The
+        // sidecar's /health is cheap (no model fwd pass) so we could
+        // poll faster, but algorithms_for_topic decisions don't change
+        // sub-minute in practice — a model load takes longer than the
+        // refresh cadence.
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+        // Skip the missed-tick burst that interval() would otherwise
+        // emit if the runtime stalls under load.
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            let snap = match gpu_sidecar::health().await {
+                Ok(h) => CapabilityState {
+                    extensions: h.extensions,
+                    models_loaded: h.models_loaded,
+                    cuda_available: h.cuda_available,
+                    healthy: h.live && h.ready,
+                    last_polled_unix_s: now_unix_s(),
+                },
+                Err(_) => CapabilityState {
+                    extensions: Vec::new(),
+                    models_loaded: Vec::new(),
+                    cuda_available: false,
+                    healthy: false,
+                    last_polled_unix_s: now_unix_s(),
+                },
+            };
+            if let Ok(mut g) = capability_cache().write() {
+                *g = snap;
+            }
+        }
+    });
+}
+
+/// `GET /v1/capabilities` — exposes the cached `CapabilityState` so
+/// agents can tell which extensions are live without each making
+/// their own sidecar /health call. Receipts elsewhere carry
+/// `served_via.tier`; this endpoint is the negotiated discovery
+/// surface that complements the per-fact provenance.
+async fn get_capabilities() -> Json<JsonValue> {
+    let c = cached_capabilities();
+    Json(json!({
+        "schema": "emem.capabilities.v1",
+        "extensions":      c.extensions,
+        "models_loaded":   c.models_loaded,
+        "cuda_available":  c.cuda_available,
+        "healthy":         c.healthy,
+        "last_polled_unix_s": c.last_polled_unix_s,
+        "agent_hint": "Cached capability snapshot from the GPU sidecar, refreshed every 30 s. \
+                       Agents that want a strict 'will this algorithm run?' check should look up \
+                       its `inference.required_extension` in /v1/explain_algorithm and confirm \
+                       the value is present in `extensions[]` here. When `extensions[]` is empty \
+                       the sidecar is unreachable; only CPU / scalar / cached tiers are live.",
+        "next": [
+            "GET /v1/topics — algorithm list per topic (each algorithm now carries `available_now`)",
+            "GET /v1/explain_algorithm/{key} — full inference-tier metadata",
+        ],
+    }))
+}
+
 pub fn router(state: AppState) -> Router {
     // Force the metrics start-instant to align with router construction so
     // /metrics emem_uptime_seconds reflects real wall-clock uptime.
@@ -154,6 +287,12 @@ pub fn router(state: AppState) -> Router {
         let db_arc = Arc::new(db.clone());
         agent_stats_init_persistence(db_arc);
     }
+
+    // Start the capability cache poller. It refreshes every 30 s and
+    // backs `cached_gpu_available()` / `cached_extension_available()`
+    // so per-request handlers (topics, explain_algorithm) don't have
+    // to round-trip the sidecar to filter GPU-only algorithms.
+    spawn_capability_cache_poller();
     Router::new()
         // Landing & agent-targeted pages
         .route("/", get(landing))
@@ -305,6 +444,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/recall_polygon", post(post_recall_polygon))
         // Introspection
         .route("/v1/manifests", get(manifests))
+        .route("/v1/capabilities", get(get_capabilities))
         .route("/v1/bands", get(bands))
         .route("/v1/materializers", get(materializers))
         .route("/v1/data_availability", get(data_availability))
@@ -3312,9 +3452,21 @@ fn topics_payload() -> JsonValue {
     let topic_reg = &*emem_core::topics::DEFAULT;
     let materializable: Vec<String> = all_materializable_bands();
     let live: std::collections::HashSet<&str> = materializable.iter().map(|s| s.as_str()).collect();
+    let algo_reg = &*emem_core::algorithms::DEFAULT;
+    let caps = cached_capabilities();
+    let live_extensions: std::collections::HashSet<&str> =
+        caps.extensions.iter().map(|s| s.as_str()).collect();
 
     let mut live_bands_by_topic = serde_json::Map::new();
     let mut algorithms_for_topic = serde_json::Map::new();
+    // Capability overlay: for every algorithm key referenced by any
+    // topic, declare whether it can run *right now* given the cached
+    // sidecar capabilities. Uses the `inference.required_extension`
+    // field on each algorithm — `None` means scalar/CPU and runs
+    // unconditionally; `Some("gpu")` requires the sidecar to advertise
+    // `gpu` in `extensions[]`. Surface as a map so agents can filter
+    // their candidate list at planning time without hitting /health.
+    let mut algorithm_availability = serde_json::Map::new();
     for t in &topic_reg.topics {
         let live_only: Vec<JsonValue> = t
             .bands
@@ -3337,6 +3489,25 @@ fn topics_payload() -> JsonValue {
                         .collect(),
                 ),
             );
+            for k in &t.algorithms {
+                if algorithm_availability.contains_key(k) {
+                    continue;
+                }
+                let required = algo_reg
+                    .lookup(k)
+                    .and_then(|a| a.inference.as_ref())
+                    .and_then(|i| i.required_extension.as_deref());
+                let available_now = required
+                    .map(|ext| live_extensions.contains(ext))
+                    .unwrap_or(true);
+                algorithm_availability.insert(
+                    k.clone(),
+                    json!({
+                        "available_now": available_now,
+                        "required_extension": required,
+                    }),
+                );
+            }
         }
     }
 
@@ -3352,6 +3523,13 @@ fn topics_payload() -> JsonValue {
         ),
         "live_bands_by_topic": live_bands_by_topic,
         "algorithms_for_topic": algorithms_for_topic,
+        "algorithm_availability": algorithm_availability,
+        "_capabilities_hint": "GET /v1/capabilities for the live extensions[] snapshot. \
+                                `algorithm_availability[<key>].available_now == false` means \
+                                the algorithm's `inference.required_extension` is not in the \
+                                sidecar's current extensions[] (typically GPU off / sidecar down). \
+                                Use a CPU/scalar alternative for the same topic, or surface an \
+                                honest `gpu_unavailable` to the user.",
         "visual_surfaces": {
             "rgb_scene_png": "GET /v1/cells/{cell64}/scene.png?max_cloud=20  (or MCP `emem_cell_scene_rgb`) — true-colour Sentinel-2 L2A 256×256 thumbnail",
             "cell_geojson":  "GET /v1/cells/{cell64}/geojson — polygon hexagon for any GIS / map renderer",
@@ -10362,6 +10540,7 @@ async fn materialize_elevation_mean(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
 
     // 4. Compute the merkle root via emem_attest::merkle_root over the
@@ -10471,6 +10650,7 @@ async fn materialize_gmrt_topobathy(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
 
     let mut buf = Vec::new();
@@ -10730,6 +10910,7 @@ async fn materialize_modis_ndvi_window(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
 
     let mut buf = Vec::new();
@@ -10879,6 +11060,7 @@ async fn materialize_geotessera_multi_year(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -10896,6 +11078,31 @@ async fn materialize_geotessera_multi_year(
 /// `ApiError`. We do NOT fall back to a different model or a degraded
 /// chip; the no-stub policy says "ship the real thing or surface the
 /// gap honestly".
+/// Build a [`ServedVia`] descriptor from a sidecar response. Used by
+/// every foundation-model materializer (Clay, Prithvi, Galileo) so
+/// the signed receipt declares which compute tier produced the value
+/// and which checkpoint hash an offline verifier needs to reproduce
+/// it. `tier` is hardcoded to `"gpu"` because the sidecar will not
+/// return on CPU paths — the materializer surfaces a 5xx and the
+/// recall layer signs an Absence with `gpu_unavailable` reason.
+fn served_via_from_sidecar(
+    model_id: &str,
+    device: &str,
+    model_blake2b_hex: &str,
+) -> emem_fact::ServedVia {
+    emem_fact::ServedVia {
+        tier: "gpu".into(),
+        model: model_id.to_string(),
+        device: device.to_string(),
+        fallback_reason: None,
+        model_blake2b_hex: if model_blake2b_hex.is_empty() {
+            None
+        } else {
+            Some(model_blake2b_hex.to_string())
+        },
+    }
+}
+
 async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
@@ -10972,6 +11179,12 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
         url: Some("https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL".into()),
     });
 
+    let prithvi_model_id = resp
+        .model
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("prithvi_eo_v2_300m_tl")
+        .to_string();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "prithvi_eo2".into(),
@@ -10988,13 +11201,18 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
                 ciborium::Value::Float(lng),
                 ciborium::Value::Text(chip.scene_id.clone()),
                 ciborium::Value::Integer((scene_unix).into()),
-                ciborium::Value::Text(model_blake2b),
+                ciborium::Value::Text(model_blake2b.clone()),
             ])),
         },
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: Some(served_via_from_sidecar(
+            &prithvi_model_id,
+            &resp.device,
+            &model_blake2b,
+        )),
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -11087,6 +11305,12 @@ async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::Fa
         url: Some("https://huggingface.co/made-with-clay/Clay/tree/main/v1.5".into()),
     });
 
+    let clay_model_id = resp
+        .model
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("clay_v1_5")
+        .to_string();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "clay_v1".into(),
@@ -11103,13 +11327,18 @@ async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::Fa
                 ciborium::Value::Float(lng),
                 ciborium::Value::Text(chip.scene_id.clone()),
                 ciborium::Value::Integer(scene_unix.into()),
-                ciborium::Value::Text(model_blake2b),
+                ciborium::Value::Text(model_blake2b.clone()),
             ])),
         },
         privacy_class: "l2_only_with_model_cid".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: Some(served_via_from_sidecar(
+            &clay_model_id,
+            &resp.device,
+            &model_blake2b,
+        )),
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -11194,6 +11423,12 @@ async fn materialize_galileo_base(
         url: Some("https://huggingface.co/nasaharvest/galileo".into()),
     });
 
+    let galileo_model_id = resp
+        .model
+        .get("model_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("galileo_base_v1")
+        .to_string();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "galileo_base_v1".into(),
@@ -11211,13 +11446,18 @@ async fn materialize_galileo_base(
                 ciborium::Value::Text(chip.scene_id.clone()),
                 ciborium::Value::Integer((scene_unix).into()),
                 ciborium::Value::Integer((doy as i64).into()),
-                ciborium::Value::Text(model_blake2b),
+                ciborium::Value::Text(model_blake2b.clone()),
             ])),
         },
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: Some(served_via_from_sidecar(
+            &galileo_model_id,
+            &resp.device,
+            &model_blake2b,
+        )),
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -11492,6 +11732,7 @@ async fn materialize_geotessera_for_year(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -11631,6 +11872,7 @@ async fn materialize_geotessera_bin128(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -11787,6 +12029,7 @@ async fn materialize_weather_current(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -11954,6 +12197,7 @@ async fn materialize_power_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -12084,6 +12328,7 @@ async fn materialize_cams_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -12203,6 +12448,7 @@ async fn materialize_era5_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -12375,6 +12621,7 @@ async fn materialize_marine_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -12573,6 +12820,7 @@ async fn materialize_terraclimate_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -12886,6 +13134,7 @@ async fn materialize_ornl_modis_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -13504,6 +13753,7 @@ async fn materialize_sentinel2_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -13606,6 +13856,7 @@ async fn materialize_sentinel1_vv(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -13731,6 +13982,7 @@ async fn materialize_jrc_gsw_recurrence(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -13799,6 +14051,7 @@ async fn materialize_overture_buildings_count(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -13854,6 +14107,7 @@ async fn materialize_overture_places_count(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -13909,6 +14163,7 @@ async fn materialize_overture_road_length_m(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -14057,6 +14312,7 @@ async fn materialize_esa_worldcover_2021(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -14126,6 +14382,7 @@ async fn materialize_koppen(cell64: &str, s: &AppState) -> Result<emem_fact::Fac
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
                 signer: s.identity.pubkey,
                 signed_at: signed_at.clone(),
+                served_via: None,
             });
             sign_and_persist(s, fact, &signed_at).await
         }
@@ -14219,6 +14476,7 @@ async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact:
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
                 signer: s.identity.pubkey,
                 signed_at: signed_at.clone(),
+                served_via: None,
             });
             sign_and_persist(s, fact, &signed_at).await
         }
@@ -14364,6 +14622,7 @@ async fn materialize_protected(cell64: &str, s: &AppState) -> Result<emem_fact::
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
                 signer: s.identity.pubkey,
                 signed_at: signed_at.clone(),
+                served_via: None,
             });
             sign_and_persist(s, fact, &signed_at).await
         }
@@ -14511,6 +14770,7 @@ async fn materialize_nightlights_band(
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
                 signer: s.identity.pubkey,
                 signed_at: signed_at.clone(),
+                served_via: None,
             });
             sign_and_persist(s, fact, &signed_at).await
         }
@@ -14694,6 +14954,7 @@ async fn materialize_firms_active_fires(
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
                 signer: s.identity.pubkey,
                 signed_at: signed_at.clone(),
+                served_via: None,
             });
             sign_and_persist(s, fact, &signed_at).await
         }
@@ -14996,6 +15257,7 @@ async fn materialize_soilgrids_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -15169,6 +15431,7 @@ async fn materialize_hansen_band(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
 }
@@ -15246,6 +15509,7 @@ async fn materialize_chirps_daily_precip(
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
                 signer: s.identity.pubkey,
                 signed_at: signed_at.clone(),
+                served_via: None,
             });
             sign_and_persist(s, fact, &signed_at).await
         }
@@ -15594,6 +15858,7 @@ async fn materialize_temporal_diff(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.clone(),
+        served_via: None,
     });
     sign_and_persist(s, primary_fact, &signed_at).await
 }

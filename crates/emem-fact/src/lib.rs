@@ -14,6 +14,7 @@ pub mod receipt;
 pub use attest::Attestation;
 pub use cid::{FactCid, ReasonCid, RegistryCid, SchemaCid};
 pub use fact::{
-    Derivation, DerivativeFact, Fact, FactKind, NegativeFact, PrimaryFact, Source, Uncertainty,
+    Derivation, DerivativeFact, Fact, FactKind, NegativeFact, PrimaryFact, ServedVia, Source,
+    Uncertainty,
 };
 pub use receipt::{Cost, MerkleProof, Receipt};

@@ -47,33 +47,23 @@ assert RESERVE_BUDGET_GB > 0, "VRAM budget over-allocated; rebalance constants"
 EMEM_DATA = Path(os.environ.get("EMEM_DATA", "/home/ubuntu/emem/var/emem"))
 DYNAMICS_DIR = Path(os.environ.get("EMEM_JEPA_V2_DIR", str(EMEM_DATA / "jepa_v2")))
 
-# Phase 3 — Prithvi-EO-2.0-300M-TL artifacts. We pin the snapshot path
-# at startup; HF_HOME is set by the systemd unit. Future loads will
-# read from this exact pinned snapshot (no HF lookup), so production
-# is offline by construction once the cache is seeded. To upgrade,
-# re-run the snapshot_download bootstrap and update PRITHVI_SNAPSHOT.
+# Phase 3 — Prithvi-EO-2.0-300M-TL artifacts. The snapshot SHA is NOT
+# hardcoded: we resolve weights via `huggingface_hub.try_to_load_from_cache`
+# at load time, which walks `snapshots/<commit_hash>/` for the local
+# cache without any network call. Operators wanting an explicit pin
+# can set `EMEM_PRITHVI_CKPT` to an absolute checkpoint path; the
+# loader uses that path's parent for the config.json sibling.
 PRITHVI_REPO = "ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL"
-PRITHVI_SNAPSHOT_DEFAULT = (
-    EMEM_DATA / "hf_cache/hub/models--ibm-nasa-geospatial--Prithvi-EO-2.0-300M-TL/"
-    "snapshots/63adbd39c271da4c42f447e69b1a7c91a338cdc9"
-)
-PRITHVI_SNAPSHOT = Path(
-    os.environ.get("EMEM_PRITHVI_SNAPSHOT", str(PRITHVI_SNAPSHOT_DEFAULT))
-)
+PRITHVI_CKPT_FILENAME = "Prithvi_EO_V2_300M_TL.pt"
+PRITHVI_CFG_FILENAME = "config.json"
 
-# Phase 4 — Galileo multimodal encoder (NASA Harvest, MIT). Pinned
-# to the local HF snapshot path for offline-once-cached operation.
-# Base variant (default): 86.5 M params, 330 MB checkpoint, 768-D
-# embedding. Override EMEM_GALILEO_VARIANT to swap (tiny / base / nano).
+# Phase 4 — Galileo multimodal encoder (NASA Harvest, MIT). Same
+# offline-first resolver pattern as Prithvi. Variant defaults to base
+# (86.5 M params, 330 MB ckpt, 768-D embedding); override
+# EMEM_GALILEO_VARIANT to swap to tiny / nano. EMEM_GALILEO_SNAPSHOT
+# pins an explicit folder path for air-gapped deployments.
 GALILEO_REPO = "nasaharvest/galileo"
 GALILEO_VARIANT = os.environ.get("EMEM_GALILEO_VARIANT", "base")
-GALILEO_SNAPSHOT_DEFAULT = (
-    EMEM_DATA / f"hf_cache/hub/models--nasaharvest--galileo/"
-    f"snapshots/f039dd5dde966a931baeda47eb680fa89b253e4e/models/{GALILEO_VARIANT}"
-)
-GALILEO_SNAPSHOT = Path(
-    os.environ.get("EMEM_GALILEO_SNAPSHOT", str(GALILEO_SNAPSHOT_DEFAULT))
-)
 # S2-band normalization stats from the Galileo pretraining "13"
 # normalizing_dict (S1 + S2 + NDVI). We slice out the 10 S2 entries
 # in S2_BANDS order (B2/B3/B4/B5/B6/B7/B8/B8A/B11/B12).
@@ -121,53 +111,97 @@ GALILEO_PATCH_SIZE: int = 2
 # beside server.py so the loader needs zero network at startup.
 CLAY_REPO = "made-with-clay/Clay"
 CLAY_CKPT_FILENAME = "v1.5/clay-v1.5.ckpt"
-CLAY_HF_CACHE = Path(
-    os.environ.get("EMEM_HF_CACHE", str(EMEM_DATA / "hf_cache/hub"))
-)
 CLAY_METADATA_DEFAULT = Path(__file__).parent / "clay_metadata.yaml"
 CLAY_METADATA_PATH = Path(
     os.environ.get("EMEM_CLAY_METADATA", str(CLAY_METADATA_DEFAULT))
 )
 
 
+def _hf_cache_dir() -> str:
+    """The HF cache directory all loaders share. Honours `EMEM_HF_CACHE`
+    so air-gapped deployments can point at a pre-seeded mount, falls
+    back to `$EMEM_DATA/hf_cache/hub` (matching `HF_HOME` in the systemd
+    unit) and finally to the huggingface_hub default."""
+    override = os.environ.get("EMEM_HF_CACHE")
+    if override:
+        return override
+    default = EMEM_DATA / "hf_cache/hub"
+    if default.exists():
+        return str(default)
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE  # noqa: WPS433
+
+        return HF_HUB_CACHE
+    except ImportError:
+        return str(default)
+
+
+def _resolve_hf_file(repo_id: str, filename: str) -> Path | None:
+    """Walk the HF cache for `filename` under `repo_id`; return its
+    absolute path or None when not present. Read-only — never makes
+    a network call. Used by every loader so production runs offline
+    once the cache is seeded (single bootstrap, then HF_HUB_OFFLINE=1)."""
+    try:
+        from huggingface_hub import try_to_load_from_cache  # noqa: WPS433
+    except ImportError:
+        return None
+    hit = try_to_load_from_cache(
+        repo_id=repo_id, filename=filename, cache_dir=_hf_cache_dir()
+    )
+    # try_to_load_from_cache returns: str path when present, a
+    # _CACHED_NO_EXIST sentinel when the file is known not to exist,
+    # or None when not cached. Treat the sentinel as "not found".
+    if isinstance(hit, str):
+        return Path(hit)
+    return None
+
+
 def _resolve_clay_ckpt() -> Path | None:
     """Return the Clay v1.5 checkpoint path, or None if not cached.
 
     Resolution order:
-    1. EMEM_CLAY_CKPT (explicit override; honoured even if the file is
-       missing so the caller can produce a precise error).
-    2. huggingface_hub.try_to_load_from_cache — walks the real
-       `snapshots/<commit_hash>/` tree, no network. Returns None if not
-       cached, or a sentinel if the file is marked as known-not-on-hub
-       (treated as None here).
-    3. None (caller raises FileNotFoundError with bootstrap instructions).
+    1. EMEM_CLAY_CKPT (explicit override; honoured even if the file
+       is missing so the caller can produce a precise error).
+    2. `_resolve_hf_file` — walks the real `snapshots/<commit_hash>/`
+       tree without network access.
+    3. None (caller raises FileNotFoundError with bootstrap text).
     """
     override = os.environ.get("EMEM_CLAY_CKPT")
     if override:
         return Path(override)
-    try:
-        from huggingface_hub import try_to_load_from_cache  # noqa: WPS433
-        from huggingface_hub.constants import HF_HUB_CACHE  # noqa: WPS433
-    except ImportError:
-        return None
-    # huggingface_hub looks under the configured cache dir; we point it
-    # at our pinned location via the cache_dir kwarg so concurrent
-    # processes share the same on-disk snapshot.
-    cache_dir = str(CLAY_HF_CACHE) if CLAY_HF_CACHE.exists() else HF_HUB_CACHE
-    hit = try_to_load_from_cache(
-        repo_id=CLAY_REPO,
-        filename=CLAY_CKPT_FILENAME,
-        cache_dir=cache_dir,
+    return _resolve_hf_file(CLAY_REPO, CLAY_CKPT_FILENAME)
+
+
+def _resolve_prithvi_files() -> tuple[Path | None, Path | None]:
+    """Resolve the Prithvi `.pt` checkpoint and its sibling
+    `config.json`. Both env overrides win over the HF cache walk so
+    air-gapped deployments can point at a custom directory. Returns
+    `(None, None)` when nothing is cached yet — caller emits the
+    bootstrap instruction."""
+    ckpt_override = os.environ.get("EMEM_PRITHVI_CKPT")
+    snapshot_override = os.environ.get("EMEM_PRITHVI_SNAPSHOT")
+    if ckpt_override:
+        ckpt = Path(ckpt_override)
+        return ckpt, ckpt.parent / PRITHVI_CFG_FILENAME
+    if snapshot_override:
+        d = Path(snapshot_override)
+        return d / PRITHVI_CKPT_FILENAME, d / PRITHVI_CFG_FILENAME
+    ckpt = _resolve_hf_file(PRITHVI_REPO, PRITHVI_CKPT_FILENAME)
+    cfg = _resolve_hf_file(PRITHVI_REPO, PRITHVI_CFG_FILENAME)
+    return ckpt, cfg
+
+
+def _resolve_galileo_dir() -> Path | None:
+    """Resolve the Galileo `models/<variant>/` directory. Honours
+    `EMEM_GALILEO_SNAPSHOT` for explicit pins; otherwise walks the HF
+    cache and returns the variant subdir of the located encoder."""
+    override = os.environ.get("EMEM_GALILEO_SNAPSHOT")
+    if override:
+        return Path(override)
+    encoder = _resolve_hf_file(
+        GALILEO_REPO, f"models/{GALILEO_VARIANT}/encoder.pt"
     )
-    # try_to_load_from_cache returns:
-    #   - str path when present
-    #   - _CACHED_NO_EXIST sentinel when the file is known not to exist
-    #   - None when not in cache at all
-    # Treat sentinel as "not found" so we surface the proper bootstrap
-    # error instead of trying to open a sentinel.
-    if isinstance(hit, str):
-        return Path(hit)
-    return None
+    return encoder.parent if encoder is not None else None
 # Clay v1.5's S2 L2A platform expects 10 bands at 10 m, in this order
 # (verbatim from configs/metadata.yaml). Per-band mean/std + wavelength
 # (µm) come from the metadata file; the loader reads them at startup so
@@ -384,15 +418,22 @@ class _Registry:
         # the cold-start cost on the first request, not on `import`.
         sys.path.insert(0, str(Path(__file__).parent))
         from prithvi_mae import PrithviMAE  # noqa: WPS433
-        ckpt_path = PRITHVI_SNAPSHOT / "Prithvi_EO_V2_300M_TL.pt"
-        cfg_path = PRITHVI_SNAPSHOT / "config.json"
-        if not ckpt_path.exists() or not cfg_path.exists():
+        ckpt_path, cfg_path = _resolve_prithvi_files()
+        if (
+            ckpt_path is None
+            or cfg_path is None
+            or not ckpt_path.exists()
+            or not cfg_path.exists()
+        ):
             raise FileNotFoundError(
-                f"Prithvi-EO-2.0 artifacts not found at {PRITHVI_SNAPSHOT}. "
-                f"Bootstrap with `huggingface_hub.snapshot_download(repo_id="
-                f"'{PRITHVI_REPO}', allow_patterns=['*.py','*.json','*.txt','*.pt'], "
-                f"cache_dir='{EMEM_DATA / 'hf_cache/hub'}')` (one-time, "
-                f"~1.3 GB; production runs offline once cached)."
+                f"Prithvi-EO-2.0 artifacts not found in HF cache "
+                f"({_hf_cache_dir()}) and neither EMEM_PRITHVI_CKPT nor "
+                f"EMEM_PRITHVI_SNAPSHOT is set. Bootstrap with "
+                f"`python -m bootstrap_models prithvi` or "
+                f"`huggingface_hub.snapshot_download(repo_id='{PRITHVI_REPO}', "
+                f"allow_patterns=['*.py','*.json','*.txt','*.pt'], "
+                f"cache_dir='{_hf_cache_dir()}')` — one-time ~1.3 GB. "
+                f"Production runs offline once cached (HF_HUB_OFFLINE=1)."
             )
         cfg = json.loads(cfg_path.read_text())["pretrained_cfg"]
         # T=1 — single timestep per request. The chip-fetch upgrade
@@ -462,21 +503,24 @@ class _Registry:
             return self.galileo
         sys.path.insert(0, str(Path(__file__).parent))
         from single_file_galileo import Encoder as GalileoEncoder  # noqa: WPS433
-        if not (GALILEO_SNAPSHOT / "encoder.pt").exists():
+        galileo_dir = _resolve_galileo_dir()
+        if galileo_dir is None or not (galileo_dir / "encoder.pt").exists():
             raise FileNotFoundError(
-                f"Galileo-Tiny artifacts not found at {GALILEO_SNAPSHOT}. "
-                f"Bootstrap with `huggingface_hub.snapshot_download(repo_id="
-                f"'{GALILEO_REPO}', allow_patterns=['models/{GALILEO_VARIANT}/*'], "
-                f"cache_dir='{EMEM_DATA / 'hf_cache/hub'}')` (one-time, "
-                f"~58 MB; production runs offline once cached)."
+                f"Galileo-{GALILEO_VARIANT} artifacts not found in HF cache "
+                f"({_hf_cache_dir()}) and EMEM_GALILEO_SNAPSHOT is unset. "
+                f"Bootstrap with `python -m bootstrap_models galileo` or "
+                f"`huggingface_hub.snapshot_download(repo_id='{GALILEO_REPO}', "
+                f"allow_patterns=['models/{GALILEO_VARIANT}/*'], "
+                f"cache_dir='{_hf_cache_dir()}')` — one-time ~58 MB. "
+                f"Production runs offline once cached (HF_HUB_OFFLINE=1)."
             )
-        encoder = GalileoEncoder.load_from_folder(GALILEO_SNAPSHOT, self.device)
+        encoder = GalileoEncoder.load_from_folder(galileo_dir, self.device)
         encoder.to(self.device).eval()
-        ckpt_path = GALILEO_SNAPSHOT / "encoder.pt"
+        ckpt_path = galileo_dir / "encoder.pt"
         ckpt_blake2b = hashlib.blake2b(
             ckpt_path.read_bytes(), digest_size=32
         ).hexdigest()
-        cfg = json.loads((GALILEO_SNAPSHOT / "config.json").read_text())
+        cfg = json.loads((galileo_dir / "config.json").read_text())
         meta = {
             "model_id": f"galileo_{GALILEO_VARIANT}_v1",
             "version": "1.0.0",
@@ -521,13 +565,13 @@ class _Registry:
         if ckpt_path is None or not ckpt_path.exists():
             raise FileNotFoundError(
                 f"Clay v1.5 checkpoint not found in HF cache "
-                f"({CLAY_HF_CACHE}) and EMEM_CLAY_CKPT is unset. "
-                f"Bootstrap with `python -m emem.bootstrap_clay` or "
+                f"({_hf_cache_dir()}) and EMEM_CLAY_CKPT is unset. "
+                f"Bootstrap with `python -m bootstrap_models clay` or "
                 f"`huggingface_hub.hf_hub_download(repo_id='{CLAY_REPO}', "
                 f"filename='{CLAY_CKPT_FILENAME}', "
-                f"cache_dir='{CLAY_HF_CACHE}')` (one-time, ~5.16 GB "
-                f"checkpoint; ~1.25 GB encoder weights at runtime). "
-                f"Override the resolved path with EMEM_CLAY_CKPT."
+                f"cache_dir='{_hf_cache_dir()}')` — one-time ~5.16 GB "
+                f"checkpoint; ~1.25 GB encoder weights at runtime. "
+                f"Override with EMEM_CLAY_CKPT."
             )
         if not CLAY_METADATA_PATH.exists():
             raise FileNotFoundError(

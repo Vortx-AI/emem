@@ -24,14 +24,17 @@ Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
 Environment=EMEM_JEPA_V2_DIR=/home/ubuntu/emem/var/emem/jepa_v2
 # CUDA driver libs the +cu128 wheel dlopens at runtime.
 Environment=LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
-# HuggingFace local cache — Phase 3 (V-JEPA 2) and Phase 4 (Prithvi-EO-2.0)
-# load weights from HF. Pin the cache under EMEM_DATA so the artifacts
-# live with the rest of the persisted state and download exactly ONCE.
-# After first download set HF_HUB_OFFLINE=1 below to enforce no network
-# (sidecar will then refuse to fetch anything not already cached).
+# HuggingFace local cache. Every loader (Prithvi, Galileo, Clay)
+# resolves weights via `huggingface_hub.try_to_load_from_cache`, which
+# is read-only and never makes a network call. Once
+# `bootstrap_models.py` has seeded the cache, HF_HUB_OFFLINE=1 makes
+# the contract enforceable: any code path that tries to reach the Hub
+# will fail fast instead of silently degrading to network fetch.
+# To re-seed (e.g. on a model upgrade), unset HF_HUB_OFFLINE in this
+# unit, run `python bootstrap_models.py`, then restore the line.
 Environment=HF_HOME=/home/ubuntu/emem/var/emem/hf_cache
 Environment=TRANSFORMERS_CACHE=/home/ubuntu/emem/var/emem/hf_cache/transformers
-# Environment=HF_HUB_OFFLINE=1   # uncomment after Phase 3 weights cached
+Environment=HF_HUB_OFFLINE=1
 # uvicorn binds the socket itself when --uds is set; we don't need
 # umask gymnastics because both processes run as the same uid.
 ExecStartPre=/bin/rm -f %t/emem/jepa_sidecar.sock

@@ -551,6 +551,7 @@ mod tests {
                 schema_cid: SchemaCid::new("test-schema"),
                 signer: AttesterKey([0u8; 32]),
                 signed_at: "2026-05-05T00:00:00Z".into(),
+                served_via: None,
             });
             self.entries.lock().unwrap().push((
                 CanonicalKey {

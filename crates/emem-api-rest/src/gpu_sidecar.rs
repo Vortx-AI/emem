@@ -305,17 +305,11 @@ pub async fn health() -> Result<SidecarHealth, SidecarError> {
     })
 }
 
-/// True when the sidecar advertises `gpu` in its `extensions[]`.
-/// Used as the gate for algorithms that declare
-/// `inference.tier = gpu` so the dispatcher can filter them at
-/// planning time and skip honest Absence at materialize time when
-/// the GPU is missing.
-pub async fn is_gpu_available() -> bool {
-    matches!(
-        health().await,
-        Ok(h) if h.cuda_available && h.extensions.iter().any(|e| e == "gpu")
-    )
-}
+// `is_gpu_available()` was a synchronous network probe that hit the
+// sidecar on every call. Replaced by `cached_gpu_available()` in
+// `lib.rs` which reads from the 30 s background-poller cache —
+// constant-time, no per-request round-trip. Kept this comment so the
+// removal is discoverable when grepping.
 
 // ── HTTP/1 over Unix socket ──────────────────────────────────────────────
 

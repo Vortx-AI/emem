@@ -183,6 +183,7 @@ async fn main() -> anyhow::Result<()> {
             schema_cid: SchemaCid::new(&schema_cid),
             signer: attester.pubkey,
             signed_at: utc_iso(),
+            served_via: None,
         }));
         real_facts.push(Fact::Primary(PrimaryFact {
             cell: cell_str.clone(),
@@ -201,6 +202,7 @@ async fn main() -> anyhow::Result<()> {
             schema_cid: SchemaCid::new(&schema_cid),
             signer: attester.pubkey,
             signed_at: utc_iso(),
+            served_via: None,
         }));
 
         // Intentionally do NOT attest `copdem30m.elevation_mean` here.

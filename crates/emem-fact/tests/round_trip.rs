@@ -52,6 +52,7 @@ fn sample_primary(signer: &VerifyingKey) -> PrimaryFact {
         schema_cid: SchemaCid::new("emem.schema.primary.v1"),
         signer: AttesterKey(signer.to_bytes()),
         signed_at: "2026-04-26T00:00:00Z".into(),
+        served_via: None,
     }
 }
 

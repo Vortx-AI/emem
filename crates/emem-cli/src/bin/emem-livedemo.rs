@@ -110,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
                     schema_cid: SchemaCid::new(&schema_cid),
                     signer: attester,
                     signed_at: "2026-04-26T15:00:00Z".into(),
+                    served_via: None,
                 }));
             }
         }
