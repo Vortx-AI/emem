@@ -25,3 +25,11 @@ numpy==2.4.4
 timm==1.0.26
 einops==0.8.2
 huggingface_hub==1.13.0
+# Phase 5 — Clay Foundation Model v1.5 deps. claymodel pulls in
+# pytorch-lightning + transformers + the Clay encoder code; pyyaml
+# + python-box parse the vendored configs/metadata.yaml at load time.
+# claymodel is a git+ install because the upstream package is not on
+# PyPI; pin the SHA to keep load_clay() reproducible.
+claymodel @ git+https://github.com/Clay-foundation/model.git@f14e698f3c237cabf8d28dec669a362d66625381
+pyyaml==6.0.3
+python-box==7.3.3

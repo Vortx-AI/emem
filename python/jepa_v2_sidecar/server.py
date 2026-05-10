@@ -113,26 +113,61 @@ GALILEO_PATCH_SIZE: int = 2
 # Phase 5 — Clay Foundation Model v1.5 (Made With Clay, Apache-2.0).
 # ViT-L/8 MAE + DINOv2 teacher; 311 M params encoder, 1024-D CLS token,
 # wavelength-conditioned so one encoder handles S2/S1/Landsat/NAIP/MODIS
-# without re-finetuning. Pinned to the local snapshot for offline-once-
-# cached operation. Bootstrap with:
-#   from huggingface_hub import hf_hub_download
-#   hf_hub_download("made-with-clay/Clay", filename="v1.5/clay-v1.5.ckpt",
-#                   cache_dir="$EMEM_DATA/hf_cache/hub")
-# plus a one-time copy of `configs/metadata.yaml` from
-# https://github.com/Clay-foundation/model.
+# without re-finetuning. Resolution is HF-cache-aware: we ask
+# huggingface_hub to look up the checkpoint by repo + filename, which
+# walks the real `snapshots/<commit_hash>/` layout instead of the
+# bogus `snapshots/main/` literal. Override with EMEM_CLAY_CKPT for
+# tests or air-gapped deployments. The metadata.yaml is vendored
+# beside server.py so the loader needs zero network at startup.
 CLAY_REPO = "made-with-clay/Clay"
 CLAY_CKPT_FILENAME = "v1.5/clay-v1.5.ckpt"
-CLAY_SNAPSHOT_DEFAULT = (
-    EMEM_DATA / "hf_cache/hub/models--made-with-clay--Clay/"
-    "snapshots/main/v1.5/clay-v1.5.ckpt"
-)
-CLAY_CKPT_PATH = Path(
-    os.environ.get("EMEM_CLAY_CKPT", str(CLAY_SNAPSHOT_DEFAULT))
+CLAY_HF_CACHE = Path(
+    os.environ.get("EMEM_HF_CACHE", str(EMEM_DATA / "hf_cache/hub"))
 )
 CLAY_METADATA_DEFAULT = Path(__file__).parent / "clay_metadata.yaml"
 CLAY_METADATA_PATH = Path(
     os.environ.get("EMEM_CLAY_METADATA", str(CLAY_METADATA_DEFAULT))
 )
+
+
+def _resolve_clay_ckpt() -> Path | None:
+    """Return the Clay v1.5 checkpoint path, or None if not cached.
+
+    Resolution order:
+    1. EMEM_CLAY_CKPT (explicit override; honoured even if the file is
+       missing so the caller can produce a precise error).
+    2. huggingface_hub.try_to_load_from_cache — walks the real
+       `snapshots/<commit_hash>/` tree, no network. Returns None if not
+       cached, or a sentinel if the file is marked as known-not-on-hub
+       (treated as None here).
+    3. None (caller raises FileNotFoundError with bootstrap instructions).
+    """
+    override = os.environ.get("EMEM_CLAY_CKPT")
+    if override:
+        return Path(override)
+    try:
+        from huggingface_hub import try_to_load_from_cache  # noqa: WPS433
+        from huggingface_hub.constants import HF_HUB_CACHE  # noqa: WPS433
+    except ImportError:
+        return None
+    # huggingface_hub looks under the configured cache dir; we point it
+    # at our pinned location via the cache_dir kwarg so concurrent
+    # processes share the same on-disk snapshot.
+    cache_dir = str(CLAY_HF_CACHE) if CLAY_HF_CACHE.exists() else HF_HUB_CACHE
+    hit = try_to_load_from_cache(
+        repo_id=CLAY_REPO,
+        filename=CLAY_CKPT_FILENAME,
+        cache_dir=cache_dir,
+    )
+    # try_to_load_from_cache returns:
+    #   - str path when present
+    #   - _CACHED_NO_EXIST sentinel when the file is known not to exist
+    #   - None when not in cache at all
+    # Treat sentinel as "not found" so we surface the proper bootstrap
+    # error instead of trying to open a sentinel.
+    if isinstance(hit, str):
+        return Path(hit)
+    return None
 # Clay v1.5's S2 L2A platform expects 10 bands at 10 m, in this order
 # (verbatim from configs/metadata.yaml). Per-band mean/std + wavelength
 # (µm) come from the metadata file; the loader reads them at startup so
@@ -482,14 +517,17 @@ class _Registry:
         """
         if self.clay is not None:
             return self.clay
-        if not CLAY_CKPT_PATH.exists():
+        ckpt_path = _resolve_clay_ckpt()
+        if ckpt_path is None or not ckpt_path.exists():
             raise FileNotFoundError(
-                f"Clay v1.5 checkpoint not found at {CLAY_CKPT_PATH}. "
-                f"Bootstrap with `huggingface_hub.hf_hub_download(repo_id="
-                f"'{CLAY_REPO}', filename='{CLAY_CKPT_FILENAME}', "
-                f"cache_dir='{EMEM_DATA / 'hf_cache/hub'}')` (one-time, "
-                f"~5.16 GB checkpoint; ~1.25 GB encoder weights at "
-                f"runtime). Override the path with EMEM_CLAY_CKPT."
+                f"Clay v1.5 checkpoint not found in HF cache "
+                f"({CLAY_HF_CACHE}) and EMEM_CLAY_CKPT is unset. "
+                f"Bootstrap with `python -m emem.bootstrap_clay` or "
+                f"`huggingface_hub.hf_hub_download(repo_id='{CLAY_REPO}', "
+                f"filename='{CLAY_CKPT_FILENAME}', "
+                f"cache_dir='{CLAY_HF_CACHE}')` (one-time, ~5.16 GB "
+                f"checkpoint; ~1.25 GB encoder weights at runtime). "
+                f"Override the resolved path with EMEM_CLAY_CKPT."
             )
         if not CLAY_METADATA_PATH.exists():
             raise FileNotFoundError(
@@ -520,7 +558,7 @@ class _Registry:
         # `dolls` are the Matryoshka training-time list — not used at
         # inference, but required by load_from_checkpoint.
         model = ClayMAEModule.load_from_checkpoint(
-            str(CLAY_CKPT_PATH),
+            str(ckpt_path),
             model_size="large",
             metadata_path=str(CLAY_METADATA_PATH),
             dolls=[16, 32, 64, 128, 256, 768, 1024],
@@ -530,7 +568,7 @@ class _Registry:
         )
         model.eval().to(self.device)
         ckpt_blake2b = hashlib.blake2b(
-            CLAY_CKPT_PATH.read_bytes(), digest_size=32
+            ckpt_path.read_bytes(), digest_size=32
         ).hexdigest()
 
         # Resolve the per-band stats now so they're cached in `meta`
@@ -546,9 +584,9 @@ class _Registry:
             "license": "Apache-2.0",
             "source": f"{CLAY_REPO}/{CLAY_CKPT_FILENAME}",
             "paper": "https://clay-foundation.github.io/model/release-notes/specification.html",
-            "checkpoint_filename": CLAY_CKPT_PATH.name,
+            "checkpoint_filename": ckpt_path.name,
             "blake2b_hex": ckpt_blake2b,
-            "size_bytes": CLAY_CKPT_PATH.stat().st_size,
+            "size_bytes": ckpt_path.stat().st_size,
             "config": {
                 "encoder_dim": CLAY_EMBED_DIM,
                 "patch_size": 8,

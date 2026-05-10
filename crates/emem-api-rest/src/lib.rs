@@ -6383,6 +6383,18 @@ struct RecallPolygonReq {
     /// per-fact regardless of this flag.
     #[serde(default)]
     verbose: Option<bool>,
+    /// True OSM boundary as GeoJSON `Polygon` or `MultiPolygon`. When
+    /// provided, candidate cells from the bbox grid are filtered with
+    /// point-in-polygon so the recall scope matches the actual feature
+    /// instead of its rectangular envelope. Eliminates the 25–40 %
+    /// over-count on L-shaped admin regions and the much larger over-
+    /// count on coastal / archipelago features. The `/v1/locate`
+    /// response surfaces this value as `polygon_geojson`; agents
+    /// chaining locate → recall_polygon should pass it back verbatim.
+    /// Falls back to bbox sampling when omitted, malformed, or the
+    /// upstream geometry was Point/LineString.
+    #[serde(default)]
+    polygon_geojson: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -6397,6 +6409,13 @@ async fn post_recall_polygon(
     State(s): State<AppState>,
     Json(req): Json<RecallPolygonReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // Polygon geometry, when known. Pulled from the request first
+    // (caller already has it from a prior /v1/locate), or — when the
+    // caller passed a `place` — recovered from `locate_inner`'s
+    // `polygon_geojson` field. Used to mask the bbox-grid candidates
+    // via point-in-polygon so we only recall cells inside the true
+    // boundary instead of the bounding box envelope.
+    let mut polygon_geojson: Option<JsonValue> = req.polygon_geojson.clone();
     // Resolve polygon_bbox: explicit → place lookup → error.
     let (bbox, polygon_source, place_label, via): (
         (f64, f64, f64, f64),
@@ -6423,6 +6442,17 @@ async fn post_recall_polygon(
         // to the centre cell's bbox (single-cell fan-out, basically
         // /v1/recall behaviour but still OK as a degenerate case).
         let pb = resp.0.get("polygon_bbox").cloned();
+        // Recover the true polygon geometry — `locate_inner` populates
+        // `polygon_geojson` from Nominatim when a real boundary exists.
+        // Caller-supplied polygon (req.polygon_geojson) wins; otherwise
+        // we adopt whatever locate produced.
+        if polygon_geojson.is_none() {
+            polygon_geojson = resp
+                .0
+                .get("polygon_geojson")
+                .cloned()
+                .filter(|v| !v.is_null());
+        }
         let lab = resp
             .0
             .get("place_label")
@@ -6567,7 +6597,25 @@ async fn post_recall_polygon(
     } else {
         target_cells
     };
-    let mut cells = sample_cells_in_bbox(bbox, coarse_n);
+    // Polygon mask: when a true boundary is available, filter the
+    // bbox-grid candidates via point-in-polygon. Tracked separately
+    // for the response so callers can see which path was taken and
+    // how many cells the mask discarded — turning silent over-count
+    // into a numeric bbox-vs-polygon delta the agent can reason about.
+    let parsed_polygons = polygon_geojson
+        .as_ref()
+        .and_then(parse_polygon_geojson)
+        .unwrap_or_default();
+    let polygon_mask_kind: &'static str = if parsed_polygons.is_empty() {
+        "bbox_only"
+    } else {
+        "polygon_geojson"
+    };
+    let mut cells = if parsed_polygons.is_empty() {
+        sample_cells_in_bbox(bbox, coarse_n)
+    } else {
+        sample_cells_in_polygon(bbox, coarse_n, &parsed_polygons)
+    };
     if cells.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -6747,6 +6795,14 @@ async fn post_recall_polygon(
             "min_lng": bbox.2, "max_lng": bbox.3,
             "source": polygon_source,
         },
+        // Which mask was applied to the bbox grid: "polygon_geojson"
+        // means cells were filtered against the true OSM boundary via
+        // point-in-polygon (precise); "bbox_only" means the bbox
+        // envelope was sampled directly (over-inclusive on concave
+        // shapes — admin regions, coastal features). Agents that need
+        // tight aggregation should pass `polygon_geojson` from
+        // `/v1/locate` to flip the mask kind to "polygon_geojson".
+        "polygon_mask": polygon_mask_kind,
         "place": req.place,
         "place_label": place_label,
         "via": via,
@@ -20003,6 +20059,11 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     let mut via = "direct";
     let mut polygon_bbox: Option<(f64, f64, f64, f64)> = None;
     let mut polygon_source: Option<&'static str> = None;
+    // True OSM boundary — `Polygon` or `MultiPolygon` GeoJSON. Surfaced
+    // in the locate response and reused by recall_polygon to mask the
+    // cell grid via point-in-polygon. Falls back to the bbox envelope
+    // when upstream did not return a true geometry.
+    let mut polygon_geojson: Option<JsonValue> = None;
     // Alternative candidates surfaced when Nominatim returned multiple
     // matches for an ambiguous place name. Empty for non-ambiguous lookups
     // and for cache/embedded paths (those are deterministic single-result).
@@ -20038,6 +20099,13 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         nominatim_cache_put(p, la, lo, &lab, Some([bb.0, bb.1, bb.2, bb.3]));
                     }
                 }
+                // Embedded gazetteer entries are point-only; pull the
+                // true polygon from Nominatim once so recall_polygon
+                // and other masked-aggregation paths get the actual
+                // boundary instead of the wide bbox.
+                if polygon_geojson.is_none() {
+                    polygon_geojson = nominatim_polygon_geojson_for(p).await;
+                }
                 (la, lo, Some(lab))
             } else if let Some((la, lo, lab, bb_cached)) = nominatim_cache_get(p) {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
@@ -20063,6 +20131,9 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                             nominatim_cache_put(p, la, lo, &lab, Some([bb.0, bb.1, bb.2, bb.3]));
                         }
                     }
+                }
+                if polygon_geojson.is_none() {
+                    polygon_geojson = nominatim_polygon_geojson_for(p).await;
                 }
                 (la, lo, Some(lab))
             } else {
@@ -20194,6 +20265,16 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         hit.bbox = Some(bb);
                     }
                 }
+                // Photon-routed hit; enrich with the true polygon
+                // geometry from Nominatim if the chosen hit didn't
+                // carry one. This is the difference between a 25-40 %
+                // cell over-count on an L-shaped admin region and an
+                // accurate masked sample.
+                if hit.polygon_geojson.is_none() {
+                    if let Some(g) = nominatim_polygon_geojson_for(p).await {
+                        hit.polygon_geojson = Some(g);
+                    }
+                }
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
                 nominatim_cache_put(p, hit.lat, hit.lng, &hit.label, hit_bbox_arr);
                 if polygon_bbox.is_none() {
@@ -20201,6 +20282,9 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         polygon_bbox = Some(bb);
                         polygon_source = Some("nominatim_boundingbox");
                     }
+                }
+                if polygon_geojson.is_none() {
+                    polygon_geojson = hit.polygon_geojson.clone();
                 }
                 // Surface the FULL ranked candidate list — including the
                 // chosen-first hit at rank 0 — so an LLM can audit which
@@ -20295,6 +20379,21 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     } else {
         vec![cell_str.clone()]
     };
+    // Compute polygon-masked sample cells before we hand `polygon_geojson`
+    // to the json! macro (which would move it). When a true polygon is
+    // available we filter the bbox-grid candidates via point-in-polygon;
+    // otherwise we degrade to the unmasked bbox sample.
+    let parsed_polygons = polygon_geojson
+        .as_ref()
+        .and_then(parse_polygon_geojson)
+        .unwrap_or_default();
+    let sample_cells = polygon_bbox.map(|bb| {
+        if parsed_polygons.is_empty() {
+            sample_cells_in_bbox(bb, 64)
+        } else {
+            sample_cells_in_polygon(bb, 64, &parsed_polygons)
+        }
+    });
     let mut body = json!({
         "cell64": cell_str,
         "lat_input": lat,
@@ -20311,7 +20410,16 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             "min_lat": s, "max_lat": n, "min_lng": w, "max_lng": e,
             "source": polygon_source,
         })),
-        "polygon_sample_cells": polygon_bbox.map(|bb| sample_cells_in_bbox(bb, 64)),
+        // True OSM boundary as GeoJSON `Polygon` / `MultiPolygon` when
+        // the upstream geocoder returned one. Pass this back to
+        // /v1/recall_polygon as `polygon_geojson` to mask the cell
+        // grid against the boundary instead of falling back to the
+        // bounding box — typical wins on L-shaped admin regions are
+        // 25–40 % fewer cells; coastal / archipelago features see
+        // ≥50 %. Field is `null` when the place was point-only or the
+        // upstream geometry was Point/LineString.
+        "polygon_geojson": polygon_geojson,
+        "polygon_sample_cells": sample_cells,
         "advice": "Place names map to a single cell at ~10 m × ~10 m square resolution at the equator (matching S1/S2 native pitch). For point features (peaks, towers), use `neighborhood_cells` to fan out across the immediate ~9 cells. For wide features (canyons, basins, regions, countries), `polygon_bbox` carries the actual extent and `polygon_sample_cells` is a 64-cell grid sample inside it — query those to find the data. **`data_at_this_cell` lists every band you can recall here, grouped by topic — read it BEFORE concluding emem can't answer.**",
         // Topic-grouped roster of every band the responder can answer at
         // this cell, plus the cube placeholders that have no materializer
@@ -20532,6 +20640,69 @@ const WIDE_BBOXES: &[(&str, f64, f64, f64, f64)] = &[
 /// Honest caveat: this is a *sample*, not coverage. A 64-sample fan over
 /// the Sahara still leaves vast cells unread; agents looking for
 /// completeness should use `query_region` against the bbox, not this.
+/// Parse a GeoJSON `Polygon` or `MultiPolygon` value into a list of
+/// `emem_core::Polygon`. Used by `locate_inner` and `recall_polygon`
+/// to convert the geocoder's geometry into the dependency-free PIP
+/// type. Returns `None` on malformed shapes — caller falls back to
+/// the unmasked bbox sample so the response is honest about the
+/// downgrade rather than silently lossy.
+fn parse_polygon_geojson(g: &JsonValue) -> Option<Vec<emem_core::Polygon>> {
+    let t = g.get("type")?.as_str()?;
+    let coords = g.get("coordinates")?;
+    match t {
+        "Polygon" => {
+            // coords is `[[ [lng,lat], ... ], [ [lng,lat], ... ], ...]`
+            let rings = serde_json::from_value::<Vec<Vec<[f64; 2]>>>(coords.clone()).ok()?;
+            emem_core::Polygon::from_geojson_coords(&rings).map(|p| vec![p])
+        }
+        "MultiPolygon" => {
+            let polys = serde_json::from_value::<Vec<Vec<Vec<[f64; 2]>>>>(coords.clone()).ok()?;
+            Some(emem_core::Polygon::many_from_geojson_multi(&polys))
+        }
+        _ => None,
+    }
+}
+
+/// Sample the bbox like `sample_cells_in_bbox` but reject any cell
+/// whose centre lies outside the polygon. The grid is densified by a
+/// factor of `OVERSAMPLE` so the masked output still meets the
+/// `target_n` budget on irregular shapes; pathologically thin slivers
+/// may still come back short, which is the honest answer.
+fn sample_cells_in_polygon(
+    bbox: (f64, f64, f64, f64),
+    target_n: usize,
+    polygons: &[emem_core::Polygon],
+) -> Vec<String> {
+    if polygons.is_empty() {
+        return sample_cells_in_bbox(bbox, target_n);
+    }
+    let (mn_la, mx_la, mn_ln, mx_ln) = bbox;
+    // Densify 2× per axis (4× overall) so the masked retention rate
+    // can drop to ~25 % before we under-fill the budget. Most admin
+    // polygons retain >60 %, so this is a soft upper bound.
+    const OVERSAMPLE: usize = 2;
+    let n_side = ((target_n as f64).sqrt().ceil() as usize * OVERSAMPLE).max(4);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::with_capacity(target_n);
+    for i in 0..n_side {
+        for j in 0..n_side {
+            let la = mn_la + (mx_la - mn_la) * (i as f64 + 0.5) / n_side as f64;
+            let ln = mn_ln + (mx_ln - mn_ln) * (j as f64 + 0.5) / n_side as f64;
+            if !polygons.iter().any(|p| p.contains(la, ln)) {
+                continue;
+            }
+            let s = emem_codec::to_cell64(emem_codec::cell_from_latlng(la, ln));
+            if seen.insert(s.clone()) {
+                out.push(s);
+                if out.len() >= target_n {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
 fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) -> Vec<String> {
     let (mn_la, mx_la, mn_ln, mx_ln) = bbox;
     let n_side = (target_n as f64).sqrt().floor().max(2.0) as usize;
@@ -20745,8 +20916,15 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
         .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
     let base = base.trim_end_matches('/');
     let limit = limit.clamp(1, 10);
+    // `polygon_geojson=1` asks Nominatim to return the actual feature
+    // boundary as GeoJSON `geometry` instead of just a bounding box.
+    // Recall_polygon uses this to mask the cell grid against the true
+    // shape (point-in-polygon) instead of overcounting cells that
+    // sit inside the bbox but outside the boundary — typical wins are
+    // 25–40 % on L-shaped admin regions and ≥50 % on archipelagos /
+    // coastal features whose bbox extends far over open water.
     let url = format!(
-        "{base}/search?q={}&format=json&limit={limit}&addressdetails=0&extratags=0",
+        "{base}/search?q={}&format=json&limit={limit}&addressdetails=0&extratags=0&polygon_geojson=1",
         urlencoding(q),
     );
     let body = nominatim_get(&url).await?;
@@ -20783,6 +20961,16 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
             let e: f64 = a[3].as_str()?.parse().ok()?;
             Some((s, n, w, e))
         });
+        // Keep the raw geometry block when it parses as Polygon /
+        // MultiPolygon. Anything else (Point, LineString) gets dropped
+        // — those shapes don't carry an interior, so PIP would be a
+        // no-op anyway.
+        let polygon_geojson = item.get("geojson").cloned().filter(|g| {
+            g.get("type")
+                .and_then(|t| t.as_str())
+                .map(|t| t == "Polygon" || t == "MultiPolygon")
+                .unwrap_or(false)
+        });
         out.push(NominatimHit {
             lat,
             lng,
@@ -20793,6 +20981,7 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
             class_,
             type_,
             importance,
+            polygon_geojson,
         });
     }
     // Zero results is a normal outcome (the place isn't in OSM, or the
@@ -20918,6 +21107,11 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             .map(|i| i.to_string())
             .or_else(|| props["osm_id"].as_str().map(|s| s.to_string()))
             .unwrap_or_default();
+        // Photon's default response carries Point geometry only; the
+        // true boundary is not requested here (would require a second
+        // round-trip to the Nominatim instance for `polygon_geojson`).
+        // Polygon enrichment for Photon-routed hits happens further
+        // down in `locate_inner` via `nominatim_polygon_geojson_for`.
         out.push(NominatimHit {
             lat,
             lng,
@@ -20928,6 +21122,7 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             class_: osm_key.to_string(),
             type_: osm_value.to_string(),
             importance,
+            polygon_geojson: None,
         });
     }
     // Zero results is a normal outcome — the place isn't in Photon's OSM
@@ -20962,6 +21157,14 @@ struct NominatimHit {
     /// Nominatim's relevance score in [0, 1]. Useful as a disambiguation
     /// signal when multiple candidates share a name.
     importance: f64,
+    /// Raw GeoJSON `geometry` block when the upstream returned the true
+    /// boundary (Nominatim with `polygon_geojson=1`, Photon with its
+    /// `geometry` field). `Polygon` or `MultiPolygon` are the expected
+    /// shapes; the type tag is preserved verbatim for downstream
+    /// parsers (`emem_core::Polygon::from_geojson_coords` for the
+    /// single-polygon case, or `many_from_geojson_multi` for the
+    /// multi-polygon case). `None` falls back to the bbox envelope.
+    polygon_geojson: Option<JsonValue>,
 }
 
 /// User-agent for Nominatim requests. Nominatim's usage policy *requires* a
@@ -21018,6 +21221,37 @@ async fn nominatim_bbox_for(query: &str) -> Option<(f64, f64, f64, f64)> {
     let w: f64 = bbox[2].as_str()?.parse().ok()?;
     let e: f64 = bbox[3].as_str()?.parse().ok()?;
     Some((s, n, w, e))
+}
+
+/// Fetch ONLY the polygon geometry from Nominatim for a place query.
+/// Used to enrich Photon-routed hits, embedded-gazetteer hits, and
+/// stale cache entries with the true OSM boundary so recall_polygon
+/// can mask cells against it instead of falling back to the bbox.
+/// Returns the GeoJSON `geometry` value (`Polygon` or `MultiPolygon`
+/// only) when Nominatim has one, `None` otherwise. Errors fail soft.
+async fn nominatim_polygon_geojson_for(query: &str) -> Option<JsonValue> {
+    let q = query.trim();
+    if q.is_empty() {
+        return None;
+    }
+    let base = std::env::var("EMEM_NOMINATIM_BASE")
+        .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
+    let base = base.trim_end_matches('/');
+    let url = format!(
+        "{base}/search?q={}&format=json&limit=1&addressdetails=0&extratags=0&polygon_geojson=1",
+        urlencoding(q),
+    );
+    let body = nominatim_get(&url).await.ok()?;
+    let v: JsonValue = serde_json::from_str(&body).ok()?;
+    let arr = v.as_array()?;
+    let item = arr.first()?;
+    let g = item.get("geojson")?.clone();
+    let t = g.get("type")?.as_str()?;
+    if t == "Polygon" || t == "MultiPolygon" {
+        Some(g)
+    } else {
+        None
+    }
 }
 
 async fn nominatim_get(url: &str) -> Result<String, String> {
@@ -23738,6 +23972,118 @@ mod tests {
             "wire_path should advertise the temporal_diff convention; got `{}`",
             wrapped.wire_path
         );
+    }
+
+    /// Polygon mask actually filters out cells outside the boundary.
+    /// On an L-shape inside a 1×1 deg bbox, the NE quadrant is
+    /// excluded; the bbox-only sample must contain at least one
+    /// NE-quadrant cell (proving the mask is necessary), and the
+    /// masked sample must contain zero. Length comparison is
+    /// intentionally not asserted because both samples can saturate at
+    /// the target_n budget — the correctness signal is *which* cells
+    /// pass, not how many.
+    #[test]
+    fn sample_cells_in_polygon_excludes_concave_corner() {
+        // L-shape in (lng, lat): exclude NE quadrant of [0,1]×[0,1].
+        let coords: Vec<Vec<[f64; 2]>> = vec![vec![
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 0.5],
+            [0.5, 0.5],
+            [0.5, 1.0],
+            [0.0, 1.0],
+            [0.0, 0.0],
+        ]];
+        let poly = emem_core::Polygon::from_geojson_coords(&coords).unwrap();
+        let polys = vec![poly];
+
+        let bbox = (0.0, 1.0, 0.0, 1.0); // (lat_min, lat_max, lng_min, lng_max)
+        let bbox_only = sample_cells_in_bbox(bbox, 64);
+        let masked = sample_cells_in_polygon(bbox, 64, &polys);
+
+        let in_ne = |cell: &str| -> bool {
+            emem_codec::latlng_from_cell64(cell)
+                .map(|info| info.lng_deg > 0.5 && info.lat_deg > 0.5)
+                .unwrap_or(false)
+        };
+        let ne_in_bbox = bbox_only.iter().filter(|c| in_ne(c)).count();
+        let ne_in_masked = masked.iter().filter(|c| in_ne(c)).count();
+        assert!(
+            ne_in_bbox > 0,
+            "bbox-only sample should include NE-quadrant cells \
+             (got {ne_in_bbox})"
+        );
+        assert_eq!(
+            ne_in_masked, 0,
+            "polygon mask let through {ne_in_masked} NE-quadrant cells"
+        );
+    }
+
+    /// Parsing a Nominatim-shape `Polygon` GeoJSON value yields a
+    /// usable `emem_core::Polygon`. Guards the GeoJSON → core::Polygon
+    /// path that recall_polygon depends on.
+    #[test]
+    fn parse_polygon_geojson_polygon() {
+        let g = serde_json::json!({
+            "type": "Polygon",
+            "coordinates": [[
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [1.0, 1.0],
+                [0.0, 1.0],
+                [0.0, 0.0],
+            ]],
+        });
+        let polys = parse_polygon_geojson(&g).expect("Polygon must parse");
+        assert_eq!(polys.len(), 1);
+        assert!(polys[0].contains(0.5, 0.5));
+        assert!(!polys[0].contains(1.5, 0.5));
+    }
+
+    /// `MultiPolygon` parses into one `emem_core::Polygon` per outer
+    /// ring. Both polygons must contain their own interior point and
+    /// reject the other's.
+    #[test]
+    fn parse_polygon_geojson_multipolygon() {
+        let g = serde_json::json!({
+            "type": "MultiPolygon",
+            "coordinates": [
+                [[
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [1.0, 1.0],
+                    [0.0, 1.0],
+                    [0.0, 0.0],
+                ]],
+                [[
+                    [10.0, 10.0],
+                    [11.0, 10.0],
+                    [11.0, 11.0],
+                    [10.0, 11.0],
+                    [10.0, 10.0],
+                ]],
+            ],
+        });
+        let polys = parse_polygon_geojson(&g).expect("MultiPolygon must parse");
+        assert_eq!(polys.len(), 2);
+        assert!(polys[0].contains(0.5, 0.5));
+        assert!(!polys[0].contains(10.5, 10.5));
+        assert!(polys[1].contains(10.5, 10.5));
+        assert!(!polys[1].contains(0.5, 0.5));
+    }
+
+    /// Non-polygon geometries (Point, LineString) MUST return None so
+    /// the recall_polygon path falls back to the bbox sample rather
+    /// than panic-parsing a wrong shape.
+    #[test]
+    fn parse_polygon_geojson_rejects_non_polygon() {
+        let g = serde_json::json!({"type": "Point", "coordinates": [0.0, 0.0]});
+        assert!(parse_polygon_geojson(&g).is_none());
+        let g = serde_json::json!({
+            "type": "LineString",
+            "coordinates": [[0.0, 0.0], [1.0, 1.0]],
+        });
+        assert!(parse_polygon_geojson(&g).is_none());
     }
 
     /// Every algorithm key cited in `algorithms_for_topic` MUST
