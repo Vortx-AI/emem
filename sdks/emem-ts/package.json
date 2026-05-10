@@ -1,0 +1,49 @@
+{
+  "name": "@emem/client",
+  "version": "0.0.4",
+  "description": "TypeScript client for emem.dev — agent-native Earth memory protocol",
+  "license": "Apache-2.0",
+  "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
+  "homepage": "https://emem.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vortx-AI/emem.git",
+    "directory": "sdks/emem-ts"
+  },
+  "bugs": "https://github.com/Vortx-AI/emem/issues",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "earth-observation",
+    "geospatial",
+    "satellite",
+    "mcp",
+    "ed25519",
+    "content-addressed"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
