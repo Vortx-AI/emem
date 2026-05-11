@@ -1,0 +1,412 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080" font-family="ui-monospace, SF Mono, Menlo, Consolas, monospace" role="img" aria-label="Two encoding paths converge in one latent lake: client encoders run on the spacecraft and downlink latents; on the ground, the open planet is encoded in-tenant by a sidecar zoo of foundation models (Prithvi, Galileo, Clay, JEPA-v2). The lake is sensor-agnostic. Decoders consume both jointly and write signed, content-addressed facts to a cache that AI agents read.">
+  <title>your encoder in orbit · the free planet encoded on ground · decoded together</title>
+  <desc>Path A: each customer satellite carries the customer's proprietary encoder on the bus; only the latent (~1 KB) downlinks; weights stay on the spacecraft and the customer's tenant. Path B: emem pulls 40+ open data sources (Sentinel-1/-2, Landsat, MODIS, Cop-DEM, ESA WorldCover, NASA POWER, ERA5, FIRMS, Hansen, JRC GSW, SoilGrids, GMRT, WorldPop, Overture, GeoNames, FTW, ...) and encodes them in-tenant with a GPU-pinned sidecar zoo of foundation encoders (Prithvi-EO-2.0-300M-TL, Galileo, Clay v1.5, JEPA-v2, plus a plug-in slot). Both paths write to the same parquet shape keyed (cell64, tslot, model_id, sensor_id). Decoders — linear probes (supporting fusion across encoders), reconstruction heads, archetype matchers, cross-modal alignment — read from the lake and emit canonical CBOR facts, BLAKE3-addressed and ed25519-signed, into the sled-backed cache. Agents read facts via /v1/recall, /v1/find_similar, /v1/trajectory.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#02050f"/>
+      <stop offset="0.35" stop-color="#04081c"/>
+      <stop offset="0.55" stop-color="#070d24"/>
+      <stop offset="1" stop-color="#02050f"/>
+    </linearGradient>
+    <radialGradient id="earth" cx="50%" cy="50%" r="55%">
+      <stop offset="0" stop-color="#163763"/>
+      <stop offset="0.55" stop-color="#0a1c38"/>
+      <stop offset="1" stop-color="#02060f"/>
+    </radialGradient>
+    <linearGradient id="busFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2244"/>
+      <stop offset="1" stop-color="#0c1228"/>
+    </linearGradient>
+    <linearGradient id="encFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241039"/>
+      <stop offset="1" stop-color="#10061f"/>
+    </linearGradient>
+    <linearGradient id="decFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c1f28"/>
+      <stop offset="1" stop-color="#061218"/>
+    </linearGradient>
+    <linearGradient id="srcFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a1530"/>
+      <stop offset="1" stop-color="#060c1f"/>
+    </linearGradient>
+    <linearGradient id="zooFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a0f33"/>
+      <stop offset="1" stop-color="#0c0620"/>
+    </linearGradient>
+    <linearGradient id="poolOrbit" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1a1424"/>
+      <stop offset="1" stop-color="#241a14"/>
+    </linearGradient>
+    <linearGradient id="poolGround" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1a1424"/>
+      <stop offset="1" stop-color="#141a28"/>
+    </linearGradient>
+    <pattern id="stars" x="0" y="0" width="600" height="220" patternUnits="userSpaceOnUse">
+      <circle cx="38" cy="34" r="0.7" fill="#cfd9ff" opacity="0.55"/>
+      <circle cx="118" cy="88" r="0.5" fill="#cfd9ff" opacity="0.35"/>
+      <circle cx="226" cy="22" r="0.6" fill="#cfd9ff" opacity="0.55"/>
+      <circle cx="312" cy="156" r="0.4" fill="#cfd9ff" opacity="0.30"/>
+      <circle cx="430" cy="62" r="0.7" fill="#cfd9ff" opacity="0.65"/>
+      <circle cx="520" cy="174" r="0.5" fill="#cfd9ff" opacity="0.45"/>
+      <circle cx="586" cy="112" r="0.6" fill="#cfd9ff" opacity="0.55"/>
+      <circle cx="74" cy="170" r="0.4" fill="#cfd9ff" opacity="0.35"/>
+      <circle cx="380" cy="42" r="0.5" fill="#cfd9ff" opacity="0.45"/>
+      <circle cx="160" cy="200" r="0.7" fill="#cfd9ff" opacity="0.6"/>
+      <circle cx="500" cy="30" r="0.4" fill="#cfd9ff" opacity="0.30"/>
+    </pattern>
+    <marker id="downlink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f59e0b"/>
+    </marker>
+    <marker id="encode" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+    <marker id="merge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3b82f6"/>
+    </marker>
+    <marker id="fact" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#22c55e"/>
+    </marker>
+  </defs>
+
+  <!-- background sky + stars (top only) -->
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="320" fill="url(#stars)" opacity="0.85"/>
+  <path d="M -200,560 Q 960,470 2120,560 L 2120,640 L -200,640 Z" fill="url(#earth)" opacity="0.85"/>
+  <path d="M -200,560 Q 960,470 2120,560" stroke="#3b82f6" stroke-width="1" fill="none" opacity="0.35"/>
+
+  <!-- =========================================================== HEADER -->
+  <g fill="#e8eef5">
+    <text x="80" y="70" font-size="34" font-weight="700" letter-spacing="-0.4">your encoder in orbit · the free planet encoded on ground · decoded together</text>
+    <text x="80" y="100" font-size="14" fill="#94a3b8">weights stay where you trust them. latents meet in the lake. agents read signed facts.</text>
+  </g>
+  <line x1="80" y1="116" x2="1840" y2="116" stroke="#1f2752" stroke-width="1"/>
+
+  <!-- column tags -->
+  <g font-size="12" fill="#64748b" letter-spacing="2">
+    <text x="80" y="138">PATH A · ORBIT · client encoders on the bus</text>
+    <text x="980" y="138">PATH B · GROUND · open planet encoded in your tenant</text>
+  </g>
+
+  <!-- vertical seam between the two paths -->
+  <line x1="950" y1="120" x2="950" y2="540" stroke="#1f2752" stroke-width="1" stroke-dasharray="2 8"/>
+
+  <!-- ============================================================ ORBIT TIER -->
+  <!-- 4 satellites packed across x=80..920 -->
+
+  <!-- SAT 1 at x=85 -->
+  <g transform="translate(85,158)">
+    <rect x="-38" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <line x1="-38" y1="44" x2="-6" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="58" x2="-6" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="72" x2="-6" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="86" x2="-6" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <rect x="186" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <line x1="186" y1="44" x2="218" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="58" x2="218" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="72" x2="218" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="86" x2="218" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <rect x="-6" y="0" width="192" height="138" rx="6" fill="url(#busFace)" stroke="#3b82f6" stroke-width="1.2"/>
+    <text x="90" y="22" text-anchor="middle" font-size="12" fill="#94a3b8">client sat · A</text>
+    <rect x="14" y="32" width="152" height="28" rx="3" fill="#0c1228" stroke="#475569"/>
+    <text x="90" y="52" text-anchor="middle" font-size="11" fill="#cfd9ff">camera</text>
+    <rect x="14" y="68" width="152" height="56" rx="3" fill="url(#encFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="90" y="90" text-anchor="middle" font-size="13" fill="#a78bfa" font-weight="700">encoder</text>
+    <text x="90" y="110" text-anchor="middle" font-size="10" fill="#94a3b8">your weights</text>
+  </g>
+
+  <!-- SAT 2 at x=295 -->
+  <g transform="translate(295,158)">
+    <rect x="-38" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <rect x="186" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <line x1="-38" y1="44" x2="-6" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="58" x2="-6" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="72" x2="-6" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="86" x2="-6" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="44" x2="218" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="58" x2="218" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="72" x2="218" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="86" x2="218" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <rect x="-6" y="0" width="192" height="138" rx="6" fill="url(#busFace)" stroke="#3b82f6" stroke-width="1.2"/>
+    <text x="90" y="22" text-anchor="middle" font-size="12" fill="#94a3b8">client sat · B</text>
+    <rect x="14" y="32" width="152" height="28" rx="3" fill="#0c1228" stroke="#475569"/>
+    <text x="90" y="52" text-anchor="middle" font-size="11" fill="#cfd9ff">camera</text>
+    <rect x="14" y="68" width="152" height="56" rx="3" fill="url(#encFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="90" y="90" text-anchor="middle" font-size="13" fill="#a78bfa" font-weight="700">encoder</text>
+    <text x="90" y="110" text-anchor="middle" font-size="10" fill="#94a3b8">your weights</text>
+  </g>
+
+  <!-- SAT 3 at x=505 -->
+  <g transform="translate(505,158)">
+    <rect x="-38" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <rect x="186" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <line x1="-38" y1="44" x2="-6" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="58" x2="-6" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="72" x2="-6" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="86" x2="-6" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="44" x2="218" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="58" x2="218" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="72" x2="218" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="86" x2="218" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <rect x="-6" y="0" width="192" height="138" rx="6" fill="url(#busFace)" stroke="#3b82f6" stroke-width="1.2"/>
+    <text x="90" y="22" text-anchor="middle" font-size="12" fill="#94a3b8">client sat · C</text>
+    <rect x="14" y="32" width="152" height="28" rx="3" fill="#0c1228" stroke="#475569"/>
+    <text x="90" y="52" text-anchor="middle" font-size="11" fill="#cfd9ff">camera</text>
+    <rect x="14" y="68" width="152" height="56" rx="3" fill="url(#encFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="90" y="90" text-anchor="middle" font-size="13" fill="#a78bfa" font-weight="700">encoder</text>
+    <text x="90" y="110" text-anchor="middle" font-size="10" fill="#94a3b8">your weights</text>
+  </g>
+
+  <!-- SAT 4 at x=715 -->
+  <g transform="translate(715,158)">
+    <rect x="-38" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <rect x="186" y="34" width="32" height="62" fill="#1a2050" stroke="#3a4280"/>
+    <line x1="-38" y1="44" x2="-6" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="58" x2="-6" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="72" x2="-6" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="-38" y1="86" x2="-6" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="44" x2="218" y2="44" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="58" x2="218" y2="58" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="72" x2="218" y2="72" stroke="#3a4280" stroke-width="0.5"/>
+    <line x1="186" y1="86" x2="218" y2="86" stroke="#3a4280" stroke-width="0.5"/>
+    <rect x="-6" y="0" width="192" height="138" rx="6" fill="url(#busFace)" stroke="#3b82f6" stroke-width="1.2"/>
+    <text x="90" y="22" text-anchor="middle" font-size="12" fill="#94a3b8">partner · D</text>
+    <rect x="14" y="32" width="152" height="28" rx="3" fill="#0c1228" stroke="#475569"/>
+    <text x="90" y="52" text-anchor="middle" font-size="11" fill="#cfd9ff">camera</text>
+    <rect x="14" y="68" width="152" height="56" rx="3" fill="url(#encFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="90" y="90" text-anchor="middle" font-size="13" fill="#a78bfa" font-weight="700">encoder</text>
+    <text x="90" y="110" text-anchor="middle" font-size="10" fill="#94a3b8">your weights</text>
+  </g>
+
+  <!-- downlinks: 4 beams from each sat encoder bottom -->
+  <g stroke="#f59e0b" stroke-width="2" fill="none" opacity="0.95" marker-end="url(#downlink)">
+    <path d="M 175,290 Q 245,360 500,440"/>
+    <path d="M 385,290 Q 425,360 500,440"/>
+    <path d="M 595,290 Q 555,360 500,440"/>
+    <path d="M 805,290 Q 700,360 500,440"/>
+  </g>
+  <g font-size="10" fill="#fbbf24" opacity="0.9">
+    <text x="115" y="358">latent · ~1 KB</text>
+    <text x="345" y="358">latent · ~1 KB</text>
+    <text x="565" y="358">latent · ~1 KB</text>
+    <text x="780" y="358">latent · ~1 KB</text>
+  </g>
+
+  <!-- orbit-origin pool -->
+  <g transform="translate(80,448)">
+    <rect x="0" y="0" width="840" height="80" rx="8" fill="url(#poolOrbit)" stroke="#f59e0b" stroke-width="1.4"/>
+    <text x="20" y="30" font-size="15" fill="#fbbf24" font-weight="700">orbit-origin latents</text>
+    <text x="20" y="52" font-size="12" fill="#cfd9ff">(cell64, tslot, model_id=&quot;client_enc_*&quot;, sensor_id=&quot;sat_A|B|C|D&quot;)</text>
+    <text x="20" y="70" font-size="11" fill="#94a3b8">your weights never left the spacecraft. only the latent did.</text>
+  </g>
+
+  <!-- ============================================================ GROUND TIER -->
+  <!-- OPEN DATA pill cloud at top right (x=980..1840) -->
+  <g transform="translate(980,150)">
+    <text x="0" y="14" font-size="13" fill="#94a3b8" font-weight="700">open data · 40+ source schemes</text>
+    <text x="0" y="32" font-size="11" fill="#64748b">all anonymous · no API keys · pulled by emem-fetch</text>
+  </g>
+
+  <!-- pill grid: 5 cols x 4 rows = 20 pills, each ~160x22, gap 8 -->
+  <g font-size="11" fill="#cfd9ff">
+    <!-- row 1 -->
+    <g transform="translate(980,170)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">Sentinel-2 L2A</text></g>
+    <g transform="translate(1148,170)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">Sentinel-1 RTC</text></g>
+    <g transform="translate(1316,170)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">Landsat 8/9</text></g>
+    <g transform="translate(1484,170)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">MODIS · MOD13/11</text></g>
+    <g transform="translate(1652,170)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">Cop-DEM 30 m</text></g>
+    <!-- row 2 -->
+    <g transform="translate(980,202)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">ESA WorldCover</text></g>
+    <g transform="translate(1148,202)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">NASA POWER</text></g>
+    <g transform="translate(1316,202)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">ERA5 · Open-Meteo</text></g>
+    <g transform="translate(1484,202)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">FIRMS · VIIRS NRT</text></g>
+    <g transform="translate(1652,202)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">Hansen GFC</text></g>
+    <!-- row 3 -->
+    <g transform="translate(980,234)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">JRC GSW</text></g>
+    <g transform="translate(1148,234)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">SoilGrids v2</text></g>
+    <g transform="translate(1316,234)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">GMRT topobathy</text></g>
+    <g transform="translate(1484,234)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">WorldPop</text></g>
+    <g transform="translate(1652,234)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">Köppen-Geiger</text></g>
+    <!-- row 4 -->
+    <g transform="translate(980,266)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">Overture</text></g>
+    <g transform="translate(1148,266)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">GeoNames</text></g>
+    <g transform="translate(1316,266)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">FTW field polygons</text></g>
+    <g transform="translate(1484,266)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">CHIRPS · TerraClimate</text></g>
+    <g transform="translate(1652,266)"><rect width="158" height="24" rx="12" fill="url(#srcFace)" stroke="#3b82f6" stroke-width="0.8"/><text x="79" y="16" text-anchor="middle">DMSP-OLS · TROPOMI</text></g>
+    <text x="980" y="312" font-size="11" fill="#64748b">+ ~20 more streams in sources-v0.json · STAC search · COG range reads · parquet row-group prune</text>
+  </g>
+
+  <!-- arrow: open data → zoo -->
+  <g stroke="#3b82f6" stroke-width="2" fill="none" opacity="0.9" marker-end="url(#merge)">
+    <path d="M 1410,322 L 1410,348"/>
+  </g>
+  <text x="1420" y="340" font-size="10" fill="#3b82f6">scenes</text>
+
+  <!-- ENCODER ZOO box (sidecar) -->
+  <g transform="translate(980,352)">
+    <rect x="0" y="0" width="860" height="172" rx="10" fill="#0a0716" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="20" y="26" font-size="14" fill="#a78bfa" font-weight="700">sidecar · GPU encoder zoo · in your tenant</text>
+    <text x="20" y="44" font-size="11" fill="#64748b">FastAPI · /run/emem/jepa_sidecar.sock · CBOR · pinned · dispatched by sensor type</text>
+
+    <!-- 5 encoder cards in a row (3 real + 1 untrained + 1 plug-in) -->
+    <g transform="translate(20,58)">
+      <rect width="160" height="100" rx="6" fill="url(#zooFace)" stroke="#a78bfa" stroke-width="1.2"/>
+      <text x="80" y="22" text-anchor="middle" font-size="12" fill="#a78bfa" font-weight="700">Prithvi-EO-2.0</text>
+      <text x="80" y="40" text-anchor="middle" font-size="11" fill="#cfd9ff">300M · TL</text>
+      <text x="80" y="60" text-anchor="middle" font-size="10" fill="#94a3b8">NASA · IBM</text>
+      <text x="80" y="78" text-anchor="middle" font-size="10" fill="#94a3b8">Sentinel-2 · Landsat</text>
+      <text x="80" y="92" text-anchor="middle" font-size="9" fill="#64748b">/predict/prithvi_eo2_embed</text>
+    </g>
+    <g transform="translate(190,58)">
+      <rect width="160" height="100" rx="6" fill="url(#zooFace)" stroke="#a78bfa" stroke-width="1.2"/>
+      <text x="80" y="22" text-anchor="middle" font-size="12" fill="#a78bfa" font-weight="700">Galileo</text>
+      <text x="80" y="40" text-anchor="middle" font-size="11" fill="#cfd9ff">Allen AI · NASA Harvest</text>
+      <text x="80" y="60" text-anchor="middle" font-size="10" fill="#94a3b8">multi-modal</text>
+      <text x="80" y="78" text-anchor="middle" font-size="10" fill="#94a3b8">S1 + S2 + MODIS</text>
+      <text x="80" y="92" text-anchor="middle" font-size="9" fill="#64748b">/predict/galileo_embed</text>
+    </g>
+    <g transform="translate(360,58)">
+      <rect width="160" height="100" rx="6" fill="url(#zooFace)" stroke="#a78bfa" stroke-width="1.2"/>
+      <text x="80" y="22" text-anchor="middle" font-size="12" fill="#a78bfa" font-weight="700">Clay v1.5</text>
+      <text x="80" y="40" text-anchor="middle" font-size="11" fill="#cfd9ff">Clay Foundation</text>
+      <text x="80" y="60" text-anchor="middle" font-size="10" fill="#94a3b8">multi-sensor</text>
+      <text x="80" y="78" text-anchor="middle" font-size="10" fill="#94a3b8">S1 · S2 · Landsat · NAIP</text>
+      <text x="80" y="92" text-anchor="middle" font-size="9" fill="#64748b">/predict/clay_embed</text>
+    </g>
+    <g transform="translate(530,58)">
+      <rect width="160" height="100" rx="6" fill="url(#zooFace)" stroke="#a78bfa" stroke-width="1.2"/>
+      <text x="80" y="22" text-anchor="middle" font-size="12" fill="#a78bfa" font-weight="700">JEPA-v2</text>
+      <text x="80" y="40" text-anchor="middle" font-size="11" fill="#cfd9ff">dynamics predictor</text>
+      <text x="80" y="60" text-anchor="middle" font-size="10" fill="#94a3b8">temporal head</text>
+      <text x="80" y="78" text-anchor="middle" font-size="10" fill="#94a3b8">(cell, t) → (cell, t+δ)</text>
+      <text x="80" y="92" text-anchor="middle" font-size="9" fill="#64748b">/predict/dynamics_v2</text>
+    </g>
+    <g transform="translate(700,58)">
+      <rect width="140" height="100" rx="6" fill="#080d18" stroke="#475569" stroke-dasharray="4 4" stroke-width="1.2"/>
+      <text x="70" y="22" text-anchor="middle" font-size="12" fill="#e8eef5" font-weight="700">+ your slot</text>
+      <text x="70" y="44" text-anchor="middle" font-size="11" fill="#cfd9ff">your own encoder</text>
+      <text x="70" y="62" text-anchor="middle" font-size="10" fill="#94a3b8">same FastAPI shape</text>
+      <text x="70" y="78" text-anchor="middle" font-size="10" fill="#94a3b8">same UDS · same CBOR</text>
+      <text x="70" y="92" text-anchor="middle" font-size="9" fill="#64748b">drop-in foundation head</text>
+    </g>
+  </g>
+
+  <!-- ground-origin pool -->
+  <g transform="translate(980,540)">
+    <rect x="0" y="0" width="860" height="60" rx="8" fill="url(#poolGround)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="20" y="26" font-size="14" fill="#a78bfa" font-weight="700">ground-origin latents</text>
+    <text x="20" y="48" font-size="11" fill="#cfd9ff">(cell64, tslot, model_id=&quot;prithvi_eo2|galileo|clay_v1_5|jepa_v2&quot;, sensor_id=&quot;s2|s1|landsat|modis|...&quot;)</text>
+  </g>
+
+  <!-- ============================================================ MERGE -->
+  <!-- two streams converging into the lake -->
+  <g stroke="#3b82f6" stroke-width="2.5" fill="none" opacity="0.95" marker-end="url(#merge)">
+    <path d="M 500,528 Q 500,600 920,640"/>
+    <path d="M 1410,600 Q 1410,620 1000,640"/>
+  </g>
+
+  <!-- LATENT LAKE -->
+  <g transform="translate(80,640)">
+    <rect x="0" y="0" width="1760" height="86" rx="10" fill="#0c1530" stroke="#3b82f6" stroke-width="1.6"/>
+    <text x="22" y="30" font-size="18" fill="#e8eef5" font-weight="700">latent lake · the merge point</text>
+    <text x="22" y="54" font-size="12" fill="#cfd9ff">parquet shards on S3 · GCS · Azure  ·  keys: (cell64, tslot, model_id, sensor_id)  ·  orbit-origin and ground-origin records have the same shape · the lake is sensor-agnostic</text>
+    <!-- mixed dots showing the union -->
+    <g transform="translate(1280,60)">
+      <circle cx="0" cy="0" r="4" fill="#fbbf24"/><text x="9" y="4" font-size="10" fill="#94a3b8">orbit</text>
+      <circle cx="80" cy="0" r="4" fill="#a78bfa"/><text x="89" y="4" font-size="10" fill="#94a3b8">ground</text>
+      <circle cx="170" cy="0" r="4" fill="#fbbf24"/>
+      <circle cx="190" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="210" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="230" cy="0" r="4" fill="#fbbf24"/>
+      <circle cx="250" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="270" cy="0" r="4" fill="#fbbf24"/>
+      <circle cx="290" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="310" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="330" cy="0" r="4" fill="#fbbf24"/>
+      <circle cx="350" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="370" cy="0" r="4" fill="#fbbf24"/>
+      <circle cx="390" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="410" cy="0" r="4" fill="#a78bfa"/>
+      <circle cx="430" cy="0" r="4" fill="#fbbf24"/>
+      <circle cx="450" cy="0" r="4" fill="#a78bfa"/>
+    </g>
+  </g>
+
+  <!-- ============================================================ DECODERS -->
+  <g font-size="12" fill="#64748b" letter-spacing="2">
+    <text x="80" y="754">DECODERS · consume any latent · fuse across encoders</text>
+  </g>
+
+  <!-- arrows: lake → decoders -->
+  <g stroke="#7c3aed" stroke-width="2" fill="none" marker-end="url(#encode)">
+    <path d="M 285,728 L 285,770"/>
+    <path d="M 720,728 L 720,770"/>
+    <path d="M 1155,728 L 1155,770"/>
+    <path d="M 1590,728 L 1590,770"/>
+  </g>
+
+  <!-- 4 decoder cards -->
+  <g transform="translate(80,770)">
+    <!-- linear probes (fusion) -->
+    <rect x="0" y="0" width="410" height="120" rx="10" fill="url(#decFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="20" y="28" font-size="15" fill="#a78bfa" font-weight="700">linear probes · fusion</text>
+    <text x="20" y="52" font-size="12" fill="#cfd9ff">[client ⊕ prithvi ⊕ galileo ⊕ clay] · β  →  scalar</text>
+    <text x="20" y="74" font-size="11" fill="#94a3b8">canola yield (t/ha) · soil organic carbon</text>
+    <text x="20" y="92" font-size="11" fill="#94a3b8">NDVI · LST · above-ground biomass</text>
+    <text x="20" y="110" font-size="10" fill="#64748b">private signal × public memory → better per-cell answer</text>
+
+    <!-- reconstruction -->
+    <rect x="435" y="0" width="410" height="120" rx="10" fill="url(#decFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="455" y="28" font-size="15" fill="#a78bfa" font-weight="700">reconstruction heads</text>
+    <text x="455" y="52" font-size="12" fill="#cfd9ff">latent  →  scene · mask · vector</text>
+    <text x="455" y="74" font-size="11" fill="#94a3b8">water extent · built-up footprint</text>
+    <text x="455" y="92" font-size="11" fill="#94a3b8">synthetic RGB for human eyes</text>
+    <text x="455" y="110" font-size="10" fill="#64748b">pixels never re-downloaded — recovered from latent</text>
+
+    <!-- archetype matcher -->
+    <rect x="870" y="0" width="410" height="120" rx="10" fill="url(#decFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="890" y="28" font-size="15" fill="#a78bfa" font-weight="700">archetype matcher</text>
+    <text x="890" y="52" font-size="12" fill="#cfd9ff">cosine(latent, centroid)  →  label</text>
+    <text x="890" y="74" font-size="11" fill="#94a3b8">land-cover class · ecological analog</text>
+    <text x="890" y="92" font-size="11" fill="#94a3b8">&quot;find 100 farms that look like this&quot;</text>
+    <text x="890" y="110" font-size="10" fill="#64748b">no training · no weights · just memory</text>
+
+    <!-- cross-modal align -->
+    <rect x="1305" y="0" width="410" height="120" rx="10" fill="url(#decFace)" stroke="#7c3aed" stroke-width="1.4"/>
+    <text x="1325" y="28" font-size="15" fill="#a78bfa" font-weight="700">cross-modal align</text>
+    <text x="1325" y="52" font-size="12" fill="#cfd9ff">Prithvi space  ↔  client_enc space</text>
+    <text x="1325" y="74" font-size="11" fill="#94a3b8">linear bridge · ridge-fit on overlapping cells</text>
+    <text x="1325" y="92" font-size="11" fill="#94a3b8">retrieval across catalogs</text>
+    <text x="1325" y="110" font-size="10" fill="#64748b">your latents talk to ours, and ours to yours</text>
+  </g>
+
+  <!-- arrows: decoders → cache -->
+  <g stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#fact)">
+    <path d="M 285,894 L 285,930"/>
+    <path d="M 720,894 L 720,930"/>
+    <path d="M 1155,894 L 1155,930"/>
+    <path d="M 1590,894 L 1590,930"/>
+  </g>
+
+  <!-- CACHE band -->
+  <g transform="translate(80,930)">
+    <rect x="0" y="0" width="1340" height="80" rx="10" fill="#062017" stroke="#22c55e" stroke-width="1.6"/>
+    <text x="22" y="30" font-size="16" fill="#22c55e" font-weight="700">signed-fact cache · the surface AI agents read</text>
+    <text x="22" y="52" font-size="12" fill="#cfd9ff">(cell, band, tslot) → fact_cid  ·  canonical CBOR · BLAKE3 content-address · ed25519 signature · sled</text>
+    <text x="22" y="70" font-size="11" fill="#94a3b8">/v1/recall  ·  /v1/find_similar  ·  /v1/trajectory  ·  /v1/compare  ·  /v1/verify  ·  MCP tools</text>
+  </g>
+
+  <!-- AGENTS box -->
+  <g transform="translate(1440,930)">
+    <rect x="0" y="0" width="320" height="80" rx="10" fill="#0c1530" stroke="#3b82f6" stroke-width="1.4"/>
+    <text x="20" y="30" font-size="14" fill="#e8eef5" font-weight="700">agents</text>
+    <text x="20" y="52" font-size="11" fill="#94a3b8">Claude · ChatGPT · Cursor</text>
+    <text x="20" y="68" font-size="11" fill="#94a3b8">custom MCP · curl · your app</text>
+  </g>
+  <g stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#fact)">
+    <path d="M 1420,970 L 1440,970"/>
+  </g>
+
+  <!-- bottom watermark -->
+  <text x="1840" y="1060" text-anchor="end" font-size="10" fill="#475569">emem.dev · 0.0.6 · 33-fusion-orbit-and-ground</text>
+</svg>
