@@ -1,6 +1,6 @@
 # emem: a content-addressed, agent-native spatial memory protocol
 
-**Version 0.0.4 / 2026-05-08**
+**Version 0.0.6 / 2026-05-11**
 
 ---
 
@@ -53,10 +53,18 @@ emem's response is a small set of address rules plus one signing rule:
   signature without calling back.
 
 The surface is small on purpose: three core primitives, one verify
-call, six derived primitives (`compare`, `compare_bands`, `diff`,
-`trajectory`, `query_region`, `recall_polygon`). New bands,
-algorithms, and sources extend the registries without changing the
-primitive surface.
+call, seven derived primitives (`compare`, `compare_bands`, `diff`,
+`trajectory`, `query_region`, `recall_polygon`, `field_boundaries`).
+New bands, algorithms, and sources extend the registries without
+changing the primitive surface.
+
+The same protocol carries two parallel encoding paths: a client's
+proprietary encoder running on the spacecraft (the latent downlinks,
+the weights never leave the bus), and a fleet of public foundation
+encoders (Prithvi-EO-2.0, Galileo, Clay v1.5, JEPA-v2) running
+GPU-pinned inside the same tenant against 43 open-data sources. Both
+paths write to the same fact shape; decoders read from both. §11
+describes the topology in detail.
 
 ---
 
@@ -452,7 +460,7 @@ the contemporaneous registry version.
 
 ## 7. Algorithms
 
-The algorithm registry (`algorithms-v0.json`) holds 107 entries in
+The algorithm registry (`algorithms-v0.json`) holds 149 entries in
 three kinds:
 
 ```text
@@ -645,7 +653,30 @@ receipt — labelled empty, not zeroed.
 - `diff(cell, band, t0, t1)` — change between two tslots for a single band. Non-numeric bands return a structured error.
 - `trajectory(cell, band, [tslots])` — ordered series; missing tslots surface as gaps with explicit reasons.
 - `query_region(geometry, bands?, agg?)` — geometry is `<cell64>`, `cells:c1,c2,...`, or `bbox:lon_min,lat_min,lon_max,lat_max`. Bbox synthesis caps at `MAX_BBOX_CELLS = 4096` (~6.4 km × 6.4 km at the equator) and `MAX_REGION_FACTS = 65_536`. Beyond either cap the responder stops scanning and aggregates over what it has; `receipt.fact_cids` reflects exactly what contributed. GeoJSON polyfill returns a structured error pointing to the bbox or cells form.
-- `recall_polygon(polygon_bbox, n_cells)` — fans out across up to 1024 sample cells; returns mean / median / min / max / std per band plus per-cell `scene_thumbs[]`, `scene_overlay_url`, `geojson`.
+- `recall_polygon(polygon_bbox, n_cells)` — fans out across up to 1024 sample cells; returns mean / median / min / max / std per band plus per-cell `scene_thumbs[]`, `scene_overlay_url`, `geojson`. An `include: ["ftw_fields"]` flag attaches the field-boundary block from §8.6 inline.
+
+### 8.6 field_boundaries
+
+Per-field agricultural polygons from Fields of The World (FTW), a global product of ~3.17 billion field polygons across 241 countries at 10 m, CC-BY-4.0. The connector reads the upstream PMTiles archive (2.14 TB, hosted on source.coop) over anonymous HTTP range requests; MVT tiles are decoded and reprojected from Web-Mercator to WGS-84 in-process. Auto-zoom shrinks the request when a bounding box exceeds the 16-tile-per-query cap.
+
+```text
+  POST /v1/field_boundaries
+  body  { place: "Patiala, India", zoom?: u8 }
+        | { polygon_bbox: [w,s,e,n], zoom?: u8 }
+
+  response {
+      count: u32,
+      total_area_m2: f64,
+      zoom_used: u8,
+      geojson: FeatureCollection,
+      source_cid: FactCid,         // CID of the pmtiles archive entry
+      provider_url, license, attribution
+  }
+```
+
+This primitive returns a polygon FeatureCollection rather than a per-cell scalar, so it sits at the API layer rather than in `emem-primitives` proper. Provenance is the FTW source CID plus license and attribution, carried inline on the response.
+
+The place-name path (`{ place: ... }`) reuses the locate cascade described in §11.6: GeoNames cities-5000 → Overture divisions → Photon → Nominatim, with polygon enrichment from Overture's `divisions/division_area` theme.
 
 ---
 
@@ -669,18 +700,24 @@ body cap. A miss with no registered connector returns
 `MaterializeMiss` — structured error, never a silent empty.
 
 Inline materializers in `emem-api-rest/src/lib.rs` cover gmrt,
-ornl_modis, nasa_power, open_meteo (+ cams/era5/marine variants),
-soilgrids, firms (active fires), and chirps.daily.v2. Four schemes
-remain declared but unwired: openet.30m.daily, dynamic_world.v1,
-tropomi.s5p.ch4 / .no2, viirs.dnb.monthly.
+ornl_modis (NDVI / LST day+night / ET / GPP / LAI / burned-area),
+nasa_power, open_meteo (current + cams + era5 + marine variants),
+soilgrids v2 (SOC / pH / clay / sand / BDOD / nitrogen, 0-30 cm),
+firms (active fires via the bundled `viirs.fire.nrt` connector),
+chirps.daily.v2, prithvi_eo2 and clay_v1 (sidecar embeddings), and
+ftw.field_polygons.v1. Five schemes remain declared but unwired:
+openet.30m.daily, dynamic_world.v1, tropomi.s5p.ch4 / .no2,
+viirs.dnb.monthly.
 
 ---
 
 ## 10. Inference
 
-Three frozen-pretrained encoders and three explicit-method physics
-solvers. The Python sidecar lives at `python/jepa_v2_sidecar/`; the
-Rust client is `crates/emem-api-rest/src/gpu_sidecar.rs`.
+Four frozen-pretrained encoders, one untrained dynamics predictor,
+and three explicit-method physics solvers — together they make up the
+in-tenant **encoder zoo**. The Python sidecar lives at
+`python/jepa_v2_sidecar/`; the Rust client is
+`crates/emem-api-rest/src/gpu_sidecar.rs`.
 
 ### 10.1 Sidecar transport
 
@@ -698,18 +735,29 @@ VRAM budget defaults to 10 GB and is set once at registry init via
 ### 10.2 Frozen pretrained encoders
 
 ```text
-  model                    input shape           output  cold    warm
-  -----------------------  --------------------  ------  ------  -------
-  Prithvi-EO-2.0-300M-TL   [B, 1, 224, 224, 6]   1024-D  ~10 s   ~20 ms
+  model                    input shape           output  cold    warm    endpoint
+  -----------------------  --------------------  ------  ------  ------  -----------------------------
+  Prithvi-EO-2.0-300M-TL   [B, 1, 224, 224, 6]   1024-D  ~10 s   ~20 ms  /predict/prithvi_eo2_embed
                            (HLS V2 6-band)
-  Galileo Tiny             [1, 1, 8, 8, 10]      192-D   ~4 s    ~14 ms
+  Galileo Tiny             [1, 1, 8, 8, 10]      192-D   ~4 s    ~14 ms  /predict/galileo_embed
                            (10 S2 bands @ 30 m)
+  Clay v1.5                [B, C, 224, 224]      768-D   ~6 s    ~18 ms  /predict/clay_embed
+                           (S1 · S2 · Landsat ·
+                            NAIP · multi-sensor)
 ```
 
-Both serve frozen embeddings; receipts carry warning
+All three serve frozen embeddings; receipts carry warning
 `frozen_pretrained_encoder`. Galileo's S1 / ERA5 / TC / VIIRS / SRTM /
 DW / WC / LandScan / location modalities are zero-masked; only S2 is
-wired today.
+wired today. Clay v1.5 is loaded from
+`made-with-clay/Clay/v1.5/clay-v1.5.ckpt` via the
+`Clay-foundation/model` git package pinned at SHA
+`f14e698f3c237cabf8d28dec669a362d66625381` for reproducibility.
+
+A fourth slot is held by design — the FastAPI shape (`POST /predict/<name>`
+with `{cell, scene_url?, band_indices?}` request and `{embedding,
+model: {id, version, sha}}` response) is documented as a public contract
+so a customer can drop in their own encoder under the same call.
 
 ### 10.3 JEPA-v2 dynamics — untrained baseline
 
@@ -794,12 +842,161 @@ Pulls 3 latest Tessera vintages → sidecar → 128-D prediction. The
 receipt always carries `untrained_baseline` until §10.3 changes.
 
 `model.via` is set by sidecar response: `python_sidecar` for all
-three models. In-process Rust ort CPU fallback would set
+four models. In-process Rust ort CPU fallback would set
 `rust_ort_cpu` (wired for Prithvi, not yet for jepa_v2).
 
 ---
 
-## 11. Conformance
+## 11. Fusion: client encoders in orbit, open-data foundations on the ground
+
+The protocol does not assume a single encoder. At any given cell at
+any tslot, multiple encoders may have produced a latent for the same
+patch of Earth. emem treats these as parallel views of one place and
+lets the decoder layer consume them together.
+
+![Fusion architecture: encoders in orbit, open-data foundations encoded on the ground, decoded together](diagrams/33-fusion-orbit-and-ground.svg)
+
+A simpler frame — one customer fleet, one decoder layer — is at
+[`diagrams/32-encoders-in-orbit-decoders-on-ground.svg`](diagrams/32-encoders-in-orbit-decoders-on-ground.svg).
+
+### 11.1 Path A — encoder on the spacecraft
+
+Customer satellites carry the customer's proprietary encoder on the
+bus. The encoder reads the raw scene at the focal plane and produces
+a fixed-length latent vector. Only the latent downlinks — typically
+~1 KB per scene where the raw pixels are ~100 MB. A Sentinel-class
+scene is ~100 MB at L1C; the latent for the same footprint at 1024-D
+fp16 is ~2 KB, and at 128-D fp16 is ~256 bytes. A spacecraft downlink
+budget that fits ~150 raw scenes per orbit fits ~100 000 latents.
+
+The encoder weights never leave the spacecraft or the customer's
+tenant. The customer keeps the imagery, the encoder, and the latent;
+emem records only the resulting `(cell64, tslot, model_id, sensor_id,
+value)` triple. ITAR-clean by construction when needed.
+
+### 11.2 Path B — encoders on the ground, in the customer's tenant
+
+`emem-fetch` pulls 43 declared open-data schemes anonymously, with no
+API keys. The current set:
+
+```text
+  imagery        Sentinel-2 L2A, Sentinel-1 RTC, Landsat 8/9,
+                 MODIS MOD13/MOD11/MOD15A2H/MOD17A2H/MCD64A1
+  terrain        Cop-DEM 30 m, GMRT topobathy
+  landcover      ESA WorldCover, Hansen GFC, Dynamic World, FTW
+  hydrology      JRC GSW occurrence + recurrence
+  weather        NASA POWER, ERA5 + CAMS + Marine (Open-Meteo, met.no)
+  climatology    Köppen-Geiger, TerraClimate, CHIRPS
+  soil           SoilGrids v2 (SOC, pH, clay, sand, BDOD, N · 0-30 cm)
+  fire / nrt     FIRMS MODIS+VIIRS, VIIRS DNB
+  population     WorldPop, GHSL population + built-up, DMSP-OLS
+  divisions      Overture (places · buildings · transportation ·
+                          division_area)
+  gazetteer      GeoNames cities-5000 (68 581 places ≥ 5 000 pop)
+  vector         FTW field polygons (~3.17 B fields, 241 countries),
+                 OSM Overpass (WDPA fallback)
+  embeddings     Tessera annual vintages (multi-year + bin128)
+  + 5 declared but unwired: openet.30m.daily, dynamic_world.v1,
+                            tropomi.s5p.{ch4,no2}, viirs.dnb.monthly
+```
+
+Each scene is dispatched through the sidecar zoo of §10 — Prithvi-EO-2.0,
+Galileo, Clay v1.5, JEPA-v2 — running GPU-pinned inside the same
+tenant under `python/jepa_v2_sidecar/server.py`.
+
+### 11.3 One latent record shape
+
+Latents from either path are stored under the same fact key:
+
+```text
+  (cell64, tslot, model_id, sensor_id)  →  vec64-CID
+                                        →  128- to 1024-D float array
+```
+
+`model_id` identifies which encoder produced the latent
+(`client_enc_A`, `prithvi_eo2_300m_tl`, `galileo_tiny`, `clay_v1_5`,
+`jepa_v2_dynamics`, ...). `sensor_id` identifies which platform the
+encoder consumed (`sat_A`, `s2_l2a`, `s1_rtc`, `landsat_8_oli`, ...).
+The vec64-CID is the BLAKE3-addressed payload (§4.2 tag 65002). Two
+encoders that see the same cell at the same tslot produce two
+distinct facts with the same `(cell64, tslot)` but distinct
+`(model_id, sensor_id)`. Both are queryable; neither shadows the
+other.
+
+### 11.4 Decoders that read both paths
+
+Decoders are registered in `algorithms-v0.json` (149 entries today)
+with explicit input bands. The dispatcher (§7.1 Expr AST) runs every
+algorithm whose inputs are present in the recall snapshot. Four
+decoder families consume the latent lake:
+
+- **Linear probes.** A learned weight vector `β` over a single
+  latent or a concatenation of latents from the same `(cell, tslot)`.
+  A probe trained on `[client_latent ⊕ prithvi_latent ⊕
+  galileo_latent]` for canola-yield prediction uses the customer's
+  spectral signature plus the public foundation context jointly.
+- **Reconstruction heads.** Masked autoencoders restore
+  `latent → scene · mask · vector`. Used for water-extent recovery,
+  building-footprint reconstruction, synthetic RGB.
+- **Archetype matchers.** Cosine against a learned class centroid in
+  latent space — land-cover labels, ecological analogs, "find 100
+  fields that look like this one" retrieval.
+- **Cross-modal alignment.** A ridge-regression bridge between two
+  encoder spaces, fit on cells where both encoders have produced a
+  latent. Lets a customer holding only their own latents at one
+  site retrieve neighbours from the Prithvi-encoded global pool.
+
+### 11.5 What this is not
+
+This is not a multi-encoder ensemble that votes on one prediction.
+The decoder consumes whichever latents are present at the cell,
+fuses them through a learned weight, and writes a single signed
+fact. There is no on-line gating, no soft selection, no
+model-of-models meta-classifier. The mathematics is a linear
+concatenation followed by a regression — the value is the alignment
+of the inputs in latent space, not algorithmic novelty.
+
+This is also not an opaque pipeline. Every step writes a signed fact
+with citations: the latent fact cites the source scene CID; the
+linear-probe output cites the latents it consumed; the receipt over
+the agent's call cites both. A verifier with the responder's pubkey
+reproduces the chain offline.
+
+### 11.6 Locate cascade
+
+The fusion path needs to resolve place names to cells. `/v1/locate`
+walks a five-layer cascade so common queries never reach a rate-limited
+upstream:
+
+```text
+  1. wide_bbox_lookup     embedded country / region polygons,
+                          ~5 ms
+  2. embedded_gazetteer   in-binary place atlas (countries,
+                          capitals, major cities), ~5 ms
+  3. geonames             cities-5000 (68 581 entries, CC-BY-4.0,
+                          gzipped 5.5 MB, loaded once via
+                          include_bytes!), ~10 ms
+  4. sled cache           memoised result from any prior resolve,
+                          ~2 ms
+  5. photon (open-source) Komoot-hosted Photon for the long tail,
+                          ~80 ms
+  6. nominatim (fallback) for queries Photon misses, hard
+                          rate-limited
+```
+
+Polygon enrichment in branches 2-4 reads Overture's
+`divisions/division_area` theme (ODbL, anonymous S3 parquet with
+row-group bbox pruning, exact-name match plus subtype rank
+country > region > county > locality > borough > ... > microhood).
+Mumbai, São Paulo, Tokyo, Patiala, Manhattan all resolve with
+`polygon_bbox.source = overture_division_area`; Photon / Nominatim
+handle only the long tail (e.g. Yellowstone). The result: the
+canonical responder does not hit OSM at all for ~99 % of city
+queries.
+
+---
+
+## 12. Conformance
 
 Two implementations conform when, given byte-identical inputs, they
 produce byte-identical CIDs over the manifest set exposed at
@@ -809,9 +1006,11 @@ produce byte-identical CIDs over the manifest set exposed at
   bands_cid        BLAKE3 over canonical_cbor(BandsManifest)
                    (1792 dims, 35 bands)
   algorithms_cid   BLAKE3 over canonical_cbor(AlgorithmsManifest)
-                   (107 entries, three kinds)
+                   (149 entries, three kinds)
   sources_cid      BLAKE3 over canonical_cbor(SourcesManifest)
-                   (42 schemes)
+                   (43 schemes)
+  topics_cid       BLAKE3 over canonical_cbor(TopicsManifest)
+                   (26 topics)
   schema_cid       BLAKE3 over canonical_cbor(SchemaBundle)
                    (CDDL pinning hash=blake3, signature=ed25519,
                     cid_encoding=base32-nopad-lowercase)
@@ -836,7 +1035,7 @@ tests at `crates/emem-codec/src/geo.rs`, `tslot_text.rs`, and
 
 ---
 
-## 12. Privacy
+## 13. Privacy
 
 The four classes from `emem-core/src/privacy.rs` (§6.1):
 
@@ -854,17 +1053,19 @@ bodies are not captured; GET query strings are captured for the
 
 ---
 
-## 13. What 0.0.4 deliberately does NOT include
+## 14. What 0.0.6 deliberately does NOT include
 
 The protocol stays small until each item has a working code path:
 
 - **Zero-knowledge verifier.** `verify Mode::Zk` was advertised in 0.0.3 and returned 500; removed in 0.0.4. No halo2 / Circom circuits in the workspace.
 - **Stake / economics.** `Attestation.stake` was a reserved field; removed from the struct and its 9 call sites. There is no roadmap commitment to bring it back — if economics is ever designed for the protocol, a properly-named field will be added at that time.
 - **Multi-host clustering.** Single primary; replicas are read-only.
-- **Trained JEPA-v2.** Loader is wired; no upstream training data exists yet (§10.3).
+- **Trained JEPA-v2.** Loader is wired; the model on disk is an identity-initialised baseline. Training is gated on upstream Tessera publishing multi-vintage history (§10.3).
 - **Filecoin / IPFS bridge.** `IpldConnector` is a stub; operators register their own.
 - **Python / TypeScript SDKs.** `sdks/emem-py/` and `sdks/emem-ts/` are empty placeholder directories; agents use REST or MCP directly.
 - **Per-vector test vectors.** `spec/test_vectors/` directories exist; vectors not yet extracted.
+- **Multi-modal Galileo and Clay.** Galileo's S1 / ERA5 / TC / VIIRS / SRTM / DW / WC / LandScan / location modalities are zero-masked; Clay v1.5 is wired for S1 / S2 / Landsat but does not yet ingest NAIP, MODIS, or LINZ. The model architectures accept the full multimodal shape; the chip-fetcher coverage is the bottleneck.
+- **On-orbit encoder reference design.** §11.1 describes the topology — encoder weights on the spacecraft bus, ~1 KB latents downlinked — as the architecture customers are deploying against. emem does not ship spacecraft firmware; the protocol surface accepts whatever model_id and sensor_id a customer attests under their own ed25519 key.
 
 A request that names a missing surface returns `MaterializeMiss` or a
 structured `ErrorCode`. No surface returns `verdict=false` for an
@@ -872,7 +1073,7 @@ absent capability.
 
 ---
 
-## 14. Comparison with adjacent work
+## 15. Comparison with adjacent work
 
 - **STAC** describes scenes; emem describes per-pixel facts with provenance. STAC catalogs are one of seven upstream connector kinds, not the protocol.
 - **GeoParquet** is a data format; emem is an addressing rule plus a receipt schema. A GeoParquet column can hold an emem fact's value, but the file carries neither the responder signature nor the Merkle path.
@@ -884,29 +1085,36 @@ surface, agent-readable end-to-end.
 
 ---
 
-## 15. Open questions
+## 16. Open questions
 
 - **H3 hex migration.** Spec target is an H3-equivalent DGGS at resolution 13 (~3.4 m equal-area cells). cell64 is square at the equator, progressively non-square poleward. Migration requires a new manifest CID for the band ontology and an in-flight-fact story. No timeline; raised so the gap is explicit.
 - **Trained JEPA-v2.** Gated on upstream Tessera publishing multi-vintage history. Training script ready; data is not.
 - **WorldPop population latency.** Currently 2–4 s/cell because the responder reads upstream COG at request time. Pre-baking the global 1 km² raster locally would amortise the fetch — the actual win depends on disk vs CDN trade-offs and is an infrastructure decision that sits outside the protocol.
 - **Multi-modal Galileo.** S1 / ERA5 / TC / VIIRS / SRTM / DW / WC / LandScan / location modalities are zero-masked. Each needs a connector + chip fetcher; the model already accepts the full multimodal shape.
 - **Five unwired source schemes.** openet.30m.daily, dynamic_world.v1, tropomi.s5p.ch4, tropomi.s5p.no2, viirs.dnb.monthly. Declared, no materialiser, no facts today.
+- **Cross-modal alignment at scale.** §11.4 describes ridge-regression bridges between encoder spaces (Prithvi ↔ client_enc, Galileo ↔ client_enc). The mathematics is one linear system per pair; the missing piece is a labelled overlap set per customer. Pilot customers seed this from their own retro-data; there is no general public corpus that pairs proprietary client latents with foundation latents.
 
 ---
 
 ## References
 
 - Beck, H.E., et al. "Present and future Köppen-Geiger climate classification maps at 1-km resolution." *Scientific Data* 5, 180214 (2018).
+- Clay Foundation. "Clay v1.5 — a foundation model for Earth." `made-with-clay/Clay` on Hugging Face; weights pinned at `clay-v1.5.ckpt`. (Sidecar `/predict/clay_embed`, §10.2.)
 - Corley, I. "TerraBit — sign-bit rotation for binary k-NN." geospatialml.com/posts/terrabit. (TurboQuant rotation, §8.2.1.)
 - Elvidge, C., Zhou, Y. "DMSP-OLS digital number to radiance conversion." (Frozen 1992-2013 nightlights series.)
+- Fields of The World (FTW). "Global agricultural field polygons, 241 countries, 10 m, CC-BY-4.0." source.coop pmtiles archive. (Primitive §8.6.)
+- GeoNames. "cities-5000 — 68 581 populated places ≥ 5 000 population, CC-BY-4.0." Vendored at `crates/emem-fetch/data/cities5000.txt.gz`. (Locate cascade §11.6.)
 - Hansen, M.C., et al. "High-resolution global maps of 21st-century forest cover change." *Science* 342, 850-853 (2013).
 - Hinnant, H. "Civil from days." Public-domain date arithmetic used by `iso8601_now()`.
+- IBM / NASA / Jakubik et al. "Prithvi: A geospatial foundation model for Earth observation." `ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL` on Hugging Face. (Sidecar `/predict/prithvi_eo2_embed`, §10.2.)
 - O'Connor, J., Aumasson, J.-P., Neves, S., Wilcox-O'Hearn, Z. "BLAKE3: one function, fast everywhere."
 - Oke, T.R. *Boundary Layer Climates*, 2nd ed. Methuen (1987); §2.3 table 2.4 (urban α ≈ 1e-6 m²/s for `/v1/heat_solve`).
+- Overture Maps Foundation. "Places, buildings, transportation, divisions themes, ODbL." Anonymous S3 parquet; `divisions/division_area` for polygon enrichment. (Locate cascade §11.6.)
 - Pekel, J.-F., et al. "High-resolution mapping of global surface water and its long-term changes." *Nature* 540, 418-422 (2016).
 - Schumann, G.J.-P., et al. "The need for a high-accuracy, open-access global DEM." *Frontiers in Earth Science* 6:225 (2018).
 - Snyder, J.P. "Map projections — a working manual." USGS Professional Paper 1395 (1987).
-- RFC 8949 (CBOR §4.2 deterministic encoding), RFC 8032 (Ed25519), RFC 4648 (base32-nopad), RFC 9116 (security.txt).
+- Tseng, G., et al. "Galileo — a multimodal geospatial foundation model." NASA Harvest / Allen AI; `nasaharvest/galileo`. (Sidecar `/predict/galileo_embed`, §10.2.)
+- RFC 8949 (CBOR §4.2 deterministic encoding), RFC 8032 (Ed25519), RFC 4648 (base32-nopad), RFC 9090 (multibase 'b'), RFC 9116 (security.txt).
 
 ---
 
