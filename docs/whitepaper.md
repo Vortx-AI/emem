@@ -857,7 +857,7 @@ lets the decoder layer consume them together.
 ![Fusion architecture: encoders in orbit, open-data foundations encoded on the ground, decoded together](diagrams/33-fusion-orbit-and-ground.svg)
 
 A simpler frame — one customer fleet, one decoder layer — is at
-[`diagrams/32-encoders-in-orbit-decoders-on-ground.svg`](diagrams/32-encoders-in-orbit-decoders-on-ground.svg).
+[`diagrams/31-encoders-in-orbit-decoders-on-ground.svg`](diagrams/31-encoders-in-orbit-decoders-on-ground.svg).
 
 ### 11.1 Path A — encoder on the spacecraft
 
