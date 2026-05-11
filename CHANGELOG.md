@@ -3,7 +3,7 @@
 emem follows the [Keep a Changelog](https://keepachangelog.com/) format.
 CIDs are content-addressed; minor version bumps may roll bands /
 algorithms / sources manifests, but old facts under old CIDs continue
-to verify.
+to verify. 
 
 ## [Unreleased]
 
