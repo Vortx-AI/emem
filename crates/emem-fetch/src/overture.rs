@@ -35,7 +35,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use arrow::array::{Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, StructArray};
+use arrow::array::{
+    Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, StringArray, StructArray,
+};
 use arrow::datatypes::DataType;
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{aws::AmazonS3Builder, path::Path as ObjectPath, ObjectStore};
@@ -94,6 +96,11 @@ type FileListKey = (String, &'static str, &'static str);
 /// In-process cache of parquet file lists per `FileListKey`.
 type FileListCache = std::collections::HashMap<FileListKey, Vec<String>>;
 
+/// In-process cache key for `division_polygon_near` — anchor coord
+/// rounded to 0.01° (~1.1 km grid) plus normalized name hint.
+type DivisionCacheKey = (i32, i32, String);
+type DivisionCache = std::collections::HashMap<DivisionCacheKey, Option<DivisionMatch>>;
+
 /// Theme + type pair Overture organises files under.
 #[derive(Debug, Clone, Copy)]
 struct ThemeType {
@@ -112,6 +119,16 @@ const BUILDINGS: ThemeType = ThemeType {
 const SEGMENTS: ThemeType = ThemeType {
     theme: "transportation",
     typ: "segment",
+};
+
+/// Administrative-boundary polygons (countries, regions, counties,
+/// localities, neighborhoods). Used by `/v1/recall_polygon`'s polygon
+/// resolver to substitute for the Nominatim-polygon round-trip — once
+/// GeoNames has given us a coord, divisions gives us the boundary,
+/// and we never touch a rate-limited public OSM endpoint.
+const DIVISIONS_AREA: ThemeType = ThemeType {
+    theme: "divisions",
+    typ: "division_area",
 };
 
 /// In-process snapshot of the auto-discovered release tag plus the
@@ -143,6 +160,21 @@ pub struct OvertureClient {
     file_lists: Mutex<FileListCache>,
     /// Decoded parquet footers per S3 key.
     footers: Mutex<FooterCache>,
+    /// In-process memoization of `division_polygon_near` lookups.
+    /// Keyed by the anchor coord rounded to 0.01° (~1.1 km grid) plus
+    /// the normalized name hint, so a downstream agent calling
+    /// `/v1/locate("Mumbai")` twice in a row pays the ~4 s cold Overture
+    /// footer-fetch only on the first call. Stored value is the full
+    /// `Option<DivisionMatch>` — `None` results are cached too, so
+    /// places Overture doesn't carry don't re-trigger a full shard
+    /// scan on every retry. The cache is unbounded; admin boundaries
+    /// are static-tempo, the per-process query universe at a single
+    /// responder is small (~thousands of distinct (anchor, name)
+    /// keys), and `DivisionMatch` is ~2 KB worst case — even 100 000
+    /// distinct entries fit in ~200 MB. Persistent caching across
+    /// process restarts lives in the sled geocoder cache via the
+    /// `polygon_bbox` round-trip in `nominatim_cache_put`.
+    division_cache: Mutex<DivisionCache>,
 }
 
 impl OvertureClient {
@@ -164,6 +196,7 @@ impl OvertureClient {
             release_cache: Mutex::new(None),
             file_lists: Mutex::new(Default::default()),
             footers: Mutex::new(Default::default()),
+            division_cache: Mutex::new(Default::default()),
         })
     }
 
@@ -293,12 +326,18 @@ impl OvertureClient {
         Ok(meta)
     }
 
-    /// Build a fresh row-batch stream over the chosen row groups for the
-    /// columns we need: `bbox` (struct) + `geometry` (WKB binary).
+    /// Build a fresh row-batch stream over the chosen row groups for
+    /// `bbox` + `geometry` + any caller-specified extra columns.
+    /// `extra_cols` items match against the leaf path's first segment
+    /// — for the divisions theme we pass `["id", "names", "subtype"]`
+    /// so the resolver can populate the GERS id, primary name, and
+    /// admin level on the returned `DivisionMatch`. Passing `&[]`
+    /// keeps the original behaviour for places/buildings/segments.
     async fn open_stream(
         &self,
         key: &str,
         row_groups: Vec<usize>,
+        extra_cols: &[&str],
     ) -> Result<
         parquet::arrow::async_reader::ParquetRecordBatchStream<ParquetObjectReader>,
         OvertureError,
@@ -334,9 +373,9 @@ impl OvertureClient {
                 if parts.is_empty() {
                     continue;
                 }
-                match parts[0].as_str() {
-                    "bbox" | "geometry" => leaf_idx.push(i),
-                    _ => {}
+                let first = parts[0].as_str();
+                if first == "bbox" || first == "geometry" || extra_cols.contains(&first) {
+                    leaf_idx.push(i);
                 }
             }
         }
@@ -490,7 +529,7 @@ impl OvertureClient {
         if rgs.is_empty() {
             return Ok(0.0);
         }
-        let mut stream = self.open_stream(key, rgs).await?;
+        let mut stream = self.open_stream(key, rgs, &[]).await?;
         let mut total = 0.0f64;
         while let Some(batch) = stream
             .try_next()
@@ -545,6 +584,256 @@ impl OvertureClient {
         Ok(total)
     }
 
+    /// Resolve a place's true administrative boundary from Overture's
+    /// `divisions/division_area` theme.
+    ///
+    /// `lat` / `lng` should be a coarse anchor (e.g. the GeoNames
+    /// centroid for the place name). The method opens a small search
+    /// bbox around the anchor, scans every row group whose bbox
+    /// stats overlap it, decodes WKB polygons that actually contain
+    /// the anchor point, and returns the *smallest* containing
+    /// boundary whose `names.primary` matches `name_hint` (ASCII-
+    /// folded, case-insensitive). When no name match is found, the
+    /// method returns the smallest containing polygon regardless of
+    /// name — useful when the GeoNames record was a sub-locality and
+    /// the parent neighborhood/locality is what we actually want.
+    ///
+    /// Returns `Ok(None)` when no polygon contains the anchor (e.g.
+    /// rural area outside any locality boundary) — the caller falls
+    /// back to centre-cell-bbox honestly. Returns `Err` only on
+    /// transport / parquet decode failure.
+    pub async fn division_polygon_near(
+        &self,
+        lat: f64,
+        lng: f64,
+        name_hint: &str,
+    ) -> Result<Option<DivisionMatch>, OvertureError> {
+        // In-process result cache: round the anchor coord to 0.01° so
+        // tiny GeoNames-record jitter doesn't bypass the cache. Stores
+        // `Option<DivisionMatch>` — Ok(None) results are cached too
+        // so the second "look up X in a region Overture doesn't carry"
+        // call doesn't re-pay the full shard scan. Static-tempo data;
+        // no TTL.
+        let normalized_hint = normalize_division_name(name_hint);
+        let cache_key: DivisionCacheKey = (
+            (lat * 100.0).round() as i32,
+            (lng * 100.0).round() as i32,
+            normalized_hint.clone(),
+        );
+        if let Some(hit) = self.division_cache.lock().await.get(&cache_key) {
+            return Ok(hit.clone());
+        }
+        // Half-degree search window around the anchor catches every
+        // locality and most regions; countries (which can span ~180°)
+        // require the full-shard scan, but row-group bbox pruning on
+        // the parquet keeps the I/O small even then. The half-degree
+        // pick is empirical: NYC's locality polygon is ~0.3° tall,
+        // Greater Tokyo ~0.5°, Berlin ~0.4° — half a degree is the
+        // tightest window that contains every locality boundary
+        // we'd want to substitute for a Nominatim polygon call.
+        let pad = 0.5_f64;
+        let s_lat = (lat - pad).max(-90.0);
+        let n_lat = (lat + pad).min(90.0);
+        let w_lng = (lng - pad).max(-180.0);
+        let e_lng = (lng + pad).min(180.0);
+
+        let files = self.list_files(DIVISIONS_AREA).await?;
+        let normalized_hint = normalize_division_name(name_hint);
+        let parallel = scan_parallelism();
+        let candidates: Vec<DivisionMatch> = futures_util::stream::iter(files)
+            .map(|key| {
+                let hint = normalized_hint.clone();
+                async move {
+                    self.scan_one_file_divisions(&key, lat, lng, s_lat, n_lat, w_lng, e_lng, &hint)
+                        .await
+                }
+            })
+            .buffer_unordered(parallel)
+            .try_fold(Vec::<DivisionMatch>::new(), |mut acc, mut x| async move {
+                acc.append(&mut x);
+                Ok::<_, OvertureError>(acc)
+            })
+            .await?;
+
+        if candidates.is_empty() {
+            self.division_cache.lock().await.insert(cache_key, None);
+            return Ok(None);
+        }
+
+        // Pick the polygon that best matches the caller's intent.
+        // Ranking, in order of preference (the first non-empty tier wins):
+        //
+        //   1. EXACT name match (normalized primary == normalized hint) →
+        //      take the *highest* admin level. "Manhattan" → borough /
+        //      county / region, not "Manhattan Community Board 7".
+        //   2. Partial name match (substring either way) → take the
+        //      smallest containing polygon. Narrow queries like
+        //      "Manhattan Heights, Buffalo" land here.
+        //   3. No name match → take the smallest containing polygon
+        //      regardless of name. Best-effort behaviour when the
+        //      GeoNames record's preferred string doesn't appear in
+        //      Overture's primary name (locale / spelling drift).
+        //
+        // "Highest admin level" follows the Overture-divisions subtype
+        // ladder. Bigger number = broader scope. Falling back to the
+        // smallest *area* on ties because country boundaries are
+        // sometimes split across multiple rows in Overture.
+        let exact: Vec<&DivisionMatch> = candidates
+            .iter()
+            .filter(|m| {
+                !normalized_hint.is_empty()
+                    && normalize_division_name(&m.name) == normalized_hint
+            })
+            .collect();
+        let partial: Vec<&DivisionMatch> = candidates
+            .iter()
+            .filter(|m| m.name_matched_hint)
+            .collect();
+
+        let chosen = if !exact.is_empty() {
+            *exact
+                .iter()
+                .max_by(|a, b| {
+                    division_subtype_rank(&a.subtype)
+                        .cmp(&division_subtype_rank(&b.subtype))
+                        .then_with(|| {
+                            a.bbox_area_deg_sq
+                                .partial_cmp(&b.bbox_area_deg_sq)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                })
+                .expect("non-empty exact")
+        } else if !partial.is_empty() {
+            *partial
+                .iter()
+                .min_by(|a, b| {
+                    a.bbox_area_deg_sq
+                        .partial_cmp(&b.bbox_area_deg_sq)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .expect("non-empty partial")
+        } else {
+            candidates
+                .iter()
+                .min_by(|a, b| {
+                    a.bbox_area_deg_sq
+                        .partial_cmp(&b.bbox_area_deg_sq)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .expect("non-empty candidates")
+        };
+        let result = chosen.clone();
+        self.division_cache
+            .lock()
+            .await
+            .insert(cache_key, Some(result.clone()));
+        Ok(Some(result))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn scan_one_file_divisions(
+        &self,
+        key: &str,
+        anchor_lat: f64,
+        anchor_lng: f64,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
+        normalized_hint: &str,
+    ) -> Result<Vec<DivisionMatch>, OvertureError> {
+        let meta = self.footer(key).await?;
+        let rgs = self.pick_row_groups(&meta, s_lat, n_lat, w_lng, e_lng);
+        if rgs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stream = self
+            .open_stream(key, rgs, &["id", "names", "subtype"])
+            .await?;
+        let mut out: Vec<DivisionMatch> = Vec::new();
+        while let Some(batch) = stream
+            .try_next()
+            .await
+            .map_err(|e| OvertureError::Parquet {
+                key: key.to_string(),
+                detail: format!("next batch: {e}"),
+            })?
+        {
+            let bbox_col = batch
+                .column_by_name("bbox")
+                .ok_or_else(|| OvertureError::Schema {
+                    key: key.to_string(),
+                    detail: "no bbox column in batch".into(),
+                })?;
+            let geom_col =
+                batch
+                    .column_by_name("geometry")
+                    .ok_or_else(|| OvertureError::Schema {
+                        key: key.to_string(),
+                        detail: "no geometry column in batch".into(),
+                    })?;
+            let bb = BBoxAccess::new(bbox_col.as_ref()).map_err(|e| OvertureError::Schema {
+                key: key.to_string(),
+                detail: e,
+            })?;
+            let geoms = WkbAccess::new(geom_col.as_ref()).map_err(|e| OvertureError::Schema {
+                key: key.to_string(),
+                detail: e,
+            })?;
+            let names = DivisionNames::new(batch.column_by_name("names").map(|a| a.as_ref()));
+            let subtypes = batch
+                .column_by_name("subtype")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let ids = batch
+                .column_by_name("id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+
+            for i in 0..batch.num_rows() {
+                if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
+                    continue;
+                }
+                let Some(wkb) = geoms.get(i) else { continue };
+                // Quick polygon-contains-point check before we pay the
+                // GeoJSON encode. Avoids materialising thousands of
+                // country polygons just to filter to the one we want.
+                if !wkb_polygon_contains_point(wkb, anchor_lng, anchor_lat) {
+                    continue;
+                }
+                let Some(geometry) = wkb_polygon_to_geojson(wkb) else {
+                    continue;
+                };
+                let primary_name = names.primary(i).unwrap_or_default();
+                let normalized_primary = normalize_division_name(&primary_name);
+                let name_matched_hint = !normalized_hint.is_empty()
+                    && !normalized_primary.is_empty()
+                    && (normalized_primary == normalized_hint
+                        || normalized_primary.contains(normalized_hint)
+                        || normalized_hint.contains(&normalized_primary));
+                let subtype = subtypes
+                    .and_then(|s| (!s.is_null(i)).then(|| s.value(i).to_string()))
+                    .unwrap_or_default();
+                let id = ids
+                    .and_then(|s| (!s.is_null(i)).then(|| s.value(i).to_string()))
+                    .unwrap_or_default();
+                let x0 = bb.xmin.val(i);
+                let x1 = bb.xmax.val(i);
+                let y0 = bb.ymin.val(i);
+                let y1 = bb.ymax.val(i);
+                let bbox_area_deg_sq = (x1 - x0).abs() * (y1 - y0).abs();
+                out.push(DivisionMatch {
+                    id,
+                    name: primary_name,
+                    subtype,
+                    geometry,
+                    bbox: (y0, y1, x0, x1),
+                    bbox_area_deg_sq,
+                    name_matched_hint,
+                });
+            }
+        }
+        Ok(out)
+    }
+
     async fn scan_count(
         &self,
         tt: ThemeType,
@@ -584,7 +873,7 @@ impl OvertureClient {
         if rgs.is_empty() {
             return Ok(0);
         }
-        let mut stream = self.open_stream(key, rgs).await?;
+        let mut stream = self.open_stream(key, rgs, &[]).await?;
         let mut count = 0u64;
         while let Some(batch) = stream
             .try_next()
@@ -977,6 +1266,273 @@ pub fn wkb_point_inside(buf: &[u8], s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f
     x >= w_lng && x <= e_lng && y >= s_lat && y <= n_lat
 }
 
+/// One administrative-boundary match returned by
+/// [`OvertureClient::division_polygon_near`]. The geometry is a
+/// GeoJSON Polygon (or MultiPolygon) ready to drop into a
+/// `/v1/recall_polygon` response's `polygon_geojson` field.
+#[derive(Debug, Clone)]
+pub struct DivisionMatch {
+    /// GERS ID — globally stable Overture identifier, citable as
+    /// the source CID in receipts.
+    pub id: String,
+    /// `names.primary` — the canonical localized label.
+    pub name: String,
+    /// Subtype: `country` / `region` / `county` / `localadmin` /
+    /// `locality` / `borough` / `microhood` / `neighborhood` /
+    /// `dependency` / `macrohood`.
+    pub subtype: String,
+    /// WGS84 GeoJSON geometry (`type: "Polygon"` or `"MultiPolygon"`).
+    pub geometry: serde_json::Value,
+    /// Tuple `(min_lat, max_lat, min_lng, max_lng)` derived from the
+    /// row's bbox struct column — surfaced so recall_polygon doesn't
+    /// have to re-derive it from the GeoJSON ring.
+    pub bbox: (f64, f64, f64, f64),
+    /// Approx polygon size (degrees², from the bbox column). Used as
+    /// a tie-break to favor the *smallest* containing boundary —
+    /// i.e. the locality, not its enclosing region/country.
+    pub bbox_area_deg_sq: f64,
+    /// True when the polygon's `names.primary` matched the caller's
+    /// `name_hint` (ASCII-folded, case-insensitive). The resolver
+    /// prefers name-matched polygons; the area tie-break only fires
+    /// when no name matched.
+    pub name_matched_hint: bool,
+}
+
+/// Admin-level rank for the division-resolver's exact-match tie-break.
+/// Higher number = broader scope; the resolver prefers the highest-
+/// rank candidate among exact-name matches so "Manhattan" lands on
+/// the borough/county/region row, not the neighborhood / community-
+/// board row. Subtypes follow Overture's
+/// [divisions schema](https://docs.overturemaps.org/schema/reference/divisions/division/);
+/// unknown subtypes get rank 0 so they only win when nothing else
+/// matches.
+fn division_subtype_rank(subtype: &str) -> u8 {
+    match subtype {
+        "country" => 10,
+        "region" => 9,
+        "county" => 8,
+        "localadmin" => 7,
+        "locality" => 6,
+        "borough" => 5,
+        "dependency" => 4,
+        "macrohood" => 3,
+        "neighborhood" => 2,
+        "microhood" => 1,
+        _ => 0,
+    }
+}
+
+/// Folded name comparison for division resolver — lowercase, strip
+/// punctuation. Matches the heuristic the geocoder cache uses, so
+/// "São Paulo", "Sao Paulo", and "SAO PAULO" hit the same key. Light
+/// re-implementation kept inline to avoid a `deunicode` dep.
+fn normalize_division_name(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut last_space = true;
+    for ch in s.chars() {
+        let folded = match ch {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => 'a',
+            'ç' | 'Ç' => 'c',
+            'è' | 'é' | 'ê' | 'ë' | 'È' | 'É' | 'Ê' | 'Ë' => 'e',
+            'ì' | 'í' | 'î' | 'ï' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
+            'ñ' | 'Ñ' => 'n',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => 'o',
+            'ù' | 'ú' | 'û' | 'ü' | 'Ù' | 'Ú' | 'Û' | 'Ü' => 'u',
+            'ý' | 'ÿ' | 'Ý' | 'Ÿ' => 'y',
+            _ => ch,
+        };
+        if folded.is_ascii_alphanumeric() {
+            out.push(folded.to_ascii_lowercase());
+            last_space = false;
+        } else if !last_space {
+            out.push(' ');
+            last_space = true;
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Accessor for the `names` struct column on the divisions parquet.
+/// Overture's schema stores names as a struct with `primary` (Utf8),
+/// `common` (Map<Utf8, Utf8>), and `rules` (List<Struct<...>>). We
+/// only read `primary`; the rest is available for callers that want
+/// to surface localized names later.
+struct DivisionNames<'a> {
+    primary: Option<&'a StringArray>,
+}
+
+impl<'a> DivisionNames<'a> {
+    fn new(col: Option<&'a dyn Array>) -> Self {
+        let primary = col
+            .and_then(|c| c.as_any().downcast_ref::<StructArray>())
+            .and_then(|s| s.column_by_name("primary"))
+            .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+        DivisionNames { primary }
+    }
+    fn primary(&self, i: usize) -> Option<String> {
+        let p = self.primary?;
+        if p.is_null(i) {
+            None
+        } else {
+            Some(p.value(i).to_string())
+        }
+    }
+}
+
+/// Polygon-contains-point: even-odd ray-cast on the WKB's exterior
+/// ring (for Polygon) or any sub-polygon's exterior ring (for
+/// MultiPolygon). Holes are ignored — admin boundaries rarely have
+/// genuine interior rings, and on the rare exclave-island case the
+/// outer-ring inclusion is the right answer (the GeoNames anchor
+/// is by construction one of the populated places GeoNames listed
+/// inside the locality, so it lands on land, not in a hole).
+pub fn wkb_polygon_contains_point(buf: &[u8], lng: f64, lat: f64) -> bool {
+    let Some((mut cur, t)) = wkb_type(buf) else {
+        return false;
+    };
+    match t {
+        WKB_POLYGON => polygon_contains_pt(&mut cur, lng, lat),
+        WKB_MULTI_POLYGON => {
+            let Some(np) = cur.read_u32() else {
+                return false;
+            };
+            for _ in 0..np {
+                if cur.read_sub_header() != Some(WKB_POLYGON) {
+                    return false;
+                }
+                if polygon_contains_pt(&mut cur, lng, lat) {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Read a polygon (consuming exactly its bytes from `cur`) and test
+/// whether `(lng, lat)` lies inside its exterior ring via even-odd
+/// ray-cast. Inner rings are read past for cursor correctness but
+/// not used in the test — see the rationale on
+/// [`wkb_polygon_contains_point`].
+fn polygon_contains_pt(cur: &mut WkbCursor<'_>, px: f64, py: f64) -> bool {
+    let nrings = match cur.read_u32() {
+        Some(n) => n,
+        None => return false,
+    };
+    let mut inside = false;
+    for r in 0..nrings {
+        let np = match cur.read_u32() {
+            Some(n) => n,
+            None => return false,
+        };
+        if np < 3 {
+            // Consume but ignore degenerate rings.
+            for _ in 0..np {
+                let _ = cur.read_f64();
+                let _ = cur.read_f64();
+            }
+            continue;
+        }
+        if r == 0 {
+            // Exterior ring: do the ray-cast.
+            let mut prev_x = f64::NAN;
+            let mut prev_y = f64::NAN;
+            let mut first_x = 0.0;
+            let mut first_y = 0.0;
+            for j in 0..np {
+                let x = match cur.read_f64() {
+                    Some(v) => v,
+                    None => return false,
+                };
+                let y = match cur.read_f64() {
+                    Some(v) => v,
+                    None => return false,
+                };
+                if j == 0 {
+                    first_x = x;
+                    first_y = y;
+                } else {
+                    let (x0, y0, x1, y1) = (prev_x, prev_y, x, y);
+                    if ((y0 > py) != (y1 > py))
+                        && (px < (x1 - x0) * (py - y0) / (y1 - y0 + f64::EPSILON) + x0)
+                    {
+                        inside = !inside;
+                    }
+                }
+                prev_x = x;
+                prev_y = y;
+            }
+            // Close the ring against the first vertex.
+            if !prev_x.is_nan() {
+                let (x0, y0, x1, y1) = (prev_x, prev_y, first_x, first_y);
+                if ((y0 > py) != (y1 > py))
+                    && (px < (x1 - x0) * (py - y0) / (y1 - y0 + f64::EPSILON) + x0)
+                {
+                    inside = !inside;
+                }
+            }
+        } else {
+            // Inner ring: walk past without testing.
+            for _ in 0..np {
+                let _ = cur.read_f64();
+                let _ = cur.read_f64();
+            }
+        }
+    }
+    inside
+}
+
+/// Decode a WKB Polygon or MultiPolygon to a GeoJSON geometry value
+/// in `[lon, lat]` order with closed rings. Returns `None` for any
+/// non-polygon variant or malformed buffer.
+pub fn wkb_polygon_to_geojson(buf: &[u8]) -> Option<serde_json::Value> {
+    let (mut cur, t) = wkb_type(buf)?;
+    match t {
+        WKB_POLYGON => {
+            let rings = read_polygon_rings(&mut cur)?;
+            Some(serde_json::json!({"type": "Polygon", "coordinates": rings}))
+        }
+        WKB_MULTI_POLYGON => {
+            let np = cur.read_u32()?;
+            let mut polys = Vec::with_capacity(np as usize);
+            for _ in 0..np {
+                if cur.read_sub_header() != Some(WKB_POLYGON) {
+                    return None;
+                }
+                let rings = read_polygon_rings(&mut cur)?;
+                polys.push(rings);
+            }
+            Some(serde_json::json!({"type": "MultiPolygon", "coordinates": polys}))
+        }
+        _ => None,
+    }
+}
+
+fn read_polygon_rings(cur: &mut WkbCursor<'_>) -> Option<Vec<Vec<[f64; 2]>>> {
+    let nrings = cur.read_u32()?;
+    let mut rings = Vec::with_capacity(nrings as usize);
+    for _ in 0..nrings {
+        let np = cur.read_u32()?;
+        let mut ring = Vec::with_capacity(np as usize);
+        for _ in 0..np {
+            let x = cur.read_f64()?;
+            let y = cur.read_f64()?;
+            ring.push([x, y]);
+        }
+        // GeoJSON requires closed rings; WKB rings are already
+        // closed by spec but defensively close again if a producer
+        // skipped the duplicate vertex.
+        if let (Some(first), Some(last)) = (ring.first().copied(), ring.last().copied()) {
+            if first != last {
+                ring.push(first);
+            }
+        }
+        rings.push(ring);
+    }
+    Some(rings)
+}
+
 /// Test if a WKB Polygon's vertex centroid falls inside the bbox.
 /// (Average of outer-ring vertices — adequate for a ~10 m cell; the
 /// buildings.count band is documented as "centroid inside bbox", so the
@@ -1289,6 +1845,106 @@ mod tests {
 </ListBucketResult>"#;
         let got = parse_latest_release_from_xml(xml).expect("parses");
         assert_eq!(got, "2026-04-15.0");
+    }
+
+    /// WKB Polygon → GeoJSON round-trip. Builds a 1° unit square LE
+    /// WKB polygon, decodes it, asserts the GeoJSON shape + closed
+    /// ring + point-in-polygon predicate.
+    #[test]
+    fn wkb_polygon_to_geojson_basic() {
+        // LE Polygon: 1 byte order + 4 type + 4 nrings + 4 npoints
+        //   + 5 × (8 + 8) for the closed square at (0,0)-(1,1).
+        let mut buf = Vec::<u8>::new();
+        buf.push(1); // little-endian
+        buf.extend_from_slice(&3u32.to_le_bytes()); // type=Polygon
+        buf.extend_from_slice(&1u32.to_le_bytes()); // 1 ring
+        buf.extend_from_slice(&5u32.to_le_bytes()); // 5 vertices (closed)
+        for (x, y) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)] {
+            buf.extend_from_slice(&f64::to_le_bytes(x));
+            buf.extend_from_slice(&f64::to_le_bytes(y));
+        }
+        let gj = wkb_polygon_to_geojson(&buf).expect("decode");
+        assert_eq!(gj.get("type").and_then(|t| t.as_str()), Some("Polygon"));
+        let outer = gj
+            .get("coordinates")
+            .and_then(|c| c.as_array())
+            .and_then(|r| r.first())
+            .and_then(|r| r.as_array())
+            .expect("outer ring");
+        assert_eq!(outer.len(), 5);
+        assert_eq!(outer.first(), outer.last(), "ring must be closed");
+
+        // Point-in-polygon: (0.5, 0.5) is inside; (2.0, 2.0) is outside.
+        assert!(wkb_polygon_contains_point(&buf, 0.5, 0.5));
+        assert!(!wkb_polygon_contains_point(&buf, 2.0, 2.0));
+        assert!(!wkb_polygon_contains_point(&buf, -0.1, 0.5));
+    }
+
+    #[test]
+    fn normalize_division_name_matches_diacritics() {
+        assert_eq!(normalize_division_name("São Paulo"), "sao paulo");
+        assert_eq!(normalize_division_name("New-York,  NY"), "new york ny");
+        assert_eq!(normalize_division_name(""), "");
+    }
+
+    /// Network-gated: live Overture-divisions read for "Manhattan"
+    /// (anchor at 40.7831 N, 73.9712 W). Asserts we get back a
+    /// non-empty polygon, that the polygon contains the anchor, and
+    /// that the GERS id is non-empty so the receipt has a citable
+    /// content-address. Skipped by default; run with
+    /// `cargo test -p emem-fetch -- --ignored overture_divisions_live`.
+    #[tokio::test]
+    #[ignore]
+    async fn overture_divisions_live_resolves_manhattan_polygon() {
+        let client = OvertureClient::shared();
+        let m = client
+            .division_polygon_near(40.7831, -73.9712, "Manhattan")
+            .await
+            .expect("divisions fetch must succeed")
+            .expect("divisions must return a containing polygon at Manhattan anchor");
+        eprintln!(
+            "Manhattan division: id={}, name={:?}, subtype={}, bbox={:?}, area_deg_sq={:.5}, name_match={}",
+            m.id, m.name, m.subtype, m.bbox, m.bbox_area_deg_sq, m.name_matched_hint
+        );
+        assert!(!m.id.is_empty(), "GERS id must be present");
+        // Manhattan-the-borough lands as `subtype=locality` in
+        // Overture's division ladder (NYC's structure splits the
+        // five boroughs as five locality rows under the city
+        // "New York", which itself is a county subtype). Name match
+        // must be set since we passed "Manhattan" as the hint.
+        assert!(m.name_matched_hint, "expected name match for Manhattan");
+        // Locate the first ring of the geometry across both
+        // Polygon (coordinates: ring[]) and MultiPolygon
+        // (coordinates: polygon[]: ring[]) shapes.
+        let kind = m
+            .geometry
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("");
+        let coords = m
+            .geometry
+            .get("coordinates")
+            .and_then(|c| c.as_array())
+            .expect("coordinates array");
+        let outer: &Vec<serde_json::Value> = match kind {
+            "Polygon" => coords
+                .first()
+                .and_then(|r| r.as_array())
+                .expect("Polygon outer ring"),
+            "MultiPolygon" => coords
+                .first()
+                .and_then(|p| p.as_array())
+                .and_then(|rings| rings.first())
+                .and_then(|r| r.as_array())
+                .expect("MultiPolygon outer ring"),
+            other => panic!("unexpected geometry type {other:?}"),
+        };
+        assert!(
+            outer.len() >= 4,
+            "outer ring must have at least 4 vertices ({} on a {})",
+            outer.len(),
+            kind
+        );
     }
 
     #[test]

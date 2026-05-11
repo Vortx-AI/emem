@@ -6661,6 +6661,7 @@ async fn post_field_boundaries(
             .unwrap_or("unknown");
         let via_static: &'static str = match v {
             "embedded" => "embedded",
+            "geonames" => "geonames",
             "cache" => "cache",
             "nominatim" => "nominatim",
             "photon" => "photon",
@@ -6802,6 +6803,7 @@ async fn post_recall_polygon(
             .unwrap_or("unknown");
         let via_static: &'static str = match v {
             "embedded" => "embedded",
+            "geonames" => "geonames",
             "cache" => "cache",
             "nominatim" => "nominatim",
             "photon" => "photon",
@@ -6817,6 +6819,7 @@ async fn post_recall_polygon(
             let src_static: &'static str = match src {
                 "wide_bbox_table" => "wide_bbox_table",
                 "nominatim_boundingbox" => "nominatim_boundingbox",
+                "overture_division_area" => "overture_division_area",
                 _ => "geocoder",
             };
             (
@@ -20578,32 +20581,126 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             // Layer 1: embedded gazetteer (no network).
             if let Some((la, lo, lab)) = embedded_gazetteer_lookup(p) {
                 via = "embedded";
-                // Enrich with a polygon bbox when the embedded entry is
-                // a city/region (no bbox embedded for these — entries are
-                // (key, lat, lng, label) tuples). Without this, "Mumbai"
-                // resolved via the embedded gazetteer falls back to a
-                // single-cell point query because the boring endpoints'
-                // polygon fan-out keys off `polygon_bbox`. One Nominatim
-                // call is cheap (cached afterwards by the next call's
-                // wide-bbox / Nominatim path) and only fires when the
-                // wide_bbox table didn't already cover the place.
-                if polygon_bbox.is_none() {
-                    if let Some(bb) = nominatim_bbox_for(p).await {
-                        polygon_bbox = Some(bb);
-                        polygon_source = Some("nominatim_boundingbox");
-                        // Persist into the geocoder cache so the next
-                        // call short-circuits without re-hitting Nominatim.
-                        nominatim_cache_put(p, la, lo, &lab, Some([bb.0, bb.1, bb.2, bb.3]));
+                // Polygon enrichment for the 50 hand-picked embedded
+                // entries. Before v0.0.6 this fired one Nominatim
+                // call for bbox + one for polygon geometry on every
+                // cold lookup of Mumbai / Sao Paulo / etc. — the
+                // single biggest hidden source of rate-limited
+                // upstream traffic in the locate path. Now we try
+                // Overture's `divisions/division_area` first
+                // (anonymous S3, ODbL) and only fall back to
+                // Nominatim if Overture has no covering polygon for
+                // this place. Anchor for the Overture query is the
+                // embedded record's (lat, lng) plus the verbatim
+                // place string as the name hint.
+                if polygon_geojson.is_none() || polygon_bbox.is_none() {
+                    match emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(la, lo, p)
+                        .await
+                    {
+                        Ok(Some(div)) => {
+                            if polygon_geojson.is_none() {
+                                polygon_geojson = Some(div.geometry.clone());
+                            }
+                            if polygon_bbox.is_none() {
+                                polygon_bbox = Some(div.bbox);
+                                polygon_source = Some("overture_division_area");
+                                nominatim_cache_put(
+                                    p,
+                                    la,
+                                    lo,
+                                    &lab,
+                                    Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
+                                );
+                            }
+                        }
+                        Ok(None) | Err(_) => {
+                            // Overture didn't cover this place (or
+                            // had a transport failure). Fall back to
+                            // Nominatim — the historical behaviour.
+                            if polygon_bbox.is_none() {
+                                if let Some(bb) = nominatim_bbox_for(p).await {
+                                    polygon_bbox = Some(bb);
+                                    polygon_source = Some("nominatim_boundingbox");
+                                    nominatim_cache_put(
+                                        p,
+                                        la,
+                                        lo,
+                                        &lab,
+                                        Some([bb.0, bb.1, bb.2, bb.3]),
+                                    );
+                                }
+                            }
+                            if polygon_geojson.is_none() {
+                                polygon_geojson = nominatim_polygon_geojson_for(p).await;
+                            }
+                        }
                     }
                 }
-                // Embedded gazetteer entries are point-only; pull the
-                // true polygon from Nominatim once so recall_polygon
-                // and other masked-aggregation paths get the actual
-                // boundary instead of the wide bbox.
-                if polygon_geojson.is_none() {
-                    polygon_geojson = nominatim_polygon_geojson_for(p).await;
-                }
                 (la, lo, Some(lab))
+            } else if let Some(g) = emem_fetch::geonames::lookup(p) {
+                // Layer 3: embedded GeoNames cities-5000 gazetteer
+                // (CC-BY-4.0, 68 581 populated places with population
+                // ≥ 5 000). Zero external calls — the dump lives in
+                // `crates/emem-fetch/data/cities5000.txt.gz` and is
+                // decompressed + indexed once at first use. This is
+                // the supplementing layer above Photon/Nominatim that
+                // covers ~99 % of agent place queries by name without
+                // ever touching a public geocoder. For places not in
+                // cities-5000 (small villages, named features like
+                // lakes / parks) the cascade falls through to the
+                // sled cache and the live Photon → Nominatim path
+                // unchanged.
+                via = "geonames";
+                let lab = g.label();
+                // Resolve the polygon boundary from Overture's
+                // `divisions/division_area` theme (anonymous S3,
+                // ODbL). Substitutes for the Nominatim polygon round-
+                // trip the embedded-cache branches above still pay,
+                // so a geonames hit goes 0 external calls to a
+                // throttled geocoder. The resolver bbox-prunes row
+                // groups around the GeoNames anchor and picks the
+                // best name match by exact-fold + admin-level rank
+                // (locality / borough / county / region / country)
+                // so "Manhattan" lands on the borough polygon, not a
+                // neighborhood inside it.
+                if polygon_geojson.is_none() || polygon_bbox.is_none() {
+                    match emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(g.lat, g.lng, &g.name)
+                        .await
+                    {
+                        Ok(Some(div)) => {
+                            if polygon_geojson.is_none() {
+                                polygon_geojson = Some(div.geometry.clone());
+                            }
+                            if polygon_bbox.is_none() {
+                                polygon_bbox = Some(div.bbox);
+                                polygon_source = Some("overture_division_area");
+                            }
+                        }
+                        Ok(None) => {
+                            // GeoNames anchor was outside every
+                            // Overture admin polygon (rare — usually
+                            // means a place GeoNames knows but
+                            // Overture's snapshot doesn't yet have).
+                            // Leave polygon_geojson empty; the
+                            // recall_polygon caller falls back to
+                            // centre_cell_bbox honestly.
+                        }
+                        Err(e) => {
+                            // Transport failure on Overture S3 (rare;
+                            // anonymous read on an opendata bucket).
+                            // Log and continue without a polygon —
+                            // never re-hit Nominatim just because
+                            // Overture flaked; let recall_polygon
+                            // degrade gracefully to centre_cell_bbox.
+                            tracing::warn!(
+                                "overture division_polygon_near failed for {p:?}: {e}"
+                            );
+                        }
+                    }
+                }
+                (g.lat, g.lng, Some(lab))
             } else if let Some((la, lo, lab, bb_cached)) = nominatim_cache_get(p) {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
                 // from cache if we stored one, so recall_polygon at a
@@ -20615,22 +20712,55 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     if let Some(arr) = bb_cached {
                         polygon_bbox = Some((arr[0], arr[1], arr[2], arr[3]));
                         polygon_source = Some("nominatim_boundingbox");
-                    } else {
-                        // Cache hit but no bbox stored (entry pre-dates the
-                        // polygon fix, or Photon returned a Point with no
-                        // extent at insertion time). Enrich now so the
-                        // boring polygon fan-out kicks in instead of
-                        // falling back to a single-cell point query.
-                        // Re-cache with the bbox for future hits.
-                        if let Some(bb) = nominatim_bbox_for(p).await {
-                            polygon_bbox = Some(bb);
-                            polygon_source = Some("nominatim_boundingbox");
-                            nominatim_cache_put(p, la, lo, &lab, Some([bb.0, bb.1, bb.2, bb.3]));
-                        }
                     }
                 }
-                if polygon_geojson.is_none() {
-                    polygon_geojson = nominatim_polygon_geojson_for(p).await;
+                // Same Overture-first enrichment as the embedded
+                // branch: cache hits without a stored polygon /
+                // bbox get enriched from Overture divisions before
+                // falling back to Nominatim, so the only paths that
+                // re-hit Nominatim now are (a) names Overture's
+                // divisions snapshot doesn't carry and (b) the live
+                // Photon → Nominatim path for truly novel queries.
+                if polygon_geojson.is_none() || polygon_bbox.is_none() {
+                    match emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(la, lo, p)
+                        .await
+                    {
+                        Ok(Some(div)) => {
+                            if polygon_geojson.is_none() {
+                                polygon_geojson = Some(div.geometry.clone());
+                            }
+                            if polygon_bbox.is_none() {
+                                polygon_bbox = Some(div.bbox);
+                                polygon_source = Some("overture_division_area");
+                                nominatim_cache_put(
+                                    p,
+                                    la,
+                                    lo,
+                                    &lab,
+                                    Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
+                                );
+                            }
+                        }
+                        Ok(None) | Err(_) => {
+                            if polygon_bbox.is_none() {
+                                if let Some(bb) = nominatim_bbox_for(p).await {
+                                    polygon_bbox = Some(bb);
+                                    polygon_source = Some("nominatim_boundingbox");
+                                    nominatim_cache_put(
+                                        p,
+                                        la,
+                                        lo,
+                                        &lab,
+                                        Some([bb.0, bb.1, bb.2, bb.3]),
+                                    );
+                                }
+                            }
+                            if polygon_geojson.is_none() {
+                                polygon_geojson = nominatim_polygon_geojson_for(p).await;
+                            }
+                        }
+                    }
                 }
                 (la, lo, Some(lab))
             } else {

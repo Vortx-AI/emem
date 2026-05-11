@@ -222,22 +222,34 @@ pub async fn fetch_field_polygons_bbox(
 ) -> Result<FieldCollection, FtwError> {
     let reader = reader().await?;
     let hdr = reader.get_header();
+    let explicit_zoom = zoom.is_some();
     let requested_zoom = zoom.unwrap_or(DEFAULT_ZOOM);
-    let zoom_used = requested_zoom.min(hdr.max_zoom).max(hdr.min_zoom);
+    let mut zoom_used = requested_zoom.min(hdr.max_zoom).max(hdr.min_zoom);
 
-    let (tx_min, tx_max, ty_min, ty_max) = bbox_to_tile_range(bbox, zoom_used)?;
-    let tiles_w = (tx_max - tx_min + 1) as usize;
-    let tiles_h = (ty_max - ty_min + 1) as usize;
-    let total_tiles = tiles_w
-        .checked_mul(tiles_h)
-        .unwrap_or(usize::MAX);
-    if total_tiles > MAX_TILES_PER_QUERY {
-        return Err(FtwError::TooManyTiles {
-            tiles: total_tiles,
-            zoom: zoom_used,
-            cap: MAX_TILES_PER_QUERY,
-        });
-    }
+    // Auto-shrink the zoom when the caller didn't pin one and the
+    // resulting tile range exceeds the per-query cap. Each step down
+    // is a 4× reduction in tile count, so the loop terminates quickly
+    // even for country-scale bboxes. If the caller pinned a zoom
+    // explicitly we honour it and surface the cap as a hard error
+    // — the agent that asked for z=14 over a too-wide bbox knows
+    // what to split.
+    let (tx_min, tx_max, ty_min, ty_max) = loop {
+        let r = bbox_to_tile_range(bbox, zoom_used)?;
+        let tiles_w = (r.1 - r.0 + 1) as usize;
+        let tiles_h = (r.3 - r.2 + 1) as usize;
+        let total = tiles_w.checked_mul(tiles_h).unwrap_or(usize::MAX);
+        if total <= MAX_TILES_PER_QUERY {
+            break r;
+        }
+        if explicit_zoom || zoom_used <= hdr.min_zoom {
+            return Err(FtwError::TooManyTiles {
+                tiles: total,
+                zoom: zoom_used,
+                cap: MAX_TILES_PER_QUERY,
+            });
+        }
+        zoom_used -= 1;
+    };
 
     let mut tiles_read: Vec<(u8, u32, u32)> = Vec::new();
     let mut features: Vec<FieldPolygon> = Vec::new();
