@@ -58,13 +58,12 @@ call, seven derived primitives (`compare`, `compare_bands`, `diff`,
 New bands, algorithms, and sources extend the registries without
 changing the primitive surface.
 
-The same protocol carries two parallel encoding paths: a client's
-proprietary encoder running on the spacecraft (the latent downlinks,
-the weights never leave the bus), and a fleet of public foundation
-encoders (Prithvi-EO-2.0, Galileo, Clay v1.5, JEPA-v2) running
-GPU-pinned inside the same tenant against 43 open-data sources. Both
-paths write to the same fact shape; decoders read from both. §11
-describes the topology in detail.
+The protocol carries two encoding paths under one fact shape: the
+customer's encoder running on the spacecraft (only the latent
+downlinks; the weights never leave the bus), and four public
+foundation encoders (Prithvi-EO-2.0, Galileo, Clay v1.5, JEPA-v2)
+running GPU-pinned inside the same tenant against 43 open-data
+sources. Decoders read both. §11 has the topology.
 
 ---
 
@@ -674,7 +673,7 @@ Per-field agricultural polygons from Fields of The World (FTW), a global product
   }
 ```
 
-This primitive returns a polygon FeatureCollection rather than a per-cell scalar, so it sits at the API layer rather than in `emem-primitives` proper. Provenance is the FTW source CID plus license and attribution, carried inline on the response.
+The output is a polygon FeatureCollection, not a per-cell scalar, so the primitive lives in the API layer instead of `emem-primitives`. Provenance is the FTW source CID plus license and attribution, carried inline on the response.
 
 The place-name path (`{ place: ... }`) reuses the locate cascade described in §11.6: GeoNames cities-5000 → Overture divisions → Photon → Nominatim, with polygon enrichment from Overture's `divisions/division_area` theme.
 
@@ -754,10 +753,10 @@ wired today. Clay v1.5 is loaded from
 `Clay-foundation/model` git package pinned at SHA
 `f14e698f3c237cabf8d28dec669a362d66625381` for reproducibility.
 
-A fourth slot is held by design — the FastAPI shape (`POST /predict/<name>`
-with `{cell, scene_url?, band_indices?}` request and `{embedding,
-model: {id, version, sha}}` response) is documented as a public contract
-so a customer can drop in their own encoder under the same call.
+The FastAPI shape — `POST /predict/<name>` with `{cell, scene_url?,
+band_indices?}` request and `{embedding, model: {id, version, sha}}`
+response — is a public contract. A customer drops in their own encoder
+under the same call.
 
 ### 10.3 JEPA-v2 dynamics — untrained baseline
 
@@ -948,19 +947,16 @@ decoder families consume the latent lake:
 
 ### 11.5 What this is not
 
-This is not a multi-encoder ensemble that votes on one prediction.
-The decoder consumes whichever latents are present at the cell,
-fuses them through a learned weight, and writes a single signed
-fact. There is no on-line gating, no soft selection, no
-model-of-models meta-classifier. The mathematics is a linear
-concatenation followed by a regression — the value is the alignment
-of the inputs in latent space, not algorithmic novelty.
+The decoder is not an ensemble that votes on one prediction. It
+consumes whichever latents are present at the cell, concatenates
+them, and applies a learned weight to produce a single signed fact.
+The mathematics is a linear concatenation followed by a regression.
+The win comes from inputs aligning in latent space.
 
-This is also not an opaque pipeline. Every step writes a signed fact
-with citations: the latent fact cites the source scene CID; the
-linear-probe output cites the latents it consumed; the receipt over
-the agent's call cites both. A verifier with the responder's pubkey
-reproduces the chain offline.
+Every step writes a signed fact with citations: the latent fact
+cites the source scene CID; the linear-probe output cites the
+latents it consumed; the receipt over the agent's call cites both. A
+verifier with the responder's pubkey reproduces the chain offline.
 
 ### 11.6 Locate cascade
 
@@ -990,9 +986,8 @@ row-group bbox pruning, exact-name match plus subtype rank
 country > region > county > locality > borough > ... > microhood).
 Mumbai, São Paulo, Tokyo, Patiala, Manhattan all resolve with
 `polygon_bbox.source = overture_division_area`; Photon / Nominatim
-handle only the long tail (e.g. Yellowstone). The result: the
-canonical responder does not hit OSM at all for ~99 % of city
-queries.
+handle only the long tail (e.g. Yellowstone). The canonical
+responder does not hit OSM at all for ~99 % of city queries.
 
 ---
 
@@ -1065,7 +1060,7 @@ The protocol stays small until each item has a working code path:
 - **Python / TypeScript SDKs.** `sdks/emem-py/` and `sdks/emem-ts/` are empty placeholder directories; agents use REST or MCP directly.
 - **Per-vector test vectors.** `spec/test_vectors/` directories exist; vectors not yet extracted.
 - **Multi-modal Galileo and Clay.** Galileo's S1 / ERA5 / TC / VIIRS / SRTM / DW / WC / LandScan / location modalities are zero-masked; Clay v1.5 is wired for S1 / S2 / Landsat but does not yet ingest NAIP, MODIS, or LINZ. The model architectures accept the full multimodal shape; the chip-fetcher coverage is the bottleneck.
-- **On-orbit encoder reference design.** §11.1 describes the topology — encoder weights on the spacecraft bus, ~1 KB latents downlinked — as the architecture customers are deploying against. emem does not ship spacecraft firmware; the protocol surface accepts whatever model_id and sensor_id a customer attests under their own ed25519 key.
+- **On-orbit encoder firmware.** §11.1 describes the topology — encoder weights on the spacecraft bus, ~1 KB latents downlinked — as the architecture pilot customers are building toward. emem does not ship spacecraft firmware. The protocol surface accepts whatever model_id and sensor_id a customer attests under their own ed25519 key.
 
 A request that names a missing surface returns `MaterializeMiss` or a
 structured `ErrorCode`. No surface returns `verdict=false` for an
