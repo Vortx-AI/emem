@@ -7,7 +7,7 @@ a place by name → cell64, (b) recall signed facts at that cell, (c) find
 places similar to a given cell. Every response carries an Ed25519 receipt
 that any agent can verify offline. The hosted responder is at
 `https://emem.dev`; local self-host runs on port 5051. 73 REST endpoints,
-34 MCP tools; the MCP surface is entirely read-only. Writes (attestation,
+36 MCP tools; the MCP surface is entirely read-only. Writes (attestation,
 challenge) are REST-only because they require an Ed25519 secret no LLM
 host can manage safely.
 
@@ -315,13 +315,14 @@ fact.
 | `/v1/tools` | MCP tool descriptors over plain HTTP |
 | `/v1/schema` | CDDL/JSON schema bundle |
 
-#### Read primitives (10)
+#### Read primitives (11)
 
 | Method | Path | Body shape |
 |---|---|---|
 | POST | `/v1/recall` | `{cell, bands?, tslot?}` |
 | POST | `/v1/recall_many` | `{cells:[...], bands?}` (max 256) |
-| POST | `/v1/recall_polygon` | `{place?, polygon_bbox?, bands?, max_cells?}` |
+| POST | `/v1/recall_polygon` | `{place?, polygon_bbox?, bands?, max_cells?, include?:["ftw_fields"]}` |
+| POST | `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?}` — per-field agri polygons from Fields of The World (CC-BY-4.0) |
 | GET | `/v1/cells/:cell64` | One-shot recall, all bands |
 | POST | `/v1/query_region` | `{geometry, bands?, agg?}` |
 | POST | `/v1/compare` | `{a, b, family?}` |
@@ -398,7 +399,7 @@ without historical fetch (e.g. `weather.*` from the met.no nowcast)
 return `status: "present_only"` for past tslots — check
 `/v1/coverage_matrix.history_available_from` before calling.
 
-### MCP tools (34)
+### MCP tools (36)
 
 All MCP tools are read-only (`readOnlyHint: true`). Inputs are JSON; MCP
 tools deliberately omit top-level `anyOf`/`oneOf` (Claude.ai's MCP
@@ -410,7 +411,8 @@ Wire schemas live in `crates/emem-mcp/src/lib.rs`.
 | `emem_locate` | L0 | Place name → cell64 + band inventory | POST `/v1/locate` |
 | `emem_ask` | L0 | Single-shot Q&A with packaged receipts | POST `/v1/ask` |
 | `emem_recall` | L0 | Facts at a cell (auto-materializes on miss) | POST `/v1/recall` |
-| `emem_recall_polygon` | L0 | Recall across a place's polygon | POST `/v1/recall_polygon` |
+| `emem_recall_polygon` | L0 | Recall across a place's polygon (optionally with `include:["ftw_fields"]`) | POST `/v1/recall_polygon` |
+| `emem_field_boundaries` | L0 | Per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0) | POST `/v1/field_boundaries` |
 | `emem_query_region` | L0 | Aggregate over a region | POST `/v1/query_region` |
 | `emem_compare` | L0 | Two-cell cosine + per-band deltas | POST `/v1/compare` |
 | `emem_compare_bands` | L0 | Two-band comparison at one cell | POST `/v1/compare_bands` |

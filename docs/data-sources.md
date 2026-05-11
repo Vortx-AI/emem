@@ -94,6 +94,9 @@ are listed below.
 | inline `prithvi_eo2`  | api-rest:10712| Prithvi-EO-2.0-300M-TL    | Python sidecar (frozen pretrained encoder)        | `prithvi_eo2.*`                                                                 | Apache-2.0                       |
 | inline `galileo`      | api-rest:10823| Galileo Tiny              | Python sidecar (S2 modality only wired)           | `galileo.*`                                                                     | (per upstream)                   |
 | inline `temporal_diff`| api-rest:14944| (derives from parents)    | computes Δ from two `geotessera` parents          | `temporal_diff`                                                                 | n/a (derivative)                 |
+| `ftw.rs`              | emem-fetch    | Fields of The World (source.coop) | PMTiles HTTP range reads + MVT decode             | `/v1/field_boundaries` + `include:["ftw_fields"]` on `/v1/recall_polygon` (~3.17 B field polygons, 10 m, 241 countries) | CC-BY-4.0                        |
+| `geonames.rs`         | emem-fetch    | GeoNames cities-5000 (embedded)   | `include_bytes!` 5.5 MB gzip → 68 581 records     | layer 3 of `/v1/locate` cascade (no network)                                    | CC-BY-4.0                        |
+| `overture.rs` divisions | emem-fetch  | Overture `divisions/division_area`| Parquet row-group prune + WKB polygon decode      | polygon resolver for `/v1/locate` (replaces Nominatim polygon round-trip)       | ODbL                             |
 
 The line numbers are at time-of-writing (2026-05-08); the `match` dispatcher
 is at `try_materialize_bands` in `crates/emem-api-rest/src/lib.rs`. Grep
@@ -350,6 +353,116 @@ as a NegativeFact, not an unsigned silence.
 What's NOT supported: the WDPA-specific fields outside what OSM tags surface
 (GIS-area-from-shapefile, year of last assessment, IUCN management category
 detail). Those would require Protected Planet auth.
+
+### ftw.rs — agricultural field boundaries from Fields of The World
+
+Fields of The World publishes a global product of ~3.17 billion agricultural-
+field polygons (241 countries, 10 m resolution, CC-BY-4.0) as a single PMTiles
+archive on Source Cooperative S3 (`data.source.coop`). emem reads it lazily:
+the bundle is ~2.14 TB but each bbox query touches only the covering Web-
+Mercator tiles.
+
+Wire-level path:
+
+1. Process-wide `AsyncPmTilesReader` against `global.pmtiles` with an
+   in-memory `HashMapCache` for PMTiles directory entries.
+2. Bbox → covering `(z, x, y)` range via the canonical OSM slippy-map
+   formula. Auto-shrinks zoom (z=14 default, capped by archive `max_zoom`)
+   when the polygon would exceed a 16-tile-per-query cap — each step down
+   is a 4× tile reduction.
+3. Each tile blob is decompressed by the PMTiles reader (gzip) and
+   decoded by `mvt-reader` to vector features. Tile-local coordinates
+   (0..extent) are projected to WGS84 with the inverse-Mercator formula.
+4. The blake3 hash of concatenated decompressed tile bytes is the
+   provenance source CID — a verifier replays the same tile fetch and
+   reproduces it byte-for-byte.
+
+Surface:
+
+- `POST /v1/field_boundaries` — pure-fetch shape, returns a GeoJSON
+  FeatureCollection + provenance (source CID, provider URL, license,
+  attribution). Place name or polygon_bbox.
+- `POST /v1/recall_polygon` with `include: ["ftw_fields"]` — supplements
+  the per-cell fan-out response with the per-field polygons in one
+  envelope.
+- MCP tool: `emem_field_boundaries`.
+
+License: CC-BY-4.0 on the global product. The benchmark CC-BY-NC
+countries (Latvia, Portugal) are not consumed; only the uniformly
+CC-BY-4.0 global product is read.
+
+### geonames.rs — embedded populated-places gazetteer
+
+The `/v1/locate` cascade resolves place names through five layers
+(`wide_bbox_lookup` → `embedded_gazetteer_lookup` → **geonames** →
+sled cache → Photon → Nominatim). The geonames layer is GeoNames'
+cities-5000 cut: every populated place on Earth with population
+≥ 5 000 (68 581 records as of 2026-05-11), embedded as a 5.5 MB gzip
+in `crates/emem-fetch/data/cities5000.txt.gz` via `include_bytes!`
+and decompressed + indexed once on first lookup into a static
+HashMap keyed by ASCII-folded normalized name.
+
+Lookup behaviour:
+
+- ASCII diacritic fold ("São Paulo" ↔ "Sao Paulo" → same key).
+- Every alternate name in column 3 is a lookup key too — `"Bombay"`
+  hits Mumbai's record.
+- Population-ranked disambiguation: when "Springfield" hits 17
+  cities, the most-populous wins. The full candidate list is
+  available via `lookup_candidates()` for ambiguity-aware callers.
+
+A geonames hit emits `via: "geonames"` in the locate response.
+Polygon geometry for the resolved place comes from
+`overture.rs::division_polygon_near` (see below); no external
+geocoder is touched for either coord or boundary.
+
+For non-city named features (national parks, lakes, transboundary
+basins, archipelagos), geonames is intentionally not the answer —
+the cascade falls through to Photon / Nominatim.
+
+License: CC-BY-4.0. Attribution string surfaces in every receipt
+that hit this layer.
+
+### overture.rs `divisions/division_area` — admin polygon resolver
+
+Overture's divisions theme covers countries, regions, counties,
+localities, boroughs, neighborhoods, and microhoods worldwide
+(ODbL). The resolver
+(`OvertureClient::division_polygon_near(lat, lng, name_hint)`):
+
+1. Lists `theme=divisions/type=division_area` parquet shards once
+   per release (already cached in `OvertureClient`).
+2. For a query anchored at `(lat, lng)` with a name hint, builds a
+   half-degree search bbox and prunes row groups via the parquet
+   `bbox` column statistics.
+3. Decodes each row's WKB Polygon / MultiPolygon, runs a point-in-
+   polygon ray-cast against the anchor, and keeps every containing
+   row.
+4. Picks the best match by **exact-name match + admin-level rank**:
+   normalized `names.primary == normalized hint` first, with the
+   highest `subtype` rank (country > region > county > localadmin >
+   locality > borough > dependency > macrohood > neighborhood >
+   microhood) winning. So `"Manhattan"` lands on the borough
+   (`locality` subtype), not on a neighborhood inside it. When no
+   name match exists, the smallest containing polygon wins —
+   best-effort behaviour for queries whose GeoNames primary string
+   doesn't appear in Overture's vocabulary.
+5. Memoizes the result in-process keyed by `(round(lat·100),
+   round(lng·100), normalized_name_hint)`. First call cold ~5 s
+   (footer prefetch over ~250 shards), warm ~12 ms. Cached `None`
+   results too, so places Overture doesn't carry don't repeat the
+   full scan on every retry.
+
+The cascade uses this from three branches of `locate_inner`
+(`embedded`, `geonames`, `cache`) — Overture is the preferred
+polygon source; Nominatim is the long-tail fallback only when
+Overture has no covering match.
+
+Returned `DivisionMatch` carries the GERS id (citable source CID),
+the primary name, subtype, the GeoJSON geometry, and the bbox tuple
+in `(min_lat, max_lat, min_lng, max_lng)` order. Surfaced in
+`/v1/locate` and `/v1/recall_polygon` as
+`polygon_bbox.source: "overture_division_area"`.
 
 ## Genuinely unwired schemes (5)
 

@@ -20579,17 +20579,14 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             if let Some((la, lo, lab)) = embedded_gazetteer_lookup(p) {
                 via = "embedded";
                 // Polygon enrichment for the 50 hand-picked embedded
-                // entries. Before v0.0.6 this fired one Nominatim
-                // call for bbox + one for polygon geometry on every
-                // cold lookup of Mumbai / Sao Paulo / etc. — the
-                // single biggest hidden source of rate-limited
-                // upstream traffic in the locate path. Now we try
-                // Overture's `divisions/division_area` first
-                // (anonymous S3, ODbL) and only fall back to
-                // Nominatim if Overture has no covering polygon for
-                // this place. Anchor for the Overture query is the
+                // entries: try Overture's `divisions/division_area`
+                // first (anonymous S3, ODbL), fall back to Nominatim
+                // only when Overture has no covering polygon for the
+                // place. Anchor for the Overture query is the
                 // embedded record's (lat, lng) plus the verbatim
-                // place string as the name hint.
+                // place string as the name hint. The resolver is
+                // memoized per (anchor, name) inside `OvertureClient`
+                // so subsequent calls for the same city are ~10 ms.
                 if polygon_geojson.is_none() || polygon_bbox.is_none() {
                     match emem_fetch::overture::OvertureClient::shared()
                         .division_polygon_near(la, lo, p)
@@ -20613,8 +20610,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         }
                         Ok(None) | Err(_) => {
                             // Overture didn't cover this place (or
-                            // had a transport failure). Fall back to
-                            // Nominatim — the historical behaviour.
+                            // had a transport failure). Fall through
+                            // to Nominatim for both bbox + polygon.
                             if polygon_bbox.is_none() {
                                 if let Some(bb) = nominatim_bbox_for(p).await {
                                     polygon_bbox = Some(bb);
@@ -20640,27 +20637,24 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // (CC-BY-4.0, 68 581 populated places with population
                 // ≥ 5 000). Zero external calls — the dump lives in
                 // `crates/emem-fetch/data/cities5000.txt.gz` and is
-                // decompressed + indexed once at first use. This is
-                // the supplementing layer above Photon/Nominatim that
-                // covers ~99 % of agent place queries by name without
-                // ever touching a public geocoder. For places not in
+                // decompressed + indexed once at first use. Covers
+                // ~99 % of agent place queries by name without
+                // touching a public geocoder. For places not in
                 // cities-5000 (small villages, named features like
                 // lakes / parks) the cascade falls through to the
-                // sled cache and the live Photon → Nominatim path
-                // unchanged.
+                // sled cache and the Photon → Nominatim tail.
                 via = "geonames";
                 let lab = g.label();
                 // Resolve the polygon boundary from Overture's
                 // `divisions/division_area` theme (anonymous S3,
-                // ODbL). Substitutes for the Nominatim polygon round-
-                // trip the embedded-cache branches above still pay,
-                // so a geonames hit goes 0 external calls to a
-                // throttled geocoder. The resolver bbox-prunes row
-                // groups around the GeoNames anchor and picks the
-                // best name match by exact-fold + admin-level rank
-                // (locality / borough / county / region / country)
-                // so "Manhattan" lands on the borough polygon, not a
-                // neighborhood inside it.
+                // ODbL). Geonames + Overture together resolve a city
+                // name to (coord, label, polygon) with zero external
+                // geocoder calls. The resolver bbox-prunes row groups
+                // around the GeoNames anchor and picks the best name
+                // match by exact-fold + admin-level rank (locality /
+                // borough / county / region / country) so "Manhattan"
+                // lands on the borough polygon, not a neighborhood
+                // inside it.
                 if polygon_geojson.is_none() || polygon_bbox.is_none() {
                     match emem_fetch::overture::OvertureClient::shared()
                         .division_polygon_near(g.lat, g.lng, &g.name)
@@ -20710,12 +20704,11 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     }
                 }
                 // Same Overture-first enrichment as the embedded
-                // branch: cache hits without a stored polygon /
-                // bbox get enriched from Overture divisions before
-                // falling back to Nominatim, so the only paths that
-                // re-hit Nominatim now are (a) names Overture's
-                // divisions snapshot doesn't carry and (b) the live
-                // Photon → Nominatim path for truly novel queries.
+                // branch: cache hits without a stored polygon / bbox
+                // are filled from Overture divisions; Nominatim is
+                // the polygon source only when Overture has nothing.
+                // The Photon → Nominatim tail still handles names
+                // none of the prior layers carried at all.
                 if polygon_geojson.is_none() || polygon_bbox.is_none() {
                     match emem_fetch::overture::OvertureClient::shared()
                         .division_polygon_near(la, lo, p)

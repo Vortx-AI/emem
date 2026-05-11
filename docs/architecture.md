@@ -1,10 +1,12 @@
 # emem architecture
 
-This document is the system-level mental model for `emem.dev` v0.0.4. It covers process topology, the 14 workspace crates, the data plane (fact lifecycle + recall + find_similar + lazy materialize), the trust plane (identity + receipts + merkle log), the fetch plane (open-data connectors), the inference plane (Python sidecar + physics), and the agent surface (REST + MCP). Companion documents: `protocol.md` for byte-level rules, `agents.md` for calling conventions, `operating.md` for deploy.
+This document is the system-level mental model for `emem.dev` v0.0.6. It covers process topology, the 14 workspace crates, the data plane (fact lifecycle + recall + find_similar + lazy materialize), the trust plane (identity + receipts + merkle log), the fetch plane (open-data connectors), the inference plane (Python sidecar + physics), and the agent surface (REST + MCP). Companion documents: `protocol.md` for byte-level rules, `agents.md` for calling conventions, `operating.md` for deploy.
 
 ## The shape of the system
 
-A single Rust binary `emem-server` listens on one port (default `0.0.0.0:5051`) and serves both HTTP/REST (73 endpoints) and an MCP JSON-RPC endpoint at `POST /mcp` (34 tools). An optional Python sidecar over a Unix domain socket handles GPU inference for Prithvi-EO-2.0, Galileo, and JEPA-v2. Storage is a sled hot cache plus an append-only Merkle log on local disk. Identity is a 32-byte ed25519 secret persisted at `<EMEM_DATA>/identity.secret.b32` (mode 0600); the matching pubkey is published at `/.well-known/emem.json` so any client can verify receipts offline.
+A single Rust binary `emem-server` listens on one port (default `0.0.0.0:5051`) and serves both HTTP/REST (74 endpoints) and an MCP JSON-RPC endpoint at `POST /mcp` (36 tools). An optional Python sidecar over a Unix domain socket handles GPU inference for Prithvi-EO-2.0, Galileo, and JEPA-v2. Storage is a sled hot cache plus an append-only Merkle log on local disk. Identity is a 32-byte ed25519 secret persisted at `<EMEM_DATA>/identity.secret.b32` (mode 0600); the matching pubkey is published at `/.well-known/emem.json` so any client can verify receipts offline.
+
+Place resolution and admin-boundary lookup happen entirely on open data the binary already carries or pulls keylessly: GeoNames cities-5000 ships embedded (CC-BY-4.0, 68 581 populated places); Overture's `divisions/division_area` theme supplies polygon geometry over anonymous S3 (ODbL). The Photon → Nominatim path remains as the long-tail fallback only for names neither carries. The agricultural-field surface (`/v1/field_boundaries` and the `include:["ftw_fields"]` supplement on `/v1/recall_polygon`) reads Fields of The World's global product (CC-BY-4.0, ~3.17 B field polygons) via PMTiles range reads.
 
 ## Process topology
 
@@ -417,7 +419,7 @@ Discovery chain an LLM follows on first contact:
 2. `GET /v1/manifests` — `bands_cid`, `algorithms_cid`, `sources_cid`, `schema_cid`
 3. `GET /v1/grid_info` — cell pitch (~10 m square), encoding (cell64, lat 21 bits, lng 22 bits)
 4. `GET /v1/data_availability` — which bands have history, where the windows are
-5. `POST /v1/locate {q:"<place>"}` -> cell64 (chain: embedded -> cache -> Photon -> Nominatim)
+5. `POST /v1/locate {q:"<place>"}` -> cell64 (chain: wide_bbox_lookup -> embedded gazetteer -> GeoNames cities-5000 -> sled cache -> Photon -> Nominatim; polygon geometry from Overture `divisions/division_area`)
 6. `POST /v1/recall`, `/v1/find_similar`, `/v1/verify`, `/v1/diff` — primitives
 
 The 73 REST endpoints split across 13 categories (full list at `/v1/tools`). A non-exhaustive map:

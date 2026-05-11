@@ -73,10 +73,12 @@ npm install @emem/client    # sdks/emem-ts: zero runtime deps, native fetch
 
 ## What you can ask
 
-34 MCP tools, 67 endpoints under `/v1/*`. The shape stays small.
+36 MCP tools, 68 endpoints under `/v1/*`. The shape stays small.
 
-- **Locate** a place by name or lat/lng to a `cell64`.
+- **Locate** a place by name or lat/lng to a `cell64`. A five-layer cascade resolves names without hitting a public geocoder for any of the ~68 000 populated places GeoNames carries.
 - **Recall** any of 35 bands at any cell. Cold reads auto-fetch from open data.
+- **Recall polygon** facts across every cell inside a place's boundary. The boundary itself comes from Overture's `divisions/division_area` theme, so the polygon-resolution path is keyless open data, not a public geocoder.
+- **Field boundaries** — per-field agricultural polygons from Fields of The World (~3.17 B fields, 241 countries, 10 m, CC-BY-4.0). Pure-fetch shape or `?include=ftw_fields` on recall_polygon.
 - **Compare** two cells, or two bands at one cell, with an optional signed verdict.
 - **Find similar** places by foundation embedding (Tessera 128-D, plus a sign-bit Hamming fast path).
 - **Trajectory** of a band over time at a cell.
@@ -94,7 +96,7 @@ npm install @emem/client    # sdks/emem-ts: zero runtime deps, native fetch
 # From source
 cargo run --release --bin emem-server
 # Or via container
-docker run -p 5051:5051 ghcr.io/vortx-ai/emem:0.0.4
+docker run -p 5051:5051 ghcr.io/vortx-ai/emem:0.0.6
 ```
 
 The server has no required env vars. `EMEM_BIND` overrides the listener (default `0.0.0.0:5051`). `EMEM_DATA` overrides the data directory (default `./var/emem`; use `:memory:` for ephemeral).
@@ -127,12 +129,13 @@ Every receipt pins four content-addressed registries: `bands_cid`, `algorithms_c
 ## Surface map
 
 ```
-REST   138 routes  (67 under /v1/*, 7 under /.well-known/, plus /health,
+REST   139 routes  (68 under /v1/*, 7 under /.well-known/, plus /health,
                    /openapi.json, /openapi.action.json, /mcp, /metrics,
                    /llms.txt, /llms-full.txt, /humans, /agents.md and
                    the static landing/docs/branding tree)
-MCP    34 tools    (10 read primitives, 4 physics solvers, 14 introspection,
-                   2 imagery, 1 backfill, 1 verify, 1 fetch, 1 ask, 1 intent)
+MCP    36 tools    (11 read primitives incl. recall_polygon + field_boundaries,
+                   4 physics solvers, 14 introspection, 2 imagery, 1 backfill,
+                   1 verify, 1 fetch, 1 ask, 1 intent)
 ```
 
 Discover at `GET /v1/discover`, `GET /v1/agent_card`, or `GET /openapi.json`. The MCP transport is `POST /mcp` (JSON-RPC 2.0).
@@ -143,13 +146,13 @@ For humans (and AI agents that want to watch what humans do), [https://emem.dev/
 
 ```
 emem/
-├── crates/                       # 14 workspace crates, MSRV 1.88, version 0.0.4
+├── crates/                       # 14 workspace crates, MSRV 1.88, version 0.0.6
 │   ├── emem-core/                # bands, algorithms, functions, sources, topics, schema
 │   ├── emem-codec/               # cell64, cid64, vec64, hilbert, geo, alphabet
 │   ├── emem-fact/                # canonical CBOR; fact, receipt, attestation
 │   ├── emem-claim/               # claim predicates (Op enum)
 │   ├── emem-cache/               # sled cache wrapper
-│   ├── emem-fetch/               # 16 open-data connectors (cog, hansen, jrc, esa, overture, firms, ...)
+│   ├── emem-fetch/               # 18 open-data connectors (cog, hansen, jrc, esa, overture, overture-divisions, ftw, geonames, firms, ...)
 │   ├── emem-storage/             # sled hot cache + append-only merkle log
 │   ├── emem-cubes/               # 1792-D voxel cube handle (offsets in bands-v0.json)
 │   ├── emem-primitives/          # recall, find_similar, trajectory, compare, compare_bands, diff, verify, query_region
@@ -170,16 +173,18 @@ emem/
 
 ## Status
 
-**Ships in 0.0.4**
+**Ships in 0.0.6**
 
-- Read primitives: `recall`, `recall_many`, `recall_polygon`, `find_similar`, `compare`, `compare_bands`, `trajectory`, `diff`, `query_region`, `verify`.
+- Read primitives: `recall`, `recall_many`, `recall_polygon`, `field_boundaries`, `find_similar`, `compare`, `compare_bands`, `trajectory`, `diff`, `query_region`, `verify`.
+- Place resolution: five-layer cascade — wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, embedded) → sled cache → Photon → Nominatim. Polygon geometry comes from Overture's `divisions/division_area` theme; Nominatim handles only the long tail.
+- Agricultural fields: Fields of The World global product (~3.17 B field polygons, 10 m, 241 countries, CC-BY-4.0) via PMTiles range reads on source.coop. Surfaced as the standalone `/v1/field_boundaries` primitive and as the `include: ["ftw_fields"]` supplement on `/v1/recall_polygon`.
 - Physics solvers: 1-D wave, 2-D heat, JEPA-v2 dynamics (CPU; CUDA when `EMEM_SIDECAR_SOCK` points at a live UDS).
 - Foundation embeddings: `geotessera` as 8 annual vintages 2017 to 2024 (each 128-D), plus `geotessera.bin128` (sign-bit) and `geotessera.multi_year` (1024-D, 8 × 128 stacked). Prithvi-EO-2.0-300M-TL and Galileo through the sidecar.
 - Lazy materialisation: cold-cell recall fans out to the connector, signs, persists. Gated by `EMEM_AUTO_MATERIALIZE`.
 - Receipts: ed25519 over a stable preimage; identity persisted at `<EMEM_DATA>/identity.secret.b32`. Verified offline by `verify_receipt`.
 - Discovery: `/v1/discover`, `/v1/agent_card`, `/openapi.json`, `/.well-known/{emem,agent,mcp,ai-plugin}.json`.
 - TLS termination: in-process rustls + Let's Encrypt ACME via TLS-ALPN-01. No Cloudflare, no reverse proxy.
-- Python and TypeScript SDKs at version 0.0.4, covering every major `/v1/*` endpoint plus the boring lat/lng shortcuts.
+- Python and TypeScript SDKs at version 0.0.6, covering every major `/v1/*` endpoint plus the boring lat/lng shortcuts.
 
 **Deferred**
 
@@ -204,4 +209,4 @@ emem/
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-All default-build data sources are open: Copernicus DEM, JRC GSW (CC-BY 4.0), Hansen GFC, ESA WorldCover (CC-BY 4.0), OSM (ODbL), met.no, Open-Meteo, Tessera. No API keys, no operator credentials, no SaaS lock-in.
+All default-build data sources are open: Copernicus DEM, JRC GSW (CC-BY 4.0), Hansen GFC, ESA WorldCover (CC-BY 4.0), Overture Maps (places + buildings + transportation + `divisions/division_area` admin boundaries; ODbL / CDLA-Permissive), Fields of The World (~3.17 B agricultural-field polygons, CC-BY 4.0), GeoNames cities-5000 (embedded gazetteer, CC-BY 4.0), OSM (ODbL), met.no, Open-Meteo, Tessera. No API keys, no operator credentials, no SaaS lock-in.

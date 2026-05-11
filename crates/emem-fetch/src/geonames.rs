@@ -1,32 +1,39 @@
-//! Embedded GeoNames cities-5000 gazetteer for Layer-0 geocoding.
+//! Embedded GeoNames cities-5000 gazetteer — the populated-places
+//! layer of emem's locate cascade.
 //!
-//! ## Why this exists
+//! ## Role in the cascade
 //!
-//! Before v0.0.6 the `/v1/locate` cascade was
-//!   embedded-50-cities → sled-cache → Photon (komoot.io) → Nominatim (OSM).
+//! `/v1/locate` resolves a place mention through five layers in order
+//! (`crates/emem-api-rest/src/lib.rs::locate_inner`):
 //!
-//! Every place name not in the 50-city hand-list (i.e. ~99.9 % of agent
-//! queries) hit one of the public geocoders on a cache miss. Both
-//! Photon and Nominatim are politely throttled and operationally
-//! fragile (Nominatim's public instance routinely returns 5xx under
-//! load; Photon's geometry coverage is patchy). The "Earth memory
-//! protocol" was effectively a thin proxy in front of someone else's
-//! geocoder for every cold lookup.
+//!   1. `wide_bbox_lookup` — compiled-in named-region table.
+//!   2. `embedded_gazetteer_lookup` — 50 hand-picked demo cities.
+//!   3. **this module** — GeoNames cities-5000, 68 581 populated
+//!      places with population ≥ 5 000, decompressed + indexed on
+//!      first lookup. Zero network. Covers ~99 % of agent place
+//!      queries by name.
+//!   4. `nominatim_cache_get` — sled persistent cache (24 h TTL) of
+//!      prior Photon / Nominatim / Overture results.
+//!   5. Photon → Nominatim — the public-OSM-backed fallback for
+//!      anything none of the above carried (small villages, niche
+//!      features). The response's `via` field reports which layer
+//!      served the answer.
 //!
-//! GeoNames publishes a CC-BY-4.0 gazetteer of every populated place
-//! on Earth above each population threshold. cities-5000 (68 581
-//! settlements with population ≥ 5 000 as of the 2026-05-11 snapshot)
-//! covers the realistic agent query surface — every city you can
-//! name from memory is in this list — for **5.5 MB gzip-9'd** which
-//! we embed via `include_bytes!`. The decompressed 14.7 MB table is
-//! parsed once on first lookup and held in a static HashMap keyed by
-//! ASCII-folded normalized name.
+//! Polygon geometry for the resolved place comes from Overture's
+//! `divisions/division_area` theme in any of the first four layers
+//! (see `crates/emem-fetch/src/overture.rs::division_polygon_near`);
+//! Nominatim's polygon path is the last-resort fallback.
 //!
-//! For non-city named features (national parks, lakes, transboundary
-//! basins, archipelagos, etc.) GeoNames is intentionally not the
-//! answer — those land in Photon/Nominatim as before. The cascade
-//! becomes embedded-50 → **geonames-68k** → sled-cache → Photon →
-//! Nominatim, and `via` in the response makes the path transparent.
+//! ## Why a 5.5 MB embedded gazetteer
+//!
+//! The bundled `cities5000.txt.gz` decompresses to a 14.7 MB TSV
+//! parsed once at first lookup and held in a static HashMap keyed
+//! by ASCII-folded normalized name. The whole working set fits in
+//! ~60 MB resident on a server; a single allocation pays for every
+//! future lookup. For non-city named features (national parks,
+//! lakes, transboundary basins, archipelagos) GeoNames is
+//! intentionally not the answer — the cascade keeps Photon /
+//! Nominatim as the tier-5 fallback for those.
 //!
 //! ## Schema (per GeoNames readme, columns 0..18)
 //!
