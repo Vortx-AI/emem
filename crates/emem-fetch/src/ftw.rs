@@ -232,7 +232,7 @@ pub async fn fetch_field_polygons_bbox(
         let r = bbox_to_tile_range(bbox, zoom_used)?;
         let tiles_w = (r.1 - r.0 + 1) as usize;
         let tiles_h = (r.3 - r.2 + 1) as usize;
-        let total = tiles_w.checked_mul(tiles_h).unwrap_or(usize::MAX);
+        let total = tiles_w.saturating_mul(tiles_h);
         if total <= MAX_TILES_PER_QUERY {
             break r;
         }
