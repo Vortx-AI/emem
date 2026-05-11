@@ -681,14 +681,11 @@ impl OvertureClient {
         let exact: Vec<&DivisionMatch> = candidates
             .iter()
             .filter(|m| {
-                !normalized_hint.is_empty()
-                    && normalize_division_name(&m.name) == normalized_hint
+                !normalized_hint.is_empty() && normalize_division_name(&m.name) == normalized_hint
             })
             .collect();
-        let partial: Vec<&DivisionMatch> = candidates
-            .iter()
-            .filter(|m| m.name_matched_hint)
-            .collect();
+        let partial: Vec<&DivisionMatch> =
+            candidates.iter().filter(|m| m.name_matched_hint).collect();
 
         let chosen = if !exact.is_empty() {
             *exact
@@ -1331,12 +1328,16 @@ fn normalize_division_name(s: &str) -> String {
     let mut last_space = true;
     for ch in s.chars() {
         let folded = match ch {
-            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => 'a',
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => {
+                'a'
+            }
             'ç' | 'Ç' => 'c',
             'è' | 'é' | 'ê' | 'ë' | 'È' | 'É' | 'Ê' | 'Ë' => 'e',
             'ì' | 'í' | 'î' | 'ï' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
             'ñ' | 'Ñ' => 'n',
-            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => 'o',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => {
+                'o'
+            }
             'ù' | 'ú' | 'û' | 'ü' | 'Ù' | 'Ú' | 'Û' | 'Ü' => 'u',
             'ý' | 'ÿ' | 'Ý' | 'Ÿ' => 'y',
             _ => ch,

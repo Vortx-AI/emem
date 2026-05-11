@@ -6635,48 +6635,45 @@ async fn post_field_boundaries(
     Json(req): Json<FieldBoundariesReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Resolve bbox: explicit → place → soft 200 with `needs_location`.
-    let (bbox, place_label, via): (
-        (f64, f64, f64, f64),
-        Option<String>,
-        &'static str,
-    ) = if let Some(b) = req.polygon_bbox.as_ref() {
-        ((b.min_lat, b.max_lat, b.min_lng, b.max_lng), None, "direct")
-    } else if let Some(p) = req.place.as_deref() {
-        let lr = LocateReq {
-            lat: None,
-            lng: None,
-            place: Some(p.into()),
-        };
-        let resp = locate_inner(lr).await?;
-        let pb = resp.0.get("polygon_bbox").cloned();
-        let lab = resp
-            .0
-            .get("place_label")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let v = resp
-            .0
-            .get("via")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let via_static: &'static str = match v {
-            "embedded" => "embedded",
-            "geonames" => "geonames",
-            "cache" => "cache",
-            "nominatim" => "nominatim",
-            "photon" => "photon",
-            "direct" => "direct",
-            _ => "unknown",
-        };
-        if let Some(JsonValue::Object(m)) = pb {
-            let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
-            (
-                (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
-                lab,
-                via_static,
-            )
-        } else {
-            return Err(ApiError(
+    let (bbox, place_label, via): ((f64, f64, f64, f64), Option<String>, &'static str) =
+        if let Some(b) = req.polygon_bbox.as_ref() {
+            ((b.min_lat, b.max_lat, b.min_lng, b.max_lng), None, "direct")
+        } else if let Some(p) = req.place.as_deref() {
+            let lr = LocateReq {
+                lat: None,
+                lng: None,
+                place: Some(p.into()),
+            };
+            let resp = locate_inner(lr).await?;
+            let pb = resp.0.get("polygon_bbox").cloned();
+            let lab = resp
+                .0
+                .get("place_label")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let v = resp
+                .0
+                .get("via")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let via_static: &'static str = match v {
+                "embedded" => "embedded",
+                "geonames" => "geonames",
+                "cache" => "cache",
+                "nominatim" => "nominatim",
+                "photon" => "photon",
+                "direct" => "direct",
+                _ => "unknown",
+            };
+            if let Some(JsonValue::Object(m)) = pb {
+                let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                (
+                    (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
+                    lab,
+                    via_static,
+                )
+            } else {
+                return Err(ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
@@ -6686,19 +6683,19 @@ async fn post_field_boundaries(
                     details: None,
                 },
             ));
-        }
-    } else {
-        return Ok(Json(json!({
-            "schema":  "emem.field_boundaries.v1",
-            "status":  "needs_location",
-            "message": "no polygon provided. Pass `place` (free-text farm/region name) or `polygon_bbox` ({min_lat, max_lat, min_lng, max_lng}).",
-            "examples": [
-                {"place": "Central Valley, California"},
-                {"polygon_bbox": {"min_lat": 36.70, "max_lat": 36.74, "min_lng": -119.84, "max_lng": -119.80}},
-            ],
-            "agent_hint": "emem_field_boundaries returns per-field agricultural-boundary polygons from the Fields of The World global product (CC-BY-4.0). Best for farm-scale workflows where the OSM/Nominatim polygon would be a single estate envelope.",
-        })));
-    };
+            }
+        } else {
+            return Ok(Json(json!({
+                "schema":  "emem.field_boundaries.v1",
+                "status":  "needs_location",
+                "message": "no polygon provided. Pass `place` (free-text farm/region name) or `polygon_bbox` ({min_lat, max_lat, min_lng, max_lng}).",
+                "examples": [
+                    {"place": "Central Valley, California"},
+                    {"polygon_bbox": {"min_lat": 36.70, "max_lat": 36.74, "min_lng": -119.84, "max_lng": -119.80}},
+                ],
+                "agent_hint": "emem_field_boundaries returns per-field agricultural-boundary polygons from the Fields of The World global product (CC-BY-4.0). Best for farm-scale workflows where the OSM/Nominatim polygon would be a single estate envelope.",
+            })));
+        };
     let b = emem_core::Bbox::new(bbox.0, bbox.1, bbox.2, bbox.3).map_err(|e| {
         ApiError(
             StatusCode::BAD_REQUEST,
@@ -20694,9 +20691,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                             // never re-hit Nominatim just because
                             // Overture flaked; let recall_polygon
                             // degrade gracefully to centre_cell_bbox.
-                            tracing::warn!(
-                                "overture division_polygon_near failed for {p:?}: {e}"
-                            );
+                            tracing::warn!("overture division_polygon_near failed for {p:?}: {e}");
                         }
                     }
                 }

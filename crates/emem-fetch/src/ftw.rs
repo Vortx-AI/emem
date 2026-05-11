@@ -111,11 +111,7 @@ pub enum FtwError {
     /// Bbox would touch more than `MAX_TILES_PER_QUERY` tiles at the
     /// chosen zoom. Caller should split the bbox or pass a lower zoom.
     #[error("bbox touches {tiles} tiles at z={zoom} (cap {cap}); split bbox or pass lower zoom")]
-    TooManyTiles {
-        tiles: usize,
-        zoom: u8,
-        cap: usize,
-    },
+    TooManyTiles { tiles: usize, zoom: u8, cap: usize },
 }
 
 /// One agricultural field polygon ready to drop into GeoJSON.
@@ -178,10 +174,9 @@ static FTW_READER: OnceCell<
 > = OnceCell::const_new();
 
 /// Build (or return cached) the PMTiles reader against `FTW_PMTILES_URL`.
-async fn reader() -> Result<
-    Arc<pmtiles::AsyncPmTilesReader<pmtiles::HttpBackend, pmtiles::HashMapCache>>,
-    FtwError,
-> {
+async fn reader(
+) -> Result<Arc<pmtiles::AsyncPmTilesReader<pmtiles::HttpBackend, pmtiles::HashMapCache>>, FtwError>
+{
     FTW_READER
         .get_or_try_init(|| async {
             // pmtiles 0.23 brings its own reqwest 0.13; we use *that*
@@ -321,9 +316,7 @@ fn lon_to_tile_x(lon: f64, z: u8) -> u32 {
 fn lat_to_tile_y(lat: f64, z: u8) -> u32 {
     let n = 1u32 << z;
     let lat_rad = lat.to_radians();
-    let y = (1.0
-        - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI))
-        / 2.0
+    let y = (1.0 - ((lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / std::f64::consts::PI)) / 2.0
         * (n as f64);
     (y.floor().max(0.0) as u32).min(n - 1)
 }
@@ -357,7 +350,11 @@ fn decode_tile_to_polygons(
         .map_err(|e| FtwError::MvtDecode(format!("{e:?}")))?;
     let mut out = Vec::new();
     for (idx, layer) in layers.iter().enumerate() {
-        let extent = if layer.extent == 0 { 4096 } else { layer.extent };
+        let extent = if layer.extent == 0 {
+            4096
+        } else {
+            layer.extent
+        };
         let features = reader
             .get_features(idx)
             .map_err(|e| FtwError::MvtDecode(format!("{e:?}")))?;
@@ -424,8 +421,7 @@ fn project_polygon_with_area(
         ring.0
             .iter()
             .map(|c| {
-                let (lat, lon) =
-                    tile_pixel_to_wgs84(z, tx, ty, c.x as f64, c.y as f64, extent);
+                let (lat, lon) = tile_pixel_to_wgs84(z, tx, ty, c.x as f64, c.y as f64, extent);
                 // GeoJSON convention: [lon, lat].
                 [lon, lat]
             })
@@ -461,8 +457,7 @@ fn planar_area_m2(ring: &[[f64; 2]]) -> f64 {
     if ring.len() < 3 {
         return 0.0;
     }
-    let mean_lat: f64 =
-        ring.iter().map(|p| p[1]).sum::<f64>() / (ring.len() as f64);
+    let mean_lat: f64 = ring.iter().map(|p| p[1]).sum::<f64>() / (ring.len() as f64);
     let lat_rad = mean_lat.to_radians();
     // metres per degree on the WGS84 ellipsoid at lat_rad (small-angle
     // approximation — Bowring 1985 § 2.4, error <0.5 % to 60° lat)

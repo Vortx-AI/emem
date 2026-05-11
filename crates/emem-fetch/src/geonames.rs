@@ -144,8 +144,14 @@ fn index() -> &'static Index {
             let name = cols.next().unwrap_or("").trim();
             let asciiname = cols.next().unwrap_or("").trim();
             let alternates = cols.next().unwrap_or("");
-            let lat = cols.next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
-            let lng = cols.next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+            let lat = cols
+                .next()
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let lng = cols
+                .next()
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
             let _fclass = cols.next();
             let fcode = cols.next().unwrap_or("").trim();
             let country = cols.next().unwrap_or("").trim();
@@ -157,7 +163,8 @@ fn index() -> &'static Index {
             let _ = cols.next();
             let population = cols.next().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
 
-            if name.is_empty() || !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+            if name.is_empty() || !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng)
+            {
                 continue;
             }
             let rec_idx = records.len();
@@ -231,13 +238,17 @@ fn normalize(s: &str) -> String {
 /// extra crates.
 fn fold_char(c: char) -> String {
     match c {
-        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => "a".into(),
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => {
+            "a".into()
+        }
         'æ' | 'Æ' => "ae".into(),
         'ç' | 'Ç' => "c".into(),
         'è' | 'é' | 'ê' | 'ë' | 'È' | 'É' | 'Ê' | 'Ë' => "e".into(),
         'ì' | 'í' | 'î' | 'ï' | 'Ì' | 'Í' | 'Î' | 'Ï' => "i".into(),
         'ñ' | 'Ñ' => "n".into(),
-        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => "o".into(),
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => {
+            "o".into()
+        }
         'œ' | 'Œ' => "oe".into(),
         'ß' => "ss".into(),
         'ù' | 'ú' | 'û' | 'ü' | 'Ù' | 'Ú' | 'Û' | 'Ü' => "u".into(),
