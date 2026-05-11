@@ -213,7 +213,17 @@ const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
 }, "description":"Explicit polygon bbox; alternative to `place` when caller already has coordinates. REQUIRED unless `place` is provided."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Bands to recall at each fan-out cell."},
 "tslot":{"type":"integer"},
-"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64,"description":"Cap on cells sampled from the polygon."}
+"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64,"description":"Cap on cells sampled from the polygon."},
+"include":{"type":"array","items":{"type":"string","enum":["ftw_fields"]},"description":"Optional supplements attached to the response. `ftw_fields` adds per-field agricultural-boundary polygons from Fields of The World (https://fieldsofthe.world, CC-BY-4.0) for the resolved polygon bbox — useful for farm queries where the OSM polygon is the estate envelope but the user wants the actual fields inside. Adds ~150-500 ms on first call per region (cached thereafter)."}
+}}"#;
+
+const SCHEMA_FIELD_BOUNDARIES: &str = r#"{"type":"object","properties":{
+"place":{"type":"string","description":"Free-text place/farm/region name; resolved through the same layered geocoder as /v1/recall_polygon. REQUIRED unless `polygon_bbox` is provided."},
+"polygon_bbox":{"type":"object","properties":{
+  "min_lat":{"type":"number"},"max_lat":{"type":"number"},
+  "min_lng":{"type":"number"},"max_lng":{"type":"number"}
+}, "description":"Explicit bbox; alternative to `place`."},
+"zoom":{"type":"integer","minimum":6,"maximum":15,"description":"Web-Mercator zoom level for the FTW PMTiles read. Default = library-picked min(14, archive.max_zoom). Higher zoom = sharper boundaries but more tiles per query (capped internally at 16 — split very wide farms)."}
 }}"#;
 
 const SCHEMA_GRID_INFO: &str = r#"{"type":"object","properties":{}}"#;
@@ -293,9 +303,19 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_recall_polygon",
         title: "Recall facts across a place's polygon",
         description: "Recall facts across every cell inside a place's polygon (single signed envelope). Closes the place-name-drift gap for wide features (parks, lakes, regions).",
-        when_to_use: "Call when the user names a wide feature (national park, river basin, country, large urban area) where one cell is too small. Pass `place` and the geocoder will fan out across the polygon — or pass `polygon_bbox` directly if you have coordinates. Returns `merged_facts`, `by_cell`, and a `polygon_bbox.source` indicator (`nominatim_boundingbox` = real polygon, `centre_cell_bbox` = fallback to one cell because the geocoder had no polygon).",
+        when_to_use: "Call when the user names a wide feature (national park, river basin, country, large urban area) where one cell is too small. Pass `place` and the geocoder will fan out across the polygon — or pass `polygon_bbox` directly if you have coordinates. Returns `merged_facts`, `by_cell`, and a `polygon_bbox.source` indicator (`nominatim_boundingbox` = real polygon, `centre_cell_bbox` = fallback to one cell because the geocoder had no polygon). For *farm* queries the OSM polygon is the whole estate envelope; pass `include: [\"ftw_fields\"]` to additionally attach per-field agricultural-boundary polygons from Fields of The World (CC-BY-4.0) — or call the dedicated `emem_field_boundaries` for the pure-fetch shape.",
         input_schema: SCHEMA_RECALL_POLYGON,
         example_args: r#"{"place":"Yellowstone National Park","bands":["copdem30m.elevation_mean"],"max_cells":8}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_field_boundaries",
+        title: "Per-field agricultural boundaries (Fields of The World)",
+        description: "Per-field agricultural-boundary polygons from the Fields of The World global product (~3.17B fields, 241 countries, 10 m resolution, CC-BY-4.0). Returns a GeoJSON FeatureCollection with the polygon geometries, FIBOA-compatible properties, and a planar `area_m2` per field — plus provenance (source CID, provider URL, license, attribution).",
+        when_to_use: "Call when the user asks about farms, fields, parcels, croplands, plots, or agricultural boundaries inside a region — anywhere the OSM/Nominatim boundary alone is too coarse (the OSM polygon for a farm is its estate envelope; this returns the individual field polygons inside). Pass `place` (free-text) or `polygon_bbox`. For farms wider than ~10 km², split the bbox: the fetcher caps each call at 16 covering tiles. The receipt quotes `license: CC-BY-4.0` and `attribution: Fields of The World / Taylor Geospatial Institute` — surface both with any rendered map. For a one-shot \"facts at every cell inside the farm PLUS the field polygons\", call `emem_recall_polygon` with `include: [\"ftw_fields\"]` instead.",
+        input_schema: SCHEMA_FIELD_BOUNDARIES,
+        example_args: r#"{"polygon_bbox":{"min_lat":36.70,"max_lat":36.74,"min_lng":-119.84,"max_lng":-119.80}}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },

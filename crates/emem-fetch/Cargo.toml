@@ -31,3 +31,19 @@ parquet       = { workspace = true, features = ["async", "object_store"] }
 arrow         = { workspace = true }
 object_store  = { workspace = true }
 futures-util  = { workspace = true }
+# Fields of The World agricultural-boundary supplement: read the global
+# product PMTiles archive (~2.14 TB single file at source.coop, anonymous
+# read, HTTP range-supported) and decode each fetched MVT tile to polygons.
+# Default features pull aws/s3 SDKs + mmap we don't want; we only need
+# http-async (reqwest) + moka in-memory directory cache + tilejson metadata.
+pmtiles       = { version = "0.23", default-features = false, features = ["http-async", "reqwest-rustls"] }
+# MVT (Mapbox Vector Tile) wire-format decoder. v2.3 yields features whose
+# geometries are in tile-local coordinates (0..extent); FTW emits Polygon
+# geometries with FIBOA-compatible properties — we project per-feature to
+# WGS84 using the standard Web-Mercator tile math.
+mvt-reader    = "2.3"
+# `mvt-reader` exposes geometry via geo-types — we need the type names
+# directly to pattern-match polygon vs multi-polygon. mvt-reader pulls
+# this same version in transitively, so adding it explicitly does not
+# expand the dep graph.
+geo-types     = "0.7"

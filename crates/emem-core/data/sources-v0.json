@@ -654,6 +654,22 @@
       ],
       "tempo": "fast",
       "native_resolution_m": 10
+    },
+    {
+      "scheme": "ftw.field_polygons.v1",
+      "_note": "Fields of The World — global agricultural-field-boundary product, ~3.17B polygons across 241 countries at 10 m (2024-2025). Single PMTiles archive on Source Cooperative S3 (~2.14 TB, CloudFront-fronted, anonymous, HTTP range-read). emem reads it lazily via pmtiles + mvt-reader (see crates/emem-fetch/src/ftw.rs); each bbox query touches only the covering Web-Mercator tiles. Supplements the OSM/Nominatim polygon path on /v1/recall_polygon when the caller passes include=ftw_fields, and is the primary source for the standalone /v1/field_boundaries primitive. License: CC-BY-4.0 on the global product (the per-country labeled benchmark mixes CC-BY-NC for Latvia/Portugal but that data is not consumed here). Reference: https://fieldsofthe.world/ and https://source.coop/ftw.",
+      "providers": [
+        {
+          "id": "source.coop.aws.opendata",
+          "kind": "https_json_api",
+          "url_template": "https://data.source.coop/ftw/global-data/predictions/vectors/alpha/global.pmtiles",
+          "auth": "anonymous",
+          "rate_limit_qps": 100,
+          "license": "CC-BY-4.0 (attribution: Fields of The World / Taylor Geospatial Institute)"
+        }
+      ],
+      "tempo": "static",
+      "native_resolution_m": 10
     }
   ]
 }

@@ -28,6 +28,7 @@ pub mod cog;
 pub mod connectors;
 pub mod dmsp_ols;
 pub mod firms;
+pub mod ftw;
 pub mod hansen_gfc;
 pub mod koppen;
 pub mod overture;

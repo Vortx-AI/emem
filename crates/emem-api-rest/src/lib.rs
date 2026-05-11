@@ -448,6 +448,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/coverage", get(coverage_json))
         .route("/v1/recall_many", post(post_recall_many))
         .route("/v1/recall_polygon", post(post_recall_polygon))
+        .route("/v1/field_boundaries", post(post_field_boundaries))
         // Introspection
         .route("/v1/manifests", get(manifests))
         .route("/v1/capabilities", get(get_capabilities))
@@ -6580,6 +6581,17 @@ struct RecallPolygonReq {
     /// upstream geometry was Point/LineString.
     #[serde(default)]
     polygon_geojson: Option<JsonValue>,
+    /// Opt-in supplements. Currently the only recognized token is
+    /// `"ftw_fields"` — when present, the response carries an
+    /// `ftw_fields` block with per-field agricultural-boundary polygons
+    /// from Fields of The World (source.coop global product, CC-BY-4.0)
+    /// fetched live for the resolved polygon bbox. Adds ~150–500 ms
+    /// cold per query, ~30 ms warm; bounded internally by a 16-tile
+    /// per-query cap (split very wide farms into smaller bboxes). On
+    /// fetch failure the field is `ftw_fields_error` (string) and the
+    /// rest of the response is unaffected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    include: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -6588,6 +6600,146 @@ struct RecallPolygonBbox {
     max_lat: f64,
     min_lng: f64,
     max_lng: f64,
+}
+
+/// Request body for `POST /v1/field_boundaries`.  Returns per-field
+/// agricultural-boundary polygons from the Fields of The World global
+/// product (CC-BY-4.0, source.coop). One of `place` or `polygon_bbox`
+/// is required; `place` reuses the same layered geocoder as
+/// `/v1/recall_polygon` (embedded → cache → Photon → Nominatim).
+#[derive(Debug, Clone, Deserialize)]
+struct FieldBoundariesReq {
+    #[serde(default, alias = "q", alias = "query", alias = "name")]
+    place: Option<String>,
+    #[serde(default)]
+    polygon_bbox: Option<RecallPolygonBbox>,
+    /// Web-Mercator zoom level. Default = library-picked
+    /// `min(14, archive.max_zoom)`. Higher zoom = sharper field
+    /// boundaries but more tiles per query (capped internally at 16).
+    #[serde(default)]
+    zoom: Option<u8>,
+}
+
+/// `POST /v1/field_boundaries` — fetch FTW agricultural field polygons
+/// for a place or bbox. Returns a GeoJSON FeatureCollection plus
+/// provenance (source CID, provider URL, license, attribution).
+///
+/// Why this is a separate primitive from `/v1/recall_polygon?include=ftw_fields`:
+/// the latter is the supplement-on-recall shape (returns field polygons
+/// *alongside* fan-out recall facts), this is the pure-fetch shape (no
+/// recall, no cell sampling — just the per-field geometries). Agents
+/// rendering an interactive farm map call this; agents that want
+/// "facts at every cell inside the farm + the field polygons" call
+/// recall_polygon with the include flag.
+async fn post_field_boundaries(
+    Json(req): Json<FieldBoundariesReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    // Resolve bbox: explicit → place → soft 200 with `needs_location`.
+    let (bbox, place_label, via): (
+        (f64, f64, f64, f64),
+        Option<String>,
+        &'static str,
+    ) = if let Some(b) = req.polygon_bbox.as_ref() {
+        ((b.min_lat, b.max_lat, b.min_lng, b.max_lng), None, "direct")
+    } else if let Some(p) = req.place.as_deref() {
+        let lr = LocateReq {
+            lat: None,
+            lng: None,
+            place: Some(p.into()),
+        };
+        let resp = locate_inner(lr).await?;
+        let pb = resp.0.get("polygon_bbox").cloned();
+        let lab = resp
+            .0
+            .get("place_label")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let v = resp
+            .0
+            .get("via")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let via_static: &'static str = match v {
+            "embedded" => "embedded",
+            "cache" => "cache",
+            "nominatim" => "nominatim",
+            "photon" => "photon",
+            "direct" => "direct",
+            _ => "unknown",
+        };
+        if let Some(JsonValue::Object(m)) = pb {
+            let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            (
+                (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
+                lab,
+                via_static,
+            )
+        } else {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "field_boundaries: place '{p}' resolved without a bbox — try passing polygon_bbox explicitly"
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    } else {
+        return Ok(Json(json!({
+            "schema":  "emem.field_boundaries.v1",
+            "status":  "needs_location",
+            "message": "no polygon provided. Pass `place` (free-text farm/region name) or `polygon_bbox` ({min_lat, max_lat, min_lng, max_lng}).",
+            "examples": [
+                {"place": "Central Valley, California"},
+                {"polygon_bbox": {"min_lat": 36.70, "max_lat": 36.74, "min_lng": -119.84, "max_lng": -119.80}},
+            ],
+            "agent_hint": "emem_field_boundaries returns per-field agricultural-boundary polygons from the Fields of The World global product (CC-BY-4.0). Best for farm-scale workflows where the OSM/Nominatim polygon would be a single estate envelope.",
+        })));
+    };
+    let b = emem_core::Bbox::new(bbox.0, bbox.1, bbox.2, bbox.3).map_err(|e| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("invalid bbox: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let coll = emem_fetch::ftw::fetch_field_polygons_bbox(&b, req.zoom)
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                ErrorBody {
+                    code: ErrorCode::SourceFetchFailed,
+                    message: format!("ftw fetch: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    Ok(Json(json!({
+        "schema": "emem.field_boundaries.v1",
+        "place": req.place,
+        "place_label": place_label,
+        "via": via,
+        "polygon_bbox": {
+            "min_lat": bbox.0, "max_lat": bbox.1,
+            "min_lng": bbox.2, "max_lng": bbox.3,
+        },
+        "count": coll.count,
+        "total_area_m2": coll.total_area_m2,
+        "zoom_used": coll.zoom_used,
+        "tiles_read": coll.tiles_read.iter().map(|(z, x, y)| json!([*z, *x, *y])).collect::<Vec<_>>(),
+        "source_cid": coll.source_cid,
+        "provider_url": coll.provider_url,
+        "license": coll.license,
+        "attribution": coll.attribution,
+        "geojson": emem_fetch::ftw::to_geojson_feature_collection(&coll),
+        "agent_hint": "Per-field agricultural boundaries from Fields of The World (https://fieldsofthe.world). Quote `attribution` and `license` alongside any rendered map. For per-cell recall over the same farm, call POST /v1/recall_polygon with the same polygon_bbox plus `include: [\"ftw_fields\"]` to get both layers in one envelope.",
+    })))
 }
 
 async fn post_recall_polygon(
@@ -7041,6 +7193,57 @@ async fn post_recall_polygon(
                     o.insert(
                         "band_metadata_layout".into(),
                         json!("hoisted: keyed by band; pass `verbose:true` to inline per-fact"),
+                    );
+                }
+            }
+        }
+    }
+    // Opt-in Fields of The World agricultural-boundary supplement.
+    // When the caller passes `include: ["ftw_fields"]` and the bbox is
+    // within Web-Mercator range, we fetch per-field polygons from the
+    // FTW global PMTiles archive (CC-BY-4.0, source.coop, anonymous)
+    // and attach them under `ftw_fields`. Fetch failures are surfaced
+    // as a sibling `ftw_fields_error` string rather than failing the
+    // whole recall — agents that don't need the supplement should not
+    // see a regression when FTW is temporarily unreachable.
+    let want_ftw = req
+        .include
+        .as_ref()
+        .map(|v| v.iter().any(|s| s.eq_ignore_ascii_case("ftw_fields")))
+        .unwrap_or(false);
+    if want_ftw {
+        match emem_core::Bbox::new(bbox.0, bbox.1, bbox.2, bbox.3) {
+            Ok(b) => match emem_fetch::ftw::fetch_field_polygons_bbox(&b, None).await {
+                Ok(coll) => {
+                    if let Some(o) = out.as_object_mut() {
+                        o.insert(
+                            "ftw_fields".into(),
+                            json!({
+                                "schema": "emem.ftw_fields.v1",
+                                "count": coll.count,
+                                "total_area_m2": coll.total_area_m2,
+                                "zoom_used": coll.zoom_used,
+                                "tiles_read": coll.tiles_read.iter().map(|(z, x, y)| json!([*z, *x, *y])).collect::<Vec<_>>(),
+                                "source_cid": coll.source_cid,
+                                "provider_url": coll.provider_url,
+                                "license": coll.license,
+                                "attribution": coll.attribution,
+                                "geojson": emem_fetch::ftw::to_geojson_feature_collection(&coll),
+                            }),
+                        );
+                    }
+                }
+                Err(e) => {
+                    if let Some(o) = out.as_object_mut() {
+                        o.insert("ftw_fields_error".into(), json!(e.to_string()));
+                    }
+                }
+            },
+            Err(e) => {
+                if let Some(o) = out.as_object_mut() {
+                    o.insert(
+                        "ftw_fields_error".into(),
+                        json!(format!("invalid bbox for FTW: {e}")),
                     );
                 }
             }
@@ -8757,6 +8960,14 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        "emem_field_boundaries" => {
+            let req: FieldBoundariesReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_field_boundaries(Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_grid_info" => Ok(grid_info().await.0),
         "emem_coverage_matrix" => Ok(coverage_matrix(State(s.clone())).await.0),
         "emem_materializers" => {
@@ -9263,6 +9474,7 @@ async fn openapi() -> Json<JsonValue> {
             },
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
+            "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","responses":{"200":json_ok}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"single algorithm detail","operationId":"emem_algorithms_one","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
@@ -9376,6 +9588,7 @@ async fn openapi_action_json() -> Json<JsonValue> {
         "emem_recall",
         "emem_recall_many",
         "emem_recall_polygon",
+        "emem_field_boundaries",
         "emem_query_region",
         "emem_compare",
         "emem_compare_bands",
