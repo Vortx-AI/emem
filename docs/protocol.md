@@ -1,4 +1,4 @@
-# emem protocol (v0.0.4)
+# emem protocol (v0.0.6)
 
 ## What this document promises
 
@@ -924,7 +924,7 @@ responder MUST be able to compute from the same JSON inputs:
 | CID | Source manifest | Pinned shape |
 |-----|-----------------|--------------|
 | `bands_cid` | `bands-v0.json` | 35 bands summing to exactly 1792 dims |
-| `algorithms_cid` | `algorithms-v0.json` | 107 algorithms in three kinds (Solo, Combined, Embedding) |
+| `algorithms_cid` | `algorithms-v0.json` | 149 algorithms in three kinds (Solo, Combined, Embedding) |
 | `sources_cid` | `sources-v0.json` | ~40 source schemes across 7 connector kinds |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
@@ -945,9 +945,9 @@ attestation cites these CIDs.
 ## 13. Test vectors
 
 The directory `spec/test_vectors/` is the conformance fixture root.
-v0.0.4 ships the directory framework only. v0.0.5 will populate each
-sub-directory with JSON-per-vector fixtures extracted from the
-existing crate tests:
+0.0.6 ships the directory framework only; populating each
+sub-directory with JSON-per-vector fixtures (extracted from the
+existing crate tests) is coming soon:
 
 - `cell64/`: `(lat, lng) → cell64 string` inputs and outputs.
 - `tslot/`: `(unix_seconds, tempo) → tslot` and the text round-trip.
@@ -962,8 +962,8 @@ existing crate tests:
 
 This document does not invent vectors. An external implementation
 passes the conformance gate by producing byte-identical outputs against
-the v0.0.5 fixtures, against the CIDs in §12, and against the worked
-examples in §1.4 and §7.2.
+the fixtures (once shipped), against the CIDs in §12, and against the
+worked examples in §1.4 and §7.2.
 
 ---
 

@@ -10,7 +10,7 @@ domain sections).
 ## Markdown to add (single line)
 
 ```markdown
-- **[emem](https://emem.dev)** ([repo](https://github.com/Vortx-AI/emem)) — Cite-able, content-addressed, signed Earth-memory protocol. 34 MCP tools, 35 live materializable Earth-observation bands (Sentinel-1/2, MODIS, ERA5, CAMS, JRC GSW, Hansen GFC, ESA WorldCover, SoilGrids, Open-Meteo, MET Norway), no API key, ed25519 receipts. Streamable-HTTP at `https://emem.dev/mcp`. By **[Vortx-AI](https://github.com/Vortx-AI)**.
+- **[emem](https://emem.dev)** ([repo](https://github.com/Vortx-AI/emem)) — Cite-able, content-addressed, signed Earth-memory protocol. 36 MCP tools, 35 live materializable Earth-observation bands (Sentinel-1/2, MODIS, ERA5, CAMS, JRC GSW, Hansen GFC, ESA WorldCover, SoilGrids, Open-Meteo, MET Norway), no API key, ed25519 receipts. Streamable-HTTP at `https://emem.dev/mcp`. By **[Vortx-AI](https://github.com/Vortx-AI)**.
 ```
 
 ## PR title
@@ -42,7 +42,7 @@ its blake3 CID and signed with the responder's ed25519 key. Receipts
 verify offline against the public key at `/.well-known/emem.json` —
 no callback to the server needed.
 
-34 MCP tools. 35 materializable Earth-observation bands wired today
+36 MCP tools. 35 materializable Earth-observation bands wired today
 (Sentinel-1/2, MODIS LST/NDVI/ET/GPP/LAI, NASA POWER, ERA5, CAMS air
 quality, JRC Global Surface Water, Hansen Global Forest Change, ESA
 WorldCover, SoilGrids 2.0, Copernicus DEM, GMRT bathymetry, Open-Meteo,
@@ -73,7 +73,7 @@ LLM needs to give the user a confident, cite-able answer.
 
 ## Status
 
-Live, version 0.0.4 (May 2026). CI green
+Live, version 0.0.6 (May 2026). CI green
 (`https://github.com/Vortx-AI/emem/actions`). Container at
 `ghcr.io/vortx-ai/emem:latest`. HuggingFace Space mirror at
 `https://vortx-ai-emem.hf.space`.
@@ -95,7 +95,7 @@ Live, version 0.0.4 (May 2026). CI green
 ## Submission checklist (parallel marketplaces)
 
 - [ ] **Official registry** (`registry.modelcontextprotocol.io`) —
-  bump from v0.0.2 (current) to v0.0.4 via the `mcp-publisher` CLI
+  bump from v0.0.2 (current) to v0.0.6 via the `mcp-publisher` CLI
   and GitHub OAuth on the Vortx-AI org. See
   `https://github.com/modelcontextprotocol/registry/blob/main/docs/guides/publishing/publish-server.md`.
 - [ ] **`modelcontextprotocol/servers`** PR — paste the line above

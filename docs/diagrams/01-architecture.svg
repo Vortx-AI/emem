@@ -61,7 +61,7 @@
     <rect x="0" y="172" width="180" height="148" rx="12" fill="url(#core)" stroke="url(#acc)" stroke-width="1.5"/>
     <text x="90" y="216" text-anchor="middle" font-size="22" fill="#eaeaea" font-weight="700">MCP</text>
     <text x="90" y="248" text-anchor="middle" font-size="14" fill="#9aa3b8">JSON-RPC 2.0</text>
-    <text x="90" y="272" text-anchor="middle" font-size="14" fill="#9aa3b8">34 tools</text>
+    <text x="90" y="272" text-anchor="middle" font-size="14" fill="#9aa3b8">36 tools</text>
     <text x="90" y="296" text-anchor="middle" font-size="14" fill="#9aa3b8">POST /mcp</text>
   </g>
 
@@ -214,6 +214,6 @@
     <text x="130" y="0">cache write</text>
     <circle cx="246" cy="-4" r="5" fill="#ffb86b"/>
     <text x="260" y="0">materialize from upstream</text>
-    <text x="1760" y="0" text-anchor="end" fill="#6c7396">v0.0.4 · 14 crates · 50k LoC</text>
+    <text x="1760" y="0" text-anchor="end" fill="#6c7396">v0.0.6 · 14 crates</text>
   </g>
 </svg>

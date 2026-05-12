@@ -1,8 +1,8 @@
 /**
  * @emem/client — TypeScript client for the emem.dev Earth memory protocol.
  *
- * The hosted instance at https://emem.dev exposes 138 REST routes (67
- * under `/v1/*`) and 34 MCP tools. This package wraps the REST surface
+ * The hosted instance at https://emem.dev exposes 139 REST routes (74
+ * under `/v1/*`) and 36 MCP tools. This package wraps the REST surface
  * in a single {@link Client} class. Every call returns the parsed JSON
  * the server emitted — nothing is reshaped, so the ed25519-signed
  * receipts and content-addressed CIDs are preserved verbatim for
@@ -46,4 +46,4 @@ export type {
   WaveSolveRequest,
 } from "./types.js";
 
-export const VERSION = "0.0.4";
+export const VERSION = "0.0.6";

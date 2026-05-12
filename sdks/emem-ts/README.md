@@ -1,7 +1,7 @@
 # @emem/client — TypeScript client for emem.dev
 
 Thin, typed TypeScript client for the [emem.dev](https://emem.dev) Earth
-memory protocol. Wraps the public REST surface (138 routes, 67 under
+memory protocol. Wraps the public REST surface (139 routes, 74 under
 `/v1/*`) in a single `Client` class. Every call returns parsed JSON
 verbatim — every ed25519-signed receipt and content-addressed CID is
 preserved for citation and offline verification.
@@ -11,12 +11,11 @@ platform `fetch`; zero runtime dependencies.
 
 ## Install
 
+NPM publication is coming soon. For now, install from the repo:
+
 ```bash
-npm install @emem/client
-# or
-pnpm add @emem/client
-# or
-bun add @emem/client
+cd sdks/emem-ts && npm install && npm run build
+# then add as a local dependency in your project
 ```
 
 ## Quick start

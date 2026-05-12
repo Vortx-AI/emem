@@ -12,7 +12,7 @@ not duplicate `docs/architecture.md` (system topology) or
 |---|---|
 | Rust toolchain | 1.88 (workspace `rust-version` in `Cargo.toml`) |
 | Edition | 2021 |
-| Workspace version | 0.0.4 |
+| Workspace version | 0.0.6 |
 | OS for production | Linux, `debian:trixie-slim` (glibc 2.41 — required by `ort-sys` 2.0.0-rc.12) |
 | OS for dev | Linux or macOS; older glibc is fine if you skip the topic-router ONNX backend |
 | Repo | `github.com/Vortx-AI/emem`, branch `main` |
@@ -51,7 +51,7 @@ each:
 | `emem-attest` | pure `merkle_root` + `merkle_root_and_paths` |
 | `emem-intent` | 7-variant `Intent` enum → `Plan{calls[]}` rule-based planner |
 | `emem-mcp` | MCP tool registry (single file) |
-| `emem-api-rest` | HTTP/MCP router, ~160 `.route()` registrations (mapping to ~69 distinct REST paths in `openapi.json`) + 34 MCP tools, all inline materializers |
+| `emem-api-rest` | HTTP/MCP router, ~167 `.route()` registrations (mapping to 74 distinct REST paths in `openapi.json`) + 36 MCP tools, all inline materializers |
 | `emem-cli` | 7 binaries (see below) |
 
 The bulk of the codebase is concentrated. `crates/emem-api-rest/src/lib.rs`
@@ -329,7 +329,7 @@ against the previous good run.
 
 ### When the topic router misbehaves
 
-`/v1/ask` routes a natural-language question to one of 25 topics
+`/v1/ask` routes a natural-language question to one of 26 topics
 via `BAAI/bge-base-en-v1.5` (CPU ort by default). Pre-stage with
 `scripts/install-topic-model.sh` so the first request is not paying
 a 90-second cold-start. Force the keyword backend for tests with

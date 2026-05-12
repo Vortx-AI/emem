@@ -51,7 +51,7 @@ import httpx
 
 DEFAULT_BASE_URL = os.environ.get("EMEM_BASE_URL", "https://emem.dev")
 DEFAULT_TIMEOUT = float(os.environ.get("EMEM_TIMEOUT_SECS", "180"))
-USER_AGENT = "emem-py/0.0.4 (+https://emem.dev)"
+USER_AGENT = "emem-py/0.0.6 (+https://emem.dev)"
 
 
 class EmemError(Exception):

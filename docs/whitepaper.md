@@ -21,7 +21,7 @@ algorithms, sources, and schema. The reference implementation is a
 Rust workspace at `github.com/Vortx-AI/emem`; the canonical responder
 runs at `https://emem.dev`.
 
-This document describes the math and the architecture that 0.0.4
+This document describes the math and the architecture that 0.0.6
 ships. Aspirational features (zero-knowledge proofs, staking
 economics, multi-host clustering) are explicitly out of scope and not
 discussed.
@@ -118,7 +118,7 @@ all latitudes after rounding. Above the equator the lng pixel narrows
 with cos(lat); cells become taller than wide. This is the standard
 behaviour of any lat/lng grid. The eventual migration target is an
 H3-style hex DGGS at resolution 13 (~3.4 m equal-area cells); cell64
-is the active grid in 0.0.4.
+is the active grid in 0.0.6.
 
 ### 2.3 Why a square grid
 

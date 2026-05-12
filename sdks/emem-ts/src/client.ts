@@ -78,7 +78,7 @@ const DEFAULT_TIMEOUT_MS = (() => {
   return Number.isFinite(n) && n > 0 ? n * 1000 : 180_000;
 })();
 
-const USER_AGENT = "emem-ts/0.0.4 (+https://emem.dev)";
+const USER_AGENT = "emem-ts/0.0.6 (+https://emem.dev)";
 
 export class EmemError extends Error {
   override readonly name = "EmemError";

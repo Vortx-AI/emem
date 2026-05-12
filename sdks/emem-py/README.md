@@ -1,15 +1,17 @@
 # emem — Python client for emem.dev
 
 Thin, typed Python client for the [emem.dev](https://emem.dev) Earth memory
-protocol. Wraps the public REST surface (138 routes, 67 under `/v1/*`)
+protocol. Wraps the public REST surface (139 routes, 74 under `/v1/*`)
 in a single `Client` class that returns parsed JSON verbatim — every
 ed25519-signed receipt and content-addressed CID is preserved for
 citation and offline verification.
 
 ## Install
 
+PyPI publication is coming soon. For now, install from the repo:
+
 ```bash
-pip install emem
+pip install -e sdks/emem-py
 ```
 
 Requires Python 3.9+. The only runtime dependency is

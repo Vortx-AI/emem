@@ -302,7 +302,7 @@ fact.
 |---|---|
 | `/v1/bands` | Active band ontology — offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms |
-| `/v1/algorithms` | 107 composition recipes (full catalog) |
+| `/v1/algorithms` | 149 composition recipes (full catalog) |
 | `/v1/algorithms/:key` | One recipe — formula, inputs, citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |

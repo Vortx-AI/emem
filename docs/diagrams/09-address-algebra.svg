@@ -149,6 +149,6 @@
   <!-- side annotations on the cell -->
   <g transform="translate(80,1010)" font-size="14" fill="#9aa3b8">
     <text x="0" y="0">Three addresses, one identity. Mutate any field of the fact and the CID changes deterministically.</text>
-    <text x="1760" y="0" text-anchor="end" fill="#6c7396">target migration: H3 res-13 hex DGGS · cell64 active in 0.0.4</text>
+    <text x="1760" y="0" text-anchor="end" fill="#6c7396">target migration: H3 res-13 hex DGGS · cell64 active in 0.0.6</text>
   </g>
 </svg>

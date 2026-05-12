@@ -1,6 +1,6 @@
 {
   "name": "@emem/client",
-  "version": "0.0.4",
+  "version": "0.0.6",
   "description": "TypeScript client for emem.dev — agent-native Earth memory protocol",
   "license": "Apache-2.0",
   "author": "Vortx AI Private Limited <avijeet@vortx.ai>",

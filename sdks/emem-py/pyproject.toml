@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "emem"
-version = "0.0.4"
+version = "0.0.6"
 description = "Python client for emem.dev — agent-native Earth memory protocol"
 readme = "README.md"
 requires-python = ">=3.9"

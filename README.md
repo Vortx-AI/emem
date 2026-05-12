@@ -64,16 +64,18 @@ The MCP endpoint is the same everywhere: `https://emem.dev/mcp`. Drop a config s
 | LangChain (Python)    | [examples/langchain.py](examples/langchain.py)                              |
 | LlamaIndex (Python)   | [examples/llamaindex.py](examples/llamaindex.py)                            |
 
-Or use the SDKs:
+Or use the SDKs (published to PyPI / NPM is coming soon — install from the repo today):
 
 ```bash
-pip install emem            # sdks/emem-py: sync + async
-npm install @emem/client    # sdks/emem-ts: zero runtime deps, native fetch
+# Python (sync + async, httpx-based)
+pip install -e sdks/emem-py
+# TypeScript (zero runtime deps, native fetch)
+cd sdks/emem-ts && npm install && npm run build
 ```
 
 ## What you can ask
 
-36 MCP tools, 68 endpoints under `/v1/*`. The shape stays small.
+36 MCP tools, 74 endpoints under `/v1/*`. The shape stays small.
 
 - **Locate** a place by name or lat/lng to a `cell64`. A five-layer cascade resolves names without hitting a public geocoder for any of the ~68 000 populated places GeoNames carries.
 - **Recall** any of 35 bands at any cell. Cold reads auto-fetch from open data.
@@ -88,15 +90,15 @@ npm install @emem/client    # sdks/emem-ts: zero runtime deps, native fetch
 - **Solve** physics: 2-D heat, 1-D wave, JEPA-v2 dynamics (CPU plus optional CUDA sidecar).
 - **Ask** a free-text question and get a topic-routed multi-band answer with citable receipts.
 
-107 named composition algorithms (`flood_risk@2`, `walkability_score@1`, `heat_index@2`, `carbon_sink_score@1`, `eudr_compliance@1`, ...) compose those primitives into named scores. Browse the live registry at `GET /v1/algorithms`. The full agent-targeted catalogue is at `GET /v1/agent_card`.
+149 named composition algorithms (`flood_risk@2`, `walkability_score@1`, `heat_index@2`, `carbon_sink_score@1`, `eudr_compliance@1`, ...) compose those primitives into named scores. Browse the live registry at `GET /v1/algorithms`. The full agent-targeted catalogue is at `GET /v1/agent_card`.
 
 ## Run it locally
 
 ```bash
 # From source
 cargo run --release --bin emem-server
-# Or via container
-docker run -p 5051:5051 ghcr.io/vortx-ai/emem:0.0.6
+# Or via container (multi-arch, anonymously pullable)
+docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest
 ```
 
 The server has no required env vars. `EMEM_BIND` overrides the listener (default `0.0.0.0:5051`). `EMEM_DATA` overrides the data directory (default `./var/emem`; use `:memory:` for ephemeral).
@@ -124,12 +126,12 @@ The active grid is a ~9.55 m × ~9.54 m raster at the equator (lat 21 bits × ln
 
 ### Conformance
 
-Every receipt pins four content-addressed registries: `bands_cid`, `algorithms_cid`, `sources_cid`, `schema_cid`. They are the manifest CIDs of the 35-band 1792-D layout, the 107 named algorithm recipes, the source catalogue, and the wire schema. A peer that recomputes a fact under matching CIDs produces the same bytes. A peer with drifted registries returns a different `bands_cid` in `/health` and the divergence is visible before any data flows.
+Every receipt pins four content-addressed registries: `bands_cid`, `algorithms_cid`, `sources_cid`, `schema_cid`. They are the manifest CIDs of the 35-band 1792-D layout, the 149 named algorithm recipes, the source catalogue, and the wire schema. A peer that recomputes a fact under matching CIDs produces the same bytes. A peer with drifted registries returns a different `bands_cid` in `/health` and the divergence is visible before any data flows.
 
 ## Surface map
 
 ```
-REST   139 routes  (68 under /v1/*, 7 under /.well-known/, plus /health,
+REST   139 routes  (74 under /v1/*, 7 under /.well-known/, plus /health,
                    /openapi.json, /openapi.action.json, /mcp, /metrics,
                    /llms.txt, /llms-full.txt, /humans, /agents.md and
                    the static landing/docs/branding tree)
@@ -164,7 +166,7 @@ emem/
 ├── sdks/
 │   ├── emem-py/                  # Python client (httpx, sync + async)
 │   └── emem-ts/                  # TypeScript client (zero runtime deps, native fetch)
-├── python/                       # FastAPI sidecar (Prithvi-EO-2.0, Galileo, JEPA-v2 dynamics) over UDS
+├── python/                       # FastAPI sidecar (Prithvi-EO-2.0, Galileo, Clay v1.5, JEPA-v2) over UDS
 ├── examples/                     # MCP configs (Claude / Cursor / Cline / Gemini / ChatGPT) + LangChain / LlamaIndex
 ├── ops/                          # systemd units, journald retention
 ├── scripts/                      # redeploy, install-topic-model, global_trial
@@ -179,12 +181,12 @@ emem/
 - Place resolution: five-layer cascade — wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, embedded) → sled cache → Photon → Nominatim. Polygon geometry comes from Overture's `divisions/division_area` theme; Nominatim handles only the long tail.
 - Agricultural fields: Fields of The World global product (~3.17 B field polygons, 10 m, 241 countries, CC-BY-4.0) via PMTiles range reads on source.coop. Surfaced as the standalone `/v1/field_boundaries` primitive and as the `include: ["ftw_fields"]` supplement on `/v1/recall_polygon`.
 - Physics solvers: 1-D wave, 2-D heat, JEPA-v2 dynamics (CPU; CUDA when `EMEM_SIDECAR_SOCK` points at a live UDS).
-- Foundation embeddings: `geotessera` as 8 annual vintages 2017 to 2024 (each 128-D), plus `geotessera.bin128` (sign-bit) and `geotessera.multi_year` (1024-D, 8 × 128 stacked). Prithvi-EO-2.0-300M-TL and Galileo through the sidecar.
+- Foundation embeddings: `geotessera` as 8 annual vintages 2017 to 2024 (each 128-D), plus `geotessera.bin128` (sign-bit) and `geotessera.multi_year` (1024-D, 8 × 128 stacked). Prithvi-EO-2.0-300M-TL, Galileo, and Clay v1.5 through the sidecar.
 - Lazy materialisation: cold-cell recall fans out to the connector, signs, persists. Gated by `EMEM_AUTO_MATERIALIZE`.
 - Receipts: ed25519 over a stable preimage; identity persisted at `<EMEM_DATA>/identity.secret.b32`. Verified offline by `verify_receipt`.
 - Discovery: `/v1/discover`, `/v1/agent_card`, `/openapi.json`, `/.well-known/{emem,agent,mcp,ai-plugin}.json`.
 - TLS termination: in-process rustls + Let's Encrypt ACME via TLS-ALPN-01. No Cloudflare, no reverse proxy.
-- Python and TypeScript SDKs at version 0.0.6, covering every major `/v1/*` endpoint plus the boring lat/lng shortcuts.
+- Python and TypeScript SDKs in `sdks/`, covering every major `/v1/*` endpoint plus the boring lat/lng shortcuts. Publication to PyPI and NPM is coming soon.
 
 **Deferred**
 
