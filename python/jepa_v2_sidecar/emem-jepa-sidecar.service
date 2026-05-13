@@ -19,7 +19,7 @@ WorkingDirectory=/home/ubuntu/emem/python/jepa_v2_sidecar
 RuntimeDirectory=emem
 RuntimeDirectoryMode=0755
 Environment=EMEM_SIDECAR_SOCK=%t/emem/jepa_sidecar.sock
-Environment=EMEM_SIDECAR_VRAM_BUDGET_GB=10
+Environment=EMEM_SIDECAR_VRAM_BUDGET_GB=14
 Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
 Environment=EMEM_JEPA_V2_DIR=/home/ubuntu/emem/var/emem/jepa_v2
 # CUDA driver libs the +cu128 wheel dlopens at runtime.
