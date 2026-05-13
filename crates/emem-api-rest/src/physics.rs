@@ -1517,7 +1517,56 @@ pub async fn jepa_predict_v2(
         lags_2d.push(v.clone());
     }
 
-    let (pred, model_block) = predict_via_sidecar_or_local(&lags_2d, &flat).await?;
+    // Short-circuit on the untrained-baseline sentinel. When the loaded
+    // model's metadata reports `training.trained = false`, the ONNX
+    // network is the residual-zero init that returns `last_input_vintage`
+    // by construction (see jepa_v2/export_baseline.py). Running it via
+    // the GPU sidecar adds ~4.6 s of CUDA warmup on the first request
+    // and ~30-200 ms of UDS+Python round-trip after that — purely for
+    // an identity function. Skip both the sidecar and the in-process
+    // ONNX entirely; set prediction = last lag, surface
+    // `via: "short_circuit_untrained"` plus the same `honesty_warnings`
+    // a real ONNX call would carry. Receipt still cites the K input
+    // fact_cids so a verifier can replay the trivial prediction.
+    let (pred, model_block) = if !crate::jepa_v2::is_trained() {
+        let last_lag = lag_window
+            .last()
+            .map(|(_, v, _)| v.clone())
+            .expect("INPUT_LAGS check above guarantees a non-empty lag window");
+        // Fall back to in-process metadata when accessible; default to
+        // an empty-but-shaped block when the file is missing so the
+        // short-circuit never gates the response on artifact presence.
+        let mut block = match crate::jepa_v2::ensure_metadata() {
+            Ok(m) => crate::jepa_v2::receipt_block(&m),
+            Err(e) => serde_json::json!({
+                "model_id":         "jepa_temporal_predictor@2",
+                "trained":          false,
+                "metadata_error":   e,
+                "honesty_warnings": [
+                    "untrained_baseline: model metadata unavailable; treating as untrained baseline by default",
+                ],
+            }),
+        };
+        if let Some(obj) = block.as_object_mut() {
+            obj.insert(
+                "via".into(),
+                JsonValue::String("short_circuit_untrained".into()),
+            );
+            obj.insert(
+                "short_circuit_reason".into(),
+                JsonValue::String(
+                    "metadata.training.trained == false; \
+                     residual-zero ONNX would return last_input_vintage \
+                     by construction. Returned the last attested Tessera \
+                     vintage directly to avoid ~4.6s of GPU sidecar warmup."
+                        .into(),
+                ),
+            );
+        }
+        (last_lag, block)
+    } else {
+        predict_via_sidecar_or_local(&lags_2d, &flat).await?
+    };
     let predicted_year = lag_window.last().expect("non-empty").0 + 1;
 
     // The v2 surface returns the prediction inline — we DO NOT persist

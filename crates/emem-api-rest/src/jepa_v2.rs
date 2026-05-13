@@ -118,6 +118,47 @@ struct LoadedModel {
 
 static MODEL: OnceLock<Result<Arc<LoadedModel>, String>> = OnceLock::new();
 
+/// Metadata-only cache, populated independently of `MODEL` so a caller
+/// that just wants to check `is_trained()` doesn't have to pay the ONNX
+/// session commit (~tens of ms cold, plus the GPU sidecar's first-call
+/// warmup of several seconds). Lets the v2 handler short-circuit on the
+/// untrained-baseline sentinel without spinning up any inference tier.
+static METADATA: OnceLock<Result<ModelMetadata, String>> = OnceLock::new();
+
+/// Read + parse `dynamics_v2.metadata.json` once and cache it. Cheap —
+/// just a small JSON file. Used by the v2 handler's short-circuit and
+/// by any caller that wants the model's blake2b hash / training flag
+/// without loading the ONNX runtime.
+pub fn ensure_metadata() -> Result<ModelMetadata, String> {
+    METADATA
+        .get_or_init(|| {
+            let meta_path = metadata_path();
+            if !meta_path.exists() {
+                return Err(format!(
+                    "jepa_v2 metadata not found at {}; the .onnx and metadata \
+                     sidecar ship together. Re-run the python export script.",
+                    meta_path.display()
+                ));
+            }
+            let text = std::fs::read_to_string(&meta_path)
+                .map_err(|e| format!("read metadata: {e}"))?;
+            serde_json::from_str::<ModelMetadata>(&text)
+                .map_err(|e| format!("parse metadata: {e}"))
+        })
+        .clone()
+}
+
+/// True when the loaded model's metadata reports `training.trained ==
+/// true`. Defaults to **false** when metadata is missing or malformed —
+/// same fail-safe as `ModelMetadata::is_trained`. Used by the v2
+/// handler to short-circuit ONNX/sidecar inference for the untrained
+/// baseline (which by construction returns `last_input_vintage`).
+pub fn is_trained() -> bool {
+    ensure_metadata()
+        .map(|m| m.is_trained())
+        .unwrap_or(false)
+}
+
 /// Load the ONNX model + metadata. Idempotent — returns the cached
 /// `Arc<LoadedModel>` on subsequent calls. The result is cached
 /// regardless of success so a missing artifact always returns the
