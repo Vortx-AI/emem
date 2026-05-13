@@ -542,6 +542,192 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .ememchip .chip-text{font-variant-numeric:tabular-nums}
 .hidden{display:none!important}
 .scroll{overflow-y:auto}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   glossary strip — persistent chip rail below the hero. Each chip opens a
+   one-line popover with the canonical definition. Never disappears (unlike
+   the dismissable hero), so newcomers can always re-anchor.
+   ───────────────────────────────────────────────────────────────────────── */
+.glossary{position:absolute;left:50%;top:3.6em;transform:translateX(-50%);z-index:5;
+  display:flex;flex-wrap:wrap;gap:.3em;justify-content:center;max-width:min(720px,92vw);
+  pointer-events:auto;font-family:var(--mono)}
+@media(max-width:760px){.glossary{display:none}}
+.glossary.fade{opacity:.35;transition:opacity .2s ease}
+.glossary.fade:hover{opacity:1}
+.gchip{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);
+  background:rgba(10,11,14,.62);border:1px solid var(--line);padding:.18em .55em;
+  border-radius:99px;cursor:help;letter-spacing:.02em;line-height:1.4;
+  transition:color .12s,border-color .12s,background .12s;backdrop-filter:blur(6px)}
+.gchip:hover,.gchip[aria-expanded=true]{color:var(--accent);border-color:var(--accent);
+  background:rgba(124,255,178,.06)}
+.gchip code{font-size:9.5px;color:var(--fg-mute);margin-left:.35em}
+.gchip:hover code,.gchip[aria-expanded=true] code{color:var(--accent)}
+.gpop{position:absolute;top:calc(100% + .4em);left:50%;transform:translateX(-50%);
+  background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
+  border-radius:4px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
+  max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.6);
+  line-height:1.55;text-align:left;display:none;z-index:6}
+.gpop.on{display:block}
+.gpop b{color:var(--accent);font-weight:600}
+.gpop .gex{color:var(--fg-3);font-size:10.5px;margin-top:.4em;display:block;
+  border-top:1px dashed var(--line);padding-top:.4em}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   try-it drawer — slide-in from right. Lives over the right rail so the
+   constellation behind stays visible. Built around the same /v1/ surface
+   the console logs — the difference is *outgoing*: you edit JSON, hit
+   Run, and the response (with receipt, snippets) renders inline.
+   ───────────────────────────────────────────────────────────────────────── */
+.tryback{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:80;
+  display:none;backdrop-filter:blur(2px)}
+.tryback.on{display:block}
+.trydrawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);
+  background:var(--bg-1);border-left:1px solid var(--accent);z-index:81;
+  display:none;flex-direction:column;box-shadow:-12px 0 48px rgba(0,0,0,.6);
+  font-family:var(--mono);font-size:12px}
+.trydrawer.on{display:flex}
+.trydrawer .thead{display:flex;align-items:center;gap:.6em;padding:.7em .9em;
+  border-bottom:1px solid var(--line);min-height:46px;flex-shrink:0}
+.trydrawer .thead .tag{font-size:10px;letter-spacing:.16em;color:var(--accent);
+  text-transform:uppercase;font-weight:600}
+.trydrawer .thead select{flex:1;max-width:260px;width:auto}
+.trydrawer .thead .tclose{margin-left:auto}
+.trydrawer .tdesc{padding:.5em .9em;border-bottom:1px solid var(--line);
+  font-size:11.5px;color:var(--fg-2);line-height:1.55;background:var(--bg)}
+.trydrawer .tdesc .tpath{color:var(--accent);font-weight:500}
+.trydrawer .tdesc .tmcp{color:var(--fg-3);font-size:10.5px;display:block;margin-top:.2em}
+.trydrawer .tbody{padding:.7em .9em;border-bottom:1px solid var(--line);
+  display:flex;flex-direction:column;gap:.5em}
+.trydrawer .tbody label{font-size:10px;letter-spacing:.14em;color:var(--fg-mute);
+  text-transform:uppercase}
+.trydrawer .tbody textarea{font-family:var(--mono);font-size:12px;color:var(--fg);
+  background:var(--bg-2);border:1px solid var(--line-2);padding:.55em .65em;
+  border-radius:3px;outline:none;width:100%;min-height:160px;resize:vertical;
+  font-variant-ligatures:none;line-height:1.5}
+.trydrawer .tbody textarea:focus{border-color:var(--accent)}
+.trydrawer .tbody textarea.bad{border-color:var(--warn);color:var(--warn)}
+.trydrawer .tacts{display:flex;gap:.4em;align-items:center;padding:.5em .9em;
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.trydrawer .tacts .ttiming{margin-left:auto;color:var(--fg-3);font-size:10.5px}
+.trydrawer .tout{flex:1;overflow-y:auto;padding:.7em .9em;font-size:11.5px;
+  font-family:var(--mono);color:var(--fg-2);line-height:1.55}
+.trydrawer .tout pre{background:var(--bg-2);border:1px solid var(--line);
+  padding:.6em .75em;border-radius:3px;margin:.3em 0;font-size:11px;
+  white-space:pre-wrap;word-break:break-word;color:var(--fg);max-height:55vh;overflow:auto}
+.trydrawer .tout .receipt-ok{color:var(--accent)}
+.trydrawer .tout .receipt-fail{color:var(--warn)}
+.trydrawer .tsnip{padding:.55em .9em;border-top:1px solid var(--line);
+  display:flex;gap:.3em;flex-wrap:wrap;font-size:10.5px;color:var(--fg-mute);
+  flex-shrink:0;align-items:center;background:var(--bg)}
+.trydrawer .tsnip span:first-child{margin-right:.3em;letter-spacing:.14em;text-transform:uppercase;font-size:10px}
+.trydrawer .tsnip button{font-size:10.5px;padding:.2em .55em}
+.trydrawer .preset{display:flex;gap:.3em;flex-wrap:wrap;padding:.4em .9em;
+  border-bottom:1px solid var(--line);background:var(--bg);align-items:center}
+.trydrawer .preset .plbl{font-size:9.5px;color:var(--fg-mute);letter-spacing:.14em;
+  text-transform:uppercase;margin-right:.2em}
+.trydrawer .preset button{font-size:10.5px;padding:.18em .55em;border-radius:99px;
+  background:var(--bg-2)}
+@media(max-width:760px){.trydrawer{width:100vw;border-left:none}}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   manifest grid (replaces the abstract Poincaré disk for the "registry"
+   view). 8 explainable cards: registry, bands, algorithms, sources,
+   schema, topics, lcv-1, alphabet. Each card has: purpose, count, CID,
+   tempo, and a try-it button.
+   ───────────────────────────────────────────────────────────────────────── */
+#manifestGrid{position:absolute;inset:0;display:none;overflow-y:auto;
+  padding:1.4em 1.6em 2em;background:var(--bg);font-family:var(--mono)}
+#manifestGrid.on{display:block}
+#manifestGrid .mhead{max-width:980px;margin:0 auto 1.2em;color:var(--fg-2);font-size:12.5px;
+  line-height:1.6}
+#manifestGrid .mhead h2{font-family:var(--mono);font-size:13px;color:var(--accent);
+  margin:0 0 .35em;font-weight:600;letter-spacing:.02em}
+#manifestGrid .mhead p{margin:0;color:var(--fg-3);font-size:11.5px;line-height:1.6}
+#manifestGrid .mhead code{color:var(--fg-2);background:var(--bg-2);padding:0 .35em;
+  border-radius:2px;font-size:11px}
+#manifestGrid .mgrid{display:grid;gap:.7em;max-width:980px;margin:0 auto;
+  grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.mcard{border:1px solid var(--line);background:var(--bg-1);padding:.85em 1em;
+  border-radius:4px;display:flex;flex-direction:column;gap:.35em;
+  transition:border-color .15s,box-shadow .15s}
+.mcard:hover{border-color:var(--line-2)}
+.mcard .mkey{font-size:13px;color:var(--accent);font-weight:600;letter-spacing:.01em;
+  display:flex;align-items:baseline;gap:.5em}
+.mcard .mkey .mtag{font-size:9.5px;color:var(--fg-mute);letter-spacing:.16em;
+  text-transform:uppercase;font-weight:500}
+.mcard .mwhat{color:var(--fg-2);font-size:11.5px;line-height:1.55;min-height:2.5em}
+.mcard .mstats{display:grid;grid-template-columns:1fr 1fr;gap:.15em .5em;
+  font-size:10.5px;color:var(--fg-3);margin-top:.25em}
+.mcard .mstats b{color:var(--fg);font-weight:500;font-variant-numeric:tabular-nums}
+.mcard .mcid{font-size:10px;color:var(--fg-mute);word-break:break-all;
+  font-family:var(--mono);background:var(--bg-2);border:1px solid var(--line);
+  padding:.25em .45em;border-radius:2px;cursor:copy;line-height:1.4}
+.mcard .mcid:hover{color:var(--accent);border-color:var(--accent)}
+.mcard .mcid.empty{font-style:italic;color:var(--fg-mute);cursor:default}
+.mcard .macts{display:flex;gap:.3em;flex-wrap:wrap;margin-top:.4em}
+.mcard .macts button{font-size:10.5px;padding:.25em .55em}
+.mcard .mfam-row{display:flex;flex-wrap:wrap;gap:.25em;margin-top:.25em}
+.mcard .mfam{font-size:9.5px;color:var(--fg-2);border:1px solid var(--line);
+  padding:.05em .45em;border-radius:99px;background:var(--bg-2);letter-spacing:.02em;
+  display:inline-flex;align-items:center;gap:.3em;cursor:pointer}
+.mcard .mfam:hover{color:var(--accent);border-color:var(--accent)}
+.mcard .mfam .fd{width:6px;height:6px;border-radius:50%;flex-shrink:0;
+  box-shadow:0 0 4px currentColor}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   ontology view (replaces the abstract force-directed cell cloud for the
+   "graph" view). Renders the literal data model:
+       Source → Cell × Band × Tslot → Fact → Receipt
+   with labeled nodes and edges, plus counts. Click any node → try-it
+   drawer for the relevant primitive.
+   ───────────────────────────────────────────────────────────────────────── */
+#ontology{position:absolute;inset:0;display:none;background:var(--bg);
+  font-family:var(--mono);overflow:auto}
+#ontology.on{display:flex;flex-direction:column}
+#ontology .ohead{padding:1em 1.4em .4em;color:var(--fg-2);font-size:12.5px;
+  flex-shrink:0;max-width:1080px;margin:0 auto;width:100%}
+#ontology .ohead h2{font-family:var(--mono);font-size:13px;color:var(--accent);
+  margin:0 0 .25em;font-weight:600}
+#ontology .ohead p{margin:0;color:var(--fg-3);font-size:11.5px;line-height:1.55;
+  max-width:760px}
+#ontology svg{flex:1;width:100%;min-height:380px;display:block}
+#ontology .legend-strip{padding:.5em 1.4em 1em;color:var(--fg-3);font-size:10.5px;
+  display:flex;flex-wrap:wrap;gap:.6em;justify-content:center;flex-shrink:0;
+  max-width:1080px;margin:0 auto;width:100%}
+#ontology .legend-strip .swatch{display:inline-flex;align-items:center;gap:.35em;
+  border:1px solid var(--line);padding:.15em .5em;border-radius:99px;background:var(--bg-1)}
+#ontology .legend-strip .swatch .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#ontology .o-node-box{stroke:var(--line-2);fill:var(--bg-1);cursor:pointer;
+  transition:stroke .15s,fill .15s}
+#ontology .o-node-box:hover{stroke:var(--accent);fill:var(--bg-2)}
+#ontology .o-node-box.active{stroke:var(--accent);fill:rgba(124,255,178,.05)}
+#ontology .o-edge{stroke:var(--line-2);stroke-width:1.2;fill:none}
+#ontology .o-edge-label{fill:var(--fg-mute);font-size:10px;font-family:var(--mono)}
+#ontology .o-node-title{fill:var(--fg);font-size:12px;font-weight:600;
+  font-family:var(--mono);pointer-events:none}
+#ontology .o-node-sub{fill:var(--fg-3);font-size:10px;font-family:var(--mono);
+  pointer-events:none}
+#ontology .o-node-count{fill:var(--accent);font-size:14px;font-weight:600;
+  font-family:var(--mono);pointer-events:none;font-variant-numeric:tabular-nums}
+#ontology .o-node-prim{fill:var(--fam-foundation);font-size:9.5px;font-family:var(--mono);
+  pointer-events:none;letter-spacing:.06em}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   raw JSON toggle (right pane). Flips the rendered panel between the
+   "human view" and the raw JSON envelope an MCP agent would see. Makes
+   the page's claim of being "built for AI agents that humans can also
+   see" literal.
+   ───────────────────────────────────────────────────────────────────────── */
+.right-toggle{display:flex;gap:.3em;justify-content:flex-end;padding:0 0 .55em;
+  margin:-.2em -.1em .35em;border-bottom:1px solid var(--line);align-items:center}
+.right-toggle .lbl{margin-right:auto;font-family:var(--mono);font-size:9.5px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--fg-mute)}
+.right-toggle button{font-size:10px;padding:.15em .55em;border-radius:2px}
+.right-toggle button[aria-pressed=true]{color:var(--accent);border-color:var(--accent);
+  background:rgba(124,255,178,.06)}
+.right-raw{background:var(--bg-2);border:1px solid var(--line);padding:.55em .65em;
+  border-radius:3px;font-family:var(--mono);font-size:10.5px;color:var(--fg);
+  white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto;line-height:1.5}
 </style>
 </head>
 <body>
@@ -554,6 +740,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div class=spacer></div>
     <div class=chips>
       <button class=chip id=chipCmdk   type=button data-emem-action=open-cmdk    aria-label="Ask about a place" title="Ask about any place — flood risk, wildfire smoke, heat health, climate impact. Click or press Ctrl-K.">ask<kbd id=kbdCmdk>Ctrl-K</kbd></button>
+      <button class=chip id=chipTry    type=button data-emem-action=open-tryit  aria-label="Try the API live" title="Open the live API drawer — pick a primitive, edit JSON, run against this responder, see receipt + curl/python/MCP.">try<kbd>T</kbd></button>
       <button class=chip id=chipLasso  type=button data-emem-action=lasso-toggle aria-label="Toggle lasso select" aria-pressed=false title="Drag a region on the map to recall every cell inside it.">lasso<kbd>L</kbd></button>
       <button class=chip id=chipConsole type=button data-emem-action=focus-console aria-label="Focus the API console" title="Every /v1/* call this page makes is logged below. Copy as curl, Python, or MCP.">console<kbd>~</kbd></button>
       <button class=chip id=chipHelp   type=button data-emem-action=open-help    aria-label="Show keyboard help" title="Keyboard shortcuts and concept glossary.">help<kbd>?</kbd></button>
@@ -599,6 +786,20 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <p>press <kbd>Ctrl-K</kbd> to ask, or click any star on the map · every dot is a place where verified Earth data lives · every answer ships with a cryptographic receipt you can verify offline · every <kbd>/v1/*</kbd> call prints in the console below so an LLM scraping this page learns the API by observation</p>
       <button class=hero-close id=heroClose type=button aria-label="Dismiss intro">×</button>
     </div>
+    <!-- Persistent glossary strip. Unlike the hero, this never disappears, so
+         a newcomer can always re-ground in the eight primitive nouns of the
+         protocol. Each chip opens a popover with the canonical definition. -->
+    <div class=glossary id=glossary role=region aria-label="Glossary of emem concepts">
+      <button type=button class=gchip data-gloss=cell64    aria-expanded=false>cell64 <code>21+22 bit</code></button>
+      <button type=button class=gchip data-gloss=cid       aria-expanded=false>cid <code>blake3·b32</code></button>
+      <button type=button class=gchip data-gloss=tslot     aria-expanded=false>tslot <code>unix·tempo</code></button>
+      <button type=button class=gchip data-gloss=band      aria-expanded=false>band <code>1792-D</code></button>
+      <button type=button class=gchip data-gloss=fact      aria-expanded=false>fact <code>cell×band×t</code></button>
+      <button type=button class=gchip data-gloss=receipt   aria-expanded=false>receipt <code>ed25519</code></button>
+      <button type=button class=gchip data-gloss=responder aria-expanded=false>responder <code>pubkey</code></button>
+      <button type=button class=gchip data-gloss=materializer aria-expanded=false>materializer <code>source→fact</code></button>
+    </div>
+    <div class=gpop id=gpop role=tooltip aria-hidden=true></div>
     <!-- Single bottom dock — modes + projection + zoom + focus. The top
          edge of the canvas stays empty so hover tooltips on stars and
          the centred hero strip have unobstructed room. -->
@@ -645,6 +846,8 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     </button>
     <canvas id=stage aria-label="Constellation of attested cells"></canvas>
     <svg id=registry aria-hidden=true></svg>
+    <div id=manifestGrid aria-hidden=true></div>
+    <div id=ontology aria-hidden=true></div>
     <div id=logview aria-hidden=true>
       <div class=head>
         <span><b style="color:var(--fg-2)">API console</b> · every <code style="color:var(--fg-2)">/v1/*</code> call this page makes · copy as curl, Python, or MCP — newest first</span>
@@ -712,6 +915,42 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   </div>
 </div>
 
+<!-- live try-it drawer — slide-in panel that lets you pick any of the 12
+     primitives, edit a pre-filled JSON body, run it against this responder,
+     and see the response + receipt + curl/python/MCP snippets. This is the
+     "live API usage" surface — the bottom console only logs what already
+     ran; the drawer is where you make new calls. -->
+<div class=tryback id=tryBack aria-hidden=true></div>
+<aside class=trydrawer id=tryDrawer aria-modal=true aria-labelledby=tryTitle role=dialog>
+  <div class=thead>
+    <span class=tag id=tryTitle>try live</span>
+    <select id=trySel aria-label="Choose a primitive"></select>
+    <button class="ghost tclose" id=tryClose type=button aria-label="Close try-it drawer">×<kbd style="margin-left:.35em">Esc</kbd></button>
+  </div>
+  <div class=tdesc>
+    <span class=tpath id=tryPath>—</span> <span id=tryDoc style="color:var(--fg-3);font-size:11.5px"></span>
+    <span class=tmcp id=tryMcp></span>
+  </div>
+  <div class=preset id=tryPresets><span class=plbl>presets</span></div>
+  <div class=tbody>
+    <label for=tryBody>request body (JSON)</label>
+    <textarea id=tryBody spellcheck=false autocomplete=off></textarea>
+  </div>
+  <div class=tacts>
+    <button id=tryRun  class=primary type=button title="POST against this responder">▶ run</button>
+    <button id=tryFmt  type=button title="Reformat JSON body">format</button>
+    <button id=tryReset type=button title="Reset to the default example">reset</button>
+    <span class=ttiming id=tryTiming></span>
+  </div>
+  <div class=tout id=tryOut><div class=empty style="margin:1em 0">edit the body above and hit <b style="color:var(--accent)">run</b> — response, receipt, and a snippet for any agent appear here</div></div>
+  <div class=tsnip id=trySnip>
+    <span>copy as</span>
+    <button id=tryCurl type=button>curl</button>
+    <button id=tryPy type=button>python</button>
+    <button id=tryMcpCopy type=button>mcp</button>
+  </div>
+</aside>
+
 <!-- keyboard help -->
 <div class=modal id=helpModal>
   <div class=box>
@@ -719,11 +958,12 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <h2>keyboard</h2>
     <div class=keys>
       <kbd id=helpKbdCmdk>Ctrl-K</kbd><span>command palette (places, cells, bands, primitives)</span>
+      <kbd>T</kbd><span>open the live try-it drawer (pick a primitive, edit JSON, run it)</span>
       <kbd>~</kbd><span>focus console</span>
-      <kbd>1</kbd><span>field view</span>
-      <kbd>2</kbd><span>graph view</span>
-      <kbd>3</kbd><span>registry view</span>
-      <kbd>4</kbd><span>log view</span>
+      <kbd>1</kbd><span>field view (cells-as-stars constellation)</span>
+      <kbd>2</kbd><span>graph view (ontology of the protocol)</span>
+      <kbd>3</kbd><span>registry view (the 8 manifests of the corpus)</span>
+      <kbd>4</kbd><span>log view (latest attestations, signed)</span>
       <kbd>L</kbd><span>start lasso (drag to draw polygon)</span>
       <kbd>P</kbd><span>toggle projection · lat/lng ↔ embedding</span>
       <kbd>+ −</kbd><span>zoom in / out</span>
@@ -1157,6 +1397,11 @@ async function boot() {
   drawCurrent();
   clearBootVeil();
   setHeroFade(false);
+  // First-paint UX: a newcomer should never see an empty right rail.
+  // If the URL doesn't pin a specific cell, drop the rail on the densest
+  // attested cell as a worked example. They can dismiss + pick another any
+  // time. preloadFeatureCell() respects an existing selection / ?cell= URL.
+  try { preloadFeatureCell(); } catch(_) {}
 
   // Phase 2: hydrate the rest in the background. Each is independent;
   // failure of one doesn't block the others.
@@ -1837,7 +2082,11 @@ function stepGraph(g) {
   g.t++;
 }
 
-function drawGraph() {
+// The graph view is now an SVG ontology diagram (buildOntologyView below).
+// The old force-directed cell cloud lived on the canvas, so drawGraph() is
+// a no-op kept only so the rAF tick loop and old hook sites compile clean.
+function drawGraph() { /* superseded by #ontology — see buildOntologyView */ return; }
+function _legacy_drawGraph_unused() {
   const W = canvas.width, H = canvas.height;
   ctx.fillStyle = '#06070a';
   ctx.fillRect(0, 0, W, H);
@@ -1890,8 +2139,17 @@ function drawGraph() {
 }
 
 // ── 10. Registry view: Poincaré-disk, pure SVG ─────────────────────────────
-const regSvg = document.getElementById('registry');
+// Compatibility shim — old callers from boot phases (pBands/pAlgo/pSrc) call
+// buildRegistryView() to nudge the registry view to refresh whenever new
+// manifest data arrives. The new registry is the manifest-cards grid below;
+// reroute the nudge to it (only when actually visible — no need to rebuild
+// the grid for offscreen mode changes).
 function buildRegistryView() {
+  if (STATE.mode === 'registry') buildManifestGridView();
+}
+
+const regSvg = document.getElementById('registry');
+function _legacy_buildRegistryView() {
   const m = STATE.manifests || {};
   const families = ['foundation','optical','radar','climate','weather','terrain','vegetation','water','soil','human','encoding','urban'];
   // 8 manifest CIDs (per /humans/llms.txt). Use real manifest entries when set,
@@ -2110,15 +2368,22 @@ function setMode(m) {
     const btn = document.getElementById(id);
     btn.setAttribute('aria-pressed', String((m==='field' && k==='Field') || (m==='graph' && k==='Graph') || (m==='registry' && k==='Reg') || (m==='log' && k==='Log')));
   }
-  canvas.style.display     = (m==='field' || m==='graph') ? 'block' : 'none';
+  // Field is the only mode that still uses the canvas. Graph is now an
+  // SVG ontology diagram (#ontology), registry is now an explainable card
+  // grid (#manifestGrid). The old #registry <svg> stays in the DOM so any
+  // bookmarked deep link doesn't 500, but it's never shown.
+  canvas.style.display     = (m==='field') ? 'block' : 'none';
   document.getElementById('legend').style.display = m==='field' ? '' : 'none';
-  document.getElementById('registry').classList.toggle('on', m==='registry');
+  document.getElementById('registry').classList.remove('on');
+  document.getElementById('manifestGrid').classList.toggle('on', m==='registry');
+  document.getElementById('ontology').classList.toggle('on', m==='graph');
   document.getElementById('logview').classList.toggle('on', m==='log');
-  document.querySelector('.zoomctl').style.display = (m==='field' || m==='graph') ? 'flex' : 'none';
+  const zoomCtl = document.querySelector('.zoomctl') || document.querySelector('.dock .zoom');
+  if (zoomCtl) zoomCtl.style.display = (m==='field') ? 'flex' : 'none';
   const projChip = document.getElementById('chipProj');
   if (projChip) projChip.style.display = (m === 'field' && window.innerWidth >= 760) ? '' : 'none';
-  if (m==='registry') buildRegistryView();
-  if (m==='graph')    STATE.graph = null;
+  if (m==='registry') buildManifestGridView();
+  if (m==='graph')    buildOntologyView();
   drawCurrent();
   syncUrlState();
   echoUI('UI', 'mode', m);
@@ -2675,10 +2940,19 @@ window.addEventListener('keydown', e => {
 });
 
 // ── 14. Selection: cell card with recall + offline verify ──────────────────
-function setRightPane(html) {
+function setRightPane(html, raw) {
   const inner = document.getElementById('rightInner');
+  // Remember the rendered html so the raw/human toggle below can flip back
+  // without re-running the producing primitive.
+  if (typeof STATE !== 'undefined') {
+    STATE._lastRightHtml = html;
+    if (raw !== undefined) STATE._lastRightRaw = raw;
+    STATE._rightMode = 'human';
+  }
   inner.innerHTML = html;
   installChips(inner);
+  // If we have a JSON envelope to show, prepend the human/raw toggle.
+  try { if (typeof renderRightToggle === 'function') renderRightToggle(); } catch(_) {}
   // mobile sheet mirror
   if (window.innerWidth < 760) {
     const sheet = document.getElementById('sheetInner');
@@ -2762,7 +3036,9 @@ async function selectCell(cell) {
       '<div class=scene id=cellScene><span>scene.png on demand</span></div>' +
     '</div>' +
     '<div id=factsBox><div class=empty>recall to load facts</div></div>';
-  setRightPane(html);
+  // Capture cell metadata as the raw envelope for the human/raw toggle —
+  // doRecall() will replace it with the actual recall envelope once run.
+  setRightPane(html, { kind:'cell', cell: cell.cell64, lat: cell.lat, lng: cell.lng, fact_count: cell.fact_count||0, family: cell.family||null });
   document.getElementById('btnRecall').onclick  = () => doRecall(cell);
   document.getElementById('btnSimilar').onclick = () => doFindSimilar(cell);
   document.getElementById('btnInfo').onclick    = () => doCellInfo(cell);
@@ -2847,6 +3123,10 @@ async function doRecall(cell) {
     if (res.receipt) {
       document.getElementById('btnVerify').onclick = () => verifyReceiptUI(res.receipt);
     }
+    // Capture the recall envelope so the human/raw toggle on the right
+    // pane can flip into "agent's-eye view" — same payload an MCP-driven
+    // agent would see at tools/call name=emem_recall.
+    setRightRaw(res);
     // Refresh log view to insert this attestation at the top
     pushReceiptToLog(res.receipt, cell.cell64);
   } catch (e) {
@@ -3007,7 +3287,7 @@ function paintPolygonResult(polyLatLng, sel, res, lassoBand) {
         '<button id=btnVerify class=primary type=button>verify offline</button>' +
       '</div>';
   }
-  setRightPane(html);
+  setRightPane(html, res);
   if (res.receipt) document.getElementById('btnVerify').onclick = () => verifyReceiptUI(res.receipt);
 }
 
@@ -3118,6 +3398,584 @@ function pushReceiptToLog(receipt, cell64) {
   };
   const count = document.getElementById('logCount');
   if (count) count.textContent = body.children.length + ' entries';
+}
+
+// ── 17b. Glossary popovers ─────────────────────────────────────────────────
+//
+// The eight protocol nouns live in `.gchip` buttons under the hero. Clicking
+// one toggles a single shared popover (#gpop) anchored beneath it. Each
+// entry pairs a one-line definition with one concrete worked example so
+// "cell64" doesn't just mean "21+22 bit" but answers "where does that map".
+const GLOSSARY = {
+  cell64: {
+    title: 'cell64 — the place primitive',
+    body:  'A 64-bit identifier for a ~9.55 m square on Earth. The interior packs lat[21]·lng[22] bits as fixed-point integers; the prefix is a 4-char checksum.',
+    ex:    'Example: <code>kzqr.0.13.7</code> selects one cell in Asheville, NC. Resolves with <code>GET /v1/cells/{c}/info</code>.',
+  },
+  cid: {
+    title: 'cid — content identifier',
+    body:  'BLAKE3 hash of the canonical CBOR encoding of any fact or manifest, encoded as 32-char base32 (lowercase, no padding). Two responders that observed the same Earth fact compute the same CID.',
+    ex:    'Example: <code>g5bv5bin2xlegkwmhk7bimis…</code> — copy any chip you see and paste it into another responder; if both serve the same fact, you can verify the receipt offline.',
+  },
+  tslot: {
+    title: 'tslot — when the fact was true',
+    body:  'A signed integer index = floor(unix_seconds ÷ tempo). Each band declares its own tempo (seconds per slot), so a 10-day NDVI fact and an hourly precipitation fact don\'t collide.',
+    ex:    'Example: tempo 86400 + ts 2026-05-01T00:00:00Z → tslot <code>20574</code>. The receipt commits to the exact tslot.',
+  },
+  band: {
+    title: 'band — the data primitive',
+    body:  'A typed channel of Earth observation: 34 declared, total 1792 dimensions. Optical reflectance, radar backscatter, weather variables, foundation-model embeddings, vector geometry — all unified by the cell×band×tslot key.',
+    ex:    'Example: <code>geotessera</code> is a 128-D foundation embedding; <code>landsat.swir1</code> is a 1-D reflectance band. <code>GET /v1/bands</code> lists every one.',
+  },
+  fact: {
+    title: 'fact — the atomic record',
+    body:  'A signed observation at a (cell64, band, tslot) coordinate. Every fact is content-addressed by its CID and emitted by a known responder. Facts compose; the same cell at the same instant can have hundreds.',
+    ex:    'Example: <code>POST /v1/recall {cell, bands}</code> returns the facts plus a receipt signed by this responder.',
+  },
+  receipt: {
+    title: 'receipt — ed25519 commitment',
+    body:  'A small object signed by the responder that names the request, the fact CIDs returned, the served_at time, and the responder pubkey. Verifies offline with no further network call.',
+    ex:    'Example: every right-pane card carries a receipt. The verify button uses noble-ed25519 in your browser; if blocked, it falls back to <code>POST /v1/verify_receipt</code>.',
+  },
+  responder: {
+    title: 'responder — the signer',
+    body:  'A node that stores facts and signs receipts. Identified by an ed25519 public key (base32-nopad-lowercase, 32 bytes). Multiple responders can co-attest the same fact — that\'s how you know a fact is real, not just one party\'s claim.',
+    ex:    'This responder: <code>'+( (STATE && STATE.responder) || 'pending…' )+'</code>. Header strip shows it live.',
+  },
+  materializer: {
+    title: 'materializer — source → fact pipeline',
+    body:  'The thing that pulls bytes from an external source (Landsat, ECMWF, FTW…), decodes them, and writes facts into the cube. If a cell hasn\'t been seen, an enabled materializer fetches on demand.',
+    ex:    'See <code>GET /v1/data_availability</code>. Pre-set materializers cover ~18 sources today (cog, ftw, geonames, overture, …).',
+  },
+};
+function openGloss(key, btn) {
+  const pop = document.getElementById('gpop');
+  if (!pop) return;
+  const g = GLOSSARY[key];
+  document.querySelectorAll('.gchip').forEach(c => c.setAttribute('aria-expanded', 'false'));
+  if (!g) { pop.classList.remove('on'); pop.setAttribute('aria-hidden','true'); return; }
+  // dynamic refresh of {responder} body
+  let body = g.body, ex = g.ex;
+  if (key === 'responder') ex = 'This responder: <code>'+escapeHtml(STATE.responder || 'pending…')+'</code>. Header strip shows it live.';
+  pop.innerHTML = '<b>'+escapeHtml(g.title)+'</b><br>'+body+'<span class=gex>'+ex+'</span>';
+  pop.classList.add('on');
+  pop.setAttribute('aria-hidden','false');
+  if (btn) {
+    btn.setAttribute('aria-expanded','true');
+    // position popover under the chip
+    const r = btn.getBoundingClientRect();
+    const parent = pop.offsetParent || document.body;
+    const pr = parent.getBoundingClientRect();
+    pop.style.left = ((r.left + r.width/2) - pr.left) + 'px';
+    pop.style.top  = ((r.bottom + 6) - pr.top) + 'px';
+    pop.style.transform = 'translateX(-50%)';
+  }
+}
+document.querySelectorAll('.gchip').forEach(btn => {
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const key = btn.getAttribute('data-gloss');
+    const isOpen = btn.getAttribute('aria-expanded') === 'true';
+    if (isOpen) { openGloss(null); return; }
+    openGloss(key, btn);
+  });
+});
+document.addEventListener('click', e => {
+  if (e.target.closest('.gpop') || e.target.closest('.gchip')) return;
+  openGloss(null);
+});
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') openGloss(null);
+});
+
+// ── 17c. Try-it drawer ─────────────────────────────────────────────────────
+//
+// The console at the bottom of the page is REACTIVE — it shows every call
+// that already happened. This drawer is the OUTBOUND surface: pick a
+// primitive, edit a pre-filled JSON body, run it against this responder,
+// and see the response + receipt + copy-paste curl/python/MCP. Every body
+// is a real working example seeded from corpus data (densest cell, top
+// band) so first-time visitors never have to type a single character.
+function _exCell() {
+  const dense = [...(STATE.cells||[])].sort((a,b)=>(b.fact_count||0)-(a.fact_count||0))[0];
+  return dense?.cell64 || 'kzqr.0.13.7';
+}
+function _exCells(n) {
+  const top = [...(STATE.cells||[])].sort((a,b)=>(b.fact_count||0)-(a.fact_count||0)).slice(0, n||4).map(c=>c.cell64);
+  return top.length ? top : ['kzqr.0.13.7'];
+}
+function _exBands() {
+  const ms = (STATE.matrix||[]).slice().sort((a,b)=>(b.facts_count||0)-(a.facts_count||0)).slice(0,2).map(b=>b.band);
+  return ms.length ? ms : ['geotessera'];
+}
+const PRIMITIVES = {
+  recall: {
+    path:'/v1/recall', method:'POST', mcp:'emem_recall',
+    doc:'Fetch every fact at one cell, optionally filtered by bands. Returns facts + an ed25519 receipt over the fact CIDs.',
+    body:() => ({ cell: _exCell(), bands: _exBands() }),
+    presets:() => [
+      { lbl:'this responder\'s densest cell', body:{ cell: _exCell(), bands: _exBands() } },
+      { lbl:'all bands at one cell',          body:{ cell: _exCell() } },
+    ],
+  },
+  recall_many: {
+    path:'/v1/recall_many', method:'POST', mcp:'emem_recall',
+    doc:'Batch recall — up to 256 cells in one call. Returns per-cell facts keyed by cell64, plus a receipt covering the whole batch.',
+    body:() => ({ cells: _exCells(4), bands: _exBands() }),
+    presets:() => [
+      { lbl:'top-4 densest cells',  body:{ cells: _exCells(4),  bands: _exBands() } },
+      { lbl:'top-16 densest cells', body:{ cells: _exCells(16), bands: _exBands() } },
+    ],
+  },
+  recall_polygon: {
+    path:'/v1/recall_polygon', method:'POST', mcp:'emem_recall_polygon',
+    doc:'Recall every cell whose centre falls inside a polygon (closed ring, lng-lat pairs). Same payload shape as recall_many.',
+    body:() => ({ polygon:[[-82.6,35.5],[-82.5,35.5],[-82.5,35.6],[-82.6,35.6],[-82.6,35.5]], bands:_exBands() }),
+  },
+  find_similar: {
+    path:'/v1/find_similar', method:'POST', mcp:'emem_find_similar',
+    doc:'Top-K cells whose embedding (in a chosen band) is nearest to the query cell. K defaults to 16, max 256.',
+    body:() => ({ cell: _exCell(), band: (_exBands()[0]||'geotessera'), k: 16 }),
+  },
+  trajectory: {
+    path:'/v1/trajectory', method:'POST', mcp:'emem_trajectory',
+    doc:'Time series at one cell for one band. Returns ordered tslots → values + a receipt.',
+    body:() => ({ cell: _exCell(), band: 'ndvi', t0: '2024-01-01', t1: '2026-01-01' }),
+  },
+  compare: {
+    path:'/v1/compare', method:'POST', mcp:'emem_compare',
+    doc:'Side-by-side recall of two cells with normalised distances per band.',
+    body:() => { const cs = _exCells(2); return { a: cs[0], b: cs[1] || cs[0], bands: _exBands() }; },
+  },
+  diff: {
+    path:'/v1/diff', method:'POST', mcp:'emem_diff',
+    doc:'Two-tslot diff at one cell. Useful for change detection (e.g. before vs after a wildfire).',
+    body:() => ({ cell: _exCell(), band: 'ndvi', t0: '2024-06-01', t1: '2025-06-01' }),
+  },
+  verify_receipt: {
+    path:'/v1/verify_receipt', method:'POST', mcp:'emem_verify',
+    doc:'Server-side verify of a receipt — same check the in-browser path runs, exposed for clients without ed25519 libs. Paste a receipt from any other primitive\'s response.',
+    body:() => ({ receipt: { primitive:'recall', responder_pubkey_b32: STATE.responder || '', fact_cids: [], served_at: new Date().toISOString(), sig_b32: '' } }),
+  },
+  locate: {
+    path:'/v1/locate', method:'POST', mcp:'emem_locate',
+    doc:'Resolve a place name to a cell64 (or polygon, if recognised). Cascade: bbox → embedded → geonames → cache → photon → nominatim.',
+    body:() => ({ q: 'Asheville, NC' }),
+    presets:() => [
+      { lbl:'town with NDVI history', body:{ q:'Asheville, NC' } },
+      { lbl:'protected area',         body:{ q:'Yellowstone National Park' } },
+      { lbl:'a coastal city',         body:{ q:'Mumbai' } },
+    ],
+  },
+  ask: {
+    path:'/v1/ask', method:'POST', mcp:'emem_ask',
+    doc:'Natural-language Q&A about a place. Routes through intent → recall → topic-template → answer. Returns place + answer + citations + receipt.',
+    body:() => ({ q: 'flood risk in Asheville, NC' }),
+    presets:() => [
+      { lbl:'flood risk',     body:{ q:'flood risk in Asheville, NC' } },
+      { lbl:'wildfire smoke', body:{ q:'wildfire smoke exposure in Boulder, CO' } },
+      { lbl:'heat health',    body:{ q:'heat health in Phoenix' } },
+      { lbl:'climate haven',  body:{ q:'is Burlington, VT a climate haven?' } },
+    ],
+  },
+  field_boundaries: {
+    path:'/v1/field_boundaries', method:'POST', mcp:'emem_field_boundaries',
+    doc:'Polygon-level field boundaries (FTW — Fields of The World, 3.17 B polygons, CC-BY-4.0). Bounded by bbox or cell.',
+    body:() => ({ bbox: [-82.6, 35.55, -82.5, 35.6] }),
+  },
+  query_region: {
+    path:'/v1/query_region', method:'POST', mcp:'emem_query_region',
+    doc:'Region-level aggregate over cells: counts per band, attestation density, time coverage.',
+    body:() => ({ polygon:[[-82.6,35.5],[-82.5,35.5],[-82.5,35.6],[-82.6,35.6],[-82.6,35.5]] }),
+  },
+  backfill: {
+    path:'/v1/backfill', method:'POST', mcp:'emem_backfill',
+    doc:'Ask the responder to materialise (fetch + sign) a cell × band × time range that isn\'t cached yet. Real network fan-out — may take seconds.',
+    body:() => ({ cell: _exCell(), band: 'landsat.ndvi', t0: '2024-01-01', t1: '2024-06-01' }),
+  },
+  manifests: { path:'/v1/manifests', method:'GET', mcp:'emem_manifests', doc:'The 8 manifests of the corpus — registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet.', body: () => null },
+  bands:     { path:'/v1/bands',     method:'GET', mcp:'emem_bands',     doc:'34 declared bands. Returns key, family, dimension, tempo, units, description.', body: () => null },
+  algorithms:{ path:'/v1/algorithms',method:'GET', mcp:'emem_algorithms',doc:'107 algorithms — preprocessors, embeddings, predictors, decoders, physics solvers.', body: () => null },
+  sources:   { path:'/v1/sources',   method:'GET', mcp:'emem_sources',   doc:'External data sources the materializers can pull from. Each has a scheme, license, and a hint about what bands it produces.', body: () => null },
+  topics:    { path:'/v1/topics',    method:'GET', mcp:'emem_topics',    doc:'25 topics — the human-facing question categories (flood, wildfire, heat, …). Each routes to a recall plan.', body: () => null },
+  schema:    { path:'/v1/schema',    method:'GET', mcp:'emem_schema',    doc:'The wire schema. CBOR shape, signing rule, canonical encoding.', body: () => null },
+  agent_card:{ path:'/v1/agent_card',method:'GET', mcp:null,             doc:'Agent-readable summary of this responder — what it can do, OpenAPI, MCP, and trust anchors. Designed for AI agents.', body: () => null },
+};
+const _tryBack   = document.getElementById('tryBack');
+const _tryDrawer = document.getElementById('tryDrawer');
+const _trySel    = document.getElementById('trySel');
+const _tryPath   = document.getElementById('tryPath');
+const _tryDoc    = document.getElementById('tryDoc');
+const _tryMcp    = document.getElementById('tryMcp');
+const _tryBody   = document.getElementById('tryBody');
+const _tryOut    = document.getElementById('tryOut');
+const _tryTiming = document.getElementById('tryTiming');
+const _tryPresets= document.getElementById('tryPresets');
+let _tryCurrent = 'recall';
+
+(function populateTrySel(){
+  if (!_trySel) return;
+  for (const k of Object.keys(PRIMITIVES)) {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = (PRIMITIVES[k].method+'  '+PRIMITIVES[k].path).padEnd(0,' ');
+    _trySel.appendChild(o);
+  }
+})();
+function _refreshTryView() {
+  const p = PRIMITIVES[_tryCurrent];
+  if (!p) return;
+  _tryPath.textContent = p.method + ' ' + p.path;
+  _tryDoc.textContent  = '— ' + p.doc;
+  _tryMcp.textContent  = p.mcp ? ('MCP: tools/call name='+p.mcp) : '';
+  if (p.method === 'GET' || !p.body) {
+    _tryBody.value = '';
+    _tryBody.disabled = true;
+    _tryBody.placeholder = 'GET — no body required';
+  } else {
+    _tryBody.disabled = false;
+    _tryBody.placeholder = '';
+    try { _tryBody.value = JSON.stringify(p.body() || {}, null, 2); } catch(_){ _tryBody.value = '{}'; }
+  }
+  // presets
+  _tryPresets.innerHTML = '<span class=plbl>presets</span>';
+  const presets = p.presets ? p.presets() : [];
+  if (!presets.length && p.method !== 'GET' && p.body) {
+    presets.push({ lbl:'default example', body: p.body() });
+  }
+  for (const pr of presets) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = pr.lbl;
+    b.onclick = () => { _tryBody.value = JSON.stringify(pr.body, null, 2); _tryBody.classList.remove('bad'); };
+    _tryPresets.appendChild(b);
+  }
+  _tryOut.innerHTML = '<div class=empty style="margin:1em 0">edit the body above and hit <b style="color:var(--accent)">run</b> — response, receipt, and a snippet for any agent appear here</div>';
+  _tryTiming.textContent = '';
+}
+function openTryIt(key) {
+  if (key && PRIMITIVES[key]) _tryCurrent = key;
+  _trySel.value = _tryCurrent;
+  _refreshTryView();
+  _tryBack.classList.add('on');
+  _tryDrawer.classList.add('on');
+  setTimeout(() => _tryBody.focus(), 50);
+  echoUI('UI', 'tryit', _tryCurrent);
+}
+function closeTryIt() {
+  _tryBack.classList.remove('on');
+  _tryDrawer.classList.remove('on');
+}
+_tryBack.onclick = closeTryIt;
+document.getElementById('tryClose').onclick = closeTryIt;
+_trySel.onchange = () => { _tryCurrent = _trySel.value; _refreshTryView(); };
+document.getElementById('tryFmt').onclick = () => {
+  try { _tryBody.value = JSON.stringify(JSON.parse(_tryBody.value), null, 2); _tryBody.classList.remove('bad'); }
+  catch(_) { _tryBody.classList.add('bad'); showToast('JSON parse error'); }
+};
+document.getElementById('tryReset').onclick = () => _refreshTryView();
+function _trySnippet(kind) {
+  const p = PRIMITIVES[_tryCurrent];
+  if (!p) return '';
+  let body = null;
+  if (p.method !== 'GET') {
+    try { body = JSON.parse(_tryBody.value); } catch(_) { body = null; }
+  }
+  if (kind === 'curl') return curlFor(p.method, p.path, body);
+  if (kind === 'py')   return pyFor(p.method, p.path, body);
+  if (kind === 'mcp')  return mcpFor(p.method, p.path, body);
+  return '';
+}
+document.getElementById('tryCurl').onclick    = () => { try { navigator.clipboard.writeText(_trySnippet('curl')); showToast('copied as curl'); } catch(_){ showToast('clipboard blocked'); } };
+document.getElementById('tryPy').onclick      = () => { try { navigator.clipboard.writeText(_trySnippet('py'));   showToast('copied as python'); } catch(_){ showToast('clipboard blocked'); } };
+document.getElementById('tryMcpCopy').onclick = () => { try { navigator.clipboard.writeText(_trySnippet('mcp'));  showToast('copied as mcp'); } catch(_){ showToast('clipboard blocked'); } };
+document.getElementById('tryRun').onclick = async () => {
+  const p = PRIMITIVES[_tryCurrent];
+  if (!p) return;
+  let body = undefined;
+  if (p.method !== 'GET') {
+    try { body = JSON.parse(_tryBody.value); _tryBody.classList.remove('bad'); }
+    catch(_) { _tryBody.classList.add('bad'); _tryOut.innerHTML = '<div style="color:var(--warn)">JSON parse error — fix the body and re-run.</div>'; return; }
+  }
+  _tryOut.innerHTML = '<div style="color:var(--fg-3)"><span class=dot style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:.4em;animation:pulse 1.2s ease-in-out infinite"></span>running '+escapeHtml(p.method+' '+p.path)+' …</div>';
+  const t0 = performance.now();
+  let res = null, err = null;
+  try { res = await api(p.method, p.path, body); }
+  catch(e) { err = e; }
+  const ms = (performance.now() - t0).toFixed(0);
+  _tryTiming.textContent = ms + ' ms';
+  if (err) {
+    _tryOut.innerHTML = '<div style="color:var(--warn)">request failed — '+escapeHtml(String(err))+'</div>';
+    return;
+  }
+  let html = '';
+  if (res && res.receipt) {
+    html += '<div class=verify-row><span class="pill pending" id=tryPill>verifying…</span>'
+         + '<span style="color:var(--fg-3);font-size:11px">receipt over '+ (res.receipt.fact_cids||[]).length +' fact_cids · served_at '+escapeHtml(res.receipt.served_at||'')+' · by '+ escapeHtml((res.receipt.responder_pubkey_b32||'').slice(0,12)) +'…</span></div>';
+  }
+  html += '<pre>' + escapeHtml(JSON.stringify(res, null, 2)) + '</pre>';
+  _tryOut.innerHTML = html;
+  if (res && res.receipt) {
+    const pill = document.getElementById('tryPill');
+    try {
+      const ok = await verifyReceiptCore(res.receipt);
+      pill.className = 'pill ' + (ok ? 'ok' : 'fail');
+      pill.textContent = ok ? 'verified · ed25519' : 'verify failed';
+    } catch(_) { pill.className = 'pill fail'; pill.textContent = 'verify error'; }
+  }
+};
+// Open the drawer when the chip is clicked or T is pressed.
+document.getElementById('chipTry').onclick = () => { setHeroFade(true); openTryIt(); };
+window.addEventListener('keydown', e => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Escape' && _tryDrawer.classList.contains('on')) { closeTryIt(); return; }
+  if ((e.key === 't' || e.key === 'T') && !_tryDrawer.classList.contains('on')) { e.preventDefault(); openTryIt(); }
+});
+// Expose for the manifest-grid & ontology view click handlers below.
+window._ememOpenTryIt = openTryIt;
+
+// ── 17d. Manifest grid view (replaces the abstract Poincaré disk) ──────────
+//
+// Eight explainable cards — one per manifest. Each says what it is in plain
+// English, shows the count + CID + tempo, and links to /v1/<that-manifest>
+// (which lands in the try-it drawer pre-configured for GET).
+const MANIFEST_INFO = {
+  registry:   { what:'Index of every other manifest. The root pointer — a responder publishes its registry CID at /.well-known/emem.json.', tryKey:'manifests' },
+  bands:      { what:'34 declared bands totalling 1792 dimensions. Each band lists its family, tempo, units, and producing algorithms.', tryKey:'bands' },
+  algorithms: { what:'107 algorithms — preprocessors, foundation embeddings, predictors, decoders, physics solvers — keyed by content hash.', tryKey:'algorithms' },
+  sources:    { what:'External data sources the materializers can ingest from (Landsat, Copernicus, ECMWF, FTW, Overture, …). License + scheme per entry.', tryKey:'sources' },
+  schema:     { what:'Canonical wire schema (CBOR shape, signing rule). Two responders that follow the same schema_cid produce byte-identical facts.', tryKey:'schema' },
+  topics:     { what:'25 human-facing topics — flood, wildfire, heat, drought, biodiversity, … — that route /v1/ask into recall plans.', tryKey:'topics' },
+  'lcv-1':    { what:'Land-Cover Vocabulary v1 — controlled classes for the landcover band family. Lets two responders agree what "forest" means.', tryKey:null },
+  alphabet:   { what:'Encoding alphabet (base32-nopad-lowercase, 32 chars). Pinned so older clients keep parsing.', tryKey:null },
+};
+function buildManifestGridView() {
+  const grid = document.getElementById('manifestGrid');
+  if (!grid) return;
+  const m = STATE.manifests || {};
+  const entries = [
+    { key:'registry',   cid:m.registry_cid,   path:'/v1/manifests' },
+    { key:'bands',      cid:m.bands_cid,      path:'/v1/bands',      count: (STATE.bands||[]).length || (STATE.matrix||[]).length },
+    { key:'algorithms', cid:m.algorithms_cid, path:'/v1/algorithms', count: (STATE.algorithms||[]).length },
+    { key:'sources',    cid:m.sources_cid,    path:'/v1/sources',    count: (STATE.sources||[]).length },
+    { key:'schema',     cid:m.schema_cid,     path:'/v1/schema' },
+    { key:'topics',     cid:m.topics_cid,     path:'/v1/topics' },
+    { key:'lcv-1',      cid:m.lcv_cid,        path:null },
+    { key:'alphabet',   cid:m.alphabet_cid,   path:null },
+  ];
+  // top-band chips for the bands card (uses family colour)
+  const topBands = (STATE.matrix||[]).slice().sort((a,b)=>(b.facts_count||0)-(a.facts_count||0)).slice(0, 6);
+  let html = '<div class=mhead>'
+    + '<h2>registry — the 8 manifests of this responder</h2>'
+    + '<p>An emem responder is anchored by 8 content-addressed manifests. Each is a frozen list of facts about the protocol itself. Every cell + band + algorithm + source you ever query traces back to a CID in one of these. CIDs are reproducible — two responders that agree on a manifest agree, byte for byte, on what it contains.</p>'
+    + '</div>'
+    + '<div class=mgrid>';
+  for (const e of entries) {
+    const info = MANIFEST_INFO[e.key] || {};
+    const count = (e.count != null) ? e.count : null;
+    const cidStr = e.cid ? e.cid : null;
+    html += '<div class=mcard data-emem-manifest="'+escapeHtml(e.key)+'">'
+      + '<div class=mkey>'+escapeHtml(e.key)+'<span class=mtag>manifest</span></div>'
+      + '<div class=mwhat>'+(info.what||'')+'</div>';
+    if (e.key === 'bands' && topBands.length) {
+      html += '<div class=mfam-row>';
+      for (const b of topBands) {
+        const fam = b.family || 'reserved';
+        html += '<span class=mfam data-emem-band="'+escapeHtml(b.band)+'" data-emem-family="'+escapeHtml(fam)+'">'
+              + '<span class=fd style="background:'+famColor(fam)+';color:'+famColor(fam)+'"></span>'
+              + escapeHtml(b.band)+' · '+(b.facts_count||0)+'</span>';
+      }
+      html += '</div>';
+    }
+    html += '<div class=mstats>';
+    if (count != null) html += '<span>entries</span><b>'+count.toLocaleString()+'</b>';
+    if (e.path)        html += '<span>endpoint</span><b><code style="color:var(--accent)">'+escapeHtml(e.path)+'</code></b>';
+    if (cidStr)        html += '<span>type</span><b>blake3·b32</b>';
+    html += '</div>';
+    if (cidStr) {
+      html += '<div class=mcid title="click to copy full CID" data-emem-cid="'+escapeHtml(cidStr)+'">'+escapeHtml(cidStr.slice(0, 22))+'…'+escapeHtml(cidStr.slice(-4))+'</div>';
+    } else {
+      html += '<div class="mcid empty">— not published on this responder —</div>';
+    }
+    html += '<div class=macts>';
+    if (info.tryKey) html += '<button data-act="try" data-key="'+escapeHtml(info.tryKey)+'">try '+escapeHtml('GET '+e.path)+'</button>';
+    if (cidStr)      html += '<button data-act="copy" data-cid="'+escapeHtml(cidStr)+'">copy cid</button>';
+    if (e.key === 'bands') html += '<button data-act="filter-bands">filter bands</button>';
+    html += '</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+  grid.innerHTML = html;
+  // wire actions
+  grid.querySelectorAll('button[data-act=try]').forEach(b => {
+    b.onclick = () => openTryIt(b.getAttribute('data-key'));
+  });
+  grid.querySelectorAll('button[data-act=copy]').forEach(b => {
+    b.onclick = () => { try { navigator.clipboard.writeText(b.getAttribute('data-cid')); showToast('copied cid'); } catch(_) {} };
+  });
+  grid.querySelectorAll('button[data-act=filter-bands]').forEach(b => {
+    b.onclick = () => { setMode('field'); document.getElementById('famKey')?.scrollIntoView({ behavior:'smooth', block:'nearest' }); };
+  });
+  grid.querySelectorAll('.mfam').forEach(el => {
+    el.onclick = () => paintBandCard(el.getAttribute('data-emem-band'));
+  });
+  grid.querySelectorAll('.mcid:not(.empty)').forEach(el => {
+    el.onclick = () => { const cid = el.getAttribute('data-emem-cid')||el.textContent.trim(); try { navigator.clipboard.writeText(cid); showToast('copied cid'); } catch(_){} };
+  });
+}
+
+// ── 17e. Ontology view (replaces the abstract force-directed cell cloud) ───
+//
+// Renders the literal data model the protocol exposes — Source → Cell ×
+// Band × Tslot → Fact → Receipt, plus the manifests anchoring the right
+// edge. Every node has live counts where we know them, and clicking a
+// node opens the try-it drawer for the primitive that operates on it.
+function buildOntologyView() {
+  const root = document.getElementById('ontology');
+  if (!root) return;
+  const totals = STATE.totals || {};
+  const cellsN = (STATE.cells||[]).length;
+  const bandsN = (STATE.bands||[]).length || (STATE.matrix||[]).length;
+  const factsN = totals.facts_count || (STATE.matrix||[]).reduce((a,b)=>a+(b.facts_count||0),0);
+  const algoN  = (STATE.algorithms||[]).length;
+  const srcN   = (STATE.sources||[]).length;
+  // SVG layout — five lanes, geometry fixed in viewBox space; CSS scales.
+  const W = 1080, H = 460;
+  const nodes = [
+    { id:'source',  x:40,   y:170, w:160, h:120, t:'Source',  s:'external · cog/ftw/ecmwf/…', n: srcN,   prim:'POST /v1/sources',     try:'sources' },
+    { id:'fetcher', x:240,  y:170, w:170, h:120, t:'Materializer', s:'source → fact pipeline',         prim:'POST /v1/backfill',    try:'backfill' },
+    { id:'cell',    x:460,  y:60,  w:170, h:110, t:'Cell',    s:'cell64 · ~9.55 m square',     n: cellsN, prim:'POST /v1/recall',      try:'recall' },
+    { id:'band',    x:460,  y:200, w:170, h:110, t:'Band',    s:'34 declared · 1792-D total',  n: bandsN, prim:'GET /v1/bands',        try:'bands' },
+    { id:'tslot',   x:460,  y:340, w:170, h:110, t:'Tslot',   s:'unix ÷ band.tempo',                       prim:'POST /v1/trajectory', try:'trajectory' },
+    { id:'fact',    x:680,  y:170, w:170, h:120, t:'Fact',    s:'signed observation',          n: factsN, prim:'POST /v1/recall',      try:'recall' },
+    { id:'receipt', x:880,  y:60,  w:170, h:110, t:'Receipt', s:'ed25519 over fact_cids',                  prim:'POST /v1/verify_receipt', try:'verify_receipt' },
+    { id:'algo',    x:880,  y:200, w:170, h:110, t:'Algorithm', s:'preprocessor · embedding · …', n: algoN, prim:'GET /v1/algorithms',  try:'algorithms' },
+    { id:'manifest',x:880,  y:340, w:170, h:110, t:'Manifest',s:'8 frozen registries',         n: 8,      prim:'GET /v1/manifests',     try:'manifests' },
+  ];
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const edges = [
+    { a:'source',  b:'fetcher', lbl:'pull' },
+    { a:'fetcher', b:'fact',    lbl:'emits' },
+    { a:'cell',    b:'fact',    lbl:'×' },
+    { a:'band',    b:'fact',    lbl:'×' },
+    { a:'tslot',   b:'fact',    lbl:'×' },
+    { a:'fact',    b:'receipt', lbl:'sign' },
+    { a:'algo',    b:'fact',    lbl:'derives' },
+    { a:'manifest',b:'band',    lbl:'declares' },
+    { a:'manifest',b:'algo',    lbl:'declares' },
+  ];
+  const sideAnchor = (n, dir) => ({
+    x: dir === 'right' ? n.x + n.w : dir === 'left' ? n.x : n.x + n.w/2,
+    y: n.y + n.h/2,
+  });
+  let svgBody = '';
+  for (const e of edges) {
+    const A = byId[e.a], B = byId[e.b];
+    const dir = (A.x < B.x) ? 'right' : (A.x > B.x ? 'left' : 'right');
+    const p1 = sideAnchor(A, dir);
+    const p2 = sideAnchor(B, dir === 'right' ? 'left' : 'right');
+    const mx = (p1.x + p2.x)/2;
+    const path = `M ${p1.x} ${p1.y} C ${mx} ${p1.y}, ${mx} ${p2.y}, ${p2.x} ${p2.y}`;
+    svgBody += `<path class=o-edge d="${path}" />`;
+    svgBody += `<text class=o-edge-label x="${mx}" y="${(p1.y+p2.y)/2 - 4}" text-anchor="middle">${escapeHtml(e.lbl)}</text>`;
+  }
+  for (const n of nodes) {
+    svgBody += `<rect class=o-node-box data-key="${escapeHtml(n.try||'')}" data-prim="${escapeHtml(n.prim||'')}" x="${n.x}" y="${n.y}" rx="6" ry="6" width="${n.w}" height="${n.h}" />`;
+    svgBody += `<text class=o-node-title x="${n.x+12}" y="${n.y+24}">${escapeHtml(n.t)}</text>`;
+    if (n.n != null) {
+      svgBody += `<text class=o-node-count x="${n.x + n.w - 12}" y="${n.y + 24}" text-anchor="end">${Number(n.n).toLocaleString()}</text>`;
+    }
+    svgBody += `<text class=o-node-sub x="${n.x+12}" y="${n.y+42}">${escapeHtml(n.s)}</text>`;
+    if (n.prim) {
+      svgBody += `<text class=o-node-prim x="${n.x+12}" y="${n.y + n.h - 12}">${escapeHtml(n.prim)}</text>`;
+    }
+  }
+  root.innerHTML =
+    '<div class=ohead>'
+      + '<h2>graph — the protocol\'s data model</h2>'
+      + '<p>Every Earth observation in emem is keyed by the same triple: <b style="color:var(--fg-2)">Cell × Band × Tslot → Fact</b>. Materializers pull bytes from external Sources and emit Facts; every Fact lands in a Receipt the responder signs with ed25519. Click any node to try the primitive that operates on it.</p>'
+    + '</div>'
+    + '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" aria-label="Ontology graph: source → materializer → cell × band × tslot → fact → receipt">'+svgBody+'</svg>'
+    + '<div class=legend-strip>'
+    + '<span class=swatch><span class=dot style="background:var(--accent)"></span>verifiable</span>'
+    + '<span class=swatch><span class=dot style="background:var(--fam-foundation)"></span>cid · content-addressed</span>'
+    + '<span class=swatch><span class=dot style="background:var(--fam-weather)"></span>responder · ed25519</span>'
+    + '</div>';
+  root.querySelectorAll('rect.o-node-box').forEach(r => {
+    r.addEventListener('click', () => {
+      const k = r.getAttribute('data-key');
+      if (k && PRIMITIVES[k]) openTryIt(k);
+    });
+  });
+}
+
+// ── 17f. Right-pane raw / human toggle ─────────────────────────────────────
+//
+// Click "raw" on the right pane and the rendered card flips to a <pre> of
+// the raw JSON envelope this UI received — the same payload an MCP-driven
+// agent would see. Click "human" to flip back. The toggle button only
+// appears when there's an envelope to show (cell recall, ask, etc.).
+STATE._lastRightHtml = '';
+STATE._lastRightRaw  = null;
+STATE._rightMode     = 'human';
+function setRightRaw(raw) { STATE._lastRightRaw = raw; renderRightToggle(); }
+function renderRightToggle() {
+  const inner = document.getElementById('rightInner');
+  if (!inner) return;
+  let bar = document.getElementById('rightToggle');
+  if (!STATE._lastRightRaw) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'rightToggle';
+    bar.className = 'right-toggle';
+    bar.innerHTML = '<span class=lbl>view</span>'
+      + '<button id=rtHuman type=button aria-pressed=true title="Rendered for humans">human</button>'
+      + '<button id=rtRaw   type=button aria-pressed=false title="Raw JSON envelope — exactly what an MCP agent sees">raw</button>';
+    inner.prepend(bar);
+    document.getElementById('rtHuman').onclick = () => _setRightMode('human');
+    document.getElementById('rtRaw').onclick   = () => _setRightMode('raw');
+  }
+  document.getElementById('rtHuman').setAttribute('aria-pressed', String(STATE._rightMode==='human'));
+  document.getElementById('rtRaw').setAttribute('aria-pressed',   String(STATE._rightMode==='raw'));
+}
+function _setRightMode(m) {
+  const inner = document.getElementById('rightInner');
+  if (!inner) return;
+  // Flipping FROM human → raw: capture the current rendered DOM so any
+  // in-place mutations (e.g. doRecall() filling #factsBox) survive the
+  // round trip. We strip the toggle bar before snapshotting so it isn't
+  // serialised into the cached html.
+  if (STATE._rightMode === 'human' && m === 'raw') {
+    const bar = document.getElementById('rightToggle');
+    if (bar) bar.remove();
+    STATE._lastRightHtml = inner.innerHTML;
+  }
+  STATE._rightMode = m;
+  const bar2 = document.getElementById('rightToggle');
+  if (bar2) bar2.remove();
+  if (m === 'raw' && STATE._lastRightRaw != null) {
+    inner.innerHTML = '<pre class=right-raw>'+escapeHtml(JSON.stringify(STATE._lastRightRaw, null, 2))+'</pre>';
+  } else {
+    inner.innerHTML = STATE._lastRightHtml || '';
+    installChips(inner);
+  }
+  renderRightToggle();
+}
+
+// ── 17g. Preload — first paint should never be empty ───────────────────────
+//
+// If the URL doesn't already specify a ?cell=, drop the right pane on the
+// densest cell as soon as coverage lands. Newcomers see a real worked
+// example (cell + facts + receipt) without pressing Ctrl-K.
+function preloadFeatureCell() {
+  if (STATE.selectedCell) return;
+  const url = readUrlState();
+  if (url && url.cell) return;
+  const c = [...(STATE.cells||[])].sort((a,b)=>(b.fact_count||0)-(a.fact_count||0))[0];
+  if (c) selectCell(c);
 }
 
 // ── 18. Command palette ───────────────────────────────────────────────────
@@ -3529,7 +4387,7 @@ function paintAskResult(res, originalQ, placeMeta) {
     drawCurrent();
   }
 
-  setRightPane(html);
+  setRightPane(html, res);
   const factsBox = document.getElementById('factsBox');
   if (factsBox) {
     factsBox.querySelectorAll('.copyable').forEach(el => {
@@ -3584,7 +4442,7 @@ window.addEventListener('load', async () => {
     const cmdLabel = isMac ? '⌘K' : 'Ctrl-K';
     const div = document.createElement('div');
     div.className = 'log banner';
-    div.innerHTML = '<span class=arrow>// </span> ready. every /v1/* call this UI makes prints above. paste a curl into your shell — same bytes, same CIDs. press <kbd>'+cmdLabel+'</kbd>, <kbd>~</kbd>, <kbd>?</kbd>.';
+    div.innerHTML = '<span class=arrow>// </span> ready. every /v1/* call this UI makes prints above. paste a curl into your shell — same bytes, same CIDs. press <kbd>'+cmdLabel+'</kbd> to ask, <kbd>T</kbd> for the live try-it drawer, <kbd>~</kbd> for the console, <kbd>?</kbd> for help.';
     consoleBody.appendChild(div);
     consoleEl.scrollTop = consoleEl.scrollHeight;
     drawCurrent();

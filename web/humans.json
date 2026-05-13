@@ -260,14 +260,41 @@
     "GET /v1/bands",
     "GET /v1/algorithms",
     "GET /v1/sources",
+    "GET /v1/manifests",
+    "GET /v1/schema",
+    "GET /v1/topics",
+    "GET /v1/agent_card",
     "POST /v1/recall",
+    "POST /v1/recall_many",
     "POST /v1/recall_polygon",
     "POST /v1/find_similar",
+    "POST /v1/trajectory",
+    "POST /v1/compare",
+    "POST /v1/diff",
     "POST /v1/locate",
+    "POST /v1/ask",
+    "POST /v1/field_boundaries",
+    "POST /v1/query_region",
+    "POST /v1/backfill",
     "POST /v1/verify_receipt",
     "GET /v1/cells/{cell64}/info",
     "GET /v1/cells/{cell64}/scene.png"
   ],
+  "ui_surfaces": {
+    "glossary": ["cell64", "cid", "tslot", "band", "fact", "receipt", "responder", "materializer"],
+    "views": {
+      "field":    "Cells-as-stars constellation (canvas, lat/lng or embedding PCA).",
+      "graph":    "Ontology graph: Source → Materializer → Cell × Band × Tslot → Fact → Receipt (SVG, click any node to open the try-it drawer).",
+      "registry": "Eight explainable manifest cards (registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet) with counts, CIDs, and try-it buttons.",
+      "log":      "Latest signed attestations, top-of-list, with one-click offline verify."
+    },
+    "try_it_drawer": {
+      "trigger": "Header chip \"try\" or keyboard T.",
+      "primitives": ["recall", "recall_many", "recall_polygon", "find_similar", "trajectory", "compare", "diff", "verify_receipt", "locate", "ask", "field_boundaries", "query_region", "backfill", "manifests", "bands", "algorithms", "sources", "topics", "schema", "agent_card"],
+      "features": ["pre-filled JSON body seeded from real corpus data", "presets per primitive", "live run against this responder", "in-browser ed25519 verify of returned receipts", "copy as curl / python (httpx) / MCP tools/call envelope"]
+    },
+    "agent_eye_view": "Every right-pane card carries a `human` / `raw` toggle that flips the rendered card to the raw JSON envelope an MCP-driven agent would receive."
+  },
   "trust_model": {
     "hash_alg": "blake3",
     "sig_alg": "ed25519",

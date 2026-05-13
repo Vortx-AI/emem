@@ -16,12 +16,24 @@
 - `GET /v1/bands` — band registry (35 bands, family, dims, in_cube)
 - `GET /v1/algorithms` — algorithm registry (composition recipes)
 - `GET /v1/sources` — fetch-source registry (12 connectors, 23 schemes)
+- `GET /v1/manifests` — the 8 manifests (registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet)
+- `GET /v1/schema` — canonical CBOR wire schema
+- `GET /v1/topics` — 25 question-topic routes (flood, wildfire, heat, …)
+- `GET /v1/agent_card` — agent-readable summary of this responder
 - `GET /v1/cells/{cell64}/info` — bbox, centre, approximate metres
 - `GET /v1/cells/{cell64}/scene.png` — optional thumbnail
 - `POST /v1/recall` — `{cell, bands?}` → signed `facts[] + receipt`
+- `POST /v1/recall_many` — `{cells[≤256], bands?}` → per-cell facts + batch receipt
 - `POST /v1/recall_polygon` — `{polygon|place, bands}` → fanout fact set + receipt
 - `POST /v1/find_similar` — `{key|cell, band?, k}` → cosine top-K + receipt
+- `POST /v1/trajectory` — `{cell, band, t0, t1}` → ordered tslots → values + receipt
+- `POST /v1/compare` — `{a, b, bands}` → per-band distances + receipt
+- `POST /v1/diff` — `{cell, band, t0, t1}` → change-detection over time + receipt
 - `POST /v1/locate` — `{q}` → cell64 + bbox + topic-grouped band index at that cell
+- `POST /v1/ask` — `{q}` → place + topic-routed natural-language answer + receipt
+- `POST /v1/field_boundaries` — `{bbox|cell}` → FTW field polygons (CC-BY-4.0)
+- `POST /v1/query_region` — `{polygon}` → region aggregate (counts per band)
+- `POST /v1/backfill` — `{cell, band, t0, t1}` → on-demand materialisation
 - `POST /v1/verify_receipt` — `{receipt}` → `{valid, preimage_blake3_hex, signer_pubkey_b32}`
 
 ## Data attributes (DOM scraping)
@@ -70,10 +82,27 @@ bottom sheet on mobile). Each row shows:
 - Truncated request body (when applicable)
 - Status code, latency in ms
 - Truncated response body or error reason
+- Per-row pivots: copy as `curl`, copy as Python (`httpx`), copy as MCP `tools/call`, or replay
 
 Press `~` or click the chip in the top-right to focus the console. Press
-`Cmd+K` (or `Ctrl+K`) to open the command palette. Press `?` for the
-keyboard shortcut sheet.
+`Cmd+K` (or `Ctrl+K`) to open the command palette. Press `T` to open the
+live try-it drawer. Press `?` for the keyboard shortcut sheet.
+
+## Try-it drawer (`T`)
+
+A slide-out drawer exposes the 20+ primitives the page knows about. For
+each:
+
+- pre-filled JSON request body seeded from the corpus this responder
+  actually serves (densest cell, top band)
+- per-primitive presets (e.g. "flood risk" / "wildfire smoke" / "climate
+  haven" for `ask`)
+- one-click Run → live POST to this responder → response, signed receipt,
+  in-browser ed25519 verify
+- copy-as-curl, copy-as-python (httpx), copy-as-MCP-`tools/call`
+
+This is the outbound counterpart to the reactive console pane: the console
+shows calls that already happened, the drawer is where you make new ones.
 
 ## Views
 
@@ -81,13 +110,34 @@ keyboard shortcut sheet.
   PCA over the `geotessera` 12-byte embedding prefix when available, or by
   Hilbert-projected lat/lng otherwise. Brightness ∝ log(fact_count + 1),
   hue ∝ band family. Drag to lasso a polygon → calls `POST /v1/recall_polygon`.
-- `graph` — force-directed layout (Verlet integrator, canvas2D) of the top
-  200 cells linked by shared bands. No third-party graph libraries.
-- `registry` — Poincaré-disk hyperbolic projection of the 8 manifest CIDs
-  (registry, bands, algorithms, sources, schema, lcv-1, alphabet, topics)
-  with their children placed by facts_count.
+- `graph` — ontology diagram of the protocol's data model:
+  `Source → Materializer → Cell × Band × Tslot → Fact → Receipt`, plus the
+  algorithms and manifests anchoring the right edge. Every node shows the
+  live count and the primitive that operates on it; click any node to open
+  the try-it drawer pre-configured for that primitive.
+- `registry` — eight explainable manifest cards (one per manifest:
+  registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet).
+  Each card carries a plain-English description, count, CID, and a button
+  that opens the try-it drawer for the relevant GET endpoint.
 - `log` — Sigstore-Rekor-style scroll of recent attestations sourced from
   `/v1/coverage_matrix`. Each row is independently verifiable.
+
+## Glossary
+
+A persistent chip strip under the hero exposes the eight protocol nouns:
+`cell64`, `cid`, `tslot`, `band`, `fact`, `receipt`, `responder`,
+`materializer`. Each opens a popover with a one-line definition + one
+concrete worked example. The strip never disappears (unlike the hero), so
+newcomers can always re-anchor.
+
+## Agent's-eye view
+
+Every right-pane card (cell recall, ask result, lasso polygon, …) carries
+a `human` / `raw` toggle in its top bar. Click `raw` to see the literal
+JSON envelope this UI received from the responder — the same payload an
+MCP-driven agent would receive at `tools/call`. This makes the page's
+claim of being "built for AI agents that humans can also see" literal: a
+human can verify the agent surface at any time without leaving the page.
 
 ## JSON twin
 
