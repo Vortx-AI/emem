@@ -101,6 +101,7 @@ const HUMANS_HTML: &str = include_str!("../../../web/humans.html");
 const HUMANS_JSON: &str = include_str!("../../../web/humans.json");
 const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
 const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
+const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
@@ -306,6 +307,13 @@ pub fn router(state: AppState) -> Router {
         .route("/humans.json", get(serve_humans_json))
         .route("/humans/llms.txt", get(serve_humans_llms_txt))
         .route("/humans-og.svg", get(serve_humans_og_svg))
+        // /verify — receipts + fact CIDs, recomputed in the browser. The
+        // same HTML answers /verify (idle landing) and /verify/<fact_cid>
+        // (auto-fetch + auto-verify); the page reads location.pathname to
+        // decide. /verify?receipt=<base64> is also supported so an agent
+        // can share a one-click verifiable link.
+        .route("/verify", get(serve_verify_html))
+        .route("/verify/:cid", get(serve_verify_html))
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -1422,6 +1430,23 @@ async fn serve_humans_llms_txt() -> Response {
 /// identically wherever the URL is pasted.
 async fn serve_humans_og_svg() -> Response {
     text_response("image/svg+xml; charset=utf-8", HUMANS_OG_SVG)
+}
+
+/// `/verify` and `/verify/<fact_cid>` — cryptographic receipt verifier.
+///
+/// One HTML file (`web/verify.html`) that recomputes the ed25519
+/// signature in the browser (`@noble/curves/ed25519` over a blake3
+/// digest of the canonical preimage). Falls back to
+/// `POST /v1/verify_receipt` when the noble libs are blocked.
+///
+/// Same HTML answers both routes — the page reads `location.pathname`
+/// to extract the CID. Designed as the "show non-technical buyers what
+/// 'cryptographically verifiable' actually looks like" surface
+/// (insurance underwriters, EUDR auditors, carbon-credit registries):
+/// every fact CID, signing key, source URL, and derivation function is
+/// rendered with a green check the moment the math checks out.
+async fn serve_verify_html() -> Response {
+    text_response("text/html; charset=utf-8", VERIFY_HTML)
 }
 
 /// `/skills.md` — composed-recipe cookbook for agents.

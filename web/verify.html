@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/verify — cryptographic receipt verifier</title>
+<meta name=description content="Paste a fact CID or a receipt JSON. Every signature is recomputed in your browser — ed25519 over the canonical preimage, no server round-trip required. The protocol's trust layer, made visible.">
+<link rel=canonical href="https://emem.dev/verify">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel=alternate type=text/markdown href="/llms.txt">
+<link rel="service mcp" href="/mcp">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/verify">
+<meta property=og:title content="emem.dev/verify — receipts, signatures, sources">
+<meta property=og:description content="Every fact on emem.dev is content-addressed and signed by an ed25519 responder key. This page recomputes the signature in your browser — no trust required, no server call.">
+<meta property=og:image content="https://emem.dev/humans-og.svg">
+<meta property=og:image:width content="1200">
+<meta property=og:image:height content="630">
+<meta name=twitter:card content="summary_large_image">
+<meta name=twitter:title content="emem.dev/verify — receipts, signatures, sources">
+<meta name=twitter:description content="Receipts verify offline in your browser. The protocol's trust layer, made visible.">
+<meta name=twitter:image content="https://emem.dev/humans-og.svg">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   /verify — single-purpose, scientific dark palette. Same tokens as
+   /humans for visual continuity; this surface is the trust-layer
+   sibling of the constellation.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#0A0B0E;
+  --bg-1:#0E0F13;
+  --bg-2:#13151A;
+  --bg-3:#1A1D24;
+  --fg:#E8E8EA;
+  --fg-2:#B5B7BE;
+  --fg-3:#7C7E87;
+  --fg-mute:#7A7D87;
+  --line:rgba(232,232,234,0.08);
+  --line-2:rgba(232,232,234,0.16);
+  --accent:#7CFFB2;           /* verified / ok */
+  --accent-dim:#3FB37E;
+  --warn:#FF7C7C;             /* tamper / invalid */
+  --pending:#FFD27C;
+  --info:#7CC8FF;
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'Inter Tight','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);
+  font-family:var(--sans);font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  font-variant-numeric:tabular-nums;
+}
+.mono,code,kbd,samp,pre{font-family:var(--mono)}
+a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
+  border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;
+  letter-spacing:.02em;font-size:12px;}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+button.primary:hover{background:rgba(124,255,178,.14)}
+button.ghost{border:none;padding:.3em .6em;color:var(--fg-2)}
+input,textarea{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
+  border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px;
+  font-variant-ligatures:none}
+input:focus,textarea:focus{border-color:var(--accent)}
+textarea{min-height:120px;resize:vertical;line-height:1.5}
+hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
+::selection{background:rgba(124,255,178,.25);color:#fff}
+
+/* layout */
+.app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
+@media(max-width:760px){.app{padding:1em .8em 4em}}
+header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
+  border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
+header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:16px;color:var(--fg)}
+header.top .brand .slash{color:var(--fg-mute)}
+header.top .brand .verify{color:var(--accent)}
+header.top .tag{font-size:11px;color:var(--fg-3);font-family:var(--mono);letter-spacing:.04em}
+header.top .spacer{flex:1}
+header.top .navlinks{display:flex;gap:.6em;font-size:11px;font-family:var(--mono);color:var(--fg-3)}
+header.top .navlinks a{color:var(--fg-3);border-bottom:none}
+header.top .navlinks a:hover{color:var(--accent)}
+@media(max-width:760px){header.top .tag{display:none}}
+
+.lede{color:var(--fg-2);font-size:14.5px;margin:0 0 1.4em;line-height:1.65;max-width:680px}
+.lede b{color:var(--fg);font-weight:500}
+.lede .accent{color:var(--accent);font-weight:500}
+
+/* input section */
+.input-card{background:var(--bg-1);border:1px solid var(--line);padding:1.1em 1.2em;
+  border-radius:4px;margin-bottom:1.3em}
+.input-card label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--fg-mute);margin-bottom:.45em}
+.input-card .row{display:flex;gap:.55em;align-items:stretch;flex-wrap:wrap}
+.input-card .row input{flex:1;min-width:200px}
+.input-card .row button{flex-shrink:0}
+.input-card .or{text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  color:var(--fg-mute);text-transform:uppercase;margin:.8em 0 .55em}
+.input-card .examples{margin-top:.55em;display:flex;flex-wrap:wrap;gap:.3em;align-items:center}
+.input-card .examples .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+  color:var(--fg-mute);text-transform:uppercase;margin-right:.3em}
+.input-card .examples button{font-size:10.5px;padding:.22em .55em;border-radius:99px;background:var(--bg-2)}
+
+/* status banner */
+.status{display:flex;align-items:center;gap:.7em;padding:1em 1.2em;border-radius:4px;
+  margin-bottom:1.3em;font-family:var(--mono);font-size:13px;border:1px solid var(--line)}
+.status .glyph{font-size:24px;line-height:1;flex-shrink:0;
+  width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+.status .text{flex:1}
+.status .sub{font-size:11.5px;color:var(--fg-3);margin-top:.18em;line-height:1.5}
+.status.ok{border-color:var(--accent);background:rgba(124,255,178,.05)}
+.status.ok .glyph{background:rgba(124,255,178,.14);color:var(--accent)}
+.status.ok .text{color:var(--accent)}
+.status.fail{border-color:var(--warn);background:rgba(255,124,124,.05)}
+.status.fail .glyph{background:rgba(255,124,124,.14);color:var(--warn)}
+.status.fail .text{color:var(--warn)}
+.status.pending{border-color:var(--pending);background:rgba(255,210,124,.04)}
+.status.pending .glyph{background:rgba(255,210,124,.14);color:var(--pending);
+  animation:pulse 1.4s ease-in-out infinite}
+.status.idle{border-style:dashed;color:var(--fg-3)}
+.status.idle .glyph{background:var(--bg-2);color:var(--fg-mute)}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+
+/* cards */
+.card{background:var(--bg-1);border:1px solid var(--line);padding:1.1em 1.2em;
+  border-radius:4px;margin-bottom:1em}
+.card h3{font-family:var(--mono);font-size:11px;letter-spacing:.18em;
+  color:var(--fg-mute);text-transform:uppercase;margin:0 0 .9em;font-weight:500;
+  display:flex;align-items:center;gap:.55em}
+.card h3 .pill{font-size:9.5px;letter-spacing:.1em;padding:.1em .55em;border:1px solid var(--line-2);
+  border-radius:99px;color:var(--fg-3);background:var(--bg-2);text-transform:none}
+.card .grid{display:grid;grid-template-columns:auto 1fr;gap:.5em 1.2em;font-family:var(--mono);font-size:12.5px}
+@media(max-width:600px){.card .grid{grid-template-columns:1fr;gap:.2em .8em}}
+.card .grid .k{color:var(--fg-mute);font-size:10.5px;letter-spacing:.06em;text-transform:lowercase;
+  padding-top:.18em;align-self:start}
+@media(min-width:601px){.card .grid .k{text-align:right}}
+.card .grid .v{color:var(--fg);word-break:break-all;line-height:1.55}
+.card .grid .v.dim{color:var(--fg-2)}
+.card .grid .v code{font-family:var(--mono);font-size:12px;color:var(--fg);background:var(--bg-2);
+  padding:.05em .4em;border-radius:2px}
+.chip{display:inline-flex;align-items:center;gap:.35em;font-family:var(--mono);font-size:11px;
+  color:var(--fg-2);background:var(--bg-2);border:1px solid var(--line);padding:.08em .55em;
+  border-radius:99px;cursor:copy;letter-spacing:.01em;transition:color .12s,border-color .12s}
+.chip:hover{color:var(--accent);border-color:var(--accent)}
+.chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--fg-mute)}
+.chip[data-kind=cell] .dot{background:var(--accent)}
+.chip[data-kind=cid] .dot{background:#B27CFF}
+.chip[data-kind=pub] .dot{background:var(--info)}
+.chip[data-kind=ok] .dot{background:var(--accent)}
+.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent);background:rgba(124,255,178,.06)}
+.chip[data-kind=fail] .dot{background:var(--warn)}
+.chip[data-kind=fail]{color:var(--warn);border-color:var(--warn)}
+.value-preview{background:var(--bg-2);border:1px solid var(--line);padding:.55em .7em;
+  border-radius:3px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
+  white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;margin-top:.2em}
+.actions{display:flex;gap:.4em;margin-top:.85em;flex-wrap:wrap}
+.actions button{font-size:11px;padding:.3em .65em}
+
+/* sources block */
+.source-row{display:flex;align-items:center;gap:.6em;padding:.45em 0;border-bottom:1px dashed var(--line)}
+.source-row:last-child{border-bottom:none}
+.source-row .lic{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);
+  border:1px solid var(--line);padding:.05em .4em;border-radius:99px;background:var(--bg-2);
+  white-space:nowrap;flex-shrink:0}
+.source-row a{color:var(--fg-2);font-family:var(--mono);font-size:11.5px;flex:1;
+  overflow-wrap:anywhere}
+.source-row a:hover{color:var(--accent)}
+
+/* "verify it yourself" recipes */
+.recipes{display:grid;gap:.6em;margin-top:.4em}
+.recipes details{background:var(--bg-2);border:1px solid var(--line);padding:.55em .8em;
+  border-radius:3px;font-family:var(--mono);font-size:11.5px}
+.recipes summary{cursor:pointer;color:var(--fg-2);outline:none;list-style:none}
+.recipes summary::-webkit-details-marker{display:none}
+.recipes summary::before{content:"▸ ";color:var(--fg-mute)}
+.recipes[open] summary::before,
+.recipes details[open] summary::before{content:"▾ "}
+.recipes pre{margin:.55em 0 .1em;background:var(--bg);border:1px solid var(--line);
+  padding:.55em .65em;border-radius:3px;font-size:11px;color:var(--fg);
+  white-space:pre-wrap;word-break:break-word;overflow-x:auto;line-height:1.5}
+.recipes .copy{margin-left:.6em;font-size:10px;padding:.1em .45em}
+
+/* glossary */
+.gloss{display:flex;flex-wrap:wrap;gap:.35em;margin:1.2em 0 .4em;align-items:center;
+  padding:.7em 0;border-top:1px solid var(--line)}
+.gloss .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--fg-mute);
+  text-transform:uppercase;margin-right:.3em}
+.gloss .gchip{font-family:var(--mono);font-size:11px;color:var(--fg-3);
+  background:var(--bg-1);border:1px solid var(--line);padding:.15em .55em;
+  border-radius:99px;cursor:help;letter-spacing:.02em}
+.gloss .gchip:hover{color:var(--accent);border-color:var(--accent)}
+.gpop{position:absolute;background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
+  border-radius:4px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
+  max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.6);line-height:1.6;z-index:10;display:none}
+.gpop.on{display:block}
+.gpop b{color:var(--accent);font-weight:600}
+
+/* footer */
+footer.foot{margin-top:2.4em;padding-top:1.1em;border-top:1px solid var(--line);
+  display:flex;gap:1em;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--fg-mute)}
+footer.foot a{color:var(--fg-3);border-bottom:none}
+footer.foot a:hover{color:var(--accent)}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
+  background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
+  border-radius:3px;font-family:var(--mono);font-size:11.5px;z-index:200;opacity:0;
+  pointer-events:none;transition:opacity .18s ease,transform .18s ease;
+  box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.muted{color:var(--fg-3)}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<a class=skip href="#main">Skip to verifier</a>
+<main class=app id=main tabindex="-1">
+  <header class=top role=banner>
+    <span class=brand aria-label="emem.dev verify page">emem.dev<span class=slash>/</span><span class=verify>verify</span></span>
+    <span class=tag>— cryptographic receipt verifier</span>
+    <span class=spacer></span>
+    <nav class=navlinks aria-label="protocol surfaces">
+      <a href="/humans">humans</a>
+      <a href="/openapi.json">openapi</a>
+      <a href="/spec.md">spec</a>
+      <a href="/agents.md">agents</a>
+    </nav>
+  </header>
+
+  <p class=lede>
+    Every fact this protocol serves is <b>content-addressed</b> (BLAKE3 over canonical CBOR → 32-char base32 CID)
+    and every recall is wrapped in a <b>receipt</b> signed by the responder's ed25519 key over a deterministic
+    preimage. <span class=accent>This page recomputes the signature in your browser</span> — no server round-trip,
+    no trust required. Drop a fact CID, paste a receipt JSON, and watch the math.
+  </p>
+
+  <section class=input-card aria-label="Input">
+    <label for=cidInput>fact CID — paste a 32-character base32 content-address</label>
+    <div class=row>
+      <input id=cidInput type=text spellcheck=false autocomplete=off
+             placeholder="e.g. qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq">
+      <button id=btnVerifyCid class=primary type=button>fetch &amp; verify</button>
+    </div>
+    <div class=examples>
+      <span class=lbl>try</span>
+      <button data-example="qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq" type=button>a Tessera embedding fact</button>
+      <button data-example=load-densest type=button>fetch from densest cell</button>
+    </div>
+    <div class=or>or paste a receipt JSON</div>
+    <label for=receiptInput>receipt JSON — verifies the ed25519 signature offline against the canonical preimage</label>
+    <textarea id=receiptInput spellcheck=false autocomplete=off
+              placeholder='{"primitive":"recall","served_at":"2026-05-13T14:38:00Z","request_id":"…","cells":["…"],"fact_cids":["…"],"responder_pubkey_b32":"…","sig_b32":"…","schema_cid":"…"}'></textarea>
+    <div class=actions>
+      <button id=btnVerifyReceipt class=primary type=button>verify receipt</button>
+      <button id=btnPasteFromClipboard type=button>paste from clipboard</button>
+      <button id=btnClear type=button>clear</button>
+    </div>
+  </section>
+
+  <section class="status idle" id=statusBanner role=status aria-live=polite>
+    <span class=glyph aria-hidden=true>◌</span>
+    <div>
+      <div class=text id=statusText>idle — fetch a fact or paste a receipt to begin</div>
+      <div class=sub id=statusSub>this surface verifies <code>blake3(preimage) → ed25519.verify(sig, digest, pubkey)</code> entirely in your browser</div>
+    </div>
+  </section>
+
+  <section class="card hidden" id=factCard aria-label="Fact details">
+    <h3>fact <span class=pill id=factKindPill>—</span></h3>
+    <div class=grid id=factGrid></div>
+  </section>
+
+  <section class="card hidden" id=receiptCard aria-label="Receipt details">
+    <h3>receipt <span class=pill id=receiptPrimitivePill>—</span></h3>
+    <div class=grid id=receiptGrid></div>
+    <div class=actions>
+      <button id=btnReverify type=button>re-verify</button>
+      <button id=btnCopyReceipt type=button>copy receipt JSON</button>
+      <button id=btnShareLink type=button>copy share link</button>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Verify it yourself">
+    <h3>verify it yourself <span class=pill>three independent paths</span></h3>
+    <p class=muted style="font-size:12.5px;margin:0 0 .8em;line-height:1.6">
+      The receipt's signature is reproducible from primitives every system already has. Pick whichever recipe
+      matches your toolchain — they all compute the same byte-for-byte digest and run the same ed25519 verify.
+    </p>
+    <div class=recipes>
+      <details open>
+        <summary>shell · <code>curl</code> + the responder's <code>/v1/verify_receipt</code></summary>
+        <pre id=recipeCurl>POST https://emem.dev/v1/verify_receipt …</pre>
+        <button class=copy data-copy=recipeCurl type=button>copy</button>
+      </details>
+      <details>
+        <summary>python · <code>httpx</code> + <code>cryptography</code> for the offline path</summary>
+        <pre id=recipePy>import httpx …</pre>
+        <button class=copy data-copy=recipePy type=button>copy</button>
+      </details>
+      <details>
+        <summary>in-browser · <code>@noble/curves</code> + <code>@noble/hashes</code> (what this page just ran)</summary>
+        <pre id=recipeJs>// preimage = request_id|served_at|primitive|cells|fact_cids
+// digest   = blake3(preimage, 32B)
+// ok       = ed25519.verify(sig_64B, digest, responder_pubkey_32B)</pre>
+        <button class=copy data-copy=recipeJs type=button>copy</button>
+      </details>
+    </div>
+  </section>
+
+  <div class=gloss aria-label="Glossary">
+    <span class=lbl>glossary</span>
+    <button type=button class=gchip data-gloss=cid>cid</button>
+    <button type=button class=gchip data-gloss=preimage>preimage</button>
+    <button type=button class=gchip data-gloss=blake3>blake3</button>
+    <button type=button class=gchip data-gloss=ed25519>ed25519</button>
+    <button type=button class=gchip data-gloss=receipt>receipt</button>
+    <button type=button class=gchip data-gloss=responder>responder</button>
+    <button type=button class=gchip data-gloss=cell64>cell64</button>
+  </div>
+  <div class=gpop id=gpop role=tooltip aria-hidden=true></div>
+
+  <footer class=foot>
+    <a href="/humans">/humans — knowledge constellation</a>
+    <a href="/openapi.json">/openapi.json</a>
+    <a href="/spec.md">/spec.md — trust layer</a>
+    <a href="/agents.md">/agents.md — MCP</a>
+    <a href="https://github.com/Vortx-AI/emem">github.com/Vortx-AI/emem</a>
+    <span style="margin-left:auto">verifier runs offline · no telemetry</span>
+  </footer>
+</main>
+<div class=toast id=toast></div>
+
+<script type="module">
+//==============================================================================
+// emem.dev/verify — receipt + fact verifier. Same crypto path as
+// /humans (noble-ed25519 + noble-blake3 via esm.sh, pinned versions);
+// stripped of every other concern. One page, one purpose: prove the
+// signature in front of the user.
+//==============================================================================
+
+// ── crypto libs (pinned) ────────────────────────────────────────────────────
+let nobleEd = null, nobleBlake3 = null, nobleStatus = 'pending';
+const nobleReady = (async () => {
+  const timeout = new Promise(res => setTimeout(() => res('timeout'), 4000));
+  const tryImport = (async () => {
+    const [ed, blake3] = await Promise.all([
+      import('https://esm.sh/@noble/curves@1.6.0/ed25519'),
+      import('https://esm.sh/@noble/hashes@1.5.0/blake3'),
+    ]);
+    return { ed, blake3 };
+  })();
+  try {
+    const r = await Promise.race([tryImport, timeout]);
+    if (r === 'timeout') { nobleStatus = 'fallback'; return; }
+    nobleEd = r.ed.ed25519;
+    nobleBlake3 = r.blake3.blake3;
+    nobleStatus = 'ok';
+  } catch (e) {
+    nobleStatus = 'fallback';
+    console.warn('[verify] crypto libs unavailable, falling back to /v1/verify_receipt:', e);
+  }
+})();
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
+let _toastTimer = null;
+function toast(msg){
+  const t = $('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('on');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('on'), 1400);
+}
+
+function setStatus(kind, text, sub){
+  const el = $('statusBanner');
+  el.className = 'status ' + (kind || 'idle');
+  const glyph = el.querySelector('.glyph');
+  glyph.textContent = kind === 'ok' ? '✓' : kind === 'fail' ? '✗' : kind === 'pending' ? '◌' : '◌';
+  $('statusText').textContent = text;
+  $('statusSub').innerHTML = sub || '';
+}
+
+// base32-nopad-lowercase decoder. Same alphabet emem uses everywhere
+// (RFC 4648 a-z2-7). Returns a Uint8Array.
+const B32A = 'abcdefghijklmnopqrstuvwxyz234567';
+function b32decode(s){
+  s = s.toLowerCase().replace(/=+$/, '');
+  const out = new Uint8Array(Math.floor(s.length * 5 / 8));
+  let bits = 0, value = 0, idx = 0;
+  for (const c of s) {
+    const i = B32A.indexOf(c);
+    if (i < 0) throw new Error('bad base32 char: ' + c);
+    value = (value << 5) | i;
+    bits += 5;
+    if (bits >= 8) {
+      out[idx++] = (value >>> (bits - 8)) & 0xff;
+      bits -= 8;
+    }
+  }
+  return out.slice(0, idx);
+}
+
+// Canonical preimage: request_id | served_at | primitive |
+//   (cell0 ',' cell1 ',' …) | (cid0 ',' cid1 ',' …)
+// Each section separated by '|'. Each list element followed by ','. Matches
+// the server's emem-storage canonical signing format byte-for-byte.
+function buildPreimageBytes(receipt){
+  const enc = new TextEncoder();
+  const parts = [];
+  parts.push(enc.encode(receipt.request_id || ''));     parts.push(enc.encode('|'));
+  parts.push(enc.encode(receipt.served_at  || ''));     parts.push(enc.encode('|'));
+  parts.push(enc.encode(receipt.primitive  || ''));     parts.push(enc.encode('|'));
+  for (const c of (receipt.cells || []))      { parts.push(enc.encode(c)); parts.push(enc.encode(',')); }
+  parts.push(enc.encode('|'));
+  for (const c of (receipt.fact_cids || []))  { parts.push(enc.encode(c)); parts.push(enc.encode(',')); }
+  let len = 0; for (const p of parts) len += p.length;
+  const out = new Uint8Array(len);
+  let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// Receipts come over the wire with the signature as a 64-element byte
+// array (`signature`) and the pubkey as either a 32-byte array
+// (`responder`) or the base32 string (`responder_pubkey_b32`). Older /
+// CBOR-canonical encodings may also carry `sig_b32` / `signature_b32`.
+// Accept all four shapes so a verifier never silently rejects a valid
+// receipt because the wire format normalised differently than the
+// caller expected.
+function _sigBytes(receipt){
+  if (Array.isArray(receipt.signature)) return new Uint8Array(receipt.signature);
+  if (typeof receipt.signature === 'string') {
+    try { return b32decode(receipt.signature); } catch(_) {}
+  }
+  if (receipt.sig_b32)       return b32decode(receipt.sig_b32);
+  if (receipt.signature_b32) return b32decode(receipt.signature_b32);
+  return null;
+}
+function _pubBytes(receipt){
+  if (Array.isArray(receipt.responder)) return new Uint8Array(receipt.responder);
+  if (receipt.responder_pubkey_b32) return b32decode(receipt.responder_pubkey_b32);
+  if (typeof receipt.responder === 'string') {
+    try { return b32decode(receipt.responder); } catch(_) {}
+  }
+  return null;
+}
+
+async function verifyReceiptInBrowser(receipt){
+  await nobleReady;
+  if (nobleStatus !== 'ok') return { via: 'fallback', ok: null };
+  try {
+    const preimage = buildPreimageBytes(receipt);
+    const digest = nobleBlake3(preimage);
+    const sig = _sigBytes(receipt);
+    const pub = _pubBytes(receipt);
+    if (!sig)           throw new Error('no signature field on receipt (looked for signature[], sig_b32, signature_b32)');
+    if (!pub)           throw new Error('no responder pubkey on receipt (looked for responder[], responder_pubkey_b32)');
+    if (sig.length !== 64) throw new Error('signature is ' + sig.length + ' bytes, expected 64');
+    if (pub.length !== 32) throw new Error('pubkey is ' + pub.length + ' bytes, expected 32');
+    const ok = nobleEd.verify(sig, digest, pub);
+    return { via: 'browser', ok, digest };
+  } catch (e) {
+    return { via: 'browser', ok: false, error: String(e) };
+  }
+}
+
+async function verifyReceiptViaServer(receipt){
+  try {
+    const r = await fetch('/v1/verify_receipt', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'accept': 'application/json' },
+      body: JSON.stringify({ receipt }),
+    });
+    if (!r.ok) return { via: 'server', ok: false, error: 'http ' + r.status };
+    const data = await r.json();
+    return { via: 'server', ok: !!data.valid, body: data };
+  } catch (e) {
+    return { via: 'server', ok: false, error: String(e) };
+  }
+}
+
+function bytesToHex(u8){
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
+  return s;
+}
+
+function chip(kind, text, fullValue){
+  const full = fullValue == null ? text : fullValue;
+  const short = (typeof text === 'string' && text.length > 22)
+    ? text.slice(0, 12) + '…' + text.slice(-4) : text;
+  return `<span class=chip data-kind="${escapeHtml(kind)}" data-full="${escapeHtml(full)}" title="${escapeHtml(full)} — click to copy"><span class=dot></span>${escapeHtml(short)}</span>`;
+}
+
+// Wire chip clicks (delegated).
+document.addEventListener('click', e => {
+  const c = e.target.closest('.chip[data-full]');
+  if (!c) return;
+  try { navigator.clipboard.writeText(c.getAttribute('data-full')); toast('copied'); }
+  catch(_) { toast('clipboard blocked'); }
+});
+
+// ── fact card render ────────────────────────────────────────────────────────
+function renderFact(fact, cid){
+  $('factCard').classList.remove('hidden');
+  const kind = fact.kind || (fact.Primary ? 'primary' : fact.Absence ? 'absence' : 'unknown');
+  $('factKindPill').textContent = kind;
+  const f = fact.Primary || fact.Absence || fact;
+  const rows = [];
+  rows.push(['cid', chip('cid', cid)]);
+  if (f.band) rows.push(['band', `<code>${escapeHtml(f.band)}</code>` + (f.band_metadata?.family ? ` <span class=muted>· ${escapeHtml(f.band_metadata.family)}</span>` : '')]);
+  if (f.cell) rows.push(['cell', chip('cell', f.cell)]);
+  if (f.tslot !== undefined && f.tslot !== null) rows.push(['tslot', `<code>${escapeHtml(String(f.tslot))}</code>` + (f.signed_at ? ` <span class=muted>· ${escapeHtml(f.signed_at)}</span>` : '')]);
+  if (kind === 'absence' && f.reason) rows.push(['reason', `<code>${escapeHtml(String(f.reason))}</code>`]);
+  if (f.value !== undefined) {
+    let preview;
+    if (Array.isArray(f.value)) {
+      const head = f.value.slice(0, 8).map(x => typeof x === 'number' ? x.toFixed(4) : JSON.stringify(x)).join(', ');
+      preview = `[${head}${f.value.length > 8 ? ', …' : ''}]  <span class=muted>· ${f.value.length} dims</span>`;
+    } else if (typeof f.value === 'number') {
+      preview = `<code>${f.value}</code>`;
+    } else if (typeof f.value === 'object' && f.value !== null) {
+      preview = `<div class=value-preview>${escapeHtml(JSON.stringify(f.value, null, 2))}</div>`;
+    } else {
+      preview = `<code>${escapeHtml(String(f.value))}</code>`;
+    }
+    rows.push(['value', preview]);
+  }
+  if (f.unit) rows.push(['unit', `<code>${escapeHtml(f.unit)}</code>`]);
+  if (f.confidence !== undefined && f.confidence !== null) rows.push(['confidence', `<code>${f.confidence}</code>`]);
+  if (f.derivation) {
+    let dnode;
+    if (typeof f.derivation === 'string') dnode = `<code>${escapeHtml(f.derivation)}</code>`;
+    else dnode = `<div class=value-preview>${escapeHtml(JSON.stringify(f.derivation, null, 2))}</div>`;
+    rows.push(['derivation', dnode]);
+  }
+  if (Array.isArray(f.sources) && f.sources.length) {
+    let block = '';
+    for (const s of f.sources) {
+      const url = s.url || s;
+      const lic = s.license || s.licence || '';
+      block += `<div class=source-row>${lic ? `<span class=lic>${escapeHtml(lic)}</span>` : ''}<a href="${escapeHtml(url)}" target=_blank rel=noopener>${escapeHtml(url)}</a></div>`;
+    }
+    rows.push(['sources', block]);
+  }
+  if (f.signer_pubkey_b32 || f.signer || f.responder_pubkey_b32) {
+    const sk = f.signer_pubkey_b32 || f.responder_pubkey_b32 || f.signer;
+    rows.push(['signer', chip('pub', sk)]);
+  }
+  if (f.signed_at) rows.push(['signed_at', `<code>${escapeHtml(f.signed_at)}</code>`]);
+  if (f.schema_cid) rows.push(['schema_cid', chip('cid', f.schema_cid)]);
+  if (f.privacy_class) rows.push(['privacy', `<code>${escapeHtml(f.privacy_class)}</code>`]);
+
+  $('factGrid').innerHTML = rows.map(([k, v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
+}
+
+// ── receipt card render ─────────────────────────────────────────────────────
+function renderReceipt(receipt, result){
+  $('receiptCard').classList.remove('hidden');
+  $('receiptPrimitivePill').textContent = receipt.primitive || 'receipt';
+  const rows = [];
+  rows.push(['primitive', `<code>${escapeHtml(receipt.primitive || '')}</code>`]);
+  if (receipt.served_at) rows.push(['served_at', `<code>${escapeHtml(receipt.served_at)}</code>`]);
+  if (receipt.request_id) rows.push(['request_id', `<code>${escapeHtml(receipt.request_id)}</code>`]);
+  if (Array.isArray(receipt.cells) && receipt.cells.length) {
+    rows.push(['cells', receipt.cells.map(c => chip('cell', c)).join(' ')]);
+  }
+  if (Array.isArray(receipt.fact_cids) && receipt.fact_cids.length) {
+    const cids = receipt.fact_cids.map(c => chip('cid', c)).join(' ');
+    rows.push(['fact_cids', cids + ` <span class=muted>· ${receipt.fact_cids.length} fact${receipt.fact_cids.length === 1 ? '' : 's'}</span>`]);
+  }
+  if (receipt.schema_cid) rows.push(['schema_cid', chip('cid', receipt.schema_cid)]);
+  const pub = receipt.responder_pubkey_b32
+            || (Array.isArray(receipt.responder) ? bytesToHex(new Uint8Array(receipt.responder)) : receipt.responder_pubkey);
+  if (pub) rows.push(['responder', chip('pub', pub)]);
+  // Render the signature regardless of which wire encoding it arrived
+  // in. 64-byte arrays render as hex; base32 strings render verbatim.
+  let sigDisplay = null, sigKind = '';
+  if (Array.isArray(receipt.signature) && receipt.signature.length === 64) {
+    sigDisplay = bytesToHex(new Uint8Array(receipt.signature));
+    sigKind = 'hex';
+  } else if (typeof receipt.signature === 'string') {
+    sigDisplay = receipt.signature; sigKind = 'base32';
+  } else if (receipt.sig_b32) {
+    sigDisplay = receipt.sig_b32; sigKind = 'base32';
+  } else if (receipt.signature_b32) {
+    sigDisplay = receipt.signature_b32; sigKind = 'base32';
+  }
+  if (sigDisplay) {
+    rows.push(['signature', `<code style="font-size:11px">${escapeHtml(sigDisplay.slice(0, 24))}…${escapeHtml(sigDisplay.slice(-8))}</code> <span class=muted>· 64-byte ed25519${sigKind ? ', ' + sigKind : ''}</span>`]);
+  }
+  if (result && result.digest) {
+    rows.push(['blake3 digest', `<code style="font-size:11px">${escapeHtml(bytesToHex(result.digest))}</code>`]);
+  }
+  if (result) {
+    const okText = result.ok === true ? chip('ok', 'verified · ed25519') : result.ok === false ? chip('fail', 'verification failed') : chip('cid', 'pending');
+    const viaText = result.via === 'browser' ? '<span class=muted>(in-browser noble-ed25519 + noble-blake3)</span>'
+                  : result.via === 'server' ? '<span class=muted>(via POST /v1/verify_receipt)</span>'
+                  : '';
+    rows.push(['result', okText + ' ' + viaText + (result.error ? ` <span class=muted>· ${escapeHtml(result.error)}</span>` : '')]);
+  }
+  $('receiptGrid').innerHTML = rows.map(([k, v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
+}
+
+// ── recipe text builder ─────────────────────────────────────────────────────
+function refreshRecipes(receiptObj){
+  const body = receiptObj ? JSON.stringify({ receipt: receiptObj }, null, 2) : '{"receipt": { … }}';
+  $('recipeCurl').textContent =
+`curl -sX POST https://emem.dev/v1/verify_receipt \\
+  -H 'content-type: application/json' \\
+  -d '${(body || '{}').replace(/'/g, "'\\''")}'`;
+  $('recipePy').textContent =
+`import httpx
+r = httpx.post(
+    "https://emem.dev/v1/verify_receipt",
+    json=${body},
+    timeout=20,
+)
+print(r.json())   # {"valid": true, "preimage_blake3_hex": "…", "signer_pubkey_b32": "…"}`;
+  $('recipeJs').textContent =
+`import { ed25519 } from "https://esm.sh/@noble/curves@1.6.0/ed25519";
+import { blake3 }   from "https://esm.sh/@noble/hashes@1.5.0/blake3";
+
+// preimage = request_id | served_at | primitive |
+//            cell0 ',' cell1 ',' … '|'
+//            cid0 ',' cid1 ',' …
+// digest   = blake3(preimage, 32 B)
+// ok       = ed25519.verify(sig_64B, digest, responder_pubkey_32B)`;
+}
+refreshRecipes(null);
+
+document.querySelectorAll('.recipes .copy').forEach(btn => {
+  btn.onclick = () => {
+    const id = btn.getAttribute('data-copy');
+    const text = $(id)?.textContent || '';
+    try { navigator.clipboard.writeText(text); toast('copied recipe'); }
+    catch(_) { toast('clipboard blocked'); }
+  };
+});
+
+// ── flows: fetch fact, verify receipt ───────────────────────────────────────
+let _lastReceipt = null, _lastCid = null;
+
+async function fetchAndShowFact(cid){
+  if (!cid || cid.length < 8) { setStatus('fail', 'invalid CID', 'expected ~32 base32 characters'); return; }
+  setStatus('pending', 'fetching fact ' + cid.slice(0, 10) + '…',
+            '<code>GET /v1/facts/' + escapeHtml(cid) + '</code>');
+  try {
+    const r = await fetch('/v1/facts/' + encodeURIComponent(cid), { headers: { 'accept': 'application/json' } });
+    if (!r.ok) {
+      let msg = 'http ' + r.status;
+      try { const j = await r.json(); msg = j.message || j.error || msg; } catch(_) {}
+      setStatus('fail', 'no fact for this CID', escapeHtml(msg));
+      return;
+    }
+    const fact = await r.json();
+    _lastCid = cid;
+    renderFact(fact, cid);
+    // Try a recall on the fact's cell+band to also pull a fresh receipt
+    // — the responder's signed-now receipt is the strongest verifiable
+    // surface, far stronger than recomputing the content-hash alone.
+    const inner = fact.Primary || fact.Absence || fact;
+    if (inner.cell && inner.band) {
+      setStatus('pending',
+        'fact loaded; fetching a fresh receipt from this responder…',
+        '<code>POST /v1/recall {cell:"' + escapeHtml(inner.cell) + '", bands:["' + escapeHtml(inner.band) + '"]}</code>');
+      try {
+        const rec = await fetch('/v1/recall', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'accept': 'application/json' },
+          body: JSON.stringify({ cell: inner.cell, bands: [inner.band] }),
+        });
+        if (rec.ok) {
+          const recData = await rec.json();
+          if (recData.receipt) {
+            _lastReceipt = recData.receipt;
+            refreshRecipes(_lastReceipt);
+            await verifyAndRender(_lastReceipt);
+            return;
+          }
+        }
+      } catch(_) {}
+    }
+    // No fresh receipt available — leave the status as "fact loaded".
+    setStatus('ok',
+      'fact loaded · CID matches this responder\'s storage',
+      'paste a receipt JSON above to verify the signature, or share <a href="/verify/' + encodeURIComponent(cid) + '">/verify/' + escapeHtml(cid.slice(0,10) + '…') + '</a>');
+  } catch (e) {
+    setStatus('fail', 'fetch failed', escapeHtml(String(e)));
+  }
+}
+
+async function verifyAndRender(receiptIn){
+  let receipt = receiptIn;
+  if (typeof receipt === 'string') {
+    try { receipt = JSON.parse(receipt); } catch (e) {
+      setStatus('fail', 'invalid JSON', escapeHtml(String(e)));
+      return;
+    }
+  }
+  if (!receipt || typeof receipt !== 'object') {
+    setStatus('fail', 'no receipt provided', 'paste a receipt JSON above and hit "verify receipt"');
+    return;
+  }
+  _lastReceipt = receipt;
+  refreshRecipes(receipt);
+  setStatus('pending', 'verifying ed25519 signature in your browser…',
+    '<code>digest = blake3(preimage); ed25519.verify(sig, digest, pubkey)</code>');
+  let result = await verifyReceiptInBrowser(receipt);
+  if (result.via === 'fallback') {
+    setStatus('pending', 'noble libs unavailable — falling back to /v1/verify_receipt',
+              'the in-browser path failed to load; using the responder\'s verify endpoint as a backup');
+    result = await verifyReceiptViaServer(receipt);
+  }
+  renderReceipt(receipt, result);
+  if (result.ok === true) {
+    setStatus('ok',
+      'receipt verified · ed25519 signature is valid',
+      'the signer is <code>' + escapeHtml((receipt.responder_pubkey_b32 || '').slice(0, 16)) + '…</code> over ' +
+      ((receipt.fact_cids || []).length) + ' fact CID' + ((receipt.fact_cids || []).length === 1 ? '' : 's') +
+      (result.via === 'browser' ? ' · verified offline by your browser' : ' · verified via /v1/verify_receipt'));
+  } else {
+    setStatus('fail',
+      'receipt did NOT verify — tamper detected',
+      'the signature does not match a blake3 digest of the canonical preimage. ' +
+      (result.error ? '<code>' + escapeHtml(result.error) + '</code>' : 'check that responder_pubkey_b32, sig_b32, and the cells/fact_cids arrays are byte-identical to what the responder signed.'));
+  }
+}
+
+// ── glossary popovers ───────────────────────────────────────────────────────
+const GLOSS = {
+  cid: { title: 'cid — content identifier',
+    body: 'BLAKE3 hash (32 bytes) of the canonical CBOR encoding of a fact or manifest, then base32-nopad-lowercase (32 characters). Two responders observing the same fact compute the same CID. The CID *is* the validator — you can never serve different bytes under the same CID.' },
+  preimage: { title: 'preimage — the bytes the responder signed',
+    body: '<code>request_id | served_at | primitive | (cell0, cell1, …,) | (cid0, cid1, …,)</code><br>Each section UTF-8, sections separated by <code>|</code>, list elements followed by <code>,</code>. The blake3 hash of this byte sequence is what ed25519 verifies.' },
+  blake3: { title: 'blake3 — content hash',
+    body: '32-byte cryptographic hash used for fact CIDs and for the preimage digest in receipts. Collision-resistant, parallel, and faster than SHA-2 / SHA-3. Library used here: <code>@noble/hashes/blake3</code>.' },
+  ed25519: { title: 'ed25519 — responder signing key',
+    body: '32-byte public key, 64-byte signature. Every receipt is signed by the responder\'s ed25519 key over the blake3 digest of the canonical preimage. Library used here: <code>@noble/curves/ed25519</code>.' },
+  receipt: { title: 'receipt — the signed envelope',
+    body: 'A small object the responder emits alongside any recall: <code>{primitive, request_id, served_at, cells[], fact_cids[], responder_pubkey_b32, sig_b32, schema_cid}</code>. Verifies offline with the math shown above.' },
+  responder: { title: 'responder — the signer',
+    body: 'A node that stores facts and signs receipts. Identified by an ed25519 public key. Multiple responders can co-attest the same fact — that\'s how you know a fact is real, not just one party\'s claim. This responder\'s pubkey is visible at <a href="/.well-known/emem.json" target=_blank rel=noopener>/.well-known/emem.json</a>.' },
+  cell64: { title: 'cell64 — the place primitive',
+    body: 'A 64-bit identifier for a ~9.55 m square on Earth. The interior packs lat[21]·lng[22] bits as fixed-point integers; the 4-char prefix is a checksum. Example: <code>defi.zb544.pico.zd392</code>.' },
+};
+function showGloss(key, btn){
+  const pop = $('gpop');
+  if (!pop) return;
+  if (!key) { pop.classList.remove('on'); pop.setAttribute('aria-hidden','true'); return; }
+  const g = GLOSS[key];
+  if (!g) return;
+  pop.innerHTML = '<b>' + escapeHtml(g.title) + '</b><br>' + g.body;
+  pop.classList.add('on'); pop.setAttribute('aria-hidden','false');
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(window.innerWidth - 440, r.left)) + 'px';
+    pop.style.top  = (r.bottom + window.scrollY + 8) + 'px';
+    pop.style.transform = 'none';
+  }
+}
+document.querySelectorAll('.gchip').forEach(btn => {
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const k = btn.getAttribute('data-gloss');
+    const open = btn.getAttribute('aria-expanded') === 'true';
+    document.querySelectorAll('.gchip').forEach(c => c.setAttribute('aria-expanded','false'));
+    if (open) { showGloss(null); return; }
+    btn.setAttribute('aria-expanded','true');
+    showGloss(k, btn);
+  });
+});
+document.addEventListener('click', e => {
+  if (e.target.closest('.gpop') || e.target.closest('.gchip')) return;
+  showGloss(null);
+});
+window.addEventListener('keydown', e => { if (e.key === 'Escape') showGloss(null); });
+
+// ── examples ────────────────────────────────────────────────────────────────
+async function loadDensestExample(){
+  setStatus('pending', 'looking up the responder\'s densest cell…',
+    '<code>GET /v1/coverage</code> → pick the cell with the most attested facts → recall → grab a fact_cid');
+  try {
+    const cov = await fetch('/v1/coverage').then(r => r.json());
+    const cell = (cov.cells || [])[0];
+    if (!cell) { setStatus('fail', 'no coverage available', '—'); return; }
+    const rec = await fetch('/v1/recall', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cell: cell.cell64 }),
+    }).then(r => r.json());
+    const cid = (rec.receipt && rec.receipt.fact_cids && rec.receipt.fact_cids[0])
+             || (rec.facts && rec.facts[0] && (rec.facts[0].fact_cid || rec.facts[0].cid));
+    if (!cid) { setStatus('fail', 'densest cell has no facts', '—'); return; }
+    $('cidInput').value = cid;
+    history.replaceState({}, '', '/verify/' + cid);
+    await fetchAndShowFact(cid);
+  } catch (e) {
+    setStatus('fail', 'example fetch failed', escapeHtml(String(e)));
+  }
+}
+
+document.querySelectorAll('button[data-example]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const v = btn.getAttribute('data-example');
+    if (v === 'load-densest') return loadDensestExample();
+    $('cidInput').value = v;
+    history.replaceState({}, '', '/verify/' + v);
+    fetchAndShowFact(v);
+  });
+});
+
+$('btnVerifyCid').onclick = () => {
+  const cid = $('cidInput').value.trim();
+  if (!cid) { toast('paste a CID first'); return; }
+  history.replaceState({}, '', '/verify/' + encodeURIComponent(cid));
+  fetchAndShowFact(cid);
+};
+$('btnVerifyReceipt').onclick = () => {
+  const txt = $('receiptInput').value.trim();
+  if (!txt) { toast('paste a receipt JSON first'); return; }
+  verifyAndRender(txt);
+};
+$('btnReverify').onclick = () => { if (_lastReceipt) verifyAndRender(_lastReceipt); };
+$('btnPasteFromClipboard').onclick = async () => {
+  try {
+    const txt = await navigator.clipboard.readText();
+    $('receiptInput').value = txt;
+    toast('pasted ' + txt.length + ' chars');
+  } catch (_) { toast('clipboard blocked — paste manually'); }
+};
+$('btnClear').onclick = () => {
+  $('cidInput').value = '';
+  $('receiptInput').value = '';
+  $('factCard').classList.add('hidden');
+  $('receiptCard').classList.add('hidden');
+  _lastReceipt = null; _lastCid = null;
+  refreshRecipes(null);
+  setStatus('idle', 'idle — fetch a fact or paste a receipt to begin',
+    'this surface verifies <code>blake3(preimage) → ed25519.verify(sig, digest, pubkey)</code> entirely in your browser');
+  history.replaceState({}, '', '/verify');
+};
+$('btnCopyReceipt').onclick = () => {
+  if (!_lastReceipt) return;
+  try { navigator.clipboard.writeText(JSON.stringify(_lastReceipt, null, 2)); toast('receipt JSON copied'); }
+  catch(_) { toast('clipboard blocked'); }
+};
+$('btnShareLink').onclick = () => {
+  const cid = _lastCid || $('cidInput').value.trim();
+  if (!cid) { toast('no CID to share'); return; }
+  const url = location.origin + '/verify/' + cid;
+  try { navigator.clipboard.writeText(url); toast('share link copied'); }
+  catch(_) { toast('clipboard blocked'); }
+};
+
+// ── bootstrap from URL ──────────────────────────────────────────────────────
+//
+// /verify           → idle landing
+// /verify/<cid>     → auto-fetch fact + verify a fresh recall receipt
+// /verify?receipt=  → decode base64-url(JSON) and verify
+(function bootstrap(){
+  // Path: /verify/<cid>
+  const m = location.pathname.match(/^\/verify\/([A-Za-z0-9._-]+)$/);
+  if (m) {
+    const cid = decodeURIComponent(m[1]);
+    $('cidInput').value = cid;
+    fetchAndShowFact(cid);
+    return;
+  }
+  // Query: ?receipt=<base64>  or  ?cid=<cid>
+  const p = new URLSearchParams(location.search || '');
+  const r = p.get('receipt');
+  if (r) {
+    try {
+      const decoded = atob(r.replace(/-/g, '+').replace(/_/g, '/'));
+      $('receiptInput').value = decoded;
+      verifyAndRender(decoded);
+    } catch (_) {
+      $('receiptInput').value = r;
+      verifyAndRender(r);
+    }
+    return;
+  }
+  const qcid = p.get('cid');
+  if (qcid) {
+    $('cidInput').value = qcid;
+    history.replaceState({}, '', '/verify/' + qcid);
+    fetchAndShowFact(qcid);
+    return;
+  }
+  // Hash-style anchors as a courtesy: /verify#<cid>.
+  if (location.hash && location.hash.length > 1) {
+    const cid = decodeURIComponent(location.hash.slice(1));
+    if (/^[a-z2-7]{20,}$/i.test(cid)) {
+      $('cidInput').value = cid;
+      history.replaceState({}, '', '/verify/' + cid);
+      fetchAndShowFact(cid);
+    }
+  }
+})();
+</script>
+</body>
+</html>
