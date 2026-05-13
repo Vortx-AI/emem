@@ -82,12 +82,124 @@ fn is_default_mode(m: &FindSimilarMode) -> bool {
 }
 
 /// A single neighbor result.
+///
+/// `lat`/`lng` are the cell centroid in degrees, decoded from `cell` via
+/// `emem_codec::latlng_from_cell64`. Populated by the primitive so every
+/// caller (REST, MCP, in-process) gets them — agents no longer have to
+/// fan out N follow-up `/v1/cells/{c}/info` calls just to render the
+/// neighbours on a map (bug 5).
+///
+/// `place_label_cached` is a best-effort reverse-geocode label sourced
+/// from the embedded gazetteer (50 anchor cities). When the cell is not
+/// within ~25 km of a gazetteer entry, this is `None` — that signals the
+/// agent to call `/v1/locate` or its own reverse-geocoder if it needs a
+/// human-readable name.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Neighbor {
     /// cell64 of the neighbor.
     pub cell: String,
     /// Cosine similarity score in [-1, 1].
     pub score: f32,
+    /// Centroid latitude in degrees, decoded from `cell`. Optional only
+    /// for forward-compat with older clients that may construct
+    /// `Neighbor` literals; the primitive always populates it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+    /// Centroid longitude in degrees, decoded from `cell`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lng: Option<f64>,
+    /// Best-effort reverse-geocode label from the embedded gazetteer
+    /// (~25 km gate). `None` when the cell isn't near a known anchor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_label_cached: Option<String>,
+}
+
+/// Decode `cell64` → `(lat_deg, lng_deg)` for neighbour enrichment.
+/// Returns `(None, None)` on inline literals or malformed cells — the
+/// caller already prints those without a centroid.
+fn cell_centroid(cell64: &str) -> (Option<f64>, Option<f64>) {
+    if cell64.starts_with("inline:") {
+        return (None, None);
+    }
+    match emem_codec::latlng_from_cell64(cell64) {
+        Ok(info) => (Some(info.lat_deg), Some(info.lng_deg)),
+        Err(_) => (None, None),
+    }
+}
+
+/// Best-effort reverse-geocode label from the small embedded gazetteer.
+/// Mirrors `embedded_gazetteer_reverse_lookup` in emem-api-rest so the
+/// primitive can enrich neighbours without depending on the REST crate.
+/// Returns `None` when the nearest entry is > 25 km away. The list is
+/// intentionally short — beyond that distance a "place name" would be
+/// misleading; agents that need precision should fall back to
+/// `/v1/locate` or Nominatim themselves.
+fn gazetteer_reverse_label(lat: f64, lng: f64) -> Option<String> {
+    if !lat.is_finite() || !lng.is_finite() {
+        return None;
+    }
+    // Compact gazetteer — top metros + a few protected-area anchors.
+    // Synced with crates/emem-api-rest/src/lib.rs GAZETTEER (~50 entries
+    // there). Keep this list short; the REST handler's enrichment can
+    // still overlay a richer label if needed.
+    const GAZ: &[(f64, f64, &str)] = &[
+        (40.7128, -74.0060, "New York, NY, USA"),
+        (51.5074, -0.1278, "London, UK"),
+        (48.8566, 2.3522, "Paris, France"),
+        (35.6762, 139.6503, "Tokyo, Japan"),
+        (19.0760, 72.8777, "Mumbai, India"),
+        (28.6139, 77.2090, "Delhi, India"),
+        (12.9716, 77.5946, "Bengaluru, India"),
+        (13.0827, 80.2707, "Chennai, India"),
+        (22.5726, 88.3639, "Kolkata, India"),
+        (17.3850, 78.4867, "Hyderabad, India"),
+        (29.6857, 76.9905, "Karnal, Haryana, India"),
+        (37.7749, -122.4194, "San Francisco, CA, USA"),
+        (47.6062, -122.3321, "Seattle, WA, USA"),
+        (34.0522, -118.2437, "Los Angeles, CA, USA"),
+        (41.8781, -87.6298, "Chicago, IL, USA"),
+        (29.7604, -95.3698, "Houston, TX, USA"),
+        (33.7490, -84.3880, "Atlanta, GA, USA"),
+        (25.7617, -80.1918, "Miami, FL, USA"),
+        (35.5951, -82.5515, "Asheville, NC, USA"),
+        (44.4280, -110.5885, "Yellowstone National Park, USA"),
+        (52.5200, 13.4050, "Berlin, Germany"),
+        (55.7558, 37.6173, "Moscow, Russia"),
+        (-23.5505, -46.6333, "São Paulo, Brazil"),
+        (-33.8688, 151.2093, "Sydney, Australia"),
+        (-33.9249, 18.4241, "Cape Town, South Africa"),
+        (30.0444, 31.2357, "Cairo, Egypt"),
+        (31.2304, 121.4737, "Shanghai, China"),
+        (39.9042, 116.4074, "Beijing, China"),
+        (1.3521, 103.8198, "Singapore"),
+        (-6.2088, 106.8456, "Jakarta, Indonesia"),
+    ];
+    let mut best: Option<(f64, &str)> = None;
+    for (lat0, lng0, label) in GAZ {
+        let dlat = (lat - *lat0) * 111.0;
+        let dlng = (lng - *lng0) * 111.0 * lat0.to_radians().cos().abs();
+        let d = (dlat * dlat + dlng * dlng).sqrt();
+        if best.as_ref().map(|(b, _)| d < *b).unwrap_or(true) {
+            best = Some((d, label));
+        }
+    }
+    best.and_then(|(d, label)| (d <= 25.0).then(|| label.to_string()))
+}
+
+/// Construct a fully-populated `Neighbor` — cell, score, centroid, label.
+fn make_neighbor(cell64: String, score: f32) -> Neighbor {
+    let (lat, lng) = cell_centroid(&cell64);
+    let place_label_cached = match (lat, lng) {
+        (Some(la), Some(ln)) => gazetteer_reverse_label(la, ln),
+        _ => None,
+    };
+    Neighbor {
+        cell: cell64,
+        score,
+        lat,
+        lng,
+        place_label_cached,
+    }
 }
 
 /// find_similar response.
@@ -239,13 +351,7 @@ pub async fn find_similar(
         if let Fact::Primary(p) = fact {
             if let Some(vec) = as_vec_f32(&p.value) {
                 let score = cosine(&query_vec, &vec);
-                scored.push((
-                    Neighbor {
-                        cell: key.cell,
-                        score,
-                    },
-                    cid,
-                ));
+                scored.push((make_neighbor(key.cell, score), cid));
             }
         }
     }
@@ -476,15 +582,7 @@ async fn find_similar_binary(
     let (neighbors, fact_cids): (Vec<Neighbor>, Vec<FactCid>) = match req.mode {
         FindSimilarMode::Hamming => triage
             .into_iter()
-            .map(|(cell, d, cid)| {
-                (
-                    Neighbor {
-                        cell,
-                        score: hamming_score(d),
-                    },
-                    cid,
-                )
-            })
+            .map(|(cell, d, cid)| (make_neighbor(cell, hamming_score(d)), cid))
             .unzip(),
         FindSimilarMode::HammingThenRerank => {
             // Pull the underlying cosine vector for each shortlisted
@@ -508,7 +606,7 @@ async fn find_similar_binary(
                 } else {
                     cosine(&query_vec, &vec)
                 };
-                reranked.push((Neighbor { cell, score }, cid));
+                reranked.push((make_neighbor(cell, score), cid));
             }
             reranked.retain(|(n, _)| !n.score.is_nan());
             // The triage list is already cell-unique, so the rerank
@@ -1054,27 +1152,9 @@ mod tests {
         let cid_a2 = FactCid::new("a-2");
         let cid_b = FactCid::new("b");
         let scored = vec![
-            (
-                Neighbor {
-                    cell: "a".into(),
-                    score: 0.5,
-                },
-                cid_a1.clone(),
-            ),
-            (
-                Neighbor {
-                    cell: "a".into(),
-                    score: 0.9,
-                },
-                cid_a2.clone(),
-            ),
-            (
-                Neighbor {
-                    cell: "b".into(),
-                    score: 0.7,
-                },
-                cid_b.clone(),
-            ),
+            (make_neighbor("a".into(), 0.5), cid_a1.clone()),
+            (make_neighbor("a".into(), 0.9), cid_a2.clone()),
+            (make_neighbor("b".into(), 0.7), cid_b.clone()),
         ];
         let (kept, kept_cids) = dedupe_top_k_by_cell(scored, 5);
         assert_eq!(kept.len(), 2);

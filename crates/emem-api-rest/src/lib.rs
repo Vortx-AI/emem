@@ -3981,6 +3981,64 @@ async fn quickstart() -> Json<JsonValue> {
 /// return zero facts at any cell that hasn't been seeded yet — defeating
 /// the whole point of the polygon fan-out (which exists to fix
 /// place-name drift, not to expose a different read shape).
+/// Wrapper around the `find_similar` primitive that, on `CidNotFound`
+/// for the requested vector band, attempts to materialize the band on
+/// the query cell and retries. Returns the response plus a list of
+/// `materialize_notes` (one per band touched) so the agent can see
+/// what the responder fetched on its behalf.
+///
+/// Inline-vector queries (`key: "inline:[...]"`) carry their own vector
+/// and never need materialization — they bypass this wrapper's retry
+/// logic. Auto-materialize must be enabled at the responder
+/// (`EMEM_AUTO_MATERIALIZE`) for any work to happen; otherwise this is a
+/// thin pass-through.
+///
+/// bin128 is a special case: when the requested band is
+/// `geotessera.bin128` (or any binary-sibling band) and the cell has a
+/// cached geotessera vintage, `materialize_geotessera_bin128` derives
+/// the binary band on the fly (sign-bit per dim of the TurboQuant
+/// rotation, no upstream fetch). The cost is microseconds.
+async fn find_similar_with_auto_materialize(
+    req: &FindSimilarReq,
+    band_used: &str,
+    s: &AppState,
+) -> Result<(emem_primitives::find_similar::FindSimilarResp, Vec<JsonValue>), ApiError> {
+    let mut maybe_resp = find_similar(req, s).await;
+    let mut materialize_notes: Vec<JsonValue> = Vec::new();
+    if let Err(StorageError::Protocol {
+        code: ErrorCode::CidNotFound,
+        ..
+    }) = &maybe_resp
+    {
+        if !req.key.starts_with("inline:") && auto_materialize_enabled() {
+            let band_owned = band_used.to_string();
+            let outcomes =
+                try_materialize_bands(&req.key, std::slice::from_ref(&band_owned), s).await;
+            let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
+            for o in &outcomes {
+                if let Some(cid) = &o.fact_cid {
+                    materialize_notes.push(json!({
+                        "band":     o.band,
+                        "status":   "materialized",
+                        "fact_cid": cid,
+                    }));
+                } else if let Some(reason) = &o.skip_reason {
+                    materialize_notes.push(json!({
+                        "band":   o.band,
+                        "status": "skipped",
+                        "reason": reason,
+                    }));
+                }
+            }
+            if materialized_any {
+                maybe_resp = find_similar(req, s).await;
+            }
+        }
+    }
+    let resp = maybe_resp?;
+    Ok((resp, materialize_notes))
+}
+
 async fn recall_with_auto_materialize(
     req: &RecallReq,
     s: &AppState,
@@ -7419,9 +7477,26 @@ async fn post_find_similar(
         emem_primitives::find_similar::FindSimilarMode::Hamming => "hamming",
         emem_primitives::find_similar::FindSimilarMode::HammingThenRerank => "hamming_then_rerank",
     };
-    let resp = find_similar(&req, &s).await?;
+    // Auto-materialize on miss (bug 3). When the query cell has no fact
+    // for the requested vector band, the primitive surfaces a helpful
+    // error pointing at /v1/recall — but for an agent that's two
+    // roundtrips for what should be one. The shared helper below
+    // triggers the materializer for the vector band and retries the
+    // k-NN. bin128 specifically gets derived from any cached geotessera
+    // vintage via `materialize_geotessera_bin128` (no upstream fetch) —
+    // sign-bit per dim of the TurboQuant rotation, trivial cost.
+    let (resp, auto_materialize_notes) =
+        find_similar_with_auto_materialize(&req, &band_used, &s).await?;
     let env = resolved_envelope(env_entries);
     let mut body = serde_json::to_value(&resp).unwrap_or(json!({}));
+    if !auto_materialize_notes.is_empty() {
+        if let Some(map) = body.as_object_mut() {
+            map.insert(
+                "materialize_notes".into(),
+                JsonValue::Array(auto_materialize_notes),
+            );
+        }
+    }
     // Per-neighbor decode: lat/lng + (optional) place_label_cached so an
     // LLM can write "X is similar to Y because Z" without a follow-up
     // call to /v1/cells/{cell}/info or a reverse-geocode round trip.
@@ -9010,7 +9085,30 @@ async fn mcp_tool_call(
         "emem_query_region" => call!(QueryRegionReq, query_region),
         "emem_compare" => call!(CompareReq, compare).map(attach_resolved_env),
         "emem_compare_bands" => call!(CompareBandsReq, compare_bands).map(attach_resolved_env),
-        "emem_find_similar" => call!(FindSimilarReq, find_similar).map(attach_resolved_env),
+        "emem_find_similar" => {
+            // Mirror the REST handler: auto-materialize the vector band on
+            // miss (bug 3), and route through the shared helper so MCP
+            // callers see the same `materialize_notes` envelope as REST.
+            // lat/lng/place_label_cached on each Neighbor come from the
+            // primitive itself (bug 5) — no extra enrichment needed here.
+            let req: FindSimilarReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let band_used = req.band.clone().unwrap_or_else(|| "geotessera".into());
+            let (resp, materialize_notes) =
+                find_similar_with_auto_materialize(&req, &band_used, s)
+                    .await
+                    .map_err(|e| (-(e.1.code as i64), e.1.message))?;
+            let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
+            if !materialize_notes.is_empty() {
+                if let Some(map) = v.as_object_mut() {
+                    map.insert(
+                        "materialize_notes".into(),
+                        JsonValue::Array(materialize_notes),
+                    );
+                }
+            }
+            Ok(attach_resolved_env(v))
+        }
         "emem_diff" => call!(DiffReq, diff).map(attach_resolved_env),
         "emem_trajectory" => call!(TrajectoryReq, trajectory).map(attach_resolved_env),
         "emem_verify" => call!(VerifyReq, verify).map(attach_resolved_env),
@@ -20697,7 +20795,17 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // single-cell fan-out. (Pre-fix: cache stored only lat/lng,
                 // forcing every cached recall_polygon to centre_cell_bbox.)
                 via = "cache";
-                if polygon_bbox.is_none() {
+                // Bug 4: when the query is an admin-boundary query, the
+                // cache may carry a stale POI bbox from before this fix
+                // landed (e.g. "Karnal district" → courthouse node). Treat
+                // a sub-kilometre cached bbox as suspect for admin queries
+                // and let the Overture-divisions resolver overwrite it.
+                let cached_bbox_is_poi_scale = bb_cached
+                    .map(|a| (a[1] - a[0]).abs() < 0.01 && (a[3] - a[2]).abs() < 0.01)
+                    .unwrap_or(false);
+                let force_admin_override =
+                    is_admin_boundary_query(p) && cached_bbox_is_poi_scale;
+                if !force_admin_override && polygon_bbox.is_none() {
                     if let Some(arr) = bb_cached {
                         polygon_bbox = Some((arr[0], arr[1], arr[2], arr[3]));
                         polygon_source = Some("nominatim_boundingbox");
@@ -20709,16 +20817,19 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // the polygon source only when Overture has nothing.
                 // The Photon → Nominatim tail still handles names
                 // none of the prior layers carried at all.
-                if polygon_geojson.is_none() || polygon_bbox.is_none() {
+                if force_admin_override
+                    || polygon_geojson.is_none()
+                    || polygon_bbox.is_none()
+                {
                     match emem_fetch::overture::OvertureClient::shared()
                         .division_polygon_near(la, lo, p)
                         .await
                     {
                         Ok(Some(div)) => {
-                            if polygon_geojson.is_none() {
+                            if force_admin_override || polygon_geojson.is_none() {
                                 polygon_geojson = Some(div.geometry.clone());
                             }
-                            if polygon_bbox.is_none() {
+                            if force_admin_override || polygon_bbox.is_none() {
                                 polygon_bbox = Some(div.bbox);
                                 polygon_source = Some("overture_division_area");
                                 nominatim_cache_put(
@@ -20728,6 +20839,15 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     &lab,
                                     Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
                                 );
+                                if force_admin_override {
+                                    via = "overture_admin_fallback";
+                                    tracing::info!(
+                                        target: "emem::locate",
+                                        locate_query = %p,
+                                        locate_via = "overture_admin_fallback",
+                                        "cached POI-scale bbox overridden by Overture division for admin query"
+                                    );
+                                }
                             }
                         }
                         Ok(None) | Err(_) => {
@@ -20863,6 +20983,25 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         "nominatim_result is None ⇒ photon_result is Ok(non-empty), already matched"
                     ),
                 };
+                // Bug 4: admin-boundary query reranking. Nominatim ranks
+                // hits by name match + importance, which puts a *node*
+                // like "Karnal District Courthouse" (amenity / building)
+                // above the actual *relation* boundary polygon when the
+                // user types "Karnal district". For queries that clearly
+                // ask for an admin area we re-sort the candidate list:
+                // boundary / administrative / relation > anything else >
+                // POI (amenity / highway / building / shop / tourism).
+                // The original order is preserved among items with the
+                // same tier so non-admin ties don't shuffle.
+                let admin_query = is_admin_boundary_query(p);
+                let hits = if admin_query {
+                    let mut ranked: Vec<(usize, &NominatimHit)> = hits.iter().enumerate().collect();
+                    ranked.sort_by_key(|(orig_idx, h)| (admin_hit_priority(h), *orig_idx));
+                    ranked.into_iter().map(|(_, h)| h.clone()).collect::<Vec<_>>()
+                } else {
+                    hits
+                };
+
                 let mut hit = hits
                     .first()
                     .cloned()
@@ -20889,6 +21028,57 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     if let Some(g) = nominatim_polygon_geojson_for(p).await {
                         hit.polygon_geojson = Some(g);
                     }
+                }
+                // Bug 4: Overture-divisions admin fallback. If the user
+                // asked for a district / region / state / county / etc.
+                // but the chosen hit is still a POI (or even a node
+                // without a polygon), query Overture's divisions theme
+                // for the smallest admin polygon that contains the
+                // hit's anchor and whose name matches. This replaces
+                // the courthouse-point with the actual district
+                // boundary. The match is logged on the response via
+                // `polygon_source = "overture_division_area"` so an
+                // auditor can see when the protocol rerouted.
+                let mut admin_fallback_used = false;
+                if admin_query && is_poi_hit(&hit) {
+                    match emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(hit.lat, hit.lng, p)
+                        .await
+                    {
+                        Ok(Some(div)) => {
+                            hit.polygon_geojson = Some(div.geometry.clone());
+                            hit.bbox = Some(div.bbox);
+                            polygon_geojson = Some(div.geometry.clone());
+                            polygon_bbox = Some(div.bbox);
+                            polygon_source = Some("overture_division_area");
+                            admin_fallback_used = true;
+                            tracing::info!(
+                                target: "emem::locate",
+                                locate_query = %p,
+                                locate_via = "overture_admin_fallback",
+                                locate_demoted_class = %hit.class_,
+                                locate_demoted_type  = %hit.type_,
+                                "admin-boundary query rerouted to Overture divisions"
+                            );
+                        }
+                        Ok(None) => {
+                            // Overture doesn't carry this admin area
+                            // (rare; common for sub-district / tehsil
+                            // queries in regions Overture hasn't
+                            // ingested). Fall through to the POI hit —
+                            // honest "I couldn't find the boundary"
+                            // beats "I silently snapped to a building".
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "emem::locate",
+                                "overture admin fallback failed for {p:?}: {e}"
+                            );
+                        }
+                    }
+                }
+                if admin_fallback_used {
+                    via = "overture_admin_fallback";
                 }
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
                 nominatim_cache_put(p, hit.lat, hit.lng, &hit.label, hit_bbox_arr);
@@ -21519,6 +21709,73 @@ fn nominatim_cache_put(
     // We don't force-flush per put because the geocoder cache is
     // refillable from upstream — losing the last few ms of writes on
     // crash is fine, the cost of fsync-per-put isn't.
+}
+
+/// Bug 4: detect "this query is asking for an admin boundary, not a
+/// point of interest". When this returns true, the locate cascade
+/// re-ranks Nominatim hits so boundary / administrative / relation
+/// hits win over amenity / building / shop / node hits, and routes
+/// to Overture divisions if no boundary candidate survives. The keyword
+/// list covers the most common admin nouns across English, US, UK, and
+/// Indian (taluk / tehsil) terminology. Case-insensitive substring match.
+fn is_admin_boundary_query(q: &str) -> bool {
+    const ADMIN_KEYWORDS: &[&str] = &[
+        " district",
+        " region",
+        " state",
+        " province",
+        " county",
+        " municipality",
+        " prefecture",
+        " department",
+        " taluk",
+        " tehsil",
+        " division",
+        " borough",
+        " parish",
+        " canton",
+        " mandal",
+        " block",
+    ];
+    let lower = format!(" {}", q.to_lowercase());
+    ADMIN_KEYWORDS.iter().any(|kw| lower.contains(kw))
+}
+
+/// Lower priority = better. Used to sort Nominatim hits when the query
+/// is an admin-boundary query. Boundary / administrative / relation tier
+/// wins over generic non-POI tier, which wins over POI tier.
+fn admin_hit_priority(h: &NominatimHit) -> u8 {
+    if h.class_ == "boundary"
+        || h.type_ == "administrative"
+        || h.osm_type == "relation"
+    {
+        return 0;
+    }
+    if is_poi_hit(h) {
+        return 2;
+    }
+    1
+}
+
+/// True when a Nominatim hit is a point-of-interest that shouldn't
+/// answer an admin-boundary query — buildings, courthouses, schools,
+/// roads, shops, etc. Used to gate the Overture-divisions fallback so
+/// a "Karnal district" query doesn't silently resolve to a courthouse
+/// node.
+fn is_poi_hit(h: &NominatimHit) -> bool {
+    matches!(
+        h.class_.as_str(),
+        "amenity"
+            | "highway"
+            | "building"
+            | "shop"
+            | "tourism"
+            | "leisure"
+            | "office"
+            | "craft"
+            | "man_made"
+            | "historic"
+    ) || h.osm_type == "node"
 }
 
 #[allow(dead_code)]

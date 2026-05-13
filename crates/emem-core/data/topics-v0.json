@@ -514,7 +514,7 @@
     },
     {
       "key": "analytics",
-      "description": "Time-series analytics over a place — volatility, trend strength, anomaly detection, change-point detection on the foundation embedding or NDVI history. Answers questions about whether this place is changing, is it a hotspot, is there a recent regime shift.",
+      "description": "Time-series and anomaly analytics over a place — volatility, trend strength, change-point detection on the foundation embedding or NDVI history, SAR coherence-change post-event signatures, and SWIR-band methane / industrial-plume anomalies detected from the Sentinel-2 SWIR2/SWIR1 (2190 nm / 1610 nm) ratio. Answers questions about whether this place is changing, is it a hotspot, is there a recent regime shift, are there methane plumes visible, are there post-event landslide / disturbance signatures.",
       "aliases": [
         "is this place changing",
         "trend over time",
@@ -522,9 +522,32 @@
         "volatility",
         "hotspot",
         "regime shift",
-        "change-point"
+        "change-point",
+        "methane",
+        "methane plume",
+        "methane plumes",
+        "methane anomaly",
+        "methane anomalies",
+        "methane leak",
+        "methane leaks",
+        "methane emission",
+        "methane emissions",
+        "fugitive emissions",
+        "gas plume",
+        "gas leak",
+        "industrial plume",
+        "SWIR anomaly",
+        "SWIR anomalies",
+        "SWIR band anomaly",
+        "SWIR bands",
+        "SWIR2/SWIR1 ratio",
+        "2190 nm signature",
+        "B11 B12 ratio",
+        "landslide signature",
+        "post-event SAR",
+        "sar coherence change"
       ],
-      "bands": ["geotessera", "modis.ndvi_mean", "indices.ndvi"],
+      "bands": ["geotessera", "modis.ndvi_mean", "indices.ndvi", "s2.B11", "s2.B12"],
       "algorithms": ["spatial_volatility_index@1", "trend_strength@1", "anomaly_zscore@1", "sar_coherence_change_proxy@1", "methane_plume_swir_anomaly@1", "landslide_post_event_sar_dnn@1", "cross_modal_s1_s2_consistency@1"]
     },
     {
