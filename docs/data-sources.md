@@ -54,10 +54,20 @@ fan-out (3+ windows × ~8 samples for `flood_risk@2` cold).
 
 ## Live connector inventory
 
-The `emem-fetch` crate (16 modules, ~8.8 k LoC) handles the fetch half. Some
-connectors live as inline materializers in `crates/emem-api-rest/src/lib.rs` —
-they hit JSON REST endpoints directly without a dedicated fetch module. Both
-are listed below.
+The `emem-fetch` crate ships 12 data connector modules (chirps, cog,
+dmsp_ols, firms, ftw, geonames, hansen_gfc, koppen, overture, terraclimate,
+wdpa, worldpop) and 6 utility modules (cache_window, connectors, lib, proj,
+stac, template). The remainder of the live ingest surface is inline
+materializers inside `crates/emem-api-rest/src/lib.rs` that hit JSON REST
+endpoints directly without a dedicated fetch module. Both classes are
+listed below.
+
+`crates/emem-core/data/sources-v0.json` declares 43 source schemes; the
+universal STAC + COG sampler (`cog.rs`) handles the majority of raster
+sources. The hosted responder reports its live coverage at
+`/v1/materializers` (20 materializer registrations today), so an agent can
+ask the running responder which subset of the declared schemes is wired
+right now without grepping this document.
 
 | Connector             | Where         | Source                    | Read path                                         | Bands populated                                                                 | License                          |
 |-----------------------|---------------|---------------------------|---------------------------------------------------|---------------------------------------------------------------------------------|----------------------------------|
@@ -92,7 +102,7 @@ are listed below.
 | inline `jrc_gsw`      | api-rest:13323| JRC GSW v1.4 GCS COG      | Range read via `cog.rs`                           | `surface_water.recurrence`                                                      | JRC open                         |
 | inline `esa_worldcover` | api-rest:13625| ESA WorldCover S3 COG    | Range read via `cog.rs`                           | `landcover.{tree,shrub,grass,crop,built,bare,snow_ice,water}`                   | CC-BY-4.0                        |
 | inline `prithvi_eo2`  | api-rest:10712| Prithvi-EO-2.0-300M-TL    | Python sidecar (frozen pretrained encoder)        | `prithvi_eo2.*`                                                                 | Apache-2.0                       |
-| inline `galileo`      | api-rest:10823| Galileo Tiny              | Python sidecar (S2 modality only wired)           | `galileo.*`                                                                     | (per upstream)                   |
+| inline `galileo`      | api-rest:10823| Galileo (variant via `EMEM_GALILEO_VARIANT`, default `base`) | Python sidecar (S2 modality only wired)           | `galileo.*`                                                                     | (per upstream)                   |
 | inline `temporal_diff`| api-rest:14944| (derives from parents)    | computes Δ from two `geotessera` parents          | `temporal_diff`                                                                 | n/a (derivative)                 |
 | `ftw.rs`              | emem-fetch    | Fields of The World (source.coop) | PMTiles HTTP range reads + MVT decode             | `/v1/field_boundaries` + `include:["ftw_fields"]` on `/v1/recall_polygon` (~3.17 B field polygons, 10 m, 241 countries) | CC-BY-4.0                        |
 | `geonames.rs`         | emem-fetch    | GeoNames cities-5000 (embedded)   | `include_bytes!` 5.5 MB gzip → 68 581 records     | layer 3 of `/v1/locate` cascade (no network)                                    | CC-BY-4.0                        |
@@ -464,18 +474,38 @@ in `(min_lat, max_lat, min_lng, max_lng)` order. Surfaced in
 `/v1/locate` and `/v1/recall_polygon` as
 `polygon_bbox.source: "overture_division_area"`.
 
-## Genuinely unwired schemes (5)
+## Deferred / unwired schemes
 
-These appear in `sources-v0.json` with templates but have no materializer in
-api-rest, so a `/v1/recall` for their bands returns Absence today.
+These appear in `sources-v0.json` with templates but have no live
+materializer in api-rest. A `/v1/recall` for their bands returns a signed
+Absence with reason `unavailable_capability` today.
 
-| Scheme                   | Effort      | Gain                                                | Status   |
-|--------------------------|-------------|-----------------------------------------------------|----------|
-| `openet.30m.daily`       | ~1 week     | CONUS 30 m daily ET (six-model ensemble)            | Deferred |
-| `dynamic_world.v1`       | ~2 weeks    | 9-class probabilistic land cover at S2 cadence (~2-5 d revisit) | Deferred |
-| `tropomi.s5p.ch4`        | ~1.5 weeks  | Methane column ~5.5 × 7 km (basin/cluster scale)    | Deferred |
-| `tropomi.s5p.no2`        | ~1.5 weeks  | NO₂ tropospheric column ~5.5 × 3.5 km (traffic + power-plant proxy) | Deferred |
-| `viirs.dnb.monthly`      | ~1 week     | 2012-present nightlights (extends DMSP 2013 freeze) | Deferred (auth-gated upstream — see below) |
+| Scheme | Why it is deferred |
+|---|---|
+| `openet.30m.daily` | Source S3 bucket returns `NoSuchBucket`; the URL template in the registry is stale. Needs an upstream re-discovery before any wiring work. |
+| `dynamic_world.v1` | Requires Google Earth Engine OAuth, which violates the no-keys posture of the default open-data build. |
+| `tropomi.s5p.ch4` | Published as chunked NetCDF, not COG. The pure-Rust open-data build has no NetCDF decoder. |
+| `tropomi.s5p.no2` | Same NetCDF-not-COG blocker as `tropomi.s5p.ch4`. |
+| `viirs.dnb.monthly` | Every upstream path (`eogdata.mines.edu/.../vcmcfg/...`) requires NASA Earthdata Login; auth-gated. |
+
+### Tessera multi-vintage status
+
+The Tessera mirror at `dl2.geotessera.org` is anonymous but rate-limited.
+The 2024 vintage serves reliably today; the multi-vintage stack
+`geotessera.{2017..2024}` is partial — older vintages return 429s during
+backfill windows. The materializer signs the vintage that came back and
+the receipt's `Source.url` pins which one; recall against a partial
+vintage surfaces a signed Absence with reason `upstream_no_data` rather
+than backfilling from an adjacent year.
+
+### Köppen-Geiger archetype seed
+
+`crates/emem-core/data/climate_archetype_centroids_v1.json` ships a v1
+seed of 12 type localities — one per Köppen-Geiger primary zone, sourced
+from the Beck et al. 2018 reference dataset. The `climate_archetype_triple@1`
+algorithm consumes this seed; a query that lands in a zone not covered by
+the v1 seed returns a signed Absence with reason
+`archetype_seed_unavailable`.
 
 CHIRPS daily precipitation is now wired (UCSB CHC anonymous COG range
 read, ±50° lat, 0.05° pitch, 1981→present with ~30-day final-quality
@@ -573,9 +603,12 @@ requires either a no-auth mirror or a policy change on the API key rule.
    `kind: primary`, the source scheme you just added, the formula string,
    and `deterministic: true`. The materializer's signed Primary fact must
    pin this `fn_key` in its `derivation` so a verifier can walk back.
-8. **Test**: `cargo test -p emem-fetch <name>` for the unit cases (the test
-   suite uses recorded bytes — see `dmsp_ols.rs::tests` for the pattern).
-   Live test with `--features live` to hit the real upstream once.
+8. **Test**: `cargo test -p emem-fetch <name>` for the offline unit cases
+   (the test suite uses recorded bytes — see `dmsp_ols.rs::tests` for the
+   pattern). For a live network test against the real upstream, run
+   `cargo test --workspace --test live_cog_fetch` (the network-gated tests
+   live in `crates/emem-fetch/tests/live_cog_fetch.rs` and are skipped
+   automatically when offline; there is no `live` cargo feature).
 
 That's the whole contract. The eight-step path keeps the registry, the fetch
 crate, and the api-rest dispatcher in lockstep; skipping any one of them

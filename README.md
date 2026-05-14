@@ -87,7 +87,7 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 
 ## Primitives
 
-49 MCP tools, 169 REST routes (79 under `/v1/*`). Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
+49 MCP tools, 71 documented REST paths (68 under `/v1/*`, surfaced through `/openapi.json`). Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
 
 - **Locate** — name or lat/lng → `cell64`. Five-layer cascade: wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim. Polygon geometry from Overture `divisions/division_area`. District-level queries reroute through Overture when Nominatim returns a POI courthouse.
 - **Recall / recall_many / recall_polygon** — 118 materializer-wired band names across 35 cube slots. Auto-fetch on miss; signed Absence on out-of-coverage.
@@ -177,7 +177,7 @@ emem/
 ├── sdks/
 │   ├── emem-py/                  # Python client (httpx, sync + async)
 │   └── emem-ts/                  # TypeScript client (zero runtime deps, native fetch)
-├── python/                       # FastAPI sidecar over UDS: Prithvi-EO-2.0, Galileo Tiny, Clay v1.5, JEPA-v2
+├── python/                       # FastAPI sidecar over UDS: Prithvi-EO-2.0, Galileo, Clay v1.5, JEPA-v2
 ├── examples/                     # MCP configs + LangChain / LlamaIndex
 ├── ops/                          # systemd units, journald retention
 └── web/                          # SSR HTML, humans, verify, llms.txt, agent.json
@@ -191,7 +191,7 @@ The GPU sidecar (Python FastAPI over Unix domain socket) co-resides four encoder
 
 - **Clay v1.5** — 1024-D CLS, S2 L2A 10 bands, ~12 ms warm. Teacher (DINOv2 `vit_large_patch14_reg4_dinov2.lvd142m`) pre-staged at boot so `HF_HUB_OFFLINE=1` holds.
 - **Prithvi-EO-2.0-300M-TL** — 1024-D CLS, HLS V2 6-band, ~13 ms warm.
-- **Galileo Tiny** — 192-D, S2-only modality wired (S1 / ERA5 / SRTM / VIIRS / Dynamic-World / WorldCover / LandScan / location zero-masked; the scaffold is multimodal but only S2 is connected today).
+- **Galileo** (variant `base` in production; `tiny` / `nano` selectable via `EMEM_GALILEO_VARIANT`) — S2-only modality wired (S1 / ERA5 / SRTM / VIIRS / Dynamic-World / WorldCover / LandScan / location zero-masked; the scaffold is multimodal but only S2 is connected today). The advertised capability is `galileo-<variant>` in `/v1/capabilities.extensions[]`.
 - **JEPA v2 dynamics** — untrained baseline. Metadata-only `is_trained()` check short-circuits to last-vintage identity; receipt carries `untrained_baseline` and `via: "short_circuit_untrained"`. Training is upstream-bottlenecked on multi-vintage Tessera availability.
 
 Sidecar crash does not cascade — the REST router degrades to scalar bands and signs the GPU-anchored algorithms as Absence with `gpu_unavailable`. See [docs/inference.md](docs/inference.md).

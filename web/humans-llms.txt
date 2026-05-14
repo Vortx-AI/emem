@@ -159,7 +159,7 @@ own bands AND woven into algorithm consensus voting:
 
 - **Clay v1.5** — band `clay_v1`, 1024-D CLS, Sentinel-2 L2A 10 bands, ~12 ms warm. Teacher (DINOv2 `vit_large_patch14_reg4_dinov2.lvd142m`) pre-staged at boot.
 - **Prithvi-EO-2.0-300M-TL** — band `prithvi_eo2`, 1024-D CLS, HLS V2 6-band, ~13 ms warm.
-- **Galileo Tiny** — band `galileo`, 192-D, Sentinel-2 modality wired (multimodal scaffold present; S1 / ERA5 / SRTM / VIIRS / Dynamic-World / WorldCover / LandScan / location zero-masked).
+- **Galileo** — band `galileo`, variant selectable via `EMEM_GALILEO_VARIANT` (default `base`; `tiny` and `nano` also available). The advertised capability is `galileo-<variant>` in `/v1/capabilities.extensions[]`. Sentinel-2 modality wired (multimodal scaffold present; S1 / ERA5 / SRTM / VIIRS / Dynamic-World / WorldCover / LandScan / location zero-masked).
 - **JEPA v2 dynamics** — band-synthesizing predictor, currently untrained. Short-circuits to the last attested Tessera vintage; receipt carries `via: short_circuit_untrained` and `untrained_baseline`.
 
 ## Triple-consensus algorithms

@@ -14,7 +14,7 @@ lives in `crates/emem-api-rest/src/lib.rs` (~24.8 k lines: HTTP/MCP router
 plus every inline materializer plus the foundation-embedding fan-out for
 `/v1/ask`) and `crates/emem-fetch/src/*.rs` (12 data connectors + 6
 utility modules). FastAPI sidecar in `python/jepa_v2_sidecar/` serves
-Clay v1.5, Prithvi-EO-2.0, Galileo Tiny, and JEPA-v2 over a Unix socket.
+Clay v1.5, Prithvi-EO-2.0, Galileo, and JEPA-v2 over a Unix socket.
 Web surface in `web/` is plain HTML — no build step, included via
 `include_str!`.
 

@@ -44,23 +44,25 @@ each:
 | `emem-fact` | Fact / Receipt / Attestation CBOR + ed25519 signing primitives |
 | `emem-claim` | Claim predicate (`Op` enum + value, no signature) |
 | `emem-cache` | sled wrapper |
-| `emem-fetch` | open-data connectors (cog, dmsp_ols, firms, hansen_gfc, koppen, overture, terraclimate, wdpa, worldpop, stac, proj, template, cache_window, connectors) |
+| `emem-fetch` | open-data connectors — 12 data modules (chirps, cog, dmsp_ols, firms, ftw, geonames, hansen_gfc, koppen, overture, terraclimate, wdpa, worldpop) + 6 utility modules (cache_window, connectors, lib, proj, stac, template) |
 | `emem-storage` | sled hot cache, attesters reputation, append-only merkle log, `Server` + `MaterializingStorage` |
 | `emem-cubes` | AgriSynth `.npz` handle (Python authoritative) |
 | `emem-primitives` | recall, find_similar, trajectory, compare, compare_bands, diff, verify, query_region, binary_embedding, refinement, cbor_ops |
 | `emem-attest` | pure `merkle_root` + `merkle_root_and_paths` |
 | `emem-intent` | 7-variant `Intent` enum → `Plan{calls[]}` rule-based planner |
 | `emem-mcp` | MCP tool registry (single file) |
-| `emem-api-rest` | HTTP/MCP router, ~167 `.route()` registrations (mapping to 74 distinct REST paths in `openapi.json`) + 36 MCP tools, all inline materializers |
+| `emem-api-rest` | HTTP/MCP router, 169 `.route()` registrations (mapping to 71 OpenAPI-documented REST paths in `openapi.json`, 68 of them under `/v1/*`) + 49 MCP tools, all inline materializers |
 | `emem-cli` | 7 binaries (see below) |
 
 The bulk of the codebase is concentrated. `crates/emem-api-rest/src/lib.rs`
-is one file at ~23.5 k lines; it is the central router and holds every
-inline materializer. `crates/emem-fetch` is ~8.8 k lines spread across 16
-modules (cache_window, chirps, cog, connectors, dmsp_ols, firms, hansen_gfc,
-koppen, lib, overture, proj, stac, template, terraclimate, wdpa, worldpop).
-Most contributions touch one or two crates at most — usually `api-rest`
-plus one of `fetch`, `primitives`, or `core`.
+is one file at ~24.8 k lines; it is the central router and holds every
+inline materializer. The foundation-embedding fan-out for `/v1/ask` lives
+in the sibling `ask_foundation.rs` module. `crates/emem-fetch` spans 12
+data connector modules (chirps, cog, dmsp_ols, firms, ftw, geonames,
+hansen_gfc, koppen, overture, terraclimate, wdpa, worldpop) plus 6 utility
+modules (cache_window, connectors, lib, proj, stac, template). Most
+contributions touch one or two crates at most — usually `api-rest` plus
+one of `fetch`, `primitives`, or `core`.
 
 Out of the workspace:
 
@@ -223,11 +225,19 @@ Or via systemd, the unit ships at
 systemctl --user start emem-jepa-sidecar.service
 ```
 
-The Rust server reads `EMEM_SIDECAR_SOCK`,
+The Rust server reads `EMEM_SIDECAR_SOCK` (default
+`/run/user/<UID>/emem/jepa_sidecar.sock`),
 `EMEM_SIDECAR_TIMEOUT_MS` (default 5000 ms), and
-`EMEM_SIDECAR_VRAM_BUDGET_GB` (default 10) for fan-out. Sidecar
-unavailable → `/v1/jepa_predict_v2` returns 503; there is no silent
-in-process fallback.
+`EMEM_SIDECAR_VRAM_BUDGET_GB` (binary default 10; the deployed user
+unit overrides to 20 to seat all four encoders co-resident) for fan-out.
+JEPA v2 is currently untrained: the endpoint short-circuits to a
+last-attested-vintage identity baseline, the receipt carries
+`via: short_circuit_untrained` and `untrained_baseline`, and there is
+no silent in-process fallback. Galileo (variant selectable via
+`EMEM_GALILEO_VARIANT`, default `base`) is wired for the S2 modality
+only — S1, ERA5, TC, VIIRS, SRTM, Dynamic World, WorldCover, LandScan,
+and location channels are zero-masked at inference. Sidecar
+unavailable → `/v1/jepa_predict_v2` returns 503.
 
 ### Round-trip a receipt
 
@@ -329,8 +339,8 @@ against the previous good run.
 
 ### When the topic router misbehaves
 
-`/v1/ask` routes a natural-language question to one of 26 topics
-via `BAAI/bge-base-en-v1.5` (CPU ort by default). Pre-stage with
+`/v1/ask` routes a natural-language question to one of 26 declared
+topics via `BAAI/bge-base-en-v1.5` (CPU ort by default). Pre-stage with
 `scripts/install-topic-model.sh` so the first request is not paying
 a 90-second cold-start. Force the keyword backend for tests with
 `EMEM_TOPIC_BACKEND=keyword`. Override the model path with

@@ -16,8 +16,9 @@
     "_live_pointer":             "GET /v1/agent_card for the live snapshot; numbers below are publish-time only",
     "mcp_tools":                 49,
     "algorithms":                155,
-    "rest_routes_total":         169,
-    "rest_routes_v1":            79,
+    "rest_paths_openapi":        71,
+    "rest_paths_v1_openapi":     68,
+    "rest_routes_total_in_axum": 169,
     "band_cube_slots":           35,
     "materializer_wired_names":  118,
     "source_schemes":            43,
@@ -28,7 +29,7 @@
     "_purpose": "Four GPU encoders co-resident on a 20 GB VRAM budget; surfaced as their own bands AND woven into algorithm consensus voting.",
     "clay_v1.5":         { "band": "clay_v1",      "dim": 1024, "input": "Sentinel-2 L2A 10-band 256x256",  "warm_ms": 12, "source": "https://clay-foundation.github.io/model/" },
     "prithvi_eo2_300m":  { "band": "prithvi_eo2",  "dim": 1024, "input": "HLS V2 6-band 224x224",            "warm_ms": 13, "source": "https://research.ibm.com/blog/prithvi2-geospatial" },
-    "galileo_tiny":      { "band": "galileo",      "dim": 192,  "input": "Sentinel-2 only (multimodal scaffold present)", "warm_ms": 14, "source": "https://arxiv.org/abs/2502.09356" },
+    "galileo":           { "band": "galileo",      "deployed_variant": "base", "selectable_via": "EMEM_GALILEO_VARIANT (tiny | base | nano)", "advertised_extension": "galileo-base", "input": "Sentinel-2 only (multimodal scaffold present)", "warm_ms": 14, "source": "https://arxiv.org/abs/2502.09356" },
     "jepa_v2_dynamics":  { "band": "(synthesized)","dim": 128,  "status": "untrained_baseline; short-circuits to last-attested vintage; receipt carries `untrained_baseline` warning" }
   },
   "consensus_algorithms": {

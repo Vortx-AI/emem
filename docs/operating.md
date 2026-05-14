@@ -179,8 +179,8 @@ when the variable is unset.
 | `EMEM_SECURITY_POLICY_URL` | unset | `Policy:` line in `/.well-known/security.txt` |
 | `EMEM_SIDECAR_SOCK` | `%t/emem/jepa_sidecar.sock` | UDS path the Rust server dials |
 | `EMEM_SIDECAR_TIMEOUT_MS` | 5000 | sidecar request timeout |
-| `EMEM_SIDECAR_VRAM_BUDGET_GB` | 10 | sidecar's per-process VRAM cap |
-| `EMEM_GALILEO_VARIANT` | `tiny` | Galileo size (`tiny` 192-D, `base` 768-D) |
+| `EMEM_SIDECAR_VRAM_BUDGET_GB` | binary default 10; the deployed `emem-jepa-sidecar.service` overrides to 20 | sidecar's per-process VRAM cap; 20 GB seats the four co-resident encoders (Prithvi-EO-2.0, Galileo, JEPA-v2 dynamics, the topic-router warmup buffer) |
+| `EMEM_GALILEO_VARIANT` | `base` | Galileo variant — one of `tiny`, `base`, `nano`. The advertised capability becomes `galileo-<variant>` in `/v1/capabilities.extensions[]`. Production deploys default to `base`. |
 | `EMEM_GALILEO_SNAPSHOT` | unset | pin a Galileo checkpoint snapshot |
 | `EMEM_PRITHVI_SNAPSHOT` | unset | pin a Prithvi-EO checkpoint snapshot |
 | `EMEM_OVERTURE_RELEASE` | (auto-discover newest) | pin Overture monthly release |
@@ -200,6 +200,7 @@ when the variable is unset.
 | `ORT_DYLIB_PATH` | (none) | path to `libonnxruntime.so.*` for the topic router and ort 2.x |
 | `LD_LIBRARY_PATH` | (none) | extra library paths (CUDA 12 runtime, ORT bundle) |
 | `RUST_LOG` | `info` | tracing filter, e.g. `info,emem_storage=debug,rustls_acme=info` |
+| `HF_HUB_OFFLINE` | `1` (enforced) | forbid the HuggingFace hub client from touching the network at runtime; all model snapshots must be pre-staged under `<EMEM_DATA>/hf_cache/` and `<EMEM_DATA>/models/` |
 
 ## Disk layout
 
@@ -270,9 +271,11 @@ curl -sS http://127.0.0.1:5051/v1/coverage_matrix \
   | jq '.totals, (.bands | length)'
 ```
 
-The expected shape today is ~80 distinct bands surfaced; lower
-numbers mean a registry CID rolled back or a materializer was
-removed.
+The expected shape today is ~118 distinct band names surfaced (those
+118 names route into the 35 cube slots that sum to 1792-D); lower
+numbers mean a registry CID rolled back or a materializer was removed.
+`/v1/materializers` reports the 20 live materializer registrations
+directly.
 
 ## Tuning
 
@@ -317,20 +320,34 @@ removed.
 - GPU off by default. To use CUDA EP, set
   `ORT_DYLIB_PATH=/opt/onnxruntime-1.22.0-cuda12/lib/libonnxruntime.so.1.22.0`
   and `EMEM_TOPIC_USE_GPU=1`. Operationally the CPU path is fine for
-  a 25-topic registry — ~110 ms warm end-to-end.
+  the 26-topic registry — ~110 ms warm end-to-end.
 
 ### Sidecar (jepa_v2)
 
 - Cold-start cost is one-time per process; warm cache after the
   first `/predict` call on each model.
-- `EMEM_SIDECAR_VRAM_BUDGET_GB` defaults to 10. Lower it if the GPU
-  is shared. The sidecar refuses requests that would exceed the
-  budget and the Rust server returns 503 — there is no silent
-  fallback to CPU inference.
-- The unit at `python/jepa_v2_sidecar/emem-jepa-sidecar.service` is
-  a `--user` systemd unit; the Rust server reads
-  `EMEM_SIDECAR_SOCK` (default `%t/emem/jepa_sidecar.sock` ⇒
-  `/run/user/<uid>/emem/jepa_sidecar.sock`).
+- The deployed `emem-jepa-sidecar.service` user unit sets
+  `EMEM_SIDECAR_VRAM_BUDGET_GB=20` so all four encoders (Prithvi-EO-2.0,
+  Galileo, JEPA-v2 dynamics, and the topic-router warmup buffer) sit
+  co-resident on the GPU. The binary default is 10 if the variable is
+  unset. Lower it if the GPU is shared; the sidecar refuses requests
+  that would exceed the budget and the Rust server returns 503. There
+  is no silent fallback to CPU inference.
+- The unit at `python/jepa_v2_sidecar/emem-jepa-sidecar.service` is a
+  user systemd unit; the Rust server reads `EMEM_SIDECAR_SOCK` (default
+  `%t/emem/jepa_sidecar.sock` ⇒
+  `/run/user/<UID>/emem/jepa_sidecar.sock`).
+- JEPA v2 is untrained today. The endpoint short-circuits via
+  `is_trained()` against a metadata-only `OnceLock`, returns the
+  last-attested-vintage identity baseline, and labels the receipt
+  `via: short_circuit_untrained` with `untrained_baseline: true`.
+  Do not describe `/v1/jepa_predict_v2` as a working dynamics head
+  until the training run lands.
+- Galileo (variant selectable via `EMEM_GALILEO_VARIANT`, default `base`) has only the S2 modality wired today; S1, ERA5, TC,
+  VIIRS, SRTM, Dynamic World, WorldCover, LandScan, and the location
+  channels are zero-masked at inference. The multimodal scaffold is
+  present and the embeddings are honest, but the missing modalities
+  show up as zeros in the input tensor, not as a structured Absence.
 
 ## Fail-over and HA
 
@@ -443,11 +460,16 @@ elements (trailing comma included). The reference is
 same byte sequence in `crates/emem-cli/src/main.rs::run_verify`.
 
 **`/v1/locate` returns 504 or empty.**
-Embedded → cache → Photon → Nominatim. Photon is the primary
-upstream; if it is down `EMEM_PHOTON_BASE` lets you self-host or
-swap, and `EMEM_NOMINATIM_BASE` lets you redirect the secondary.
-Set `EMEM_NO_NETWORK=1` to confirm the embedded + cache layers
-work in isolation.
+The cascade is `wide_bbox_lookup → embedded_gazetteer_lookup →
+geonames-68k → sled cache → Photon → Nominatim`. Photon is the
+primary network upstream; if it is down `EMEM_PHOTON_BASE` lets you
+self-host or swap, and `EMEM_NOMINATIM_BASE` lets you redirect the
+secondary. Polygon geometry is resolved by
+`overture.rs::division_polygon_near` (the Overture `divisions/
+division_area` parquet); Nominatim is only the long-tail polygon
+fallback. Set `EMEM_NO_NETWORK=1` to confirm the embedded + cache
+layers work in isolation; the response's `via` field names the layer
+that answered.
 
 **ACME cert renewal failing.**
 `journalctl --user -u emem-server | grep -i acme`. Common
