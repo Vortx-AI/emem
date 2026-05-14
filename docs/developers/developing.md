@@ -3,7 +3,7 @@
 This doc is for engineers cutting code against the emem.dev workspace at
 `github.com/Vortx-AI/emem`. It covers setup, the day-to-day workflows the
 maintainers actually run, and the conventions the repo enforces. It does
-not duplicate `docs/architecture.md` (system topology) or
+not duplicate `docs/developers/architecture.md` (system topology) or
 `docs/protocol.md` (wire bytes).
 
 ## Setup
@@ -152,7 +152,7 @@ materializer. Steps:
    `EMEM_MATERIALIZER_TIMEOUT_SECS`).
 4. Update `crates/emem-core/data/sources-v0.json` so the source
    shows up in `/v1/sources` and gets a real `sources_cid`.
-5. Document the source in `docs/data-sources.md`. License, native
+5. Document the source in `docs/developers/data-sources.md`. License, native
    resolution, vintage cadence, primary URL, mirror if any. The doc is
    `include_str!()`'d into the binary so it ships with the server.
 
@@ -404,4 +404,4 @@ Out-of-band, not GitHub issues. See `SECURITY.md` and
 `/.well-known/security.txt` (served by the running responder under
 `EMEM_TLS_CONTACT`, default `mailto:avijeet@vortx.ai`).
 
-For deployment and runtime concerns see `docs/operating.md`.
+For deployment and runtime concerns see `docs/operators/operating.md`.

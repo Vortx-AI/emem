@@ -1,6 +1,6 @@
 # emem Security Policy
 
-_Last updated: 2026-05-03_
+_Last updated: 2026-05-14_
 
 emem is an Apache-2.0, pure-Rust, content-addressed protocol. The
 canonical responder is operated by **Vortx AI Private Limited** (India)

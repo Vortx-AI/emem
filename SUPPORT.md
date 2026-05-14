@@ -1,6 +1,6 @@
 # Support
 
-_Last updated: 2026-04-29_
+_Last updated: 2026-05-14_
 
 The hosted instance at `https://emem.dev` is operated by **Vortx AI
 Private Limited** (India). All correspondence routes to

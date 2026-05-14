@@ -1,6 +1,6 @@
 # emem Privacy Policy
 
-_Last updated: 2026-04-29_
+_Last updated: 2026-05-14_
 
 emem is an open, content-addressed protocol that returns signed facts about
 geographic cells. This document describes the data the **canonical responder**
@@ -77,7 +77,7 @@ This is the **GDPR-compliant default**. The aggregate visit counts let us see wh
 
 The Esc key dismisses with **Reject** (default-deny on accidental dismiss). The banner is not a cookie wall: the entire site remains fully usable without any decision (every endpoint and link works regardless of consent state).
 
-**Why a cookie and not localStorage?** Earlier versions of this site stored the consent decision in `localStorage`. We switched to a first-party cookie in 2026-05 because EU-strict browser configurations (Firefox Strict tracking-protection mode, Brave Shields, the "delete site data on close" Safari / Edge defaults common in the EEA) were clearing `localStorage` between sessions. That made the banner re-prompt on every refresh — a bad UX and arguably a dark pattern. First-party cookies survive those configs reliably while remaining strictly necessary under ePrivacy Art. 5(3).
+**Why a cookie and not localStorage?** Earlier versions of this site stored the consent decision in `localStorage`. We switched to a first-party cookie on 2026-05-06 because EU-strict browser configurations (Firefox Strict tracking-protection mode, Brave Shields, the "delete site data on close" Safari / Edge defaults common in the EEA) were clearing `localStorage` between sessions. That made the banner re-prompt on every refresh — a bad UX and arguably a dark pattern. First-party cookies survive those configs reliably while remaining strictly necessary under ePrivacy Art. 5(3).
 
 **Revoking or changing consent.** Click **Manage cookies** in the footer at any time. This deletes the `emem_consent` cookie (`Max-Age=0`), re-renders the banner, and lets you make a new decision. To clear all GA cookies in the same step, also clear cookies for `emem.dev` in your browser.
 

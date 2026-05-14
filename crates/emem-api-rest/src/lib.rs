@@ -93,8 +93,8 @@ const AGENT_WALKTHROUGHS_MD: &str = include_str!("../../../examples/agent-walkth
 // Routes that used to serve the topic-specific files now serve the new
 // canonical doc — content is current, URLs keep working.
 const ATTESTING_MD: &str = include_str!("../../../docs/protocol.md");
-const MATERIALIZERS_MD: &str = include_str!("../../../docs/data-sources.md");
-const SPACES_MD: &str = include_str!("../../../docs/operating.md");
+const MATERIALIZERS_MD: &str = include_str!("../../../docs/developers/data-sources.md");
+const SPACES_MD: &str = include_str!("../../../docs/operators/operating.md");
 const TEMPORAL_MD: &str = include_str!("../../../docs/protocol.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
@@ -120,7 +120,7 @@ const AGENTS_MD: &str = include_str!("../../../docs/agents.md");
 const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper.md");
 const SPEC_MD: &str = include_str!("../../../docs/protocol.md");
 const CLIENTS_MD: &str = include_str!("../../../docs/agents.md");
-const MULTIMODAL_MD: &str = include_str!("../../../docs/inference.md");
+const MULTIMODAL_MD: &str = include_str!("../../../docs/developers/inference.md");
 const PRIVACY_MD: &str = include_str!("../../../PRIVACY.md");
 const TERMS_MD: &str = include_str!("../../../TERMS.md");
 const SUPPORT_MD: &str = include_str!("../../../SUPPORT.md");
@@ -382,6 +382,11 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/agent.json", get(agent_manifest))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
         .route("/.well-known/mcp.json", get(well_known_mcp))
+        // SEP-1649 server-card endpoint (MCP 2025-11-25 spec drafts;
+        // adopted by Claude Desktop / Cursor / VS Code ahead of merge).
+        // Same payload as /.well-known/mcp.json — clients that probe
+        // the spec-canonical path get an answer without a redirect.
+        .route("/.well-known/mcp/server-card.json", get(well_known_mcp))
         // OpenAI's hosted MCP discovery probes a vendor-prefixed path
         // before the spec one. Serve the same payload at both so the
         // ChatGPT "Tools" picker auto-installs without the user having
@@ -792,6 +797,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/.well-known/agent.json"
         | "/.well-known/agent-card.json"
         | "/.well-known/mcp.json"
+        | "/.well-known/mcp/server-card.json"
         | "/.well-known/oauth-protected-resource"
         | "/gemini-extension.json"
         | "/v1/discover" => Some("public, max-age=3600, stale-while-revalidate=86400"),
@@ -1135,6 +1141,7 @@ async fn rate_limit_layer(
             | "/.well-known/agent.json"
             | "/.well-known/agent-card.json"
             | "/.well-known/mcp.json"
+            | "/.well-known/mcp/server-card.json"
             | "/.well-known/oauth-protected-resource"
             | "/gemini-extension.json"
             | "/openapi.json"

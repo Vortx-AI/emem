@@ -878,7 +878,7 @@ v2 handler short-circuits ONNX/sidecar inference when
 `last_input_vintage` directly, attaching `untrained_baseline` and
 `upstream_geotessera_single_vintage` honesty warnings on the receipt.
 
-`docs/inference.md` carries the per-encoder chip-fetcher details,
+`docs/developers/inference.md` carries the per-encoder chip-fetcher details,
 sidecar protocol, VRAM partitioning, and the trained-checkpoint
 loader contract.
 

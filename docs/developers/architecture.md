@@ -413,7 +413,7 @@ short-circuits ONNX/sidecar inference when `is_trained() == false`
 and returns `last_input_vintage` directly). Per-model `*_BUDGET_GB`
 constants sum to `TOTAL_BUDGET_GB`; the cap is enforced via one
 `torch.cuda.set_per_process_memory_fraction` at registry init.
-CUDA OOM surfaces as 503 to Rust. See `docs/inference.md` for input
+CUDA OOM surfaces as 503 to Rust. See `docs/developers/inference.md` for input
 shapes, chip fetchers, and the trained-checkpoint loader contract.
 
 Physics solvers in `crates/emem-api-rest/src/physics.rs` are
@@ -518,10 +518,10 @@ such a process verify only until restart.
 - `docs/agents.md` — calling conventions for LLM agents (REST +
   MCP), the locate → recall → verify chain, in-browser receipt
   verification.
-- `docs/operating.md` — deploy paths (plain HTTP behind a reverse
+- `docs/operators/operating.md` — deploy paths (plain HTTP behind a reverse
   proxy, native TLS via Let's Encrypt TLS-ALPN-01), systemd units,
   env knobs.
 - `docs/whitepaper.md` — math + design rationale + triple-consensus
   algorithm derivation.
-- `docs/inference.md` — sidecar protocol, per-encoder chip fetchers,
+- `docs/developers/inference.md` — sidecar protocol, per-encoder chip fetchers,
   trained-checkpoint loader contract, VRAM partitioning.

@@ -1,6 +1,6 @@
 # emem Terms of Service
 
-_Last updated: 2026-04-29_
+_Last updated: 2026-05-14_
 
 These terms govern your use of the canonical emem responder operated by
 **Vortx AI Private Limited** (India) at `https://emem.dev` (and mirrored

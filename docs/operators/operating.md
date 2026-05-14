@@ -1,9 +1,9 @@
 # operating emem
 
 This doc is for the operator running an emem responder in production.
-It assumes you already understand `docs/architecture.md` (system
+It assumes you already understand `docs/developers/architecture.md` (system
 topology) and `docs/protocol.md` (wire bytes). For build, test, and
-contribution workflows see `docs/developing.md`.
+contribution workflows see `docs/developers/developing.md`.
 
 ## What you're running
 
@@ -396,7 +396,7 @@ hit rate.
 | sled lock contention | `emem-purge-fnkey` requires server stopped; documented | none planned |
 | Sidecar OOM | 503 on `/v1/jepa_predict_v2`; no silent CPU fallback | accept; tune `EMEM_SIDECAR_VRAM_BUDGET_GB` |
 | Topic router cold load >90 s | server starts anyway; keyword backend handles `/v1/ask` until ort thread returns | pre-warm with `scripts/install-topic-model.sh` |
-| Empty SDK directories (`sdks/emem-{py,ts}`) | integrate via REST or MCP — see `docs/developing.md` | populate when API surface stabilises |
+| Empty SDK directories (`sdks/emem-{py,ts}`) | integrate via REST or MCP — see `docs/developers/developing.md` | populate when API surface stabilises |
 
 The cap_net_bind_service incident: on 2026-04-30 a sequence of
 `cargo build --release` smoke tests stripped the file capability
@@ -515,4 +515,4 @@ protocol doing on date X". `GET /v1/demos`, `GET /v1/demos/:run`,
 can replay any past run without re-executing it.
 
 For wire-byte details and CID rules, see `docs/protocol.md`. For
-contributing changes, see `docs/developing.md`.
+contributing changes, see `docs/developers/developing.md`.

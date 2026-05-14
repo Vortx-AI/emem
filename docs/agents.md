@@ -884,7 +884,7 @@ URL state encoding (saved-query convention):
   pubkey.
 - `https://emem.dev/v1/agent_card`, `/v1/quickstart`: discover-first
   card + onboarding flow.
-- `docs/architecture.md`, `docs/protocol.md`, `docs/whitepaper.md`,
+- `docs/developers/architecture.md`, `docs/protocol.md`, `docs/whitepaper.md`,
   `docs/ATTESTING.md`: deeper protocol and math docs, write path.
 - `https://emem.dev/humans`, `/humans.json`, `/humans/llms.txt`:
   interactive console + JSON twin.

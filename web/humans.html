@@ -133,6 +133,14 @@ hr{border:none;border-top:1px solid var(--line);margin:.8em 0}
 #app.focus { --col-left:0px; --col-right:0px; --row-console:0px; }
 #app.focus aside.left, #app.focus aside.right, #app.focus section.console { display:none; }
 #app.focus .hero { opacity:0; pointer-events:none; }
+/* Mode overlays (graph / registry / log) cover the canvas — hide the
+   centred hero strip + glossary chips so they don't paint over the
+   pane's title. Side-rail content stays put; only the absolutely-
+   positioned chrome inside <main> needs to go. */
+#app.mode-graph .hero, #app.mode-registry .hero, #app.mode-log .hero,
+#app.mode-graph .glossary, #app.mode-registry .glossary, #app.mode-log .glossary,
+#app.mode-graph .gpop, #app.mode-registry .gpop, #app.mode-log .gpop
+  { opacity:0; pointer-events:none; visibility:hidden; }
 
 /* header */
 header{grid-area:header;display:flex;align-items:center;gap:.6em;padding:0 .8em;
@@ -236,7 +244,7 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
    the zoom rail. One unified bottom dock fixes all of it. */
 .legend{position:absolute;bottom:calc(.7em + 50px);left:.7em;z-index:4;background:var(--bg-1);
   border:1px solid var(--line);font-size:10.5px;color:var(--fg-3);
-  border-radius:3px;max-width:18em;font-family:var(--mono);line-height:1.55;
+  border-radius:3px;max-width:min(18em, calc(100% - 9em));font-family:var(--mono);line-height:1.55;
   display:none;overflow:hidden}
 @media(min-width:760px){.legend{display:block}}
 .legend b{color:var(--fg-2);font-weight:500}
@@ -290,7 +298,7 @@ canvas#stage.panning{cursor:grabbing}
 #logview .row .key .band{color:var(--fg-2);font-size:10.5px}
 #logview .row .key .meta{color:var(--fg-3);font-size:10px;margin-top:.15em}
 #logview .row .actions{display:flex;gap:.4em;align-items:center;flex-wrap:nowrap}
-@media(max-width:600px){
+@media(max-width:760px){
   #logview .row{grid-template-columns:1fr;gap:.2em}
   #logview .row .ts{font-size:10px}
 }
@@ -366,12 +374,11 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .log .pivot:hover{color:var(--accent);border-color:var(--accent);background:transparent}
 .log .pivot.flash{background:rgba(124,255,178,.15);color:var(--accent);border-color:var(--accent)}
 
-.toast{position:fixed;left:50%;bottom:calc(160px + 1.2em);transform:translateX(-50%) translateY(8px);
+.toast{position:fixed;left:50%;bottom:calc(var(--row-console) + 3em);transform:translateX(-50%) translateY(8px);
   background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);
   padding:.45em .9em;border-radius:3px;font-family:var(--mono);font-size:11px;
   z-index:200;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;
   letter-spacing:.02em;box-shadow:0 8px 32px rgba(0,0,0,.5)}
-@media(min-width:760px){.toast{bottom:calc(200px + 1.2em)}}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .console-toolbar{position:sticky;top:0;background:#06070a;display:flex;gap:.5em;align-items:center;
   padding:.2em 0 .4em;border-bottom:1px solid var(--line);margin-bottom:.4em;font-size:10.5px;color:var(--fg-mute);z-index:1}
@@ -548,10 +555,11 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
    one-line popover with the canonical definition. Never disappears (unlike
    the dismissable hero), so newcomers can always re-anchor.
    ───────────────────────────────────────────────────────────────────────── */
-.glossary{position:absolute;left:50%;top:3.6em;transform:translateX(-50%);z-index:5;
+.glossary{position:absolute;left:50%;top:7.2em;transform:translateX(-50%);z-index:5;
   display:flex;flex-wrap:wrap;gap:.3em;justify-content:center;max-width:min(720px,92vw);
   pointer-events:auto;font-family:var(--mono)}
 @media(max-width:760px){.glossary{display:none}}
+@media(min-width:1280px){.glossary{top:5.4em}}
 .glossary.fade{opacity:.35;transition:opacity .2s ease}
 .glossary.fade:hover{opacity:1}
 .gchip{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);
@@ -566,7 +574,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
   border-radius:4px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
   max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.6);
-  line-height:1.55;text-align:left;display:none;z-index:6}
+  line-height:1.55;text-align:left;display:none;z-index:9}
 .gpop.on{display:block}
 .gpop b{color:var(--accent);font-weight:600}
 .gpop .gex{color:var(--fg-3);font-size:10.5px;margin-top:.4em;display:block;
@@ -2363,6 +2371,13 @@ function buildLogView() {
 // ── 12. Mode switching ─────────────────────────────────────────────────────
 function setMode(m) {
   STATE.mode = m;
+  const appEl = document.getElementById('app');
+  if (appEl) {
+    appEl.classList.toggle('mode-field',    m==='field');
+    appEl.classList.toggle('mode-graph',    m==='graph');
+    appEl.classList.toggle('mode-registry', m==='registry');
+    appEl.classList.toggle('mode-log',      m==='log');
+  }
   for (const k of ['Field','Graph','Reg','Log']) {
     const id = 'mode'+k;
     const btn = document.getElementById(id);

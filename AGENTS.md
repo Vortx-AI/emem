@@ -106,7 +106,7 @@ hook fails, fix the underlying issue.
   a registry CID rotation plan.
 - `web/index.html` GA injection — the consent banner is GDPR-compliant
   by design; don't simplify it without re-reading
-  `docs/operating.md` § Privacy/GA.
+  `docs/operators/operating.md` § Privacy/GA.
 
 ## Where to find things
 
@@ -131,11 +131,11 @@ hook fails, fix the underlying issue.
 
 ## Where to read more
 
-- [docs/architecture.md](docs/architecture.md) — what shape the protocol takes
+- [docs/developers/architecture.md](docs/developers/architecture.md) — what shape the protocol takes
 - [docs/protocol.md](docs/protocol.md) — wire format, preimages, encodings
 - [docs/whitepaper.md](docs/whitepaper.md) — math + design rationale
-- [docs/operating.md](docs/operating.md) — deployment, env vars, TLS, CSP
-- [docs/developing.md](docs/developing.md) — dev workflow + test invariants
+- [docs/operators/operating.md](docs/operators/operating.md) — deployment, env vars, TLS, CSP
+- [docs/developers/developing.md](docs/developers/developing.md) — dev workflow + test invariants
 - [docs/agents.md](docs/agents.md) — *consumer*-agent guide (how to USE emem)
 - [web/skills.md](web/skills.md) — composed recipes for agent integrations
 - [.claude/skills/](claude-skills/) — installable Anthropic Skills bundle

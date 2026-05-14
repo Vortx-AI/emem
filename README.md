@@ -142,7 +142,7 @@ cargo run --release --bin emem-server
 docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest
 ```
 
-No required env vars. `EMEM_BIND` overrides the listener (default `0.0.0.0:5051`). `EMEM_DATA` overrides the data directory (default `./var/emem`; pass `:memory:` for ephemeral). For TLS, systemd, ACME on `:443`, and the HuggingFace Space wrapper, see [docs/operating.md](docs/operating.md).
+No required env vars. `EMEM_BIND` overrides the listener (default `0.0.0.0:5051`). `EMEM_DATA` overrides the data directory (default `./var/emem`; pass `:memory:` for ephemeral). For TLS, systemd, ACME on `:443`, and the HuggingFace Space wrapper, see [docs/operators/operating.md](docs/operators/operating.md).
 
 ## Address algebra
 
@@ -194,7 +194,7 @@ The GPU sidecar (Python FastAPI over Unix domain socket) co-resides four encoder
 - **Galileo** (variant `base` in production; `tiny` / `nano` selectable via `EMEM_GALILEO_VARIANT`) — S2-only modality wired (S1 / ERA5 / SRTM / VIIRS / Dynamic-World / WorldCover / LandScan / location zero-masked; the scaffold is multimodal but only S2 is connected today). The advertised capability is `galileo-<variant>` in `/v1/capabilities.extensions[]`.
 - **JEPA v2 dynamics** — untrained baseline. Metadata-only `is_trained()` check short-circuits to last-vintage identity; receipt carries `untrained_baseline` and `via: "short_circuit_untrained"`. Training is upstream-bottlenecked on multi-vintage Tessera availability.
 
-Sidecar crash does not cascade — the REST router degrades to scalar bands and signs the GPU-anchored algorithms as Absence with `gpu_unavailable`. See [docs/inference.md](docs/inference.md).
+Sidecar crash does not cascade — the REST router degrades to scalar bands and signs the GPU-anchored algorithms as Absence with `gpu_unavailable`. See [docs/developers/inference.md](docs/developers/inference.md).
 
 ## Honest limits
 

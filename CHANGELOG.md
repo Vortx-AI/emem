@@ -7,7 +7,148 @@ to verify.
 
 ## [Unreleased]
 
-### `/humans` rebuild — 2026-05-08
+## [0.0.6] — 2026-05-14
+
+Triple-encoder consensus pattern, foundation-embedding `/v1/ask`
+fan-out, /verify in-browser receipt verifier, MCP/REST parity sweep,
+docs rewritten against ground truth.
+
+### Added
+
+- **Six triple-consensus algorithms.** `deforestation_triple@1` (Hansen
+  GFC mask uplift), `wetland_change_triple@1` (JRC GSW recurrence
+  delta), `urban_expansion_triple@1` (Overture buildings delta + s2.B11
+  SWIR corroboration), `disaster_anomaly_triple@1` (spatial, 2-σ
+  neighbour z-score), `climate_archetype_triple@1` (12-class
+  Köppen-Geiger classifier with type-locality centroid seed),
+  `coastal_erosion_triple@1` (bathymetry-clamped to active-coastline
+  cells). algorithms-v0.json grew 149 → 155 entries.
+- **AlgorithmSpec `parameters` + `learned_from` + `prerequisites`
+  fields.** Algorithms ship typed tunable thresholds with citation
+  provenance for every tuned number. Accessors: `Algorithm::param_f64`,
+  `param_str`, `param`.
+- **`/v1/ask` foundation-embedding fan-out.** Keyword intent
+  classifier (Similarity / Change) wires a concurrent fan-out across
+  Clay v1.5 + Prithvi-EO-2.0 + Tessera; response carries
+  `foundation_embeddings` envelope with per-encoder neighbours and
+  cross-encoder consensus voting (`all_three` / `two_of_three` /
+  `one_or_none`). Budget read from
+  `clay_prithvi_tessera_triple_consensus@1.parameters.ask_timeout_ms`.
+- **13 new MCP tools.** Domain shortcuts (one-shot locate → recall →
+  aggregate): `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`,
+  `emem_soil`, `emem_water`, `emem_forest`, `emem_weather`. Utility +
+  bulk: `emem_recall_many`, `emem_elevation`, `emem_fleet`,
+  `emem_temporal_route`, `emem_verify_receipt`. TOOLS catalog 36 → 49.
+- **Köppen-Geiger archetype seed** at
+  `crates/emem-core/data/climate_archetype_centroids_v1.json` — 12
+  type localities (Beck et al. 2018, Scientific Data 5:180214) that
+  back `climate_archetype_triple@1`.
+- **find_similar Hamming inline-derive.** `load_cell_bin128`
+  inline-derives bin128 from any cached geotessera vintage via
+  TurboQuant sign-bit packing (seed
+  `emem.binary_embedding.turboquant.v1`) when the binary sibling band
+  is absent. ~1 ms vs ~30 ms materializer round-trip.
+- **EWMA-adaptive triage** for `find_similar` mode
+  `hamming_then_rerank`. Lock-free AtomicU64 stores observed
+  Hamming↔cosine recall@k; the oversampling factor becomes
+  `ceil(1/recall)` clamped to [4, 16]. ~50-call warm-up; before
+  warming, behaves as the historical 4× floor.
+- **query_region default `max_cells` is bbox-area-derived** —
+  target ~1 cell per (10 km)², clamped to [64, 1024]. Honours
+  explicit `max_cells` from the caller. Small parks no longer pay
+  the full 256-cell cost; large regions get a denser sample.
+
+### Changed
+
+- **Gazetteer unified through `emem_fetch::geonames`** (68 581
+  cities5000 corpus). Deleted two duplicate hand-curated GAZETTEER
+  tables (30 + ~120 entries) in `find_similar.rs` and lib.rs; forward
+  and reverse lookups now route through `emem_fetch::geonames::lookup`
+  and `nearest_label(max_km=25)`. Index warmed on a worker thread at
+  router boot.
+- **`enrich_find_similar_response()` extracted** into a shared helper.
+  REST handler and the MCP `emem_find_similar` arm both call it, so
+  similarity_method / band_used / deep_recall_url / scene_png_url /
+  place_label_cached land byte-identically across surfaces.
+- **Topic-router 0.35 threshold** now declares
+  `_threshold_learned_from` provenance in `topics-v0.json`. Code-side
+  fallback is a named `DEFAULT_TOPIC_THRESHOLD` const.
+- **`flood_risk@2` 5-m DEM agreement threshold** moves to the
+  `parameters` block with `learned_from` citing the ESA Cop-DEM PSD
+  §5.4 CE90 vertical accuracy as the physical anchor.
+
+### Fixed
+
+- **Topic-router methane/SWIR aliases.** Analytics topic gets 16 new
+  aliases (methane plume, SWIR anomaly, 2190 nm, fugitive emissions,
+  …) and `s2.B11`/`s2.B12` bands. Keyword pre-pass surfaces
+  `analytics` and `methane_plume_swir_anomaly@1` on direct methane
+  questions.
+- **find_similar auto-materialize on miss.** REST + MCP handler
+  triggers `try_materialize_bands` for the requested vector band when
+  find_similar returns `CidNotFound`, then retries — one call instead
+  of two.
+- **Locate admin-boundary fallback.** Karnal-district-style queries
+  now reroute through Overture `divisions/division_area` when
+  Nominatim returns a POI courthouse. Cached POI-scale (<0.01°)
+  bboxes trigger forced Overture override. Surfaced as
+  `via: "overture_admin_fallback"`,
+  `polygon_source: "overture_division_area"`.
+- **JEPA v2 short-circuit on untrained.** `jepa_v2::is_trained()`
+  metadata-only OnceLock; when false, `physics::jepa_predict_v2`
+  returns `lag_window.last()` and skips ONNX + sidecar entirely.
+  Receipt carries `via: "short_circuit_untrained"` and the original
+  `untrained_baseline` honesty warning. Saves ~4.6 s of CUDA warmup
+  on the residual-zero identity function.
+- **GPU sidecar VRAM budget** walked up to 20 GB so Clay v1.5,
+  Prithvi-EO-2.0, Galileo, and JEPA v2 co-reside without
+  per-process cap trips.
+- **Clay teacher pre-stage.** Pre-stage
+  `timm/vit_large_patch14_reg4_dinov2.lvd142m` (~1.1 GB) at boot so
+  `HF_HUB_OFFLINE=1` holds. Clay v1.5 ckpt hyperparams save
+  `teacher="vit_large_patch14_reg4_dinov2.lvd142m"`, which differs
+  from the `samvit_base_patch16.sa1b` class default in
+  `claymodel/module.py`.
+
+### Surfaces
+
+- **`/verify` and `/verify/<fact_cid>`.** In-browser ed25519 receipt
+  verifier. Reconstructs the canonical preimage
+  `(request_id | served_at | primitive | cells | fact_cids)` and runs
+  the signature math with `@noble/curves@1.6.0` +
+  `@noble/hashes@1.5.0` from esm.sh. Falls back to
+  `POST /v1/verify_receipt` if CDN imports time out. Handles every
+  wire shape (`signature: byte[]` or `sig_b32`; `responder: byte[]`
+  or `responder_pubkey_b32`).
+- **`/humans` rebuild.** Try-it drawer (T key) for 20 primitives,
+  manifest grid replacing the Poincaré disk, ontology SVG replacing
+  the force-directed cell cloud, glossary chip strip, human/raw
+  toggle on every right-pane card, first-paint preload on the
+  densest attested cell.
+- **Docs rewritten against ground truth.** 49 MCP tools, 155
+  algorithms, 71 OpenAPI-documented paths (68 under `/v1/*`), 35 band
+  cube slots + 118 materializer-wired band names, 43 source schemes,
+  12 data connectors, 26 declared topics. Every count-bearing claim
+  across README, AGENTS.md, docs/, web/agent.json,
+  web/ai-plugin.json, web/humans.json, web/humans-llms.txt, and the
+  /humans HTML text content now matches the live server.
+
+## [0.0.5] — 2026-05-11
+
+### Added
+
+- **Fields of The World agricultural-boundary supplement.** Per-field
+  polygons from the FTW global product (~3.17 B fields, 10 m, 241
+  countries, CC-BY-4.0) via PMTiles range reads on `source.coop`.
+  Surfaced as the standalone `/v1/field_boundaries` primitive and as
+  the `include: ["ftw_fields"]` supplement on `/v1/recall_polygon`.
+- **GeoNames cities5000 + Overture `divisions/division_area`.**
+  Locator cascade upgraded so the OSM rate limit is no longer the
+  bottleneck on every `/v1/locate` call; the gazetteer answers
+  ~68 581 populated places in-process, and admin boundaries resolve
+  through Overture polygons.
+
+## [0.0.4] — 2026-05-05
 
 Public interactive surface at `https://emem.dev/humans` — the page is its
 own API console. Every visible cell carries `data-emem-cell`, `band`,
@@ -123,7 +264,7 @@ stub or "lands in v0.1".
   `fetch_terraclimate_normal` tries each in order; the receipt's
   `Source.url` records which mirror answered.
 - Documented the user-vs-system-mode `cap_net_bind_service` story in
-  `ops/systemd/emem-server.service.example` and `docs/operating.md`.
+  `ops/systemd/emem-server.service.example` and `docs/operators/operating.md`.
   An earlier attempt to add `AmbientCapabilities=CAP_NET_BIND_SERVICE`
   for the user unit failed in production: the kernel does not honour
   that directive for user-mode systemd (no UID transition for the
@@ -229,7 +370,7 @@ SDKs+web+deploy. Findings:
   unwired: openet.30m.daily, dynamic_world.v1, tropomi.s5p.ch4,
   tropomi.s5p.no2, viirs.dnb.monthly.
 
-## [0.0.4] — 2026-05-XX
+## [0.0.4] — 2026-05-05
 
 Polygon-aware boring endpoints, real physics primitives (heat /
 wave PDE solvers + AR(2) NDVI predictor), agent-first homepage,
@@ -488,7 +629,7 @@ brand identity.
 
 Initial open-source release. The protocol surface, primitives, MCP
 server, and reference responder are all functional. See
-`README.md` for the workspace layout and `docs/operating.md` for
+`README.md` for the workspace layout and `docs/operators/operating.md` for
 production deployment.
 
 End.
