@@ -309,6 +309,56 @@ pub fn indexed_record_count() -> usize {
     index().records.len()
 }
 
+/// Force-initialize the index. Call at server boot to pay the ~80–150 ms
+/// decompress + parse cost up-front rather than on the first lookup.
+/// Returns the record count for callers that want to log "warmed N entries".
+pub fn warm_index() -> usize {
+    indexed_record_count()
+}
+
+/// Find the nearest populated place (≥5000 pop) to a lat/lng. Returns the
+/// record and its haversine distance in kilometres, or `None` when no
+/// record lies within `max_km`. Uses the embedded ~68 k cities5000 corpus
+/// — no network, no async, no I/O once the [`OnceLock`] index is warm.
+///
+/// `max_km` caps the search radius so a remote ocean cell doesn't return
+/// a "nearest" record 800 km away. Pass `f64::INFINITY` to disable the
+/// cap.
+///
+/// Implementation is a brute O(n) scan of the 68 k records (~70 k float
+/// mults). At a sub-millisecond budget this is the cheapest correct
+/// approach; a 1° lat-bucket index could trim it further but the present
+/// hot path is reverse-geocoding `find_similar` neighbours (k ≤ 1000),
+/// not bulk recomputation.
+pub fn nearest_label(lat: f64, lng: f64, max_km: f64) -> Option<(&'static GeonameRecord, f64)> {
+    let idx = index();
+    let mut best: Option<(usize, f64)> = None;
+    for (i, rec) in idx.records.iter().enumerate() {
+        let d = haversine_km(lat, lng, rec.lat, rec.lng);
+        if d > max_km {
+            continue;
+        }
+        match best {
+            Some((_, cur)) if cur <= d => {}
+            _ => best = Some((i, d)),
+        }
+    }
+    best.map(|(i, d)| (&idx.records[i], d))
+}
+
+/// Great-circle distance between two WGS84 points in kilometres.
+/// Inlined to avoid pulling a geo crate dep into emem-fetch.
+fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
+    const R_KM: f64 = 6371.0088;
+    let to_rad = std::f64::consts::PI / 180.0;
+    let phi1 = lat1 * to_rad;
+    let phi2 = lat2 * to_rad;
+    let dphi = (lat2 - lat1) * to_rad;
+    let dlam = (lng2 - lng1) * to_rad;
+    let a = (dphi / 2.0).sin().powi(2) + phi1.cos() * phi2.cos() * (dlam / 2.0).sin().powi(2);
+    2.0 * R_KM * a.sqrt().asin()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

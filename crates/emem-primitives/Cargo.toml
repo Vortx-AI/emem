@@ -12,6 +12,7 @@ emem-claim   = { workspace = true }
 emem-cache   = { workspace = true }
 emem-storage = { workspace = true }
 emem-codec   = { workspace = true }
+emem-fetch   = { workspace = true }
 serde        = { workspace = true }
 ciborium     = { workspace = true }
 thiserror    = { workspace = true }

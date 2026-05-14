@@ -22,6 +22,7 @@
 //! distinct algorithms manifest CID; entry keys are stable across
 //! manifests, weights/thresholds are not.
 
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
@@ -357,6 +358,63 @@ pub struct Algorithm {
     /// distribution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inference: Option<InferenceTier>,
+    /// Optional tunable parameters. Lets an algorithm declare its
+    /// thresholds, gates, and learned constants as data rather than
+    /// hardcoding them in the formula string. The dispatcher exposes
+    /// `param(key)` for lookups and `learned_from` provenance is
+    /// preserved alongside the value.
+    ///
+    /// Values are typed as `serde_json::Value` so a parameter can be a
+    /// number, a string, or a sub-object carrying `{value, learned_from,
+    /// rationale}`. The accessor [`Algorithm::param_f64`] / [`param_str`]
+    /// unwraps the common cases; clients that want the full provenance
+    /// read the raw `Value` via [`Algorithm::param`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<BTreeMap<String, serde_json::Value>>,
+    /// Optional learned-from provenance (citation for any parameter
+    /// values that were tuned rather than derived from first principles).
+    /// Free-form object — `gate_threshold`, `rationale`, dataset
+    /// references. Surfaced verbatim in `/v1/algorithms` so an auditor
+    /// can trace any number that isn't physically obvious.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub learned_from: Option<serde_json::Value>,
+    /// Optional prerequisites — registries / centroid tables / seed
+    /// datasets the algorithm depends on. When listed, the dispatcher
+    /// can pre-check availability and emit a structured
+    /// `archetype_seed_unavailable` Absence rather than a runtime crash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prerequisites: Option<serde_json::Value>,
+}
+
+impl Algorithm {
+    /// Read a parameter as a raw [`serde_json::Value`]. Returns `None` if
+    /// either the algorithm carries no `parameters` block or the key is
+    /// absent. Values may be scalars or `{value, learned_from, ...}`
+    /// objects — callers that just want the number should use
+    /// [`Self::param_f64`].
+    pub fn param(&self, key: &str) -> Option<&serde_json::Value> {
+        self.parameters.as_ref()?.get(key)
+    }
+
+    /// Read a parameter as `f64`. Accepts either a bare number
+    /// (`"k": 12`) or a `{value: 12, ...}` object (the provenance-rich
+    /// form). Returns `None` if missing or non-numeric.
+    pub fn param_f64(&self, key: &str) -> Option<f64> {
+        let v = self.param(key)?;
+        if let Some(n) = v.as_f64() {
+            return Some(n);
+        }
+        v.get("value").and_then(|x| x.as_f64())
+    }
+
+    /// Read a parameter as `&str`.
+    pub fn param_str(&self, key: &str) -> Option<&str> {
+        let v = self.param(key)?;
+        if let Some(s) = v.as_str() {
+            return Some(s);
+        }
+        v.get("value").and_then(|x| x.as_str())
+    }
 }
 
 /// Where an algorithm wants to run. Mirrors Triton's `instance_group.kind`

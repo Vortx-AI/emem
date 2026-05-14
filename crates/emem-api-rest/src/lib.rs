@@ -300,6 +300,18 @@ pub fn router(state: AppState) -> Router {
     // so per-request handlers (topics, explain_algorithm) don't have
     // to round-trip the sidecar to filter GPU-only algorithms.
     spawn_capability_cache_poller();
+
+    // Warm the GeoNames cities5000 index on a worker thread so the first
+    // find_similar / locate / reverse-geocode call doesn't pay the ~150 ms
+    // decompress+parse hit synchronously. The OnceLock inside emem-fetch
+    // makes this idempotent — repeated calls are a no-op.
+    std::thread::Builder::new()
+        .name("emem-geonames-warm".into())
+        .spawn(|| {
+            let n = emem_fetch::geonames::warm_index();
+            tracing::info!(target: "emem::geocoder", geonames_index_warm = n, "geonames_index_warm");
+        })
+        .ok();
     Router::new()
         // Landing & agent-targeted pages
         .route("/", get(landing))
@@ -21318,127 +21330,6 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
 // `EMEM_NOMINATIM_BASE` to their own instance; that's a one-line change
 // in `nominatim_lookup` and the same layered cache applies.
 
-/// Static gazetteer of places agents ask about most often. Source: public
-/// authoritative coordinates (Wikipedia summit boxes, capital city
-/// coordinates). Not exhaustive — a fallback for the obvious queries.
-/// Format: (key, centre_lat, centre_lng, label).
-const GAZETTEER: &[(&str, f64, f64, &str)] = &[
-    // World capitals (subset).
-    ("tokyo", 35.6764, 139.6500, "Tokyo, Japan"),
-    ("london", 51.5074, -0.1278, "London, United Kingdom"),
-    ("paris", 48.8566, 2.3522, "Paris, France"),
-    ("new york", 40.7128, -74.0060, "New York City, USA"),
-    ("new york city", 40.7128, -74.0060, "New York City, USA"),
-    ("nyc", 40.7128, -74.0060, "New York City, USA"),
-    ("delhi", 28.6139, 77.2090, "Delhi, India"),
-    ("new delhi", 28.6139, 77.2090, "New Delhi, India"),
-    ("mumbai", 19.0760, 72.8777, "Mumbai, India"),
-    ("bangalore", 12.9716, 77.5946, "Bengaluru, India"),
-    ("bengaluru", 12.9716, 77.5946, "Bengaluru, India"),
-    ("chennai", 13.0827, 80.2707, "Chennai, India"),
-    ("kolkata", 22.5726, 88.3639, "Kolkata, India"),
-    ("beijing", 39.9042, 116.4074, "Beijing, China"),
-    ("shanghai", 31.2304, 121.4737, "Shanghai, China"),
-    ("seoul", 37.5665, 126.9780, "Seoul, South Korea"),
-    ("singapore", 1.3521, 103.8198, "Singapore"),
-    ("bangkok", 13.7563, 100.5018, "Bangkok, Thailand"),
-    ("jakarta", -6.2088, 106.8456, "Jakarta, Indonesia"),
-    ("sydney", -33.8688, 151.2093, "Sydney, Australia"),
-    ("são paulo", -23.5505, -46.6333, "São Paulo, Brazil"),
-    ("sao paulo", -23.5505, -46.6333, "São Paulo, Brazil"),
-    (
-        "rio de janeiro",
-        -22.9068,
-        -43.1729,
-        "Rio de Janeiro, Brazil",
-    ),
-    (
-        "buenos aires",
-        -34.6037,
-        -58.3816,
-        "Buenos Aires, Argentina",
-    ),
-    ("mexico city", 19.4326, -99.1332, "Mexico City, Mexico"),
-    ("lagos", 6.5244, 3.3792, "Lagos, Nigeria"),
-    ("nairobi", -1.2864, 36.8172, "Nairobi, Kenya"),
-    ("cairo", 30.0444, 31.2357, "Cairo, Egypt"),
-    (
-        "johannesburg",
-        -26.2041,
-        28.0473,
-        "Johannesburg, South Africa",
-    ),
-    ("cape town", -33.9249, 18.4241, "Cape Town, South Africa"),
-    ("istanbul", 41.0082, 28.9784, "Istanbul, Türkiye"),
-    ("dubai", 25.2048, 55.2708, "Dubai, UAE"),
-    ("moscow", 55.7558, 37.6173, "Moscow, Russia"),
-    ("berlin", 52.5200, 13.4050, "Berlin, Germany"),
-    ("madrid", 40.4168, -3.7038, "Madrid, Spain"),
-    ("rome", 41.9028, 12.4964, "Rome, Italy"),
-    ("amsterdam", 52.3676, 4.9041, "Amsterdam, Netherlands"),
-    ("toronto", 43.6532, -79.3832, "Toronto, Canada"),
-    ("vancouver", 49.2827, -123.1207, "Vancouver, Canada"),
-    ("san francisco", 37.7749, -122.4194, "San Francisco, USA"),
-    ("los angeles", 34.0522, -118.2437, "Los Angeles, USA"),
-    ("seattle", 47.6062, -122.3321, "Seattle, USA"),
-    ("chicago", 41.8781, -87.6298, "Chicago, USA"),
-    ("reykjavík", 64.1466, -21.9426, "Reykjavík, Iceland"),
-    ("reykjavik", 64.1466, -21.9426, "Reykjavík, Iceland"),
-    // Iconic peaks & landmarks.
-    ("mount fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
-    ("mt fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
-    ("mt. fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
-    ("fuji", 35.3606, 138.7274, "Mount Fuji, Japan"),
-    (
-        "mount everest",
-        27.9881,
-        86.9250,
-        "Mount Everest, Nepal/Tibet",
-    ),
-    ("mt everest", 27.9881, 86.9250, "Mount Everest, Nepal/Tibet"),
-    (
-        "mt. everest",
-        27.9881,
-        86.9250,
-        "Mount Everest, Nepal/Tibet",
-    ),
-    ("everest", 27.9881, 86.9250, "Mount Everest, Nepal/Tibet"),
-    ("k2", 35.8825, 76.5133, "K2, Karakoram"),
-    (
-        "kilimanjaro",
-        -3.0674,
-        37.3556,
-        "Mount Kilimanjaro, Tanzania",
-    ),
-    ("denali", 63.0692, -151.0070, "Denali, Alaska"),
-    (
-        "mount kosciuszko",
-        -36.4558,
-        148.2640,
-        "Mount Kosciuszko, Australia",
-    ),
-    ("aconcagua", -32.6532, -70.0109, "Aconcagua, Argentina"),
-    (
-        "matterhorn",
-        45.9763,
-        7.6586,
-        "Matterhorn, Swiss/Italian Alps",
-    ),
-    ("mount blanc", 45.8326, 6.8652, "Mont Blanc, France/Italy"),
-    ("mont blanc", 45.8326, 6.8652, "Mont Blanc, France/Italy"),
-    // Iconic wide features (centroids — agents should fan out).
-    ("grand canyon", 36.0544, -112.1401, "Grand Canyon, USA"),
-    ("amazon", -3.4653, -62.2159, "Amazon Basin, Brazil"),
-    ("sahara", 23.4162, 25.6628, "Sahara Desert"),
-    ("antarctica", -82.8628, 35.0000, "Antarctica"),
-    ("arctic", 80.0000, -0.0000, "Arctic Ocean"),
-    (
-        "great barrier reef",
-        -18.2871,
-        147.6992,
-        "Great Barrier Reef, Australia",
-    ),
-];
 
 /// Bounding boxes for places that span enough of Earth that a single
 /// centroid-cell query would miss most of the data. Format:
@@ -21571,45 +21462,12 @@ fn wide_bbox_lookup(query: &str) -> Option<(f64, f64, f64, f64)> {
 }
 
 fn embedded_gazetteer_lookup(query: &str) -> Option<(f64, f64, String)> {
-    let q = query.trim().to_ascii_lowercase();
-    if q.is_empty() {
-        return None;
-    }
-    // Exact match first (cheaper than a scan).
-    for (key, lat, lng, label) in GAZETTEER {
-        if q == *key {
-            return Some((*lat, *lng, (*label).to_string()));
-        }
-    }
-    // Substring tolerance: "tokyo, japan" still hits "tokyo".
-    for (key, lat, lng, label) in GAZETTEER {
-        if q.starts_with(key) || q.contains(&format!(" {key} ")) {
-            return Some((*lat, *lng, (*label).to_string()));
-        }
-    }
-    None
+    let rec = emem_fetch::geonames::lookup(query)?;
+    Some((rec.lat, rec.lng, rec.label()))
 }
 
-/// Reverse-lookup the embedded gazetteer for the closest known label
-/// to a (lat, lng). Returns the label only when within ~25 km of an
-/// entry — beyond that a "place name" would be misleading. Cheap
-/// linear scan over <500 entries; called sparingly (find_similar
-/// neighbour decode, polygon centroids).
 fn embedded_gazetteer_reverse_lookup(lat: f64, lng: f64) -> Option<String> {
-    if !lat.is_finite() || !lng.is_finite() {
-        return None;
-    }
-    let mut best: Option<(f64, &str)> = None;
-    for (_, lat0, lng0, label) in GAZETTEER {
-        // Equirectangular distance; good enough for a 25 km gate.
-        let dlat = (lat - *lat0) * 111.0;
-        let dlng = (lng - *lng0) * 111.0 * lat0.to_radians().cos().abs();
-        let d = (dlat * dlat + dlng * dlng).sqrt();
-        if best.as_ref().map(|(b, _)| d < *b).unwrap_or(true) {
-            best = Some((d, label));
-        }
-    }
-    best.and_then(|(d, label)| (d <= 25.0).then(|| label.to_string()))
+    emem_fetch::geonames::nearest_label(lat, lng, 25.0).map(|(r, _)| r.label())
 }
 
 #[derive(Clone, Serialize, Deserialize)]

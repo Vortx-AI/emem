@@ -127,70 +127,19 @@ fn cell_centroid(cell64: &str) -> (Option<f64>, Option<f64>) {
     }
 }
 
-/// Best-effort reverse-geocode label from the small embedded gazetteer.
-/// Mirrors `embedded_gazetteer_reverse_lookup` in emem-api-rest so the
-/// primitive can enrich neighbours without depending on the REST crate.
-/// Returns `None` when the nearest entry is > 25 km away. The list is
-/// intentionally short — beyond that distance a "place name" would be
-/// misleading; agents that need precision should fall back to
-/// `/v1/locate` or Nominatim themselves.
-fn gazetteer_reverse_label(lat: f64, lng: f64) -> Option<String> {
-    if !lat.is_finite() || !lng.is_finite() {
-        return None;
-    }
-    // Compact gazetteer — top metros + a few protected-area anchors.
-    // Synced with crates/emem-api-rest/src/lib.rs GAZETTEER (~50 entries
-    // there). Keep this list short; the REST handler's enrichment can
-    // still overlay a richer label if needed.
-    const GAZ: &[(f64, f64, &str)] = &[
-        (40.7128, -74.0060, "New York, NY, USA"),
-        (51.5074, -0.1278, "London, UK"),
-        (48.8566, 2.3522, "Paris, France"),
-        (35.6762, 139.6503, "Tokyo, Japan"),
-        (19.0760, 72.8777, "Mumbai, India"),
-        (28.6139, 77.2090, "Delhi, India"),
-        (12.9716, 77.5946, "Bengaluru, India"),
-        (13.0827, 80.2707, "Chennai, India"),
-        (22.5726, 88.3639, "Kolkata, India"),
-        (17.3850, 78.4867, "Hyderabad, India"),
-        (29.6857, 76.9905, "Karnal, Haryana, India"),
-        (37.7749, -122.4194, "San Francisco, CA, USA"),
-        (47.6062, -122.3321, "Seattle, WA, USA"),
-        (34.0522, -118.2437, "Los Angeles, CA, USA"),
-        (41.8781, -87.6298, "Chicago, IL, USA"),
-        (29.7604, -95.3698, "Houston, TX, USA"),
-        (33.7490, -84.3880, "Atlanta, GA, USA"),
-        (25.7617, -80.1918, "Miami, FL, USA"),
-        (35.5951, -82.5515, "Asheville, NC, USA"),
-        (44.4280, -110.5885, "Yellowstone National Park, USA"),
-        (52.5200, 13.4050, "Berlin, Germany"),
-        (55.7558, 37.6173, "Moscow, Russia"),
-        (-23.5505, -46.6333, "São Paulo, Brazil"),
-        (-33.8688, 151.2093, "Sydney, Australia"),
-        (-33.9249, 18.4241, "Cape Town, South Africa"),
-        (30.0444, 31.2357, "Cairo, Egypt"),
-        (31.2304, 121.4737, "Shanghai, China"),
-        (39.9042, 116.4074, "Beijing, China"),
-        (1.3521, 103.8198, "Singapore"),
-        (-6.2088, 106.8456, "Jakarta, Indonesia"),
-    ];
-    let mut best: Option<(f64, &str)> = None;
-    for (lat0, lng0, label) in GAZ {
-        let dlat = (lat - *lat0) * 111.0;
-        let dlng = (lng - *lng0) * 111.0 * lat0.to_radians().cos().abs();
-        let d = (dlat * dlat + dlng * dlng).sqrt();
-        if best.as_ref().map(|(b, _)| d < *b).unwrap_or(true) {
-            best = Some((d, label));
-        }
-    }
-    best.and_then(|(d, label)| (d <= 25.0).then(|| label.to_string()))
-}
-
 /// Construct a fully-populated `Neighbor` — cell, score, centroid, label.
+///
+/// The label is sourced from the embedded GeoNames cities5000 corpus
+/// (~68 k populated places, ≥5000 pop) via `emem_fetch::geonames::nearest_label`.
+/// Cap = 25 km; beyond that, neighbour cells over open ocean or remote
+/// terrain are honestly returned with `place_label_cached: None` rather
+/// than misleading the agent with a distant city name.
 fn make_neighbor(cell64: String, score: f32) -> Neighbor {
     let (lat, lng) = cell_centroid(&cell64);
     let place_label_cached = match (lat, lng) {
-        (Some(la), Some(ln)) => gazetteer_reverse_label(la, ln),
+        (Some(la), Some(ln)) if la.is_finite() && ln.is_finite() => {
+            emem_fetch::geonames::nearest_label(la, ln, 25.0).map(|(r, _)| r.label())
+        }
         _ => None,
     };
     Neighbor {
