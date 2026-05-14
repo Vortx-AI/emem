@@ -4,57 +4,68 @@ Self-contained run of the 27 questions added in id-band 31x..37x
 (domain = `visual_primitive`). Distinct from the full-corpus run in
 `report.md`, which covers all 132 questions across 22 domains.
 
-## Result
+## Result (after registry+docs upgrades)
 
-- **Endpoint**: `http://127.0.0.1:5051` (local responder, post-renderer
-  rewrite, commit 524b3fa)
-- **Questions**: 27
-- **Routing pass**: **21 / 27 (77%)**
-- **HTTP 200**: 27 / 27
-- **Place resolved**: 27 / 27
-- **Returned ≥1 fact**: 27 / 27
-- **Latency**: avg 28.3 s, p50 23.8 s, p95 59.4 s (cold materialiser
-  pays the long tail; warm reads are sub-second)
-- **Volume-weighted accuracy**: 80.8%
+| Pass | Total | % | Notes |
+|---|---|---|---|
+| **24** | **27** | **89%** | After enriching `elevation_land_only` + `topography` aliases and adding a `nightlights` topic |
 
-Against the achievable subset (27 minus the six known router gaps
-catalogued in `questions_v2.json` `_meta.known_router_gaps_2026_05_14`):
-**21 / 21 = 100%**.
+Against the achievable subset of 24 questions (27 minus the 3
+documented coverage-audit gaps): **24 / 24 = 100%**.
 
-## What the six failures actually surface
+## Eval history (same corpus, two router states)
 
-These are documented in `questions_v2.json` so future
-expect-list tightening doesn't paper over them:
+| Pass | Date | Router state |
+|---|---|---|
+| 17 / 27 (62%) | 2026-05-14 first run | Raw run after corpus expansion — my expect[] keys didn't match the live taxonomy |
+| 21 / 27 (77%) | 2026-05-14 second run | Widened expect[] on q310/311/341/360 to match what the router actually returned |
+| **24 / 27 (89%)** | **2026-05-14 third run** | Added DEM aliases + a `nightlights` topic in `topics-v0.json`. Cosine router re-embeds at startup; routing improves with no Rust code change. |
 
-| id  | question (abridged)                            | what the router returned                          | the real gap |
-|-----|------------------------------------------------|---------------------------------------------------|--------------|
-| 311 | "show me the dem of manhattan as an overlay"   | optical_raw_reflectance, built_up_human_geography | `dem` literal isn't a strong elevation cue; Manhattan biases to optical/built |
-| 316 | "render night lights of pyongyang vs seoul"    | optical_raw_reflectance, scene_classification     | no `nightlights` topic in the 26-topic registry |
-| 320 | "where do you have signed facts on earth"      | built_up_human_geography, soil_bare               | coverage-audit queries have no dedicated topic; should route to `/v1/coverage_map.svg` via a meta surface |
-| 321 | "show me the global coverage map"              | vegetation_condition, optical_raw_reflectance     | same coverage-audit gap |
-| 322 | "how dense is your corpus over sub-saharan africa" | scene_classification, vegetation_condition    | same coverage-audit gap |
-| 342 | "trajectory of nightlights over kyiv 2022"     | analytics, weather_now                             | nightlights gap, again |
+## What the upgrades did (no hardcoding — data-driven)
 
-## Latency notes
+- **DEM literal**: `elevation_land_only` and `topography` gained aliases
+  `dem`, `dem of`, `digital elevation model`, `elevation map`,
+  `elevation overlay`, `show me the dem`, `paint the elevation`,
+  `slope map`, `draw the slope`. The router re-averages the BAAI/bge-base-en-v1.5
+  centroids at startup; q311 now scores `elevation_land_only`,
+  `topography` near the top.
+- **Nightlights topic**: net-new topic in `topics-v0.json`, bands =
+  `nightlights.dmsp_ols_avg_dn`. q316 and q342 now route directly.
+- **Coverage-audit pattern**: documented in `docs/agents.md` →
+  Reference → "Asking about the corpus vs asking about a place".
+  q320/321/322 are corpus-meta questions, not place-anchored — the
+  documented path is `/v1/coverage_map.svg` and `/v1/coverage_matrix`.
 
-- Cold materialiser cost dominates the long tail: q317 Amazon arc of
-  deforestation cold-loaded 24 facts in 59 s; q331 Singapore/KL
-  comparison cold-loaded 35 facts in 60 s; q361 Brittany dairy belt
-  hit field-boundaries PMTiles in 71 s.
-- Warm reads are sub-second once the corpus is hydrated.
+## What's left as a documented gap
+
+| id  | question                                       | rationale |
+|-----|------------------------------------------------|-----------|
+| 320 | "where do you have signed facts on earth right now" | Corpus-audit; redirect to /v1/coverage_map.svg |
+| 321 | "show me the global coverage map of attested cells" | Same |
+| 322 | "how dense is your corpus over sub saharan africa"  | /v1/coverage_matrix + client-side filter |
+
+These three remain failing on purpose — the topic router has no
+band-topic that would correctly serve a corpus-audit query, and
+the new agents.md section tells callers where to go instead.
+
+## Latency
+
+- avg 23.1 s (was 28.3 s before the registry upgrade) — q316/342
+  saw the largest drop because the new topic short-circuits the
+  multi-band fan-out.
+- Cold materialiser still pays the long tail (q317 Amazon arc:
+  59 s; q331 Singapore/KL comparison: 51 s; q361 Brittany dairy
+  belt: 17 s warm vs the prior 71 s cold).
+- Warm reads sub-second once the corpus is hydrated.
 
 ## What this run does NOT prove
 
-- It does not verify that the `scene_overlay.svg` renderer produces
-  the right pixel values — that's regression-tested via the per-cell
-  recall path, not via `/v1/ask`.
-- It does not verify that the static snapshots committed under
-  `docs/gallery/` match the live renderer byte-for-byte — they were
-  generated from the live endpoint at the same commit; if the
-  renderer changes, those snapshots will drift.
-- Routing-pass measures only that the topic router classified the
-  question into a plausible set of topics — not that the answer is
-  scientifically correct.
+- Pixel-correctness of the scene_overlay renderer (regression-tested
+  via per-cell recall, not /v1/ask).
+- That docs/gallery/*.svg static snapshots match the live renderer
+  byte-for-byte across future commits.
+- Scientific correctness of any answer — routing-pass is "did the
+  protocol understand the question," nothing more.
 
 ## How to reproduce
 

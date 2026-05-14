@@ -239,6 +239,31 @@ mode never silently downgrades.
 
 ## Reference
 
+   ### Asking about the corpus vs asking about a place
+
+`POST /v1/ask` is for place-anchored questions ("is South Bombay
+flood-prone", "how hot are nights in Karachi"). It geocodes the
+`place` field to a `cell64` and routes the question to one of the
+27 band-topics in `/v1/topics`. If you instead want to know about
+the **corpus** — where the responder already has signed facts, how
+dense coverage is, which bands are wired — skip `/v1/ask` and call
+the introspection endpoints directly:
+
+| Question shape | Call this instead | Returns |
+|---|---|---|
+| "where do you have signed facts" | `GET /v1/coverage_map.svg` | 1440 × 720 plate-carrée SVG of attested cells |
+| "how many cells / facts overall" | `GET /v1/coverage_matrix` | per-band live status + freshness + signer pubkey |
+| "what's the corpus density over <region>" | `GET /v1/coverage_matrix` + filter client-side, or `POST /v1/recall_polygon` with a bbox | per-cell densities you can aggregate |
+| "which bands are wired here" | `GET /v1/materializers` | per-band auto-fetch registry |
+| "what does this responder know about" | `GET /v1/discover` | typed bootstrap that names every catalog |
+
+These are corpus meta-questions, not band recalls — `/v1/ask` has no
+dedicated topic for them by design (a "where do you have data" query
+isn't a question about any cell, and routing it through the topic
+embedder will produce noise like `vegetation_condition` + `scene_classification`
+on whatever the geocoder guesses). The dedicated introspection
+endpoints answer in one round-trip with signed receipts where applicable.
+
    ### REST endpoints by category
 
 The full machine surface is at `/openapi.json`. The tables below cover

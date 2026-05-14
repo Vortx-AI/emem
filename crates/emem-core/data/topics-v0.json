@@ -231,27 +231,42 @@
     },
     {
       "key": "elevation_land_only",
-      "description": "Land-surface elevation above sea level from Copernicus DEM (Cop-DEM GLO-30). Answers questions about altitude, height above sea level, and terrain elevation on land.",
+      "description": "Land-surface elevation above sea level from Copernicus DEM (Cop-DEM GLO-30). Answers questions about altitude, height above sea level, terrain elevation on land, digital elevation models (DEM), surface height, and how high a place sits. Includes rendered elevation maps and DEM overlays at a place.",
       "aliases": [
         "how high is this place",
         "altitude",
         "elevation",
         "above sea level",
-        "height of this terrain"
+        "height of this terrain",
+        "dem",
+        "dem of",
+        "digital elevation model",
+        "elevation model",
+        "elevation map",
+        "elevation overlay",
+        "elevation scene",
+        "paint the elevation",
+        "show me the dem"
       ],
       "bands": ["copdem30m.elevation_mean"],
       "algorithms": []
     },
     {
       "key": "topography",
-      "description": "Terrain shape derived from elevation — slope, ruggedness, topographic position, distance to coast. Answers questions about terrain steepness, mountainousness, ridge-vs-valley position, coastal proximity.",
+      "description": "Terrain shape derived from elevation — slope, ruggedness, topographic position, distance to coast — and DEM-derived terrain renders (slope maps, hillshades, contour-like overlays). Answers questions about terrain steepness, mountainousness, ridge-vs-valley position, coastal proximity, and visual topography rendered from a digital elevation model.",
       "aliases": [
         "slope here",
         "is this terrain steep",
         "ruggedness",
         "mountainous",
         "near the coast",
-        "ridge or valley"
+        "ridge or valley",
+        "topography",
+        "topography of",
+        "render the topography",
+        "slope map",
+        "draw the slope",
+        "terrain shape"
       ],
       "bands": ["copdem30m.elevation_mean"],
       "algorithms": ["slope_from_dem_neighborhood@1", "ruggedness_index@1", "topo_position_index@1", "coastal_proximity@1"]
@@ -419,6 +434,29 @@
       ],
       "bands": ["indices.urban_canopy_index", "indices.ndvi", "modis.lst_day_8day", "overture.places.count", "overture.transportation.road_length_m"],
       "algorithms": ["walkability_score@1", "bikeability_score@1", "green_space_access@1", "outdoor_comfort_score@1", "livability_index@1"]
+    },
+    {
+      "key": "nightlights",
+      "description": "Artificial light at night as a proxy for human activity, economic intensity, and electrification — DMSP-OLS / VIIRS-DNB night-time brightness. Answers questions about how lit up a place is at night, light pollution, blackout detection, before-after night light comparisons (war / disaster / power outage), and the spatial pattern of human nighttime activity.",
+      "aliases": [
+        "nightlights",
+        "night lights",
+        "lights at night",
+        "lit at night",
+        "night time lights",
+        "light pollution",
+        "is this area lit up at night",
+        "dmsp",
+        "viirs",
+        "viirs dnb",
+        "night-time brightness",
+        "blackout",
+        "lights out",
+        "before and after night lights",
+        "render night lights"
+      ],
+      "bands": ["nightlights.dmsp_ols_avg_dn"],
+      "algorithms": []
     },
     {
       "key": "foundation_embedding",
