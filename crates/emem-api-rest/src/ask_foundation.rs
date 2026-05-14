@@ -115,20 +115,13 @@ pub fn classify_intent(q: &str) -> Option<AskIntent> {
 /// exhausted the helper returns an envelope with
 /// `degraded_reason: "foundation_embedding_unavailable"` so the
 /// `ask_inner` path still ships a useful answer.
-pub async fn foundation_fanout(
-    q: &str,
-    cell: &str,
-    s: &AppState,
-) -> Option<JsonValue> {
+pub async fn foundation_fanout(q: &str, cell: &str, s: &AppState) -> Option<JsonValue> {
     let intent = classify_intent(q)?;
-    let alg = emem_core::algorithms::DEFAULT
-        .lookup("clay_prithvi_tessera_triple_consensus@1");
+    let alg = emem_core::algorithms::DEFAULT.lookup("clay_prithvi_tessera_triple_consensus@1");
     let timeout_ms = alg
         .and_then(|a| a.param_f64("ask_timeout_ms"))
         .unwrap_or(4000.0) as u64;
-    let k_neighbors = alg
-        .and_then(|a| a.param_f64("k_neighbors"))
-        .unwrap_or(8.0) as usize;
+    let k_neighbors = alg.and_then(|a| a.param_f64("k_neighbors")).unwrap_or(8.0) as usize;
 
     let work = async move {
         match intent {
@@ -176,12 +169,9 @@ async fn similarity_fanout(cell: String, k: usize, s: AppState) -> JsonValue {
         let band_used = band.to_string();
         match find_similar_with_auto_materialize(&req, &band_used, &s).await {
             Ok((resp, _notes)) => {
-                let cells: Vec<String> =
-                    resp.neighbors.iter().map(|n| n.cell.clone()).collect();
+                let cells: Vec<String> = resp.neighbors.iter().map(|n| n.cell.clone()).collect();
                 if let Ok(v) = serde_json::to_value(&resp.receipt) {
-                    if let Some(fc) =
-                        v.get("fact_cids").and_then(|x| x.as_array())
-                    {
+                    if let Some(fc) = v.get("fact_cids").and_then(|x| x.as_array()) {
                         for c in fc {
                             if let Some(cid) = c.as_str() {
                                 all_fact_cids.push(cid.to_string());
@@ -207,8 +197,7 @@ async fn similarity_fanout(cell: String, k: usize, s: AppState) -> JsonValue {
     // Cross-encoder consensus — cells that appear in ≥2 encoder
     // result lists are flagged as "all_three" / "two_of_three"
     // neighbours, matching the triple-consensus pattern.
-    let mut counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for r in &encoder_results {
         if let Some(arr) = r.get("neighbors").and_then(|x| x.as_array()) {
             for c in arr {
@@ -253,8 +242,7 @@ async fn similarity_fanout(cell: String, k: usize, s: AppState) -> JsonValue {
 /// which encoders are available + the threshold the consensus
 /// algorithm will gate on.
 async fn change_fanout(cell: String, s: AppState) -> JsonValue {
-    let alg = emem_core::algorithms::DEFAULT
-        .lookup("clay_prithvi_tessera_triple_consensus@1");
+    let alg = emem_core::algorithms::DEFAULT.lookup("clay_prithvi_tessera_triple_consensus@1");
     let gate = alg
         .and_then(|a| a.param_f64("consensus_threshold"))
         .unwrap_or(0.15);
@@ -273,9 +261,7 @@ async fn change_fanout(cell: String, s: AppState) -> JsonValue {
             bands: Some(vec![(*band).to_string()]),
             tslot: None,
         };
-        if let Ok((resp, _notes)) =
-            crate::recall_with_auto_materialize(&req, &s).await
-        {
+        if let Ok((resp, _notes)) = crate::recall_with_auto_materialize(&req, &s).await {
             if !resp.facts.is_empty() {
                 available.push(band);
             }

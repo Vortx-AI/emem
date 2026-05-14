@@ -4040,7 +4040,13 @@ async fn find_similar_with_auto_materialize(
     req: &FindSimilarReq,
     band_used: &str,
     s: &AppState,
-) -> Result<(emem_primitives::find_similar::FindSimilarResp, Vec<JsonValue>), ApiError> {
+) -> Result<
+    (
+        emem_primitives::find_similar::FindSimilarResp,
+        Vec<JsonValue>,
+    ),
+    ApiError,
+> {
     let mut maybe_resp = find_similar(req, s).await;
     let mut materialize_notes: Vec<JsonValue> = Vec::new();
     if let Err(StorageError::Protocol {
@@ -7419,14 +7425,17 @@ async fn post_query_region(
         // ~0.1 km² densely or ~1 cell per km² across a 1000 km² region —
         // good enough for representative sampling while keeping the
         // upstream fetch count bounded).
-        let cap = req.max_cells.unwrap_or_else(|| {
-            let mid_lat = (south + north) * 0.5;
-            let lat_km = (north - south).abs() * 111.0;
-            let lng_km = (east - west).abs() * 111.0 * mid_lat.to_radians().cos().abs();
-            let area_km2 = lat_km * lng_km;
-            // 1 cell per (10 km)² target, clamped [64, 1024].
-            ((area_km2 / 100.0).round() as i64).clamp(64, 1024) as usize
-        }).clamp(1, 1024);
+        let cap = req
+            .max_cells
+            .unwrap_or_else(|| {
+                let mid_lat = (south + north) * 0.5;
+                let lat_km = (north - south).abs() * 111.0;
+                let lng_km = (east - west).abs() * 111.0 * mid_lat.to_radians().cos().abs();
+                let area_km2 = lat_km * lng_km;
+                // 1 cell per (10 km)² target, clamped [64, 1024].
+                ((area_km2 / 100.0).round() as i64).clamp(64, 1024) as usize
+            })
+            .clamp(1, 1024);
         let cells = sample_cells_in_bbox((south, north, west, east), cap);
         if cells.is_empty() {
             return Err(ApiError(
@@ -7579,9 +7588,7 @@ fn enrich_find_similar_response(body: &mut JsonValue, mode_str: &str, band_used:
             if let Ok(info) = emem_codec::latlng_from_cell64(&c) {
                 obj.insert("lat".into(), json!(info.lat_deg));
                 obj.insert("lng".into(), json!(info.lng_deg));
-                if let Some(label) =
-                    embedded_gazetteer_reverse_lookup(info.lat_deg, info.lng_deg)
-                {
+                if let Some(label) = embedded_gazetteer_reverse_lookup(info.lat_deg, info.lng_deg) {
                     obj.insert("place_label_cached".into(), json!(label));
                 }
             }
@@ -9168,10 +9175,9 @@ async fn mcp_tool_call(
                     "hamming_then_rerank"
                 }
             };
-            let (resp, materialize_notes) =
-                find_similar_with_auto_materialize(&req, &band_used, s)
-                    .await
-                    .map_err(|e| (-(e.1.code as i64), e.1.message))?;
+            let (resp, materialize_notes) = find_similar_with_auto_materialize(&req, &band_used, s)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))?;
             let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
             if !materialize_notes.is_empty() {
                 if let Some(map) = v.as_object_mut() {
@@ -9223,64 +9229,56 @@ async fn mcp_tool_call(
         }
         // ── Domain shortcuts (one-shot locate → recall → aggregate) ──
         "emem_at" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_at(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_ndvi" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_ndvi(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_air" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_air(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_lst" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_lst(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_soil" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_soil(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_water" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_water(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_forest" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_forest(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_weather" => {
-            let req: LatLngQ =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_v1_weather(State(s.clone()), Json(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -20994,8 +20992,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 let cached_bbox_is_poi_scale = bb_cached
                     .map(|a| (a[1] - a[0]).abs() < 0.01 && (a[3] - a[2]).abs() < 0.01)
                     .unwrap_or(false);
-                let force_admin_override =
-                    is_admin_boundary_query(p) && cached_bbox_is_poi_scale;
+                let force_admin_override = is_admin_boundary_query(p) && cached_bbox_is_poi_scale;
                 if !force_admin_override && polygon_bbox.is_none() {
                     if let Some(arr) = bb_cached {
                         polygon_bbox = Some((arr[0], arr[1], arr[2], arr[3]));
@@ -21008,10 +21005,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // the polygon source only when Overture has nothing.
                 // The Photon → Nominatim tail still handles names
                 // none of the prior layers carried at all.
-                if force_admin_override
-                    || polygon_geojson.is_none()
-                    || polygon_bbox.is_none()
-                {
+                if force_admin_override || polygon_geojson.is_none() || polygon_bbox.is_none() {
                     match emem_fetch::overture::OvertureClient::shared()
                         .division_polygon_near(la, lo, p)
                         .await
@@ -21188,7 +21182,10 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 let hits = if admin_query {
                     let mut ranked: Vec<(usize, &NominatimHit)> = hits.iter().enumerate().collect();
                     ranked.sort_by_key(|(orig_idx, h)| (admin_hit_priority(h), *orig_idx));
-                    ranked.into_iter().map(|(_, h)| h.clone()).collect::<Vec<_>>()
+                    ranked
+                        .into_iter()
+                        .map(|(_, h)| h.clone())
+                        .collect::<Vec<_>>()
                 } else {
                     hits
                 };
@@ -21483,7 +21480,6 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
 // Operators wanting unconditional self-host should set
 // `EMEM_NOMINATIM_BASE` to their own instance; that's a one-line change
 // in `nominatim_lookup` and the same layered cache applies.
-
 
 /// Bounding boxes for places that span enough of Earth that a single
 /// centroid-cell query would miss most of the data. Format:
@@ -21782,10 +21778,7 @@ fn is_admin_boundary_query(q: &str) -> bool {
 /// is an admin-boundary query. Boundary / administrative / relation tier
 /// wins over generic non-POI tier, which wins over POI tier.
 fn admin_hit_priority(h: &NominatimHit) -> u8 {
-    if h.class_ == "boundary"
-        || h.type_ == "administrative"
-        || h.osm_type == "relation"
-    {
+    if h.class_ == "boundary" || h.type_ == "administrative" || h.osm_type == "relation" {
         return 0;
     }
     if is_poi_hit(h) {

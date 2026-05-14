@@ -140,10 +140,9 @@ pub fn ensure_metadata() -> Result<ModelMetadata, String> {
                     meta_path.display()
                 ));
             }
-            let text = std::fs::read_to_string(&meta_path)
-                .map_err(|e| format!("read metadata: {e}"))?;
-            serde_json::from_str::<ModelMetadata>(&text)
-                .map_err(|e| format!("parse metadata: {e}"))
+            let text =
+                std::fs::read_to_string(&meta_path).map_err(|e| format!("read metadata: {e}"))?;
+            serde_json::from_str::<ModelMetadata>(&text).map_err(|e| format!("parse metadata: {e}"))
         })
         .clone()
 }
@@ -154,9 +153,7 @@ pub fn ensure_metadata() -> Result<ModelMetadata, String> {
 /// handler to short-circuit ONNX/sidecar inference for the untrained
 /// baseline (which by construction returns `last_input_vintage`).
 pub fn is_trained() -> bool {
-    ensure_metadata()
-        .map(|m| m.is_trained())
-        .unwrap_or(false)
+    ensure_metadata().map(|m| m.is_trained()).unwrap_or(false)
 }
 
 /// Load the ONNX model + metadata. Idempotent — returns the cached
