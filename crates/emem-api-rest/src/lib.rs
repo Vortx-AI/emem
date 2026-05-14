@@ -21325,6 +21325,84 @@ fn band_observations_from_recall(
     out
 }
 
+/// Build the typed envelope `/v1/ask` returns for corpus-meta
+/// questions (no place anchor). The body carries an explicit
+/// `redirect_to[]` list so an agent reading the response can follow
+/// the pointer with one call. Output is intentionally short — these
+/// are discovery questions, not place-anchored answers.
+fn corpus_audit_response(intent: ask_foundation::CorpusAuditIntent, q: &str) -> JsonValue {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let (intent_key, agent_hint, redirects) = match intent {
+        ask_foundation::CorpusAuditIntent::GlobalCoverage => (
+            "global_coverage",
+            "This is a corpus-meta question with no place anchor. Hit /v1/coverage_map.svg for the world map of attested cells, /v1/coverage for total counts, and /v1/coverage_matrix for per-band rows. Cite the responder pubkey from /.well-known/emem.json when quoting any of these.",
+            vec![
+                json!({
+                    "surface": format!("{origin}/v1/coverage_map.svg"),
+                    "method": "GET",
+                    "purpose": "Plate-carrée world map (1440×720 SVG) of every attested cell, log-scale density.",
+                }),
+                json!({
+                    "surface": format!("{origin}/v1/coverage"),
+                    "method": "GET",
+                    "purpose": "JSON totals (cells, facts) plus the cell list itself for client-side filtering.",
+                }),
+                json!({
+                    "surface": format!("{origin}/v1/coverage_matrix"),
+                    "method": "GET",
+                    "purpose": "Per-band breakdown — has_materializer, facts_count, last_attested_at, tempo, family.",
+                }),
+            ],
+        ),
+        ask_foundation::CorpusAuditIntent::RegionalDensity => (
+            "regional_density",
+            "This is a region-scoped corpus question. /v1/coverage returns the full cell list; filter client-side against the named region's bbox. /v1/coverage_matrix gives the per-band slice so you can name which bands are dense in that region. If the user wants a visual, /v1/coverage_map.svg is the global picture (no region zoom today — pass coverage[] through your own renderer for the regional view).",
+            vec![
+                json!({
+                    "surface": format!("{origin}/v1/coverage"),
+                    "method": "GET",
+                    "purpose": "Full cell list (paginated). Filter to the named region's bbox client-side and count.",
+                }),
+                json!({
+                    "surface": format!("{origin}/v1/coverage_matrix"),
+                    "method": "GET",
+                    "purpose": "Per-band facts_count + last_attested_at — useful for naming the dense bands in the region.",
+                }),
+                json!({
+                    "surface": format!("{origin}/v1/locate"),
+                    "method": "POST",
+                    "purpose": "If the region is a place name, locate it first to get a bbox you can filter by.",
+                }),
+            ],
+        ),
+        ask_foundation::CorpusAuditIntent::Freshness => (
+            "freshness",
+            "This is a freshness question. /v1/coverage_matrix carries last_attested_at per band, parsed from each fact's signed_at. Use it to surface staleness; the responder doesn't background-refresh — bands warm up on the cells callers actually ask about.",
+            vec![
+                json!({
+                    "surface": format!("{origin}/v1/coverage_matrix"),
+                    "method": "GET",
+                    "purpose": "Per-band last_attested_at + facts_count + has_materializer. The freshness ground truth.",
+                }),
+                json!({
+                    "surface": format!("{origin}/v1/manifests"),
+                    "method": "GET",
+                    "purpose": "Manifest CIDs (bands, algorithms, sources, schema) — for citing the registry version.",
+                }),
+            ],
+        ),
+    };
+    json!({
+        "schema":      "emem.ask.v1",
+        "status":      "corpus_audit",
+        "question":    q,
+        "intent":      intent_key,
+        "redirect_to": redirects,
+        "agent_hint":  agent_hint,
+        "_note":       "/v1/ask returns this envelope (instead of needs_location) when the question is a corpus-meta query with no place anchor. The receipts on the pointer endpoints are signed by the same responder pubkey at /.well-known/emem.json.",
+    })
+}
+
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
@@ -21349,6 +21427,18 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // every `fact_cid` / signer field — stays intact: receipt signing is
     // protocol-critical and must never be touched by a verbosity toggle.
     let verbose = req.verbose.unwrap_or(false);
+
+    // Corpus-meta intents (no place anchor) — answer before the locate
+    // cascade so we don't return the misleading `needs_location`
+    // envelope on questions like "where do you have signed facts" or
+    // "how dense is your corpus over sub-saharan africa". The reply
+    // points at /v1/coverage_map.svg, /v1/coverage, and
+    // /v1/coverage_matrix where the actual data lives.
+    if req.cell.is_none() && req.lat.is_none() && req.lng.is_none() && req.place.is_none() {
+        if let Some(audit) = ask_foundation::classify_corpus_audit(&req.q) {
+            return Ok(corpus_audit_response(audit, &req.q));
+        }
+    }
 
     // Resolve cell64 from whichever locator the caller provided. We
     // prefer explicit cell64 → lat/lng → place name, in that order, so

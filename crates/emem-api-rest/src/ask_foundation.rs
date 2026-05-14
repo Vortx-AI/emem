@@ -53,6 +53,28 @@ pub enum AskIntent {
     Change,
 }
 
+/// Corpus-audit intents — questions that don't have a place anchor at
+/// all. Routing these through the locate→recall pipeline returns the
+/// misleading `needs_location` envelope (an agent reading it tries to
+/// invent a place that isn't there). Classify them up front and point
+/// at the right discovery surface instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorpusAuditIntent {
+    /// "where do you have facts", "global coverage map", "what cells
+    /// are attested" — wants the world-scale picture. Routes to
+    /// `/v1/coverage_map.svg` (visual) + `/v1/coverage` (json totals).
+    GlobalCoverage,
+    /// "how dense is your corpus over <region>", "what's your coverage
+    /// in <region>" — wants per-region density. Routes to
+    /// `/v1/coverage_matrix` (per-band breakdown) + caller-side bbox
+    /// filtering against `/v1/coverage`'s cell list.
+    RegionalDensity,
+    /// "how fresh is your data", "when did you last sign X", "what's
+    /// your data freshness" — wants per-band last-attested timestamps.
+    /// `/v1/coverage_matrix` carries `last_attested_at` per band.
+    Freshness,
+}
+
 /// Lightweight keyword classifier. Returns the first matching intent.
 /// We intentionally don't run a transformer-anchored classifier here —
 /// the topic router already does that work for scalar bands; we only
@@ -101,6 +123,83 @@ pub fn classify_intent(q: &str) -> Option<AskIntent> {
     }
     if CHANGE.iter().any(|s| lower.contains(s)) {
         return Some(AskIntent::Change);
+    }
+    None
+}
+
+/// Detect corpus-meta questions before the locate cascade burns a
+/// geocoder round-trip. Order is important — Freshness patterns are
+/// checked before GlobalCoverage so "how fresh is your data" doesn't
+/// fall into GlobalCoverage just because it mentions "data". The
+/// classifier is permissive: when in doubt, fall through to the
+/// normal locate→recall path (which handles place-anchored questions
+/// correctly).
+pub fn classify_corpus_audit(q: &str) -> Option<CorpusAuditIntent> {
+    let lower = q.to_ascii_lowercase();
+    const FRESHNESS: &[&str] = &[
+        "how fresh",
+        "data freshness",
+        "last attested",
+        "last signed",
+        "when did you last",
+        "how recent",
+        "how stale",
+        "how up to date",
+        "how up-to-date",
+    ];
+    if FRESHNESS.iter().any(|s| lower.contains(s)) {
+        return Some(CorpusAuditIntent::Freshness);
+    }
+    // Regional density — must say "over <region>" / "in <region>" /
+    // "for <region>" in a corpus-meta way. We require BOTH a corpus
+    // word AND a region preposition so "ndvi over the amazon" stays
+    // on the place-anchored path.
+    const CORPUS_WORDS: &[&str] = &[
+        "your corpus",
+        "your coverage",
+        "your data",
+        "your facts",
+        "your cells",
+        "your attestations",
+        "attested cells",
+        "signed facts",
+        "fact coverage",
+    ];
+    const REGION_PREPS: &[&str] = &[
+        " over ", " in ", " across ", " for ", " inside ", " within ",
+    ];
+    let has_corpus_word = CORPUS_WORDS.iter().any(|s| lower.contains(s));
+    let has_region_prep = REGION_PREPS.iter().any(|s| lower.contains(s));
+    if has_corpus_word && has_region_prep {
+        // "how dense is your corpus over sub saharan africa" matches.
+        return Some(CorpusAuditIntent::RegionalDensity);
+    }
+    // Global coverage — broad "where" / "what do you have" / "global
+    // map" / "global coverage" phrasing without a region anchor.
+    const GLOBAL: &[&str] = &[
+        "where do you have",
+        "where you have",
+        "global coverage",
+        "global coverage map",
+        "world coverage",
+        "world-wide coverage",
+        "worldwide coverage",
+        "coverage map",
+        "show me your coverage",
+        "show me the coverage",
+        "what cells do you have",
+        "what cells are attested",
+        "all the cells",
+        "every cell you have",
+    ];
+    if GLOBAL.iter().any(|s| lower.contains(s)) {
+        return Some(CorpusAuditIntent::GlobalCoverage);
+    }
+    // The plain phrase "your corpus" without a region preposition is
+    // still a corpus question — treat as global so the agent gets the
+    // pointers instead of needs_location.
+    if has_corpus_word {
+        return Some(CorpusAuditIntent::GlobalCoverage);
     }
     None
 }
@@ -277,4 +376,100 @@ async fn change_fanout(cell: String, s: AppState) -> JsonValue {
         "consensus_min_models": min_models,
         "agent_hint":           "Apply the formula in `algorithms_for_question` for clay_prithvi_tessera_triple_consensus@1; the receipt cites the encoder fact CIDs alongside any topic-anchored scalar bands. For domain-specific variants see deforestation_triple@1 (forest), wetland_change_triple@1 (water), urban_expansion_triple@1 (urban), or coastal_erosion_triple@1 (coast).",
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn similarity_keywords_trigger_similarity_intent() {
+        assert_eq!(
+            classify_intent("find places like Yellowstone"),
+            Some(AskIntent::Similarity)
+        );
+        assert_eq!(
+            classify_intent("where else looks like this cell"),
+            Some(AskIntent::Similarity)
+        );
+    }
+
+    #[test]
+    fn change_keywords_trigger_change_intent() {
+        assert_eq!(
+            classify_intent("what changed in the last year"),
+            Some(AskIntent::Change)
+        );
+        assert_eq!(
+            classify_intent("deforestation since 2020"),
+            Some(AskIntent::Change)
+        );
+    }
+
+    #[test]
+    fn plain_question_returns_none() {
+        assert_eq!(classify_intent("ndvi for golden gate park"), None);
+        assert_eq!(classify_intent("show me the elevation here"), None);
+    }
+
+    #[test]
+    fn corpus_audit_global_coverage_patterns() {
+        for q in [
+            "where do you have signed facts on earth right now",
+            "show me the global coverage map of attested cells",
+            "what cells do you have",
+            "show me your coverage",
+        ] {
+            assert_eq!(
+                classify_corpus_audit(q),
+                Some(CorpusAuditIntent::GlobalCoverage),
+                "expected GlobalCoverage for {q:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn corpus_audit_regional_density_patterns() {
+        for q in [
+            "how dense is your corpus over sub saharan africa",
+            "what's your coverage in southeast asia",
+            "your data for the amazon basin",
+        ] {
+            assert_eq!(
+                classify_corpus_audit(q),
+                Some(CorpusAuditIntent::RegionalDensity),
+                "expected RegionalDensity for {q:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn corpus_audit_freshness_patterns() {
+        for q in [
+            "how fresh is your data",
+            "what's the data freshness",
+            "when did you last sign NDVI",
+            "how recent is your corpus",
+        ] {
+            assert_eq!(
+                classify_corpus_audit(q),
+                Some(CorpusAuditIntent::Freshness),
+                "expected Freshness for {q:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn place_anchored_questions_skip_corpus_audit() {
+        // "ndvi over the amazon" mentions a region preposition but no
+        // corpus word — must NOT match RegionalDensity, otherwise we'd
+        // hijack a normal place-anchored question.
+        assert_eq!(classify_corpus_audit("ndvi over the amazon"), None);
+        assert_eq!(classify_corpus_audit("flood risk in delhi"), None);
+        assert_eq!(classify_corpus_audit("ndvi near here"), None);
+        assert_eq!(
+            classify_corpus_audit("show me the elevation at Mt Fuji"),
+            None
+        );
+    }
 }
