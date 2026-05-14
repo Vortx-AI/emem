@@ -47,17 +47,22 @@ GALILEO_REPO = "nasaharvest/galileo"
 GALILEO_VARIANT = os.environ.get("EMEM_GALILEO_VARIANT", "base")
 GALILEO_PATTERNS = [f"models/{GALILEO_VARIANT}/*"]
 
-# Clay v1.5's ClayMAEModule carries a `teacher="samvit_base_patch16.sa1b"`
-# hyperparameter in its checkpoint. On `load_from_checkpoint` the module
-# instantiates the teacher via `timm.create_model(..., pretrained=True)`
-# at claymodel/model.py:388, which resolves to `timm/samvit_base_patch16.sa1b`
-# on HF Hub. We discard the teacher at inference time (Clay's encoder is
-# what produces the 1024-D embedding), but timm still tries to download
-# the weights at construction — so without this preload the sidecar fails
-# fast under HF_HUB_OFFLINE=1 with the misleading "couldn't locate file on
-# the Hub" message. Pre-stage the teacher weights here so the cache is
-# self-sufficient and HF_HUB_OFFLINE=1 keeps holding.
-CLAY_TEACHER_REPO = "timm/samvit_base_patch16.sa1b"
+# Clay v1.5's ClayMAEModule serialises a `teacher` hyperparameter into the
+# checkpoint. Reading the v1.5 ckpt directly:
+#     hyper_parameters.teacher = "vit_large_patch14_reg4_dinov2.lvd142m"
+# (note: this differs from the default `samvit_base_patch16.sa1b` in
+# claymodel/module.py — the saved value wins under load_from_checkpoint).
+# On instantiation the module calls
+# `timm.create_model(teacher, pretrained=True, num_classes=0)` at
+# claymodel/model.py:388 which resolves to
+# `timm/vit_large_patch14_reg4_dinov2.lvd142m` on HF Hub. We discard the
+# teacher immediately at inference (Clay's encoder produces the 1024-D
+# embedding), but timm still tries to download the weights at construction —
+# so without this preload the sidecar fails fast under HF_HUB_OFFLINE=1 with
+# the misleading "couldn't locate file on the Hub" message. Pre-stage the
+# teacher weights here so the cache is self-sufficient and HF_HUB_OFFLINE=1
+# keeps holding.
+CLAY_TEACHER_REPO = "timm/vit_large_patch14_reg4_dinov2.lvd142m"
 CLAY_TEACHER_PATTERNS = ["*.safetensors", "*.json", "*.txt", "*.md"]
 
 
