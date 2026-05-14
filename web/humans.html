@@ -3424,7 +3424,7 @@ const GLOSSARY = {
   },
   band: {
     title: 'band — the data primitive',
-    body:  'A typed channel of Earth observation: 34 declared, total 1792 dimensions. Optical reflectance, radar backscatter, weather variables, foundation-model embeddings, vector geometry — all unified by the cell×band×tslot key.',
+    body:  'A typed channel of Earth observation: 35 declared cube slots, 118 materializer-wired band names, 1792 dimensions total. Optical reflectance, radar backscatter, weather variables, foundation-model embeddings, vector geometry — all unified by the cell×band×tslot key.',
     ex:    'Example: <code>geotessera</code> is a 128-D foundation embedding; <code>landsat.swir1</code> is a 1-D reflectance band. <code>GET /v1/bands</code> lists every one.',
   },
   fact: {
@@ -3594,8 +3594,8 @@ const PRIMITIVES = {
     body:() => ({ cell: _exCell(), band: 'landsat.ndvi', t0: '2024-01-01', t1: '2024-06-01' }),
   },
   manifests: { path:'/v1/manifests', method:'GET', mcp:'emem_manifests', doc:'The 8 manifests of the corpus — registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet.', body: () => null },
-  bands:     { path:'/v1/bands',     method:'GET', mcp:'emem_bands',     doc:'34 declared bands. Returns key, family, dimension, tempo, units, description.', body: () => null },
-  algorithms:{ path:'/v1/algorithms',method:'GET', mcp:'emem_algorithms',doc:'107 algorithms — preprocessors, embeddings, predictors, decoders, physics solvers.', body: () => null },
+  bands:     { path:'/v1/bands',     method:'GET', mcp:'emem_bands',     doc:'35 declared cube slots, 118 materializer-wired band names. Returns key, family, dimension, tempo, units, description.', body: () => null },
+  algorithms:{ path:'/v1/algorithms',method:'GET', mcp:'emem_algorithms',doc:'155 algorithms — preprocessors, embeddings, predictors, decoders, physics solvers, triple-consensus recipes.', body: () => null },
   sources:   { path:'/v1/sources',   method:'GET', mcp:'emem_sources',   doc:'External data sources the materializers can pull from. Each has a scheme, license, and a hint about what bands it produces.', body: () => null },
   topics:    { path:'/v1/topics',    method:'GET', mcp:'emem_topics',    doc:'25 topics — the human-facing question categories (flood, wildfire, heat, …). Each routes to a recall plan.', body: () => null },
   schema:    { path:'/v1/schema',    method:'GET', mcp:'emem_schema',    doc:'The wire schema. CBOR shape, signing rule, canonical encoding.', body: () => null },
@@ -3741,8 +3741,8 @@ window._ememOpenTryIt = openTryIt;
 // (which lands in the try-it drawer pre-configured for GET).
 const MANIFEST_INFO = {
   registry:   { what:'Index of every other manifest. The root pointer — a responder publishes its registry CID at /.well-known/emem.json.', tryKey:'manifests' },
-  bands:      { what:'34 declared bands totalling 1792 dimensions. Each band lists its family, tempo, units, and producing algorithms.', tryKey:'bands' },
-  algorithms: { what:'107 algorithms — preprocessors, foundation embeddings, predictors, decoders, physics solvers — keyed by content hash.', tryKey:'algorithms' },
+  bands:      { what:'35 declared band cube slots, 118 materializer-wired band names, 1792 dimensions total. Each band lists its family, tempo, units, and producing algorithms.', tryKey:'bands' },
+  algorithms: { what:'155 algorithms — preprocessors, foundation embeddings, predictors, decoders, physics solvers, triple-consensus recipes — keyed by content hash.', tryKey:'algorithms' },
   sources:    { what:'External data sources the materializers can ingest from (Landsat, Copernicus, ECMWF, FTW, Overture, …). License + scheme per entry.', tryKey:'sources' },
   schema:     { what:'Canonical wire schema (CBOR shape, signing rule). Two responders that follow the same schema_cid produce byte-identical facts.', tryKey:'schema' },
   topics:     { what:'25 human-facing topics — flood, wildfire, heat, drought, biodiversity, … — that route /v1/ask into recall plans.', tryKey:'topics' },
@@ -3845,7 +3845,7 @@ function buildOntologyView() {
     { id:'source',  x:40,   y:170, w:160, h:120, t:'Source',  s:'external · cog/ftw/ecmwf/…', n: srcN,   prim:'POST /v1/sources',     try:'sources' },
     { id:'fetcher', x:240,  y:170, w:170, h:120, t:'Materializer', s:'source → fact pipeline',         prim:'POST /v1/backfill',    try:'backfill' },
     { id:'cell',    x:460,  y:60,  w:170, h:110, t:'Cell',    s:'cell64 · ~9.55 m square',     n: cellsN, prim:'POST /v1/recall',      try:'recall' },
-    { id:'band',    x:460,  y:200, w:170, h:110, t:'Band',    s:'34 declared · 1792-D total',  n: bandsN, prim:'GET /v1/bands',        try:'bands' },
+    { id:'band',    x:460,  y:200, w:170, h:110, t:'Band',    s:'35 cube slots · 1792-D total', n: bandsN, prim:'GET /v1/bands',        try:'bands' },
     { id:'tslot',   x:460,  y:340, w:170, h:110, t:'Tslot',   s:'unix ÷ band.tempo',                       prim:'POST /v1/trajectory', try:'trajectory' },
     { id:'fact',    x:680,  y:170, w:170, h:120, t:'Fact',    s:'signed observation',          n: factsN, prim:'POST /v1/recall',      try:'recall' },
     { id:'receipt', x:880,  y:60,  w:170, h:110, t:'Receipt', s:'ed25519 over fact_cids',                  prim:'POST /v1/verify_receipt', try:'verify_receipt' },

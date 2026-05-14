@@ -2,7 +2,8 @@
   "name": "emem",
   "version": "0.0.6",
   "protocol": "emem-earth-memory",
-  "description": "Agent-native, content-addressed, signed Earth memory protocol. 35 materializable bands across Sentinel-1/2, MODIS, Landsat (target), Tessera, NASA POWER, ERA5, CAMS, Open-Meteo Marine, JRC Global Surface Water, Hansen GFC, ESA WorldCover, SoilGrids 2.0, Overture. 149 composition algorithms (carbon MRV, VM0042, EUDR, RUSLE, SoilGrids SOC, IPCC Tier-2 rice CH₄, SDG indicators, parametric insurance, climate-risk, flood_risk@2 with DEM agreement weighting and a temporal_recipe of antecedent rainfall + recent radar water + optical water). Multimodal-fusion: every algorithm anchored on S1/S2/Landsat consumes the upstream sensor pitch natively (10 m for S1/S2 indices, 30 m Landsat target); the value returned is the real upstream pixel sample. cell64 is a square ~10 m × ~10 m grid at the equator, matching S1/S2 native pitch — two queries 12 m apart land in distinct cells; two within the same cell share the cached 10 m sample (full fidelity). Live geocoder chain: GeoNames cities-5000 (68 581 places, embedded) → Overture divisions polygons → Photon → Nominatim fallback for the long tail.",
+  "tagline": "Verifiable Earth observation for AI agents. Three foundation encoders, one consensus, every answer cryptographically signed.",
+  "description": "Content-addressed, ed25519-signed Earth memory protocol. Every fact lives at (cell, band, tslot); canonical CBOR hashes to a BLAKE3 content ID; every read returns a signed receipt verifiable in-browser at /verify without trusting the issuer. Auto-materializes on miss from open data — any cell on Earth answers without pre-seeding. Foundation embeddings live: Clay v1.5 (1024-D), Prithvi-EO-2.0 (1024-D), Tessera (128-D / 1024-D multi_year), Galileo Tiny (192-D). The `clay_prithvi_tessera_triple_consensus@1` algorithm votes across three encoders with independent receptive-field aliasing; six domain variants exercise the pattern for deforestation, wetland change, urban expansion, disaster anomaly, climate archetype, and coastal erosion. 49 MCP tools, 155 algorithms, 35 band cube slots, 118 materializer-wired band names, 43 source schemes, 12 data connectors. Live geocoder cascade: wide-bbox → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim, with Overture `divisions/division_area` polygons for admin boundaries. Signed Absence: when a band has no data at a cell, the responder returns a signed Absence fact with a typed reason — not a 404. cell64 is a ~9.54 m × ~9.55 m grid at the equator, matching Sentinel-1/2 native pitch.",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",
@@ -13,10 +14,10 @@
     "contact": "avijeet@vortx.ai"
   },
   "policies": {
-    "privacy_policy":    "https://emem.dev/privacy",
-    "terms_of_service":  "https://emem.dev/terms",
-    "support":           "https://emem.dev/support",
-    "security":          "https://github.com/Vortx-AI/emem/blob/main/SECURITY.md"
+    "privacy_policy":   "https://emem.dev/privacy",
+    "terms_of_service": "https://emem.dev/terms",
+    "support":          "https://emem.dev/support",
+    "security":         "https://github.com/Vortx-AI/emem/blob/main/SECURITY.md"
   },
   "surfaces": {
     "rest":          "/openapi.json",
@@ -25,58 +26,160 @@
     "agent_card":    "/v1/agent_card",
     "quickstart":    "/v1/quickstart",
     "tools":         "/v1/tools",
+    "algorithms":    "/v1/algorithms?summary=true",
+    "topics":        "/v1/topics",
+    "manifests":     "/v1/manifests",
     "schema":        "/v1/schema",
     "facts_by_cid":  "/v1/facts/{cid}",
-    "backfill":      "/v1/backfill",
+    "verify":        "/verify",
+    "verify_fact":   "/verify/{fact_cid}",
+    "humans":        "/humans",
+    "humans_json":   "/humans.json",
     "llms_txt":      "/llms.txt",
     "llms_full_txt": "/llms-full.txt"
   },
-  "boring_endpoints": {
-    "vegetation": "GET /v1/ndvi?lat=&lon=",
-    "elevation":  "GET /v1/elevation?lat=&lon=",
-    "air":        "GET /v1/air?lat=&lon=",
-    "lst":        "GET /v1/lst?lat=&lon=",
-    "soil":       "GET /v1/soil?lat=&lon=",
-    "water":      "GET /v1/water?lat=&lon=",
-    "forest":     "GET /v1/forest?lat=&lon=",
-    "weather":    "GET /v1/weather?lat=&lon=",
-    "any_band":   "GET /v1/at?lat=&lon=&band=",
-    "intent_map": "GET /v1/agent_quickref"
+  "domain_shortcuts": {
+    "_purpose": "One-shot locate → recall → polygon-aggregate per place name. REST and MCP equivalents.",
+    "any_band":   "POST /v1/at      | MCP emem_at",
+    "vegetation": "POST /v1/ndvi    | MCP emem_ndvi",
+    "elevation":  "POST /v1/elevation | MCP emem_elevation",
+    "air":        "POST /v1/air     | MCP emem_air",
+    "lst":        "POST /v1/lst     | MCP emem_lst",
+    "soil":       "POST /v1/soil    | MCP emem_soil",
+    "water":      "POST /v1/water   | MCP emem_water",
+    "forest":     "POST /v1/forest  | MCP emem_forest",
+    "weather":    "POST /v1/weather | MCP emem_weather"
   },
   "primitives": [
-    "emem_recall", "emem_recall_polygon", "emem_query_region",
-    "emem_compare", "emem_compare_bands", "emem_find_similar",
-    "emem_trajectory", "emem_diff", "emem_verify",
-    "emem_fetch", "emem_backfill",
     "emem_locate", "emem_ask",
+    "emem_recall", "emem_recall_many", "emem_recall_polygon", "emem_field_boundaries",
+    "emem_query_region", "emem_compare", "emem_compare_bands",
+    "emem_find_similar", "emem_trajectory", "emem_diff",
+    "emem_fetch", "emem_backfill",
     "emem_heat_solve", "emem_wave_solve",
     "emem_jepa_predict", "emem_jepa_predict_v2",
-    "emem_attest", "emem_challenge",
-    "emem_bands", "emem_functions", "emem_sources",
-    "emem_schema", "emem_errors", "emem_manifests",
-    "emem_grid_info", "emem_coverage_matrix", "emem_materializers",
-    "emem_data_availability", "emem_algorithms", "emem_explain_algorithm",
-    "emem_topics", "emem_coverage_map",
+    "emem_verify", "emem_verify_receipt",
+    "emem_at", "emem_ndvi", "emem_elevation", "emem_air", "emem_lst",
+    "emem_soil", "emem_water", "emem_forest", "emem_weather",
+    "emem_bands", "emem_functions", "emem_sources", "emem_schema",
+    "emem_errors", "emem_manifests", "emem_capabilities",
+    "emem_grid_info", "emem_coverage_matrix", "emem_coverage_map",
+    "emem_materializers", "emem_data_availability",
+    "emem_fleet", "emem_temporal_route",
+    "emem_algorithms", "emem_explain_algorithm", "emem_topics",
     "emem_cell_scene_rgb", "emem_cell_geojson",
     "emem_intent"
   ],
+  "primitive_count": 49,
+  "algorithm_count": 155,
+  "band_cube_slot_count": 35,
+  "materializer_wired_band_names": 118,
+  "source_scheme_count": 43,
+  "topic_count_declared": 26,
   "address_algebra": {
-    "cell": "64-bit packed icosahedral aperture-7 hex (H3-equivalent geometry, wire-encoded as cell64: 4 BPE bigrams)",
-    "tslot": "u64 bucket of the Unix timeline at the band's tempo cadence (slot_seconds = 86400 fast / 2592000 medium / 31536000 slow / 3600 ultra_fast / 0 static). Equal across responders.",
-    "band": "logical channel within a 1792D embedding contract; loaded from content-addressed band manifest"
+    "cell": "64-bit cell identifier — 21-bit lat × 22-bit lng on the active grid (~9.54 m × ~9.55 m at the equator, matching Sentinel-1/Sentinel-2 native pitch). Wire form: four base-1024 bigrams separated by dots, Hilbert-ordered so neighbours share string prefixes.",
+    "tslot": "u64 bucket of the Unix timeline at the band's tempo cadence (slot_seconds = 86400 fast / 2592000 medium / 31536000 slow / 3600 ultra_fast / 0 static). Equal across responders for the same band.",
+    "band": "logical channel within a 1792-D embedding contract; loaded from content-addressed `bands_cid` manifest. 35 cube slots; 118 (slot × subkey) materializer-wired band names auto-fetchable on miss."
   },
   "crypto": {
-    "hash": "blake3",
-    "signature": "ed25519",
-    "cid_encoding": "base32-nopad-lowercase",
-    "merkle_tree": "binary, blake3 leaves over canonical CBOR, leaves canonically-sorted"
+    "hash":         "BLAKE3 over canonical CBOR (deterministic CIDs across responders)",
+    "signature":    "ed25519 over (request_id | served_at | primitive | cells, | fact_cids,)",
+    "cid_encoding": "base32-nopad-lowercase, 26 chars",
+    "merkle_tree":  "binary, BLAKE3 leaves, canonically sorted",
+    "verify_path":  "in-browser via /verify or /verify/{fact_cid} using @noble/curves + @noble/hashes; no callback to issuer"
   },
+  "foundation_encoders": {
+    "_purpose": "Four GPU encoders co-resident on a 20 GB VRAM budget; surfaced as their own bands AND woven into algorithm consensus voting.",
+    "clay_v1.5": {
+      "band":            "clay_v1",
+      "dim":             1024,
+      "input":           "Sentinel-2 L2A, 10 bands @ 10 m, 256×256 chip",
+      "warm_latency_ms": 12,
+      "receipt_warning": "frozen_pretrained_encoder",
+      "source":          "https://clay-foundation.github.io/model/"
+    },
+    "prithvi_eo2_300m_tl": {
+      "band":            "prithvi_eo2",
+      "dim":             1024,
+      "input":           "HLS V2 6-band @ 30 m, 224×224 chip",
+      "warm_latency_ms": 13,
+      "receipt_warning": "frozen_pretrained_encoder",
+      "source":          "https://research.ibm.com/blog/prithvi2-geospatial"
+    },
+    "galileo_tiny": {
+      "band":            "galileo",
+      "dim":             192,
+      "input":           "Sentinel-2 only modality wired today (multimodal scaffold present)",
+      "warm_latency_ms": 14,
+      "receipt_warning": "frozen_pretrained_encoder",
+      "source":          "https://arxiv.org/abs/2502.09356"
+    },
+    "jepa_v2_dynamics": {
+      "band":             "jepa_v2 (synthesized output)",
+      "status":           "untrained_baseline",
+      "honest_behaviour": "returns last_attested_vintage; receipt carries `via: short_circuit_untrained` and `untrained_baseline` warning",
+      "trained_at":       null
+    }
+  },
+  "consensus_algorithms": [
+    {
+      "key":      "clay_prithvi_tessera_triple_consensus@1",
+      "purpose":  "Year-on-year change detection via cosine distance per encoder, ensemble L2-mean, agreement classifier at gate=0.15 (tunable via parameters block).",
+      "encoders": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"]
+    },
+    {
+      "key":      "deforestation_triple@1",
+      "purpose":  "Forest-loss-tuned consensus with Hansen GFC mask uplift to `hansen_confirmed` verdict at gate=0.20.",
+      "encoders": ["clay_v1", "prithvi_eo2", "geotessera.multi_year", "forest_change.lossyear"]
+    },
+    {
+      "key":      "wetland_change_triple@1",
+      "purpose":  "Wetland-tuned consensus, Tessera leg substituted by JRC GSW recurrence delta at gate=0.10.",
+      "encoders": ["clay_v1", "prithvi_eo2", "surface_water.recurrence"]
+    },
+    {
+      "key":      "urban_expansion_triple@1",
+      "purpose":  "New-construction consensus with Overture buildings delta + S2 B11 SWIR corroboration at gate=0.20.",
+      "encoders": ["clay_v1", "prithvi_eo2", "overture.buildings.count", "s2.B11"]
+    },
+    {
+      "key":      "disaster_anomaly_triple@1",
+      "purpose":  "Spatial-anomaly consensus — cell vs 8-neighbour mean per encoder, adaptive z-score gate (2-σ over neighbour distribution).",
+      "encoders": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"]
+    },
+    {
+      "key":      "climate_archetype_triple@1",
+      "purpose":  "12-class Köppen-Geiger classifier with per-encoder centroids seeded from Beck et al. 2018 type localities.",
+      "encoders": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"]
+    },
+    {
+      "key":      "coastal_erosion_triple@1",
+      "purpose":  "Coastline-clamped consensus — bathymetry clamp restricts execution to active-coastline cells (-5 m ≤ depth ≤ +5 m).",
+      "encoders": ["clay_v1", "prithvi_eo2", "geotessera.multi_year", "gmrt.topobathy_mean"]
+    }
+  ],
+  "ask_intents": {
+    "_purpose": "When /v1/ask classifies the question as Similarity or Change, the response carries a `foundation_embeddings` envelope with per-encoder neighbour lists and cross-encoder consensus voting. Additive — non-matching questions keep the topic-router scalar response.",
+    "similarity": ["find places like", "places like", "similar to", "looks like", "where else", "analog of", "look-alike", "comparable to"],
+    "change":     ["what changed", "year over year", "since last year", "deforestation", "forest loss", "new construction", "urban expansion", "wetland change", "coastline change", "coastal erosion", "anomaly"]
+  },
+  "honest_limits": [
+    "No commercial sub-meter imagery — Sentinel-2 (10 m) is the finest native pitch wired today.",
+    "No edge / onboard inference.",
+    "Single-host deployment — no federation, no global routing, no SOC 2.",
+    "JEPA v2 dynamics is untrained; the endpoint short-circuits to the last attested vintage and signs the receipt with `untrained_baseline`.",
+    "Tessera multi-vintage coverage is upstream-rate-limited; only 2024 reliably serves today.",
+    "12 wired data connectors; bands without a registered materializer appear under `declared_but_no_materializer_at_this_responder`."
+  ],
   "agent_first_design": {
-    "token_economical":     true,
-    "self_describing":      true,
+    "discoverable_via":     ["/openapi.json", "/mcp", "/v1/agent_card", "/v1/tools", "/.well-known/emem.json", "/llms.txt"],
     "signed_receipts":      true,
-    "open_data_default":    true,
+    "signed_absence":       true,
+    "in_browser_verify":    true,
+    "auto_materialize_on_miss": true,
     "no_keys_required":     true,
-    "every_tool_annotated": true
+    "open_data_default":    true,
+    "every_tool_annotated_with_when_to_use": true,
+    "every_algorithm_has_formula_and_citation": true
   }
 }

@@ -13,28 +13,41 @@
 - `GET /v1/coverage` — `cells[].{cell64, fact_count, lat_deg, lng_deg}` (densest first)
 - `GET /v1/coverage_matrix?limit=200` — per-band facts_count, last_attested_unix_s, family, tempo_seconds, history bounds
 - `GET /v1/data_availability` — per-band tempo_seconds + history_available_{from,to}_unix
-- `GET /v1/bands` — band registry (35 bands, family, dims, in_cube)
-- `GET /v1/algorithms` — algorithm registry (composition recipes)
-- `GET /v1/sources` — fetch-source registry (12 connectors, 23 schemes)
-- `GET /v1/manifests` — the 8 manifests (registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet)
+- `GET /v1/bands` — band registry (35 cube slots, 118 materializer-wired band names)
+- `GET /v1/algorithms` — algorithm registry (155 composition recipes; each carries `parameters` + `learned_from` provenance)
+- `GET /v1/algorithms/{key}` — per-key drill-down with formula, inputs, citation, accuracy_band
+- `GET /v1/sources` — fetch-source registry (43 declared schemes; 12 wired data connectors)
+- `GET /v1/manifests` — the manifest CIDs (registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet)
 - `GET /v1/schema` — canonical CBOR wire schema
-- `GET /v1/topics` — 25 question-topic routes (flood, wildfire, heat, …)
-- `GET /v1/agent_card` — agent-readable summary of this responder
+- `GET /v1/topics` — 26 declared topic clusters with `live_bands_by_topic` filtered to this responder's wired materializers
+- `GET /v1/agent_card` — agent-readable summary, live counts, manifest CIDs
+- `GET /v1/tools` — 49 MCP tools with `when_to_use` strings + four behavioural annotations
+- `GET /v1/quickstart` — copy-paste snippets for the canonical flows
 - `GET /v1/cells/{cell64}/info` — bbox, centre, approximate metres
-- `GET /v1/cells/{cell64}/scene.png` — optional thumbnail
-- `POST /v1/recall` — `{cell, bands?}` → signed `facts[] + receipt`
-- `POST /v1/recall_many` — `{cells[≤256], bands?}` → per-cell facts + batch receipt
-- `POST /v1/recall_polygon` — `{polygon|place, bands}` → fanout fact set + receipt
-- `POST /v1/find_similar` — `{key|cell, band?, k}` → cosine top-K + receipt
-- `POST /v1/trajectory` — `{cell, band, t0, t1}` → ordered tslots → values + receipt
-- `POST /v1/compare` — `{a, b, bands}` → per-band distances + receipt
-- `POST /v1/diff` — `{cell, band, t0, t1}` → change-detection over time + receipt
+- `GET /v1/cells/{cell64}/scene.png` — optional Sentinel-2 thumbnail
 - `POST /v1/locate` — `{q}` → cell64 + bbox + topic-grouped band index at that cell
-- `POST /v1/ask` — `{q}` → place + topic-routed natural-language answer + receipt
-- `POST /v1/field_boundaries` — `{bbox|cell}` → FTW field polygons (CC-BY-4.0)
-- `POST /v1/query_region` — `{polygon}` → region aggregate (counts per band)
-- `POST /v1/backfill` — `{cell, band, t0, t1}` → on-demand materialisation
+- `POST /v1/ask` — `{q}` → topic-routed answer + signed facts; foundation-embedding fan-out fires on Similarity / Change intents and adds a `foundation_embeddings` envelope with per-encoder neighbours + cross-encoder consensus voting
+- `POST /v1/recall` — `{cell, bands?}` → signed `facts[]` + receipt; auto-materializes on miss
+- `POST /v1/recall_many` — `{cells[≤256], bands?}` → per-cell facts + batch receipt
+- `POST /v1/recall_polygon` — `{polygon|place, bands, include?}` → fanout fact set + receipt; `include: ["ftw_fields"]` attaches FTW per-field polygons
+- `POST /v1/find_similar` — `{key|cell, band?, k, mode?}` → k-NN; modes `cosine` | `hamming` | `hamming_then_rerank` (EWMA-adaptive triage). Auto-derives `geotessera.bin128` from the cosine sibling on miss
+- `POST /v1/trajectory` — `{cell, band, window}` → ordered tslots → values + receipt
+- `POST /v1/compare` — `{a, b, bands?}` → per-band distances + receipt
+- `POST /v1/compare_bands` — `{cell, a, b, tslot_a?, tslot_b?}` → cross-band cosine / delta + signed verdict
+- `POST /v1/diff` — `{cell, band, tslot_a, tslot_b}` → signed DerivativeFact
+- `POST /v1/field_boundaries` — `{bbox|place|cell}` → Fields of The World per-field polygons (CC-BY-4.0)
+- `POST /v1/query_region` — `{geometry|bbox}` → region aggregate; default `max_cells` is bbox-area-derived (clamped [64, 1024])
+- `POST /v1/backfill` — `{cell, band, start_unix, end_unix, max_facts?}` → historical materialization
+- `POST /v1/verify` — `{cell, claim}` → signed verdict + evidence fact CIDs
 - `POST /v1/verify_receipt` — `{receipt}` → `{valid, preimage_blake3_hex, signer_pubkey_b32}`
+- `POST /v1/temporal_route` — `{cell, intent?, bands?, limit?}` → recipe plan (which bands at which lookback windows)
+- `POST /v1/heat_solve` — 2-D explicit FTCS heat over a 3×3 MODIS LST stencil; CFL-stable
+- `POST /v1/wave_solve` — 1-D shallow-water along the seaward bathymetry gradient; 422 on land-locked
+- `POST /v1/jepa_predict` — closed-form NDVI AR(2) seasonal predictor (α=0.6, β=0.3, γ=0.1, not learned)
+- `POST /v1/jepa_predict_v2` — Tessera embedding dynamics; currently short-circuits to last attested vintage and signs receipt with `untrained_baseline`
+- Domain shortcuts (locate → recall → polygon-aggregate by place name):
+  - `POST /v1/at` (multi-band), `/v1/ndvi`, `/v1/air`, `/v1/lst`, `/v1/soil`, `/v1/water`, `/v1/forest`, `/v1/weather`, `/v1/elevation`
+- `GET /verify` and `GET /verify/{fact_cid}` — in-browser ed25519 receipt verifier; reconstructs the canonical preimage and runs the signature math with @noble/curves + @noble/hashes (no callback to issuer)
 
 ## Data attributes (DOM scraping)
 
@@ -90,8 +103,8 @@ live try-it drawer. Press `?` for the keyboard shortcut sheet.
 
 ## Try-it drawer (`T`)
 
-A slide-out drawer exposes the 20+ primitives the page knows about. For
-each:
+A slide-out drawer exposes 20 primitives the page knows about (the full
+agent surface has 49 MCP tools — discover at `GET /v1/tools`). For each:
 
 - pre-filled JSON request body seeded from the corpus this responder
   actually serves (densest cell, top band)
@@ -139,12 +152,49 @@ MCP-driven agent would receive at `tools/call`. This makes the page's
 claim of being "built for AI agents that humans can also see" literal: a
 human can verify the agent surface at any time without leaving the page.
 
+## Foundation encoders
+
+Four GPU encoders co-resident on a 20 GB VRAM budget, surfaced as their
+own bands AND woven into algorithm consensus voting:
+
+- **Clay v1.5** — band `clay_v1`, 1024-D CLS, Sentinel-2 L2A 10 bands, ~12 ms warm. Teacher (DINOv2 `vit_large_patch14_reg4_dinov2.lvd142m`) pre-staged at boot.
+- **Prithvi-EO-2.0-300M-TL** — band `prithvi_eo2`, 1024-D CLS, HLS V2 6-band, ~13 ms warm.
+- **Galileo Tiny** — band `galileo`, 192-D, Sentinel-2 modality wired (multimodal scaffold present; S1 / ERA5 / SRTM / VIIRS / Dynamic-World / WorldCover / LandScan / location zero-masked).
+- **JEPA v2 dynamics** — band-synthesizing predictor, currently untrained. Short-circuits to the last attested Tessera vintage; receipt carries `via: short_circuit_untrained` and `untrained_baseline`.
+
+## Triple-consensus algorithms
+
+Three encoders with independent receptive-field aliasing (Clay 2.56 km RF, Prithvi 6.7 km RF, Tessera per-pixel) vote on a change index. Consensus across all three is signal; one-or-none is receptive-field artifact. Surfaced as:
+
+- `clay_prithvi_tessera_triple_consensus@1` — base year-on-year change, gate=0.15 (tunable via `parameters` block)
+- `deforestation_triple@1` — adds Hansen GFC mask uplift, `hansen_confirmed` highest-confidence verdict, gate=0.20
+- `wetland_change_triple@1` — Tessera leg substituted by JRC GSW recurrence delta, gate=0.10
+- `urban_expansion_triple@1` — adds Overture buildings delta + s2.B11 SWIR corroboration, gate=0.20
+- `disaster_anomaly_triple@1` — spatial (no temporal recipe); cell-vs-8-neighbour-mean with 2-σ adaptive z-score gate
+- `climate_archetype_triple@1` — 12-class Köppen-Geiger classifier; per-encoder centroids seeded from Beck et al. 2018 type localities at `crates/emem-core/data/climate_archetype_centroids_v1.json`
+- `coastal_erosion_triple@1` — bathymetry-clamped to active-coastline cells (-5 m ≤ depth ≤ +5 m); gate=0.12
+
+## Algorithm provenance
+
+Every algorithm in the registry carries:
+
+- `formula` — plain math the agent can read and apply
+- `inputs` — band keys with role + explanation
+- `when_to_use` — agent-targeted trigger guidance
+- `citation` — peer-reviewed source
+- `accuracy_band` — honest precision estimate
+- `parameters` — typed tunable thresholds (gate, k, timeout, ...)
+- `learned_from` — citation provenance for every tuned number; an auditor traces any gate threshold back to its referee
+
+Algorithms with an `evaluation: Expr` AST are also re-executable in-process: the responder walks the AST against the snapshot recall and returns a signed composite scalar that any third party with matching `algorithms_cid` + input fact CIDs reproduces deterministically.
+
+## Signed Absence
+
+When a band has no data at a cell, the responder returns a signed Absence fact with a typed reason (`unavailable_capability`, `outside_coverage`, `gpu_unavailable`, `archetype_seed_unavailable`, ...) — not a 404, not an empty array. "We don't have this here" is itself a citable receipt.
+
 ## JSON twin
 
-`GET /humans.json` returns the structured snapshot the page renders from:
-manifests, top-10 bands, dense-20 cells, responder pubkey, and the list of
-endpoints invoked by the page. Use it as a static fallback when JS cannot
-run.
+`GET /humans.json` returns the structured snapshot the page renders from: manifests, counts, foundation-encoder inventory, consensus-algorithm summary, endpoint catalog, trust model, and the responder pubkey. Use it as a static fallback when JS cannot run.
 
 ## Operator
 

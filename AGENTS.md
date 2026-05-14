@@ -9,12 +9,14 @@ instead — those describe how to *use* emem from an agent.
 
 ## Repo shape
 
-Rust workspace, 14 crates, version 0.0.4, MSRV 1.88. The bulk of the code
-lives in `crates/emem-api-rest/src/lib.rs` (~23.5 k lines: HTTP/MCP router
-plus every inline materializer) and `crates/emem-fetch/src/*.rs` (16
-connectors over open-data APIs). FastAPI sidecar in `python/jepa_v2_sidecar/`
-serves Prithvi / Galileo / JEPA-v2 over a Unix socket. Web surface in
-`web/` is plain HTML — no build step, included via `include_str!`.
+Rust workspace, 14 crates, version 0.0.6, MSRV 1.88. The bulk of the code
+lives in `crates/emem-api-rest/src/lib.rs` (~24.8 k lines: HTTP/MCP router
+plus every inline materializer plus the foundation-embedding fan-out for
+`/v1/ask`) and `crates/emem-fetch/src/*.rs` (12 data connectors + 6
+utility modules). FastAPI sidecar in `python/jepa_v2_sidecar/` serves
+Clay v1.5, Prithvi-EO-2.0, Galileo Tiny, and JEPA-v2 over a Unix socket.
+Web surface in `web/` is plain HTML — no build step, included via
+`include_str!`.
 
 ## Build
 
@@ -83,7 +85,7 @@ will reject it and the next agent will have to figure out why.
 
 Commit messages are sentence-case, ≤72 chars on the subject line. Body
 explains the *why* and any non-obvious wire/protocol implications. Tag
-with the version prefix when relevant — `0.0.4: …`.
+with the version prefix when relevant — `0.0.6: …`.
 
 **Never** add a `Co-Authored-By: Claude` trailer or any AI attribution
 trailer. The user has stated this preference in
@@ -112,14 +114,15 @@ hook fails, fix the underlying issue.
 |---|---|
 | HTTP/MCP router, route registrations | `crates/emem-api-rest/src/lib.rs` |
 | Inline materializers | `crates/emem-api-rest/src/lib.rs` (search `^async fn materialize_`) |
-| Open-data connectors | `crates/emem-fetch/src/*.rs` (16 modules) |
+| Open-data connectors | `crates/emem-fetch/src/*.rs` (12 data modules + 6 utility) |
 | Receipt signing + preimage | `crates/emem-storage/src/server.rs::sign_receipt` |
 | Canonical CBOR + FactCid | `crates/emem-fact/src/{cbor,cid}.rs` |
 | Cell64 / tslot / alphabet | `crates/emem-codec/src/` |
 | Merkle log + per-fact proofs | `crates/emem-storage/src/{merkle_log,server}.rs` |
 | Registries (8 manifests) | `crates/emem-core/data/*.json` + `src/` |
-| MCP tool registry | `crates/emem-mcp/src/lib.rs` |
-| 11 read primitives | `crates/emem-primitives/src/*.rs` |
+| MCP tool registry (49 tools) | `crates/emem-mcp/src/lib.rs` |
+| Read primitives | `crates/emem-primitives/src/*.rs` |
+| Foundation-embedding fan-out for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |
 | Physics solvers (heat / wave / NDVI / JEPA-v2) | `crates/emem-api-rest/src/physics.rs` |
 | Sidecar (FastAPI over UDS) | `python/jepa_v2_sidecar/server.py` |
 | `/humans` interactive console | `web/humans.html` |
