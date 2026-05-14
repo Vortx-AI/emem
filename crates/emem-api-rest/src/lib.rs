@@ -44,6 +44,7 @@
 
 use std::sync::{Arc, LazyLock};
 
+mod ask_foundation;
 mod clay_chip;
 mod galileo_chip;
 mod gpu_sidecar;
@@ -20709,6 +20710,14 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     }
     enrich_recall_signer_b32(&mut facts_json);
 
+    // Foundation-embedding fan-out. When the question is shaped like
+    // "find places like X" or "what changed here", route through the
+    // Clay/Prithvi/Tessera triple instead of (or alongside) the
+    // topic-router scalar bands. Always additive: if the keyword
+    // classifier doesn't match the question, this is a no-op and the
+    // response keeps its previous shape byte-for-byte.
+    let foundation_embeddings = ask_foundation::foundation_fanout(&req.q, &cell, &s).await;
+
     let mut body = json!({
         "schema":         "emem.ask.v1",
         "question":       req.q,
@@ -20753,6 +20762,15 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         "scene":                   scene,
         "caveats":                 caveats,
     });
+    // Merge in the foundation-embedding fan-out envelope, if it fired.
+    // Lives under its own top-level key so existing readers ignore it
+    // cleanly; agents that care look for `foundation_embeddings.intent`
+    // to decide whether the response carries similarity/change signal.
+    if let Some(fe) = foundation_embeddings {
+        if let Some(map) = body.as_object_mut() {
+            map.insert("foundation_embeddings".into(), fe);
+        }
+    }
     // Promote scene_url into a top-level `imagery_hint` block when the
     // matched topics indicate the user wants imagery. Cheaper for an
     // agent to pick up than digging through `scene` (which carries
