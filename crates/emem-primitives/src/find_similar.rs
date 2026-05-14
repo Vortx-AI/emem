@@ -166,7 +166,7 @@ fn triage_recall_ewma() -> f64 {
 /// Update the EWMA from one observation of `|hamming_top_k ∩ cosine_top_k| / k`.
 /// Lock-free CAS loop on the f64 bits.
 fn triage_observe_recall(observed: f64) {
-    if !observed.is_finite() || observed < 0.0 || observed > 1.0 {
+    if !observed.is_finite() || !(0.0..=1.0).contains(&observed) {
         return;
     }
     let mut cur_bits = TRIAGE_RECALL_BITS.load(Ordering::Relaxed);
