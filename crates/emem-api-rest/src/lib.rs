@@ -7534,44 +7534,55 @@ async fn post_find_similar(
             );
         }
     }
-    // Per-neighbor decode: lat/lng + (optional) place_label_cached so an
-    // LLM can write "X is similar to Y because Z" without a follow-up
-    // call to /v1/cells/{cell}/info or a reverse-geocode round trip.
-    if let Some(map) = body.as_object_mut() {
-        if let Some(JsonValue::Array(neighbors)) = map.get_mut("neighbors") {
-            for n in neighbors.iter_mut() {
-                let Some(obj) = n.as_object_mut() else {
-                    continue;
-                };
-                let cell = obj.get("cell").and_then(|v| v.as_str()).map(String::from);
-                if let Some(c) = cell {
-                    if let Ok(info) = emem_codec::latlng_from_cell64(&c) {
-                        obj.insert("lat".into(), json!(info.lat_deg));
-                        obj.insert("lng".into(), json!(info.lng_deg));
-                        if let Some(label) =
-                            embedded_gazetteer_reverse_lookup(info.lat_deg, info.lng_deg)
-                        {
-                            obj.insert("place_label_cached".into(), json!(label));
-                        }
-                    }
-                    obj.insert("similarity_method".into(), json!(mode_str));
-                    obj.insert("band_used".into(), json!(band_used));
-                    obj.insert(
-                        "deep_recall_url".into(),
-                        json!(format!(
-                            "POST /v1/recall {{cell:'{}', bands:['{}']}}",
-                            c, band_used
-                        )),
-                    );
-                    obj.insert(
-                        "scene_png_url".into(),
-                        json!(format!("/v1/cells/{}/scene.png", c)),
-                    );
+    enrich_find_similar_response(&mut body, mode_str, &band_used);
+    Ok(Json(attach_resolved(body, env)))
+}
+
+/// Per-neighbor enrichment shared by the REST handler and the MCP
+/// `emem_find_similar` arm. Injects lat/lng (from the cell64 decode),
+/// reverse-geocoded `place_label_cached` (≤25 km from GeoNames cities5000),
+/// `similarity_method`, `band_used`, `deep_recall_url`, and
+/// `scene_png_url` onto each entry in `body.neighbors[]`. Lets an LLM
+/// write "X is similar to Y because Z" without a follow-up
+/// /v1/cells/{cell}/info round trip, and keeps the MCP path
+/// byte-equivalent to the REST envelope.
+fn enrich_find_similar_response(body: &mut JsonValue, mode_str: &str, band_used: &str) {
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+    let Some(JsonValue::Array(neighbors)) = map.get_mut("neighbors") else {
+        return;
+    };
+    for n in neighbors.iter_mut() {
+        let Some(obj) = n.as_object_mut() else {
+            continue;
+        };
+        let cell = obj.get("cell").and_then(|v| v.as_str()).map(String::from);
+        if let Some(c) = cell {
+            if let Ok(info) = emem_codec::latlng_from_cell64(&c) {
+                obj.insert("lat".into(), json!(info.lat_deg));
+                obj.insert("lng".into(), json!(info.lng_deg));
+                if let Some(label) =
+                    embedded_gazetteer_reverse_lookup(info.lat_deg, info.lng_deg)
+                {
+                    obj.insert("place_label_cached".into(), json!(label));
                 }
             }
+            obj.insert("similarity_method".into(), json!(mode_str));
+            obj.insert("band_used".into(), json!(band_used));
+            obj.insert(
+                "deep_recall_url".into(),
+                json!(format!(
+                    "POST /v1/recall {{cell:'{}', bands:['{}']}}",
+                    c, band_used
+                )),
+            );
+            obj.insert(
+                "scene_png_url".into(),
+                json!(format!("/v1/cells/{}/scene.png", c)),
+            );
         }
     }
-    Ok(Json(attach_resolved(body, env)))
 }
 
 async fn post_diff(
@@ -9124,13 +9135,22 @@ async fn mcp_tool_call(
         "emem_compare_bands" => call!(CompareBandsReq, compare_bands).map(attach_resolved_env),
         "emem_find_similar" => {
             // Mirror the REST handler: auto-materialize the vector band on
-            // miss (bug 3), and route through the shared helper so MCP
-            // callers see the same `materialize_notes` envelope as REST.
-            // lat/lng/place_label_cached on each Neighbor come from the
-            // primitive itself (bug 5) — no extra enrichment needed here.
+            // miss, route through the shared helper for materialize_notes,
+            // and apply `enrich_find_similar_response` so MCP callers see
+            // similarity_method / band_used / deep_recall_url / scene_png_url
+            // the same way REST callers do. Without the enrichment call MCP
+            // and REST drift; an agent picking up an MCP client gets a
+            // strictly thinner envelope than a curl user.
             let req: FindSimilarReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             let band_used = req.band.clone().unwrap_or_else(|| "geotessera".into());
+            let mode_str = match req.mode {
+                emem_primitives::find_similar::FindSimilarMode::Cosine => "cosine",
+                emem_primitives::find_similar::FindSimilarMode::Hamming => "hamming",
+                emem_primitives::find_similar::FindSimilarMode::HammingThenRerank => {
+                    "hamming_then_rerank"
+                }
+            };
             let (resp, materialize_notes) =
                 find_similar_with_auto_materialize(&req, &band_used, s)
                     .await
@@ -9144,11 +9164,111 @@ async fn mcp_tool_call(
                     );
                 }
             }
+            enrich_find_similar_response(&mut v, mode_str, &band_used);
             Ok(attach_resolved_env(v))
         }
         "emem_diff" => call!(DiffReq, diff).map(attach_resolved_env),
         "emem_trajectory" => call!(TrajectoryReq, trajectory).map(attach_resolved_env),
         "emem_verify" => call!(VerifyReq, verify).map(attach_resolved_env),
+        // ── Bulk + utility primitives ────────────────────────────────
+        "emem_recall_many" => {
+            let req: RecallManyReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_recall_many(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_elevation" => {
+            let req: ElevationReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_elevation_coherent(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_fleet" => Ok(fleet().await.0),
+        "emem_temporal_route" => {
+            let req: TemporalRouteReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_temporal_route(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_verify_receipt" => {
+            let req: VerifyReceiptReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_verify_receipt(Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        // ── Domain shortcuts (one-shot locate → recall → aggregate) ──
+        "emem_at" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_at(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_ndvi" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_ndvi(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_air" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_air(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_lst" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_lst(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_soil" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_soil(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_water" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_water(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_forest" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_forest(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_weather" => {
+            let req: LatLngQ =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_v1_weather(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_intent" => {
             // Execute the plan in-process so the agent gets the geocoded
             // cell64 (or compare/diff/verify result) in the same call. We

@@ -265,6 +265,48 @@ const SCHEMA_JEPA_PREDICT_V2: &str = r#"{"type":"object","required":["cell"],"pr
 "cell":{"type":"string","description":"cell64 to forecast at, or a free-text place name (auto-resolved via /v1/locate)."}
 }}"#;
 
+// Shared schema for the 8 boring lat/lng shortcuts (emem_at, emem_ndvi,
+// emem_air, emem_lst, emem_soil, emem_water, emem_forest, emem_weather).
+// Mirrors the REST `LatLngQ` struct: pass `place` for free-text, or
+// `lat`+`lng` for a direct point. `n_cells` overrides the default
+// polygon fan-out (1 for /v1/at, 16 for the rest).
+const SCHEMA_BORING_LATLNG: &str = r#"{"type":"object","properties":{
+"place":{"type":"string","description":"Free-text place name. Resolved through the standard /v1/locate cascade (wide-bbox → embedded → GeoNames → cache → Photon → Nominatim). Provide this OR `lat`+`lng`."},
+"lat":{"type":"number","description":"WGS-84 latitude. Paired with `lng`. Use when you already have coordinates."},
+"lng":{"type":"number","description":"WGS-84 longitude. Paired with `lat`."},
+"band":{"type":"string","description":"Optional single band override — replaces the endpoint's default band set with this one."},
+"bands":{"type":"string","description":"Optional CSV of band keys — replaces the endpoint's default band set."},
+"tslot":{"type":"integer","description":"Optional tslot offset (band-tempo-relative)."},
+"n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon fan-out width. `n_cells: 1` = point at centroid. Defaults vary per endpoint (1 for /v1/at, 16 for single-band endpoints)."}
+}}"#;
+
+const SCHEMA_RECALL_MANY: &str = r#"{"type":"object","required":["cells"],"properties":{
+"cells":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"List of cell64 strings, max 256. Each cell is recalled in parallel and the responses are merged into a single signed envelope."},
+"bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter — same shape as emem_recall.bands."},
+"band":{"type":"string","description":"Optional single band override (alias for bands:[band])."},
+"tslot":{"type":"integer","description":"Optional tslot offset."}
+}}"#;
+
+const SCHEMA_ELEVATION: &str = r#"{"type":"object","properties":{
+"place":{"type":"string","description":"Free-text place name. Resolved through the standard locate cascade. Provide this OR `lat`+`lng` OR `cell`."},
+"lat":{"type":"number","description":"WGS-84 latitude."},
+"lng":{"type":"number","description":"WGS-84 longitude."},
+"cell":{"type":"string","description":"cell64 string — skip geocoding entirely."}
+}}"#;
+
+const SCHEMA_TEMPORAL_ROUTE: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 to plan a temporal recall over."},
+"query_time":{"type":"integer","description":"Optional anchor time (Unix epoch seconds). Defaults to now."},
+"intent":{"type":"string","description":"Optional intent hint — drives recipe selection (e.g. 'flood_window', 'crop_season', 'change_year')."},
+"bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter to scope the planner."},
+"limit":{"type":"integer","minimum":1,"description":"Optional cap on recipe entries returned."}
+}}"#;
+
+const SCHEMA_VERIFY_RECEIPT: &str = r#"{"type":"object","required":["receipt"],"properties":{
+"receipt":{"type":"object","description":"The signed receipt envelope (as returned by any read primitive). Must carry primitive/served_at/request_id/cells/fact_cids and either `signature` byte[] + `responder_pubkey` byte[] or their b32 string forms."},
+"pubkey_b32":{"type":"string","description":"Optional explicit responder pubkey (base32). When omitted, uses the receipt's embedded pubkey/responder fields."}
+}}"#;
+
 /// Normative tool inventory, with rich agent-facing metadata.
 pub const TOOLS: &[ToolDescriptor] = &[
     // ── Geocoder (must be first — every other primitive needs cell64) ──
@@ -633,6 +675,143 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"cell":"damO.zb000.waro.zcb89"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+
+    // ── Bulk + utility primitives ────────────────────────────────────
+    ToolDescriptor {
+        name: "emem_recall_many",
+        title: "Bulk recall across up to 256 cells",
+        description: "Recall facts across a list of up to 256 cell64 strings in one signed envelope. Server fans out per-cell recalls in parallel, then aggregates the response. Auto-materializes any cell with a missing fact whose band has a registered materializer — same contract as emem_recall.",
+        when_to_use: "Use after emem_find_similar (give it the neighbour cells), after emem_recall_polygon (when you want a deterministic cell list rather than a polygon), or whenever you have a precomputed set of cells (e.g. an admin-2 sample frame) and want one round-trip. Pass `cells: [c1, c2, ...]` plus the same `bands` shape as emem_recall. For more than 256 cells, batch the call.",
+        input_schema: SCHEMA_RECALL_MANY,
+        example_args: r#"{"cells":["damO.zb000.xUti.zde78","damO.zb000.xUto.sisA"],"bands":["indices.ndvi","copdem30m.elevation_mean"]}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_elevation",
+        title: "Coherent elevation across Cop-DEM + GMRT + WorldCover",
+        description: "One-shot elevation answer that fuses Cop-DEM 30 m (land), GMRT (ocean topobathy), and ESA WorldCover (water mask) into a single signed scalar at a place or coordinate. Returns `elevation_m`, the source actually used, and a `coherence_note` when the two surfaces disagree at the coast.",
+        when_to_use: "Use when the user asks 'how high is X' or 'what's the elevation at this lat/lng' and you want the correct answer regardless of whether the cell is land, water, or coastline — the handler picks Cop-DEM for land and GMRT for water and surfaces the choice. Pass `place` (free text), `lat`+`lng`, OR `cell`. Otherwise, prefer emem_recall with `copdem30m.elevation_mean` / `gmrt.topobathy_mean` individually.",
+        input_schema: SCHEMA_ELEVATION,
+        example_args: r#"{"place":"Mount Everest"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_fleet",
+        title: "Satellite / sensor lineage per band",
+        description: "Per-band satellite-and-sensor fleet inventory — names the upstream platform (e.g. Sentinel-2A/B, MODIS Aqua/Terra, Landsat-8/9), revisit cadence, native resolution, and license for every materialized band. Lets an agent attribute imagery products correctly and pick the right band when revisit cadence matters.",
+        when_to_use: "Call when the user asks 'which satellite is this from', 'what's the revisit time', or needs source attribution for a derived answer. Pair with emem_materializers for the wire path and emem_sources for the connector-level metadata.",
+        input_schema: SCHEMA_NONE,
+        example_args: r#"{}"#,
+        level: "L0", category: ToolCategory::Introspect,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+    ToolDescriptor {
+        name: "emem_temporal_route",
+        title: "Plan a temporal recall recipe for a cell",
+        description: "Walk the algorithm registry's `temporal_recipe` blocks against a cell + (optional) intent, and emit a concrete plan: which bands to recall at which lookback windows, with `purpose` tags. Useful before a multi-band emem_recall when the question is time-shaped (flood window, growing season, change year).",
+        when_to_use: "Use when the user's question references a TIME relationship ('flooded last year', 'NDVI baseline', 'change between vintages') and you want the responder to assemble the lookback recipe rather than reasoning about tslot offsets yourself. Pass `cell` plus optional `intent` (free-text hint). The plan is deterministic and verifiable; the receipt cites the algorithm key that supplied each recipe.",
+        input_schema: SCHEMA_TEMPORAL_ROUTE,
+        example_args: r#"{"cell":"damO.zb000.xUti.zde78","intent":"flood_window"}"#,
+        level: "L0", category: ToolCategory::Plan,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+    ToolDescriptor {
+        name: "emem_verify_receipt",
+        title: "Server-side ed25519 receipt verifier",
+        description: "Verify a signed receipt envelope server-side: recomputes the canonical preimage (`request_id | served_at | primitive | cells, | fact_cids,`), runs ed25519 over the embedded pubkey + signature, and returns `{valid, reason, pubkey_b32}`. Use when the in-browser /verify path is blocked (CDN offline, agent runtime has no crypto) or when you want a server-side audit of a third-party receipt.",
+        when_to_use: "Pass a receipt object exactly as returned by any read primitive (signature can be byte[] or sig_b32; pubkey can be byte[] or responder_pubkey_b32 — the verifier tolerates both shapes). Optionally override `pubkey_b32` to assert verification against a specific signer. Returns 200 with `valid: false` when the signature fails — never 4xx for a structurally-well-formed bad signature.",
+        input_schema: SCHEMA_VERIFY_RECEIPT,
+        example_args: r#"{"receipt":{"primitive":"recall","served_at":"2026-05-14T12:00:00Z","request_id":"req-1","cells":["damO.zb000.xUti.zde78"],"fact_cids":["qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq"],"signature":[1,2,3],"responder_pubkey":[4,5,6]}}"#,
+        level: "L1", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+
+    // ── Domain shortcuts (one-shot locate → recall → aggregate) ──────
+    // Every shortcut composes the standard locate → cell64 → recall
+    // pipeline server-side; agents that don't want to chain emem_locate
+    // and emem_recall themselves can call one tool by place name.
+    ToolDescriptor {
+        name: "emem_at",
+        title: "Multi-band snapshot at a place",
+        description: "One-shot multi-band recall at a place (or lat/lng). Defaults to emem's standard at-a-glance band set; pass `band` / `bands` to override. Polygon-resolved places stay at the centroid by default (`n_cells: 1`) to keep multi-band calls cheap — pass `n_cells: 2..=64` to fan out.",
+        when_to_use: "Use when the user names a place and wants the standard situational readout (vegetation + elevation + landcover + recent weather) without picking bands. Polygon-aware: `place` that resolves to a polygon (park, lake, district) lands at the centroid unless `n_cells` widens it. For a single band, use the domain-specific shortcuts (emem_ndvi, emem_air, …) or emem_recall directly.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Yellowstone National Park"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_ndvi",
+        title: "NDVI at a place (one-shot, polygon-aware)",
+        description: "Recall Sentinel-2 NDVI (indices.ndvi, 10 m native) at a point or place. Composes locate → cell64 → recall in one call; auto-materializes on miss.",
+        when_to_use: "Use when the user names a place (or lat/lng) and just wants the NDVI number. Polygon-resolved places default to a 16-cell fan-out aggregated as mean/median. Set `n_cells: 1` for point behaviour. For multi-band batches use emem_recall.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Yellowstone National Park"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_air",
+        title: "Air-quality snapshot (CAMS PM2.5 / NO2 / O3)",
+        description: "Recall Copernicus CAMS air-quality bands at a place: PM2.5 + NO2 + O3. Composes locate → recall → aggregate.",
+        when_to_use: "Use when the user names a place and asks about air quality, pollution, or emissions exposure. CAMS is the European reanalysis — global coverage, ~0.4° native (resampled). For finer-grained urban PM2.5, pair with /v1/at-style stations data when available.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Delhi, India"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_lst",
+        title: "Land surface temperature (MODIS day + night)",
+        description: "Recall MODIS land surface temperature day-8day + night-8day composites at a place. 1 km native, 8-day composite.",
+        when_to_use: "Use when the user asks about surface heat, urban heat island, thermal anomalies, or wants day/night LST. Returns both fluxes so the agent can derive day–night spread.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Phoenix, AZ"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_soil",
+        title: "Soil profile (SoilGrids 0–30 cm: SOC, pH, texture)",
+        description: "Recall SoilGrids 250 m profile at a place: SOC, pH, clay/sand/silt fractions, bulk density, nitrogen — all at 0–30 cm depth.",
+        when_to_use: "Use when the user asks about soil quality, agricultural suitability, or carbon stocks at a location. Six bands returned in one envelope.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Bhanu Pratappur, Chhattisgarh"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_water",
+        title: "Surface water (JRC GSW recurrence + S1 backscatter)",
+        description: "Recall surface-water signals at a place: JRC Global Surface Water recurrence (1984–2021) + Sentinel-1 SAR backscatter (current). Pair detects standing water through clouds.",
+        when_to_use: "Use when the user asks about flooding, wetlands, surface-water dynamics, or wants a robust water-presence check. JRC alone gives historical baseline; Sentinel-1 gives current flood detection.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Sundarbans"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_forest",
+        title: "Forest signals (Hansen GFC + ESA WorldCover)",
+        description: "Recall forest signals at a place: Hansen Global Forest Change (tree cover 2000 baseline + year-of-loss) + ESA WorldCover 2021 land class.",
+        when_to_use: "Use when the user asks about deforestation, canopy cover, forest loss, or wants a forest-vs-not classification. Hansen gives year-of-loss for any cell with disturbance since 2001; WorldCover gives the current land class.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Amazon, Brazil"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_weather",
+        title: "Current weather snapshot (temperature, cloud, precip, wind)",
+        description: "Recall the standard met.no/CAMS weather bundle at a place: 2 m temperature + total cloud cover + precipitation + 10 m wind speed.",
+        when_to_use: "Use when the user names a place and asks 'what's the weather' or wants a now-cast snapshot. weather.* bands are now-only (no backfill); for climatology use terraclimate.*.",
+        input_schema: SCHEMA_BORING_LATLNG,
+        example_args: r#"{"place":"Reykjavik"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
 
     // ── Intent-routed planner ────────────────────────────────────────
