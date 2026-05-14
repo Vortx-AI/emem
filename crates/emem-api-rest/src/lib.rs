@@ -283,7 +283,6 @@ const EXAMPLE_CLAUDE_CODE: &str = include_str!("../../../examples/claude-code.mc
 const EXAMPLE_CURSOR: &str = include_str!("../../../examples/cursor.mcp.json");
 const EXAMPLE_CLINE: &str = include_str!("../../../examples/cline.mcp.json");
 const EXAMPLE_OPENAI: &str = include_str!("../../../examples/openai-gpt-action.json");
-const EXAMPLE_GEMINI_EXTENSION: &str = include_str!("../../../examples/gemini-extension.json");
 const EXAMPLE_LANGCHAIN: &str = include_str!("../../../examples/langchain.py");
 const EXAMPLE_LLAMAINDEX: &str = include_str!("../../../examples/llamaindex.py");
 
@@ -1691,14 +1690,56 @@ async fn serve_skill_recall_polygon() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_RECALL_POLYGON)
 }
 async fn serve_llms_full() -> Response {
-    // Historical artifact — earlier release shipped a 25 KB "full" variant
-    // that drifted from the live catalog. The agent-native rewrite of
-    // /llms.txt now carries the same algebra, types, executable examples,
-    // and machine guarantees, so /llms-full.txt aliases to it. Sitemap
-    // entry is preserved; agents that fetched the longer URL still land
-    // on a coherent doc.
-    text_response("text/plain; charset=utf-8", LLMS_TXT)
+    // `/llms-full.txt` used to alias `/llms.txt` byte-for-byte, which
+    // made the URL false-advertise — agents (and humans) reaching for
+    // the "full" variant got the same 7 KB summary. Concatenate the
+    // four canonical agent-facing docs so the URL keeps its promise:
+    //   1. /llms.txt  — algebra, install, primitives, executable curl.
+    //   2. /agents.md — the consumer-agent integration guide.
+    //   3. /spec.md   — wire-byte protocol.
+    //   4. /skills.md — composed recipes (cookbook view).
+    // Section dividers are lightweight headings so any markdown viewer
+    // groups them cleanly; agents that grep by URL still find the
+    // matching block in one fetch.
+    let body = LLMS_FULL_CACHED.as_str();
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(CACHE_CONTROL, "public, max-age=86400, stale-while-revalidate=604800")
+        .body(axum::body::Body::from(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
+
+/// Process-wide concatenation of the four agent-facing docs that
+/// `/llms-full.txt` returns. Built once at first use; the underlying
+/// strings are `include_str!`-baked so this is a `String::with_capacity`
+/// + four `push_str` calls on the cold path and nothing thereafter.
+static LLMS_FULL_CACHED: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let mut out = String::with_capacity(
+        LLMS_TXT.len() + AGENTS_MD.len() + SPEC_MD.len() + SKILLS_MD.len() + 1024,
+    );
+    out.push_str("# emem — full bundle\n\n");
+    out.push_str("> This file concatenates /llms.txt, /agents.md, /spec.md, /skills.md.\n");
+    out.push_str("> Each section is the byte-for-byte content of the matching standalone URL.\n");
+    out.push_str("> Fetched at: build-time (server binary baked from source).\n\n");
+    out.push_str("\n\n========================================\n");
+    out.push_str("== /llms.txt\n");
+    out.push_str("========================================\n\n");
+    out.push_str(LLMS_TXT);
+    out.push_str("\n\n========================================\n");
+    out.push_str("== /agents.md\n");
+    out.push_str("========================================\n\n");
+    out.push_str(AGENTS_MD);
+    out.push_str("\n\n========================================\n");
+    out.push_str("== /spec.md\n");
+    out.push_str("========================================\n\n");
+    out.push_str(SPEC_MD);
+    out.push_str("\n\n========================================\n");
+    out.push_str("== /skills.md\n");
+    out.push_str("========================================\n\n");
+    out.push_str(SKILLS_MD);
+    out
+});
 async fn serve_agent_walkthroughs() -> Response {
     text_response("text/markdown; charset=utf-8", AGENT_WALKTHROUGHS_MD)
 }
@@ -2142,8 +2183,89 @@ async fn serve_example_cline() -> Response {
 async fn serve_example_openai() -> Response {
     text_response("application/json", EXAMPLE_OPENAI)
 }
+/// `GET /gemini-extension.json` — Gemini CLI extension manifest rendered
+/// at request time from the live registry counts. The static file at
+/// `examples/gemini-extension.json` ships hand-edited fallback copy that
+/// drifts (it was last touched in 0.0.3 and claimed `36 MCP tools / 149
+/// algorithms / 35 bands` against today's true `49 / 155 / 35`). Render
+/// from the same constants `/v1/discover` reads so the manifest cannot
+/// disagree with `/mcp tools/list`.
 async fn serve_example_gemini() -> Response {
-    text_response("application/json", EXAMPLE_GEMINI_EXTENSION)
+    let n_tools = emem_mcp::TOOLS.len();
+    let n_bands = emem_core::bands::DEFAULT.bands.len();
+    let n_algorithms = emem_core::algorithms::DEFAULT.algorithms.len();
+    let manifest = json!({
+        "_doc": format!(
+            "Gemini CLI extension manifest. Install with one command: `gemini extensions install https://emem.dev/gemini-extension.json`. After install, every Gemini CLI session can call emem_recall, emem_compare, emem_find_similar, etc. against any place on Earth without an API key. The hosted instance at https://emem.dev/mcp is HTTPS-only Streamable HTTP transport (MCP 2025-03-26+). For self-hosted, change `url` to your own emem responder. Counts ({}/{}/{}) are rendered from the live registry at request time.",
+            n_tools, n_bands, n_algorithms,
+        ),
+        "name": "emem",
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": format!(
+            "Cite-able, content-addressed, signed Earth memory protocol. Recall any place on Earth (cell × band × tslot) and get back ed25519 receipts you can quote in your reply. {n_tools} MCP tools across read + write primitives. {n_bands} materializable bands. {n_algorithms} composition algorithms. No API keys."
+        ),
+        "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
+        "license": "Apache-2.0",
+        "homepage": "https://emem.dev",
+        "repository": "https://github.com/Vortx-AI/emem",
+        "documentation": "https://emem.dev/agents.md",
+        "icon": "https://emem.dev/logo.png",
+        "keywords": [
+            "earth-observation",
+            "geospatial",
+            "satellite",
+            "mcp",
+            "ed25519",
+            "content-addressed",
+            "no-api-key"
+        ],
+        "mcpServers": {
+            "emem": {
+                "url": "https://emem.dev/mcp",
+                "transport": "streamable-http",
+                "description": "Earth memory protocol — recall, compare, find_similar, diff, trajectory, verify over signed receipts."
+            }
+        },
+        "context": {
+            "agent_card_url": "https://emem.dev/v1/agent_card",
+            "openapi_url": "https://emem.dev/openapi.json",
+            "llms_txt_url": "https://emem.dev/llms.txt",
+            "llms_full_txt_url": "https://emem.dev/llms-full.txt",
+            "well_known_url": "https://emem.dev/.well-known/emem.json",
+            "agent_card_a2a_url": "https://emem.dev/.well-known/agent-card.json",
+            "gallery_url": "https://emem.dev/docs/gallery",
+            "diagrams_url": "https://emem.dev/docs/diagrams/"
+        },
+        "live_counts": {
+            "mcp_tools":  n_tools,
+            "bands":      n_bands,
+            "algorithms": n_algorithms,
+            "rendered_at_unix_s": now_unix_s(),
+        },
+        "examples": [
+            {
+                "name": "Locate a place by name",
+                "tool": "emem_locate",
+                "arguments": { "q": "Mount Fuji" }
+            },
+            {
+                "name": "Recall elevation at a cell",
+                "tool": "emem_recall",
+                "arguments": { "cell": "damO.zb000.xUti.zde78", "bands": ["copdem30m.elevation_mean"] }
+            },
+            {
+                "name": "Find similar places",
+                "tool": "emem_find_similar",
+                "arguments": { "key": "damO.zb000.xUti.zde78", "band": "geotessera", "k": 5 }
+            }
+        ]
+    });
+    let body = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/json; charset=utf-8")
+        .body(axum::body::Body::from(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 async fn serve_example_langchain() -> Response {
     text_response("text/x-python", EXAMPLE_LANGCHAIN)
@@ -3801,8 +3923,28 @@ fn topics_payload() -> JsonValue {
 /// block returns; broken out so an agent can browse the topic
 /// inventory without having to first locate a cell.
 async fn topics() -> Json<JsonValue> {
+    let topic_reg = &*emem_core::topics::DEFAULT;
+    let declared_total = topic_reg.topics.len();
+    let materializable: std::collections::HashSet<String> =
+        all_materializable_bands().into_iter().collect();
+    let live_total = topic_reg
+        .topics
+        .iter()
+        .filter(|t| t.bands.iter().any(|b| materializable.contains(b)))
+        .count();
     Json(json!({
         "schema": "emem.topics.v1",
+        // Top-level counts so an agent can audit drift between the
+        // declared registry (topics-v0.json) and what this responder
+        // can actually serve right now. `declared_total` is the static
+        // registry size; `live_total` is the count of topics with at
+        // least one wired materialiser for one of its bands on this
+        // node. The difference is also surfaced field-by-field under
+        // `topics.declared_but_no_materializer_at_this_responder`.
+        "counts": {
+            "declared_total": declared_total,
+            "live_total":     live_total,
+        },
         "topics": topics_payload(),
     }))
 }
@@ -9039,6 +9181,12 @@ async fn mcp_jsonrpc(
             "tools": emem_mcp::TOOLS.iter().map(|t| json!({
                 "name": t.name,
                 "title": t.title,
+                // We still fold `when_to_use` into `description` because
+                // the MCP spec's `description` is the only natural-language
+                // field every host renders today. But we also lift it into
+                // `annotations.when_to_use` as a structured field so a
+                // router that wants to compare two tools by trigger
+                // guidance can do it without LLM-parsing the prose.
                 "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
                 "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
                 "annotations": {
@@ -9047,6 +9195,9 @@ async fn mcp_jsonrpc(
                     "destructiveHint": t.destructive_hint,
                     "idempotentHint":  t.idempotent_hint,
                     "openWorldHint":   t.open_world_hint,
+                    "when_to_use":     t.when_to_use,
+                    "category":        t.category,
+                    "level":           t.level,
                 },
             })).collect::<Vec<_>>(),
         })),
@@ -10277,6 +10428,194 @@ async fn mcp_tool_call(
 
 // ── OpenAPI 3.1 (hand-rolled, agent-discoverable) ────────────────────────
 
+/// Fill `description` on every OpenAPI operation that hasn't got one.
+/// Priority order:
+///   1. existing non-empty `description` (don't clobber hand-written ones),
+///   2. matching MCP tool's `description` + `when_to_use` (joined as one
+///      paragraph), looked up by `operationId`,
+///   3. existing `summary`.
+///
+/// Without this pass every op ships an empty `description` field and the
+/// OpenAI Custom GPT importer, Postman, Stainless, and `openapi-typescript`
+/// all surface a placeholder string instead of the real semantics — the
+/// MCP descriptions are already the right copy, they just weren't being
+/// reused. Idempotent: a second call is a no-op because the first call's
+/// output now satisfies condition (1).
+fn enrich_openapi_op_descriptions(spec: &mut JsonValue) {
+    let Some(paths) = spec
+        .get_mut("paths")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return;
+    };
+    for methods in paths.values_mut() {
+        let Some(m) = methods.as_object_mut() else {
+            continue;
+        };
+        for (method, op) in m.iter_mut() {
+            // Skip non-HTTP entries (e.g. `parameters` at the path level).
+            if !matches!(
+                method.as_str(),
+                "get" | "post" | "put" | "delete" | "patch" | "options" | "head"
+            ) {
+                continue;
+            }
+            let Some(opo) = op.as_object_mut() else {
+                continue;
+            };
+            let has_desc = opo
+                .get("description")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
+            if has_desc {
+                continue;
+            }
+            let opid = opo
+                .get("operationId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let summary = opo
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            // Several REST opIds get a `_get` / `_post` / `_one` suffix
+            // ("emem_locate_get", "emem_algorithms_one", "emem_temporal_route_post").
+            // Strip those before lookup so the MCP tool descriptor (which
+            // is named for the canonical primitive) still matches.
+            let lookup_key = opid
+                .trim_end_matches("_get")
+                .trim_end_matches("_post")
+                .trim_end_matches("_one");
+            let mcp_doc = emem_mcp::lookup(lookup_key)
+                .or_else(|| emem_mcp::lookup(&opid))
+                .map(|t| {
+                    let desc = t.description.trim();
+                    let when = t.when_to_use.trim();
+                    if when.is_empty() {
+                        desc.to_string()
+                    } else {
+                        format!("{desc}\n\nWhen to use: {when}")
+                    }
+                });
+            let final_desc = mcp_doc.unwrap_or(summary);
+            if !final_desc.trim().is_empty() {
+                opo.insert(
+                    "description".into(),
+                    JsonValue::String(final_desc),
+                );
+            }
+        }
+    }
+}
+
+/// Reference the standard SignedResponse / Fact / Receipt schemas from
+/// the response body of the high-traffic endpoints. Leaves introspection
+/// endpoints (whose response shape genuinely varies) on the bare
+/// `{"type":"object"}` so we don't lie about a schema we don't enforce.
+fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
+    // operationId → schema component name. Only includes endpoints
+    // whose 200 envelope is stable enough to schema-fy honestly.
+    const RESP_MAP: &[(&str, &str)] = &[
+        ("emem_recall", "SignedResponse"),
+        ("emem_recall_cell_get", "SignedResponse"),
+        ("emem_recall_many", "SignedResponse"),
+        ("emem_recall_polygon", "SignedResponse"),
+        ("emem_query_region", "SignedResponse"),
+        ("emem_ask", "AskResp"),
+        ("emem_locate", "LocateResp"),
+        ("emem_locate_get", "LocateResp"),
+        ("emem_compare", "CompareResp"),
+        ("emem_compare_bands", "CompareBandsResp"),
+        ("emem_find_similar", "FindSimilarResp"),
+        ("emem_diff", "SignedResponse"),
+        ("emem_trajectory", "SignedResponse"),
+        ("emem_backfill", "SignedResponse"),
+        ("emem_verify", "VerifyResp"),
+        ("emem_verify_receipt", "VerifyReceiptResp"),
+        ("emem_fetch", "Fact"),
+        ("emem_fetch_post", "Fact"),
+        ("emem_field_boundaries", "FieldBoundariesResp"),
+        ("emem_elevation", "SignedResponse"),
+        ("emem_elevation_get", "SignedResponse"),
+        ("emem_at_post", "SignedResponse"),
+        ("emem_at_get", "SignedResponse"),
+        ("emem_ndvi_post", "SignedResponse"),
+        ("emem_ndvi_get", "SignedResponse"),
+        ("emem_air_post", "SignedResponse"),
+        ("emem_air_get", "SignedResponse"),
+        ("emem_lst_post", "SignedResponse"),
+        ("emem_lst_get", "SignedResponse"),
+        ("emem_soil_post", "SignedResponse"),
+        ("emem_soil_get", "SignedResponse"),
+        ("emem_water_post", "SignedResponse"),
+        ("emem_water_get", "SignedResponse"),
+        ("emem_forest_post", "SignedResponse"),
+        ("emem_forest_get", "SignedResponse"),
+        ("emem_weather_post", "SignedResponse"),
+        ("emem_weather_get", "SignedResponse"),
+    ];
+    let Some(paths) = spec
+        .get_mut("paths")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return;
+    };
+    for methods in paths.values_mut() {
+        let Some(m) = methods.as_object_mut() else {
+            continue;
+        };
+        for (method, op) in m.iter_mut() {
+            if !matches!(
+                method.as_str(),
+                "get" | "post" | "put" | "delete" | "patch"
+            ) {
+                continue;
+            }
+            let Some(opo) = op.as_object_mut() else {
+                continue;
+            };
+            let opid = opo
+                .get("operationId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let Some(&(_, schema_name)) = RESP_MAP.iter().find(|(k, _)| *k == opid) else {
+                continue;
+            };
+            let Some(responses) = opo
+                .get_mut("responses")
+                .and_then(|v| v.as_object_mut())
+            else {
+                continue;
+            };
+            let Some(r200) = responses.get_mut("200").and_then(|v| v.as_object_mut())
+            else {
+                continue;
+            };
+            // Don't touch SVG/PNG/octet-stream content blocks.
+            let mut has_json = false;
+            if let Some(content) =
+                r200.get("content").and_then(|v| v.as_object())
+            {
+                has_json = content.contains_key("application/json");
+            }
+            if !has_json {
+                continue;
+            }
+            r200.insert(
+                "content".into(),
+                json!({
+                    "application/json": {
+                        "schema": { "$ref": format!("#/components/schemas/{schema_name}") }
+                    }
+                }),
+            );
+        }
+    }
+}
+
 async fn openapi() -> Json<JsonValue> {
     // OpenAI Custom GPTs and several other platforms refuse a tool spec
     // without an absolute base URL. Emit `public_origin()` (driven by
@@ -10325,7 +10664,7 @@ async fn openapi() -> Json<JsonValue> {
         "description": "ok (image/png)",
         "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } }
     });
-    Json(json!({
+    let mut spec = json!({
         "openapi": "3.1.0",
         "info": {
             "title": "emem",
@@ -10474,10 +10813,34 @@ async fn openapi() -> Json<JsonValue> {
                 "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively. When `place` resolves to an OSM feature with extent (airport, park, lake, region) the response includes a `polygon` block + per-band `stats` (mean/median/min/max/std for numeric bands, mode + class distribution for categorical bands like esa_worldcover.lc_2021); pass `n_cells: 1` to force point behaviour at the centroid instead. Single-band endpoints default to 16 sample cells when polygon detected; /v1/at defaults to 1 (multi-band × multi-cell explodes upstream fetch count). Use POST /v1/recall_polygon for raw per-cell facts.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"},"n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon-aggregation knob. When `place` resolves to a feature with extent and `n_cells` is unset, single-band endpoints fan out to 16 sample cells; /v1/at defaults to 1. `n_cells: 1` forces point behaviour at the centroid; values in 2..=64 are honoured. Anything else returns 400 — heavy queries belong on POST /v1/recall_polygon."}}},
                 "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}},
                 "LocateReq":       {"type":"object","description":"Body for POST /v1/locate. Provide `place` (free-text, geocoded via embedded gazetteer → cache → Photon → Nominatim) OR `lat`+`lng`. Mutually exclusive: at least one of (`place`/`q`/`query`/`name`) or (`lat`+`lng`) must be present.","oneOf":[{"required":["place"]},{"required":["q"]},{"required":["query"]},{"required":["name"]},{"required":["lat","lng"]}],"properties":{"place":{"type":"string","description":"Free-text place name. Resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number","description":"WGS-84 latitude. REQUIRED with `lng` unless `place` is provided."},"lng":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."}}},
-                "CompareBandsReq": {"type":"object","required":["cell","a","b"],"description":"Body for POST /v1/compare_bands. Compares two bands at the same cell. Returns scalar delta + percent change for scalar pairs, cosine + L2 for vector pairs. Optional `predicate` folds a consistency check (e.g. \"DEM and GMRT agree within 200 m\") into a signed verdict.","properties":{"cell":{"type":"string","description":"cell64 string. `cell64` accepted as alias."},"a":{"type":"string","description":"Band A key, e.g. 'copdem30m.elevation_mean'."},"b":{"type":"string","description":"Band B key, e.g. 'gmrt.elevation_mean'."},"tslot_a":{"type":"integer","description":"Optional tslot pin for band A. When omitted, the responder picks the latest tslot with an attested fact for band A at this cell."},"tslot_b":{"type":"integer","description":"Optional tslot pin for band B. Same semantics as `tslot_a`."},"predicate":{"type":"object","description":"Optional consistency predicate. Tagged enum: {kind: 'abs_diff_le'|'abs_diff_lt'|'cosine_ge'|'cosine_gt'|'l2_distance_le', threshold: number}.","required":["kind","threshold"],"properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}}}}}
+                "CompareBandsReq": {"type":"object","required":["cell","a","b"],"description":"Body for POST /v1/compare_bands. Compares two bands at the same cell. Returns scalar delta + percent change for scalar pairs, cosine + L2 for vector pairs. Optional `predicate` folds a consistency check (e.g. \"DEM and GMRT agree within 200 m\") into a signed verdict.","properties":{"cell":{"type":"string","description":"cell64 string. `cell64` accepted as alias."},"a":{"type":"string","description":"Band A key, e.g. 'copdem30m.elevation_mean'."},"b":{"type":"string","description":"Band B key, e.g. 'gmrt.elevation_mean'."},"tslot_a":{"type":"integer","description":"Optional tslot pin for band A. When omitted, the responder picks the latest tslot with an attested fact for band A at this cell."},"tslot_b":{"type":"integer","description":"Optional tslot pin for band B. Same semantics as `tslot_a`."},"predicate":{"type":"object","description":"Optional consistency predicate. Tagged enum: {kind: 'abs_diff_le'|'abs_diff_lt'|'cosine_ge'|'cosine_gt'|'l2_distance_le', threshold: number}.","required":["kind","threshold"],"properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}}}}},
+                "Cell64":          {"type":"string","description":"cell64 wire form: four base-1024 bigrams separated by dots, e.g. `defi.zb4d9.pefa.zf619`. Encoded resolution is ~9.55 m at the equator.","example":"defi.zb4d9.pefa.zf619"},
+                "Tslot":           {"type":"integer","description":"Band-tempo-relative integer offset from the emem epoch. Each band declares its tempo (`fast` / `medium` / `slow` / `static`); tslot is the rounded count of that tempo's unit since the epoch.","minimum":0},
+                "FactCid":         {"type":"string","description":"Content id of a fact: base32-nopad-lowercase encoding of `blake3(canonical_cbor(fact))[..16]`. 26 characters, alphabet `[a-z2-7]`.","example":"bafy2bzaceaqxfn4obg3orodvm6"},
+                "PubKey":          {"type":"string","description":"Ed25519 32-byte public key, base32-nopad-lowercase encoded (52 chars). Returned in receipts and `/.well-known/emem.json`.","example":"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"},
+                "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the upstream-provider's `last_modified`, `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number"},"latency_p99_ms":{"type":"number"},"source_freshness_s":{"type":"integer","description":"Seconds since the upstream provider's last-modified timestamp."},"was_cached":{"type":"boolean"}}},
+                "Receipt":         {"type":"object","description":"Ed25519-signed receipt over the canonical preimage of (request_id, served_at, primitive, cells, fact_cids). The browser-side verifier at /verify reconstructs this preimage from the receipt fields alone — no callback to the issuer.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when None.","properties":{"index":{"type":"integer"},"siblings":{"type":"array","items":{"type":"string"}}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
+                "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
+                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. `ok` means a Primary fact was minted and persisted; `absence` means a typed Absence was signed.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string"},"reason":{"type":"string"},"latency_ms":{"type":"number"}}},
+                "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request — empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
+                "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake), absent for point features. `via` declares which layer of the geocoder cascade answered (wide-bbox / embedded / cache / photon / nominatim).","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label (admin code humanised to country name)."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"]}}},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon — pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["wide_bbox","embedded","cache","photon","nominatim","direct_latlng"],"description":"Layer of the locate cascade that answered. `embedded` = GeoNames cities-5000 in-process; `cache` = sled hot cache; `photon` / `nominatim` = network fallback."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
+                "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "CompareResp":     {"type":"object","description":"Response of /v1/compare. Single cosine similarity score (vector bands) or scalar delta (scalar bands) plus per-band breakdown.","required":["score","receipt"],"properties":{"score":{"type":"number"},"deltas":{"type":"object","additionalProperties":{"type":"number"},"description":"Per-band scalar delta for scalar comparisons; absent for vector cosine."},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "CompareBandsResp":{"type":"object","description":"Response of /v1/compare_bands. Numeric delta + percent change for scalar pairs; cosine + L2 for vector pairs. `predicate_verdict` is present when a consistency predicate was passed.","required":["delta","receipt"],"properties":{"delta":{"type":"number"},"percent_change":{"type":"number"},"cosine":{"type":"number"},"l2":{"type":"number"},"predicate_verdict":{"type":"object","properties":{"kind":{"type":"string"},"threshold":{"type":"number"},"holds":{"type":"boolean"}}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "VerifyResp":      {"type":"object","description":"Response of /v1/verify. `holds` is the boolean verdict; `evidence_cids` are the fact CIDs the verifier walked to reach the verdict.","required":["holds","receipt"],"properties":{"holds":{"type":"boolean"},"evidence_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"explanation":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "VerifyReceiptResp":{"type":"object","description":"Response of /v1/verify_receipt. `valid` is the ed25519 signature check; `signer` is the responder pubkey the signature was checked against; `preimage_b64` is the canonical preimage that was hashed and signed, for reproduction in any other ed25519 implementation.","required":["valid","signer"],"properties":{"valid":{"type":"boolean"},"signer":{"$ref":"#/components/schemas/PubKey"},"preimage_b64":{"type":"string"},"errors":{"type":"array","items":{"type":"string"}}}},
+                "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"foundation_embeddings":{"type":"object","description":"Per-encoder neighbour lists and consensus voting. Populated when the intent matches `find places like` / `what changed`."},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "FieldBoundariesResp":{"type":"object","description":"Response of /v1/field_boundaries. `fields` is an array of per-field GeoJSON-Polygon features from Fields of The World (CC-BY-4.0). `attribution` and `license` must be surfaced with any rendered map.","required":["fields","license","attribution"],"properties":{"fields":{"type":"array","items":{"type":"object","properties":{"geometry":{"type":"object","description":"GeoJSON Polygon."},"area_ha":{"type":"number"},"country":{"type":"string"},"confidence":{"type":"number"}}}},"license":{"type":"string","example":"CC-BY-4.0"},"attribution":{"type":"string","example":"Fields of The World / Taylor Geospatial Institute"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "Error":           {"type":"object","required":["code","message"],"properties":{"code":{"type":"string","example":"invalid_argument"},"message":{"type":"string"},"details":{"type":"object"}}}
             }
         }
-    }))
+    });
+    // Post-process: fill `description` from the matching MCP tool spec or
+    // existing summary, and replace bare `{"type":"object"}` response
+    // schemas on high-traffic endpoints with concrete `$ref`s.
+    enrich_openapi_op_descriptions(&mut spec);
+    enrich_openapi_response_schemas(&mut spec);
+    Json(spec)
 }
 
 /// `GET /v1/openapi.action.json` — curated subset of `/openapi.json` sized
