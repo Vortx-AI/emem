@@ -11,6 +11,7 @@
 //! should layer a Lance / FAISS sidecar in front of this primitive; the
 //! protocol surface (`Storage::iter_index`) is the same.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -134,6 +135,61 @@ fn cell_centroid(cell64: &str) -> (Option<f64>, Option<f64>) {
 /// Cap = 25 km; beyond that, neighbour cells over open ocean or remote
 /// terrain are honestly returned with `place_label_cached: None` rather
 /// than misleading the agent with a distant city name.
+/// EWMA of observed Hamming-triage recall@k vs cosine-rerank. Stored as
+/// `f64::to_bits` in an AtomicU64 so updates from concurrent callers
+/// stay lock-free. Bumped from `triage_observe_recall` at the end of
+/// each HammingThenRerank call. Reads default to NaN when the gate has
+/// never been observed (so the cold-start path keeps the 4× multiplier).
+static TRIAGE_RECALL_BITS: AtomicU64 = AtomicU64::new(0);
+static TRIAGE_OBS_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Number of observations after which the EWMA is considered "warm"
+/// enough to drive triage-factor selection. Below this the read returns
+/// NaN and the caller falls back to the historical 4× multiplier.
+const TRIAGE_WARMUP_OBSERVATIONS: u64 = 50;
+
+/// EWMA decay constant (~exponential moving average over the last
+/// ~20 calls). Larger α = faster adaptation, more noise; 0.05 picks a
+/// reasonable smoothing for a moderately variable workload.
+const TRIAGE_EWMA_ALPHA: f64 = 0.05;
+
+/// Read the current EWMA recall. Returns NaN if fewer than
+/// `TRIAGE_WARMUP_OBSERVATIONS` calls have updated the gate — the
+/// caller then uses the historical 4× multiplier.
+fn triage_recall_ewma() -> f64 {
+    if TRIAGE_OBS_COUNT.load(Ordering::Relaxed) < TRIAGE_WARMUP_OBSERVATIONS {
+        return f64::NAN;
+    }
+    f64::from_bits(TRIAGE_RECALL_BITS.load(Ordering::Relaxed))
+}
+
+/// Update the EWMA from one observation of `|hamming_top_k ∩ cosine_top_k| / k`.
+/// Lock-free CAS loop on the f64 bits.
+fn triage_observe_recall(observed: f64) {
+    if !observed.is_finite() || observed < 0.0 || observed > 1.0 {
+        return;
+    }
+    let mut cur_bits = TRIAGE_RECALL_BITS.load(Ordering::Relaxed);
+    loop {
+        let cur = f64::from_bits(cur_bits);
+        let next = if cur_bits == 0 || !cur.is_finite() {
+            observed
+        } else {
+            (1.0 - TRIAGE_EWMA_ALPHA) * cur + TRIAGE_EWMA_ALPHA * observed
+        };
+        match TRIAGE_RECALL_BITS.compare_exchange_weak(
+            cur_bits,
+            next.to_bits(),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(x) => cur_bits = x,
+        }
+    }
+    TRIAGE_OBS_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
 fn make_neighbor(cell64: String, score: f32) -> Neighbor {
     let (lat, lng) = cell_centroid(&cell64);
     let place_label_cached = match (lat, lng) {
@@ -479,9 +535,23 @@ async fn find_similar_binary(
     // re-rank cost dominated by the popcount scan. We oversample the
     // raw scan by an extra factor so per-cell dedupe (multiple tslots
     // per cell collapse to one) doesn't shrink the survivor pool below
-    // `triage_k` distinct cells before the cosine rerank phase.
+    // `triage_k` distinct cells before the cosine rerank phase. The
+    // oversampling factor is adaptive: TRIAGE_RECALL_EWMA tracks the
+    // empirical recall@k of the Hamming pre-pass against the cosine
+    // re-rank across recent calls; the multiplier is `ceil(1/recall)`
+    // capped to `[4, 16]`. Until ~50 calls warm the EWMA the default
+    // multiplier stays at the historical 4× — matches pre-EWMA behaviour
+    // and avoids surprise during cold start.
     let triage_k = match req.mode {
-        FindSimilarMode::HammingThenRerank => (k * 4).max(k),
+        FindSimilarMode::HammingThenRerank => {
+            let recall = triage_recall_ewma();
+            let factor = if recall.is_finite() && recall > 0.0 {
+                (1.0 / recall).ceil() as usize
+            } else {
+                4
+            };
+            (k * factor.clamp(4, 16)).max(k)
+        }
         _ => k,
     };
     let self_match: Option<&str> = if req.key.starts_with("inline:") {
@@ -545,6 +615,16 @@ async fn find_similar_binary(
             } else {
                 load_cell_vec(storage, &req.key, cosine_band).await?
             };
+            // Snapshot the Hamming top-k cell set BEFORE the consuming
+            // rerank loop, so we can compare it against the cosine
+            // top-k after rerank and feed the EWMA with the observed
+            // recall@k. `triage` is already sorted ascending by Hamming
+            // distance from the search loop above.
+            let hamming_top_k: std::collections::HashSet<String> = triage
+                .iter()
+                .take(k)
+                .map(|(cell, _, _)| cell.clone())
+                .collect();
             let mut reranked: Vec<(Neighbor, FactCid)> = Vec::with_capacity(triage.len());
             for (cell, d, cid) in triage {
                 let vec = load_cell_vec(storage, &cell, cosine_band)
@@ -563,6 +643,17 @@ async fn find_similar_binary(
             // shared helper keeps the sort + truncate-to-k contract in
             // one place and survives a future change to triage.
             let (kept, kept_cids) = dedupe_top_k_by_cell(reranked, k);
+            // Feed the triage-recall EWMA with this call's observed
+            // overlap so the next call's `triage_k` oversampling factor
+            // adapts to the corpus's actual binary↔cosine ranking
+            // agreement instead of staying nailed to 4×.
+            if !hamming_top_k.is_empty() && !kept.is_empty() {
+                let overlap = kept
+                    .iter()
+                    .filter(|n| hamming_top_k.contains(&n.cell))
+                    .count();
+                triage_observe_recall(overlap as f64 / kept.len() as f64);
+            }
             (kept, kept_cids)
         }
         FindSimilarMode::Cosine => unreachable!("cosine handled above"),

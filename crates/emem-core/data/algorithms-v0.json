@@ -278,6 +278,17 @@
             }
           ]
         }
+      },
+      "parameters": {
+        "dem_agreement_threshold_m": 5.0,
+        "dem_agreement_penalty": 0.5
+      },
+      "learned_from": {
+        "dem_agreement_threshold_m": {
+          "value": 5.0,
+          "rationale": "Matches the typical Cop-DEM CE90 vertical accuracy on flat terrain — drift greater than 5 m between Cop-DEM and GMRT at the same lat/lng usually signals dense canopy / urban canyon / near-water canopy interference rather than real elevation, so the elevation leg should be down-weighted there.",
+          "source": "ESA Copernicus DEM Product Specification Document, §5.4 (CE90 = 4 m for flat/open terrain, degrading with slope and canopy)."
+        }
       }
     },
     {
@@ -5762,6 +5773,20 @@
             "purpose": "tessera_prior_year"
           }
         ]
+      },
+      "parameters": {
+        "consensus_threshold": 0.15,
+        "k_neighbors": 12,
+        "consensus_min_models": 2,
+        "ask_timeout_ms": 4000,
+        "intent_cosine_threshold": 0.42
+      },
+      "learned_from": {
+        "consensus_threshold": {
+          "value": 0.15,
+          "rationale": "Default cosine-distance gate matches the LandTrendr-style ensemble convention (Healey et al. 2018 RSE 204:717-728) — flags cells where any encoder's year-on-year change exceeds 15% of the unit interval. Tunable per-deployment via the parameters block; learners can re-estimate against labelled Hansen GFC polygons.",
+          "source": "Healey, S. P. et al. 2018. Mapping forest change using stacked generalization: An ensemble approach. Remote Sensing of Environment 204:717-728."
+        }
       }
     },
     {

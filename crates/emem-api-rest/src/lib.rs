@@ -7409,7 +7409,23 @@ async fn post_query_region(
                 },
             ));
         }
-        let cap = req.max_cells.unwrap_or(256).clamp(1, 1024);
+        // Default cap is bbox-area driven so a small park (~1 km²) doesn't
+        // pay the full 256-cell cost while a large region (~10 000 km²)
+        // gets a denser sample. Clamped to [64, 1024]; honoured `max_cells`
+        // when the caller specifies one. The cap nominally targets
+        // ~1 cell per (10 km)² of area at the present grid resolution
+        // (~9.55 m pitch → ~10⁴ cells per km², so a 1024-cell cap covers
+        // ~0.1 km² densely or ~1 cell per km² across a 1000 km² region —
+        // good enough for representative sampling while keeping the
+        // upstream fetch count bounded).
+        let cap = req.max_cells.unwrap_or_else(|| {
+            let mid_lat = (south + north) * 0.5;
+            let lat_km = (north - south).abs() * 111.0;
+            let lng_km = (east - west).abs() * 111.0 * mid_lat.to_radians().cos().abs();
+            let area_km2 = lat_km * lng_km;
+            // 1 cell per (10 km)² target, clamped [64, 1024].
+            ((area_km2 / 100.0).round() as i64).clamp(64, 1024) as usize
+        }).clamp(1, 1024);
         let cells = sample_cells_in_bbox((south, north, west, east), cap);
         if cells.is_empty() {
             return Err(ApiError(

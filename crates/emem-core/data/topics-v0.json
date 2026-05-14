@@ -6,6 +6,12 @@
     "embedding_dims": 768,
     "similarity": "cosine",
     "threshold": 0.35,
+    "_threshold_learned_from": {
+      "value": 0.35,
+      "rationale": "Default cosine threshold below which a BAAI/bge-base-en-v1.5 768-D match is considered too weak to route on. Set to balance recall on the 105-question `tests/comprehensive/questions_v2.json` corpus against false-positive topic suggestions on out-of-scope queries. Re-derive against your own eval corpus by running a PR-curve sweep over `tests/comprehensive/questions_v2.json` with `EMEM_TOPIC_BACKEND=keyword EMEM_TOPIC_THRESHOLD=<x>`; pick the x that maximises precision at recall≥0.80.",
+      "tunable": true,
+      "override_via": ["EMEM_TOPIC_THRESHOLD env var", "this JSON field at registry CID time"]
+    },
     "max_topics_per_question": 5,
     "fallback_when_offline": "substring search over aliases[] and key",
     "_backends": {

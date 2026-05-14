@@ -202,11 +202,16 @@ impl TopicRouter {
         let registry = (*emem_core::topics::DEFAULT).clone();
 
         let policy = registry.routing.as_ref();
+        // Last-resort fallback if neither env var nor registry supplies a
+        // threshold. `topics-v0.json._threshold_learned_from` documents the
+        // provenance; this const exists so the topic router still works
+        // when an older registry CID is loaded that omits the field.
+        const DEFAULT_TOPIC_THRESHOLD: f32 = 0.35;
         let threshold: f32 = std::env::var("EMEM_TOPIC_THRESHOLD")
             .ok()
             .and_then(|s| s.parse().ok())
             .or_else(|| policy.and_then(|p| p.threshold))
-            .unwrap_or(0.35);
+            .unwrap_or(DEFAULT_TOPIC_THRESHOLD);
         let max_topics: usize = policy.and_then(|p| p.max_topics_per_question).unwrap_or(5);
 
         // Default = ort (direct ort + tokenizers BERT inference).
