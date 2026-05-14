@@ -1717,7 +1717,10 @@ async fn serve_llms_full() -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/plain; charset=utf-8")
-        .header(CACHE_CONTROL, "public, max-age=86400, stale-while-revalidate=604800")
+        .header(
+            CACHE_CONTROL,
+            "public, max-age=86400, stale-while-revalidate=604800",
+        )
         .body(axum::body::Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -10454,10 +10457,7 @@ async fn mcp_tool_call(
 /// reused. Idempotent: a second call is a no-op because the first call's
 /// output now satisfies condition (1).
 fn enrich_openapi_op_descriptions(spec: &mut JsonValue) {
-    let Some(paths) = spec
-        .get_mut("paths")
-        .and_then(|v| v.as_object_mut())
-    else {
+    let Some(paths) = spec.get_mut("paths").and_then(|v| v.as_object_mut()) else {
         return;
     };
     for methods in paths.values_mut() {
@@ -10513,10 +10513,7 @@ fn enrich_openapi_op_descriptions(spec: &mut JsonValue) {
                 });
             let final_desc = mcp_doc.unwrap_or(summary);
             if !final_desc.trim().is_empty() {
-                opo.insert(
-                    "description".into(),
-                    JsonValue::String(final_desc),
-                );
+                opo.insert("description".into(), JsonValue::String(final_desc));
             }
         }
     }
@@ -10568,10 +10565,7 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
         ("emem_weather_post", "SignedResponse"),
         ("emem_weather_get", "SignedResponse"),
     ];
-    let Some(paths) = spec
-        .get_mut("paths")
-        .and_then(|v| v.as_object_mut())
-    else {
+    let Some(paths) = spec.get_mut("paths").and_then(|v| v.as_object_mut()) else {
         return;
     };
     for methods in paths.values_mut() {
@@ -10579,10 +10573,7 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
             continue;
         };
         for (method, op) in m.iter_mut() {
-            if !matches!(
-                method.as_str(),
-                "get" | "post" | "put" | "delete" | "patch"
-            ) {
+            if !matches!(method.as_str(), "get" | "post" | "put" | "delete" | "patch") {
                 continue;
             }
             let Some(opo) = op.as_object_mut() else {
@@ -10596,21 +10587,15 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
             let Some(&(_, schema_name)) = RESP_MAP.iter().find(|(k, _)| *k == opid) else {
                 continue;
             };
-            let Some(responses) = opo
-                .get_mut("responses")
-                .and_then(|v| v.as_object_mut())
-            else {
+            let Some(responses) = opo.get_mut("responses").and_then(|v| v.as_object_mut()) else {
                 continue;
             };
-            let Some(r200) = responses.get_mut("200").and_then(|v| v.as_object_mut())
-            else {
+            let Some(r200) = responses.get_mut("200").and_then(|v| v.as_object_mut()) else {
                 continue;
             };
             // Don't touch SVG/PNG/octet-stream content blocks.
             let mut has_json = false;
-            if let Some(content) =
-                r200.get("content").and_then(|v| v.as_object())
-            {
+            if let Some(content) = r200.get("content").and_then(|v| v.as_object()) {
                 has_json = content.contains_key("application/json");
             }
             if !has_json {
