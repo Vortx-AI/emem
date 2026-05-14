@@ -799,13 +799,54 @@ async fn load_cell_bin128(
         .collect();
 
     if bin_entries.is_empty() {
+        // Inline-derive escape hatch. When bin128 isn't attested but the
+        // cosine sibling IS, sign-bit-pack it on the fly via
+        // turboquant_geotessera_bin128_v1@1 — same derivation the
+        // materializer would run, minus the persist-and-recall trip.
+        // Microseconds vs ~tens of ms via /v1/recall. Bug 6 (Hamming
+        // auto-derive): the previous return-CidNotFound here forced a
+        // two-call dance for what's a deterministic pure function of
+        // the cosine vector. We accept any `geotessera*` vintage as a
+        // source (the binary derivation is vintage-agnostic — the
+        // TurboQuant rotation is fixed by ROT_SEED_TEXT) so a cell
+        // with only `geotessera.2024` cached still answers a Hamming
+        // request that asked for the bare `geotessera` band.
+        let mut derive_cids: Vec<FactCid> = entries
+            .iter()
+            .filter(|(k, _)| {
+                k.band == cosine_band
+                    || (cosine_band.starts_with("geotessera")
+                        && (k.band == "geotessera"
+                            || k.band == "geotessera.multi_year"
+                            || k.band.starts_with("geotessera.20")))
+            })
+            .map(|(_, c)| c.clone())
+            .collect();
+        // Prefer the requested cosine_band exactly; fall back to any
+        // geotessera vintage. Stable order so two responders deriving
+        // from the same fact set produce the same bin128.
+        derive_cids.sort_by(|a, b| a.0.cmp(&b.0));
+        if !derive_cids.is_empty() {
+            let facts = storage.get_facts_many(&derive_cids).await?;
+            for f in facts.into_iter().flatten() {
+                if let Fact::Primary(p) = f {
+                    if let Some(v) = as_vec_f32(&p.value) {
+                        if v.len() == BIN_DIMS {
+                            if let Some(bytes) = pack_bin128_slice(&v) {
+                                return Ok(bytes);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return Err(StorageError::Protocol {
             code: ErrorCode::CidNotFound,
             message: format!(
-                "find_similar (hamming): cell={cell} has no '{bin_band}' fact. \
-                 Materialize it first: POST /v1/recall {{\"cell\":\"{cell}\", \
-                 \"bands\":[\"{bin_band}\"]}} (the responder will derive it from \
-                 the underlying '{cosine_band}' vector if present).",
+                "find_similar (hamming): cell={cell} has no '{bin_band}' fact \
+                 and no cosine sibling under '{cosine_band}' (or any geotessera \
+                 vintage) to derive from. Materialize first: POST /v1/recall \
+                 {{\"cell\":\"{cell}\", \"bands\":[\"{cosine_band}\"]}}.",
             ),
         });
     }
