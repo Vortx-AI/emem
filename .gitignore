@@ -24,11 +24,24 @@ tls/
 *.swp
 *.swo
 
-# Node / Vite (legacy assets at repo root)
+# Node / Vite — the old TS/Vite SPA at repo root was retired in 0.0.6;
+# the live https://emem.dev is served by the Rust `emem-server` binary.
+# These patterns prevent the scaffolding from sneaking back in at root.
+# sdks/emem-ts/ has its own legitimate package.json / tsconfig.json /
+# src/ — those are NOT matched here because patterns are anchored to /.
 node_modules/
 dist/
 dist-server/
 .parcel-cache/
+/index.html
+/package.json
+/package-lock.json
+/vite.config.ts
+/tsconfig.json
+/tsconfig.server.json
+/src/
+/server/
+/tests/*.test.ts
 
 # Artifacts (screenshots, generated images) — keep folder, ignore contents
 artifacts/*
