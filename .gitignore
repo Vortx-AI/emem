@@ -11,6 +11,11 @@ identity.secret.b32
 .cloudflared/
 acme.cache/
 tls/
+# Runtime cruft — when EMEM_DATA=:memory: is misinterpreted as a path
+# string, a literal :memory: directory is created. Untracked but
+# silenced from `git status` so it doesn't read as repo state.
+/:memory:/
+**/:memory:/
 
 # Editor / OS
 .DS_Store
