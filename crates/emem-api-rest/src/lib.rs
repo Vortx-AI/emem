@@ -103,6 +103,7 @@ const HUMANS_JSON: &str = include_str!("../../../web/humans.json");
 const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
 const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
+const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-answer.html");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
@@ -465,6 +466,7 @@ pub fn router(state: AppState) -> Router {
         // can share a one-click verifiable link.
         .route("/verify", get(serve_verify_html))
         .route("/verify/:cid", get(serve_verify_html))
+        .route("/demos/signed-answer", get(serve_demos_signed_answer))
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -1663,6 +1665,16 @@ async fn serve_humans_og_svg() -> Response {
 /// rendered with a green check the moment the math checks out.
 async fn serve_verify_html() -> Response {
     text_response("text/html; charset=utf-8", VERIFY_HTML)
+}
+
+/// `/demos/signed-answer` — a four-step guided walk through the trust
+/// path. The page issues live calls to /v1/locate, /v1/recall, and
+/// /v1/verify_receipt, rendering each step's JSON inline. Designed as
+/// the "show a skeptical Earth-data team why content-addressing
+/// matters" surface — and to give every README that mentions receipts
+/// a concrete URL to point at.
+async fn serve_demos_signed_answer() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_SIGNED_ANSWER_HTML)
 }
 
 /// `/skills.md` — composed-recipe cookbook for agents.

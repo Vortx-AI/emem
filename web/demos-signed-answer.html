@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/demos/signed-answer — ask, recall, verify, reproduce</title>
+<meta name=description content="A four-curl walk through the protocol's trust path. Resolve a place, recall a band, verify the receipt's Ed25519 signature, then reproduce the fact CID from a fresh call. Runs live against the local responder.">
+<link rel=canonical href="https://emem.dev/demos/signed-answer">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel=alternate type=text/markdown href="/llms.txt">
+<link rel="service mcp" href="/mcp">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/demos/signed-answer">
+<meta property=og:title content="emem.dev/demos/signed-answer — the trust path in four steps">
+<meta property=og:description content="Watch a question become a content-addressed, signed answer. Then verify the signature offline.">
+<meta property=og:image content="https://emem.dev/humans-og.svg">
+<meta property=og:image:width content="1200">
+<meta property=og:image:height content="630">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
+<style>
+:root{
+  --bg:#0A0B0E;--bg-1:#0E0F13;--bg-2:#13151A;--bg-3:#1A1D24;
+  --fg:#E8E8EA;--fg-2:#B5B7BE;--fg-3:#7C7E87;--fg-mute:#7A7D87;
+  --line:rgba(232,232,234,0.08);--line-2:rgba(232,232,234,0.16);
+  --accent:#7CFFB2;--accent-dim:#3FB37E;
+  --warn:#FF7C7C;--pending:#FFD27C;--info:#7CC8FF;--purple:#B27CFF;
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'Inter Tight','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);
+  font-family:var(--sans);font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  font-variant-numeric:tabular-nums;}
+.mono,code,kbd,samp,pre{font-family:var(--mono)}
+a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
+  border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;
+  letter-spacing:.02em;font-size:12px;}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+button.primary:hover{background:rgba(124,255,178,.14)}
+button:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--fg-3)}
+button:disabled:hover{border-color:var(--line);color:var(--fg-3);background:transparent}
+input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
+  border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px;}
+input:focus,select:focus{border-color:var(--accent)}
+::selection{background:rgba(124,255,178,.25);color:#fff}
+
+.app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
+@media(max-width:760px){.app{padding:1em .8em 4em}}
+header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
+  border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
+header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:16px;color:var(--fg)}
+header.top .brand .slash{color:var(--fg-mute)}
+header.top .brand .leaf{color:var(--accent)}
+header.top .tag{font-size:11px;color:var(--fg-3);font-family:var(--mono);letter-spacing:.04em}
+header.top .spacer{flex:1}
+header.top .navlinks{display:flex;gap:.6em;font-size:11px;font-family:var(--mono);color:var(--fg-3)}
+header.top .navlinks a{color:var(--fg-3);border-bottom:none}
+header.top .navlinks a:hover{color:var(--accent)}
+@media(max-width:760px){header.top .tag{display:none}}
+
+.lede{color:var(--fg-2);font-size:14.5px;margin:0 0 1.4em;line-height:1.65;max-width:680px}
+.lede b{color:var(--fg);font-weight:500}
+.lede .accent{color:var(--accent);font-weight:500}
+
+.controls{background:var(--bg-1);border:1px solid var(--line);padding:1em 1.2em;border-radius:4px;margin-bottom:1.4em;
+  display:grid;grid-template-columns:1fr 220px auto;gap:.6em;align-items:end}
+@media(max-width:680px){.controls{grid-template-columns:1fr}}
+.controls label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--fg-mute);margin-bottom:.4em}
+.controls button{height:38px}
+
+.steps{display:flex;flex-direction:column;gap:1em}
+.step{background:var(--bg-1);border:1px solid var(--line);border-radius:4px;padding:1.1em 1.2em;
+  position:relative;transition:border-color .2s,opacity .2s}
+.step.idle{opacity:.55}
+.step.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(124,255,178,.08) inset}
+.step.done{border-left:3px solid var(--accent-dim)}
+.step .head{display:flex;align-items:baseline;gap:.6em;margin-bottom:.65em;flex-wrap:wrap}
+.step .num{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--fg-mute);
+  text-transform:uppercase;font-weight:500}
+.step.active .num,.step.done .num{color:var(--accent)}
+.step h2{font-family:var(--mono);font-size:15px;font-weight:600;margin:0;color:var(--fg);
+  letter-spacing:-.01em}
+.step .endpoint{font-family:var(--mono);font-size:11px;color:var(--fg-3);background:var(--bg-2);
+  padding:.18em .55em;border:1px solid var(--line);border-radius:2px}
+.step .desc{color:var(--fg-2);font-size:13px;margin:.2em 0 .9em;line-height:1.65;max-width:660px}
+.step .actions{display:flex;gap:.4em;align-items:center;flex-wrap:wrap;margin-bottom:.6em}
+.step .out{margin-top:.65em}
+.step .out pre{font-family:var(--mono);font-size:11.5px;background:var(--bg-2);
+  border:1px solid var(--line);padding:.7em .85em;border-radius:3px;color:var(--fg);
+  white-space:pre-wrap;word-break:break-word;overflow-x:auto;line-height:1.55;
+  max-height:260px;overflow-y:auto;margin:0}
+.step .out pre .k{color:var(--info)}
+.step .out pre .s{color:var(--accent)}
+.step .out pre .n{color:var(--purple)}
+.step .out pre .b{color:var(--pending)}
+
+.chips{display:flex;flex-wrap:wrap;gap:.35em;margin:.4em 0 .15em}
+.chip{display:inline-flex;align-items:center;gap:.35em;font-family:var(--mono);font-size:11px;
+  color:var(--fg-2);background:var(--bg-2);border:1px solid var(--line);padding:.12em .55em;
+  border-radius:99px;letter-spacing:.01em}
+.chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--fg-mute)}
+.chip[data-kind=cell] .dot{background:var(--accent)}
+.chip[data-kind=cid] .dot{background:var(--purple)}
+.chip[data-kind=pub] .dot{background:var(--info)}
+.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent);background:rgba(124,255,178,.06)}
+.chip[data-kind=ok] .dot{background:var(--accent)}
+.chip[data-kind=fail]{color:var(--warn);border-color:var(--warn)}
+.chip[data-kind=fail] .dot{background:var(--warn)}
+.chip[data-kind=warn]{color:var(--pending);border-color:var(--pending)}
+.chip[data-kind=warn] .dot{background:var(--pending)}
+
+.followups{margin-top:.7em;padding-top:.55em;border-top:1px dashed var(--line);
+  font-family:var(--mono);font-size:11.5px;color:var(--fg-3);display:flex;gap:.5em;flex-wrap:wrap;align-items:center}
+.followups a{color:var(--fg-2);border-bottom:1px dotted var(--line-2)}
+.followups a:hover{color:var(--accent)}
+
+.spinner{display:inline-block;width:10px;height:10px;border:1.5px solid var(--pending);
+  border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:.4em}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+footer.foot{margin-top:2.4em;padding-top:1.1em;border-top:1px solid var(--line);
+  display:flex;gap:1em;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--fg-mute)}
+footer.foot a{color:var(--fg-3);border-bottom:none}
+footer.foot a:hover{color:var(--accent)}
+
+.toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
+  background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
+  border-radius:3px;font-family:var(--mono);font-size:11.5px;z-index:200;opacity:0;
+  pointer-events:none;transition:opacity .18s ease,transform .18s ease}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.muted{color:var(--fg-3)}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+</style>
+</head>
+<body>
+<a class=skip href="#main">Skip to walk</a>
+<main class=app id=main tabindex="-1">
+  <header class=top role=banner>
+    <span class=brand>emem.dev<span class=slash>/</span><span class=leaf>demos/signed-answer</span></span>
+    <span class=tag>— the trust path in four steps</span>
+    <span class=spacer></span>
+    <nav class=navlinks aria-label="protocol surfaces">
+      <a href="/verify">verify</a>
+      <a href="/humans">humans</a>
+      <a href="/openapi.json">openapi</a>
+      <a href="/spec.md">spec</a>
+    </nav>
+  </header>
+
+  <p class=lede>
+    Every recall this protocol serves comes back wrapped in a receipt the responder signs with its Ed25519 key.
+    The receipt commits to <b>content-addressed fact CIDs</b> over a canonical preimage, so the same question
+    asked years apart, at any responder, returns the same bytes — or a verifiable absence.
+    <span class=accent>This page walks the trust path live</span>: locate a place, recall a band, verify the signature,
+    and reproduce the CID. Each step issues a real HTTP call against this responder; the JSON you see is what
+    your agent would see.
+  </p>
+
+  <section class=controls aria-label="Inputs">
+    <div>
+      <label for=placeInput>place</label>
+      <input id=placeInput type=text spellcheck=false autocomplete=off value="Golden Gate Park, San Francisco">
+    </div>
+    <div>
+      <label for=bandInput>band</label>
+      <select id=bandInput>
+        <option value="indices.ndvi">loading from /v1/materializers…</option>
+      </select>
+    </div>
+    <div>
+      <button id=runAll class=primary type=button>run the whole walk</button>
+    </div>
+  </section>
+
+  <section class=steps id=steps aria-label="The four steps">
+
+    <article class="step active" id=step1>
+      <div class=head>
+        <span class=num>step 1</span>
+        <h2>locate</h2>
+        <span class=endpoint>POST /v1/locate</span>
+      </div>
+      <p class=desc>
+        Resolve free text into a single <code>cell64</code> — the protocol's spatial primary key. The locator
+        is a five-layer cascade (wide-bbox table → embedded gazetteer → GeoNames 68 k → sled cache → Photon →
+        Nominatim). It returns the resolved label, lat/lng, and the path it took.
+      </p>
+      <div class=actions>
+        <button id=btn1 class=primary type=button>run</button>
+        <span id=tag1 class=muted></span>
+      </div>
+      <div class=chips id=chips1></div>
+      <div class=out><pre id=out1 class=mono>—</pre></div>
+    </article>
+
+    <article class="step idle" id=step2>
+      <div class=head>
+        <span class=num>step 2</span>
+        <h2>recall</h2>
+        <span class=endpoint>POST /v1/recall</span>
+      </div>
+      <p class=desc>
+        Pull the named band at that cell. The response carries the value, the band's metadata, the source URLs
+        the responder fetched from, and a <b>signed receipt</b> with <code>fact_cids[]</code>, a merkle root,
+        and an Ed25519 signature over the canonical preimage.
+      </p>
+      <div class=actions>
+        <button id=btn2 class=primary type=button disabled>run</button>
+        <span id=tag2 class=muted></span>
+      </div>
+      <div class=chips id=chips2></div>
+      <div class=out><pre id=out2 class=mono>—</pre></div>
+    </article>
+
+    <article class="step idle" id=step3>
+      <div class=head>
+        <span class=num>step 3</span>
+        <h2>verify</h2>
+        <span class=endpoint>POST /v1/verify_receipt</span>
+      </div>
+      <p class=desc>
+        Recompute the canonical preimage (<code>blake3(primitive ‖ served_at ‖ schema_cid ‖ registry_cid ‖
+        pubkey ‖ key_epoch ‖ fact_cids ‖ merkle_root)</code>) and check the Ed25519 signature. The responder
+        does it here; the
+        <a href=/verify>/verify</a> page does it client-only with <code>@noble/ed25519</code> so you don't
+        have to trust this server.
+      </p>
+      <div class=actions>
+        <button id=btn3 class=primary type=button disabled>run</button>
+        <span id=tag3 class=muted></span>
+      </div>
+      <div class=chips id=chips3></div>
+      <div class=out><pre id=out3 class=mono>—</pre></div>
+      <div class=followups>
+        client-only verify →
+        <a id=verifyLink href=/verify>/verify</a>
+      </div>
+    </article>
+
+    <article class="step idle" id=step4>
+      <div class=head>
+        <span class=num>step 4</span>
+        <h2>reproduce</h2>
+        <span class=endpoint>POST /v1/recall</span>
+      </div>
+      <p class=desc>
+        Call recall a second time. The fact CID is BLAKE3 over canonical CBOR — same cell, same band, same
+        tslot, same derivation key → same 32-character base32 address. If the bytes you receive don't hash
+        to the original CID, something tampered with the response.
+      </p>
+      <div class=actions>
+        <button id=btn4 class=primary type=button disabled>run</button>
+        <span id=tag4 class=muted></span>
+      </div>
+      <div class=chips id=chips4></div>
+      <div class=out><pre id=out4 class=mono>—</pre></div>
+    </article>
+
+  </section>
+
+  <footer class=foot>
+    <a href=/llms.txt>llms.txt</a>
+    <a href=/llms-full.txt>llms-full.txt</a>
+    <a href=/agents.md>agents.md</a>
+    <a href=/spec.md>spec.md</a>
+    <a href=/openapi.json>openapi.json</a>
+    <span class=muted>— protocol v0.0.6</span>
+  </footer>
+
+</main>
+
+<div class=toast id=toast></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { cell:null, recall:null, factCid:null, receipt:null };
+
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');setTimeout(()=>el.classList.remove('on'),1700)}
+function fmtJson(obj){
+  let s = JSON.stringify(obj, null, 2);
+  return s.replace(/("(\\u[\da-f]{4}|\\[^u]|[^\\"])*?")(\s*:)?|\b(true|false|null)\b|-?\d+(\.\d+)?([eE][+-]?\d+)?/g, m=>{
+    let cls='n';
+    if (/^"/.test(m)){cls=/:$/.test(m)?'k':'s'}
+    else if (/true|false|null/.test(m)){cls='b'}
+    return `<span class="${cls}">${m}</span>`;
+  });
+}
+function setOut(id, obj){const el=$(id);if(typeof obj==='string'){el.textContent=obj;return}el.innerHTML=fmtJson(obj)}
+function setStep(n, status){
+  const el=$('step'+n);
+  el.classList.remove('idle','active','done');
+  el.classList.add(status);
+}
+function setTag(n, html){$('tag'+n).innerHTML=html||''}
+function setChips(n, items){
+  const wrap=$('chips'+n);
+  wrap.innerHTML = items.map(([k,v,kind])=>
+    `<span class=chip data-kind="${kind||''}"><span class=dot></span><b>${k}</b><span class=muted>${v}</span></span>`
+  ).join('');
+}
+function clearStep(n){setOut('out'+n,'—');setChips(n,[]);setTag(n,'')}
+function disable(n,d){$('btn'+n).disabled=d}
+
+async function postJson(url, body){
+  const r = await fetch(url, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
+  if (!r.ok){ throw new Error(`${url} → ${r.status} ${r.statusText}`); }
+  return r.json();
+}
+
+async function runStep1(){
+  const place = $('placeInput').value.trim();
+  if (!place){ toast('place is empty'); return; }
+  setTag(1,'<span class=spinner></span>resolving…');
+  setOut('out1','—'); setChips(1,[]);
+  try{
+    const t0 = performance.now();
+    const j = await postJson('/v1/locate', {q: place});
+    const dt = (performance.now()-t0).toFixed(0);
+    state.cell = j.cell64;
+    const lat = (j.centre && j.centre.lat_deg) ?? j.lat ?? 0;
+    const lng = (j.centre && j.centre.lng_deg) ?? j.lng ?? 0;
+    const slim = {
+      cell64: j.cell64, via: j.via, place_label: j.place_label,
+      centre: j.centre, bbox_deg: j.bbox_deg,
+    };
+    setOut('out1', slim);
+    setChips(1, [
+      ['cell64', j.cell64||'—', 'cell'],
+      ['via', j.via||'—', ''],
+      ['lat,lng', `${lat.toFixed(4)}, ${lng.toFixed(4)}`, ''],
+      ['lookup', dt+' ms', ''],
+    ]);
+    setTag(1, `<span style="color:var(--accent)">✓ resolved in ${dt} ms</span>`);
+    setStep(1,'done'); setStep(2,'active'); disable(2,false);
+    for (let n of [2,3,4]) clearStep(n);
+    return j.cell64;
+  }catch(e){
+    setOut('out1', String(e)); setTag(1,'<span style="color:var(--warn)">✗ '+e.message+'</span>');
+  }
+}
+
+async function runStep2(){
+  if (!state.cell){ toast('run step 1 first'); return; }
+  const band = $('bandInput').value;
+  setTag(2,'<span class=spinner></span>recalling '+band+'…');
+  setOut('out2','—'); setChips(2,[]);
+  try{
+    const t0 = performance.now();
+    const j = await postJson('/v1/recall', {cell: state.cell, band});
+    const dt = (performance.now()-t0).toFixed(0);
+    state.recall = j;
+    state.factCid = (j.receipt && j.receipt.fact_cids && j.receipt.fact_cids[0]) || null;
+    const view = {
+      facts: (j.facts||[]).map(f => ({
+        band: f.band, cell: f.cell, value: f.value, unit: f.unit,
+        signed_at: f.signed_at, signer_pubkey_b32: f.signer_pubkey_b32,
+        derivation: f.derivation,
+      })),
+      receipt: j.receipt && {
+        primitive: j.receipt.primitive,
+        served_at: j.receipt.served_at,
+        responder_pubkey_b32: j.receipt.responder_pubkey_b32,
+        fact_cids: j.receipt.fact_cids,
+        merkle_proof: j.receipt.merkle_proof && { root_hex: bytesToHex(j.receipt.merkle_proof.root).slice(0,32)+'…' },
+        signature_hex: j.receipt.signature ? bytesToHex(j.receipt.signature).slice(0,32)+'…' : null,
+        schema_cid: j.receipt.schema_cid,
+        registry_cid: j.receipt.registry_cid,
+      }
+    };
+    setOut('out2', view);
+    const f = (j.facts && j.facts[0]) || {};
+    setChips(2, [
+      ['value', `${f.value??'—'} ${f.unit||''}`, ''],
+      ['fact_cid', shortCid(state.factCid), 'cid'],
+      ['responder', shortCid(j.receipt && j.receipt.responder_pubkey_b32), 'pub'],
+      ['cached', j.receipt && j.receipt.cost && j.receipt.cost.was_cached ? 'true' : 'false', ''],
+      ['recall', dt+' ms', ''],
+    ]);
+    setTag(2, `<span style="color:var(--accent)">✓ recalled in ${dt} ms</span>`);
+    setStep(2,'done'); setStep(3,'active'); disable(3,false);
+    // wire client-only verify link
+    if (state.factCid) $('verifyLink').href = '/verify/'+state.factCid;
+    clearStep(3); clearStep(4);
+    return j;
+  }catch(e){
+    setOut('out2', String(e)); setTag(2,'<span style="color:var(--warn)">✗ '+e.message+'</span>');
+  }
+}
+
+async function runStep3(){
+  if (!state.recall || !state.recall.receipt){ toast('run step 2 first'); return; }
+  setTag(3,'<span class=spinner></span>verifying signature…');
+  setOut('out3','—'); setChips(3,[]);
+  try{
+    const t0 = performance.now();
+    const j = await postJson('/v1/verify_receipt', {receipt: state.recall.receipt});
+    const dt = (performance.now()-t0).toFixed(0);
+    setOut('out3', j);
+    setChips(3, [
+      ['valid', j.valid ? 'true' : 'false', j.valid?'ok':'fail'],
+      ['fact_cids', String(j.fact_cids_count||0), ''],
+      ['preimage_blake3', (j.preimage_blake3_hex||'').slice(0,16)+'…', ''],
+      ['signer', shortCid(j.signer_pubkey_b32), 'pub'],
+      ['verify', dt+' ms', ''],
+    ]);
+    if (j.valid){
+      setTag(3, `<span style="color:var(--accent)">✓ signature verifies (${dt} ms)</span>`);
+      setStep(3,'done'); setStep(4,'active'); disable(4,false);
+    } else {
+      setTag(3, '<span style="color:var(--warn)">✗ signature invalid</span>');
+      setStep(3,'active');
+    }
+    clearStep(4);
+    return j;
+  }catch(e){
+    setOut('out3', String(e)); setTag(3,'<span style="color:var(--warn)">✗ '+e.message+'</span>');
+  }
+}
+
+async function runStep4(){
+  if (!state.cell || !state.factCid){ toast('run earlier steps first'); return; }
+  const band = $('bandInput').value;
+  setTag(4,'<span class=spinner></span>recalling again…');
+  setOut('out4','—'); setChips(4,[]);
+  try{
+    const t0 = performance.now();
+    const j = await postJson('/v1/recall', {cell: state.cell, band});
+    const dt = (performance.now()-t0).toFixed(0);
+    const newCid = (j.receipt && j.receipt.fact_cids && j.receipt.fact_cids[0]) || null;
+    const matches = newCid === state.factCid;
+    setOut('out4', {
+      first_call: { fact_cid: state.factCid },
+      second_call: { fact_cid: newCid, was_cached: j.receipt && j.receipt.cost && j.receipt.cost.was_cached },
+      match: matches,
+    });
+    setChips(4, [
+      ['first', shortCid(state.factCid), 'cid'],
+      ['second', shortCid(newCid), 'cid'],
+      ['match', matches ? 'true' : 'false', matches ? 'ok' : 'fail'],
+      ['recall', dt+' ms', ''],
+    ]);
+    setTag(4, matches
+      ? `<span style="color:var(--accent)">✓ same fact_cid (${dt} ms) — content-addressed, idempotent</span>`
+      : `<span style="color:var(--warn)">✗ fact_cid drifted — investigate</span>`);
+    if (matches) setStep(4,'done');
+  }catch(e){
+    setOut('out4', String(e)); setTag(4,'<span style="color:var(--warn)">✗ '+e.message+'</span>');
+  }
+}
+
+function bytesToHex(arr){
+  if (!arr) return '';
+  if (typeof arr === 'string') return arr;
+  return Array.from(arr).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function shortCid(s){
+  if (!s) return '—';
+  return s.length > 16 ? s.slice(0,10)+'…'+s.slice(-4) : s;
+}
+
+$('btn1').addEventListener('click', runStep1);
+$('btn2').addEventListener('click', runStep2);
+$('btn3').addEventListener('click', runStep3);
+$('btn4').addEventListener('click', runStep4);
+$('runAll').addEventListener('click', async ()=>{
+  for (let n of [1,2,3,4]) { setStep(n,'idle'); clearStep(n); disable(n,n!==1); }
+  setStep(1,'active');
+  const c = await runStep1(); if (!c) return;
+  const r = await runStep2(); if (!r) return;
+  const v = await runStep3(); if (!v || !v.valid) return;
+  await runStep4();
+});
+$('placeInput').addEventListener('keydown', (e)=>{ if (e.key==='Enter') runStep1(); });
+
+// Populate band dropdown live from /v1/materializers — no hardcoded band lists.
+// Default selection is `indices.ndvi` if present (the canonical demo band).
+(async ()=>{
+  try{
+    const r = await fetch('/v1/materializers');
+    if (!r.ok) return;
+    const j = await r.json();
+    const bands = (j.materializers || [])
+      .map(m => (typeof m === 'string' ? m : m.band))
+      .filter(Boolean)
+      .sort();
+    if (!bands.length) return;
+    const sel = $('bandInput');
+    sel.innerHTML = bands.map(b => {
+      const selected = b === 'indices.ndvi' ? ' selected' : '';
+      return `<option value="${b}"${selected}>${b}</option>`;
+    }).join('');
+    if (![...sel.options].some(o => o.selected)) sel.value = bands[0];
+  }catch(e){ /* leave the placeholder option as-is */ }
+})();
+</script>
+</body>
+</html>

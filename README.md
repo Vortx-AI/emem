@@ -77,6 +77,38 @@ curl -s -X POST https://emem.dev/v1/ask \
 
 The receipt's `fact_cid` is a durable handle. Re-fetching it from any responder, in any year, returns the same bytes.
 
+## Verify an answer (four curls)
+
+The pitch lives or dies on this flow. Every recall response carries a receipt with `fact_cids[]`, `merkle_proof`, and an Ed25519 `signature` over the canonical preimage `BLAKE3(primitive ‖ served_at ‖ schema_cid ‖ registry_cid ‖ responder_pubkey ‖ key_epoch ‖ fact_cids ‖ merkle_root)`. The signer's public key is stable; the receipt is reproducible.
+
+```bash
+# 1. Resolve a place to a cell64.
+CELL=$(curl -s -X POST https://emem.dev/v1/locate \
+  -H 'content-type: application/json' \
+  -d '{"q":"Golden Gate Park, San Francisco"}' | jq -r .cell64)
+
+# 2. Recall a band and capture the receipt envelope.
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d "{\"cell\":\"$CELL\",\"band\":\"indices.ndvi\"}" > /tmp/recall.json
+
+jq '.receipt | {primitive, served_at, responder_pubkey_b32, fact_cids, merkle_proof: .merkle_proof.root}' \
+  /tmp/recall.json
+
+# 3. Ask the responder to verify its own signature (server-side check).
+jq '{receipt: .receipt}' /tmp/recall.json > /tmp/receipt.json
+curl -s -X POST https://emem.dev/v1/verify_receipt \
+  -H 'content-type: application/json' --data @/tmp/receipt.json
+# {"valid":true,"preimage_blake3_hex":"…","fact_cids_count":1,"signer_pubkey_b32":"…",…}
+
+# 4. Reproduce: pull the same fact_cid from any responder, on any day.
+# The cell, band, tslot, and derivation.fn_key are content-addressed —
+# the bytes you receive will hash to the same fact_cid.
+jq '.facts[0].derivation' /tmp/recall.json
+```
+
+For a browser-only verify, open [`/verify/<fact_cid>`](https://emem.dev/verify) — the page does the same Ed25519 check in WebCrypto + `@noble/ed25519` so you never have to trust the responder you got the receipt from. A guided walk lives at [`/demos/signed-answer`](https://emem.dev/demos/signed-answer).
+
 ## Connect your AI assistant
 
 The MCP endpoint is `https://emem.dev/mcp`. Drop a config snippet into your client.
