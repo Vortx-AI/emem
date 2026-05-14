@@ -47,9 +47,22 @@ GALILEO_REPO = "nasaharvest/galileo"
 GALILEO_VARIANT = os.environ.get("EMEM_GALILEO_VARIANT", "base")
 GALILEO_PATTERNS = [f"models/{GALILEO_VARIANT}/*"]
 
+# Clay v1.5's ClayMAEModule carries a `teacher="samvit_base_patch16.sa1b"`
+# hyperparameter in its checkpoint. On `load_from_checkpoint` the module
+# instantiates the teacher via `timm.create_model(..., pretrained=True)`
+# at claymodel/model.py:388, which resolves to `timm/samvit_base_patch16.sa1b`
+# on HF Hub. We discard the teacher at inference time (Clay's encoder is
+# what produces the 1024-D embedding), but timm still tries to download
+# the weights at construction — so without this preload the sidecar fails
+# fast under HF_HUB_OFFLINE=1 with the misleading "couldn't locate file on
+# the Hub" message. Pre-stage the teacher weights here so the cache is
+# self-sufficient and HF_HUB_OFFLINE=1 keeps holding.
+CLAY_TEACHER_REPO = "timm/samvit_base_patch16.sa1b"
+CLAY_TEACHER_PATTERNS = ["*.safetensors", "*.json", "*.txt", "*.md"]
+
 
 def _ensure_clay() -> None:
-    from huggingface_hub import hf_hub_download
+    from huggingface_hub import hf_hub_download, snapshot_download
 
     print(f"→ Clay v1.5: resolving {CLAY_REPO}/{CLAY_CKPT_FILENAME}", flush=True)
     path = hf_hub_download(
@@ -62,6 +75,23 @@ def _ensure_clay() -> None:
     if not CLAY_METADATA_DST.exists():
         print(f"→ fetching metadata.yaml → {CLAY_METADATA_DST}")
         urllib.request.urlretrieve(CLAY_METADATA_URL, CLAY_METADATA_DST)
+    # Teacher pre-stage. claymodel/model.py:388 always instantiates this
+    # via `timm.create_model(teacher, pretrained=True)`; without the
+    # weights local, the first /predict/clay_embed call dies with the
+    # generic "couldn't locate file on the Hub" 503 from
+    # huggingface_hub.file_download.
+    print(
+        f"→ Clay teacher pre-stage: snapshot_download {CLAY_TEACHER_REPO} "
+        f"(weights are dropped at inference; required only because "
+        f"timm.create_model(pretrained=True) is hard-wired in the saved hparams)",
+        flush=True,
+    )
+    teacher_dir = snapshot_download(
+        repo_id=CLAY_TEACHER_REPO,
+        allow_patterns=CLAY_TEACHER_PATTERNS,
+        cache_dir=str(HF_CACHE),
+    )
+    print(f"  teacher: {teacher_dir}")
     print(f"✓ Clay v1.5 ready (metadata vendored at {CLAY_METADATA_DST.name})")
 
 
