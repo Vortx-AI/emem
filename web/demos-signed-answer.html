@@ -231,11 +231,11 @@ footer.foot a:hover{color:var(--accent)}
         <span class=endpoint>POST /v1/verify_receipt</span>
       </div>
       <p class=desc>
-        Recompute the canonical preimage (<code>blake3(primitive ‖ served_at ‖ schema_cid ‖ registry_cid ‖
-        pubkey ‖ key_epoch ‖ fact_cids ‖ merkle_root)</code>) and check the Ed25519 signature. The responder
-        does it here; the
-        <a href=/verify>/verify</a> page does it client-only with <code>@noble/ed25519</code> so you don't
-        have to trust this server.
+        Recompute the canonical preimage <code>blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖
+        fact_cids)</code> — sections joined by <code>|</code>, list elements followed by <code>,</code> —
+        and check the Ed25519 signature against the responder's public key. The responder does it here for
+        convenience; the <a href=/verify>/verify</a> page does the same math client-only with
+        <code>@noble/ed25519</code> so you don't have to trust this server.
       </p>
       <div class=actions>
         <button id=btn3 class=primary type=button disabled>run</button>

@@ -82,11 +82,11 @@ use emem_storage::{Server, StorageError};
 pub type AppState = Arc<Server>;
 
 const LLMS_TXT: &str = include_str!("../../../web/llms.txt");
-// `LLMS_FULL_TXT` was retired in favour of LLMS_TXT (which now carries
-// the algebra, typed primitives, and executable examples). The route
-// `/llms-full.txt` aliases to `/llms.txt` to keep the sitemap entry
-// stable. The web/llms-full.txt file remains for one release as a
-// sitemap target; the route ignores it.
+// `/llms-full.txt` is built at first request from `LLMS_FULL_CACHED`
+// (a one-shot `LazyLock<String>`) that concatenates LLMS_TXT,
+// AGENTS_MD, SPEC_MD, and SKILLS_MD with section dividers. The static
+// `web/llms-full.txt` file was retired; there is no `LLMS_FULL_TXT`
+// include_str! today.
 const AGENT_WALKTHROUGHS_MD: &str = include_str!("../../../examples/agent-walkthroughs.md");
 // Topic docs were folded into the canonical four: protocol (attestation +
 // temporal), data-sources (materializers), operating (spaces / deploy).

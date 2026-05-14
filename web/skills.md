@@ -344,13 +344,13 @@ verification, or similarity in a Claude Code session. See each
 ## Discovery surface
 
 - `https://emem.dev/llms.txt` — high-level summary + behavioural rules
-- `https://emem.dev/openapi.json` — full machine surface (69 paths)
+- `https://emem.dev/openapi.json` — full machine surface (71 paths)
 - `https://emem.dev/.well-known/emem.json` — manifest CIDs + responder pubkey
 - `https://emem.dev/v1/agent_card` — discover-first card with band taxonomy
 - `https://emem.dev/agents.md` — consumer-agent ontology + recipes
 - `https://emem.dev/humans` — interactive console where every `/v1/*`
   call prints in a live log pane
-- `https://emem.dev/mcp` — JSON-RPC 2.0 MCP endpoint (36 tools)
+- `https://emem.dev/mcp` — JSON-RPC 2.0 MCP endpoint (49 tools)
 
 ## License
 

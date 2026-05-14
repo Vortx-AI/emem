@@ -8,7 +8,7 @@ citation and offline verification.
 
 ## Install
 
-PyPI publication is coming soon. For now, install from the repo:
+Not on PyPI yet. Install from the repo:
 
 ```bash
 pip install -e sdks/emem-py

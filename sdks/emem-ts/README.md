@@ -11,7 +11,7 @@ platform `fetch`; zero runtime dependencies.
 
 ## Install
 
-NPM publication is coming soon. For now, install from the repo:
+Not on NPM yet. Install from the repo:
 
 ```bash
 cd sdks/emem-ts && npm install && npm run build

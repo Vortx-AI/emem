@@ -79,7 +79,7 @@ The receipt's `fact_cid` is a durable handle. Re-fetching it from any responder,
 
 ## Verify an answer (four curls)
 
-The pitch lives or dies on this flow. Every recall response carries a receipt with `fact_cids[]`, `merkle_proof`, and an Ed25519 `signature` over the canonical preimage `BLAKE3(primitive ‖ served_at ‖ schema_cid ‖ registry_cid ‖ responder_pubkey ‖ key_epoch ‖ fact_cids ‖ merkle_root)`. The signer's public key is stable; the receipt is reproducible.
+The pitch lives or dies on this flow. Every recall response carries a receipt with `fact_cids[]`, a `merkle_proof`, and an Ed25519 `signature` over the canonical preimage `blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖ fact_cids)` — UTF-8, sections joined by `|`, list elements followed by `,`. The signer's public key is stable; the receipt verifies offline against any copy of the responder pubkey.
 
 ```bash
 # 1. Resolve a place to a cell64.
