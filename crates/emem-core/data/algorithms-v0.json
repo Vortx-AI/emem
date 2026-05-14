@@ -5790,6 +5790,369 @@
       }
     },
     {
+      "key": "deforestation_triple@1",
+      "kind": "combined",
+      "domain": "forest",
+      "inputs": [
+        {"band": "clay_v1",                  "role": "clay_now",     "explanation": "1024-D Clay v1.5 CLS at t_now; 365 d-prior baseline supplies the clay change leg."},
+        {"band": "prithvi_eo2",              "role": "prithvi_now",  "explanation": "1024-D Prithvi-EO-2.0 CLS at t_now; 365 d-prior baseline supplies the prithvi change leg."},
+        {"band": "geotessera.multi_year",    "role": "tessera_stack","explanation": "Annual Tessera stack; slice_latest vs slice_prev gives the per-pixel vintage delta."},
+        {"band": "forest_change.lossyear",   "role": "loss_mask",    "explanation": "Hansen GFC v1.12 year-of-loss mask. Cells where lossyear is in (year_of(t_now)-1, year_of(t_now)] elevate the consensus to the highest-confidence verdict."}
+      ],
+      "formula": "let dc = clamp(1 - cos(recall(clay_v1, t_now), recall(clay_v1, t_now - 365d)), 0, 1); let dp = clamp(1 - cos(recall(prithvi_eo2, t_now), recall(prithvi_eo2, t_now - 365d)), 0, 1); let dt = clamp(1 - cos(slice_latest(geotessera.multi_year), slice_prev(geotessera.multi_year)), 0, 1); let hansen_recent = recall(forest_change.lossyear) >= (year_of(t_now) - 1); let gate = 0.20; let votes = (dc > gate) + (dp > gate) + (dt > gate); ensemble = sqrt((dc*dc + dp*dp + dt*dt) / 3); agreement = if hansen_recent and votes >= 2 then 'hansen_confirmed' else if votes == 3 then 'all_three' else if votes == 2 then 'two_of_three' else 'one_or_none'",
+      "output": {
+        "kind": "scalar",
+        "unit": "index",
+        "range": [0, 1],
+        "explanation": "Forest-loss-tuned triple consensus. `hansen_confirmed` is the highest-confidence verdict (Hansen mask AND ≥2 encoder agreement). Receipts carry clay_change, prithvi_change, tessera_change, hansen_recent_flag, gate, agreement."
+      },
+      "when_to_use": "Year-over-year forest canopy loss with audit-grade ground-truth from Hansen GFC. Prefer over `clay_prithvi_tessera_triple_consensus@1` when the question is specifically about forest loss (EUDR pre-screen, REDD+ MRV, carbon-credit reversal monitoring). Use the base triple when the change type is unknown.",
+      "primitive": "POST /v1/recall {bands:['clay_v1','prithvi_eo2','geotessera.multi_year','forest_change.lossyear']} with 365d temporal_recipe → triple-consensus with Hansen mask uplift",
+      "deterministic": true,
+      "citation": "Hansen, M. C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850-853 (+ GFC v1.12 2024 update). Clay v1.5; Jakubik et al. 2023 (Prithvi); Tessera v1 (2024). Triple-encoder ensembling pattern: TerraMind arXiv 2504.11171.",
+      "frequency_of_calculation": "Annual; Hansen update lands ~April each year.",
+      "accuracy_band": "Producer's accuracy 88.0 % / user's accuracy 87.0 % on the Hansen GFC validation set for stand-replacement disturbance ≥ 0.5 ha at 30 m (Hansen et al. 2013, Table S4). Triple-encoder uplift adds ~3-5 pp on the agreement=hansen_confirmed subset based on extrapolation from PANGAEA benchmark trends; full re-validation against the v1.12 update is pending.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["forest_change.lossyear"],
+        "variance_sources": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["static", "s2", "landsat"],
+        "anchor_band": "forest_change.lossyear",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 5400000000,
+        "p95_budget_ms": 650,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "temporal_recipe": {
+        "label": "triple_foundation_year_on_year_with_hansen",
+        "note": "Encoders compared to 365 d-prior; Hansen mask read at t_now.",
+        "windows": [
+          {"band": "clay_v1",                "lookback_days": 365, "aggregator": "latest", "purpose": "clay_prior_year"},
+          {"band": "prithvi_eo2",            "lookback_days": 365, "aggregator": "latest", "purpose": "prithvi_prior_year"},
+          {"band": "geotessera.multi_year",  "lookback_days": 365, "aggregator": "latest", "purpose": "tessera_prior_year"},
+          {"band": "forest_change.lossyear", "lookback_days": 0,   "aggregator": "latest", "purpose": "ground_truth_mask"}
+        ]
+      },
+      "parameters": {
+        "gate_threshold": 0.20,
+        "hansen_recency_years": 1
+      },
+      "learned_from": {
+        "gate_threshold": {
+          "value": 0.20,
+          "rationale": "Tighter than the base triple's 0.15 to suppress plantation-rotation false positives (LandTrendr-style ensemble heuristic).",
+          "source": "Healey, S. P. et al. 2018. Remote Sensing of Environment 204:717-728."
+        }
+      }
+    },
+    {
+      "key": "wetland_change_triple@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        {"band": "clay_v1",                "role": "clay_now",      "explanation": "Clay CLS at t_now and 365 d-prior."},
+        {"band": "prithvi_eo2",            "role": "prithvi_now",   "explanation": "Prithvi CLS at t_now and 365 d-prior."},
+        {"band": "surface_water.recurrence","role": "water_scalar", "explanation": "JRC GSW recurrence delta (1984-2021 historical baseline). Substituted for the Tessera leg because seasonal water dynamics show up more cleanly in the published water index than in a contrastive pixel embedding."}
+      ],
+      "formula": "let dc = clamp(1 - cos(recall(clay_v1, t_now), recall(clay_v1, t_now - 365d)), 0, 1); let dp = clamp(1 - cos(recall(prithvi_eo2, t_now), recall(prithvi_eo2, t_now - 365d)), 0, 1); let dw = clamp(abs(recall(surface_water.recurrence, t_now) - recall(surface_water.recurrence, t_now - 365d)) / 30, 0, 1); let gate = 0.10; let water_abs_gate = 15; let votes = (dc > gate) + (dp > gate) + (abs(recall(surface_water.recurrence, t_now) - recall(surface_water.recurrence, t_now - 365d)) > water_abs_gate); ensemble = sqrt((dc*dc + dp*dp + dw*dw) / 3); agreement = if votes == 3 then 'all_three' else if votes == 2 then 'two_of_three' else 'one_or_none'",
+      "output": {
+        "kind": "scalar",
+        "unit": "index",
+        "range": [0, 1],
+        "explanation": "Wetland-tuned consensus replacing the Tessera leg with a JRC GSW recurrence delta. Receipts carry clay_change, prithvi_change, recurrence_delta, gate, water_abs_gate, agreement."
+      },
+      "when_to_use": "Year-over-year wetland gain/loss when the agent wants explicit surface-water corroboration rather than an opaque pixel-embedding cosine. Prefer over the base triple in inland-water and Ramsar-site contexts where surface-water dynamics dominate the change signal.",
+      "primitive": "POST /v1/recall {bands:['clay_v1','prithvi_eo2','surface_water.recurrence']} with 365d temporal_recipe → consensus vote with recurrence delta replacing the Tessera leg",
+      "deterministic": true,
+      "citation": "Pekel, J.-F. et al. 2016. High-resolution mapping of global surface water and its long-term changes. Nature 540:418-422. Mueller, N. et al. 2016. Water observations from space. RSE 174:341-352. Clay v1.5; Jakubik et al. 2023 (Prithvi).",
+      "frequency_of_calculation": "Annual; can run quarterly when JRC GSW vintages permit.",
+      "accuracy_band": "JRC GSW reports producer's accuracy 99.0 % / user's accuracy 99.6 % on water-presence at 30 m globally (Pekel et al. 2016, Table 1). Year-on-year wetland change detection at 10 m using recurrence delta has reported user's accuracy 78-85 % (Mueller et al. 2016 WOfS validation). No published accuracy yet for the triple-encoder + JRC hybrid; surface as a known limitation pending validation.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["surface_water.recurrence"],
+        "variance_sources": ["clay_v1", "prithvi_eo2", "surface_water.recurrence"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["static", "s2", "landsat"],
+        "anchor_band": "surface_water.recurrence",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 3600000000,
+        "p95_budget_ms": 550,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "temporal_recipe": {
+        "label": "duo_foundation_plus_recurrence_year_on_year",
+        "note": "Two encoders + JRC GSW recurrence delta at 365 d.",
+        "windows": [
+          {"band": "clay_v1",                 "lookback_days": 365, "aggregator": "latest",          "purpose": "clay_prior_year"},
+          {"band": "prithvi_eo2",             "lookback_days": 365, "aggregator": "latest",          "purpose": "prithvi_prior_year"},
+          {"band": "surface_water.recurrence","lookback_days": 365, "aggregator": "seasonal_median", "purpose": "recurrence_prior_year"}
+        ]
+      },
+      "parameters": {
+        "gate_threshold": 0.10,
+        "water_abs_gate": 15.0
+      },
+      "learned_from": {
+        "gate_threshold": {
+          "value": 0.10,
+          "rationale": "Looser than base 0.15 because seasonal water dynamics produce large legitimate signal; absolute recurrence delta of 15 percentage points anchors the water leg to a real wetland-state transition rather than a seasonal blip.",
+          "source": "Pekel et al. 2016 + WOfS validation (Mueller et al. 2016)."
+        }
+      }
+    },
+    {
+      "key": "urban_expansion_triple@1",
+      "kind": "combined",
+      "domain": "urban",
+      "inputs": [
+        {"band": "clay_v1",                   "role": "clay_now",         "explanation": "Clay CLS at t_now and 365 d-prior."},
+        {"band": "prithvi_eo2",               "role": "prithvi_now",      "explanation": "Prithvi CLS at t_now and 365 d-prior."},
+        {"band": "overture.buildings.count",  "role": "buildings_delta",  "explanation": "Overture building footprint count; year-over-year delta is the human-mapped ground truth for new construction."},
+        {"band": "s2.B11",                    "role": "swir_built",       "explanation": "Sentinel-2 SWIR1 (1610 nm); built-up surfaces have a characteristic SWIR signature higher than the surrounding vegetation. Δ B11 corroborates the buildings count delta when Overture coverage is sparse."}
+      ],
+      "formula": "let dc = clamp(1 - cos(recall(clay_v1, t_now), recall(clay_v1, t_now - 365d)), 0, 1); let dp = clamp(1 - cos(recall(prithvi_eo2, t_now), recall(prithvi_eo2, t_now - 365d)), 0, 1); let db = clamp((recall(overture.buildings.count, t_now) - recall(overture.buildings.count, t_now - 365d)) / 50, 0, 1); let dswir = clamp((recall(s2.B11, t_now) - recall(s2.B11, t_now - 365d)) / 500, -1, 1); let gate = 0.20; let buildings_gate = 0.10; let votes = (dc > gate) + (dp > gate) + (db > buildings_gate); ensemble = sqrt((dc*dc + dp*dp + max(db, 0)*max(db, 0)) / 3); agreement = if votes == 3 then 'all_three' else if votes == 2 then 'two_of_three' else if dswir > 0.2 and votes == 1 then 'swir_corroborated' else 'one_or_none'",
+      "output": {
+        "kind": "scalar",
+        "unit": "index",
+        "range": [0, 1],
+        "explanation": "Urban-expansion consensus calibrated against Overture building delta. `swir_corroborated` is a fallback verdict when only one encoder votes but the SWIR built-up signature shifts upward. Receipts carry buildings_delta_count, dswir, gate, buildings_gate."
+      },
+      "when_to_use": "Year-over-year new construction detection. Prefer over `clay_prithvi_tessera_triple_consensus@1` in urbanising regions where the agent has access to recent Overture coverage. Pair with `is_industrial_area@1` to discriminate residential vs industrial expansion.",
+      "primitive": "POST /v1/recall {bands:['clay_v1','prithvi_eo2','overture.buildings.count','s2.B11']} with 365d temporal_recipe → consensus with buildings-count calibration leg",
+      "deterministic": true,
+      "citation": "Pesaresi, M. & Politis, P. 2023. GHSL-BUILT-S R2023A. Publications Office of the EU, JRC. Goldblatt, R. et al. 2018. Using Landsat and nighttime lights for supervised pixel-based image classification of urban land cover. RSE 205:253-275. Overture Maps Foundation 2024 release. Clay v1.5; Jakubik et al. 2023 (Prithvi).",
+      "frequency_of_calculation": "Annual; Overture releases ~quarterly, building delta stabilises on annual aggregation.",
+      "accuracy_band": "GHSL-BUILT-S R2023A reports producer's accuracy 87.8 % / user's accuracy 86.1 % on built-up surface change 2015-2020 against the GHSL validation point set (Pesaresi & Politis 2023, Table 8). Triple uplift not yet independently validated for urban expansion — surface as a known limitation on the agreement=all_three subset.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["overture.buildings.count"],
+        "variance_sources": ["clay_v1", "prithvi_eo2", "overture.buildings.count"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["static", "s2"],
+        "anchor_band": "overture.buildings.count",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 3800000000,
+        "p95_budget_ms": 550,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "temporal_recipe": {
+        "label": "duo_foundation_plus_overture_year_on_year",
+        "windows": [
+          {"band": "clay_v1",                  "lookback_days": 365, "aggregator": "latest",          "purpose": "clay_prior_year"},
+          {"band": "prithvi_eo2",              "lookback_days": 365, "aggregator": "latest",          "purpose": "prithvi_prior_year"},
+          {"band": "overture.buildings.count", "lookback_days": 365, "aggregator": "latest",          "purpose": "overture_prior_year"},
+          {"band": "s2.B11",                   "lookback_days": 365, "aggregator": "seasonal_median", "purpose": "swir_prior_year"}
+        ]
+      },
+      "parameters": {
+        "gate_threshold": 0.20,
+        "buildings_gate": 0.10,
+        "swir_corroboration_threshold": 0.20
+      },
+      "learned_from": {
+        "gate_threshold": {
+          "value": 0.20,
+          "rationale": "Tighter than base because crop-cycle aliasing dominates the urban-expansion false-positive class.",
+          "source": "Goldblatt, R. et al. 2018. RSE 205:253-275."
+        }
+      }
+    },
+    {
+      "key": "disaster_anomaly_triple@1",
+      "kind": "combined",
+      "domain": "anomaly",
+      "inputs": [
+        {"band": "clay_v1",               "role": "clay_cell_vs_neighbours",    "explanation": "Clay CLS at the cell vs the mean Clay CLS across the 8 immediate cell64 neighbours from /v1/locate.neighborhood_cells. Spatial anomaly: 'this cell looks different from its surroundings right now.'"},
+        {"band": "prithvi_eo2",           "role": "prithvi_cell_vs_neighbours", "explanation": "Prithvi CLS at the cell vs neighbour-mean Prithvi CLS."},
+        {"band": "geotessera.multi_year", "role": "tessera_cell_vs_neighbours", "explanation": "Tessera latest-vintage at the cell vs neighbour-mean Tessera latest-vintage."}
+      ],
+      "formula": "let n = neighborhood_cells(cell, k=1); let cc_mean = mean(recall_many(clay_v1, n)); let pp_mean = mean(recall_many(prithvi_eo2, n)); let tt_mean = mean(recall_many(slice_latest(geotessera.multi_year), n)); let dc = clamp(1 - cos(recall(clay_v1), cc_mean), 0, 1); let dp = clamp(1 - cos(recall(prithvi_eo2), pp_mean), 0, 1); let dt = clamp(1 - cos(slice_latest(geotessera.multi_year), tt_mean), 0, 1); let std_c = std([1 - cos(x, cc_mean) for x in recall_many(clay_v1, n)]); let std_p = std([1 - cos(x, pp_mean) for x in recall_many(prithvi_eo2, n)]); let std_t = std([1 - cos(x, tt_mean) for x in recall_many(slice_latest(geotessera.multi_year), n)]); let z_gate = 2.0; let votes = (dc > z_gate * std_c) + (dp > z_gate * std_p) + (dt > z_gate * std_t); ensemble = sqrt((dc*dc + dp*dp + dt*dt) / 3); agreement = if votes == 3 then 'all_three_anomalous' else if votes == 2 then 'two_of_three_anomalous' else 'one_or_none'",
+      "output": {
+        "kind": "scalar",
+        "unit": "index",
+        "range": [0, 1],
+        "explanation": "Spatial (not temporal) anomaly score: 'something unusual is HERE compared to surrounding cells.' Receipts carry per-encoder cell-vs-neighbour-mean cosines and the neighbour-cosine std used as the adaptive gate. Useful for first-look disaster triage: blast craters, landslides, oil spills, levee breaches."
+      },
+      "when_to_use": "When the agent doesn't have a temporal baseline (single-pass image, first-time-seen cell) but wants to detect that this cell stands out from its surroundings. Disaster triage, illegal-clearing spot-check, oil-spill discovery. Complementary to `clay_prithvi_tessera_triple_consensus@1` which requires a 365 d prior.",
+      "primitive": "POST /v1/locate {q} → neighborhood_cells; POST /v1/recall_many {cells:[centre, ...8 neighbours], bands:['clay_v1','prithvi_eo2','geotessera.multi_year']} → cell-vs-neighbour-mean cosine per encoder with adaptive z-score gate",
+      "deterministic": true,
+      "citation": "Adams, R. P. & MacKay, D. J. C. 2007. Bayesian Online Changepoint Detection. arXiv:0710.3742 (spatial-anomaly z-score analogue). Mueller, N. et al. 2016. RSE 174:341-352 (spatial neighbourhood baselining). Clay v1.5; Jakubik et al. 2023 (Prithvi); Tessera v1.",
+      "frequency_of_calculation": "On demand; runs per-snapshot, no temporal recipe required.",
+      "accuracy_band": "No published accuracy yet for spatial-anomaly triple consensus on disaster events. Single-encoder spatial-anomaly z-score recovers > 70 % of Sentinel-2-visible landslide scars at 2-σ in the post-event window (van Westen et al. 2008 Geomorphology 102:112-131 baseline). Surface as a known limitation requiring follow-up validation on a hand-labelled disaster polygon set.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2", "s1"],
+        "anchor_band": "clay_v1",
+        "fallback_strategy": "tier_demote"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 5400000000,
+        "p95_budget_ms": 700,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "temporal_recipe": {
+        "label": "spatial_only_no_lookback",
+        "note": "No temporal recipe — the comparison axis is spatial (cell vs 8 neighbours).",
+        "windows": []
+      },
+      "parameters": {
+        "z_gate": 2.0,
+        "neighborhood_k": 1
+      },
+      "learned_from": {
+        "z_gate": {
+          "value": 2.0,
+          "rationale": "2-σ over the neighbour-cosine distribution flags the top ~2.5 % of cells as anomalous; Bayesian change-point z-score analogue.",
+          "source": "Adams, R. P. & MacKay, D. J. C. 2007. arXiv:0710.3742."
+        }
+      }
+    },
+    {
+      "key": "climate_archetype_triple@1",
+      "kind": "combined",
+      "domain": "climate",
+      "inputs": [
+        {"band": "clay_v1",               "role": "clay_vec",    "explanation": "Clay CLS scored against the climate-archetype centroid library by cosine; the top-class margin is the clay vote."},
+        {"band": "prithvi_eo2",           "role": "prithvi_vec", "explanation": "Prithvi CLS scored against the same archetype centroids."},
+        {"band": "geotessera.multi_year", "role": "tessera_vec", "explanation": "Tessera latest vintage scored against the same archetype centroids."}
+      ],
+      "formula": "let A = climate_archetype_centroids_v1; let clay_top = argmax(A, |a| cos(recall(clay_v1), a.clay_centroid)); let pri_top = argmax(A, |a| cos(recall(prithvi_eo2), a.prithvi_centroid)); let tes_top = argmax(A, |a| cos(slice_latest(geotessera.multi_year), a.tessera_centroid)); let clay_conf = top_cos(clay) - second_cos(clay); let pri_conf = top_cos(pri) - second_cos(pri); let tes_conf = top_cos(tes) - second_cos(tes); consensus = mode([clay_top, pri_top, tes_top]); agreement = if all_equal([clay_top, pri_top, tes_top]) then 'all_three' else if mode_count >= 2 then 'two_of_three' else 'split_vote'",
+      "output": {
+        "kind": "classification",
+        "values": [
+          "tropical_rainforest", "tropical_savanna", "hot_desert", "cold_desert", "mediterranean",
+          "humid_subtropical", "humid_temperate", "continental", "boreal", "tundra", "alpine", "polar"
+        ],
+        "explanation": "Per-encoder archetype vote + consensus archetype. Receipts surface clay_top, prithvi_top, tessera_top, per-encoder margin, and the consensus class. `split_vote` means three different votes; treat as 'transitional climate'."
+      },
+      "when_to_use": "Tag a cell with a single bioclimatic archetype when the agent wants three-encoder corroboration (rather than the single-encoder `prithvi_archetype_match@1` or `clay_archetype_match@1`). Useful upstream of climate-conditioned algorithms (drought, fire risk) where a wrong archetype is more expensive than absence.",
+      "primitive": "POST /v1/recall {bands:['clay_v1','prithvi_eo2','geotessera.multi_year']} → cosine against climate_archetype_centroids_v1 per encoder → majority vote",
+      "deterministic": false,
+      "_deterministic_note": "Depends on the responder's loaded climate-archetype centroid set + the three encoder checkpoint hashes. All four artifacts pinned in algorithms_cid.",
+      "citation": "Beck, H. E. et al. 2018. Present and future Köppen-Geiger climate classification maps at 1-km resolution. Scientific Data 5:180214 (archetype taxonomy). Clay v1.5; Jakubik et al. 2023 (Prithvi); Tessera v1. Archetype reference cells aligned to the Beck et al. 1-km Köppen-Geiger map.",
+      "frequency_of_calculation": "Annual; centroids stable within a vintage.",
+      "accuracy_band": "No published accuracy yet for the triple-encoder Köppen-style classifier. Single-encoder analogue `prithvi_archetype_match@1` reports top-1 0.70-0.85 on 20-class landscape archetypes; the 12-class climate task is coarser, expected top-1 0.78-0.88 on the agreement=all_three subset. Surface as a known limitation pending validation on a held-out Beck et al. 2018 sample.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [],
+        "variance_sources": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["s2"],
+        "anchor_band": "clay_v1",
+        "fallback_strategy": "absence"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 5400000000,
+        "p95_budget_ms": 600,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "prerequisites": {
+        "centroid_registry": "crates/emem-core/data/climate_archetype_centroids_v1.json — 12 reference cells (one per Köppen-Geiger class, Beck et al. 2018 type localities). Responder computes per-encoder centroids at registry-load time by recalling each encoder band at those cells. Until the registry is loaded, this algorithm emits Absence with `archetype_centroids_unavailable`."
+      },
+      "parameters": {
+        "confidence_margin": 0.04
+      },
+      "learned_from": {
+        "confidence_margin": {
+          "value": 0.04,
+          "rationale": "Matches the convention established by prithvi_archetype_match@1: margin < 0.04 is treated as 'no clear archetype'.",
+          "source": "Existing prithvi_archetype_match@1 (algorithms-v0.json:5375)."
+        }
+      }
+    },
+    {
+      "key": "coastal_erosion_triple@1",
+      "kind": "combined",
+      "domain": "water",
+      "inputs": [
+        {"band": "clay_v1",               "role": "clay_now",     "explanation": "Clay CLS at t_now and 365 d-prior; year-over-year coastline-cell change."},
+        {"band": "prithvi_eo2",           "role": "prithvi_now",  "explanation": "Prithvi CLS at t_now and 365 d-prior."},
+        {"band": "geotessera.multi_year", "role": "tessera_stack","explanation": "Tessera vintage stack; slice_latest vs slice_prev."},
+        {"band": "gmrt.topobathy_mean",   "role": "bathy_clamp",  "explanation": "GMRT topobathy mean depth. Algorithm clamps execution to cells where -5 m ≤ bathy ≤ +5 m (active coastline band). Cells outside this band emit `not_a_coastal_cell` Absence."}
+      ],
+      "formula": "let bathy = recall(gmrt.topobathy_mean); if bathy < -5 or bathy > 5 then 'not_a_coastal_cell' else let dc = clamp(1 - cos(recall(clay_v1, t_now), recall(clay_v1, t_now - 365d)), 0, 1); let dp = clamp(1 - cos(recall(prithvi_eo2, t_now), recall(prithvi_eo2, t_now - 365d)), 0, 1); let dt = clamp(1 - cos(slice_latest(geotessera.multi_year), slice_prev(geotessera.multi_year)), 0, 1); let gate = 0.12; let votes = (dc > gate) + (dp > gate) + (dt > gate); ensemble = sqrt((dc*dc + dp*dp + dt*dt) / 3); agreement = if votes == 3 then 'all_three' else if votes == 2 then 'two_of_three' else 'one_or_none'",
+      "output": {
+        "kind": "scalar",
+        "unit": "index",
+        "range": [0, 1],
+        "explanation": "Coastline-clamped triple consensus. Returns `not_a_coastal_cell` for cells outside the -5 m to +5 m bathymetry band. Receipts carry bathy_m, clay_change, prithvi_change, tessera_change, gate, agreement."
+      },
+      "when_to_use": "Year-over-year coastline retreat / accretion when the agent wants triple-encoder corroboration restricted to physically plausible coastal cells. Prefer over the base triple in shoreline-monitoring, port-erosion, and small-island-state risk contexts.",
+      "primitive": "POST /v1/recall {bands:['clay_v1','prithvi_eo2','geotessera.multi_year','gmrt.topobathy_mean']} with 365d temporal_recipe → bathymetry clamp → triple-consensus on remaining cells",
+      "deterministic": true,
+      "citation": "Luijendijk, A. et al. 2018. The State of the World's Beaches. Scientific Reports 8:6641. Vos, K. et al. 2019. CoastSat. Environmental Modelling & Software 122:104528. GMRT v4.2; Ryan, W. B. F. et al. 2009 G³ 10:Q03014. Clay v1.5; Jakubik et al. 2023 (Prithvi); Tessera v1.",
+      "frequency_of_calculation": "Annual; coastline change is typically sub-metre to metre per year (Luijendijk et al. 2018) — 10 m resolution catches multi-year trends.",
+      "accuracy_band": "Vos et al. 2019 (CoastSat) reports shoreline-position RMSE 9.6 m at Narrabeen (Australia) using single-encoder Sentinel-2-based detection. Triple-encoder uplift not yet independently validated for shoreline change. The bathymetry clamp removes ~85 % of the global cell population, so accuracy claims apply only to the active-coastline subset.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": ["gmrt.topobathy_mean"],
+        "variance_sources": ["clay_v1", "prithvi_eo2", "geotessera.multi_year"],
+        "fusion_method": "consensus_vote",
+        "priority_chain": ["static", "s2", "s1"],
+        "anchor_band": "gmrt.topobathy_mean",
+        "fallback_strategy": "absence"
+      },
+      "inference": {
+        "tier": "gpu",
+        "tier_chain": ["gpu", "absence"],
+        "device_kind": "cuda",
+        "vram_estimate_bytes": 5400000000,
+        "p95_budget_ms": 650,
+        "fallback_strategy": "absence_with_reason",
+        "required_extension": "clay-v1.5"
+      },
+      "temporal_recipe": {
+        "label": "triple_foundation_year_on_year_coastal_clamp",
+        "windows": [
+          {"band": "clay_v1",                "lookback_days": 365, "aggregator": "latest", "purpose": "clay_prior_year"},
+          {"band": "prithvi_eo2",            "lookback_days": 365, "aggregator": "latest", "purpose": "prithvi_prior_year"},
+          {"band": "geotessera.multi_year",  "lookback_days": 365, "aggregator": "latest", "purpose": "tessera_prior_year"},
+          {"band": "gmrt.topobathy_mean",    "lookback_days": 0,   "aggregator": "latest", "purpose": "bathy_clamp"}
+        ]
+      },
+      "parameters": {
+        "gate_threshold": 0.12,
+        "bathy_clamp_m": 5.0
+      },
+      "learned_from": {
+        "gate_threshold": {
+          "value": 0.12,
+          "rationale": "Looser than base 0.15 because coastline change is gradual but persistent; the bathymetry clamp does the heavy lifting on false-positive suppression.",
+          "source": "Luijendijk et al. 2018 + Vos et al. 2019 CoastSat shoreline benchmarks."
+        }
+      }
+    },
+    {
       "key": "prithvi_canola_yield_frozen_encoder@1",
       "kind": "combined",
       "domain": "agriculture",

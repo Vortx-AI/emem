@@ -1,0 +1,92 @@
+{
+  "schema": "emem.archetypes.climate.v1",
+  "_doc": "Bioclimatic archetype reference cells for climate_archetype_triple@1. Each entry pins a real-world locality whose Köppen-Geiger class is well-documented; the responder computes the per-encoder centroid (Clay v1.5 1024-D, Prithvi-EO-2.0 1024-D, Tessera 128-D) at this cell at registry-load time by recalling the encoder band there. New deployments can extend the list — every archetype must have ≥1 representative cell. Re-derive centroids from labelled Köppen-Geiger reference points per Beck, H. E. et al. 2018. Present and future Köppen-Geiger climate classification maps at 1-km resolution. Scientific Data 5:180214.",
+  "_centroid_protocol": "At load: for each entry compute centroid[encoder] = recall(encoder_band, cell64_at(lat, lng), t_now). At classify-time: vote = argmax_a cos(recall(encoder_band, query_cell), centroid[encoder][a]). Margin = top - second-top.",
+  "_citation": "Beck, H. E. et al. 2018. Scientific Data 5:180214. Köppen-Geiger reference localities; specific lat/lng chosen as canonical class type localities (Manaus = canonical Af; Riyadh = canonical BWh; etc.).",
+  "archetypes": [
+    {
+      "key": "tropical_rainforest",
+      "koppen": "Af",
+      "label": "Tropical rainforest (Manaus, Brazil)",
+      "lat": -3.1019,
+      "lng": -60.0250
+    },
+    {
+      "key": "tropical_savanna",
+      "koppen": "Aw",
+      "label": "Tropical savanna (Brasília, Brazil)",
+      "lat": -15.7801,
+      "lng": -47.9292
+    },
+    {
+      "key": "hot_desert",
+      "koppen": "BWh",
+      "label": "Hot desert (Riyadh, Saudi Arabia)",
+      "lat": 24.7136,
+      "lng": 46.6753
+    },
+    {
+      "key": "cold_desert",
+      "koppen": "BWk",
+      "label": "Cold desert (Almaty, Kazakhstan)",
+      "lat": 43.2220,
+      "lng": 76.8512
+    },
+    {
+      "key": "mediterranean",
+      "koppen": "Csa",
+      "label": "Mediterranean (Marseille, France)",
+      "lat": 43.2965,
+      "lng": 5.3698
+    },
+    {
+      "key": "humid_subtropical",
+      "koppen": "Cfa",
+      "label": "Humid subtropical (New Orleans, LA, USA)",
+      "lat": 29.9511,
+      "lng": -90.0715
+    },
+    {
+      "key": "humid_temperate",
+      "koppen": "Cfb",
+      "label": "Humid temperate (Brussels, Belgium)",
+      "lat": 50.8503,
+      "lng": 4.3517
+    },
+    {
+      "key": "continental",
+      "koppen": "Dfb",
+      "label": "Continental (Moscow, Russia)",
+      "lat": 55.7558,
+      "lng": 37.6173
+    },
+    {
+      "key": "boreal",
+      "koppen": "Dfc",
+      "label": "Boreal / subarctic (Yakutsk, Russia)",
+      "lat": 62.0355,
+      "lng": 129.6755
+    },
+    {
+      "key": "tundra",
+      "koppen": "ET",
+      "label": "Tundra (Iqaluit, Canada)",
+      "lat": 63.7467,
+      "lng": -68.5170
+    },
+    {
+      "key": "alpine",
+      "koppen": "H",
+      "label": "Alpine highland (La Paz, Bolivia)",
+      "lat": -16.5000,
+      "lng": -68.1500
+    },
+    {
+      "key": "polar",
+      "koppen": "EF",
+      "label": "Polar ice (McMurdo Station, Antarctica)",
+      "lat": -77.8419,
+      "lng": 166.6863
+    }
+  ]
+}
