@@ -37,7 +37,15 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let bind = std::env::var("EMEM_BIND").unwrap_or_else(|_| "0.0.0.0:5051".into());
+    // `bind` is the plain-HTTP listener. When TLS is also active (see
+    // EMEM_TLS_DOMAINS below) we default the plain listener to
+    // 127.0.0.1:5051 instead of 0.0.0.0:5051 so writes (/v1/attest,
+    // /v1/attest_cbor) and signed receipts never traverse the public
+    // interface in cleartext. An operator who genuinely wants the plain
+    // listener exposed (e.g. on a private VLAN) still sets EMEM_BIND
+    // explicitly. With no TLS, the historical 0.0.0.0:5051 default
+    // applies — that's the "plain HTTP behind a reverse proxy" path.
+    let bind_explicit = std::env::var("EMEM_BIND").ok();
     let data = std::env::var("EMEM_DATA").unwrap_or_else(|_| "./var/emem".into());
 
     let bands = Arc::new((*emem_core::bands::DEFAULT).clone());
@@ -142,13 +150,17 @@ async fn main() -> anyhow::Result<()> {
 
     if tls_domains.is_empty() {
         // Plain HTTP path (the default; behind a reverse proxy in production).
+        let bind = bind_explicit.unwrap_or_else(|| "0.0.0.0:5051".into());
         let listener = tokio::net::TcpListener::bind(&bind).await?;
         tracing::info!(%bind, "emem listening (plain HTTP)");
         eprintln!("emem listening on http://{bind}");
         let shutdown = shutdown_signal();
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown)
-            .await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown)
+        .await?;
     } else {
         // Native TLS via rustls + Let's Encrypt (TLS-ALPN-01). Only :443 needed.
         let tls_bind: std::net::SocketAddr = std::env::var("EMEM_TLS_BIND")
@@ -192,24 +204,40 @@ async fn main() -> anyhow::Result<()> {
             }
         });
 
-        // Optional plain HTTP listener kept up so existing 5051 callers (MCP
-        // clients on local nets, the live-demo binary) keep working.
-        let app_for_http = app.clone();
-        if !bind.is_empty() {
+        // Plain HTTP listener — kept up so the live-demo binary and local
+        // MCP clients keep working without going through TLS. When TLS is
+        // active and the operator hasn't explicitly set EMEM_BIND we
+        // default to 127.0.0.1:5051: signed writes (/v1/attest,
+        // /v1/attest_cbor) and the responder's identity must never be
+        // reachable in cleartext over the public interface. An operator
+        // who wants public plain HTTP (e.g. on a private VLAN) sets
+        // EMEM_BIND=0.0.0.0:5051 explicitly.
+        let plain_bind = bind_explicit
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:5051".into());
+        if !plain_bind.is_empty() {
+            let app_for_http = app.clone();
             tokio::spawn(async move {
-                if let Ok(listener) = tokio::net::TcpListener::bind(&bind).await {
-                    tracing::info!(%bind, "emem also listening on plain HTTP for local agents");
-                    let _ = axum::serve(listener, app_for_http)
-                        .with_graceful_shutdown(shutdown_signal())
-                        .await;
+                if let Ok(listener) = tokio::net::TcpListener::bind(&plain_bind).await {
+                    tracing::info!(bind=%plain_bind, "emem also listening on plain HTTP (loopback unless EMEM_BIND set)");
+                    let _ = axum::serve(
+                        listener,
+                        app_for_http.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+                    )
+                    .with_graceful_shutdown(shutdown_signal())
+                    .await;
                 }
             });
         }
 
         // TLS server. axum-server handles graceful shutdown via tokio signals.
+        // `into_make_service_with_connect_info` is required so the
+        // rate-limit middleware can read the peer SocketAddr — without
+        // it, every anonymous request collapses into one shared
+        // "unknown" bucket and the per-IP limit becomes a global limit.
         axum_server::bind(tls_bind)
             .acceptor(acceptor)
-            .serve(app.into_make_service())
+            .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await?;
     }
     Ok(())
@@ -251,13 +279,25 @@ fn load_or_create_identity(data_dir: &str) -> anyhow::Result<ResponderIdentity> 
     let id = ResponderIdentity::fresh();
     std::fs::create_dir_all(data_dir).ok();
     let secret_b32 = id.export_secret_b32();
-    std::fs::write(&id_path, &secret_b32)?;
+    // Write the secret atomically with 0600 from the start. The previous
+    // "fs::write then chmod 0600" pattern opened a brief window where any
+    // process on the host could read the 0644-mode file before the chmod
+    // landed — a co-tenant could exfiltrate the responder signing key.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perm = std::fs::metadata(&id_path)?.permissions();
-        perm.set_mode(0o600);
-        std::fs::set_permissions(&id_path, perm)?;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&id_path)?;
+        f.write_all(secret_b32.as_bytes())?;
+        f.sync_all().ok();
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&id_path, &secret_b32)?;
     }
     tracing::info!(path = %id_path.display(), "generated and persisted new identity");
     Ok(id)

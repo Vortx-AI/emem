@@ -73,10 +73,26 @@ pub async fn query_region(
     let storage = srv.storage.as_ref();
 
     let cells: Vec<String> = if let Some(rest) = req.geometry.strip_prefix("cells:") {
-        rest.split(',')
+        let parsed: Vec<String> = rest
+            .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .collect()
+            .collect();
+        // Apply the same MAX_BBOX_CELLS cap that the bbox path enforces —
+        // an explicit `cells:c1,c2,…` list with millions of entries lets
+        // an attacker pin a request on per-cell storage scans for the
+        // whole gateway-timeout window. Same cap, same error message
+        // shape so clients can recover the same way.
+        if parsed.len() > MAX_BBOX_CELLS {
+            return Err(StorageError::Protocol {
+                code: ErrorCode::InvalidCell,
+                message: format!(
+                    "query_region: 'cells:' list has {} entries, cap is {MAX_BBOX_CELLS}. Split the call, or pass 'bbox:' for a region-shaped query.",
+                    parsed.len()
+                ),
+            });
+        }
+        parsed
     } else if let Some(rest) = req.geometry.strip_prefix("bbox:") {
         cells_from_bbox(rest)?
     } else if req.geometry.starts_with('{') {

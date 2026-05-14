@@ -412,6 +412,13 @@ fn dedupe_top_k_by_cell(
     (kept, kept_cids)
 }
 
+/// Hard cap on `inline:[…]` vector dimensionality. The largest band we
+/// ship today is Clay v1.5 at 1024 dims; 16 384 leaves headroom for
+/// future encoders without letting a 16 MiB request body (the global
+/// body limit) carry ~3 M parsed f32s — that previously translated
+/// into a corpus-wide cosine sweep at attacker request.
+const MAX_INLINE_VEC_DIMS: usize = 16_384;
+
 fn parse_inline_vec(s: &str) -> Result<Vec<f32>, StorageError> {
     let trimmed = s.trim().trim_start_matches('[').trim_end_matches(']');
     let mut out = Vec::new();
@@ -420,10 +427,18 @@ fn parse_inline_vec(s: &str) -> Result<Vec<f32>, StorageError> {
         if t.is_empty() {
             continue;
         }
+        if out.len() >= MAX_INLINE_VEC_DIMS {
+            return Err(StorageError::Protocol {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "inline vector exceeds {MAX_INLINE_VEC_DIMS}-dim cap; supply a band+cell key instead"
+                ),
+            });
+        }
         let f: f32 = t
             .parse()
             .map_err(|e: std::num::ParseFloatError| StorageError::Protocol {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: format!("inline vector parse error '{t}': {e}"),
             })?;
         out.push(f);

@@ -1065,8 +1065,8 @@ fn classify_agent(ua: &str) -> &'static str {
 /// Hash the client IP so logs identify retries from the same caller without
 /// storing the address. blake3 truncated to 8 bytes — enough for cross-line
 /// correlation, not enough to reverse.
-fn hashed_ip(headers: &HeaderMap) -> String {
-    let raw = client_ip(headers).unwrap_or_default();
+fn hashed_ip(req: &axum::http::Request<axum::body::Body>) -> String {
+    let raw = client_ip(req).unwrap_or_default();
     if raw.is_empty() {
         return "anon".into();
     }
@@ -1101,7 +1101,7 @@ async fn agent_access_log_layer(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let ip_h = hashed_ip(&headers);
+    let ip_h = hashed_ip(&req);
 
     let resp = next.run(req).await;
 
@@ -1326,7 +1326,7 @@ async fn rate_limit_layer(
         return next.run(req).await;
     }
 
-    let ip = client_ip(req.headers()).unwrap_or_else(|| "unknown".to_string());
+    let ip = client_ip(&req).unwrap_or_else(|| "unknown".to_string());
     let now = Instant::now();
     let rps = rate_limit_rps();
     let burst = rate_limit_burst();
@@ -1339,18 +1339,28 @@ async fn rate_limit_layer(
         if map.len() > 1024 {
             map.retain(|_, b| now.duration_since(b.last) < RATE_LIMIT_GC_AFTER);
         }
-        let bucket = map.entry(ip.clone()).or_insert(Bucket {
-            tokens: burst,
-            last: now,
-        });
-        let elapsed = now.duration_since(bucket.last).as_secs_f64();
-        bucket.tokens = (bucket.tokens + elapsed * rps).min(burst);
-        bucket.last = now;
-        if bucket.tokens >= 1.0 {
-            bucket.tokens -= 1.0;
+        // Hard cap on the map. An attacker rotating source IPs (or
+        // spoofing X-Forwarded-For when forwarded-trust is enabled) can
+        // mint buckets faster than the 10-minute GC sweeps them. Above
+        // 100k entries we serve new IPs without tracking them — better
+        // to drop one bucket than to let the map eat memory until OOM.
+        const BUCKETS_HARD_CAP: usize = 100_000;
+        if map.len() >= BUCKETS_HARD_CAP && !map.contains_key(&ip) {
             true
         } else {
-            false
+            let bucket = map.entry(ip.clone()).or_insert(Bucket {
+                tokens: burst,
+                last: now,
+            });
+            let elapsed = now.duration_since(bucket.last).as_secs_f64();
+            bucket.tokens = (bucket.tokens + elapsed * rps).min(burst);
+            bucket.last = now;
+            if bucket.tokens >= 1.0 {
+                bucket.tokens -= 1.0;
+                true
+            } else {
+                false
+            }
         }
     };
     if allow {
@@ -1368,20 +1378,40 @@ async fn rate_limit_layer(
     }
 }
 
-fn client_ip(h: &HeaderMap) -> Option<String> {
-    // Trust X-Forwarded-For only when running behind our own reverse proxy.
-    // EMEM_TRUST_FORWARDED=1 enables it; default is off so we don't get spoofed.
-    if std::env::var("EMEM_TRUST_FORWARDED").ok().as_deref() == Some("1") {
+fn client_ip(req: &axum::http::Request<axum::body::Body>) -> Option<String> {
+    use axum::extract::ConnectInfo;
+    use std::net::SocketAddr;
+    // Trust X-Forwarded-For only when EMEM_TRUST_FORWARDED=1 AND the peer
+    // we're directly talking to is in the allow-list. We use the LAST
+    // segment in the XFF chain because that's the value the trusted
+    // proxy appended; earlier segments are attacker-supplied and can be
+    // anything. (Using the first segment, as the prior implementation
+    // did, lets a client send `X-Forwarded-For: 1.2.3.4` on each request
+    // to mint unlimited rate-limit buckets.) When `EMEM_TRUST_FORWARDED`
+    // is off (or the peer isn't in the proxy allow-list), we fall back
+    // to the socket peer address from `ConnectInfo` — that's a real,
+    // unforgeable identifier of the immediate client.
+    let trust_forwarded = std::env::var("EMEM_TRUST_FORWARDED").ok().as_deref() == Some("1");
+    let peer_ip: Option<std::net::IpAddr> = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip());
+    if trust_forwarded {
+        let h = req.headers();
         if let Some(v) = h.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-            if let Some(first) = v.split(',').next() {
-                return Some(first.trim().to_string());
+            // Last segment = the value our trusted proxy appended.
+            if let Some(last) = v.rsplit(',').next() {
+                let candidate = last.trim();
+                if !candidate.is_empty() {
+                    return Some(candidate.to_string());
+                }
             }
         }
         if let Some(v) = h.get("x-real-ip").and_then(|v| v.to_str().ok()) {
             return Some(v.to_string());
         }
     }
-    None
+    peer_ip.map(|ip| ip.to_string())
 }
 
 // ── Wire-error envelope ──────────────────────────────────────────────────
@@ -3078,10 +3108,16 @@ async fn data_availability(State(s): State<AppState>) -> Json<JsonValue> {
 /// (default 50_000) so big deployments don't blow the response.
 async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
     use std::collections::BTreeMap;
+    // Clamp the operator-provided limit to a sane range. An unbounded
+    // value lets a single anonymous GET pin the storage index scan for
+    // arbitrarily long; below 1k the matrix loses utility. 100k is
+    // already ~enough memory pressure that we don't want callers
+    // raising it accidentally.
     let limit: usize = std::env::var("EMEM_COVERAGE_MATRIX_LIMIT")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(50_000);
+        .unwrap_or(50_000)
+        .clamp(1_000, 100_000);
 
     // Aggregate over the storage index. For each entry we resolve the
     // actual fact and parse its `signed_at` to get a real wall-clock
@@ -9094,11 +9130,71 @@ async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
     }))
 }
 
+/// Default Origin allow-list for the MCP endpoint. The streamable-HTTP
+/// MCP spec calls out DNS-rebinding as a known attack against local
+/// agents: a malicious page on `evil.example` resolves a DNS name to
+/// `127.0.0.1`, then issues fetch() calls to the local MCP listener
+/// from the browser context. Without an Origin check, the MCP server
+/// happily executes those tool calls under the user's session.
+///
+/// We allow the absence of an Origin header (curl, MCP host process,
+/// SDK), and explicitly allow the known MCP-host origins
+/// (claude.ai, chatgpt.com, cursor.com, emem.dev). Operators can
+/// extend via `EMEM_MCP_ALLOWED_ORIGINS` (comma-separated). A present
+/// Origin header that doesn't match anything in the allow-list yields
+/// a JSON-RPC -32000 error.
+fn mcp_origin_allowed(origin: &str) -> bool {
+    if origin.is_empty() {
+        return true;
+    }
+    const DEFAULTS: &[&str] = &[
+        "https://claude.ai",
+        "https://chatgpt.com",
+        "https://chat.openai.com",
+        "https://cursor.com",
+        "https://emem.dev",
+        "https://www.emem.dev",
+        "null",
+    ];
+    if DEFAULTS.iter().any(|d| origin.eq_ignore_ascii_case(d)) {
+        return true;
+    }
+    if let Ok(env) = std::env::var("EMEM_MCP_ALLOWED_ORIGINS") {
+        for o in env.split(',') {
+            let o = o.trim();
+            if !o.is_empty() && origin.eq_ignore_ascii_case(o) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 async fn mcp_jsonrpc(
     State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+    // DNS-rebinding defense — see `mcp_origin_allowed` above. We check
+    // the Origin header BEFORE parsing the body so an attacker can't
+    // burn the JSON-RPC dispatcher just by sending a crafted request
+    // from a disallowed origin.
+    let origin = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !mcp_origin_allowed(origin) {
+        return Json(json!({
+            "jsonrpc": "2.0",
+            "id":      JsonValue::Null,
+            "error":   {
+                "code":    -32000i64,
+                "message": "Origin not allowed. Set EMEM_MCP_ALLOWED_ORIGINS if this is a legitimate host.",
+            },
+        }))
+        .into_response();
+    }
     // Spec: malformed JSON / missing required JSON-RPC fields MUST be
     // returned as a JSON-RPC `-32600 Invalid Request` envelope, NOT as
     // an HTTP-level 422 (which is what axum's `Json<T>` extractor
