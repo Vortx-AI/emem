@@ -56,3 +56,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
+
+  # Surfaces RustSec advisories for our transitive deps. Currently
+  # accepts informational findings (e.g. sled is implicitly unmaintained
+  # — tracked, migration to redb is on the deferred punch list); only
+  # fails on actual `vulnerability`. We re-evaluate the ignore list on
+  # every advisory update.
+  audit:
+    name: cargo audit (advisories)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

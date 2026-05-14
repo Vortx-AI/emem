@@ -1378,6 +1378,67 @@ async fn rate_limit_layer(
     }
 }
 
+// ── Per-IP daily quota for amplifier endpoints ───────────────────────────
+//
+// Distinct from the per-minute rate limit. Some endpoints amplify one
+// emem request into many upstream requests against shared open-data
+// services (Planetary Computer, ESA, NASA EOSDIS). The per-minute
+// limit alone lets a single IP burn ~864 000 such requests per day,
+// which is rude to those services even if it doesn't crash emem. The
+// daily quota caps the worst-case amplifier rate per IP.
+//
+// Storage: a HashMap keyed by `(ip, endpoint)`. The "window_started"
+// resets every 24 h. No GC sweep needed in practice: even at 100 k
+// unique IPs the map is ~10 MiB, and we hard-cap entries at 100 k
+// the same way the rate-limit buckets are capped.
+
+#[derive(Clone, Copy)]
+struct DailyQuotaBucket {
+    count: u32,
+    window_started: Instant,
+}
+
+static DAILY_QUOTAS: std::sync::OnceLock<
+    Mutex<std::collections::HashMap<(String, &'static str), DailyQuotaBucket>>,
+> = std::sync::OnceLock::new();
+
+fn daily_quotas(
+) -> &'static Mutex<std::collections::HashMap<(String, &'static str), DailyQuotaBucket>> {
+    DAILY_QUOTAS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Charge one daily-quota tick for `endpoint` against `ip`. Returns
+/// true when the call may proceed, false when the daily cap is hit.
+/// Resets per IP+endpoint every 24 h.
+fn check_daily_quota(ip: &str, endpoint: &'static str, max_per_day: u32) -> bool {
+    let mut g = match daily_quotas().lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    let now = Instant::now();
+    const QUOTAS_HARD_CAP: usize = 100_000;
+    let key = (ip.to_string(), endpoint);
+    if g.len() >= QUOTAS_HARD_CAP && !g.contains_key(&key) {
+        // Same fallback as the rate-limit map: serve untracked rather
+        // than OOM. An attacker rotating IPs gets the per-IP daily cap
+        // for the first 100 k IPs, untracked thereafter.
+        return true;
+    }
+    let bucket = g.entry(key).or_insert(DailyQuotaBucket {
+        count: 0,
+        window_started: now,
+    });
+    if now.duration_since(bucket.window_started) > Duration::from_secs(86_400) {
+        bucket.count = 0;
+        bucket.window_started = now;
+    }
+    if bucket.count >= max_per_day {
+        return false;
+    }
+    bucket.count += 1;
+    true
+}
+
 fn client_ip(req: &axum::http::Request<axum::body::Body>) -> Option<String> {
     use axum::extract::ConnectInfo;
     use std::net::SocketAddr;
@@ -1896,10 +1957,25 @@ fn build_security_txt() -> String {
             out.push('\n');
         }
     }
+    // Always advertise the GitHub Security Advisory pathway as a
+    // second Contact — that's where the open-source coordinated-disclosure
+    // workflow actually lives. Operators running a fork can override
+    // the repo via EMEM_SECURITY_ADVISORIES_URL.
+    let advisories_url = std::env::var("EMEM_SECURITY_ADVISORIES_URL")
+        .unwrap_or_else(|_| "https://github.com/Vortx-AI/emem/security/advisories/new".to_string());
+    out.push_str("Contact: ");
+    out.push_str(&advisories_url);
+    out.push('\n');
     if let Some(origin) = public_origin() {
         out.push_str("Canonical: ");
         out.push_str(&origin);
         out.push_str("/.well-known/security.txt\n");
+        // The responder pubkey + manifest CIDs live at
+        // /.well-known/emem.json. Reporters use it to encrypt sensitive
+        // findings or to verify they're talking to the same responder.
+        out.push_str("Encryption: ");
+        out.push_str(&origin);
+        out.push_str("/.well-known/emem.json\n");
     }
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1915,7 +1991,15 @@ fn build_security_txt() -> String {
             out.push_str(p);
             out.push('\n');
         }
+    } else if advisories_url.contains("github.com/Vortx-AI/emem") {
+        out.push_str("Policy: https://github.com/Vortx-AI/emem/blob/main/SECURITY.md\n");
     }
+    out.push_str("Acknowledgments: ");
+    out.push_str(advisories_url.trim_end_matches("/new"));
+    out.push('\n');
+    out.push_str("\n# Scope: emem.dev REST + MCP surface, signed-receipt verification path,\n");
+    out.push_str("# attestation log, and the source repo. Third-party open-data providers\n");
+    out.push_str("# (Sentinel/MODIS/STAC/etc.) are out of scope — report those upstream.\n");
     out
 }
 
@@ -7397,36 +7481,91 @@ async fn post_recall_many(
             },
         ));
     }
-    // Resolve any place names in the cells array. The result-by-cell
-    // map is keyed by the resolved cell64 so a downstream agent can
-    // dedupe across heterogeneous inputs ("Tokyo" + "damO.zb000.xUto.sisA"
-    // resolve to the same cell and merge into one entry).
-    let mut resolved_inputs: Vec<(String, String)> = Vec::with_capacity(req.cells.len()); // (input, cell64)
-    for raw in &req.cells {
-        let (cell64, _) = resolve_cell_field(raw).await?;
-        resolved_inputs.push((raw.clone(), cell64));
+    // Resolve any place names in the cells array CONCURRENTLY. The
+    // result-by-cell map is keyed by the resolved cell64 so a
+    // downstream agent can dedupe across heterogeneous inputs ("Tokyo"
+    // + "damO.zb000.xUto.sisA" resolve to the same cell and merge into
+    // one entry).
+    //
+    // Concurrency is bounded by a Semaphore — without one, a single
+    // 256-cell call could fire 256 parallel locate cascades (each
+    // potentially hitting Photon/Nominatim), turning emem into an
+    // amplifier against those public geocoders. 16 concurrent is
+    // enough to make the call fast for legitimate batches while
+    // keeping fan-out predictable.
+    const RECALL_MANY_CONCURRENCY: usize = 16;
+    type ResolveOut = (usize, String, Result<(String, ResolvedRef), ApiError>);
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(RECALL_MANY_CONCURRENCY));
+    let mut set: tokio::task::JoinSet<ResolveOut> = tokio::task::JoinSet::new();
+    for (idx, raw) in req.cells.iter().enumerate() {
+        let raw = raw.clone();
+        let sema = sema.clone();
+        set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let r = resolve_cell_field(&raw).await;
+            (idx, raw, r)
+        });
+    }
+    let mut indexed_resolved: Vec<ResolveOut> = Vec::with_capacity(req.cells.len());
+    while let Some(j) = set.join_next().await {
+        if let Ok(triple) = j {
+            indexed_resolved.push(triple);
+        }
+    }
+    indexed_resolved.sort_by_key(|(i, _, _)| *i);
+    let mut resolved_inputs: Vec<(String, String)> = Vec::with_capacity(req.cells.len());
+    for (_, raw, r) in indexed_resolved {
+        let (cell64, _) = r?;
+        resolved_inputs.push((raw, cell64));
     }
     req.cells = resolved_inputs.iter().map(|(_, c)| c.clone()).collect();
     metrics_inc(&RECALL_TOTAL);
+
+    // Recall fan-out runs concurrently under the same semaphore budget.
+    // Without the cap, an attacker passing 256 cold cells could trigger
+    // 256 parallel materializer fetches at once.
+    type RecallManyOut = (
+        usize,
+        String,
+        Result<emem_primitives::recall::RecallResp, emem_storage::StorageError>,
+    );
+    let mut recall_set: tokio::task::JoinSet<RecallManyOut> = tokio::task::JoinSet::new();
+    for (idx, cell) in req.cells.iter().enumerate() {
+        let cell = cell.clone();
+        let bands = req.bands.clone();
+        let tslot = req.tslot;
+        let s_clone = s.clone();
+        let sema = sema.clone();
+        recall_set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let r = RecallReq {
+                cell: cell.clone(),
+                bands,
+                tslot,
+            };
+            (idx, cell, recall(&r, &s_clone).await)
+        });
+    }
+    let mut indexed_recall: Vec<RecallManyOut> = Vec::with_capacity(req.cells.len());
+    while let Some(j) = recall_set.join_next().await {
+        if let Ok(triple) = j {
+            indexed_recall.push(triple);
+        }
+    }
+    indexed_recall.sort_by_key(|(i, _, _)| *i);
     let mut by_cell = serde_json::Map::with_capacity(req.cells.len());
     let mut total_facts = 0usize;
-    for cell in &req.cells {
-        let r = RecallReq {
-            cell: cell.clone(),
-            bands: req.bands.clone(),
-            tslot: req.tslot,
-        };
-        match recall(&r, &s).await {
+    for (_, cell, r) in indexed_recall {
+        match r {
             Ok(resp) => {
                 total_facts += resp.facts.len();
                 let mut cell_json = serde_json::to_value(&resp).unwrap_or(json!({}));
-                // Per-fact band_metadata + value_decoded.
                 enrich_facts_with_metadata(&mut cell_json);
-                by_cell.insert(cell.clone(), cell_json);
+                by_cell.insert(cell, cell_json);
             }
             Err(e) => {
                 by_cell.insert(
-                    cell.clone(),
+                    cell,
                     json!({
                         "error": e.to_string(),
                         "code": e.wire_code(),
@@ -7912,24 +8051,60 @@ async fn post_recall_polygon(
         ));
     }
 
-    // Fan out. Reuse the same lazy-materialize helper as POST /v1/recall
-    // so a cell that hasn't been seeded for a requested band still picks
-    // up a fresh signed fact from the registered connector. Without this,
-    // recall_polygon at a never-touched region returns zero facts even
-    // for bands whose materializer is alive — defeating the whole point.
+    // Fan out CONCURRENTLY with a bounded semaphore. Reuse the same
+    // lazy-materialize helper as POST /v1/recall so a cell that hasn't
+    // been seeded for a requested band still picks up a fresh signed
+    // fact from the registered connector.
+    //
+    // Without the bound, a 1024-cell call could trigger 1024 parallel
+    // materializer fetches against the same upstream COG, hammering
+    // STAC/PC/EOG endpoints. 16 concurrent is fast enough for the
+    // legitimate region-sweep workflow while keeping fan-out
+    // predictable.
+    const RECALL_POLYGON_CONCURRENCY: usize = 16;
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(RECALL_POLYGON_CONCURRENCY));
     metrics_inc(&RECALL_TOTAL);
-    let mut by_cell = serde_json::Map::with_capacity(cells.len());
     let mut merged_facts: Vec<JsonValue> = Vec::new();
-    let mut total_facts = 0usize;
     let mut materialize_notes_all: Vec<JsonValue> = Vec::new();
     let mut drill_added: Vec<String> = Vec::new();
-    for cell in &cells {
-        let r = RecallReq {
-            cell: cell.clone(),
-            bands: req.bands.clone(),
-            tslot: req.tslot,
-        };
-        match recall_with_auto_materialize(&r, &s).await {
+
+    type RecallOut = (
+        usize,
+        String,
+        Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
+    );
+    let mut recall_set: tokio::task::JoinSet<RecallOut> = tokio::task::JoinSet::new();
+    for (idx, cell) in cells.iter().enumerate() {
+        let cell_owned = cell.clone();
+        let bands = req.bands.clone();
+        let tslot = req.tslot;
+        let s_clone = s.clone();
+        let sema = sema.clone();
+        recall_set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let r = RecallReq {
+                cell: cell_owned.clone(),
+                bands,
+                tslot,
+            };
+            (
+                idx,
+                cell_owned,
+                recall_with_auto_materialize(&r, &s_clone).await,
+            )
+        });
+    }
+    let mut indexed_recall: Vec<RecallOut> = Vec::with_capacity(cells.len());
+    while let Some(j) = recall_set.join_next().await {
+        if let Ok(triple) = j {
+            indexed_recall.push(triple);
+        }
+    }
+    indexed_recall.sort_by_key(|(i, _, _)| *i);
+    let mut by_cell = serde_json::Map::with_capacity(cells.len());
+    let mut total_facts = 0usize;
+    for (_, cell, r) in indexed_recall {
+        match r {
             Ok((resp, notes)) => {
                 total_facts += resp.facts.len();
                 materialize_notes_all.extend(notes);
@@ -7938,12 +8113,12 @@ async fn post_recall_polygon(
                     if let Some(JsonValue::Array(facts)) = j.get("facts").cloned() {
                         merged_facts.extend(facts);
                     }
-                    by_cell.insert(cell.clone(), j);
+                    by_cell.insert(cell, j);
                 }
             }
             Err(e) => {
                 by_cell.insert(
-                    cell.clone(),
+                    cell,
                     json!({
                         "error":  e.1.message,
                         "code":   e.1.code,
@@ -20595,7 +20770,31 @@ async fn get_cell_scene_rgb(
 async fn get_cell_scene_png(
     axum::extract::Path(cell64): axum::extract::Path<String>,
     axum::extract::Query(qs): axum::extract::Query<std::collections::HashMap<String, String>>,
+    req: axum::http::Request<axum::body::Body>,
 ) -> Response {
+    // Each scene.png request runs 3 STAC + COG range fetches against
+    // Microsoft Planetary Computer (the upstream open-data host). The
+    // per-minute rate limit lets one IP burn ~1 800 PC fetches per
+    // minute via this single endpoint — being rude to PC even when
+    // emem itself is fine. A per-IP daily cap of 200 keeps the
+    // amplifier sane for legitimate exploration (200 scenes ≈ a few
+    // hours of casual browsing) while shutting down sustained
+    // scraping. Operators tune via EMEM_SCENE_DAILY_QUOTA.
+    let max_per_day = std::env::var("EMEM_SCENE_DAILY_QUOTA")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(200);
+    let ip = client_ip(&req).unwrap_or_else(|| "unknown".to_string());
+    if !check_daily_quota(&ip, "scene_png", max_per_day) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "86400")],
+            format!(
+                "scene.png daily quota hit ({max_per_day}/day per IP). Cache the bytes client-side or run your own emem responder."
+            ),
+        )
+            .into_response();
+    }
     let cell = cell64.trim_end_matches(".png").to_string();
     let max_cloud = qs
         .get("max_cloud")
@@ -22768,6 +22967,14 @@ const WIDE_BBOXES: &[(&str, f64, f64, f64, f64)] = &[
 /// type. Returns `None` on malformed shapes — caller falls back to
 /// the unmasked bbox sample so the response is honest about the
 /// downgrade rather than silently lossy.
+/// Total-vertex cap on user-supplied polygon GeoJSON. The 16 MiB body
+/// limit alone can carry millions of vertices, which translates into
+/// a 1e9-op point-in-polygon sweep across the sampled cell grid.
+/// 50 000 vertices is well above what any real admin boundary needs
+/// (most OSM relations are <20k) and keeps the worst-case
+/// point-in-polygon budget bounded at ~50 M ops per request.
+const MAX_POLYGON_VERTICES: usize = 50_000;
+
 fn parse_polygon_geojson(g: &JsonValue) -> Option<Vec<emem_core::Polygon>> {
     let t = g.get("type")?.as_str()?;
     let coords = g.get("coordinates")?;
@@ -22775,10 +22982,18 @@ fn parse_polygon_geojson(g: &JsonValue) -> Option<Vec<emem_core::Polygon>> {
         "Polygon" => {
             // coords is `[[ [lng,lat], ... ], [ [lng,lat], ... ], ...]`
             let rings = serde_json::from_value::<Vec<Vec<[f64; 2]>>>(coords.clone()).ok()?;
+            let total: usize = rings.iter().map(|r| r.len()).sum();
+            if total > MAX_POLYGON_VERTICES {
+                return None;
+            }
             emem_core::Polygon::from_geojson_coords(&rings).map(|p| vec![p])
         }
         "MultiPolygon" => {
             let polys = serde_json::from_value::<Vec<Vec<Vec<[f64; 2]>>>>(coords.clone()).ok()?;
+            let total: usize = polys.iter().flat_map(|p| p.iter().map(|r| r.len())).sum();
+            if total > MAX_POLYGON_VERTICES {
+                return None;
+            }
             Some(emem_core::Polygon::many_from_geojson_multi(&polys))
         }
         _ => None,
