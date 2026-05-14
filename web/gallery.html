@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>The emem gallery — verifiable Earth observation, in plain figures</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="color-scheme" content="light"/>
+<meta name="description" content="A small set of Earth-observation figures rendered by the emem.dev responder. Each map is a URL; each pixel carries a content-addressed, ed25519-signed fact. No keys, no logins, no rendering tricks."/>
+<link rel="canonical" href="https://emem.dev/docs/gallery"/>
+<meta property="og:type" content="article"/>
+<meta property="og:url" content="https://emem.dev/docs/gallery"/>
+<meta property="og:title" content="The emem gallery — verifiable Earth observation, in plain figures"/>
+<meta property="og:description" content="Global coverage. Per-place elevation. Each rendered live by the emem.dev responder and signed for offline verification."/>
+<meta property="og:image" content="https://emem.dev/og-image.svg"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --paper: #faf7f2;
+    --paper-sunk: #f3ede2;
+    --ink: #1a1a1a;
+    --ink-mute: #4a4a4a;
+    --ink-dim: #7a7a7a;
+    --rule: #d9d2c5;
+    --accent: #3a5a40;
+    --serif: 'Source Serif 4', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
+    --sans: 'Inter', 'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, sans-serif;
+    --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--rule); }
+  a:hover { text-decoration-color: var(--ink); color: var(--accent); }
+  code, .mono { font-family: var(--mono); font-size: 0.88em; background: var(--paper-sunk); padding: 1px 5px; border-radius: 2px; }
+  ::selection { background: #f5e4b7; color: var(--ink); }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 28px; }
+  .wrap-wide { max-width: 920px; margin: 0 auto; padding: 0 28px; }
+
+  /* Masthead — sentence-case, two-line. Mirrors broadsheet feel. */
+  .masthead { padding: 80px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 64px; }
+  .masthead .kicker { font-family: var(--mono); font-size: 11.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 14px; }
+  .masthead h1 { font-family: var(--serif); font-weight: 600; font-size: 44px; line-height: 1.12; letter-spacing: -0.01em; margin: 0 0 14px; max-width: 22ch; }
+  .masthead .standfirst { font-family: var(--serif); font-style: italic; font-size: 21px; line-height: 1.45; color: var(--ink-mute); max-width: 50ch; margin: 0 0 22px; }
+  .masthead .byline { font-size: 13px; color: var(--ink-dim); }
+  .masthead .byline a { color: var(--ink-dim); }
+
+  /* Each section is one hero, full container width, generous vertical rhythm. */
+  section.figure { padding: 0 0 96px; }
+  section.figure .lede { font-family: var(--serif); font-size: 22px; line-height: 1.45; color: var(--ink); margin: 0 0 38px; max-width: 38ch; }
+  section.figure .lede em { font-style: italic; }
+  section.figure figure { margin: 0; }
+  section.figure .frame {
+    background: var(--paper-sunk);
+    border: 1px solid var(--rule);
+    padding: 0;
+    margin: 0 0 22px;
+  }
+  section.figure .frame img,
+  section.figure .frame object { display: block; width: 100%; height: auto; }
+  section.figure h2 { font-family: var(--serif); font-weight: 600; font-size: 28px; line-height: 1.18; margin: 0 0 8px; letter-spacing: -0.005em; }
+  section.figure .dek { font-family: var(--serif); font-style: italic; font-size: 18px; line-height: 1.45; color: var(--ink-mute); margin: 0 0 26px; max-width: 42ch; }
+  section.figure p { margin: 0 0 18px; max-width: 60ch; }
+  section.figure .caption { font-size: 13px; color: var(--ink-dim); border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 22px; max-width: 60ch; }
+  section.figure .caption b { color: var(--ink); font-weight: 600; }
+  section.figure .source { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); margin-top: 6px; }
+  section.figure .source a { color: var(--ink-dim); text-decoration-color: var(--rule); }
+
+  /* Trio — three cities, stacked on mobile, three across on wide. */
+  .trio { display: grid; gap: 32px; grid-template-columns: 1fr; }
+  @media (min-width: 900px) { .trio { grid-template-columns: repeat(3, 1fr); gap: 28px; } }
+  .trio figure { margin: 0; }
+  .trio h3 { font-family: var(--serif); font-weight: 600; font-size: 20px; margin: 14px 0 4px; }
+  .trio .dek { font-family: var(--serif); font-style: italic; font-size: 14.5px; color: var(--ink-mute); margin: 0 0 12px; }
+  .trio .source { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+
+  /* Worked example — terminal-feeling but quiet. Cream paper, mono. */
+  .worked {
+    background: var(--paper-sunk);
+    border: 1px solid var(--rule);
+    padding: 22px 24px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0 0 22px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--ink);
+  }
+  .worked .sh { color: var(--accent); }
+  .worked .k { color: var(--ink-mute); }
+  .worked .v { color: var(--ink); }
+  .worked .cid { color: #8a6500; }
+
+  /* Section rule + section number. */
+  .rule { height: 1px; background: var(--rule); border: 0; margin: 0 0 64px; }
+  .secnum { font-family: var(--mono); font-size: 11.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 14px; }
+
+  /* Footer. */
+  footer { border-top: 1px solid var(--rule); margin-top: 80px; padding: 36px 0 64px; color: var(--ink-dim); font-size: 13.5px; }
+  footer p { margin: 0 0 8px; }
+  footer a { color: var(--ink-dim); }
+  footer .pubkey { font-family: var(--mono); font-size: 11.5px; }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .wrap, .wrap-wide { padding: 0 22px; }
+    .masthead { padding-top: 56px; }
+    .masthead h1 { font-size: 32px; }
+    .masthead .standfirst { font-size: 18px; }
+    section.figure { padding-bottom: 64px; }
+    section.figure h2 { font-size: 24px; }
+    section.figure .lede { font-size: 19px; }
+    section.figure .dek { font-size: 16.5px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap-wide">
+  <header class="masthead">
+    <p class="kicker">emem.dev · gallery · 2026</p>
+    <h1>A handful of figures, each one signed</h1>
+    <p class="standfirst">Six small maps and one global one, rendered just now by the
+       emem.dev responder. Every visible pixel is a fact you can fetch by its content ID,
+       verify with an off-the-shelf ed25519 library, and quote back without trusting us.</p>
+    <p class="byline">Read time ≈ 6 min · last refresh shown in each figure's source line · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
+  </header>
+</div>
+
+<main class="wrap-wide">
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="figure" id="coverage">
+    <p class="secnum">Section 1 · Coverage</p>
+    <p class="lede">We start with the simplest question. <em>Where do we already know
+       anything?</em> The map below is the corpus on this responder, drawn one cell per
+       attested place.</p>
+
+    <figure>
+      <div class="frame">
+        <img src="/v1/coverage_map.svg" alt="Global map showing attested cells across continents" loading="eager"/>
+      </div>
+      <h2>The corpus, plotted on a flat Earth</h2>
+      <p class="dek">A plate-carrée projection of every cell with at least one signed
+        fact. Cool tiles are sparsely-sampled places; warm tiles are dense ones.</p>
+      <p>The dots cluster where the lazy materialiser has been busy — typically
+         where the first agent asked for a recall and the responder fetched the
+         underlying tile, signed it as a Primary attestation, and persisted the
+         result. Every miss anywhere on the globe extends the map forward by
+         exactly one cell.</p>
+      <p>The map is drawn live: it updates as new facts come in. The same
+         renderer answers an MCP <code>emem_coverage_map</code> call as an
+         <code>EmbeddedResource</code> block and a plain
+         <code>GET&nbsp;/v1/coverage_map.svg</code> request as bare SVG.</p>
+      <p class="caption">
+        <b>How to read it.</b> Each 4×4-pixel rectangle is one cell64
+        (~9.55&nbsp;m square at the equator) that the responder has been asked
+        about. Grid lines are every 30°. The corpus is open — pull a fact and
+        verify with <code>POST&nbsp;/v1/verify_receipt</code> or run the math
+        yourself.
+      </p>
+      <p class="source">
+        emem.dev · <code>/v1/coverage_map.svg</code> · refreshes every 5 min ·
+        <a href="/v1/coverage_matrix">coverage matrix (JSON)</a>
+      </p>
+    </figure>
+  </section>
+
+  <hr class="rule"/>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="figure" id="elevation-trio">
+    <p class="secnum">Section 2 · Three cities, one band</p>
+    <p class="lede">Now the smallest interesting case: one scalar key,
+       <code>copdem30m.elevation_mean</code>, painted across three coastal
+       cities at 1&nbsp;km resolution. The point isn't pretty cartography. The
+       point is that you can paste any of these URLs into a colleague's chat
+       and they'll see exactly the same bytes.</p>
+
+    <div class="trio">
+
+      <figure>
+        <div class="frame">
+          <a href="/v1/places/scene_overlay.svg?place=Mumbai&amp;band=copdem30m.elevation_mean&amp;n_cells=64">
+            <img src="/v1/places/scene_overlay.svg?place=Mumbai&amp;band=copdem30m.elevation_mean&amp;n_cells=64" alt="Mumbai elevation map" loading="lazy"/>
+          </a>
+        </div>
+        <h3>Mumbai, harbour to hills</h3>
+        <p class="dek">Two metres at the salt pans of Vasai, a hundred-plus
+           where the Sahyadri foothills meet the airport.</p>
+        <p class="source">Copernicus DEM GLO-30 · 64 cells</p>
+      </figure>
+
+      <figure>
+        <div class="frame">
+          <a href="/v1/places/scene_overlay.svg?place=Manhattan&amp;band=copdem30m.elevation_mean&amp;n_cells=64">
+            <img src="/v1/places/scene_overlay.svg?place=Manhattan&amp;band=copdem30m.elevation_mean&amp;n_cells=64" alt="Manhattan elevation map" loading="lazy"/>
+          </a>
+        </div>
+        <h3>Manhattan's quiet spine</h3>
+        <p class="dek">The ridge from Inwood through Morningside Heights and
+           Central Park — bedrock first, avenues second.</p>
+        <p class="source">Copernicus DEM GLO-30 · 64 cells</p>
+      </figure>
+
+      <figure>
+        <div class="frame">
+          <a href="/v1/places/scene_overlay.svg?place=Tokyo&amp;band=copdem30m.elevation_mean&amp;n_cells=64">
+            <img src="/v1/places/scene_overlay.svg?place=Tokyo&amp;band=copdem30m.elevation_mean&amp;n_cells=64" alt="Tokyo elevation map" loading="lazy"/>
+          </a>
+        </div>
+        <h3>Tokyo, sea level out west</h3>
+        <p class="dek">Sumida and Arakawa lowlands at zero metres; Yamanote
+           plateau and Tama foothills carry the rails to the mountains.</p>
+        <p class="source">Copernicus DEM GLO-30 · 64 cells</p>
+      </figure>
+
+    </div>
+
+    <p class="caption" style="margin-top:32px;">
+      <b>What the colour means.</b> A five-stop terrain ramp from cream (low
+      elevation) to deep forest (high). The legend in each figure carries the
+      actual range in metres so the same hue means different absolute heights
+      in different places. <b>Why squares.</b> Each tile is one of an
+      8×8 grid of cell64 samples covering the city's bounding box; the
+      responder geocodes the place, walks the grid, recalls each cell, and
+      paints. <b>Latency.</b> Cold ~3&nbsp;s (first agent pays the
+      materialiser cost); warm ~150&nbsp;ms.
+    </p>
+  </section>
+
+  <hr class="rule"/>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="figure" id="trace">
+    <p class="secnum">Section 3 · A worked answer</p>
+    <p class="lede">The point of signing isn't the math. The point is what you
+       can paste into a chat and have someone else replay.</p>
+
+    <h2>Question → bytes → receipt</h2>
+    <p class="dek">Five lines. One agent asks; another agent verifies.</p>
+
+    <pre class="worked"><span class="sh">$ </span>curl -sS https://emem.dev/v1/elevation?lat=19.0760&amp;lng=72.8777
+
+<span class="k">{
+  </span>"value":         <span class="v">14.0,</span><span class="k">
+  </span>"unit":          <span class="v">"m_msl",</span><span class="k">
+  </span>"source":        <span class="v">"copdem30m",</span><span class="k">
+  </span>"fact_cid":      <span class="cid">"bafy2bzaceaqxfn4obg3orodvm6ws3lnxv5fbzqbtku2c3ye2pjp7zkx2cmpbg",</span><span class="k">
+  </span>"receipt": {
+    "responder":      <span class="v">"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",</span>
+    <span class="k">"signature":      </span><span class="v">"…64 bytes ed25519…",</span><span class="k">
+    "served_at":      </span><span class="v">"2026-05-14T05:51:12Z",</span><span class="k">
+    "merkle_proof":   </span><span class="v">"…6 sibling hashes…"</span><span class="k">
+  }
+}</span></pre>
+
+    <p>The agent that received this response now has three things: a number
+       (<code>14 m above mean sea level at South Mumbai</code>), a 64-byte
+       proof, and a 26-character handle. The handle is the fact CID. Anyone
+       with the handle can re-run the math:</p>
+
+    <pre class="worked"><span class="sh">$ </span>curl https://emem.dev/v1/facts/bafy2bzaceaqxfn4obg3orodvm6ws3lnxv5fbzqbtku2c3ye2pjp7zkx2cmpbg
+
+<span class="k"># or, with no callback at all:</span>
+<span class="sh">$ </span>node verify_offline.js receipt.json pubkey.b32
+<span class="v">verified: signature checks against responder 777er3yihg…</span></pre>
+
+    <p>The signing key is <code>/.well-known/emem.json</code>. The verifier
+       lives at <a href="/verify">/verify</a> — open it, paste a fact CID,
+       watch <code>@noble/curves</code> recompute the signature inside the
+       browser tab. No callback to the issuer.</p>
+    <p class="caption">
+      <b>Why this matters.</b> Two LLM agents disagreeing about whether South
+      Mumbai is 14&nbsp;m or 4&nbsp;m can point at the CID and stop arguing.
+      Two insurance underwriters disagreeing about whether a parcel is in the
+      flood plain can do the same. The CID is the citation.
+    </p>
+  </section>
+
+  <hr class="rule"/>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="figure" id="diagrams">
+    <p class="secnum">Section 4 · The protocol, drawn</p>
+    <p class="lede">If the live figures hold up, the next question is how the
+       sausage is made. The drawings live in their own gallery — open the
+       suite at <a href="/docs/diagrams/">/docs/diagrams</a>.</p>
+
+    <h2>Thirty-two figures, ten on the protocol</h2>
+    <p class="dek">Architecture, address algebra, the trust plane, twenty
+       industry deployments, two on the encoder split.</p>
+    <p>The drawings are independent of the live data. They render in any
+       browser, embed cleanly in slide decks, and stay byte-stable across
+       deploys — the SVGs are pinned by the binary, not regenerated per
+       request. Reach for one when a colleague asks
+       <em>"wait, how does the receipt prove anything?"</em> (figure 10) or
+       <em>"why a memory, not a catalog?"</em> (figure 6).</p>
+    <p style="margin-top: 24px;">
+      <a href="/docs/diagrams/" style="font-family: var(--serif); font-style: italic; font-size: 18px;">
+        Read the suite →
+      </a>
+    </p>
+  </section>
+
+</main>
+
+<footer class="wrap-wide">
+  <p>
+    Rendered live by the <a href="/">emem.dev</a> responder ·
+    pubkey <span class="pubkey">777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka</span> ·
+    open data, signed at the edge
+  </p>
+  <p>
+    <a href="/whitepaper.md">whitepaper</a> ·
+    <a href="/spec.md">protocol</a> ·
+    <a href="/agents.md">for agents</a> ·
+    <a href="/humans">for humans</a> ·
+    <a href="/verify">verify a receipt</a> ·
+    <a href="https://github.com/Vortx-AI/emem">source</a>
+  </p>
+</footer>
+
+</body>
+</html>

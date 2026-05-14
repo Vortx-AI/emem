@@ -15,4 +15,10 @@
   <url><loc>https://emem.dev/privacy</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>https://emem.dev/terms</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>https://emem.dev/support</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://emem.dev/docs/gallery</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/diagrams/</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/whitepaper.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/spec.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/humans</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/verify</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
 </urlset>

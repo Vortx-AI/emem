@@ -35,6 +35,9 @@ This document specifies the math and architecture that 0.0.6 ships.
 Items not in 0.0.6 are listed under "Honest limits" and not discussed
 elsewhere.
 
+![emem architecture — one Rust binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
+*Figure 1 — the entire stack. REST and MCP share handlers; sled holds the hot cache, the append-only Merkle log holds the trust state. Open the SVG for the labelled variant.*
+
 ---
 
 ## 1. Motivation
@@ -64,6 +67,9 @@ registries without changing the primitive surface.
 
 A cell64 is a 64-bit packed identifier for a square lat/lng bucket on
 WGS-84. The encoding lives in `crates/emem-codec/src/geo.rs`.
+
+![cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID](/docs/diagrams/09-address-algebra.svg)
+*Figure 2 — address algebra. Three integers become one 26-character handle the rest of the protocol cites.*
 
 ### 2.1 Bit layout
 
@@ -223,6 +229,9 @@ padding-free, and has no slash collisions inside path segments.
 ---
 
 ## 5. Trust: receipts, attestations, in-browser verification
+
+![receipt preimage → ed25519 signature → merkle path → offline verify](/docs/diagrams/10-trust-plane.svg)
+*Figure 3 — the trust plane. Five steps to accept a fact without ever calling the issuer back. The `/verify` page recomputes these in the browser using `@noble/curves`.*
 
 ### 5.1 Receipt anatomy
 

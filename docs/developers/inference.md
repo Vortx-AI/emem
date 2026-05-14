@@ -14,6 +14,9 @@ instead of crashing the API. The Rust caller's fallback path is wired
 for the closed-form solvers and for JEPA v2's untrained short-circuit;
 for the ViT-scale encoders there is no in-process CPU rerun.
 
+![encoders in orbit, decoders on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
+*The split that lets a 300-million-parameter encoder serve a 200-character agent reply: the heavy lift happens once per cell, the agent calls the decoded vector by CID.*
+
 ## Process topology
 
 ```

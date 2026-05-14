@@ -138,6 +138,145 @@ const LOGO_600W_PNG: &[u8] = include_bytes!("../../../web/logo-600w.png");
 const LOGO_1200W_PNG: &[u8] = include_bytes!("../../../web/logo-1200w.png");
 const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
+const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
+
+/// Static lookup table for the 33 protocol + industry diagrams that ship
+/// in `docs/diagrams/`. The slug is the literal filename; the body is the
+/// SVG itself (each is 4-32 KB). Linear-search lookup is fine at 34
+/// entries — the binary cost (~380 KB) buys self-contained docs, and any
+/// agent that fetches `/docs/diagrams/<name>.svg` over the wire gets the
+/// exact bytes the index.html displays.
+const DOCS_DIAGRAMS_INDEX_HTML: &str = include_str!("../../../docs/diagrams/index.html");
+const DOCS_DIAGRAMS: &[(&str, &str)] = &[
+    (
+        "01-architecture.svg",
+        include_str!("../../../docs/diagrams/01-architecture.svg"),
+    ),
+    (
+        "02-data-flow.svg",
+        include_str!("../../../docs/diagrams/02-data-flow.svg"),
+    ),
+    (
+        "03-anatomy-of-a-request.svg",
+        include_str!("../../../docs/diagrams/03-anatomy-of-a-request.svg"),
+    ),
+    (
+        "04-agent-loop.svg",
+        include_str!("../../../docs/diagrams/04-agent-loop.svg"),
+    ),
+    (
+        "05-fact-to-reasoning.svg",
+        include_str!("../../../docs/diagrams/05-fact-to-reasoning.svg"),
+    ),
+    (
+        "06-memory-vs-stac.svg",
+        include_str!("../../../docs/diagrams/06-memory-vs-stac.svg"),
+    ),
+    (
+        "07-cite-economy.svg",
+        include_str!("../../../docs/diagrams/07-cite-economy.svg"),
+    ),
+    (
+        "08-decentralised.svg",
+        include_str!("../../../docs/diagrams/08-decentralised.svg"),
+    ),
+    (
+        "09-address-algebra.svg",
+        include_str!("../../../docs/diagrams/09-address-algebra.svg"),
+    ),
+    (
+        "10-trust-plane.svg",
+        include_str!("../../../docs/diagrams/10-trust-plane.svg"),
+    ),
+    (
+        "11-insurance-pc.svg",
+        include_str!("../../../docs/diagrams/11-insurance-pc.svg"),
+    ),
+    (
+        "12-reinsurance-cat.svg",
+        include_str!("../../../docs/diagrams/12-reinsurance-cat.svg"),
+    ),
+    (
+        "13-parametric-insurance.svg",
+        include_str!("../../../docs/diagrams/13-parametric-insurance.svg"),
+    ),
+    (
+        "14-csrd-disclosure.svg",
+        include_str!("../../../docs/diagrams/14-csrd-disclosure.svg"),
+    ),
+    (
+        "15-defense-geoint.svg",
+        include_str!("../../../docs/diagrams/15-defense-geoint.svg"),
+    ),
+    (
+        "16-disaster-response.svg",
+        include_str!("../../../docs/diagrams/16-disaster-response.svg"),
+    ),
+    (
+        "17-urban-planning.svg",
+        include_str!("../../../docs/diagrams/17-urban-planning.svg"),
+    ),
+    (
+        "18-land-registry.svg",
+        include_str!("../../../docs/diagrams/18-land-registry.svg"),
+    ),
+    (
+        "19-esg-investing.svg",
+        include_str!("../../../docs/diagrams/19-esg-investing.svg"),
+    ),
+    (
+        "20-carbon-mrv.svg",
+        include_str!("../../../docs/diagrams/20-carbon-mrv.svg"),
+    ),
+    (
+        "21-commodity-trading.svg",
+        include_str!("../../../docs/diagrams/21-commodity-trading.svg"),
+    ),
+    (
+        "22-real-estate.svg",
+        include_str!("../../../docs/diagrams/22-real-estate.svg"),
+    ),
+    (
+        "23-mining-exploration.svg",
+        include_str!("../../../docs/diagrams/23-mining-exploration.svg"),
+    ),
+    (
+        "24-pipeline-monitoring.svg",
+        include_str!("../../../docs/diagrams/24-pipeline-monitoring.svg"),
+    ),
+    (
+        "25-renewable-siting.svg",
+        include_str!("../../../docs/diagrams/25-renewable-siting.svg"),
+    ),
+    (
+        "26-grid-resilience.svg",
+        include_str!("../../../docs/diagrams/26-grid-resilience.svg"),
+    ),
+    (
+        "27-precision-agriculture.svg",
+        include_str!("../../../docs/diagrams/27-precision-agriculture.svg"),
+    ),
+    (
+        "28-forestry-timber.svg",
+        include_str!("../../../docs/diagrams/28-forestry-timber.svg"),
+    ),
+    (
+        "29-eudr-supply-chain.svg",
+        include_str!("../../../docs/diagrams/29-eudr-supply-chain.svg"),
+    ),
+    (
+        "30-maritime-ports.svg",
+        include_str!("../../../docs/diagrams/30-maritime-ports.svg"),
+    ),
+    (
+        "31-encoders-in-orbit-decoders-on-ground.svg",
+        include_str!("../../../docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg"),
+    ),
+    (
+        "33-fusion-orbit-and-ground.svg",
+        include_str!("../../../docs/diagrams/33-fusion-orbit-and-ground.svg"),
+    ),
+];
 
 const EXAMPLE_CLAUDE_DESKTOP: &str = include_str!("../../../examples/claude-desktop.json");
 const EXAMPLE_CLAUDE_CODE: &str = include_str!("../../../examples/claude-code.mcp.json");
@@ -352,6 +491,15 @@ pub fn router(state: AppState) -> Router {
         .route("/spec.md", get(serve_spec_md))
         .route("/clients", get(serve_clients_md))
         .route("/clients.md", get(serve_clients_md))
+        // Visual gallery — live scenes, coverage map, 32 diagrams. Both
+        // /docs/gallery (canonical) and /gallery (short link) resolve.
+        .route("/docs/gallery", get(serve_gallery_html))
+        .route("/gallery", get(serve_gallery_html))
+        // Protocol + industry diagrams suite. Same HTML at both paths so
+        // a missing trailing slash still works.
+        .route("/docs/diagrams", get(serve_docs_diagrams_index))
+        .route("/docs/diagrams/", get(serve_docs_diagrams_index))
+        .route("/docs/diagrams/:name", get(serve_docs_diagram))
         .route("/multimodal", get(serve_multimodal_md))
         .route("/multimodal.md", get(serve_multimodal_md))
         .route("/llms.txt", get(serve_llms_txt))
@@ -740,6 +888,13 @@ async fn cors_layer(
 // values reflect how often the response actually changes.
 
 fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
+    // The thirty-two diagrams are bytes-equivalent across deploys (the
+    // file names embed the version implicitly via the build pin); a long
+    // cache is correct and an embed-anywhere page only pays the network
+    // cost once.
+    if path.starts_with("/docs/diagrams/") && path.ends_with(".svg") {
+        return Some("public, max-age=86400, immutable");
+    }
     match path {
         // Homepage + agent.json are build-pinned static surfaces; cache
         // them like the other static introspection responses so a fresh
@@ -770,6 +925,10 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/clients.md"
         | "/multimodal"
         | "/multimodal.md"
+        | "/gallery"
+        | "/docs/gallery"
+        | "/docs/diagrams"
+        | "/docs/diagrams/"
         | "/llms.txt"
         | "/llms-full.txt"
         | "/attesting.md"
@@ -1406,6 +1565,44 @@ async fn serve_spec_md() -> Response {
 }
 async fn serve_clients_md() -> Response {
     text_response("text/markdown; charset=utf-8", CLIENTS_MD)
+}
+
+/// `/docs/gallery` — visual gallery combining live-rendered scenes,
+/// the global coverage map, and the thirty-two protocol/industry
+/// diagrams. The page is self-contained HTML; every image embedded in
+/// the page is a URL on this responder (so right-clicking → "open
+/// image in new tab" produces a permalink that any other emem agent
+/// can fetch and verify).
+async fn serve_gallery_html() -> Response {
+    text_response("text/html; charset=utf-8", GALLERY_HTML)
+}
+
+/// `/docs/diagrams/` and `/docs/diagrams` — the diagrams suite index.
+/// Same HTML answers both paths so the relative `<object data="…">`
+/// references inside the page resolve correctly when the page is
+/// reached without a trailing slash (browsers resolve against the
+/// directory of the current URL; the page's own absolute links keep
+/// it portable for GitHub Pages).
+async fn serve_docs_diagrams_index() -> Response {
+    text_response("text/html; charset=utf-8", DOCS_DIAGRAMS_INDEX_HTML)
+}
+
+/// `/docs/diagrams/<name>.svg` — one of the thirty-two SVGs from the
+/// suite. Slug must match the file name verbatim (e.g.
+/// `01-architecture.svg`). Returns 404 with a short reason if the slug
+/// is unknown — keeps agents from guessing at filenames silently.
+async fn serve_docs_diagram(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
+    for (slug, body) in DOCS_DIAGRAMS {
+        if *slug == name.as_str() {
+            return text_response("image/svg+xml; charset=utf-8", body);
+        }
+    }
+    let body = format!("diagram not found: {name}\nsee /docs/diagrams/ for the full list\n");
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(axum::body::Body::from(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 async fn serve_multimodal_md() -> Response {
     text_response("text/markdown; charset=utf-8", MULTIMODAL_MD)
@@ -5377,7 +5574,9 @@ async fn get_places_scene_overlay_svg(
         (*s.first().unwrap(), *s.last().unwrap())
     };
 
-    // SVG canvas. Default 512x512; preserve bbox aspect ratio.
+    // SVG canvas. Editorial proportions: 720 × bbox-derived height,
+    // with a fixed 96 px caption block at the bottom so headlines have
+    // breathing room. The map area sits above the caption.
     let (bbox_w_deg, bbox_h_deg) = (
         polygon.bbox.3 - polygon.bbox.2,
         polygon.bbox.1 - polygon.bbox.0,
@@ -5387,58 +5586,113 @@ async fn get_places_scene_overlay_svg(
     } else {
         1.0
     };
-    let w = q.width.unwrap_or(512).clamp(64, 2048);
+    let w = q.width.unwrap_or(720).clamp(64, 2048);
+    let map_pad_top = 56u32; // headline + dek
+    let map_pad_bot = 84u32; // legend + scale bar + source line
+    let map_h_est = ((w as f64) / aspect.max(0.1)).round() as u32;
+    let map_h = map_h_est.clamp(220, 720);
     let h = q
         .height
-        .unwrap_or(((w as f64) / aspect.max(0.1)).round() as u32)
+        .unwrap_or(map_h + map_pad_top + map_pad_bot)
         .clamp(64, 2048);
+    let map_h = h.saturating_sub(map_pad_top).saturating_sub(map_pad_bot);
 
+    // Map-area projection (lat/lng → svg px). Map sits between
+    // [map_pad_top .. h - map_pad_bot] vertically and [0..w] horizontally.
     let project = |lat: f64, lng: f64| -> (f64, f64) {
         let x = ((lng - polygon.bbox.2) / bbox_w_deg.max(1e-9)) * (w as f64);
-        let y = (1.0 - (lat - polygon.bbox.0) / bbox_h_deg.max(1e-9)) * (h as f64);
+        let y = (map_pad_top as f64)
+            + (1.0 - (lat - polygon.bbox.0) / bbox_h_deg.max(1e-9)) * (map_h as f64);
         (x, y)
     };
 
-    let mut svg = String::with_capacity(8192);
+    // Each cell in `polygon.sample_cells` is the centre of one tile in
+    // an `n_side × n_side` grid covering the bbox (see
+    // `sample_cells_in_bbox`). Render each as a true tile of that grid,
+    // not as its native ~9.55 m cell64 footprint — otherwise 64 cells
+    // over a 0.2° bbox paint as invisible 0.23 px specks at 720 px.
+    let n_side = (cells.len() as f64).sqrt().ceil().max(1.0);
+    let tile_w_px = (w as f64) / n_side;
+    let tile_h_px = (map_h as f64) / n_side;
+
+    // Detect band family for a meaning-led palette. Falls back to a
+    // muted Viridis variant for unrecognised bands. Picked to read on
+    // a paper-white background, not on neon dark.
+    let ramp = ramp_for_band(&q.band);
+
+    let safe_place = html_escape_min(&humanise_place_label(
+        polygon.place_label.as_deref().unwrap_or(&q.place),
+    ));
+    let safe_band = q.band.replace('&', "&amp;").replace('<', "&lt;");
+
+    let mut svg = String::with_capacity(16384);
     svg.push_str(&format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">
-  <title>{} — {}</title>
-  <desc>emem.dev value-painted polygon overlay; band={}, n_cells={}, vmin={:.4}, vmax={:.4}</desc>
-  <rect width="{w}" height="{h}" fill="#0b0d12"/>
+  <title>{safe_place} — {safe_band}</title>
+  <desc>emem.dev value-painted bbox grid; band={safe_band}, n_cells={ncells}, range=[{vmin:.2}, {vmax:.2}].</desc>
+  <defs>
+    <style>
+      .h1 {{ font-family: 'Source Serif 4','Source Serif Pro','Georgia',serif; font-weight: 600; font-size: 21px; fill: #1a1a1a; }}
+      .dek {{ font-family: 'Source Serif 4','Source Serif Pro','Georgia',serif; font-style: italic; font-size: 13px; fill: #4a4a4a; }}
+      .lbl {{ font-family: 'Inter','Public Sans',ui-sans-serif,system-ui,sans-serif; font-size: 11px; fill: #4a4a4a; }}
+      .src {{ font-family: 'Inter','Public Sans',ui-sans-serif,system-ui,sans-serif; font-size: 10.5px; fill: #7a7a7a; }}
+      .mono {{ font-family: 'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace; font-size: 10.5px; fill: #7a7a7a; }}
+    </style>
+  </defs>
+  <rect width="{w}" height="{h}" fill="#faf7f2"/>
 "##,
-        polygon
-            .place_label
-            .as_deref()
-            .unwrap_or(&q.place)
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('&', "&amp;"),
-        q.band,
-        q.band,
-        cells.len(),
-        vmin,
-        vmax,
+        ncells = cells.len(),
     ));
 
-    // Per-cell rectangles, viridis-mapped fill.
+    // Headline + dek. Title uses the place label; dek narrates the band
+    // and the value range in human units (m, °C, ratio, etc).
+    let band_human = band_human_label(&q.band);
+    let units = band_units_label(&q.band);
+    let dek = if vmin.is_finite() && vmax.is_finite() && vmax > vmin {
+        format!(
+            "{} per cell · {:.0} – {:.0} {}",
+            band_human, vmin, vmax, units
+        )
+    } else {
+        format!("{} per cell", band_human)
+    };
+    svg.push_str(&format!(
+        r##"  <text x="22" y="34" class="h1">{safe_place}</text>
+  <text x="22" y="50" class="dek">{}</text>
+"##,
+        html_escape_min(&dek),
+    ));
+
+    // Map frame — a hairline rule, paper background already laid down.
+    svg.push_str(&format!(
+        r##"  <rect x="0" y="{ytop}" width="{w}" height="{mh}" fill="#f3ede2"/>
+"##,
+        ytop = map_pad_top,
+        mh = map_h,
+    ));
+
+    // Per-cell tiles. Each centred on its lat/lng with the grid tile
+    // size. Stroke is the same off-white as the map background so cells
+    // read as filled squares without harsh borders.
     for (cell, val) in &per_cell {
         let cb = match emem_codec::latlng_from_cell64(cell) {
             Ok(ll) => ll.bbox_deg,
             Err(_) => continue,
         };
-        let (x0, y1) = project(cb.max_lat, cb.min_lng);
-        let (x1, y0) = project(cb.min_lat, cb.max_lng);
-        let cw = (x1 - x0).abs().max(1.0);
-        let ch = (y1 - y0).abs().max(1.0);
+        let cx_deg = (cb.min_lat + cb.max_lat) / 2.0;
+        let cy_deg = (cb.min_lng + cb.max_lng) / 2.0;
+        let (px, py) = project(cx_deg, cy_deg);
+        let x0 = px - tile_w_px / 2.0;
+        let y0 = py - tile_h_px / 2.0;
         let scalar = val.as_ref().and_then(scalar_for_overlay);
         let fill = match scalar {
             Some(v) if v.is_finite() && vmax > vmin => {
                 let t = ((v - vmin) / (vmax - vmin)).clamp(0.0, 1.0);
-                viridis_hex(t)
+                ramp_sample(ramp, t)
             }
-            Some(_) => "#444".to_string(),
-            None => "#222".to_string(),
+            Some(_) => "#d9d2c5".to_string(),
+            None => "#ebe6da".to_string(),
         };
         let value_label = match val {
             Some(JsonValue::Number(n)) => n.to_string(),
@@ -5446,44 +5700,97 @@ async fn get_places_scene_overlay_svg(
             Some(JsonValue::Null) | None => "absence".to_string(),
             Some(other) => other.to_string(),
         };
-        // Title carries the cell64 + recalled value so a hover tooltip
-        // in any standards-compliant SVG viewer (browsers, geojson.io,
-        // Mapbox vector layers) reveals the per-cell datum without
-        // needing a second call. Use a literal " | " separator — SVG
-        // <title> renders text-only with no newline expansion.
         svg.push_str(&format!(
-            r##"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}" stroke="#0b0d12" stroke-width="0.5"><title>{} | value: {}</title></rect>
+            r##"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}" stroke="#faf7f2" stroke-width="0.4"><title>{} · {}</title></rect>
 "##,
-            x0, y0, cw, ch, fill, cell, value_label,
+            x0, y0, tile_w_px, tile_h_px, fill, cell, value_label,
         ));
     }
 
-    // Outer bbox outline.
+    // Hairline rule at the bottom of the map.
     svg.push_str(&format!(
-        r##"  <rect x="0" y="0" width="{w}" height="{h}" fill="none" stroke="#7af" stroke-width="2"/>
-"##
+        r##"  <line x1="0" y1="{y}" x2="{w}" y2="{y}" stroke="#d9d2c5" stroke-width="1"/>
+"##,
+        y = map_pad_top + map_h,
     ));
 
-    // Caption strip.
-    let caption = polygon
-        .place_label
-        .as_deref()
-        .unwrap_or(&q.place)
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('&', "&amp;");
-    let strip_h = 36u32;
+    // Legend strip — horizontal colour ramp with min/mid/max labels and
+    // unit suffix. Placed in the caption band, left-aligned.
+    let legend_y = (h.saturating_sub(map_pad_bot)) + 18;
+    let legend_x = 22u32;
+    let legend_w = 220u32;
+    let legend_h = 8u32;
+    let grad_id = "ramp_grad";
     svg.push_str(&format!(
-        r##"  <rect x="0" y="{}" width="{w}" height="{strip_h}" fill="#0b0d12" opacity="0.85"/>
-  <text x="8" y="{}" fill="#eaecef" font-family="Inter, ui-sans-serif, system-ui" font-size="12">{}  ·  {}  ·  n={}  ·  [{:.4}, {:.4}]</text>
+        r##"  <defs><linearGradient id="{grad_id}" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="{c0}"/>
+    <stop offset="25%" stop-color="{c25}"/>
+    <stop offset="50%" stop-color="{c50}"/>
+    <stop offset="75%" stop-color="{c75}"/>
+    <stop offset="100%" stop-color="{c100}"/>
+  </linearGradient></defs>
+  <rect x="{legend_x}" y="{legend_y}" width="{legend_w}" height="{legend_h}" fill="url(#{grad_id})"/>
+  <text x="{legend_x}" y="{ty1}" class="lbl">{vmin:.0}</text>
+  <text x="{tx2}" y="{ty1}" class="lbl" text-anchor="middle">{vmid:.0}</text>
+  <text x="{tx3}" y="{ty1}" class="lbl" text-anchor="end">{vmax:.0} {units}</text>
+  <text x="{legend_x}" y="{ty2}" class="lbl">{band_human}</text>
 "##,
-        h.saturating_sub(strip_h),
-        h.saturating_sub(12),
-        caption,
-        q.band,
-        nums.len(),
-        vmin,
-        vmax,
+        c0 = ramp_sample(ramp, 0.0),
+        c25 = ramp_sample(ramp, 0.25),
+        c50 = ramp_sample(ramp, 0.5),
+        c75 = ramp_sample(ramp, 0.75),
+        c100 = ramp_sample(ramp, 1.0),
+        ty1 = legend_y + legend_h + 14,
+        tx2 = legend_x + legend_w / 2,
+        tx3 = legend_x + legend_w,
+        ty2 = legend_y - 4,
+        vmid = (vmin + vmax) / 2.0,
+    ));
+
+    // Scale bar — approximate km at the bbox centre latitude. Placed to
+    // the right of the legend.
+    let centre_lat = (polygon.bbox.0 + polygon.bbox.1) / 2.0;
+    let km_per_deg_lng = 111.320 * centre_lat.to_radians().cos();
+    let bbox_km_w = bbox_w_deg.abs() * km_per_deg_lng;
+    // Pick a "nice" round km target: 1, 2, 5, 10, 20, 50, 100.
+    let target_km_options = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0];
+    let nice_km = *target_km_options
+        .iter()
+        .find(|&&k| k >= bbox_km_w / 6.0)
+        .unwrap_or(&50.0);
+    let scale_px = (nice_km / bbox_km_w.max(1e-6)) * (w as f64);
+    let scale_x0 = w.saturating_sub(scale_px.round() as u32 + 22);
+    svg.push_str(&format!(
+        r##"  <line x1="{x0}" y1="{y}" x2="{x1}" y2="{y}" stroke="#4a4a4a" stroke-width="1.2"/>
+  <line x1="{x0}" y1="{ya}" x2="{x0}" y2="{yb}" stroke="#4a4a4a" stroke-width="1.2"/>
+  <line x1="{x1}" y1="{ya}" x2="{x1}" y2="{yb}" stroke="#4a4a4a" stroke-width="1.2"/>
+  <text x="{tx}" y="{ty}" class="lbl" text-anchor="middle">{km:.0} km</text>
+"##,
+        x0 = scale_x0,
+        x1 = scale_x0 + scale_px.round() as u32,
+        y = legend_y + legend_h / 2,
+        ya = legend_y + legend_h / 2 - 4,
+        yb = legend_y + legend_h / 2 + 4,
+        tx = scale_x0 + (scale_px.round() as u32) / 2,
+        ty = legend_y - 4,
+        km = nice_km,
+    ));
+
+    // Source line — band, sample count, responder pubkey prefix. The
+    // ed25519 angle is the whole point; surface it.
+    let pk_prefix: String = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase()
+        .chars()
+        .take(10)
+        .collect();
+    svg.push_str(&format!(
+        r##"  <text x="22" y="{ty}" class="src"><tspan class="mono">{}</tspan> · {} sample cells · responder <tspan class="mono">{}…</tspan></text>
+"##,
+        html_escape_min(&q.band),
+        cells.len(),
+        pk_prefix,
+        ty = h.saturating_sub(14),
     ));
 
     svg.push_str("</svg>\n");
@@ -5511,9 +5818,348 @@ fn scalar_for_overlay(v: &JsonValue) -> Option<f64> {
     }
 }
 
+/// Band-family colour ramps tuned for paper-white backgrounds. Each
+/// ramp is a sequential ColorBrewer-style five-stop palette read at
+/// fractional positions by [`ramp_sample`]. The choice of ramp is
+/// driven by what the band semantically represents — elevation gets a
+/// terrain ramp (cream → green → brown), NDVI gets YlGn, temperatures
+/// get YlOrRd, water/precipitation gets YlGnBu — so a non-specialist
+/// can read the map without consulting the legend.
+#[derive(Clone, Copy)]
+enum Ramp {
+    /// Cream → olive → forest → deep green → brown. Elevation, slope.
+    Terrain,
+    /// Cream → green → deep green. Vegetation, NDVI, biomass.
+    YlGn,
+    /// Cream → yellow → orange → red → maroon. Temperature, heat.
+    YlOrRd,
+    /// Cream → cyan → blue → deep blue. Water, precipitation.
+    YlGnBu,
+    /// Cream → tan → brown → dark grey. Built area, density.
+    YlGyBr,
+    /// Light grey → dark grey, with warm highlight at top. Nightlights,
+    /// generic intensity where colour would mislead.
+    GreyWarm,
+}
+
+fn ramp_for_band(band: &str) -> Ramp {
+    if band.starts_with("copdem30m")
+        || band.starts_with("dem")
+        || band.starts_with("cop_dem")
+        || band.starts_with("topography")
+        || band.starts_with("terrain_derived")
+    {
+        Ramp::Terrain
+    } else if band.starts_with("indices.ndvi")
+        || band.starts_with("indices.ndre")
+        || band.starts_with("phenology")
+        || band.starts_with("vegetation")
+        || band.starts_with("forest")
+        || band.starts_with("mangrove")
+        || band.starts_with("landcover.tree")
+        || band.starts_with("landcover.grass")
+        || band.starts_with("landcover.crop")
+    {
+        Ramp::YlGn
+    } else if band.starts_with("modis.lst")
+        || band.starts_with("weather")
+        || band.starts_with("terraclimate.tmax")
+        || band.starts_with("terraclimate.tmin")
+        || band.starts_with("fire_")
+    {
+        Ramp::YlOrRd
+    } else if band.starts_with("chirps")
+        || band.starts_with("surface_water")
+        || band.starts_with("ocean")
+        || band.starts_with("water")
+        || band.starts_with("flood_")
+    {
+        Ramp::YlGnBu
+    } else if band.starts_with("ghsl")
+        || band.starts_with("population")
+        || band.starts_with("landcover.built")
+        || band.starts_with("admin")
+    {
+        Ramp::YlGyBr
+    } else if band.starts_with("nightlights") {
+        Ramp::GreyWarm
+    } else {
+        // Default to Terrain — calmer than viridis on paper, still
+        // sequential and perceptually uniform-ish.
+        Ramp::Terrain
+    }
+}
+
+fn ramp_stops(r: Ramp) -> [[u8; 3]; 5] {
+    match r {
+        Ramp::Terrain => [
+            [0xf7, 0xf4, 0xee], // paper cream
+            [0xe6, 0xd9, 0xb3], // sand
+            [0xa5, 0xbe, 0x7d], // olive
+            [0x5e, 0x7f, 0x4d], // forest
+            [0x3d, 0x4b, 0x2e], // deep forest
+        ],
+        Ramp::YlGn => [
+            [0xff, 0xff, 0xcc],
+            [0xc2, 0xe6, 0x99],
+            [0x78, 0xc6, 0x79],
+            [0x31, 0xa3, 0x54],
+            [0x00, 0x68, 0x37],
+        ],
+        Ramp::YlOrRd => [
+            [0xff, 0xff, 0xb2],
+            [0xfe, 0xcc, 0x5c],
+            [0xfd, 0x8d, 0x3c],
+            [0xf0, 0x3b, 0x20],
+            [0xbd, 0x00, 0x26],
+        ],
+        Ramp::YlGnBu => [
+            [0xff, 0xff, 0xcc],
+            [0xa1, 0xda, 0xb4],
+            [0x41, 0xb6, 0xc4],
+            [0x2c, 0x7f, 0xb8],
+            [0x25, 0x34, 0x94],
+        ],
+        Ramp::YlGyBr => [
+            [0xf5, 0xf0, 0xe6],
+            [0xd9, 0xc8, 0xa6],
+            [0xb0, 0x91, 0x60],
+            [0x6e, 0x55, 0x36],
+            [0x3a, 0x2c, 0x1e],
+        ],
+        Ramp::GreyWarm => [
+            [0xed, 0xea, 0xe3],
+            [0xb8, 0xb3, 0xa9],
+            [0x7a, 0x76, 0x6c],
+            [0x4a, 0x42, 0x35],
+            [0xc8, 0x86, 0x3a],
+        ],
+    }
+}
+
+fn ramp_sample(r: Ramp, t: f64) -> String {
+    let stops = ramp_stops(r);
+    let t = t.clamp(0.0, 1.0);
+    let scaled = t * (stops.len() as f64 - 1.0);
+    let lo = scaled.floor() as usize;
+    let hi = (lo + 1).min(stops.len() - 1);
+    let f = scaled - lo as f64;
+    let mix = |a: u8, b: u8| -> u8 {
+        ((a as f64) * (1.0 - f) + (b as f64) * f)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        mix(stops[lo][0], stops[hi][0]),
+        mix(stops[lo][1], stops[hi][1]),
+        mix(stops[lo][2], stops[hi][2]),
+    )
+}
+
+/// Plain-language label for a band key. Used in headlines and captions
+/// so a reader who never opened `/v1/bands` still gets the gist
+/// ("Elevation", "Vegetation greenness", "Land surface temperature").
+fn band_human_label(band: &str) -> &'static str {
+    match band {
+        b if b.starts_with("copdem30m.elevation") || b.starts_with("dem.elevation") => "Elevation",
+        b if b.starts_with("copdem30m.slope") || b.starts_with("dem.slope") => "Slope",
+        b if b.starts_with("copdem30m.aspect") || b.starts_with("dem.aspect") => "Aspect",
+        b if b.starts_with("indices.ndvi") => "NDVI (vegetation greenness)",
+        b if b.starts_with("indices.ndre") => "NDRE (red-edge vegetation)",
+        b if b.starts_with("indices.ndmi") => "NDMI (vegetation moisture)",
+        b if b.starts_with("modis.lst") => "Land surface temperature",
+        b if b.starts_with("chirps.precip") => "Rainfall",
+        b if b.starts_with("surface_water") => "Surface water",
+        b if b.starts_with("ghsl.built") => "Built-up surface",
+        b if b.starts_with("population") => "Population",
+        b if b.starts_with("nightlights") => "Night lights",
+        b if b.starts_with("landcover.tree") => "Tree cover",
+        b if b.starts_with("landcover.crop") => "Cropland share",
+        b if b.starts_with("landcover.built") => "Built share",
+        b if b.starts_with("landcover.water") => "Water share",
+        b if b.starts_with("forest_change") => "Forest change",
+        b if b.starts_with("cams.pm25") => "Air quality (PM2.5)",
+        b if b.starts_with("cams.no2") => "Air quality (NO₂)",
+        _ => "Value",
+    }
+}
+
+/// Unit suffix attached to legend max-label. Empty for indices and
+/// dimensionless shares; populated for elevation, temperature, etc.
+fn band_units_label(band: &str) -> &'static str {
+    match band {
+        b if b.contains("elevation") => "m",
+        b if b.contains("slope") => "°",
+        b if b.contains("aspect") => "°",
+        b if b.starts_with("modis.lst") => "°C",
+        b if b.starts_with("chirps.precip") => "mm",
+        b if b.starts_with("ghsl.built_surface") => "m²",
+        b if b.starts_with("ghsl.built_volume") => "m³",
+        b if b.starts_with("population.count") => "people",
+        b if b.starts_with("cams.pm25") => "µg/m³",
+        _ => "",
+    }
+}
+
+/// Convert a GeoNames-style place label into a reader-friendly form.
+/// GeoNames emits labels shaped like `"<name>, <admin> <country>"`
+/// where the trailing segment carries the admin-1 code (numeric for
+/// most countries, a US state pair for the US) and the ISO-3166 alpha-2
+/// country code separated by a single space. We keep the name, drop a
+/// purely numeric admin code, translate the country code to its short
+/// English name, and preserve a letter admin code (NY, CA, NSW) since
+/// those are widely recognised. Falls back to the original label if
+/// anything looks unexpected — never errors loudly in a render path.
+///
+/// Examples:
+///   "Mumbai, 16 IN"          → "Mumbai, India"
+///   "Tokyo, 40 JP"           → "Tokyo, Japan"
+///   "New York City, NY US"   → "New York City, NY, United States"
+///   "Lagos, 05 NG"           → "Lagos, Nigeria"
+fn humanise_place_label(label: &str) -> String {
+    let comma_idx = match label.rfind(',') {
+        Some(i) => i,
+        None => return label.to_string(),
+    };
+    let head = label[..comma_idx].trim();
+    let trailing = label[comma_idx + 1..].trim();
+    // Trailing segment is "<admin> <country>" with one space.
+    let mut admin: Option<&str> = None;
+    let country = if let Some(sp) = trailing.find(' ') {
+        admin = Some(trailing[..sp].trim());
+        trailing[sp + 1..].trim()
+    } else {
+        trailing
+    };
+    let country_name = if country.len() == 2 && country.chars().all(|c| c.is_ascii_uppercase()) {
+        iso2_country_name(country)
+            .map(String::from)
+            .unwrap_or_else(|| country.to_string())
+    } else {
+        country.to_string()
+    };
+    // Keep admin only if it's letters (NY, CA, NSW) — never a numeric
+    // GeoNames code (16, 40, 05).
+    let keep_admin = admin
+        .filter(|a| a.chars().all(|c| c.is_ascii_alphabetic()))
+        .filter(|a| !a.is_empty());
+    match (head.is_empty(), keep_admin, country_name.is_empty()) {
+        (true, _, true) => label.to_string(),
+        (true, _, false) => country_name,
+        (false, None, true) => head.to_string(),
+        (false, Some(a), true) => format!("{head}, {a}"),
+        (false, None, false) => format!("{head}, {country_name}"),
+        (false, Some(a), false) => format!("{head}, {a}, {country_name}"),
+    }
+}
+
+/// Minimal ISO-3166-1 alpha-2 → short country name table. Covers the
+/// places likely to show up in the gallery and in /v1/locate replies.
+/// Returns the original code as a fallback when not in the table — the
+/// caller can decide what to do with that.
+fn iso2_country_name(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "IN" => "India",
+        "US" => "United States",
+        "JP" => "Japan",
+        "BR" => "Brazil",
+        "NG" => "Nigeria",
+        "GB" => "United Kingdom",
+        "FR" => "France",
+        "DE" => "Germany",
+        "ES" => "Spain",
+        "IT" => "Italy",
+        "PT" => "Portugal",
+        "CA" => "Canada",
+        "MX" => "Mexico",
+        "AR" => "Argentina",
+        "CL" => "Chile",
+        "PE" => "Peru",
+        "CO" => "Colombia",
+        "VE" => "Venezuela",
+        "ZA" => "South Africa",
+        "EG" => "Egypt",
+        "KE" => "Kenya",
+        "ET" => "Ethiopia",
+        "MA" => "Morocco",
+        "DZ" => "Algeria",
+        "TN" => "Tunisia",
+        "TZ" => "Tanzania",
+        "GH" => "Ghana",
+        "CI" => "Côte d'Ivoire",
+        "SN" => "Senegal",
+        "ML" => "Mali",
+        "AU" => "Australia",
+        "NZ" => "New Zealand",
+        "CN" => "China",
+        "KR" => "South Korea",
+        "TW" => "Taiwan",
+        "HK" => "Hong Kong",
+        "TH" => "Thailand",
+        "VN" => "Vietnam",
+        "PH" => "Philippines",
+        "ID" => "Indonesia",
+        "MY" => "Malaysia",
+        "SG" => "Singapore",
+        "BD" => "Bangladesh",
+        "PK" => "Pakistan",
+        "LK" => "Sri Lanka",
+        "NP" => "Nepal",
+        "AF" => "Afghanistan",
+        "IR" => "Iran",
+        "IQ" => "Iraq",
+        "SA" => "Saudi Arabia",
+        "AE" => "UAE",
+        "QA" => "Qatar",
+        "KW" => "Kuwait",
+        "IL" => "Israel",
+        "TR" => "Türkiye",
+        "RU" => "Russia",
+        "UA" => "Ukraine",
+        "PL" => "Poland",
+        "NL" => "Netherlands",
+        "BE" => "Belgium",
+        "CH" => "Switzerland",
+        "AT" => "Austria",
+        "SE" => "Sweden",
+        "NO" => "Norway",
+        "DK" => "Denmark",
+        "FI" => "Finland",
+        "IE" => "Ireland",
+        "GR" => "Greece",
+        "RO" => "Romania",
+        "CZ" => "Czechia",
+        "HU" => "Hungary",
+        "LY" => "Libya",
+        "SD" => "Sudan",
+        "MZ" => "Mozambique",
+        "AO" => "Angola",
+        "BW" => "Botswana",
+        "ZM" => "Zambia",
+        "MG" => "Madagascar",
+        "UZ" => "Uzbekistan",
+        "KZ" => "Kazakhstan",
+        "MN" => "Mongolia",
+        "HT" => "Haiti",
+        "KI" => "Kiribati",
+        _ => return None,
+    })
+}
+
+/// Minimal HTML escape for places we already control input shape but
+/// still want to be safe (band keys, place labels, deks). Three chars
+/// is enough — we never embed raw user URLs in attributes here.
+fn html_escape_min(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// Fast, dependency-free viridis approximation. Input t ∈ [0,1].
 /// Fitted from the canonical viridis stops (8 control points, linear
 /// interpolation between the nearest two).
+#[allow(dead_code)]
 fn viridis_hex(t: f64) -> String {
     const STOPS: [(f64, [u8; 3]); 8] = [
         (0.0, [68, 1, 84]),
@@ -18966,23 +19612,43 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
 
     // Plate Carrée: 1440 px wide (= 4 px / lng degree), 720 px tall
     // (= 4 px / lat degree). Bottom-left = (-180, -90), top-right = (180, 90).
+    // Editorial canvas: 1440 × 800 = map area 720 + caption band 80.
     const W: i32 = 1440;
     const H: i32 = 720;
+    const CAPTION_H: i32 = 80;
+    const TOTAL_H: i32 = H + CAPTION_H;
     let mut rects = String::new();
     for ((bin_lat, bin_lng), count) in &by_bin {
         let x = (bin_lng + 180) * W / 360;
         let y = (90 - bin_lat - 1) * H / 180; // top-down, 1° tall
         let w = W / 360;
         let h = H / 180;
-        // Colour: cool teal at low density → warm yellow at high density
-        // on log scale, so the eye doesn't flatten with one outlier cell.
+        // Single-hue sequential ramp keyed to log density. Paper-bg
+        // friendly: low = pale tan, high = saturated red. Same family as
+        // YlOrRd from ColorBrewer so the corpus density reads "warm"
+        // immediately on top of the cool-grey land underneath.
         let t = ((*count as f64).ln_1p() / (max_count as f64).ln_1p()).clamp(0.0, 1.0);
-        let r = (40.0 + 215.0 * t) as u8;
-        let g = (180.0 - 60.0 * t) as u8;
-        let b = (200.0 - 180.0 * t) as u8;
+        let stops: [[u8; 3]; 5] = [
+            [0xff, 0xe8, 0xc7],
+            [0xfd, 0xc5, 0x86],
+            [0xfb, 0x8d, 0x3c],
+            [0xe6, 0x4b, 0x1f],
+            [0xa6, 0x14, 0x08],
+        ];
+        let scaled = t * (stops.len() as f64 - 1.0);
+        let lo = scaled.floor() as usize;
+        let hi = (lo + 1).min(stops.len() - 1);
+        let f = scaled - lo as f64;
+        let mix = |a: u8, b: u8| -> u8 {
+            ((a as f64) * (1.0 - f) + (b as f64) * f)
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
         rects.push_str(&format!(
             "<rect x='{x}' y='{y}' width='{w}' height='{h}' fill='#{:02x}{:02x}{:02x}'/>",
-            r, g, b
+            mix(stops[lo][0], stops[hi][0]),
+            mix(stops[lo][1], stops[hi][1]),
+            mix(stops[lo][2], stops[hi][2]),
         ));
     }
     let cell_count = by_bin.len();
@@ -19000,20 +19666,20 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
     for lat in (-60..=60).step_by(30) {
         let y = (90 - lat) * H / 180;
         grid.push_str(&format!(
-            "<line x1='0' y1='{y}' x2='{W}' y2='{y}' stroke='#ffffff' stroke-width='1' opacity='0.12'/>"
+            "<line x1='0' y1='{y}' x2='{W}' y2='{y}' stroke='#9a8f78' stroke-width='0.6' opacity='0.45'/>"
         ));
         grid.push_str(&format!(
-            "<text x='8' y='{}' font-size='10' opacity='0.5'>{lat}°</text>",
+            "<text class='lat' x='8' y='{}'>{lat}°</text>",
             y - 4
         ));
     }
     for lng in (-150..=150).step_by(60) {
         let x = (lng + 180) * W / 360;
         grid.push_str(&format!(
-            "<line x1='{x}' y1='0' x2='{x}' y2='{H}' stroke='#ffffff' stroke-width='1' opacity='0.12'/>"
+            "<line x1='{x}' y1='0' x2='{x}' y2='{H}' stroke='#9a8f78' stroke-width='0.6' opacity='0.45'/>"
         ));
         grid.push_str(&format!(
-            "<text x='{}' y='{}' font-size='10' opacity='0.5'>{lng}°</text>",
+            "<text class='lat' x='{}' y='{}'>{lng}°</text>",
             x + 4,
             H - 6
         ));
@@ -19135,31 +19801,63 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
             d.push_str(&format!("{}{x},{y}", if i == 0 { "M" } else { " L" }));
         }
         d.push_str(" Z");
+        // Paper-friendly land fill: warm grey (the colour a cartographer
+        // calls "putty") with a slightly darker hairline. Reads as land
+        // against the cream paper without competing with the data dots.
         land.push_str(&format!(
-            "<path d='{d}' fill='#1a3a4a' fill-opacity='0.55' stroke='#3a6a7a' stroke-width='1' stroke-opacity='0.7'/>"
+            "<path d='{d}' fill='#e8e0cc' fill-opacity='0.95' stroke='#b8ad94' stroke-width='0.6'/>"
         ));
     }
+    // Legend strip — three swatches showing the 5-stop YlOrRd ramp keyed
+    // to the count scale. Anchored bottom-right of the caption band.
+    let legend_y = H + 32;
+    let legend_x = W - 360;
+    let legend = format!(
+        r##"<defs><linearGradient id="cov_ramp" x1="0" y1="0" x2="1" y2="0">
+  <stop offset="0%" stop-color="#ffe8c7"/>
+  <stop offset="25%" stop-color="#fdc586"/>
+  <stop offset="50%" stop-color="#fb8d3c"/>
+  <stop offset="75%" stop-color="#e64b1f"/>
+  <stop offset="100%" stop-color="#a61408"/>
+</linearGradient></defs>
+<rect x="{legend_x}" y="{legend_y}" width="320" height="8" fill="url(#cov_ramp)"/>
+<text class="lbl" x="{legend_x}" y="{ly1}">1 fact</text>
+<text class="lbl" x="{legend_x_mid}" y="{ly1}" text-anchor="middle">log-scale density</text>
+<text class="lbl" x="{legend_x_end}" y="{ly1}" text-anchor="end">{max_count} facts at densest 1° bin</text>
+"##,
+        ly1 = legend_y + 22,
+        legend_x_mid = legend_x + 160,
+        legend_x_end = legend_x + 320,
+    );
     let svg = format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}">
-<defs><style>text{{font-family:ui-monospace,SF Mono,Menlo,Consolas,monospace;fill:#cfd8dc;}}</style></defs>
-<rect width="{W}" height="{H}" fill="#06121a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {TOTAL_H}" width="{W}" height="{TOTAL_H}">
+<defs><style>
+.h1  {{ font-family: 'Source Serif 4','Source Serif Pro',Georgia,serif; font-weight: 600; font-size: 22px; fill: #1a1a1a; }}
+.dek {{ font-family: 'Source Serif 4','Source Serif Pro',Georgia,serif; font-style: italic; font-size: 13.5px; fill: #4a4a4a; }}
+.lbl {{ font-family: 'Inter','Public Sans',ui-sans-serif,system-ui,sans-serif; font-size: 11.5px; fill: #4a4a4a; }}
+.lat {{ font-family: 'Inter','Public Sans',ui-sans-serif,system-ui,sans-serif; font-size: 10.5px; fill: #7a7a7a; }}
+.src {{ font-family: 'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace; font-size: 10.5px; fill: #7a7a7a; }}
+</style></defs>
+<rect width="{W}" height="{TOTAL_H}" fill="#faf7f2"/>
+<rect width="{W}" height="{H}" fill="#f3ede2"/>
 {land}
 {grid}
-<line x1="0" y1="{half_h}" x2="{W}" y2="{half_h}" stroke="#ffd166" stroke-width="1" opacity="0.4" stroke-dasharray="4,4"/>
-<line x1="{half_w}" y1="0" x2="{half_w}" y2="{H}" stroke="#ffd166" stroke-width="1" opacity="0.4" stroke-dasharray="4,4"/>
+<line x1="0" y1="{half_h}" x2="{W}" y2="{half_h}" stroke="#9a8f78" stroke-width="0.6" opacity="0.55" stroke-dasharray="3,3"/>
+<line x1="{half_w}" y1="0" x2="{half_w}" y2="{H}" stroke="#9a8f78" stroke-width="0.6" opacity="0.55" stroke-dasharray="3,3"/>
 {rects}
-<rect x="14" y="14" width="520" height="64" fill="#000000" fill-opacity="0.55" rx="4"/>
-<text x="24" y="40"  font-size="18" font-weight="700">emem.dev coverage map</text>
-<text x="24" y="62"  font-size="12" opacity="0.85">{cell_count} attested cells · {total_facts} facts · responder {pubkey_short}…</text>
-<text x="20" y="{bottom_l}" font-size="11" opacity="0.7">Plate Carrée · 1° × 1° bins · log-scale colour · grid every 30°</text>
-<text x="{right_x}" y="{bottom_l}" font-size="11" opacity="0.7" text-anchor="end">cool=sparse  warm=dense</text>
+<line x1="0" y1="{H}" x2="{W}" y2="{H}" stroke="#d9d2c5" stroke-width="1"/>
+<text class="h1" x="24" y="{h1_y}">Where emem already knows something</text>
+<text class="dek" x="24" y="{dek_y}">{cell_count} cells with at least one signed fact · {total_facts} facts in the corpus · Plate-carrée, 1° bins, log-scale density</text>
+{legend}
+<text class="src" x="24" y="{src_y}">emem.dev · responder {pubkey_short}…</text>
 </svg>
 "##,
         half_h = H / 2,
         half_w = W / 2,
-        bottom_l = H - 14,
-        right_x = W - 20,
+        h1_y = H + 32,
+        dek_y = H + 52,
+        src_y = H + 72,
     );
     (svg, cell_count, total_facts)
 }

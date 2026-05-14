@@ -21,9 +21,27 @@
     <a href="https://emem.dev/openapi.json">OpenAPI</a> ·
     <a href="https://emem.dev/humans">Try it</a> ·
     <a href="https://emem.dev/verify">/verify</a> ·
+    <a href="https://emem.dev/docs/gallery">Gallery</a> ·
     <a href="https://huggingface.co/spaces/vortx-ai/emem">HF Space</a>
   </p>
 </div>
+
+---
+
+<p align="center">
+  <a href="https://emem.dev/v1/coverage_map.svg">
+    <img src="docs/gallery/coverage-map.svg" alt="emem global coverage — every dot is a cell with at least one signed fact" width="900"/>
+  </a><br/>
+  <em>Where emem has attested facts right now — 1440×720 plate-carrée. The same SVG renders live at <code>/v1/coverage_map.svg</code>.</em>
+</p>
+
+<p align="center">
+  <a href="https://emem.dev/v1/places/scene_overlay.svg?place=Mumbai&band=copdem30m.elevation_mean&n_cells=64"><img src="docs/gallery/mumbai-elevation.svg" alt="Mumbai elevation" width="230"/></a>
+  <a href="https://emem.dev/v1/places/scene_overlay.svg?place=Manhattan&band=copdem30m.elevation_mean&n_cells=64"><img src="docs/gallery/manhattan-elevation.svg" alt="Manhattan elevation" width="230"/></a>
+  <a href="https://emem.dev/v1/places/scene_overlay.svg?place=Tokyo&band=copdem30m.elevation_mean&n_cells=64"><img src="docs/gallery/tokyo-elevation.svg" alt="Tokyo elevation" width="230"/></a>
+  <br/>
+  <em>Mumbai · Manhattan · Tokyo, painted by Copernicus DEM elevation. Each image is a live endpoint URL — click to see the latest signed render. <a href="https://emem.dev/docs/gallery">/docs/gallery</a> has the full set.</em>
+</p>
 
 ---
 

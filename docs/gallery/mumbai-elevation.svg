@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 860" width="720" height="860">
+  <title>Mumbai, India — copdem30m.elevation_mean</title>
+  <desc>emem.dev value-painted bbox grid; band=copdem30m.elevation_mean, n_cells=64, range=[2.00, 115.00].</desc>
+  <defs>
+    <style>
+      .h1 { font-family: 'Source Serif 4','Source Serif Pro','Georgia',serif; font-weight: 600; font-size: 21px; fill: #1a1a1a; }
+      .dek { font-family: 'Source Serif 4','Source Serif Pro','Georgia',serif; font-style: italic; font-size: 13px; fill: #4a4a4a; }
+      .lbl { font-family: 'Inter','Public Sans',ui-sans-serif,system-ui,sans-serif; font-size: 11px; fill: #4a4a4a; }
+      .src { font-family: 'Inter','Public Sans',ui-sans-serif,system-ui,sans-serif; font-size: 10.5px; fill: #7a7a7a; }
+      .mono { font-family: 'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace; font-size: 10.5px; fill: #7a7a7a; }
+    </style>
+  </defs>
+  <rect width="720" height="860" fill="#faf7f2"/>
+  <text x="22" y="34" class="h1">Mumbai, India</text>
+  <text x="22" y="50" class="dek">Elevation per cell · 2 – 115 m</text>
+  <rect x="0" y="56" width="720" height="720" fill="#f3ede2"/>
+  <rect x="270.27" y="415.86" width="90.00" height="90.00" fill="#ede5cd" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf619 · 18.0</title></rect>
+  <rect x="450.16" y="415.86" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf73d · 5.0</title></rect>
+  <rect x="630.05" y="55.98" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf861 · 5.0</title></rect>
+  <rect x="360.21" y="235.92" width="90.00" height="90.00" fill="#f6f2ea" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf6ab · 4.0</title></rect>
+  <rect x="179.71" y="325.89" width="90.00" height="90.00" fill="#f2ecdd" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf586 · 10.0</title></rect>
+  <rect x="360.21" y="415.86" width="90.00" height="90.00" fill="#f3eee1" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf6ab · 8.0</title></rect>
+  <rect x="89.76" y="415.86" width="90.00" height="90.00" fill="#f4efe4" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf4f4 · 7.0</title></rect>
+  <rect x="-0.18" y="235.92" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf462 · 5.0</title></rect>
+  <rect x="540.10" y="415.86" width="90.00" height="90.00" fill="#f6f2ea" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf7cf · 4.0</title></rect>
+  <rect x="179.71" y="235.92" width="90.00" height="90.00" fill="#ece3c8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf586 · 20.0</title></rect>
+  <rect x="630.05" y="325.89" width="90.00" height="90.00" fill="#f5f0e6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf861 · 6.0</title></rect>
+  <rect x="450.16" y="235.92" width="90.00" height="90.00" fill="#f6f2ea" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf73d · 4.0</title></rect>
+  <rect x="179.71" y="415.86" width="90.00" height="90.00" fill="#efe8d3" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf586 · 15.0</title></rect>
+  <rect x="630.05" y="415.86" width="90.00" height="90.00" fill="#f7f4ee" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf861 · 2.0</title></rect>
+  <rect x="179.71" y="55.98" width="90.00" height="90.00" fill="#e0d6ae" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf586 · 33.0</title></rect>
+  <rect x="540.10" y="325.89" width="90.00" height="90.00" fill="#f6f3ec" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf7cf · 3.0</title></rect>
+  <rect x="-0.18" y="325.89" width="90.00" height="90.00" fill="#f5f0e6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf462 · 6.0</title></rect>
+  <rect x="-0.18" y="55.98" width="90.00" height="90.00" fill="#e4d8b2" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf462 · 31.0</title></rect>
+  <rect x="89.76" y="325.89" width="90.00" height="90.00" fill="#f3eddf" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf4f4 · 9.0</title></rect>
+  <rect x="540.10" y="55.98" width="90.00" height="90.00" fill="#f6f3ec" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf7cf · 3.0</title></rect>
+  <rect x="270.27" y="235.92" width="90.00" height="90.00" fill="#ece2c6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf619 · 21.0</title></rect>
+  <rect x="540.10" y="145.95" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf7cf · 5.0</title></rect>
+  <rect x="89.76" y="55.98" width="90.00" height="90.00" fill="#dbd4aa" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf4f4 · 35.0</title></rect>
+  <rect x="450.16" y="55.98" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf73d · 5.0</title></rect>
+  <rect x="270.27" y="55.98" width="90.00" height="90.00" fill="#d6d3a6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf619 · 37.0</title></rect>
+  <rect x="630.05" y="145.95" width="90.00" height="90.00" fill="#f4efe4" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf861 · 7.0</title></rect>
+  <rect x="360.21" y="145.95" width="90.00" height="90.00" fill="#e7dbb8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf6ab · 28.0</title></rect>
+  <rect x="270.27" y="325.89" width="90.00" height="90.00" fill="#f5f0e6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf619 · 6.0</title></rect>
+  <rect x="89.76" y="145.95" width="90.00" height="90.00" fill="#efe8d3" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf4f4 · 15.0</title></rect>
+  <rect x="179.71" y="145.95" width="90.00" height="90.00" fill="#ede4ca" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf586 · 19.0</title></rect>
+  <rect x="450.16" y="145.95" width="90.00" height="90.00" fill="#f5f0e6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf73d · 6.0</title></rect>
+  <rect x="-0.18" y="145.95" width="90.00" height="90.00" fill="#eee6cf" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf462 · 17.0</title></rect>
+  <rect x="270.27" y="145.95" width="90.00" height="90.00" fill="#3d4b2e" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.pefa.zf619 · 115.0</title></rect>
+  <rect x="360.21" y="595.80" width="90.00" height="90.00" fill="#abc082" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf6ab · 56.0</title></rect>
+  <rect x="450.16" y="325.89" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf73d · 5.0</title></rect>
+  <rect x="540.10" y="235.92" width="90.00" height="90.00" fill="#f6f2ea" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf7cf · 4.0</title></rect>
+  <rect x="450.16" y="505.83" width="90.00" height="90.00" fill="#d2d1a2" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf73d · 39.0</title></rect>
+  <rect x="89.76" y="235.92" width="90.00" height="90.00" fill="#f0e9d7" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf4f4 · 13.0</title></rect>
+  <rect x="360.21" y="55.98" width="90.00" height="90.00" fill="#90ab6f" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.wevE.zf6ab · 67.0</title></rect>
+  <rect x="-0.18" y="505.83" width="90.00" height="90.00" fill="#f3eddf" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf462 · 9.0</title></rect>
+  <rect x="179.71" y="505.83" width="90.00" height="90.00" fill="#f1ead9" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf586 · 12.0</title></rect>
+  <rect x="89.76" y="505.83" width="90.00" height="90.00" fill="#f6f3ec" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf4f4 · 3.0</title></rect>
+  <rect x="270.27" y="686.22" width="90.00" height="90.00" fill="#e7dab6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf619 · 29.0</title></rect>
+  <rect x="360.21" y="505.83" width="90.00" height="90.00" fill="#bfc993" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf6ab · 47.0</title></rect>
+  <rect x="270.27" y="595.80" width="90.00" height="90.00" fill="#e9debe" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf619 · 25.0</title></rect>
+  <rect x="270.27" y="505.83" width="90.00" height="90.00" fill="#adc184" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf619 · 55.0</title></rect>
+  <rect x="450.16" y="595.80" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf73d · 5.0</title></rect>
+  <rect x="-0.18" y="595.80" width="90.00" height="90.00" fill="#f5f0e6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf462 · 6.0</title></rect>
+  <rect x="179.71" y="686.22" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf586 · 5.0</title></rect>
+  <rect x="179.71" y="595.80" width="90.00" height="90.00" fill="#f2ecdd" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf586 · 10.0</title></rect>
+  <rect x="89.76" y="595.80" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf4f4 · 5.0</title></rect>
+  <rect x="630.05" y="505.83" width="90.00" height="90.00" fill="#f5f1e8" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf861 · 5.0</title></rect>
+  <rect x="360.21" y="686.22" width="90.00" height="90.00" fill="#f5f0e6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf6ab · 6.0</title></rect>
+  <rect x="540.10" y="505.83" width="90.00" height="90.00" fill="#ece2c6" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.xari.zf7cf · 21.0</title></rect>
+  <rect x="-0.18" y="415.86" width="90.00" height="90.00" fill="#f4efe4" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zc5ec.zf462 · 7.0</title></rect>
+  <rect x="360.21" y="325.89" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.zf7ac.zf6ab · absence</title></rect>
+  <rect x="450.16" y="686.22" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf73d · absence</title></rect>
+  <rect x="540.10" y="595.80" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf7cf · absence</title></rect>
+  <rect x="89.76" y="686.22" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf4f4 · absence</title></rect>
+  <rect x="540.10" y="686.22" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf7cf · absence</title></rect>
+  <rect x="630.05" y="686.22" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf861 · absence</title></rect>
+  <rect x="-0.18" y="686.22" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.hUbE.zf462 · absence</title></rect>
+  <rect x="630.05" y="235.92" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d9.hanu.zf861 · absence</title></rect>
+  <rect x="630.05" y="595.80" width="90.00" height="90.00" fill="#ebe6da" stroke="#faf7f2" stroke-width="0.4"><title>defi.zb4d8.pUzE.zf861 · absence</title></rect>
+  <line x1="0" y1="776" x2="720" y2="776" stroke="#d9d2c5" stroke-width="1"/>
+  <defs><linearGradient id="ramp_grad" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="#f7f4ee"/>
+    <stop offset="25%" stop-color="#e6d9b3"/>
+    <stop offset="50%" stop-color="#a5be7d"/>
+    <stop offset="75%" stop-color="#5e7f4d"/>
+    <stop offset="100%" stop-color="#3d4b2e"/>
+  </linearGradient></defs>
+  <rect x="22" y="794" width="220" height="8" fill="url(#ramp_grad)"/>
+  <text x="22" y="816" class="lbl">2</text>
+  <text x="132" y="816" class="lbl" text-anchor="middle">58</text>
+  <text x="242" y="816" class="lbl" text-anchor="end">115 m</text>
+  <text x="22" y="790" class="lbl">Elevation</text>
+  <line x1="562" y1="798" x2="698" y2="798" stroke="#4a4a4a" stroke-width="1.2"/>
+  <line x1="562" y1="794" x2="562" y2="802" stroke="#4a4a4a" stroke-width="1.2"/>
+  <line x1="698" y1="794" x2="698" y2="802" stroke="#4a4a4a" stroke-width="1.2"/>
+  <text x="630" y="790" class="lbl" text-anchor="middle">2 km</text>
+  <text x="22" y="846" class="src"><tspan class="mono">copdem30m.elevation_mean</tspan> · 64 sample cells · responder <tspan class="mono">777er3yihg…</tspan></text>
+</svg>

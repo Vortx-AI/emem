@@ -29,6 +29,9 @@ where every visible cell carries `data-emem-*` attributes and every
 `/v1/*` call prints in a copy-as-curl / copy-as-python / copy-as-MCP
 log. See "Watching humans use the API" below.
 
+![the agent loop — discover, locate, recall, reason, verify](/docs/diagrams/04-agent-loop.svg)
+*The five-step loop. After first contact, agents skip whatever they have already cached and call directly into `recall` / `find_similar` with a known cell.*
+
    ## Quick reference
 
 | Resource | Live count |

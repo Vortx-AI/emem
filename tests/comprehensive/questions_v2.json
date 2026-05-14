@@ -136,6 +136,40 @@
     {"id":304,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"earthquake vulnerability and topography port-au-prince","place":"Pétion-Ville, Port-au-Prince, Haiti","expect":["topography","built_up_human_geography","urban_livability"]},
     {"id":305,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"oil spill recovery delta niger","place":"Bonny, Rivers State, Nigeria","expect":["esg","vegetation_condition"]},
     {"id":306,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"glacial lake outburst risk sikkim india","place":"South Lhonak Lake, Sikkim, India","expect":["snow","topography","flood_water_event_window"]},
-    {"id":307,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"dust bowl risk aralkum desert","place":"Aralkum Desert, Uzbekistan","expect":["soil_bare","weather_now","public_health"]}
+    {"id":307,"domain":"new_locations_under_observed","intent":"first_call_materialize","volume_signal":"low","severity":3,"q":"dust bowl risk aralkum desert","place":"Aralkum Desert, Uzbekistan","expect":["soil_bare","weather_now","public_health"]},
+
+    {"id":310,"domain":"visual_primitive","intent":"scene_render","volume_signal":"high","severity":2,"q":"paint me the elevation map of mumbai","place":"Mumbai, India","expect":["topography","elevation_global_topobathy"]},
+    {"id":311,"domain":"visual_primitive","intent":"scene_render","volume_signal":"high","severity":2,"q":"show me the dem of manhattan as an overlay","place":"Manhattan, New York","expect":["topography","elevation_global_topobathy"]},
+    {"id":312,"domain":"visual_primitive","intent":"scene_render","volume_signal":"medium","severity":2,"q":"render the topography of rio de janeiro","place":"Rio de Janeiro, Brazil","expect":["topography","elevation_global_topobathy"]},
+    {"id":313,"domain":"visual_primitive","intent":"scene_render","volume_signal":"medium","severity":2,"q":"give me an elevation scene for tokyo bay","place":"Tokyo, Japan","expect":["topography","elevation_global_topobathy"]},
+    {"id":314,"domain":"visual_primitive","intent":"scene_render","volume_signal":"medium","severity":2,"q":"draw the slope map of the himalayan foothills above dehradun","place":"Mussoorie, Uttarakhand, India","expect":["topography","elevation_global_topobathy"]},
+    {"id":315,"domain":"visual_primitive","intent":"scene_render","volume_signal":"medium","severity":2,"q":"paint the ndvi over the okavango delta","place":"Okavango Delta, Botswana","expect":["vegetation_condition"]},
+    {"id":316,"domain":"visual_primitive","intent":"scene_render","volume_signal":"medium","severity":2,"q":"render night lights of pyongyang vs seoul","place":"Pyongyang, North Korea","expect":["built_up_human_geography","urban_livability"]},
+    {"id":317,"domain":"visual_primitive","intent":"scene_render","volume_signal":"medium","severity":2,"q":"land cover scene of the amazon arc of deforestation","place":"Sinop, Mato Grosso, Brazil","expect":["forest","carbon_credits","vegetation_condition"]},
+    {"id":318,"domain":"visual_primitive","intent":"scene_render","volume_signal":"medium","severity":2,"q":"paint built area density over greater dhaka","place":"Dhaka, Bangladesh","expect":["built_up_human_geography","urban_livability"]},
+
+    {"id":320,"domain":"visual_primitive","intent":"coverage_audit","volume_signal":"medium","severity":2,"q":"where do you actually have signed facts on earth right now","place":"global","expect":[]},
+    {"id":321,"domain":"visual_primitive","intent":"coverage_audit","volume_signal":"low","severity":2,"q":"show me the global coverage map of attested cells","place":"global","expect":[]},
+    {"id":322,"domain":"visual_primitive","intent":"coverage_audit","volume_signal":"low","severity":2,"q":"how dense is your corpus over sub saharan africa","place":"Nairobi, Kenya","expect":[]},
+
+    {"id":330,"domain":"visual_primitive","intent":"compare_places","volume_signal":"medium","severity":3,"q":"compare elevation between mumbai and tokyo","place":"Mumbai, India","expect":["topography","elevation_global_topobathy"]},
+    {"id":331,"domain":"visual_primitive","intent":"compare_places","volume_signal":"medium","severity":3,"q":"compare ndvi vegetation in singapore vs kuala lumpur","place":"Singapore","expect":["vegetation_condition","urban_livability"]},
+    {"id":332,"domain":"visual_primitive","intent":"compare_places","volume_signal":"medium","severity":3,"q":"how does built up area in shenzhen compare to san francisco","place":"Shenzhen, China","expect":["built_up_human_geography","urban_livability"]},
+
+    {"id":340,"domain":"visual_primitive","intent":"trajectory","volume_signal":"medium","severity":3,"q":"trajectory of ndvi at the same field in punjab over 5 years","place":"Ludhiana, Punjab, India","expect":["agriculture","vegetation_condition"]},
+    {"id":341,"domain":"visual_primitive","intent":"trajectory","volume_signal":"medium","severity":4,"q":"trajectory of surface water in lake chad over the last decade","place":"Lake Chad","expect":["water","vegetation_condition"]},
+    {"id":342,"domain":"visual_primitive","intent":"trajectory","volume_signal":"low","severity":3,"q":"trajectory of nightlights over kyiv before and after 2022","place":"Kyiv, Ukraine","expect":["built_up_human_geography","urban_livability"]},
+
+    {"id":350,"domain":"visual_primitive","intent":"similar_places","volume_signal":"medium","severity":2,"q":"find places that look like the sahel zone hydrologically","place":"Niamey, Niger","expect":["weather_now","agriculture","vegetation_condition"]},
+    {"id":351,"domain":"visual_primitive","intent":"similar_places","volume_signal":"medium","severity":2,"q":"what other coastlines resemble the bangladesh delta","place":"Khulna, Bangladesh","expect":["flood_risk_composite","topography","water"]},
+    {"id":352,"domain":"visual_primitive","intent":"similar_places","volume_signal":"low","severity":2,"q":"climate analogs for current london in 30 years","place":"London, United Kingdom","expect":["weather_now","urban_livability"]},
+
+    {"id":360,"domain":"visual_primitive","intent":"field_boundaries","volume_signal":"medium","severity":3,"q":"show me the field boundaries around modesto california","place":"Modesto, California","expect":["agriculture"]},
+    {"id":361,"domain":"visual_primitive","intent":"field_boundaries","volume_signal":"medium","severity":3,"q":"trace the agricultural plots in the brittany dairy belt","place":"Rennes, Brittany, France","expect":["agriculture"]},
+    {"id":362,"domain":"visual_primitive","intent":"field_boundaries","volume_signal":"medium","severity":4,"q":"are these field polygons in west kalimantan inside protected forest","place":"Pontianak, West Kalimantan, Indonesia","expect":["forest","agriculture","carbon_credits"]},
+
+    {"id":370,"domain":"visual_primitive","intent":"diff","volume_signal":"medium","severity":4,"q":"diff of forest cover at the rondonia frontier 2020 vs 2025","place":"Porto Velho, Rondônia, Brazil","expect":["forest","carbon_credits","vegetation_condition"]},
+    {"id":371,"domain":"visual_primitive","intent":"diff","volume_signal":"medium","severity":4,"q":"diff of built area in dubai between 2015 and 2025","place":"Dubai, United Arab Emirates","expect":["built_up_human_geography","urban_livability"]},
+    {"id":372,"domain":"visual_primitive","intent":"diff","volume_signal":"medium","severity":4,"q":"diff of surface water in the salton sea 2010 vs 2025","place":"Salton Sea, California","expect":["water","weather_now"]}
   ]
 }

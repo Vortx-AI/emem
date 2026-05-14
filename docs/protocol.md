@@ -19,6 +19,9 @@ dots, e.g. `dedi.zaf00.bafi.baba`. The integer form is what gets hashed
 and compared; the dotted text form is what shows up inside facts and
 receipts.
 
+![address algebra — cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID](/docs/diagrams/09-address-algebra.svg)
+*The full address pipeline at a glance. Section 4 walks each box; the SVG also names every constant the encoder uses.*
+
 ### 1.1 Bit layout
 
 Defined in `crates/emem-codec/src/geo.rs:38-45`.
@@ -575,6 +578,9 @@ Failure → write rejected. The HTTP layer surfaces this as the
 ---
 
 ## 7. Receipt
+
+![the trust plane — preimage, signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
+*The five-step trust pipeline. Section 7.2 specifies the preimage byte-by-byte; sections 8 and 9 cover the Merkle path and the append-only log.*
 
 `crates/emem-fact/src/receipt.rs:11-58`.
 

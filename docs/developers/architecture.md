@@ -30,6 +30,9 @@ The agricultural-field surface (`/v1/field_boundaries` plus
 World's global product (CC-BY-4.0, ~3.17 B field polygons) via
 PMTiles range reads.
 
+![emem architecture — one binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
+*The whole stack in one figure. The ASCII variant below is the same shape, terminal-friendly.*
+
 ## Process topology
 
 ```

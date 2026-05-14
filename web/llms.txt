@@ -127,6 +127,10 @@ Install in Claude Code by copying the bundle into your project's .claude/skills/
     /skills.md                      — composed recipes (cookbook view)
     /whitepaper.md                  — architecture + math
     /humans                         — interactive console; every /v1/* call prints in a live log pane
+    /docs/gallery                   — live coverage map + per-place scenes + 32 protocol & industry diagrams
+    /docs/diagrams/                 — the 32 SVG diagrams, byte-stable, embed-anywhere
+    /v1/coverage_map.svg            — global coverage as a 1440×720 plate-carrée SVG
+    /v1/places/scene_overlay.svg    — per-place value-painted polygon overlay (any scalar band)
 
 ## Operator
 
