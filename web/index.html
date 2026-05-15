@@ -92,7 +92,7 @@ nav a{margin-right:.9em;display:inline-block}
 
 <p>When an LLM is asked what is at a place, it usually guesses. It has no stable handle for the patch of ground at 19.07°&nbsp;N, 72.87°&nbsp;E, and no audit trail for the number it returns. emem is the missing handle. Every cell on Earth gets a 64-bit identifier (about 9.55&nbsp;m on a side at the equator), every measurement at that cell is recorded as a fact keyed by cell, band, and time, and every fact is signed with ed25519 over the blake3 hash of its canonical CBOR. Paste the 26-character content id into a chat and your colleague can pull the same bytes from any responder and verify the signature in their browser at <a href=/verify>/verify</a>.</p>
 
-<p>The hosted responder is <code>https://emem.dev</code>. There are no keys, no accounts, no SaaS quotas. The corpus today covers thirty-five bands across optical, radar, terrain, weather, land cover, human geography, and three foundation embeddings (Clay&nbsp;v1.5, Prithvi-EO-2.0, Tessera). Forty-three upstream sources back the materialiser; the catalogue at <a href=/v1/materializers>/v1/materializers</a> lists which ones are wired on this node. One hundred and fifty-five composition recipes turn raw bands into named scores (flood risk, walkability, biodiversity proxy, carbon-MRV index, EUDR compliance) and live at <a href=/v1/algorithms>/v1/algorithms</a>. The MCP surface speaks Streamable&nbsp;HTTP and exposes forty-nine tools at <code>/mcp</code>; the same handlers answer plain REST at <a href=/openapi.json>/openapi.json</a>.</p>
+<p>The hosted responder is <code>https://emem.dev</code>. There are no keys, no accounts, no SaaS quotas. The corpus today covers thirty-five bands across optical, radar, terrain, weather, land cover, human geography, and three foundation embeddings (Clay&nbsp;v1.5, Prithvi-EO-2.0, Tessera). Forty-three upstream sources back the materialiser; the catalogue at <a href=/v1/materializers>/v1/materializers</a> lists which ones are wired on this node. One hundred and fifty-five composition recipes turn raw bands into named scores (flood risk, walkability, biodiversity proxy, carbon-MRV index, EUDR compliance) and live at <a href=/v1/algorithms>/v1/algorithms</a>. The MCP surface speaks Streamable&nbsp;HTTP and exposes fifty tools at <code>/mcp</code>; the same handlers answer plain REST at <a href=/openapi.json>/openapi.json</a>.</p>
 
 <figure class="figure">
   <a href="/v1/coverage_map.svg"><img src="/v1/coverage_map.svg" alt="Global map of cells with at least one signed fact" loading="lazy" width="900"/></a>
@@ -116,11 +116,43 @@ $ curl -sX POST https://emem.dev/v1/recall \
 
 <p>The recall was answered out of the hot cache. If the cell had been cold, the responder would have fetched Copernicus DEM through its STAC connector, signed the value as its own primary attestation, persisted it, and returned in the same response. Warm reads take milliseconds. The first request to a fresh cell pays the upstream cost once, and every subsequent caller anywhere on the network sees the cached fact and the same signature.</p>
 
+<h2>Drop into Claude, Cursor, ChatGPT</h2>
+<p>The same handlers serve plain REST and Streamable-HTTP MCP. To wire emem into Claude Desktop, Claude Code, or Cursor, paste the four lines below into the client's MCP-server file. Tested live; no install, no auth.</p>
+<pre><code>{
+  "mcpServers": {
+    "emem": {
+      "type": "http",
+      "url": "https://emem.dev/mcp"
+    }
+  }
+}</code></pre>
+<p>For ChatGPT Custom GPT Actions, import the OpenAPI document at <a href=/openapi.json>/openapi.json</a>; for LangChain or LlamaIndex, the runnable wrappers live in <a href=https://github.com/Vortx-AI/emem/tree/main/examples>examples/</a>. Full client matrix at the top of the README.</p>
+
+<h2>Hunting for events, not anchored on a place</h2>
+<p>Most agent questions name a place. A few don't. <em>"Find me where the algal bloom is."</em> <em>"Where is the deforestation happening?"</em> Hunter mode answers those. The classifier in <a href=/v1/ask><code>/v1/ask</code></a> detects the verb pattern plus an event keyword and routes to <code>/v1/hunt</code>; the structured endpoint takes the event plus a region and returns the top eight cells ranked by the algorithm's primary scalar (water-mask gated where the algorithm requires water). Twelve events ship today, from algal blooms and deforestation to wildfires, methane plumes, and inundation extent. Oil-slick detection has no algorithm in the registry yet and the responder says so honestly, pointing at the closest available physics.</p>
+<pre><code>$ curl -sX POST https://emem.dev/v1/hunt \
+    -H 'content-type: application/json' \
+    -d '{"event":"algal_bloom","region":"Lake Erie"}' \
+  | jq '.hotspots[0]'
+{ "cell64": "defi.zb5dc.bObe.wOgI",
+  "lat": 41.838, "lng": -81.163,
+  "primary_band": "indices.ndvi", "value": -0.057,
+  "gate_band": "indices.ndwi", "gate_value": 0.141,
+  "fact_cid": "tc54vlpl62a4d2kah5rwcmfvd3eo7xqkszmkpwxk4xrkpaeeshaa",
+  "scene_url": "https://emem.dev/v1/cells/defi.zb5dc.bObe.wOgI/scene.png" }</code></pre>
+<p>Worked examples for four events live in the gallery at <a href=/docs/gallery#hunter>/docs/gallery</a>.</p>
+
 <h2>What three encoders see</h2>
 <p>For questions of the form <em>"is this place changing?"</em>, emem runs three independent foundation encoders over the same scene and votes. Clay&nbsp;v1.5 reads Sentinel-2 at a 2.6&nbsp;km receptive field, Prithvi-EO-2.0 reads HLS at 6.7&nbsp;km, and Tessera reads Sentinel-1 plus Sentinel-2 at the per-pixel scale. Each one carries its own aliasing pattern, so the disagreements are informative. Where all three agree, the change is real; where one says yes and two say no, the algorithm flags receptive-field aliasing rather than a land-surface event. The recipe is <code>clay_prithvi_tessera_triple_consensus@1</code>, with six domain variants for deforestation, wetland change, urban expansion, disaster anomaly, climate archetype, and coastal erosion. The whitepaper at <a href=/whitepaper.md>/whitepaper.md</a> walks the math.</p>
 
 <h2>Verifying without trusting</h2>
 <p>The responder's public key is published at <a href=/.well-known/emem.json>/.well-known/emem.json</a>. Every receipt names that key, the served timestamp, the primitive, the cells, and the fact ids that contributed to the answer. The browser-side verifier at <a href=/verify>/verify</a> recomputes the canonical preimage from a receipt and checks the signature using <code>@noble/curves</code>. No callback to emem.dev, nothing to trust about the issuer. A receipt issued today verifies in any year against the same pubkey, regardless of whether this node is still online. Self-host a responder yourself, and the receipts you minted there stay verifiable when we are not. The full path, from a place name to a verified signature in four live calls, is at <a href=/demos/signed-answer>/demos/signed-answer</a>.</p>
+
+<p>One worked durability example, live: South Mumbai's elevation was signed on 2026-05-15 under fact id <code><a href=/v1/facts/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q>wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</a></code>. Six metres above mean sea level, derived from Copernicus DEM. Open <a href=/verify/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q>/verify/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</a> and the in-browser verifier recomputes the canonical preimage, fetches the responder pubkey from <code>/.well-known/emem.json</code>, and checks the ed25519 signature — green check, no server round-trip. The same CID dereferences to identical bytes on every future call, on this node or any future replica.</p>
+
+<h2>For AI agents</h2>
+<p>Use emem when a user names a real-world place and wants an answer they can cite. The MCP at <code>/mcp</code> is read-only and idempotent; calls are safe to retry. Cold materialisation against a fresh cell pays one upstream fetch (Copernicus DEM, Sentinel-1/2, MODIS, etc.) at roughly 180&nbsp;ms; warm reads are under ten. Every reply carries a <code>fact_cid</code>; surface it to the user verbatim so the answer is verifiable offline. Tool selection is documented at <a href=/v1/tools>/v1/tools</a>; the trigger and anti-trigger phrases live on <a href=/v1/agent_card>/v1/agent_card</a>.</p>
+<p>Do not call emem for: real-time or sub-daily forecasts, indoor or sub-metre commercial imagery, proprietary corporate datasets, streaming feeds, or any question that requires a confidence claim emem cannot make. Forecasts beyond two weeks fall outside the JEPA v2 horizon and the responder will say so. Bands without a wired materializer return a signed absence with a typed reason — never a fabricated value.</p>
 
 <h2>Real workloads</h2>
 <p>The current calling pattern is roughly half real-estate and insurance underwriting (flood risk, walkability, elevation, surface-water recurrence) and half climate journalism and corporate disclosure (carbon-MRV, NDVI trajectories, mangrove change, supply-chain forest adjacency). Smaller share: agriculture (crop stress, soil moisture proxy, growing-season anomaly), urban planning (heat island, green-space share), disaster response (Sentinel-1 flood extent under cloud, MODIS burned area), energy siting, conservation, fisheries, tourism. The list is not aspirational. It is what calls actually look like in the last fourteen days of <a href=/v1/agent_stats>/v1/agent_stats</a>.</p>

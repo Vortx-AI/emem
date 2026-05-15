@@ -60,6 +60,29 @@ Full descriptors with input schemas: GET /v1/agent_card  ·  POST /mcp tools/lis
       -H 'content-type: application/json' \
       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
+## Hunter mode
+
+    hunt :: Event × (Region|PolygonBbox) → Hotspot[8] × Receipt[]
+
+Twelve event keywords trigger an event-discovery sweep over a named
+region: algal_bloom, deforestation, flood_extent, wildfire,
+urban_heat_island, methane_plume, landslide, drought, soil_salinity,
+crop_stress, water_turbidity, oil_slick. The responder samples up to
+32 cells from the region polygon (8 for slow primary bands such as
+MODIS LST), recalls the algorithm's primary scalar plus any
+configured gate band (NDWI > 0 for over-water phenomena), and ranks
+the cells. Tessera embedding rerank fires when ≥3 cells have
+geotessera vectors. oil_slick has no algorithm registered yet — the
+responder honestly returns status: not_yet_implemented with pointers
+at flood_extent_sar_threshold@1 and water_turbidity_red_band@1.
+
+    curl -sX POST https://emem.dev/v1/hunt \
+      -H 'content-type: application/json' \
+      -d '{"event":"algal_bloom","region":"Lake Erie"}'
+
+Free-text questions of the form `find <event> in <region>` route
+through /v1/ask's classifier and land on the same path.
+
 ## Instructions
 
 Behavioural rules an agent should follow when using emem (Stripe convention,
@@ -73,6 +96,20 @@ present-tense, imperative, ≤8 lines):
     6. Mention responder_pubkey_b32 once per session so the user knows who signed.
     7. Compose primitives (locate → recall, recall → verify, recall_polygon → solve) — don't reinvent.
     8. When in doubt, GET /v1/agent_card or /v1/discover; the responder is self-describing.
+
+## When NOT to use emem
+
+Pattern-match these question shapes and skip the call. Each is paired
+with the better-fit tool so an agent that filters here keeps the
+downstream answer grounded rather than punting.
+
+    "is it raining right now in <place>"        → met.no, NOAA, Open-Meteo (real-time / sub-daily)
+    "forecast 6 months out for <place>"          → out of horizon (JEPA v2 short-circuits past ~2 weeks)
+    "sub-metre building footprint at <place>"    → Planet Pelican / Maxar (10 m is emem's native pitch)
+    "land price / carbon credit price at <place>"→ market data services (emem signs Earth observation, not economics)
+    "live air quality reading at <place>"        → PurpleAir / OpenAQ (cams.* is global model output, not sensor)
+    "stream the latest tile of <band>"           → upstream STAC API (emem is snapshot-at-tslot, not streaming)
+    "what's inside this building"                → indoor mapping is out of scope
 
 ## Citation contract
 

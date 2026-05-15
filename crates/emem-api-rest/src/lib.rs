@@ -4221,9 +4221,29 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "find places like X",
             "did <band> change between t1 and t2",
             "is <claim> true at <place>",
-            "average <band> over this region"
+            "average <band> over this region",
+            "find <event> in <region>",
+            "where is <event> happening",
+            "show me <event> hotspots in <region>"
         ],
-        "primary_tools": ["emem_recall", "emem_compare", "emem_find_similar", "emem_diff", "emem_verify"],
+        // Negative triggers — questions the LLM should NOT route to emem.
+        // Pattern-matching one of these saves a wasted call against the
+        // responder and a confusingly-empty answer back to the user.
+        // Each entry pairs a typical question shape with the reason emem
+        // is the wrong tool, so a router that surfaces the explanation
+        // to the user keeps the trust contract clean rather than just
+        // saying "I don't know".
+        "anti_trigger_phrases": [
+            { "pattern": "is it raining right now in <place>",      "reason": "real-time / sub-daily weather is out of scope; use met.no, NOAA, or Open-Meteo directly." },
+            { "pattern": "what's the forecast for <place> in 6 months", "reason": "forecasts beyond ~2 weeks fall outside the JEPA v2 horizon; emem returns an `untrained_baseline` short-circuit rather than a fake number." },
+            { "pattern": "show me the sub-metre building footprint",  "reason": "imagery resolution is 10 m native (Sentinel-2 / Landsat). Sub-metre commercial imagery (Planet Pelican, Maxar) needs a different connector." },
+            { "pattern": "what's the price of land at <place>",       "reason": "market / economic data is out of scope. emem signs Earth observation facts, not commercial valuations." },
+            { "pattern": "live air quality reading at <place>",        "reason": "real-time air quality is out of scope; cams.* bands carry global model output, not sensor-grade now-casts. For PurpleAir / OpenAQ ground truth, call those services directly." },
+            { "pattern": "stream the latest tile of <band>",           "reason": "emem is a snapshot-at-tslot model, not a streaming feed. For continuous ingest, subscribe to the upstream STAC API." },
+            { "pattern": "what's inside this building",                "reason": "indoor mapping is out of scope. emem grids the outdoor surface." },
+            { "pattern": "the price of carbon credits today",          "reason": "market data is out of scope. emem signs the physical MRV signal (NDVI trajectories, biomass change), not the credit price." }
+        ],
+        "primary_tools": ["emem_recall", "emem_compare", "emem_find_similar", "emem_diff", "emem_verify", "emem_ask", "emem_hunt"],
         // Order matters: bands → materializers → coverage_matrix builds
         // the agent's mental model in the right order. Bands declare
         // what *can* exist; materializers declare what auto-fetches on
