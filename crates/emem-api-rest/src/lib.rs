@@ -21092,46 +21092,24 @@ async fn hunt_with_explicit_bbox(
         }));
     }
 
-    let (primary_band, higher_is_hotter, scalar_meaning): (&str, bool, &str) = match kind {
-        K::AlgalBloom => (
-            "indices.ndvi",
-            true,
-            "higher NDVI over water = more chlorophyll proxy",
-        ),
-        K::Deforestation => (
-            "indices.ndvi",
-            false,
-            "lower NDVI on forest baseline = more loss",
-        ),
-        K::Flood => (
-            "sentinel1_raw",
-            false,
-            "lower VV (dB) = water-classed surface",
-        ),
-        K::Wildfire => ("indices.nbr", false, "lower NBR = more burn"),
-        K::UrbanHeatIsland => (
-            "modis.lst_day_8day",
-            true,
-            "higher LST = hotter built-up surface",
-        ),
-        K::MethanePlume => ("s2.B12", true, "elevated SWIR-2 absorption proxy"),
-        K::Landslide => (
-            "sentinel1_raw",
-            false,
-            "negative ΔVV = mass movement signature",
-        ),
-        K::Drought => ("chirps.precip_monthly", false, "lower rainfall = drier"),
-        K::SoilSalinity => ("s2.B04", true, "elevated red reflectance over bare soil"),
-        K::CropStress => (
-            "indices.ndvi",
-            false,
-            "lower NDVI in growing season = stress",
-        ),
-        K::WaterTurbidity => ("s2.B04", true, "elevated red over water = sediment"),
-        K::OilSlick => unreachable!("OilSlick handled above"),
+    let spec = match ranking_spec_for(kind) {
+        Some(s) => s,
+        None => {
+            return Err(ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!(
+                        "hunt: no ranking spec registered for event '{event_label}' — add a RankingSpec arm or guard upstream"
+                    ),
+                    details: None,
+                },
+            ));
+        }
     };
 
-    let n_cells = 32usize;
+    let slow_cap = slow_band_cells_cap(spec.primary_band);
+    let n_cells = slow_cap.unwrap_or(32);
     let cells = sample_cells_in_bbox(bbox, n_cells);
     if cells.is_empty() {
         return Ok(json!({
@@ -21144,73 +21122,49 @@ async fn hunt_with_explicit_bbox(
             "message":       "hunt: bbox sampled to zero cells",
         }));
     }
-
-    const HUNTER_CONCURRENCY: usize = 16;
-    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(HUNTER_CONCURRENCY));
-    type HuntOut = (
-        String,
-        Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
-    );
-    let mut set: tokio::task::JoinSet<HuntOut> = tokio::task::JoinSet::new();
-    for cell in &cells {
-        let cell_owned = cell.clone();
-        let s_clone = s.clone();
-        let sema = sema.clone();
-        let band = primary_band.to_string();
-        set.spawn(async move {
-            let _permit = sema.acquire().await.ok();
-            let r = RecallReq {
-                cell: cell_owned.clone(),
-                bands: Some(vec![band]),
-                tslot: None,
-            };
-            (cell_owned, recall_with_auto_materialize(&r, &s_clone).await)
-        });
-    }
-    let mut ranked: Vec<(String, f64, Option<String>)> = Vec::new();
-    while let Some(j) = set.join_next().await {
-        if let Ok((cell, Ok((resp, _notes)))) = j {
-            for (idx, fact) in resp.facts.iter().enumerate() {
-                let (band, value_json) = match fact {
-                    emem_fact::Fact::Primary(p) => (&p.band, ciborium_to_json(&p.value)),
-                    emem_fact::Fact::Derivative(d) => (&d.band, ciborium_to_json(&d.value)),
-                    emem_fact::Fact::Absence(_) => continue,
-                };
-                if band != primary_band {
-                    continue;
-                }
-                if let Some(scalar) = value_json.as_f64() {
-                    if scalar.is_finite() {
-                        let fact_cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
-                        ranked.push((cell.clone(), scalar, fact_cid));
-                    }
-                }
-                break;
-            }
-        }
-    }
-    if higher_is_hotter {
-        ranked.sort_by(|a, c| c.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let ranked = fan_out_and_rank(&s, &cells, spec).await;
+    let rerank_enabled = slow_cap.is_none()
+        && std::env::var("EMEM_HUNTER_EMBEDDING_RERANK")
+            .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+            .unwrap_or(true);
+    let reranked = if rerank_enabled {
+        tessera_rerank(&s, &ranked, 16).await
     } else {
-        ranked.sort_by(|a, c| a.1.partial_cmp(&c.1).unwrap_or(std::cmp::Ordering::Equal));
-    }
-    let hotspots: Vec<JsonValue> = ranked
-        .iter()
-        .take(8)
-        .map(|(cell, scalar, fact_cid)| {
-            let latlng = emem_codec::latlng_from_cell64(cell).ok();
-            json!({
-                "cell64":       cell,
-                "lat":          latlng.as_ref().map(|p| p.lat_deg),
-                "lng":          latlng.as_ref().map(|p| p.lng_deg),
-                "primary_band": primary_band,
-                "value":        scalar,
-                "fact_cid":     fact_cid,
-                "scene_url":    format!("{origin}/v1/cells/{cell}/scene.png"),
-                "facts_url":    format!("{origin}/v1/recall?cell={cell}"),
-            })
-        })
-        .collect();
+        None
+    };
+    let (hotspots, embedding_rerank_status): (Vec<JsonValue>, JsonValue) = match reranked.as_ref() {
+        Some(rr) => {
+            let blobs: Vec<JsonValue> = rr
+                .iter()
+                .take(8)
+                .map(|(r, coh)| build_hotspot_blob(r, *coh, spec, &origin))
+                .collect();
+            (
+                blobs,
+                json!({
+                    "applied":         true,
+                    "encoder":         "geotessera",
+                    "method":          "cluster_centroid_cosine",
+                    "candidates_used": rr.len(),
+                    "explanation":     "Top-K hotspots reranked by cosine similarity to the Tessera-vector cluster centroid.",
+                }),
+            )
+        }
+        None => {
+            let blobs: Vec<JsonValue> = ranked
+                .iter()
+                .take(8)
+                .map(|r| build_hotspot_blob(r, 0.0, spec, &origin))
+                .collect();
+            (
+                blobs,
+                json!({
+                    "applied": false,
+                    "reason":  if rerank_enabled { "too_few_tessera_vectors" } else if slow_cap.is_some() { "skipped_for_slow_primary_band" } else { "disabled_by_env" },
+                }),
+            )
+        }
+    };
     Ok(json!({
         "schema":        "emem.hunt.v1",
         "status":        "hunter_mode",
@@ -21221,15 +21175,24 @@ async fn hunt_with_explicit_bbox(
         "region_anchor": region_anchor,
         "polygon_bbox":  {"min_lat": b.min_lat, "max_lat": b.max_lat, "min_lng": b.min_lng, "max_lng": b.max_lng},
         "ranking": {
-            "primary_band":     primary_band,
-            "direction":        if higher_is_hotter { "descending" } else { "ascending" },
-            "interpretation":   scalar_meaning,
+            "primary_band":     spec.primary_band,
+            "gate":             spec.gate.map(|g| json!({
+                "band":      g.band,
+                "op":        match g.op { GateOp::Gt => ">", GateOp::Lt => "<" },
+                "threshold": g.threshold,
+                "reason":    g.reason,
+            })).unwrap_or(JsonValue::Null),
+            "direction":        if spec.higher_is_hotter { "descending" } else { "ascending" },
+            "interpretation":   spec.interpretation,
             "cells_sampled":    cells.len(),
             "cells_with_facts": ranked.len(),
+            "slow_band_cap":    slow_cap,
         },
-        "hotspots":      hotspots,
+        "hotspots":           hotspots,
+        "embedding_rerank":   embedding_rerank_status,
+        "materializer_status": materializer_status_for(input_bands),
         "caveats": [
-            "hotspots are ranked by the algorithm's primary scalar input, not its full formula. Apply the formula via /v1/algorithms/<key> for the real per-cell score.",
+            "hotspots are ranked by the algorithm's primary scalar input (with the gate where listed), not its full formula. Apply the formula via /v1/algorithms/<key> for the real per-cell score.",
             "polygon sampling is uniform; sub-cell features may fall between samples.",
         ],
         "agent_hint": "Surface the top 3–8 hotspots with their scene.png URLs and quote at least one fact_cid as a citation.",
@@ -21999,6 +21962,412 @@ fn corpus_audit_response(intent: ask_foundation::CorpusAuditIntent, q: &str) -> 
     })
 }
 
+/// Per-event ranking spec for hunter mode. Captures the *primary*
+/// scalar band the responder ranks cells by, an optional gating band
+/// (e.g. NDWI > 0 to keep water-only cells when hunting algal blooms
+/// or sediment plumes), the sort direction, and the human-readable
+/// interpretation surfaced under `ranking.interpretation`. Held as
+/// `'static` so the picker is allocation-free.
+///
+/// The single source of truth for both `/v1/hunt` and `/v1/ask`
+/// hunter dispatch — keeps the two entry points byte-equivalent on
+/// ranking semantics and removes the per-call duplication that
+/// drifted in the first cut (one branch said "still requires B11
+/// fusion via algorithm", the other didn't).
+#[derive(Debug, Clone, Copy)]
+struct RankingSpec {
+    primary_band: &'static str,
+    gate: Option<RankingGate>,
+    higher_is_hotter: bool,
+    interpretation: &'static str,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RankingGate {
+    band: &'static str,
+    /// `op` ∈ {`">"`, `"<"`} — passes when cell-value satisfies the
+    /// comparison. We avoid an enum to keep the constructor literal-
+    /// only and the wire surface trivial.
+    op: GateOp,
+    threshold: f64,
+    /// One-line reason, surfaced in `ranking.gate.reason`.
+    reason: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum GateOp {
+    Gt,
+    /// Reserved for "must NOT be water" gates (e.g. methane over land,
+    /// soil-salinity over non-flooded soil). Not currently constructed
+    /// in [`ranking_spec_for`] but kept here so adding such a spec is
+    /// a one-line change rather than a re-introduction.
+    Lt,
+}
+
+fn ranking_spec_for(kind: ask_foundation::HunterKind) -> Option<RankingSpec> {
+    use ask_foundation::HunterKind as K;
+    let spec = match kind {
+        // Algal-bloom and water-turbidity are *over-water* phenomena.
+        // Without the NDWI > 0 gate, shoreline vegetation and bright
+        // bare soil rank as "blooms" / "plumes" — surfaced by an
+        // 2026-05-15 audit. The gate matches the algorithm card's
+        // `if ndwi <= 0.0: return null (not water)` prefix.
+        K::AlgalBloom => RankingSpec {
+            primary_band: "indices.ndvi",
+            gate: Some(RankingGate {
+                band: "indices.ndwi",
+                op: GateOp::Gt,
+                threshold: 0.0,
+                reason: "NDWI > 0 keeps water-only cells; matches algal_bloom_chlorophyll_ndci@1's water mask",
+            }),
+            higher_is_hotter: true,
+            interpretation: "NDVI residual over a water-gated cell — chlorophyll-a proxy. > 0.10 is bloom-suspect; the full algorithm rescales to mg/m³.",
+        },
+        K::WaterTurbidity => RankingSpec {
+            primary_band: "s2.B04",
+            gate: Some(RankingGate {
+                band: "indices.ndwi",
+                op: GateOp::Gt,
+                threshold: 0.0,
+                reason: "NDWI > 0 keeps water-only cells; matches water_turbidity_red_band@1's water mask",
+            }),
+            higher_is_hotter: true,
+            interpretation: "red-band reflectance over a water-gated cell — sediment plume proxy",
+        },
+        K::Deforestation => RankingSpec {
+            primary_band: "indices.ndvi",
+            gate: None,
+            higher_is_hotter: false,
+            interpretation: "lower NDVI on the cell — drop on forest baseline = more loss. The full algorithm gates on Hansen tree-cover ≥ 30 % to keep only formerly-forested cells.",
+        },
+        K::Flood => RankingSpec {
+            primary_band: "sentinel1_raw",
+            gate: None,
+            higher_is_hotter: false,
+            interpretation: "lower VV (dB) = water-classed surface (operational threshold ≈ -16 dB for C-band over land)",
+        },
+        K::Wildfire => RankingSpec {
+            primary_band: "indices.nbr",
+            gate: None,
+            higher_is_hotter: false,
+            interpretation: "lower NBR = more burn (Key & Benson 2006). The full algorithm fuses dNBR class with Prithvi linear-probe.",
+        },
+        K::UrbanHeatIsland => RankingSpec {
+            primary_band: "modis.lst_day_8day",
+            gate: None,
+            higher_is_hotter: true,
+            interpretation: "higher LST = hotter surface. The full algorithm subtracts a local vegetated-neighbor reference; > 3 K excess is a strong UHI.",
+        },
+        K::MethanePlume => RankingSpec {
+            primary_band: "s2.B12",
+            gate: None,
+            higher_is_hotter: true,
+            interpretation: "elevated SWIR-2 reflectance — cheap pre-filter only. The full algorithm fuses B11/B12 ratio anomaly; treat hotspots as candidates for an EnMAP/EMIT/PRISMA re-look, not detections.",
+        },
+        K::Landslide => RankingSpec {
+            primary_band: "sentinel1_raw",
+            gate: None,
+            higher_is_hotter: false,
+            interpretation: "negative ΔVV = mass-movement signature; the full algorithm gates on local slope from Cop-DEM",
+        },
+        K::Drought => RankingSpec {
+            primary_band: "chirps.precip_monthly",
+            gate: None,
+            higher_is_hotter: false,
+            interpretation: "lower rainfall = drier; the full algorithm computes a 3-month SPI z-score",
+        },
+        K::SoilSalinity => RankingSpec {
+            primary_band: "s2.B04",
+            gate: None,
+            higher_is_hotter: true,
+            interpretation: "elevated red reflectance — SAVI-anchored salinity proxy; the full algorithm fuses red and NIR",
+        },
+        K::CropStress => RankingSpec {
+            primary_band: "indices.ndvi",
+            gate: None,
+            higher_is_hotter: false,
+            interpretation: "lower NDVI in growing season = stress; the full algorithm z-scores against a per-polygon rolling baseline",
+        },
+        K::OilSlick => return None,
+    };
+    Some(spec)
+}
+
+/// Slow-fetch primary bands — `materialize_band_at` against these
+/// blocks for tens of seconds (NASA/ORNL MODIS is the canonical
+/// offender). Hunter mode caps `n_cells` aggressively for these so a
+/// 32-cell sweep doesn't trip the 64 s gateway timeout. The cap is
+/// chosen so a worst-case cold sweep stays under ~30 s wall time at
+/// 16-permit concurrency. Operators can override with the env var
+/// `EMEM_HUNTER_SLOW_BAND_CAP` at startup.
+fn slow_band_cells_cap(primary_band: &str) -> Option<usize> {
+    const SLOW_BANDS: &[&str] = &["modis.lst_day_8day", "modis.lst_night_8day", "prithvi_eo2"];
+    if !SLOW_BANDS.contains(&primary_band) {
+        return None;
+    }
+    let env = std::env::var("EMEM_HUNTER_SLOW_BAND_CAP")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok());
+    Some(env.unwrap_or(8).clamp(1, 32))
+}
+
+/// Result of one cell's primary-band fetch under hunter mode. Carries
+/// the gate-band value too when a gate is configured so the caller
+/// can filter without a second round-trip.
+#[derive(Debug, Clone)]
+struct RankedCell {
+    cell: String,
+    scalar: f64,
+    fact_cid: Option<String>,
+    /// Populated only when the spec has a gate — `None` means the
+    /// gate band wasn't recallable for this cell (no materializer,
+    /// missing tslot, etc.). The caller treats `None` as "drop".
+    gate_value: Option<f64>,
+}
+
+/// Fan out over `cells`, recall the primary (and gate, when present)
+/// band per cell with bounded concurrency, sort by the spec's
+/// direction, and return the ranked list. Used by both
+/// `hunter_response` and `hunt_with_explicit_bbox` so ranking
+/// semantics never drift between entry points.
+async fn fan_out_and_rank(s: &AppState, cells: &[String], spec: RankingSpec) -> Vec<RankedCell> {
+    const HUNTER_CONCURRENCY: usize = 16;
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(HUNTER_CONCURRENCY));
+    type Out = (
+        String,
+        Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
+    );
+    let mut set: tokio::task::JoinSet<Out> = tokio::task::JoinSet::new();
+    // Build the band list once — primary plus gate (when present).
+    let mut bands: Vec<String> = vec![spec.primary_band.to_string()];
+    if let Some(g) = spec.gate.as_ref() {
+        bands.push(g.band.to_string());
+    }
+    for cell in cells {
+        let cell_owned = cell.clone();
+        let s_clone = s.clone();
+        let sema = sema.clone();
+        let bands = bands.clone();
+        set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let r = RecallReq {
+                cell: cell_owned.clone(),
+                bands: Some(bands),
+                tslot: None,
+            };
+            (cell_owned, recall_with_auto_materialize(&r, &s_clone).await)
+        });
+    }
+    let mut ranked: Vec<RankedCell> = Vec::new();
+    while let Some(j) = set.join_next().await {
+        let Ok((cell, Ok((resp, _notes)))) = j else {
+            continue;
+        };
+        let mut primary_scalar: Option<(f64, Option<String>)> = None;
+        let mut gate_scalar: Option<f64> = None;
+        for (idx, fact) in resp.facts.iter().enumerate() {
+            let (band, value_json) = match fact {
+                emem_fact::Fact::Primary(p) => (p.band.as_str(), ciborium_to_json(&p.value)),
+                emem_fact::Fact::Derivative(d) => (d.band.as_str(), ciborium_to_json(&d.value)),
+                emem_fact::Fact::Absence(_) => continue,
+            };
+            if band == spec.primary_band && primary_scalar.is_none() {
+                if let Some(v) = value_json.as_f64() {
+                    if v.is_finite() {
+                        let cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
+                        primary_scalar = Some((v, cid));
+                    }
+                }
+            } else if let Some(g) = spec.gate.as_ref() {
+                if band == g.band && gate_scalar.is_none() {
+                    if let Some(v) = value_json.as_f64() {
+                        if v.is_finite() {
+                            gate_scalar = Some(v);
+                        }
+                    }
+                }
+            }
+        }
+        let Some((scalar, fact_cid)) = primary_scalar else {
+            continue;
+        };
+        // Apply the gate when configured. We require a *real* gate
+        // value — a missing gate band means we can't prove the cell
+        // is over water (or whatever the gate represents), so we
+        // drop it rather than guess. Honest noise vs. silent
+        // false-positives is the trade we want.
+        if let Some(g) = spec.gate.as_ref() {
+            let Some(gv) = gate_scalar else {
+                continue;
+            };
+            let passes = match g.op {
+                GateOp::Gt => gv > g.threshold,
+                GateOp::Lt => gv < g.threshold,
+            };
+            if !passes {
+                continue;
+            }
+        }
+        ranked.push(RankedCell {
+            cell,
+            scalar,
+            fact_cid,
+            gate_value: gate_scalar,
+        });
+    }
+    if spec.higher_is_hotter {
+        ranked.sort_by(|a, b| {
+            b.scalar
+                .partial_cmp(&a.scalar)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    } else {
+        ranked.sort_by(|a, b| {
+            a.scalar
+                .partial_cmp(&b.scalar)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+    ranked
+}
+
+/// Per-cell JSON envelope shared between primary-scalar ordering and
+/// Tessera-coherence-reranked ordering. Extracted so the two
+/// post-rerank arms can't drift.
+fn build_hotspot_blob(
+    r: &RankedCell,
+    coherence: f32,
+    spec: RankingSpec,
+    origin: &str,
+) -> JsonValue {
+    let latlng = emem_codec::latlng_from_cell64(&r.cell).ok();
+    let mut blob = json!({
+        "cell64":       r.cell,
+        "lat":          latlng.as_ref().map(|p| p.lat_deg),
+        "lng":          latlng.as_ref().map(|p| p.lng_deg),
+        "primary_band": spec.primary_band,
+        "value":        r.scalar,
+        "fact_cid":     r.fact_cid,
+        "scene_url":    format!("{origin}/v1/cells/{}/scene.png", r.cell),
+        "facts_url":    format!("{origin}/v1/recall?cell={}", r.cell),
+    });
+    if let (Some(g), Some(gv)) = (spec.gate.as_ref(), r.gate_value) {
+        blob["gate_band"] = json!(g.band);
+        blob["gate_value"] = json!(gv);
+    }
+    if coherence != 0.0 {
+        blob["coherence"] = json!(coherence);
+    }
+    blob
+}
+
+/// Re-rank a hunter-mode primary-scalar list by Tessera embedding
+/// coherence. The intuition: an event (algal bloom, burn scar,
+/// inundation) has a shared *signature* across the cells where it's
+/// real. Cells whose Tessera embedding lies far from the cluster's
+/// centroid are usually false positives (single-cell artefacts,
+/// shoreline confusion, isolated reflectance spikes). We re-rank by
+/// cosine similarity to the centroid so the agent surfaces the
+/// *coherent* hotspots first.
+///
+/// Tessera is the only foundation encoder with a live materializer at
+/// this responder (Clay v1 and Prithvi-EO-2 are seeded but not
+/// auto-materialised; see /v1/coverage_matrix). Using it alone keeps
+/// the rerank honest — we promise embedding intelligence and deliver
+/// the embedding intelligence we can actually run.
+///
+/// Inputs:
+/// - `top_k`: how many of the primary-scalar leaders to consider
+///   (default 16). The top-K are recalled for `geotessera`, then
+///   re-ranked. The final response returns `take(8)` from the
+///   reranked list.
+/// - returns the reranked list (cell64-aligned with input order) plus
+///   the per-cell coherence score under `coherence`, OR `None` when
+///   too few Tessera vectors come back to form a centroid (the
+///   caller falls back to the primary-scalar order in that case).
+async fn tessera_rerank(
+    s: &AppState,
+    ranked: &[RankedCell],
+    top_k: usize,
+) -> Option<Vec<(RankedCell, f32)>> {
+    use emem_primitives::cbor_ops::{as_vec_f32, cosine};
+    if ranked.len() < 3 {
+        return None;
+    }
+    let candidates = &ranked[..ranked.len().min(top_k)];
+    // Recall geotessera per candidate cell, concurrently.
+    const RERANK_CONCURRENCY: usize = 16;
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(RERANK_CONCURRENCY));
+    type Out = (usize, Option<Vec<f32>>);
+    let mut set: tokio::task::JoinSet<Out> = tokio::task::JoinSet::new();
+    for (idx, rc) in candidates.iter().enumerate() {
+        let cell = rc.cell.clone();
+        let s_clone = s.clone();
+        let sema = sema.clone();
+        set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let r = RecallReq {
+                cell,
+                bands: Some(vec!["geotessera".to_string()]),
+                tslot: None,
+            };
+            let vec = match recall_with_auto_materialize(&r, &s_clone).await {
+                Ok((resp, _)) => resp.facts.iter().find_map(|f| match f {
+                    emem_fact::Fact::Primary(p) if p.band == "geotessera" => as_vec_f32(&p.value),
+                    _ => None,
+                }),
+                Err(_) => None,
+            };
+            (idx, vec)
+        });
+    }
+    let mut vectors: Vec<(usize, Vec<f32>)> = Vec::with_capacity(candidates.len());
+    while let Some(j) = set.join_next().await {
+        if let Ok((idx, Some(v))) = j {
+            if !v.is_empty() {
+                vectors.push((idx, v));
+            }
+        }
+    }
+    // Need at least 3 vectors to make centroid + coherence ranking
+    // useful. Below that, the result is just rank-by-self-similarity
+    // which carries no signal.
+    if vectors.len() < 3 {
+        return None;
+    }
+    // Compute the centroid in f64 to avoid drift across 128-D sums.
+    let dim = vectors[0].1.len();
+    let mut centroid = vec![0f64; dim];
+    for (_, v) in &vectors {
+        for (i, x) in v.iter().enumerate().take(dim) {
+            centroid[i] += *x as f64;
+        }
+    }
+    let n = vectors.len() as f64;
+    for c in centroid.iter_mut() {
+        *c /= n;
+    }
+    let centroid_f32: Vec<f32> = centroid.iter().map(|x| *x as f32).collect();
+    // Score each candidate by cosine(vec, centroid). Cells without a
+    // vector are kept at the end with score 0 so the primary-scalar
+    // order is preserved as a tiebreaker.
+    let mut have_vec: std::collections::HashMap<usize, Vec<f32>> = vectors.into_iter().collect();
+    let mut out: Vec<(RankedCell, f32)> = candidates
+        .iter()
+        .enumerate()
+        .map(|(idx, rc)| {
+            let score = have_vec
+                .remove(&idx)
+                .map(|v| cosine(&v, &centroid_f32))
+                .unwrap_or(0.0);
+            (rc.clone(), score)
+        })
+        .collect();
+    out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    Some(out)
+}
+
 /// Build the hunter-mode envelope. When the user asks "find oil
 /// spills in the Persian Gulf" or "where is deforestation happening"
 /// we don't want to come back with `needs_location` — we want to
@@ -22139,77 +22508,41 @@ async fn hunter_response(
         }
     };
 
-    // Pick the primary scalar band for ranking + the sort direction.
-    // Higher_is_hotter means we want the LARGEST values first
-    // (algal_bloom, urban_heat, drought-of-NDVI, sediment plume). For
-    // NBR (burn) and Sentinel-1 (water/oil dampening) the relationship
-    // inverts — lower values are more interesting.
-    let (primary_band, higher_is_hotter, scalar_meaning): (&str, bool, &str) = match kind {
-        ask_foundation::HunterKind::AlgalBloom => (
-            "indices.ndvi",
-            true,
-            "higher NDVI over water = more chlorophyll proxy",
-        ),
-        ask_foundation::HunterKind::Deforestation => (
-            "indices.ndvi",
-            false,
-            "lower NDVI on forest baseline = more loss",
-        ),
-        ask_foundation::HunterKind::Flood => (
-            "sentinel1_raw",
-            false,
-            "lower VV (dB) = water-classed surface",
-        ),
-        ask_foundation::HunterKind::Wildfire => ("indices.nbr", false, "lower NBR = more burn"),
-        ask_foundation::HunterKind::UrbanHeatIsland => (
-            "modis.lst_day_8day",
-            true,
-            "higher LST = hotter built-up surface",
-        ),
-        ask_foundation::HunterKind::MethanePlume => (
-            "s2.B12",
-            true,
-            "elevated SWIR-2 absorption proxy (still requires B11 fusion via algorithm)",
-        ),
-        ask_foundation::HunterKind::Landslide => (
-            "sentinel1_raw",
-            false,
-            "negative ΔVV = mass movement signature",
-        ),
-        ask_foundation::HunterKind::Drought => {
-            ("chirps.precip_monthly", false, "lower rainfall = drier")
-        }
-        ask_foundation::HunterKind::SoilSalinity => {
-            ("s2.B04", true, "elevated red reflectance over bare soil")
-        }
-        ask_foundation::HunterKind::CropStress => (
-            "indices.ndvi",
-            false,
-            "lower NDVI in growing season = stress",
-        ),
-        ask_foundation::HunterKind::WaterTurbidity => {
-            ("s2.B04", true, "elevated red over water = sediment")
-        }
-        ask_foundation::HunterKind::OilSlick => {
+    // Pick the per-event ranking spec (primary band, gate, direction,
+    // interpretation). Single source of truth shared with /v1/hunt.
+    let spec = match ranking_spec_for(kind) {
+        Some(s) => s,
+        None => {
+            // OilSlick is the only kind that has no spec — guard for
+            // any future expansion that forgets to register one.
             return Err(ApiError(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorBody {
                     code: ErrorCode::Internal,
-                    message: "oil_slick reached ranking branch — should have returned above".into(),
+                    message: format!(
+                        "hunter: no ranking spec registered for event '{event_label}' — add a RankingSpec arm or guard upstream"
+                    ),
                     details: None,
                 },
-            ))
+            ));
         }
     };
 
-    // Sample up to 32 cells from the bbox (caps materializer cost).
-    // Use the polygon_geojson if available; fall back to bbox grid.
+    // Cap n_cells aggressively for known-slow primary bands so a
+    // 32-cell sweep against MODIS LST (which makes one rate-limited
+    // ORNL request per cell, ~30 s each) doesn't trip the 64 s
+    // gateway timeout. Default cap: 8 cells. Configurable via env.
+    let slow_cap = slow_band_cells_cap(spec.primary_band);
+    let n_cells = slow_cap.unwrap_or(32);
+
+    // Sample up to `n_cells` from the bbox. Use the polygon_geojson if
+    // available; fall back to bbox grid. Track whether we fell back so
+    // the caller can disclose it.
     let polygon_geojson = lresp.0.get("polygon_geojson").cloned();
     let parsed_polygons = polygon_geojson
         .as_ref()
         .and_then(parse_polygon_geojson)
         .unwrap_or_default();
-    let n_cells = 32usize;
     let mut cells = if parsed_polygons.is_empty() {
         sample_cells_in_bbox(bbox, n_cells)
     } else {
@@ -22218,10 +22551,13 @@ async fn hunter_response(
     // Fallback: when the polygon mask is so tight that we'd lose more
     // than 75 % of the grid, drop the mask and use the bbox directly.
     // Long thin features (Lake Erie, narrow estuaries) drop all 32
-    // samples otherwise — better to over-cover the bbox by ~30 % than
-    // hand back zero hotspots.
+    // samples otherwise. The boolean is surfaced in the response so
+    // an agent surfacing hotspots can disclose that the spatial scope
+    // widened from the polygon to its bounding rectangle.
+    let mut polygon_fallback_to_bbox = false;
     if !parsed_polygons.is_empty() && cells.len() < n_cells / 4 {
         cells = sample_cells_in_bbox(bbox, n_cells);
+        polygon_fallback_to_bbox = true;
     }
     if cells.is_empty() {
         return Ok(json!({
@@ -22236,75 +22572,64 @@ async fn hunter_response(
         }));
     }
 
-    // Fan out: recall the primary band concurrently with a 16-permit
-    // semaphore. Match the recall_polygon concurrency pattern.
-    const HUNTER_CONCURRENCY: usize = 16;
-    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(HUNTER_CONCURRENCY));
-    type HunterOut = (
-        String,
-        Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
-    );
-    let mut set: tokio::task::JoinSet<HunterOut> = tokio::task::JoinSet::new();
-    for cell in &cells {
-        let cell_owned = cell.clone();
-        let s_clone = s.clone();
-        let sema = sema.clone();
-        let band = primary_band.to_string();
-        set.spawn(async move {
-            let _permit = sema.acquire().await.ok();
-            let r = RecallReq {
-                cell: cell_owned.clone(),
-                bands: Some(vec![band]),
-                tslot: None,
-            };
-            (cell_owned, recall_with_auto_materialize(&r, &s_clone).await)
-        });
-    }
-    // (cell, scalar, fact_cid).
-    let mut ranked: Vec<(String, f64, Option<String>)> = Vec::new();
-    while let Some(j) = set.join_next().await {
-        if let Ok((cell, Ok((resp, _notes)))) = j {
-            for (idx, fact) in resp.facts.iter().enumerate() {
-                let (band, value_json) = match fact {
-                    emem_fact::Fact::Primary(p) => (&p.band, ciborium_to_json(&p.value)),
-                    emem_fact::Fact::Derivative(d) => (&d.band, ciborium_to_json(&d.value)),
-                    emem_fact::Fact::Absence(_) => continue,
-                };
-                if band != primary_band {
-                    continue;
-                }
-                let scalar = value_json.as_f64();
-                if let Some(scalar) = scalar {
-                    if scalar.is_finite() {
-                        let fact_cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
-                        ranked.push((cell.clone(), scalar, fact_cid));
-                    }
-                }
-                break;
-            }
-        }
-    }
-    if higher_is_hotter {
-        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let ranked = fan_out_and_rank(&s, &cells, spec).await;
+    // Tessera embedding rerank — opt-out via env, disabled for slow
+    // primary bands where the extra fetches would compound latency.
+    let rerank_enabled = slow_cap.is_none()
+        && std::env::var("EMEM_HUNTER_EMBEDDING_RERANK")
+            .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+            .unwrap_or(true);
+    let reranked = if rerank_enabled {
+        tessera_rerank(&s, &ranked, 16).await
     } else {
-        ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-    }
-    let top = ranked.iter().take(8);
-    let hotspots: Vec<JsonValue> = top
-        .map(|(cell, scalar, fact_cid)| {
-            let latlng = emem_codec::latlng_from_cell64(cell).ok();
-            json!({
-                "cell64":       cell,
-                "lat":          latlng.as_ref().map(|p| p.lat_deg),
-                "lng":          latlng.as_ref().map(|p| p.lng_deg),
-                "primary_band": primary_band,
-                "value":        scalar,
-                "fact_cid":     fact_cid,
-                "scene_url":    format!("{origin}/v1/cells/{cell}/scene.png"),
-                "facts_url":    format!("{origin}/v1/recall?cell={cell}"),
-            })
-        })
-        .collect();
+        None
+    };
+    let (hotspots, embedding_rerank_status): (Vec<JsonValue>, JsonValue) = match reranked.as_ref() {
+        Some(rr) => {
+            let blobs: Vec<JsonValue> = rr
+                .iter()
+                .take(8)
+                .map(|(r, coh)| build_hotspot_blob(r, *coh, spec, &origin))
+                .collect();
+            let scores: Vec<f32> = rr.iter().map(|(_, c)| *c).collect();
+            (
+                blobs,
+                json!({
+                    "applied":          true,
+                    "encoder":          "geotessera",
+                    "method":           "cluster_centroid_cosine",
+                    "candidates_used":  rr.len(),
+                    "coherence_max":    scores.iter().cloned().fold(f32::MIN, f32::max),
+                    "coherence_min":    scores.iter().cloned().fold(f32::MAX, f32::min),
+                    "explanation":      "Top-K primary-scalar hotspots are recalled for the Tessera 128-D embedding; cells are re-ranked by cosine similarity to the cluster centroid. Coherent cells (event signature shared across hotspots) rank above single-cell artefacts.",
+                }),
+            )
+        }
+        None => {
+            let blobs: Vec<JsonValue> = ranked
+                .iter()
+                .take(8)
+                .map(|r| build_hotspot_blob(r, 0.0, spec, &origin))
+                .collect();
+            let reason = if !rerank_enabled {
+                if slow_cap.is_some() {
+                    "skipped_for_slow_primary_band"
+                } else {
+                    "disabled_by_env"
+                }
+            } else {
+                "too_few_tessera_vectors"
+            };
+            (
+                blobs,
+                json!({
+                    "applied":     false,
+                    "reason":      reason,
+                    "explanation": "Fell back to primary-scalar order. Tessera coherence rerank requires at least 3 cells with Tessera vectors; below that the cluster centroid is degenerate.",
+                }),
+            )
+        }
+    };
 
     Ok(json!({
         "schema":         "emem.ask.v1",
@@ -22318,16 +22643,26 @@ async fn hunter_response(
         "place_resolved": {
             "label":         place_label,
             "polygon_bbox":  polygon_bbox,
+            "polygon_fallback_to_bbox": polygon_fallback_to_bbox,
             "via":           lresp.0.get("via").cloned().unwrap_or(JsonValue::Null),
         },
         "ranking": {
-            "primary_band":     primary_band,
-            "direction":        if higher_is_hotter { "descending" } else { "ascending" },
-            "interpretation":   scalar_meaning,
+            "primary_band":     spec.primary_band,
+            "gate":             spec.gate.map(|g| json!({
+                "band":      g.band,
+                "op":        match g.op { GateOp::Gt => ">", GateOp::Lt => "<" },
+                "threshold": g.threshold,
+                "reason":    g.reason,
+            })).unwrap_or(JsonValue::Null),
+            "direction":        if spec.higher_is_hotter { "descending" } else { "ascending" },
+            "interpretation":   spec.interpretation,
             "cells_sampled":    cells.len(),
             "cells_with_facts": ranked.len(),
+            "slow_band_cap":    slow_cap,
         },
-        "hotspots":      hotspots,
+        "hotspots":         hotspots,
+        "embedding_rerank": embedding_rerank_status,
+        "materializer_status": materializer_status_for(input_bands),
         "recipe": {
             "fan_out": format!(
                 "POST {origin}/v1/recall_polygon  {{place: \"{region}\", bands: {:?}}}",
@@ -22338,12 +22673,84 @@ async fn hunter_response(
             "scene":   format!("{origin}/v1/cells/<cell>/scene.png — Sentinel-2 RGB at the hotspot"),
         },
         "caveats": [
-            "hotspots are ranked by the algorithm's primary scalar input, not its full formula. Apply the formula via /v1/algorithms/<key> for the real per-cell score.",
+            "hotspots are ranked by the algorithm's primary scalar input (with the gate where listed), not its full formula. Apply the formula via /v1/algorithms/<key> for the real per-cell score.",
             "polygon sampling is uniform; sub-cell features may fall between samples. Re-call /v1/recall_polygon with drill_on_water=true for adaptive density.",
             "auto-materialize fills the primary band on first request — first call is slower than warm hits.",
         ],
         "agent_hint": "This is hunter mode: an open-world event sweep over a named region. Surface the top 3–8 hotspots with their scene.png URLs as image blocks; quote at least one fact_cid as a citation. The algorithm key is the algebraic ground truth — let the user read /v1/algorithms/<key> if they want the math.",
     }))
+}
+
+/// Honest disclosure of which input bands have a live materializer at
+/// this responder versus only being seeded. Per /v1/coverage_matrix
+/// today: `geotessera` has a wired materializer; Clay v1 and
+/// Prithvi-EO-2 carry seed facts but no auto-materialise path. Agents
+/// reading the hunter envelope should treat `seed_only` bands as
+/// "might miss" — the recall will return what's been signed before,
+/// not a fresh fetch.
+///
+/// The list is kept short and explicit rather than auto-derived from
+/// the bands registry so it can be reviewed in one place. When a new
+/// materializer comes online (e.g. Clay v1.5 sidecar), the entry
+/// flips here and the envelope updates without a registry rebuild.
+fn materializer_status_for(input_bands: &[&'static str]) -> JsonValue {
+    let mut out = Vec::with_capacity(input_bands.len());
+    for band in input_bands {
+        let (live, note) = match *band {
+            // Live materializers — auto-fetch on miss.
+            "indices.ndvi" | "indices.ndwi" | "indices.nbr" => (
+                true,
+                "derived from Sentinel-2 raw bands; auto-materialises on miss",
+            ),
+            "sentinel1_raw" => (true, "Sentinel-1 VV; auto-materialises on miss"),
+            "s2.B04" | "s2.B08" | "s2.B11" | "s2.B12" => (
+                true,
+                "Sentinel-2 raw band via cog connector; auto-materialises on miss",
+            ),
+            "copdem30m.elevation_mean" => (true, "Copernicus GLO-30 DEM; auto-materialises on miss"),
+            "chirps.precip_monthly" => (
+                true,
+                "CHIRPS monthly precipitation; auto-materialises on miss",
+            ),
+            "hansen.tree_cover_2000" => (
+                true,
+                "Hansen Global Forest Change 2000 tree-cover baseline; auto-materialises on miss",
+            ),
+            "esa_worldcover.lc_2021" => {
+                (true, "ESA WorldCover 2021 land cover; auto-materialises on miss")
+            }
+            "geotessera" => (
+                true,
+                "Tessera 128-D foundation embedding; auto-materialises on miss",
+            ),
+            // Known-slow materializers — wired but operationally
+            // brittle. Hunter mode caps n_cells for these.
+            "modis.lst_day_8day" | "modis.lst_night_8day" => (
+                true,
+                "MODIS land-surface temperature 8-day via NASA/ORNL REST API. SLOW: rate-limited and ~30 s per cell — hunter mode caps fan-out to 8 cells for this band.",
+            ),
+            // Seed-only foundation encoders — no live materializer.
+            "clay_v1" => (
+                false,
+                "Clay v1 foundation embedding — seed facts only. No live materializer at this responder; recall returns whatever was pre-attested.",
+            ),
+            "prithvi_eo2" => (
+                false,
+                "Prithvi-EO-2.0 foundation embedding — seed facts only. No live materializer at this responder; recall returns whatever was pre-attested.",
+            ),
+            // Fallback for bands not enumerated above.
+            _ => (
+                true,
+                "consult /v1/coverage_matrix for has_materializer + last_attested_at",
+            ),
+        };
+        out.push(json!({
+            "band": band,
+            "has_live_materializer": live,
+            "note": note,
+        }));
+    }
+    JsonValue::Array(out)
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {

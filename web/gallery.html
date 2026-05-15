@@ -327,59 +327,65 @@
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="case" id="bloom">
     <p class="badge">Case 1 · Algal bloom · Lake Erie</p>
-    <h2>Chlorophyll-bright water along the south shore</h2>
-    <p class="dek">A summer satellite pass picks out the same near-shore band
-       any Erie boater would name. The eight ranked cells sit between
-       Cleveland and Buffalo, NDVI climbing past 0.7 over water — the
-       chlorophyll-NDCI proxy's bloom threshold.</p>
+    <h2>Pre-season, the gated algorithm reports no bloom</h2>
+    <p class="dek">Captured in May, before Erie's summer cyanobacteria
+       window opens. The water-gated algorithm correctly returns
+       chlorophyll-NDCI values near zero — and surfaces that absence
+       in the same envelope as a positive detection would use.</p>
 
     <p>The detection algorithm is
        <a href="/v1/algorithms/algal_bloom_chlorophyll_ndci@1"><code>algal_bloom_chlorophyll_ndci@1</code></a>.
        It gates on NDWI > 0 (water) and turns the residual vegetation
-       index into a chlorophyll-a estimate. The full formula is in the
-       algorithm card; the ranking below uses NDVI alone as a cheap
-       primary scalar, and the hotspot positions match the
-       <a href="https://www.glerl.noaa.gov/res/HABs_and_Hypoxia/">NOAA GLERL bloom bulletin</a>'s annual footprint.</p>
+       index into a chlorophyll-a estimate. The responder applies
+       that gate structurally before ranking: every hotspot below sits
+       over water, and every NDVI value is near zero because there is
+       no bloom in Lake Erie in May. The
+       <a href="https://www.glerl.noaa.gov/res/HABs_and_Hypoxia/">NOAA GLERL bloom bulletin</a>
+       confirms the timing — peak intensity arrives in July–September.
+       The same call in August will look very different.</p>
 
     <div class="scenes">
       <div class="scene">
-        <a href="/v1/cells/defi.zb5dc.bObe.zbc5d/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb5dc.bObe.zbc5d/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 41.84°N, -80.24°W"/>
+        <a href="/v1/cells/defi.zb5dc.bObe.wOgI/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb5dc.bObe.wOgI/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over water at 41.84°N, -81.16°W"/>
         </a>
         <div class="scene-meta">
-          <b>41.84°N, -80.24°W</b><br/>
-          NDVI&nbsp;0.888<br/>
-          cid&nbsp;i6trcap2wul2…
+          <b>41.84°N, -81.16°W</b><br/>
+          NDVI&nbsp;-0.057<br/>
+          NDWI&nbsp;0.14&nbsp;✓<br/>
+          cid&nbsp;tc54vlpl62a4…
         </div>
       </div>
       <div class="scene">
-        <a href="/v1/cells/defi.zb5df.tuxU.kAlU/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb5df.tuxU.kAlU/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 42.14°N, -83.02°W"/>
+        <a href="/v1/cells/defi.zb5e2.zf791.wOgI/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb5e2.zf791.wOgI/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over water at 42.45°N, -81.16°W"/>
         </a>
         <div class="scene-meta">
-          <b>42.14°N, -83.02°W</b><br/>
-          NDVI&nbsp;0.870<br/>
-          cid&nbsp;lzkma73xxeuv…
+          <b>42.45°N, -81.16°W</b><br/>
+          NDVI&nbsp;-0.063<br/>
+          NDWI&nbsp;0.34&nbsp;✓<br/>
+          cid&nbsp;kkjpv7ayq74n…
         </div>
       </div>
       <div class="scene">
-        <a href="/v1/cells/defi.zb5df.tuxU.ze687/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb5df.tuxU.ze687/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 42.14°N, -79.31°W"/>
+        <a href="/v1/cells/defi.zb5e6.rEqU.zbc5d/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb5e6.rEqU.zbc5d/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over water at 42.75°N, -80.24°W"/>
         </a>
         <div class="scene-meta">
-          <b>42.14°N, -79.31°W</b><br/>
-          NDVI&nbsp;0.784<br/>
-          cid&nbsp;6fegik3p3qra…
+          <b>42.75°N, -80.24°W</b><br/>
+          NDVI&nbsp;-0.067<br/>
+          NDWI&nbsp;0.42&nbsp;✓<br/>
+          cid&nbsp;l6vylt3rcp7u…
         </div>
       </div>
       <div class="scene">
-        <a href="/v1/cells/defi.zb5e6.rEqU.wOgI/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb5e6.rEqU.wOgI/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 42.75°N, -81.16°W"/>
+        <a href="/v1/places/scene_overlay.svg?place=Lake+Erie&amp;band=indices.ndwi&amp;n_cells=16" target="_blank">
+          <img src="/v1/places/scene_overlay.svg?place=Lake+Erie&amp;band=indices.ndwi&amp;n_cells=16" loading="lazy" alt="Lake Erie NDWI water mask overlay"/>
         </a>
         <div class="scene-meta">
-          <b>42.75°N, -81.16°W</b><br/>
-          NDVI&nbsp;0.772<br/>
-          cid&nbsp;…
+          <b>NDWI overlay</b><br/>
+          gate band, 16 cells<br/>
+          drives the&nbsp;>&nbsp;0 mask
         </div>
       </div>
     </div>
@@ -389,12 +395,17 @@
     -d '{"event":"algal_bloom","region":"Lake Erie"}'</pre>
 
     <p class="caption">
-      <b>How it ranked.</b> Thirty-two cells sampled from the Lake Erie
-      polygon; NDVI recalled per cell with auto-materialisation against
-      Sentinel-2; sorted descending, ties broken by cell64. The fact CID
-      on each scene is the citation — paste it into
-      <a href="/verify">/verify</a> and watch <code>@noble/curves</code>
-      recompute the signature in the browser.
+      <b>How the gate works.</b> Thirty-two cells sampled from the
+      Lake Erie polygon; for each, the responder recalls both
+      <code>indices.ndvi</code> and the gating band
+      <code>indices.ndwi</code> in one envelope. Cells with
+      NDWI&nbsp;≤&nbsp;0 (land) are filtered out before sorting; the
+      remaining water cells are ranked by NDVI descending. Each row in
+      the response carries both the primary value and the gate value,
+      so an agent reading the JSON can audit why a cell ranked where
+      it did. Paste any fact CID into <a href="/verify">/verify</a>
+      and watch <code>@noble/curves</code> recompute the signature in
+      the browser.
     </p>
     <p class="source">
       emem.dev · <code>/v1/hunt</code> · <code>algal_bloom_chlorophyll_ndci@1</code>
@@ -504,6 +515,7 @@
         <div class="scene-meta">
           <b>21.90°N, 89.46°E</b><br/>
           B04&nbsp;1.061<br/>
+          NDWI&nbsp;0.06&nbsp;✓<br/>
           cid&nbsp;2hvb6p3wpfwy…
         </div>
       </div>
@@ -514,17 +526,18 @@
         <div class="scene-meta">
           <b>22.14°N, 89.57°E</b><br/>
           B04&nbsp;0.562<br/>
+          NDWI&nbsp;0.01&nbsp;✓<br/>
           cid&nbsp;q4dlyetw6dtc…
         </div>
       </div>
       <div class="scene">
-        <a href="/v1/cells/defi.zb4fb.betI.ze2cc/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb4fb.betI.ze2cc/scene.png" loading="lazy" alt="Sentinel-2 RGB at 22.06°N, 89.36°E"/>
+        <a href="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=indices.ndwi&amp;n_cells=16" target="_blank">
+          <img src="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=indices.ndwi&amp;n_cells=16" loading="lazy" alt="Sundarbans NDWI water mask overlay"/>
         </a>
         <div class="scene-meta">
-          <b>22.06°N, 89.36°E</b><br/>
-          B04&nbsp;0.462<br/>
-          cid&nbsp;lgdvvgx2lqkp…
+          <b>NDWI overlay</b><br/>
+          gate band, 16 cells<br/>
+          drives the&nbsp;>&nbsp;0 mask
         </div>
       </div>
       <div class="scene">
@@ -532,8 +545,9 @@
           <img src="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=s2.B04&amp;n_cells=16" loading="lazy" alt="Sundarbans red-band overlay"/>
         </a>
         <div class="scene-meta">
-          <b>region overlay</b><br/>
-          Sentinel-2 B04, 16 cells
+          <b>B04 overlay</b><br/>
+          Sentinel-2 red, 16 cells<br/>
+          ranked band
         </div>
       </div>
     </div>
@@ -667,12 +681,11 @@
     <p>The fix is two pieces of work, both on the public roadmap. The
        first is a Sentinel-1 surface-roughness anomaly algorithm — the
        same physics the closest-algorithms pointer describes, but
-       calibrated for slick detection (Vincent-Liu et al, IEEE J-STARS
-       2020). The second is the supporting reference dataset: a few
-       hundred confirmed slick cells from
-       <a href="https://www.itopf.org/knowledge-resources/data-statistics/case-histories/">ITOPF case histories</a>
-       and the ESA Sea-Track Wind product to train the anomaly
-       threshold against.</p>
+       calibrated for slick detection. The second is the supporting
+       reference dataset: confirmed slick cells from
+       <a href="https://www.itopf.org">ITOPF</a>'s public archive and
+       Copernicus CleanSeaNet alerts to anchor the anomaly threshold
+       against ground truth.</p>
 
     <p class="caption">
       <b>Why this section exists.</b> A demo that smiles through
@@ -698,27 +711,31 @@
     <h2>Question → bytes → receipt</h2>
     <p class="dek">Five lines. One agent asks; another agent verifies.</p>
 
-    <pre class="worked"><span class="sh">$ </span>curl -sS https://emem.dev/v1/elevation?lat=19.0760&amp;lng=72.8777
+    <pre class="worked"><span class="sh">$ </span>curl -sS 'https://emem.dev/v1/elevation?lat=19.0760&amp;lng=72.8777'
 
 <span class="k">{
-  </span>"value":         <span class="v">14.0,</span><span class="k">
-  </span>"unit":          <span class="v">"m_msl",</span><span class="k">
-  </span>"source":        <span class="v">"copdem30m",</span><span class="k">
-  </span>"fact_cid":      <span class="cid">"bafy2bzaceaqxfn4obg3orodvm6ws3lnxv5fbzqbtku2c3ye2pjp7zkx2cmpbg",</span><span class="k">
-  </span>"receipt": {
-    "responder":      <span class="v">"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",</span>
-    <span class="k">"signature":      </span><span class="v">"…64 bytes ed25519…",</span><span class="k">
-    "served_at":      </span><span class="v">"2026-05-14T05:51:12Z",</span><span class="k">
-    "merkle_proof":   </span><span class="v">"…6 sibling hashes…"</span><span class="k">
-  }
-}</span></pre>
+  </span>"elevation_m":           <span class="v">6.0,</span><span class="k">
+  </span>"cell64":                <span class="v">"defi.zb4d9.cojE.zf4be",</span><span class="k">
+  </span>"interpretation":        <span class="v">"6.0 m above sea level (Cop-DEM 90 m, ESA WorldCover land class)",</span><span class="k">
+  </span>"sub_facts": {
+    "copdem30m_elevation_mean": {
+      <span class="k">"value":     </span><span class="v">6.0,</span><span class="k">
+      "fact_cid":  </span><span class="cid">"wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",</span><span class="k">
+      "band":      </span><span class="v">"copdem30m.elevation_mean"</span>
+    <span class="k">}
+  </span>},
+  <span class="k">"responder_pubkey_b32":  </span><span class="v">"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",</span><span class="k">
+  </span>"served_at":             <span class="v">"2026-05-15T11:17:00Z"</span>
+<span class="k">}</span></pre>
 
-    <p>The agent that received this response now has three things: a number
-       (<code>14 m above mean sea level at South Mumbai</code>), a 64-byte
-       proof, and a 26-character handle. The handle is the fact CID. Anyone
-       with the handle can re-run the math:</p>
+    <p>The agent that received this response now has three things: a
+       number (<code>6 m above mean sea level at South Mumbai</code>),
+       a content-addressed handle for the underlying signed fact, and
+       the responder's pubkey to check the signature against. Anyone
+       with the fact CID can fetch the raw signed CBOR and re-run the
+       math:</p>
 
-    <pre class="worked"><span class="sh">$ </span>curl https://emem.dev/v1/facts/bafy2bzaceaqxfn4obg3orodvm6ws3lnxv5fbzqbtku2c3ye2pjp7zkx2cmpbg
+    <pre class="worked"><span class="sh">$ </span>curl https://emem.dev/v1/facts/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
 
 <span class="k"># or, with no callback at all:</span>
 <span class="sh">$ </span>node verify_offline.js receipt.json pubkey.b32
@@ -729,10 +746,11 @@
        watch <code>@noble/curves</code> recompute the signature inside the
        browser tab. No callback to the issuer.</p>
     <p class="caption">
-      <b>Why this matters.</b> Two LLM agents disagreeing about whether South
-      Mumbai is 14&nbsp;m or 4&nbsp;m can point at the CID and stop arguing.
-      Two insurance underwriters disagreeing about whether a parcel is in the
-      flood plain can do the same. The CID is the citation.
+      <b>Why this matters.</b> Two LLM agents disagreeing about the
+      elevation at a coastal address can point at the CID and stop
+      arguing. Two insurance underwriters disagreeing about whether a
+      parcel sits in the flood plain can do the same. The CID is the
+      citation.
     </p>
   </section>
 
