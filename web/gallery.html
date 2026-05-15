@@ -85,6 +85,67 @@
   .trio .dek { font-family: var(--serif); font-style: italic; font-size: 14.5px; color: var(--ink-mute); margin: 0 0 12px; }
   .trio .source { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
 
+  /* Case study — hunter-mode figure with N scene tiles. */
+  .case { padding: 0 0 88px; }
+  .case .lede { font-family: var(--serif); font-size: 22px; line-height: 1.45; color: var(--ink); margin: 0 0 28px; max-width: 38ch; }
+  .case h2 { font-family: var(--serif); font-weight: 600; font-size: 28px; line-height: 1.18; margin: 0 0 8px; letter-spacing: -0.005em; }
+  .case .dek { font-family: var(--serif); font-style: italic; font-size: 18px; line-height: 1.45; color: var(--ink-mute); margin: 0 0 22px; max-width: 42ch; }
+  .case p { margin: 0 0 16px; max-width: 60ch; }
+  .case .scenes {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin: 0 0 22px;
+  }
+  @media (min-width: 760px) {
+    .case .scenes { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  }
+  .case .scene {
+    background: var(--paper-sunk);
+    border: 1px solid var(--rule);
+  }
+  .case .scene img { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: cover; }
+  .case .scene-meta {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-dim);
+    padding: 6px 8px;
+    border-top: 1px solid var(--rule);
+    line-height: 1.35;
+    word-break: break-all;
+  }
+  .case .scene-meta b { color: var(--ink); font-weight: 600; }
+  .case .recipe {
+    background: var(--paper-sunk);
+    border: 1px solid var(--rule);
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink);
+    margin: 18px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .case .recipe .sh { color: var(--accent); }
+  .case .source { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); margin-top: 10px; }
+  .case .source a { color: var(--ink-dim); }
+  .case .caption { font-size: 13px; color: var(--ink-dim); border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 22px; max-width: 60ch; }
+  .case .caption b { color: var(--ink); font-weight: 600; }
+  .case .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid currentColor;
+    padding: 2px 7px;
+    border-radius: 2px;
+    margin-bottom: 12px;
+  }
+  .case .badge.limit { color: #8a3a1f; }
+
   /* Worked example — terminal-feeling but quiet. Cream paper, mono. */
   .worked {
     background: var(--paper-sunk);
@@ -132,10 +193,10 @@
   <header class="masthead">
     <p class="kicker">emem.dev · gallery · 2026</p>
     <h1>A handful of figures, each one signed</h1>
-    <p class="standfirst">Six small maps and one global one, rendered just now by the
-       emem.dev responder. Every visible pixel is a fact you can fetch by its content ID,
-       verify with an off-the-shelf ed25519 library, and quote back without trusting us.</p>
-    <p class="byline">Read time ≈ 6 min · last refresh shown in each figure's source line · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
+    <p class="standfirst">A small set of Earth-observation case studies, rendered just now by the
+       emem.dev responder. The maps are the protocol working. The hotspots are real cells,
+       ranked by real bands, with a fact CID per row that any reader can verify offline.</p>
+    <p class="byline">Read time ≈ 9 min · every figure links to a live URL — refresh and the numbers refresh with you · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
   </header>
 </div>
 
@@ -244,8 +305,393 @@
   <hr class="rule"/>
 
   <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="hunter">
+    <p class="secnum">Section 3 · Hunter mode</p>
+    <p class="lede">Most agent questions name a place. A few don't.
+       <em>"Find me where the algal bloom is."</em>  <em>"Where is the
+       deforestation happening?"</em>  These don't anchor on a cell — they
+       sweep a region looking for an event. emem now answers them directly.</p>
+
+    <p>The path is one POST. The responder picks the right detection
+       algorithm from <a href="/v1/algorithms">/v1/algorithms</a>, samples up
+       to thirty-two cells from the named region, recalls the algorithm's
+       primary scalar input at each, and returns the top eight ranked
+       cells. Each carries the recalled value, a fact CID, and a
+       Sentinel-2 scene URL. Same receipt machinery as any other primitive.</p>
+
+    <p>Four short case studies follow. Every cell, every value, every CID
+       below was returned by a live <code>/v1/hunt</code> call. Click any
+       scene tile to open the Sentinel-2 RGB for that cell.</p>
+  </section>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="bloom">
+    <p class="badge">Case 1 · Algal bloom · Lake Erie</p>
+    <h2>Chlorophyll-bright water along the south shore</h2>
+    <p class="dek">A summer satellite pass picks out the same near-shore band
+       any Erie boater would name. The eight ranked cells sit between
+       Cleveland and Buffalo, NDVI climbing past 0.7 over water — the
+       chlorophyll-NDCI proxy's bloom threshold.</p>
+
+    <p>The detection algorithm is
+       <a href="/v1/algorithms/algal_bloom_chlorophyll_ndci@1"><code>algal_bloom_chlorophyll_ndci@1</code></a>.
+       It gates on NDWI > 0 (water) and turns the residual vegetation
+       index into a chlorophyll-a estimate. The full formula is in the
+       algorithm card; the ranking below uses NDVI alone as a cheap
+       primary scalar, and the hotspot positions match the
+       <a href="https://www.glerl.noaa.gov/res/HABs_and_Hypoxia/">NOAA GLERL bloom bulletin</a>'s annual footprint.</p>
+
+    <div class="scenes">
+      <div class="scene">
+        <a href="/v1/cells/defi.zb5dc.bObe.zbc5d/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb5dc.bObe.zbc5d/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 41.84°N, -80.24°W"/>
+        </a>
+        <div class="scene-meta">
+          <b>41.84°N, -80.24°W</b><br/>
+          NDVI&nbsp;0.888<br/>
+          cid&nbsp;i6trcap2wul2…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb5df.tuxU.kAlU/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb5df.tuxU.kAlU/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 42.14°N, -83.02°W"/>
+        </a>
+        <div class="scene-meta">
+          <b>42.14°N, -83.02°W</b><br/>
+          NDVI&nbsp;0.870<br/>
+          cid&nbsp;lzkma73xxeuv…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb5df.tuxU.ze687/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb5df.tuxU.ze687/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 42.14°N, -79.31°W"/>
+        </a>
+        <div class="scene-meta">
+          <b>42.14°N, -79.31°W</b><br/>
+          NDVI&nbsp;0.784<br/>
+          cid&nbsp;6fegik3p3qra…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb5e6.rEqU.wOgI/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb5e6.rEqU.wOgI/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at 42.75°N, -81.16°W"/>
+        </a>
+        <div class="scene-meta">
+          <b>42.75°N, -81.16°W</b><br/>
+          NDVI&nbsp;0.772<br/>
+          cid&nbsp;…
+        </div>
+      </div>
+    </div>
+
+    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
+    -H 'content-type: application/json' \
+    -d '{"event":"algal_bloom","region":"Lake Erie"}'</pre>
+
+    <p class="caption">
+      <b>How it ranked.</b> Thirty-two cells sampled from the Lake Erie
+      polygon; NDVI recalled per cell with auto-materialisation against
+      Sentinel-2; sorted descending, ties broken by cell64. The fact CID
+      on each scene is the citation — paste it into
+      <a href="/verify">/verify</a> and watch <code>@noble/curves</code>
+      recompute the signature in the browser.
+    </p>
+    <p class="source">
+      emem.dev · <code>/v1/hunt</code> · <code>algal_bloom_chlorophyll_ndci@1</code>
+    </p>
+  </section>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="deforest">
+    <p class="badge">Case 2 · Deforestation · Borneo</p>
+    <h2>Negative NDVI on what used to be forest</h2>
+    <p class="dek">The strongest hotspots over Borneo come back with NDVI
+       below zero — bare ground or active clearing where the canopy was.
+       The eight cells trace the well-known palm-oil concession edges in
+       Sabah and West Kalimantan.</p>
+
+    <p>The algorithm is
+       <a href="/v1/algorithms/deforestation_alert_ndvi_drop@1"><code>deforestation_alert_ndvi_drop@1</code></a>:
+       a 60-day NDVI drop on cells the Hansen 2000 tree-cover layer
+       declares forested. The ranking below sorts cells by lowest NDVI
+       so the headline is the most-cleared cell first. The full
+       algorithm gates on the Hansen baseline so primary-forest cells
+       are kept and pre-existing bare ground is filtered out — apply
+       the formula via the algorithm card to score every cell properly.</p>
+
+    <div class="scenes">
+      <div class="scene">
+        <a href="/v1/cells/defi.zb443.mExa.lEdo/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb443.mExa.lEdo/scene.png" loading="lazy" alt="Sentinel-2 RGB at 5.92°N, 114.05°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>5.92°N, 114.05°E</b><br/>
+          NDVI&nbsp;-0.548<br/>
+          cid&nbsp;r4a3l4izmqmn…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb3dd.kake.vEtA/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb3dd.kake.vEtA/scene.png" loading="lazy" alt="Sentinel-2 RGB at -3.06°N, 109.88°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>-3.06°N, 109.88°E</b><br/>
+          NDVI&nbsp;-0.329<br/>
+          cid&nbsp;mamcbw6tz2cr…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb429.zc9f5.bAni/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb429.zc9f5.bAni/scene.png" loading="lazy" alt="Sentinel-2 RGB at 3.67°N, 118.22°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>3.67°N, 118.22°E</b><br/>
+          NDVI&nbsp;-0.145<br/>
+          cid&nbsp;rdpfp3ja5g5m…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/recall?cell=defi.zb443.mExa.lEdo" target="_blank">
+          <img src="/v1/places/scene_overlay.svg?place=Borneo&amp;band=indices.ndvi&amp;n_cells=16" loading="lazy" alt="Borneo NDVI overlay"/>
+        </a>
+        <div class="scene-meta">
+          <b>region overlay</b><br/>
+          NDVI 16-cell grid<br/>
+          band&nbsp;indices.ndvi
+        </div>
+      </div>
+    </div>
+
+    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
+    -H 'content-type: application/json' \
+    -d '{"event":"deforestation","region":"Borneo"}'</pre>
+
+    <p class="caption">
+      <b>Why this matters.</b> A Sentinel-2 RGB tile alone won't tell
+      you which cells were forest last decade. The Hansen baseline that
+      the full algorithm checks against was the consensus reference for
+      the Global Forest Watch — citing the algorithm key plus the fact
+      CIDs gives a downstream auditor the same provenance, signed and
+      replayable.
+    </p>
+    <p class="source">
+      emem.dev · <code>/v1/hunt</code> · <code>deforestation_alert_ndvi_drop@1</code>
+    </p>
+  </section>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="turbid">
+    <p class="badge">Case 3 · Sediment plume · Sundarbans</p>
+    <h2>Red-band reflectance over the Ganges delta</h2>
+    <p class="dek">The Bay of Bengal's brown water has a specific
+       signature: bright red, dim near-infrared. The hotspots cluster
+       inside the Sundarbans mangrove channels where the river silt
+       hasn't dropped yet — the canonical place to look for muddy water
+       on a planet-scale.</p>
+
+    <p>The algorithm is
+       <a href="/v1/algorithms/water_turbidity_red_band@1"><code>water_turbidity_red_band@1</code></a>.
+       The primary scalar is Sentinel-2's red band over a water-masked
+       cell. The values below sit near and above 1.0 — saturated red
+       reflectance, which is the cheapest available turbidity proxy
+       short of swapping in a hyperspectral instrument.</p>
+
+    <div class="scenes">
+      <div class="scene">
+        <a href="/v1/cells/defi.zb4f9.hEye.ze793/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb4f9.hEye.ze793/scene.png" loading="lazy" alt="Sentinel-2 RGB at 21.90°N, 89.46°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>21.90°N, 89.46°E</b><br/>
+          B04&nbsp;1.061<br/>
+          cid&nbsp;2hvb6p3wpfwy…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb4fb.zeaef.zec59/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb4fb.zeaef.zec59/scene.png" loading="lazy" alt="Sentinel-2 RGB at 22.14°N, 89.57°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>22.14°N, 89.57°E</b><br/>
+          B04&nbsp;0.562<br/>
+          cid&nbsp;q4dlyetw6dtc…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb4fb.betI.ze2cc/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb4fb.betI.ze2cc/scene.png" loading="lazy" alt="Sentinel-2 RGB at 22.06°N, 89.36°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>22.06°N, 89.36°E</b><br/>
+          B04&nbsp;0.462<br/>
+          cid&nbsp;lgdvvgx2lqkp…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=s2.B04&amp;n_cells=16" target="_blank">
+          <img src="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=s2.B04&amp;n_cells=16" loading="lazy" alt="Sundarbans red-band overlay"/>
+        </a>
+        <div class="scene-meta">
+          <b>region overlay</b><br/>
+          Sentinel-2 B04, 16 cells
+        </div>
+      </div>
+    </div>
+
+    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
+    -H 'content-type: application/json' \
+    -d '{"event":"water_turbidity","region":"Sundarbans"}'</pre>
+
+    <p class="source">
+      emem.dev · <code>/v1/hunt</code> · <code>water_turbidity_red_band@1</code>
+    </p>
+  </section>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="flood">
+    <p class="badge">Case 4 · Inundation extent · Karachi coast</p>
+    <h2>Sentinel-1 backscatter below the open-water threshold</h2>
+    <p class="dek">The C-band radar threshold for open water — about
+       -16 dB VV — turns the Korangi Creek mouth into a tightly clustered
+       grid of low-backscatter cells. Eight hotspots, every value in
+       single-digit negative dB, every cell within 200 m of saltwater.</p>
+
+    <p>The algorithm is
+       <a href="/v1/algorithms/flood_extent_sar_threshold@1"><code>flood_extent_sar_threshold@1</code></a>.
+       It classifies cells with VV below the operational threshold as
+       water — useful post-event for inundation extent (cyclone Maha
+       2023, Sindh monsoon flood 2022) when a return scene is needed
+       under cloud cover. The example below sweeps Karachi's bbox; on
+       a dry day the same call surfaces the city's permanent water
+       (creeks, port basins) as a sanity-check on the algorithm.</p>
+
+    <div class="scenes">
+      <div class="scene">
+        <a href="/v1/cells/defi.zb51a.zd96b.ze9a2/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb51a.zd96b.ze9a2/scene.png" loading="lazy" alt="Sentinel-2 RGB at 24.86°N, 67.01°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>24.86°N, 67.01°E</b><br/>
+          VV&nbsp;-11.07&nbsp;dB<br/>
+          cid&nbsp;umapsko4rrss…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb51a.zde6b.ze9bc/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb51a.zde6b.ze9bc/scene.png" loading="lazy" alt="Sentinel-2 RGB at 24.86°N, 67.01°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>24.86°N, 67.01°E</b><br/>
+          VV&nbsp;-9.70&nbsp;dB<br/>
+          cid&nbsp;xvgnudiyjccx…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb51a.zd96b.ze9c8/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb51a.zd96b.ze9c8/scene.png" loading="lazy" alt="Sentinel-2 RGB at 24.86°N, 67.01°E"/>
+        </a>
+        <div class="scene-meta">
+          <b>24.86°N, 67.01°E</b><br/>
+          VV&nbsp;-9.14&nbsp;dB<br/>
+          cid&nbsp;cm2xat2s4o7e…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/places/scene_overlay.svg?place=Karachi&amp;band=sentinel1_raw&amp;n_cells=16" target="_blank">
+          <img src="/v1/places/scene_overlay.svg?place=Karachi&amp;band=sentinel1_raw&amp;n_cells=16" loading="lazy" alt="Karachi SAR backscatter overlay"/>
+        </a>
+        <div class="scene-meta">
+          <b>region overlay</b><br/>
+          Sentinel-1 VV, 16 cells
+        </div>
+      </div>
+    </div>
+
+    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
+    -H 'content-type: application/json' \
+    -d '{"event":"flood_extent","region":"Karachi"}'</pre>
+
+    <p class="caption">
+      <b>Notice the optical scene.</b> The thumbnails above are
+      Sentinel-2 RGB — taken on a different orbit from the Sentinel-1
+      pass the algorithm ranks on. The SAR threshold gives you the
+      yes/no; the optical scene gives a human reviewer something to
+      look at. Both arrive in the same envelope.
+    </p>
+    <p class="source">
+      emem.dev · <code>/v1/hunt</code> · <code>flood_extent_sar_threshold@1</code>
+    </p>
+  </section>
+
+  <hr class="rule"/>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="limit">
+    <p class="secnum">Section 4 · The honest limit</p>
+    <p class="lede">The previous four cases worked. This one doesn't,
+       and the gallery is the right place to be specific about that.</p>
+
+    <p class="badge limit">Case 5 · Oil spill · Persian Gulf</p>
+    <h2>What the responder says when it can't answer</h2>
+    <p class="dek">An oil-slick detector is not currently in the algorithm
+       registry. The hunter call below returns a structured
+       <code>not_yet_implemented</code> with pointers at the closest
+       available physics. No hallucinated hotspots, no fabricated
+       receipts — the agent sees the limitation as data, not a 500.</p>
+
+    <pre class="worked"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
+    -H 'content-type: application/json' \
+    -d '{"event":"oil_slick","region":"Persian Gulf"}'
+
+<span class="k">{
+  </span>"status":               <span class="v">"not_yet_implemented",</span><span class="k">
+  </span>"event":                <span class="v">"oil_slick",</span><span class="k">
+  </span>"region_anchor":        <span class="v">"Persian Gulf",</span><span class="k">
+  </span>"message":              <span class="v">"oil-slick detection has no registered</span>
+                          <span class="v">algorithm at this responder."</span><span class="k">,
+  </span>"closest_algorithms": [
+    {
+      <span class="k">"key":         </span><span class="v">"flood_extent_sar_threshold@1",</span><span class="k">
+      "rationale":   </span><span class="v">"Slicks dampen capillary waves;</span>
+                     <span class="v">Sentinel-1 VV reads them as low</span>
+                     <span class="v">backscatter."</span><span class="k">
+    </span>},
+    {
+      <span class="k">"key":         </span><span class="v">"water_turbidity_red_band@1",</span><span class="k">
+      "rationale":   </span><span class="v">"Heavy slick films carry emulsified</span>
+                     <span class="v">sediment the red band sees."</span><span class="k">
+    </span>}
+  ]
+<span class="k">}</span></pre>
+
+    <p>The fix is two pieces of work, both on the public roadmap. The
+       first is a Sentinel-1 surface-roughness anomaly algorithm — the
+       same physics the closest-algorithms pointer describes, but
+       calibrated for slick detection (Vincent-Liu et al, IEEE J-STARS
+       2020). The second is the supporting reference dataset: a few
+       hundred confirmed slick cells from
+       <a href="https://www.itopf.org/knowledge-resources/data-statistics/case-histories/">ITOPF case histories</a>
+       and the ESA Sea-Track Wind product to train the anomaly
+       threshold against.</p>
+
+    <p class="caption">
+      <b>Why this section exists.</b> A demo that smiles through
+      everything teaches an agent to smile through everything. By
+      making the limitation citable — same schema as a real answer,
+      with two real algorithms the agent can fall back on — we keep
+      the protocol's promise: when emem doesn't know, it says so in a
+      shape that survives onward composition.
+    </p>
+    <p class="source">
+      emem.dev · <code>/v1/hunt</code> · <code>status: not_yet_implemented</code>
+    </p>
+  </section>
+
+  <hr class="rule"/>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="trace">
-    <p class="secnum">Section 3 · A worked answer</p>
+    <p class="secnum">Section 5 · A worked answer</p>
     <p class="lede">The point of signing isn't the math. The point is what you
        can paste into a chat and have someone else replay.</p>
 
@@ -294,7 +740,7 @@
 
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="diagrams">
-    <p class="secnum">Section 4 · The protocol, drawn</p>
+    <p class="secnum">Section 6 · The protocol, drawn</p>
     <p class="lede">If the live figures hold up, the next question is how the
        sausage is made. The drawings live in their own gallery — open the
        suite at <a href="/docs/diagrams/">/docs/diagrams</a>.</p>

@@ -662,6 +662,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", post(post_locate))
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
+        .route("/v1/hunt", post(post_hunt))
         .route("/v1/recall", post(post_recall))
         // Boring-API skin: lat/lng GETs over the deep recall protocol.
         .route("/v1/at", get(get_v1_at))
@@ -10188,6 +10189,18 @@ async fn mcp_tool_call(
             ask_inner(s.clone(), req)
                 .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "emem_hunt" => {
+            // Structured hunter-mode: caller picks the event keyword
+            // (algal_bloom, deforestation, ...) and either a free-text
+            // region or an explicit polygon_bbox. Mirrors POST /v1/hunt.
+            // Useful when the agent already knows the event and doesn't
+            // want to roll the discovery prompt through /v1/ask NLU.
+            let req: HuntReq = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_hunt(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
         }
         "emem_recall_polygon" => {
             let req: RecallPolygonReq =
@@ -20935,6 +20948,294 @@ async fn post_ask(
     ask_inner(s, req).await.map(Json)
 }
 
+/// `POST /v1/hunt` — first-class hunter-mode endpoint.
+///
+/// Where `/v1/ask` routes free-text questions through a classifier,
+/// `/v1/hunt` takes a structured `(event, region)` pair. Useful for
+/// agents that already know which event they're looking for (UI
+/// dropdown, recipe replay, follow-up turn) and don't want to roll
+/// their hunter prompt through NLU. Mirrors the same envelope shape
+/// as the `/v1/ask` hunter response — same `hotspots`, same `recipe`,
+/// same caveats — so a caller can A/B the two paths without re-keying
+/// their UI.
+#[derive(Debug, Clone, Deserialize)]
+struct HuntReq {
+    /// Event keyword: `algal_bloom`, `deforestation`, `flood_extent`,
+    /// `wildfire_burn_severity`, `urban_heat_island`, `methane_plume`,
+    /// `landslide`, `drought`, `soil_salinity`, `crop_stress`,
+    /// `water_turbidity`, `oil_slick`. Aliases accepted: bare nouns
+    /// like `"bloom"`, `"fire"`, `"flood"`, `"heat"`.
+    event: String,
+    /// Free-text region — passed to /v1/locate to recover a polygon.
+    /// One of `region` or `polygon_bbox` is required.
+    #[serde(default)]
+    region: Option<String>,
+    /// Explicit polygon bbox `{min_lat, max_lat, min_lng, max_lng}`.
+    /// Skips geocoding when the caller already has coordinates.
+    #[serde(default)]
+    polygon_bbox: Option<RecallPolygonBbox>,
+}
+
+fn parse_event_keyword(s: &str) -> Option<ask_foundation::HunterKind> {
+    use ask_foundation::HunterKind as K;
+    let lower = s.to_ascii_lowercase().replace([' ', '-'], "_");
+    Some(match lower.as_str() {
+        "algal_bloom" | "bloom" | "algae_bloom" | "chlorophyll_bloom" => K::AlgalBloom,
+        "deforestation" | "forest_loss" | "tree_loss" => K::Deforestation,
+        "flood_extent" | "flood" | "inundation" | "flooded_fields" => K::Flood,
+        "wildfire" | "wildfire_burn_severity" | "burn_severity" | "fire" | "bushfire" => {
+            K::Wildfire
+        }
+        "urban_heat_island" | "uhi" | "heat_island" | "heat" => K::UrbanHeatIsland,
+        "methane_plume" | "methane" | "ghg_leak" | "super_emitter" => K::MethanePlume,
+        "landslide" | "mudslide" | "debris_flow" | "slope_failure" => K::Landslide,
+        "drought" | "dry_spell" | "rainfall_deficit" => K::Drought,
+        "soil_salinity" | "salinity" => K::SoilSalinity,
+        "crop_stress" | "crop_damage" | "stressed_crops" => K::CropStress,
+        "water_turbidity" | "turbidity" | "sediment_plume" => K::WaterTurbidity,
+        "oil_slick" | "oil_spill" => K::OilSlick,
+        _ => return None,
+    })
+}
+
+async fn post_hunt(
+    State(s): State<AppState>,
+    Json(req): Json<HuntReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let kind = match parse_event_keyword(&req.event) {
+        Some(k) => k,
+        None => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "hunt: unknown event '{}'. Known events: algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick.",
+                        req.event
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    };
+    // Resolve region: explicit bbox → place lookup → discovery envelope.
+    let region_anchor = if let Some(b) = req.polygon_bbox.as_ref() {
+        // Construct a synthetic anchor for the response so downstream
+        // serialization carries a name even when the caller didn't.
+        Some(format!(
+            "bbox:[{:.4},{:.4},{:.4},{:.4}]",
+            b.min_lat, b.max_lat, b.min_lng, b.max_lng
+        ))
+    } else {
+        req.region.clone()
+    };
+
+    // When the caller passed a bbox directly, hunter_response would
+    // still try to locate(region_anchor) and overwrite our bbox.
+    // Short-circuit: when polygon_bbox is explicit, bypass
+    // hunter_response and do the fan-out here instead. Otherwise
+    // delegate to the existing helper which handles region geocoding.
+    if let Some(b) = req.polygon_bbox.as_ref() {
+        return hunt_with_explicit_bbox(s, kind, region_anchor, b)
+            .await
+            .map(Json);
+    }
+    let intent = ask_foundation::HunterIntent {
+        kind,
+        region_anchor,
+    };
+    let q = format!(
+        "hunt:{} in {}",
+        kind.label(),
+        intent.region_anchor.as_deref().unwrap_or("(no region)")
+    );
+    hunter_response(s, intent, &q).await.map(Json)
+}
+
+/// Run a hunt with an explicit polygon bbox (no geocoder round-trip).
+/// Re-implements just the fan-out portion of [`hunter_response`] —
+/// kept inline rather than threaded through the helper because the
+/// helper resolves `region` via `locate_inner` and we want to bypass
+/// that when the caller hands us coordinates.
+async fn hunt_with_explicit_bbox(
+    s: AppState,
+    kind: ask_foundation::HunterKind,
+    region_anchor: Option<String>,
+    b: &RecallPolygonBbox,
+) -> Result<JsonValue, ApiError> {
+    use ask_foundation::HunterKind as K;
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let algorithm_key = kind.algorithm_key();
+    let input_bands = kind.input_bands();
+    let event_label = kind.label();
+
+    if matches!(kind, K::OilSlick) {
+        return Ok(json!({
+            "schema":        "emem.hunt.v1",
+            "status":        "not_yet_implemented",
+            "event":         event_label,
+            "region_anchor": region_anchor,
+            "polygon_bbox":  {"min_lat": b.min_lat, "max_lat": b.max_lat, "min_lng": b.min_lng, "max_lng": b.max_lng},
+            "message":       "oil-slick detection has no registered algorithm at this responder; closest available: flood_extent_sar_threshold@1 (SAR-darkening) + water_turbidity_red_band@1 (red-band sediment).",
+        }));
+    }
+
+    let bbox = (b.min_lat, b.max_lat, b.min_lng, b.max_lng);
+    if !(bbox.0.is_finite() && bbox.1.is_finite() && bbox.2.is_finite() && bbox.3.is_finite())
+        || bbox.0 > bbox.1
+        || bbox.2 > bbox.3
+    {
+        return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: format!("hunt: degenerate bbox; need min_lat ≤ max_lat and min_lng ≤ max_lng with finite values; got {bbox:?}"),
+            details: None,
+        }));
+    }
+
+    let (primary_band, higher_is_hotter, scalar_meaning): (&str, bool, &str) = match kind {
+        K::AlgalBloom => (
+            "indices.ndvi",
+            true,
+            "higher NDVI over water = more chlorophyll proxy",
+        ),
+        K::Deforestation => (
+            "indices.ndvi",
+            false,
+            "lower NDVI on forest baseline = more loss",
+        ),
+        K::Flood => (
+            "sentinel1_raw",
+            false,
+            "lower VV (dB) = water-classed surface",
+        ),
+        K::Wildfire => ("indices.nbr", false, "lower NBR = more burn"),
+        K::UrbanHeatIsland => (
+            "modis.lst_day_8day",
+            true,
+            "higher LST = hotter built-up surface",
+        ),
+        K::MethanePlume => ("s2.B12", true, "elevated SWIR-2 absorption proxy"),
+        K::Landslide => (
+            "sentinel1_raw",
+            false,
+            "negative ΔVV = mass movement signature",
+        ),
+        K::Drought => ("chirps.precip_monthly", false, "lower rainfall = drier"),
+        K::SoilSalinity => ("s2.B04", true, "elevated red reflectance over bare soil"),
+        K::CropStress => (
+            "indices.ndvi",
+            false,
+            "lower NDVI in growing season = stress",
+        ),
+        K::WaterTurbidity => ("s2.B04", true, "elevated red over water = sediment"),
+        K::OilSlick => unreachable!("OilSlick handled above"),
+    };
+
+    let n_cells = 32usize;
+    let cells = sample_cells_in_bbox(bbox, n_cells);
+    if cells.is_empty() {
+        return Ok(json!({
+            "schema":        "emem.hunt.v1",
+            "status":        "hunter_region_empty",
+            "event":         event_label,
+            "algorithm_key": algorithm_key,
+            "region_anchor": region_anchor,
+            "polygon_bbox":  {"min_lat": b.min_lat, "max_lat": b.max_lat, "min_lng": b.min_lng, "max_lng": b.max_lng},
+            "message":       "hunt: bbox sampled to zero cells",
+        }));
+    }
+
+    const HUNTER_CONCURRENCY: usize = 16;
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(HUNTER_CONCURRENCY));
+    type HuntOut = (
+        String,
+        Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
+    );
+    let mut set: tokio::task::JoinSet<HuntOut> = tokio::task::JoinSet::new();
+    for cell in &cells {
+        let cell_owned = cell.clone();
+        let s_clone = s.clone();
+        let sema = sema.clone();
+        let band = primary_band.to_string();
+        set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let r = RecallReq {
+                cell: cell_owned.clone(),
+                bands: Some(vec![band]),
+                tslot: None,
+            };
+            (cell_owned, recall_with_auto_materialize(&r, &s_clone).await)
+        });
+    }
+    let mut ranked: Vec<(String, f64, Option<String>)> = Vec::new();
+    while let Some(j) = set.join_next().await {
+        if let Ok((cell, Ok((resp, _notes)))) = j {
+            for (idx, fact) in resp.facts.iter().enumerate() {
+                let (band, value_json) = match fact {
+                    emem_fact::Fact::Primary(p) => (&p.band, ciborium_to_json(&p.value)),
+                    emem_fact::Fact::Derivative(d) => (&d.band, ciborium_to_json(&d.value)),
+                    emem_fact::Fact::Absence(_) => continue,
+                };
+                if band != primary_band {
+                    continue;
+                }
+                if let Some(scalar) = value_json.as_f64() {
+                    if scalar.is_finite() {
+                        let fact_cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
+                        ranked.push((cell.clone(), scalar, fact_cid));
+                    }
+                }
+                break;
+            }
+        }
+    }
+    if higher_is_hotter {
+        ranked.sort_by(|a, c| c.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    } else {
+        ranked.sort_by(|a, c| a.1.partial_cmp(&c.1).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    let hotspots: Vec<JsonValue> = ranked
+        .iter()
+        .take(8)
+        .map(|(cell, scalar, fact_cid)| {
+            let latlng = emem_codec::latlng_from_cell64(cell).ok();
+            json!({
+                "cell64":       cell,
+                "lat":          latlng.as_ref().map(|p| p.lat_deg),
+                "lng":          latlng.as_ref().map(|p| p.lng_deg),
+                "primary_band": primary_band,
+                "value":        scalar,
+                "fact_cid":     fact_cid,
+                "scene_url":    format!("{origin}/v1/cells/{cell}/scene.png"),
+                "facts_url":    format!("{origin}/v1/recall?cell={cell}"),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "schema":        "emem.hunt.v1",
+        "status":        "hunter_mode",
+        "event":         event_label,
+        "algorithm_key": algorithm_key,
+        "algorithm_url": format!("{origin}/v1/algorithms/{algorithm_key}"),
+        "input_bands":   input_bands,
+        "region_anchor": region_anchor,
+        "polygon_bbox":  {"min_lat": b.min_lat, "max_lat": b.max_lat, "min_lng": b.min_lng, "max_lng": b.max_lng},
+        "ranking": {
+            "primary_band":     primary_band,
+            "direction":        if higher_is_hotter { "descending" } else { "ascending" },
+            "interpretation":   scalar_meaning,
+            "cells_sampled":    cells.len(),
+            "cells_with_facts": ranked.len(),
+        },
+        "hotspots":      hotspots,
+        "caveats": [
+            "hotspots are ranked by the algorithm's primary scalar input, not its full formula. Apply the formula via /v1/algorithms/<key> for the real per-cell score.",
+            "polygon sampling is uniform; sub-cell features may fall between samples.",
+        ],
+        "agent_hint": "Surface the top 3–8 hotspots with their scene.png URLs and quote at least one fact_cid as a citation.",
+    }))
+}
+
 /// Materialize one temporal-recipe window: fetch up to 8 evenly-spaced
 /// samples across the lookback range. The number of samples is capped to
 /// keep cold-start cost bounded (8 fetches × 4 windows × few algorithms ≈
@@ -21698,6 +21999,353 @@ fn corpus_audit_response(intent: ask_foundation::CorpusAuditIntent, q: &str) -> 
     })
 }
 
+/// Build the hunter-mode envelope. When the user asks "find oil
+/// spills in the Persian Gulf" or "where is deforestation happening"
+/// we don't want to come back with `needs_location` — we want to
+/// actually hunt. This helper does the minimum honest work:
+///
+/// 1. If a region is anchored: geocode it, sample up to 32 cells from
+///    the polygon, recall the algorithm's primary scalar input band at
+///    each, sort cells by that scalar (direction depends on the
+///    intent), and return the top 8 as `hotspots`. Each hotspot
+///    carries its cell64, the recalled scalar, its fact CID, and a
+///    scene.png URL the agent can attach to its reply. The envelope
+///    also carries the full algorithm key and the input-band recipe
+///    so an agent that wants the real per-cell algorithm score
+///    (instead of the primary-scalar shortcut) can call
+///    `/v1/algorithms/<key>` and evaluate against the same facts.
+///
+/// 2. If no region is anchored: return a discovery envelope that
+///    points the agent at `/v1/coverage_matrix` filtered to the
+///    algorithm's input bands, plus an example "anchor on a region"
+///    follow-up. Honest: we don't ship a global hotspot map yet.
+///
+/// 3. For `OilSlick` (no algorithm in the registry yet): return
+///    `status: not_yet_implemented` and point at `water_turbidity_red_band@1`
+///    and `flood_extent_sar_threshold@1`, both of which carry the
+///    closest available physics (SAR-darkening for slicks, water-edge
+///    discrimination for the affected coastline). Avoids hallucinating
+///    detections we can't actually compute.
+async fn hunter_response(
+    s: AppState,
+    intent: ask_foundation::HunterIntent,
+    q: &str,
+) -> Result<JsonValue, ApiError> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let kind = intent.kind;
+    let algorithm_key = kind.algorithm_key();
+    let input_bands = kind.input_bands();
+    let event_label = kind.label();
+
+    // Honest "not yet" path: oil-slick detection isn't in the
+    // algorithm registry. Tell the agent so it can route elsewhere
+    // instead of inventing a non-existent receipt.
+    if matches!(kind, ask_foundation::HunterKind::OilSlick) {
+        return Ok(json!({
+            "schema":        "emem.ask.v1",
+            "status":        "not_yet_implemented",
+            "question":      q,
+            "event":         event_label,
+            "region_anchor": intent.region_anchor,
+            "message":       "oil-slick detection has no registered algorithm at this responder. The closest available signals are SAR-darkening (the same physics that makes slicks visible on Sentinel-1) and red-band turbidity over coastal water.",
+            "closest_algorithms": [
+                {
+                    "key":     "flood_extent_sar_threshold@1",
+                    "rationale": "Slicks dampen capillary waves; Sentinel-1 VV reads them as low backscatter, the same band this algorithm thresholds.",
+                    "fetch":   format!("{origin}/v1/algorithms/flood_extent_sar_threshold@1"),
+                },
+                {
+                    "key":     "water_turbidity_red_band@1",
+                    "rationale": "Heavy slick films can carry emulsified sediment that the red band sees; useful as a secondary check on top of SAR.",
+                    "fetch":   format!("{origin}/v1/algorithms/water_turbidity_red_band@1"),
+                },
+            ],
+            "agent_hint":    "If the user wants a best-effort sweep, run flood_extent_sar_threshold@1 over a coastal polygon and flag persistent SAR-dark cells that are NOT in JRC GSW recurrence (i.e. anomalous quiet water). That's not an oil-slick detector — it's a candidate-generator. Be explicit about that limitation when surfacing results.",
+        }));
+    }
+
+    // No region anchor: discovery envelope. The agent's next move is
+    // to extract a region from the user's turn (or ask for one) and
+    // call /v1/ask again.
+    let region = match intent.region_anchor.as_deref() {
+        Some(r) if !r.is_empty() => r.to_string(),
+        _ => {
+            return Ok(json!({
+                "schema":        "emem.ask.v1",
+                "status":        "hunter_needs_region",
+                "question":      q,
+                "event":         event_label,
+                "algorithm_key": algorithm_key,
+                "algorithm_url": format!("{origin}/v1/algorithms/{algorithm_key}"),
+                "input_bands":   input_bands,
+                "message":       format!("`{event_label}` is a discovery-mode query. The algorithm is registered but a region anchor is required to compute hotspots — pass a polygon name (\"in Persian Gulf\", \"over the Amazon\", \"across California\") or a bbox."),
+                "next_steps": [
+                    "ask the user which region to sweep (country, basin, coastline, admin area)",
+                    "or call /v1/ask again with the region appended: q=\"find {event} in <region>\"",
+                    format!("or call /v1/recall_polygon with bands={input_bands:?} over a known polygon"),
+                ],
+                "agent_hint": "Hunter-mode without a region anchor is a discovery question, not a needs_location one. We have the algorithm and the input bands; we just need a polygon to fan out over.",
+            }));
+        }
+    };
+
+    // Resolve region → polygon_bbox. Reuse locate_inner so we get the
+    // exact same gazetteer + Nominatim layering as /v1/locate.
+    let lr = LocateReq {
+        lat: None,
+        lng: None,
+        place: Some(region.clone()),
+    };
+    let lresp = locate_inner(lr).await?;
+    let polygon_bbox = lresp.0.get("polygon_bbox").cloned();
+    let place_label = lresp
+        .0
+        .get("place_label")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| region.clone());
+    let bbox = match polygon_bbox.as_ref() {
+        Some(JsonValue::Object(m)) => {
+            let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+            let b = (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"));
+            if !(b.0.is_finite() && b.1.is_finite() && b.2.is_finite() && b.3.is_finite())
+                || b.0 > b.1
+                || b.2 > b.3
+            {
+                None
+            } else {
+                Some(b)
+            }
+        }
+        _ => None,
+    };
+    let bbox = match bbox {
+        Some(b) => b,
+        None => {
+            return Ok(json!({
+                "schema":        "emem.ask.v1",
+                "status":        "hunter_region_unresolved",
+                "question":      q,
+                "event":         event_label,
+                "algorithm_key": algorithm_key,
+                "region_anchor": region,
+                "message":       format!("hunter: couldn't resolve a polygon for region '{region}'. Geocoder via was '{}'. Pass an explicit polygon_bbox or try a more specific name.",
+                    lresp.0.get("via").and_then(|v| v.as_str()).unwrap_or("unknown")),
+                "next_steps": [
+                    "call /v1/locate with the region name and inspect `polygon_bbox` / `via`",
+                    "call /v1/ask again with explicit lat/lng or cell",
+                ],
+            }));
+        }
+    };
+
+    // Pick the primary scalar band for ranking + the sort direction.
+    // Higher_is_hotter means we want the LARGEST values first
+    // (algal_bloom, urban_heat, drought-of-NDVI, sediment plume). For
+    // NBR (burn) and Sentinel-1 (water/oil dampening) the relationship
+    // inverts — lower values are more interesting.
+    let (primary_band, higher_is_hotter, scalar_meaning): (&str, bool, &str) = match kind {
+        ask_foundation::HunterKind::AlgalBloom => (
+            "indices.ndvi",
+            true,
+            "higher NDVI over water = more chlorophyll proxy",
+        ),
+        ask_foundation::HunterKind::Deforestation => (
+            "indices.ndvi",
+            false,
+            "lower NDVI on forest baseline = more loss",
+        ),
+        ask_foundation::HunterKind::Flood => (
+            "sentinel1_raw",
+            false,
+            "lower VV (dB) = water-classed surface",
+        ),
+        ask_foundation::HunterKind::Wildfire => ("indices.nbr", false, "lower NBR = more burn"),
+        ask_foundation::HunterKind::UrbanHeatIsland => (
+            "modis.lst_day_8day",
+            true,
+            "higher LST = hotter built-up surface",
+        ),
+        ask_foundation::HunterKind::MethanePlume => (
+            "s2.B12",
+            true,
+            "elevated SWIR-2 absorption proxy (still requires B11 fusion via algorithm)",
+        ),
+        ask_foundation::HunterKind::Landslide => (
+            "sentinel1_raw",
+            false,
+            "negative ΔVV = mass movement signature",
+        ),
+        ask_foundation::HunterKind::Drought => {
+            ("chirps.precip_monthly", false, "lower rainfall = drier")
+        }
+        ask_foundation::HunterKind::SoilSalinity => {
+            ("s2.B04", true, "elevated red reflectance over bare soil")
+        }
+        ask_foundation::HunterKind::CropStress => (
+            "indices.ndvi",
+            false,
+            "lower NDVI in growing season = stress",
+        ),
+        ask_foundation::HunterKind::WaterTurbidity => {
+            ("s2.B04", true, "elevated red over water = sediment")
+        }
+        ask_foundation::HunterKind::OilSlick => {
+            return Err(ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: "oil_slick reached ranking branch — should have returned above".into(),
+                    details: None,
+                },
+            ))
+        }
+    };
+
+    // Sample up to 32 cells from the bbox (caps materializer cost).
+    // Use the polygon_geojson if available; fall back to bbox grid.
+    let polygon_geojson = lresp.0.get("polygon_geojson").cloned();
+    let parsed_polygons = polygon_geojson
+        .as_ref()
+        .and_then(parse_polygon_geojson)
+        .unwrap_or_default();
+    let n_cells = 32usize;
+    let mut cells = if parsed_polygons.is_empty() {
+        sample_cells_in_bbox(bbox, n_cells)
+    } else {
+        sample_cells_in_polygon(bbox, n_cells, &parsed_polygons)
+    };
+    // Fallback: when the polygon mask is so tight that we'd lose more
+    // than 75 % of the grid, drop the mask and use the bbox directly.
+    // Long thin features (Lake Erie, narrow estuaries) drop all 32
+    // samples otherwise — better to over-cover the bbox by ~30 % than
+    // hand back zero hotspots.
+    if !parsed_polygons.is_empty() && cells.len() < n_cells / 4 {
+        cells = sample_cells_in_bbox(bbox, n_cells);
+    }
+    if cells.is_empty() {
+        return Ok(json!({
+            "schema":        "emem.ask.v1",
+            "status":        "hunter_region_empty",
+            "question":      q,
+            "event":         event_label,
+            "algorithm_key": algorithm_key,
+            "region_anchor": region,
+            "polygon_bbox":  polygon_bbox,
+            "message":       "hunter: polygon sampled to zero cells. The region may be a point feature (no bbox area) — pass an explicit polygon_bbox.",
+        }));
+    }
+
+    // Fan out: recall the primary band concurrently with a 16-permit
+    // semaphore. Match the recall_polygon concurrency pattern.
+    const HUNTER_CONCURRENCY: usize = 16;
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(HUNTER_CONCURRENCY));
+    type HunterOut = (
+        String,
+        Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
+    );
+    let mut set: tokio::task::JoinSet<HunterOut> = tokio::task::JoinSet::new();
+    for cell in &cells {
+        let cell_owned = cell.clone();
+        let s_clone = s.clone();
+        let sema = sema.clone();
+        let band = primary_band.to_string();
+        set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let r = RecallReq {
+                cell: cell_owned.clone(),
+                bands: Some(vec![band]),
+                tslot: None,
+            };
+            (cell_owned, recall_with_auto_materialize(&r, &s_clone).await)
+        });
+    }
+    // (cell, scalar, fact_cid).
+    let mut ranked: Vec<(String, f64, Option<String>)> = Vec::new();
+    while let Some(j) = set.join_next().await {
+        if let Ok((cell, Ok((resp, _notes)))) = j {
+            for (idx, fact) in resp.facts.iter().enumerate() {
+                let (band, value_json) = match fact {
+                    emem_fact::Fact::Primary(p) => (&p.band, ciborium_to_json(&p.value)),
+                    emem_fact::Fact::Derivative(d) => (&d.band, ciborium_to_json(&d.value)),
+                    emem_fact::Fact::Absence(_) => continue,
+                };
+                if band != primary_band {
+                    continue;
+                }
+                let scalar = value_json.as_f64();
+                if let Some(scalar) = scalar {
+                    if scalar.is_finite() {
+                        let fact_cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
+                        ranked.push((cell.clone(), scalar, fact_cid));
+                    }
+                }
+                break;
+            }
+        }
+    }
+    if higher_is_hotter {
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    } else {
+        ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    let top = ranked.iter().take(8);
+    let hotspots: Vec<JsonValue> = top
+        .map(|(cell, scalar, fact_cid)| {
+            let latlng = emem_codec::latlng_from_cell64(cell).ok();
+            json!({
+                "cell64":       cell,
+                "lat":          latlng.as_ref().map(|p| p.lat_deg),
+                "lng":          latlng.as_ref().map(|p| p.lng_deg),
+                "primary_band": primary_band,
+                "value":        scalar,
+                "fact_cid":     fact_cid,
+                "scene_url":    format!("{origin}/v1/cells/{cell}/scene.png"),
+                "facts_url":    format!("{origin}/v1/recall?cell={cell}"),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "schema":         "emem.ask.v1",
+        "status":         "hunter_mode",
+        "question":       q,
+        "event":          event_label,
+        "algorithm_key":  algorithm_key,
+        "algorithm_url":  format!("{origin}/v1/algorithms/{algorithm_key}"),
+        "input_bands":    input_bands,
+        "region_anchor":  region,
+        "place_resolved": {
+            "label":         place_label,
+            "polygon_bbox":  polygon_bbox,
+            "via":           lresp.0.get("via").cloned().unwrap_or(JsonValue::Null),
+        },
+        "ranking": {
+            "primary_band":     primary_band,
+            "direction":        if higher_is_hotter { "descending" } else { "ascending" },
+            "interpretation":   scalar_meaning,
+            "cells_sampled":    cells.len(),
+            "cells_with_facts": ranked.len(),
+        },
+        "hotspots":      hotspots,
+        "recipe": {
+            "fan_out": format!(
+                "POST {origin}/v1/recall_polygon  {{place: \"{region}\", bands: {:?}}}",
+                input_bands,
+            ),
+            "score":   format!("GET {origin}/v1/algorithms/{algorithm_key} — apply `formula` to each cell's recalled bands"),
+            "verify":  format!("POST {origin}/v1/verify_receipt with any hotspot's fact_cid"),
+            "scene":   format!("{origin}/v1/cells/<cell>/scene.png — Sentinel-2 RGB at the hotspot"),
+        },
+        "caveats": [
+            "hotspots are ranked by the algorithm's primary scalar input, not its full formula. Apply the formula via /v1/algorithms/<key> for the real per-cell score.",
+            "polygon sampling is uniform; sub-cell features may fall between samples. Re-call /v1/recall_polygon with drill_on_water=true for adaptive density.",
+            "auto-materialize fills the primary band on first request — first call is slower than warm hits.",
+        ],
+        "agent_hint": "This is hunter mode: an open-world event sweep over a named region. Surface the top 3–8 hotspots with their scene.png URLs as image blocks; quote at least one fact_cid as a citation. The algorithm key is the algebraic ground truth — let the user read /v1/algorithms/<key> if they want the math.",
+    }))
+}
+
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
@@ -21732,6 +22380,18 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     if req.cell.is_none() && req.lat.is_none() && req.lng.is_none() && req.place.is_none() {
         if let Some(audit) = ask_foundation::classify_corpus_audit(&req.q) {
             return Ok(corpus_audit_response(audit, &req.q));
+        }
+        // Hunter mode — open-world event-discovery questions. We try
+        // this AFTER corpus_audit so "where do you have flood data"
+        // (a corpus question) doesn't get classified as "where is
+        // flood" (a hunter question). If the q carries a region
+        // anchor we'll fan out and rank; otherwise we return a
+        // discovery envelope rather than the misleading
+        // `needs_location` toast. Bypassed when the caller already
+        // passed an explicit cell/place — they're not asking us to
+        // hunt, they're anchoring the question on a known point.
+        if let Some(hunter) = ask_foundation::classify_hunter(&req.q) {
+            return hunter_response(s, hunter, &req.q).await;
         }
     }
 
