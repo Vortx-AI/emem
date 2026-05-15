@@ -21,4 +21,5 @@
   <url><loc>https://emem.dev/spec.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/humans</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/verify</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/signed-answer</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
 </urlset>

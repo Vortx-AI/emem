@@ -73,6 +73,14 @@ curl -s -X POST https://emem.dev/v1/ask \
   -H 'content-type: application/json' \
   -d '{"q":"find places like Yellowstone","place":"Yellowstone National Park"}' \
   | jq '.foundation_embeddings'
+
+# Hunter mode: discover event hotspots over a named region. The same
+# classifier reads "find <event> in <region>" from /v1/ask and routes
+# here; structured callers can hit /v1/hunt directly.
+curl -s -X POST https://emem.dev/v1/hunt \
+  -H 'content-type: application/json' \
+  -d '{"event":"algal_bloom","region":"Lake Erie"}' \
+  | jq '.hotspots[0]'
 ```
 
 The receipt's `fact_cid` is a durable handle. Re-fetching it from any responder, in any year, returns the same bytes.
@@ -128,7 +136,7 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 
 ## Primitives
 
-49 MCP tools, 71 documented REST paths (68 under `/v1/*`, surfaced through `/openapi.json`). Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
+50 MCP tools, 72 documented REST paths (69 under `/v1/*`, surfaced through `/openapi.json`). Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
 
 - **Locate:** name or lat/lng → `cell64`. Five-layer cascade: wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim. Polygon geometry from Overture `divisions/division_area`. District-level queries reroute through Overture when Nominatim returns a POI courthouse.
 - **Recall / recall_many / recall_polygon:** 118 materializer-wired band names across 35 cube slots. Auto-fetch on miss; signed Absence on out-of-coverage.
@@ -136,7 +144,8 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 - **Compare / compare_bands / diff / trajectory:** pairwise and time-series.
 - **Verify:** structured claim against attested facts; returns signed verdict + evidence CIDs.
 - **Physics:** `/v1/heat_solve` (2-D explicit FTCS heat, MODIS LST stencil), `/v1/wave_solve` (1-D shallow-water along seaward bathymetry gradient), `/v1/jepa_predict` (closed-form NDVI AR(2) seasonal), `/v1/jepa_predict_v2` (Tessera embedding dynamics; short-circuits to last-vintage identity baseline while the trained head is pending, receipt carries `untrained_baseline`).
-- **Ask:** free-text question with topic routing. Intents matching "find places like" / "what changed" / "deforestation" / "anomaly" fan out across the three foundation encoders concurrently; the response carries `foundation_embeddings` with per-encoder neighbour lists and cross-encoder consensus voting.
+- **Ask:** free-text question with topic routing. The classifier covers three intent families: place-anchored topical questions (the topic router fan-out), foundation-embedding intents on `find places like` / `what changed` / `deforestation` / `anomaly` (cross-encoder consensus over Clay + Prithvi + Tessera), corpus-meta intents on `where do you have data` / `how fresh is your corpus` (redirect to coverage surfaces), and hunter-mode discovery on `find <event> in <region>` (routes to `/v1/hunt`).
+- **Hunter:** `POST /v1/hunt` and MCP `emem_hunt` for open-world event discovery. Twelve event keywords — `algal_bloom`, `deforestation`, `flood_extent`, `wildfire`, `urban_heat_island`, `methane_plume`, `landslide`, `drought`, `soil_salinity`, `crop_stress`, `water_turbidity`, `oil_slick` — each maps to a registered detection algorithm. The responder samples up to 32 cells from the named region (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar plus any configured gate band (e.g. NDWI > 0 for water-mask events), and returns the top 8 hotspots with cell64, lat/lng, recalled value, gate value, fact CID, and a Sentinel-2 scene URL. A Tessera embedding rerank fires when at least three candidate cells have a geotessera vector available, re-ordering by cosine similarity to the cluster centroid. `oil_slick` returns `status: not_yet_implemented` with pointers at `flood_extent_sar_threshold@1` and `water_turbidity_red_band@1` instead of fabricating detections.
 - **Domain shortcuts:** `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather`. Collapse locate → recall → polygon-aggregate into one call by place name.
 - **Field boundaries:** Fields of The World (~3.17 B field polygons, 241 countries, 10 m, CC-BY-4.0) via PMTiles range reads on `source.coop`.
 - **Visual surfaces:** `/v1/coverage_map.svg` (1440×720 plate-carrée of attested cells, log-scale density) and `/v1/places/scene_overlay.svg?place=…&band=…` (per-place value-painted bbox grid; band-aware ColorBrewer ramps, horizontal legend, km scale bar, signed source line). The MCP equivalents return the same SVG as an `EmbeddedResource` block. The full set, plus the 32-diagram protocol/industry suite, lives at [/docs/gallery](https://emem.dev/docs/gallery) and [/docs/diagrams](https://emem.dev/docs/diagrams).
@@ -164,16 +173,17 @@ Designed for agents to read, not for humans to remember:
 ```
 GET /openapi.json                  — OpenAPI 3.1 of every REST route
 GET /v1/agent_card                 — live capability snapshot + manifest CIDs
-GET /v1/tools                      — 49 MCP tools with when_to_use + annotations
+GET /v1/tools                      — 50 MCP tools with when_to_use + annotations
 GET /v1/algorithms?summary=true    — 155 algorithm keys + categories
 GET /v1/topics                     — 27 topic-grouped bands + algorithms (router brain)
 GET /v1/manifests                  — bands_cid, algorithms_cid, sources_cid, schema_cid
 GET /.well-known/{emem,agent,mcp,ai-plugin}.json
+POST /v1/hunt                      — structured event-discovery sweep (12 events × region)
 POST /mcp                          — JSON-RPC 2.0 (Streamable HTTP)
 GET /llms.txt    /llms-full.txt    — plaintext catalog for LLM ingestion
 GET /humans      /humans.json      — interactive try-it surface + machine twin
 GET /verify      /verify/<fact_cid>— in-browser ed25519 receipt verifier
-GET /docs/gallery                  — live coverage map + per-place scenes + 32 diagrams
+GET /docs/gallery                  — live coverage map + hunter case studies + 32 diagrams
 GET /docs/diagrams/                — 32 SVGs of protocol + industry deployments
 ```
 
@@ -216,7 +226,7 @@ emem/
 │   ├── emem-primitives/          # recall, find_similar, trajectory, compare, diff, verify, query_region
 │   ├── emem-attest/              # merkle root over fact CIDs
 │   ├── emem-intent/              # rule-based intent → plan planner
-│   ├── emem-mcp/                 # 49-tool MCP descriptor registry
+│   ├── emem-mcp/                 # 50-tool MCP descriptor registry
 │   ├── emem-api-rest/            # axum router, physics solvers, foundation fan-out
 │   └── emem-cli/                 # binaries: emem-server, emem-livedemo, emem-realdemo, emem-demo, emem-ask-eval
 ├── sdks/
@@ -248,7 +258,9 @@ Sidecar crash does not cascade. The REST router degrades to scalar bands and sig
 - **Single-host deployment.** No federation, no global routing, no SOC 2.
 - **JEPA v2 is untrained today.** The endpoint exists and signs honestly; predictions equal the last attested vintage until the dynamics head is trained.
 - **12 data connectors, 20 live materializer registrations.** Catalog-by-count is not the pitch; every wired band is auto-fetchable, signed, and content-addressed. Bands without a wired materializer are listed under `declared_but_no_materializer_at_this_responder`.
-- **Tessera is upstream-rate-limited.** `dl2.geotessera.org` reliably serves 2024 vintages today; historical backfill across all eight vintages (2017–2024) is partial.
+- **Foundation-encoder materializers are uneven.** `geotessera` (Tessera 128-D) has a wired materializer and auto-fetches on miss. `clay_v1` and `prithvi_eo2` are seed-only at this responder — the GPU sidecar runs both models, but the auto-materialise path that fans out to upstream tile archives is not wired today. Recall against either returns whatever has already been signed; the hunter-mode envelope discloses this per request under `materializer_status[]`.
+- **Tessera is upstream-rate-limited.** `dl2.geotessera.org` reliably serves 2024 vintages today; historical backfill across all eight vintages (2017–2024) is partial. The Tessera-coherence rerank in hunter mode gracefully degrades to primary-scalar order when the upstream is unreachable, surfacing the reason under `embedding_rerank.reason`.
+- **MODIS LST is rate-limited.** `modis.lst_day_8day` materialises through the NASA/ORNL REST API at roughly 30 s per cell. Hunter mode caps the per-region fan-out for the LST family to 8 cells (env override `EMEM_HUNTER_SLOW_BAND_CAP`) so urban-heat queries return inside the gateway timeout.
 - **No interactive notebook UI.** For exploration there is `/humans` (try-it drawer, manifest grid, ontology SVG); for analytics, drive from a notebook against the REST or MCP endpoint.
 
 ## Resources
