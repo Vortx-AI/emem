@@ -5,7 +5,7 @@
 <title>The emem gallery — verifiable Earth observation, in plain figures</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="color-scheme" content="light"/>
-<meta name="description" content="A small set of Earth-observation figures rendered by the emem.dev responder. Each map is a URL; each pixel carries a content-addressed, ed25519-signed fact. No keys, no logins, no rendering tricks."/>
+<meta name="description" content="Earth-observation figures from the emem.dev responder. Each map is a live endpoint URL; each pixel resolves to a content-addressed, ed25519-signed fact. No API keys, no accounts."/>
 <link rel="canonical" href="https://emem.dev/docs/gallery"/>
 <meta property="og:type" content="article"/>
 <meta property="og:url" content="https://emem.dev/docs/gallery"/>
@@ -192,12 +192,12 @@
 <div class="wrap-wide">
   <header class="masthead">
     <p class="kicker">emem.dev · gallery · 2026</p>
-    <h1>A handful of figures, each one signed</h1>
-    <p class="standfirst">A small set of Earth-observation case studies, rendered just now by the
-       emem.dev responder. The maps are the protocol working. The hotspots are real cells,
-       ranked by real bands, with a fact CID per row that any reader can verify offline.
-       Four hunter sweeps, one honest limit, five extremes from Everest to the Dead Sea.</p>
-    <p class="byline">Read time ≈ 11 min · every figure links to a live URL — refresh and the numbers refresh with you · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
+    <h1>Earth-observation figures, signed at the edge</h1>
+    <p class="standfirst">Case studies rendered by the emem.dev responder.
+       The maps are live endpoints; the hotspots are real cell64s ranked
+       by real bands; each row carries a fact CID an agent or auditor
+       can verify offline.</p>
+    <p class="byline">Read time ≈ 11 min · every figure is a live URL · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
   </header>
 </div>
 
@@ -206,9 +206,9 @@
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="coverage">
     <p class="secnum">Section 1 · Coverage</p>
-    <p class="lede">We start with the simplest question. <em>Where do we already know
-       anything?</em> The map below is the corpus on this responder, drawn one cell per
-       attested place.</p>
+    <p class="lede">The corpus on this responder, drawn one cell per
+       attested place. A cell appears here the moment its first fact
+       is signed.</p>
 
     <figure>
       <div class="frame">
@@ -245,11 +245,10 @@
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="elevation-trio">
     <p class="secnum">Section 2 · Three cities, one band</p>
-    <p class="lede">Now the smallest interesting case: one scalar key,
-       <code>copdem30m.elevation_mean</code>, painted across three coastal
-       cities at 1&nbsp;km resolution. The point isn't pretty cartography. The
-       point is that you can paste any of these URLs into a colleague's chat
-       and they'll see exactly the same bytes.</p>
+    <p class="lede">One scalar key, <code>copdem30m.elevation_mean</code>,
+       painted across three coastal cities at 1&nbsp;km resolution. Each
+       map is a live endpoint URL: paste it into a colleague's chat and
+       the bytes they see are the bytes you saw.</p>
 
     <div class="trio">
 
@@ -308,42 +307,45 @@
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="case" id="hunter">
     <p class="secnum">Section 3 · Hunter mode</p>
-    <p class="lede">Most agent questions name a place. A few don't.
-       <em>"Find me where the algal bloom is."</em>  <em>"Where is the
-       deforestation happening?"</em>  These don't anchor on a cell — they
-       sweep a region looking for an event. emem now answers them directly.</p>
+    <p class="lede">Some questions ask about an event rather than a
+       place: "find algal blooms in Lake Erie", "where is deforestation
+       happening in Borneo". These don't anchor on a single cell.
+       They sweep a region looking for a pattern.</p>
 
-    <p>The path is one POST. The responder picks the right detection
-       algorithm from <a href="/v1/algorithms">/v1/algorithms</a>, samples up
-       to thirty-two cells from the named region, recalls the algorithm's
-       primary scalar input at each, and returns the top eight ranked
-       cells. Each carries the recalled value, a fact CID, and a
-       Sentinel-2 scene URL. Same receipt machinery as any other primitive.</p>
+    <p>The <code>POST /v1/hunt</code> endpoint takes an event keyword
+       and a region (free-text name or polygon_bbox), picks the
+       matching detection algorithm from
+       <a href="/v1/algorithms">/v1/algorithms</a>, samples up to
+       thirty-two cells inside the region, recalls each cell's primary
+       scalar band (and a gate band where the algorithm needs one),
+       and returns the top eight cells ranked by that scalar. Each
+       hotspot row includes the cell64, the value, a fact CID, and a
+       Sentinel-2 scene URL.</p>
 
-    <p>Four short case studies follow. Every cell, every value, every CID
-       below was returned by a live <code>/v1/hunt</code> call. Click any
+    <p>Four case studies follow. The cells, values, and CIDs below
+       were returned by live <code>/v1/hunt</code> calls. Click a
        scene tile to open the Sentinel-2 RGB for that cell.</p>
   </section>
 
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="case" id="bloom">
     <p class="badge">Case 1 · Algal bloom · Lake Erie</p>
-    <h2>Pre-season, the gated algorithm reports no bloom</h2>
-    <p class="dek">Captured in May, before Erie's summer cyanobacteria
-       window opens. The water-gated algorithm correctly returns
-       chlorophyll-NDCI values near zero — and surfaces that absence
-       in the same envelope as a positive detection would use.</p>
+    <h2>Water-gated NDVI returns near zero in May</h2>
+    <p class="dek">Sampled in May 2026, before Lake Erie's summer
+       cyanobacteria season. The detector ranks chlorophyll-NDCI over
+       water-masked cells; in May the values sit near zero because
+       there is no active bloom.</p>
 
-    <p>The detection algorithm is
+    <p>The algorithm is
        <a href="/v1/algorithms/algal_bloom_chlorophyll_ndci@1"><code>algal_bloom_chlorophyll_ndci@1</code></a>.
-       It gates on NDWI > 0 (water) and turns the residual vegetation
-       index into a chlorophyll-a estimate. The responder applies
-       that gate structurally before ranking: every hotspot below sits
-       over water, and every NDVI value is near zero because there is
-       no bloom in Lake Erie in May. The
-       <a href="https://www.glerl.noaa.gov/res/HABs_and_Hypoxia/">NOAA GLERL bloom bulletin</a>
-       confirms the timing — peak intensity arrives in July–September.
-       The same call in August will look very different.</p>
+       It requires NDWI > 0 to confirm water before scoring NDVI as a
+       chlorophyll proxy. The gate is applied to the candidate cells
+       before sorting, so every hotspot below sits over water. The
+       NDVI values are near zero because Lake Erie's bloom intensity
+       peaks in July–September per
+       <a href="https://www.glerl.noaa.gov/res/HABs_and_Hypoxia/">NOAA
+       GLERL</a>; the same call in August will return positive NDVI
+       over the same cells.</p>
 
     <div class="scenes">
       <div class="scene">
@@ -396,17 +398,14 @@
     -d '{"event":"algal_bloom","region":"Lake Erie"}'</pre>
 
     <p class="caption">
-      <b>How the gate works.</b> Thirty-two cells sampled from the
-      Lake Erie polygon; for each, the responder recalls both
-      <code>indices.ndvi</code> and the gating band
-      <code>indices.ndwi</code> in one envelope. Cells with
-      NDWI&nbsp;≤&nbsp;0 (land) are filtered out before sorting; the
-      remaining water cells are ranked by NDVI descending. Each row in
-      the response carries both the primary value and the gate value,
-      so an agent reading the JSON can audit why a cell ranked where
-      it did. Paste any fact CID into <a href="/verify">/verify</a>
-      and watch <code>@noble/curves</code> recompute the signature in
-      the browser.
+      Thirty-two cells were sampled from the Lake Erie polygon. For
+      each, <code>indices.ndvi</code> and <code>indices.ndwi</code>
+      were recalled in one envelope. Cells with NDWI ≤ 0 (land) were
+      dropped before sorting; the rest were ranked by NDVI descending.
+      Each hotspot in the response carries both values, so the gate
+      decision is auditable from the JSON alone. Paste any fact CID
+      into <a href="/verify">/verify</a> to recompute the signature
+      with <code>@noble/curves</code> in the browser.
     </p>
     <p class="source">
       emem.dev · <code>/v1/hunt</code> · <code>algal_bloom_chlorophyll_ndci@1</code>
@@ -416,20 +415,20 @@
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="case" id="deforest">
     <p class="badge">Case 2 · Deforestation · Borneo</p>
-    <h2>Negative NDVI on what used to be forest</h2>
-    <p class="dek">The strongest hotspots over Borneo come back with NDVI
-       below zero — bare ground or active clearing where the canopy was.
-       The eight cells trace the well-known palm-oil concession edges in
-       Sabah and West Kalimantan.</p>
+    <h2>Negative NDVI on cells the Hansen baseline says were forested</h2>
+    <p class="dek">The top hotspots over Borneo come back at NDVI
+       below zero: bare ground or active clearing on the cells that
+       Hansen 2000 tree-cover marks as forested. They fall along the
+       palm-oil concession edges in Sabah and West Kalimantan.</p>
 
     <p>The algorithm is
        <a href="/v1/algorithms/deforestation_alert_ndvi_drop@1"><code>deforestation_alert_ndvi_drop@1</code></a>:
-       a 60-day NDVI drop on cells the Hansen 2000 tree-cover layer
-       declares forested. The ranking below sorts cells by lowest NDVI
-       so the headline is the most-cleared cell first. The full
-       algorithm gates on the Hansen baseline so primary-forest cells
-       are kept and pre-existing bare ground is filtered out — apply
-       the formula via the algorithm card to score every cell properly.</p>
+       a 60-day NDVI drop on cells whose Hansen 2000 tree-cover layer
+       reads forested. The ranking here sorts by lowest NDVI so the
+       most-cleared cell ranks first. The full algorithm additionally
+       requires the Hansen baseline to exceed a threshold (so
+       pre-existing bare ground is excluded); apply the formula from
+       the algorithm card to score every cell with the gate intact.</p>
 
     <div class="scenes">
       <div class="scene">
@@ -479,12 +478,11 @@
     -d '{"event":"deforestation","region":"Borneo"}'</pre>
 
     <p class="caption">
-      <b>Why this matters.</b> A Sentinel-2 RGB tile alone won't tell
-      you which cells were forest last decade. The Hansen baseline that
-      the full algorithm checks against was the consensus reference for
-      the Global Forest Watch — citing the algorithm key plus the fact
-      CIDs gives a downstream auditor the same provenance, signed and
-      replayable.
+      A Sentinel-2 RGB tile alone does not show whether a cell was
+      forested in the past. The Hansen 2000 tree-cover layer is the
+      reference for Global Forest Watch; citing the algorithm key
+      together with the recalled fact CIDs lets a downstream auditor
+      reproduce the score from the same inputs.
     </p>
     <p class="source">
       emem.dev · <code>/v1/hunt</code> · <code>deforestation_alert_ndvi_drop@1</code>
@@ -495,18 +493,17 @@
   <section class="case" id="turbid">
     <p class="badge">Case 3 · Sediment plume · Sundarbans</p>
     <h2>Red-band reflectance over the Ganges delta</h2>
-    <p class="dek">The Bay of Bengal's brown water has a specific
-       signature: bright red, dim near-infrared. The hotspots cluster
-       inside the Sundarbans mangrove channels where the river silt
-       hasn't dropped yet — the canonical place to look for muddy water
-       on a planet-scale.</p>
+    <p class="dek">Brown river water carries elevated reflectance in
+       Sentinel-2's red band and lower reflectance in the near-infrared.
+       The hotspots fall inside the Sundarbans mangrove channels where
+       the suspended silt has not yet settled.</p>
 
     <p>The algorithm is
        <a href="/v1/algorithms/water_turbidity_red_band@1"><code>water_turbidity_red_band@1</code></a>.
-       The primary scalar is Sentinel-2's red band over a water-masked
-       cell. The values below sit near and above 1.0 — saturated red
-       reflectance, which is the cheapest available turbidity proxy
-       short of swapping in a hyperspectral instrument.</p>
+       The primary scalar is Sentinel-2's red band (B04) over a
+       water-masked cell. The values below approach 1.0, which is at
+       the saturation edge of the red band; without a hyperspectral
+       follow-up, this is the cheapest available turbidity proxy.</p>
 
     <div class="scenes">
       <div class="scene">
@@ -566,19 +563,19 @@
   <section class="case" id="flood">
     <p class="badge">Case 4 · Inundation extent · Karachi coast</p>
     <h2>Sentinel-1 backscatter below the open-water threshold</h2>
-    <p class="dek">The C-band radar threshold for open water — about
-       -16 dB VV — turns the Korangi Creek mouth into a tightly clustered
-       grid of low-backscatter cells. Eight hotspots, every value in
-       single-digit negative dB, every cell within 200 m of saltwater.</p>
+    <p class="dek">C-band VV below roughly -16 dB is the operational
+       open-water threshold over land. The Karachi sweep returns eight
+       hotspots in single-digit negative dB; all sit at the Korangi
+       Creek mouth, within 200 m of saltwater.</p>
 
     <p>The algorithm is
        <a href="/v1/algorithms/flood_extent_sar_threshold@1"><code>flood_extent_sar_threshold@1</code></a>.
-       It classifies cells with VV below the operational threshold as
-       water — useful post-event for inundation extent (cyclone Maha
-       2023, Sindh monsoon flood 2022) when a return scene is needed
-       under cloud cover. The example below sweeps Karachi's bbox; on
-       a dry day the same call surfaces the city's permanent water
-       (creeks, port basins) as a sanity-check on the algorithm.</p>
+       Cells with VV below the operational threshold are classed as
+       water. Used post-event for inundation extent (cyclone Maha 2023,
+       Sindh monsoon 2022) where a Sentinel-1 pass cuts through cloud
+       cover that Sentinel-2 cannot. On a dry day the same call
+       returns the city's permanent water surfaces (creeks, port
+       basins) — a useful sanity check.</p>
 
     <div class="scenes">
       <div class="scene">
@@ -627,11 +624,11 @@
     -d '{"event":"flood_extent","region":"Karachi"}'</pre>
 
     <p class="caption">
-      <b>Notice the optical scene.</b> The thumbnails above are
-      Sentinel-2 RGB — taken on a different orbit from the Sentinel-1
-      pass the algorithm ranks on. The SAR threshold gives you the
-      yes/no; the optical scene gives a human reviewer something to
-      look at. Both arrive in the same envelope.
+      The thumbnails above are Sentinel-2 RGB, taken on a different
+      orbit from the Sentinel-1 pass the algorithm ranks on. The SAR
+      threshold produces the yes/no classification; the optical scene
+      is included so a human reviewer has something to look at when
+      auditing a hotspot.
     </p>
     <p class="source">
       emem.dev · <code>/v1/hunt</code> · <code>flood_extent_sar_threshold@1</code>
@@ -642,17 +639,18 @@
 
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="case" id="limit">
-    <p class="secnum">Section 4 · The honest limit</p>
-    <p class="lede">The previous four cases worked. This one doesn't,
-       and the gallery is the right place to be specific about that.</p>
+    <p class="secnum">Section 4 · Out of scope</p>
+    <p class="lede">The previous four queries returned hotspots. This
+       one returns a structured refusal — the algorithm it would
+       need is not in the registry yet.</p>
 
     <p class="badge limit">Case 5 · Oil spill · Persian Gulf</p>
-    <h2>What the responder says when it can't answer</h2>
-    <p class="dek">An oil-slick detector is not currently in the algorithm
-       registry. The hunter call below returns a structured
-       <code>not_yet_implemented</code> with pointers at the closest
-       available physics. No hallucinated hotspots, no fabricated
-       receipts — the agent sees the limitation as data, not a 500.</p>
+    <h2>What a 200 response looks like when the algorithm is missing</h2>
+    <p class="dek">There is no oil-slick detector in the algorithm
+       registry today. The hunt endpoint returns
+       <code>status: not_yet_implemented</code>, lists the closest
+       available algorithms, and explains why each is close. No
+       hotspots are returned. No receipt is forged.</p>
 
     <pre class="worked"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
     -H 'content-type: application/json' \
@@ -689,12 +687,13 @@
        against ground truth.</p>
 
     <p class="caption">
-      <b>Why this section exists.</b> A demo that smiles through
-      everything teaches an agent to smile through everything. By
-      making the limitation citable — same schema as a real answer,
-      with two real algorithms the agent can fall back on — we keep
-      the protocol's promise: when emem doesn't know, it says so in a
-      shape that survives onward composition.
+      The response shape is the same one a successful hunt would use;
+      only the <code>status</code> field changes. An agent that calls
+      <code>/v1/hunt</code> with an unsupported event therefore sees
+      a typed result, not an HTTP error or an empty array. The two
+      pointer algorithms in <code>closest_algorithms[]</code> are
+      real registry entries; an agent can call either one and get a
+      partial answer for the underlying physics.
     </p>
     <p class="source">
       emem.dev · <code>/v1/hunt</code> · <code>status: not_yet_implemented</code>
@@ -706,18 +705,17 @@
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="case" id="extremes">
     <p class="secnum">Section 5 · Five extremes, every value signed</p>
-    <p class="lede">A small atlas of the edges of what Earth holds —
-       the highest, the lowest, the driest, the strangest. Eighteen
-       facts in total. Every number below is the responder's signed
-       attestation; every CID dereferences to bytes any reader can
-       verify offline.</p>
+    <p class="lede">Four well-known landmarks pulled out of the
+       protocol cold: Mount Everest's summit, the Dead Sea's basin
+       floor, the Bolivian salt flat, and the Eye of the Sahara.
+       Elevation, land cover, and NDVI at each cell. Twelve facts,
+       twelve content IDs.</p>
 
-    <p>The point isn't trivia. The point is that <em>"how high is
-       Everest?"</em> and <em>"how far below sea level is the Dead
-       Sea?"</em> are the same kind of question — a place name, a
-       band, a value — and emem answers both with the same envelope.
-       No special case for famous places, no curated trivia table.
-       Just locate → recall → cite.</p>
+    <p>These are ordinary recall calls. Same envelope as any other
+       request: <code>POST /v1/locate</code> with a place name (or
+       lat/lng), then <code>POST /v1/recall</code> with the cell
+       and the bands you want. The signed receipt comes back in the
+       same response.</p>
 
     <div class="scenes">
       <div class="scene">
@@ -774,34 +772,34 @@
       </div>
     </div>
 
-    <p>From Everest's <code>+8 724 m</code> to the Dead Sea's
-       <code>-427 m</code> is 9 151 vertical metres between two cells
-       on the same protocol. Cop-DEM, ESA WorldCover, and the
-       Sentinel-2 NDVI/NDWI compositor produced each value; the
-       responder signed each one under the canonical preimage
-       <code>blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖
-       fact_cids)</code> over ed25519. Paste any of the eight CIDs
-       above into <a href="/verify">/verify</a> and the browser
-       recomputes the signature without a callback.</p>
+    <p>The vertical range between Everest's cell at <code>+8 724 m</code>
+       and the Dead Sea's cell at <code>-427 m</code> is
+       <code>9 151 m</code>. Cop-DEM GLO-30 produced both elevation
+       readings; ESA WorldCover 2021 produced the land-cover class;
+       Sentinel-2 produced the NDVI and NDWI indices. Each fact is
+       signed with ed25519 over <code>blake3(request_id ‖ served_at ‖
+       primitive ‖ cells ‖ fact_cids)</code>. Paste any of the CIDs
+       above into <a href="/verify">/verify</a> to check the signature
+       in the browser.</p>
 
-    <p>Everest's elevation fact above was signed on <em>2026-05-04</em>.
-       The CID is <code>rpg5bzdpumdzceisovsqpejcpxoxd3xlxg6fkoiml4l3n6qb6hkq</code>.
-       Eleven days later, the same CID still resolves to the same
-       8 724-metre reading at the same cell; the bytes hash to the
-       same handle every time. This is the entire trust contract.
+    <p>Everest's elevation fact was signed at
+       <code>2026-05-04T06:19:32Z</code>. Eleven days later, the same
+       CID still dereferences via
        <a href="/v1/facts/rpg5bzdpumdzceisovsqpejcpxoxd3xlxg6fkoiml4l3n6qb6hkq">/v1/facts/rpg5bzdp…</a>
-       — durability without an issuer round-trip.</p>
+       to the same 8 724 m at the same cell. Content addressing on a
+       fact means the handle is the data — once a CID is published,
+       its bytes do not change.</p>
 
     <p class="caption">
-      <b>Geocoder ambiguity, surfaced honestly.</b> The free-text
-       query <code>"Dead Sea"</code> on its own resolves to a small
-       pond in Tasmania, Australia. The responder reports
-       <code>place_label: "Dead Sea (pond), Tasmania, Australia"</code>
-       and the agent can see the mismatch immediately. For unique
-       global landmarks, prefer lat/lng:
+      <b>Geocoder ambiguity.</b> The free-text query
+       <code>"Dead Sea"</code> resolves to <code>Dead Sea (pond),
+       Tasmania, Australia</code> on its own — there really is a
+       small pond by that name on the embedded gazetteer. For unique
+       global landmarks, pass lat/lng directly:
        <code>POST /v1/locate {lat: 31.5, lng: 35.5}</code> lands on
-       <code>defi.zb566.quwu.mIcO</code> — the actual Dead Sea, at
-       -427 m. Same shape, no guessing.
+       <code>defi.zb566.quwu.mIcO</code>, the Levantine Dead Sea, at
+       -427 m. The <code>place_label</code> field in the response is
+       the disambiguation check.
     </p>
 
     <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/locate \
@@ -826,11 +824,13 @@ defi.zb566.quwu.mIcO
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="trace">
     <p class="secnum">Section 6 · A worked answer</p>
-    <p class="lede">The point of signing isn't the math. The point is what you
-       can paste into a chat and have someone else replay.</p>
+    <p class="lede">A single question, traced from natural-language input
+       to a signed receipt that any agent can verify offline against the
+       responder's pubkey.</p>
 
     <h2>Question → bytes → receipt</h2>
-    <p class="dek">Five lines. One agent asks; another agent verifies.</p>
+    <p class="dek">Three commands. One resolves the place, one recalls
+       the fact, one verifies the signature.</p>
 
     <pre class="worked"><span class="sh">$ </span>curl -sS 'https://emem.dev/v1/elevation?lat=19.0760&amp;lng=72.8777'
 
@@ -867,11 +867,10 @@ defi.zb566.quwu.mIcO
        watch <code>@noble/curves</code> recompute the signature inside the
        browser tab. No callback to the issuer.</p>
     <p class="caption">
-      <b>Why this matters.</b> Two LLM agents disagreeing about the
-      elevation at a coastal address can point at the CID and stop
-      arguing. Two insurance underwriters disagreeing about whether a
-      parcel sits in the flood plain can do the same. The CID is the
-      citation.
+      Two LLM agents disagreeing about the elevation at a coastal
+      address can point at the CID and stop arguing. Two insurance
+      underwriters disagreeing about whether a parcel sits in the
+      flood plain can do the same. The CID is the citation.
     </p>
   </section>
 
@@ -880,19 +879,19 @@ defi.zb566.quwu.mIcO
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="diagrams">
     <p class="secnum">Section 7 · The protocol, drawn</p>
-    <p class="lede">If the live figures hold up, the next question is how the
-       sausage is made. The drawings live in their own gallery — open the
-       suite at <a href="/docs/diagrams/">/docs/diagrams</a>.</p>
+    <p class="lede">A separate suite covers how the protocol works
+       under the hood. Architecture diagrams, address algebra, the
+       trust plane, and twenty industry deployments. Open the set at
+       <a href="/docs/diagrams/">/docs/diagrams</a>.</p>
 
     <h2>Thirty-two figures, ten on the protocol</h2>
-    <p class="dek">Architecture, address algebra, the trust plane, twenty
-       industry deployments, two on the encoder split.</p>
-    <p>The drawings are independent of the live data. They render in any
-       browser, embed cleanly in slide decks, and stay byte-stable across
-       deploys — the SVGs are pinned by the binary, not regenerated per
-       request. Reach for one when a colleague asks
-       <em>"wait, how does the receipt prove anything?"</em> (figure 10) or
-       <em>"why a memory, not a catalog?"</em> (figure 6).</p>
+    <p class="dek">Architecture, address algebra, the trust plane,
+       twenty industry deployments, two on the encoder split.</p>
+    <p>The drawings are independent of the live data. They render in
+       any browser, embed cleanly in slide decks, and stay byte-stable
+       across deploys; the SVGs are pinned by the binary rather than
+       regenerated per request. Figure 10 walks the receipt math;
+       figure 6 contrasts a memory model against a catalogue.</p>
     <p style="margin-top: 24px;">
       <a href="/docs/diagrams/" style="font-family: var(--serif); font-style: italic; font-size: 18px;">
         Read the suite →
