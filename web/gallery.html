@@ -195,8 +195,9 @@
     <h1>A handful of figures, each one signed</h1>
     <p class="standfirst">A small set of Earth-observation case studies, rendered just now by the
        emem.dev responder. The maps are the protocol working. The hotspots are real cells,
-       ranked by real bands, with a fact CID per row that any reader can verify offline.</p>
-    <p class="byline">Read time ≈ 9 min · every figure links to a live URL — refresh and the numbers refresh with you · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
+       ranked by real bands, with a fact CID per row that any reader can verify offline.
+       Four hunter sweeps, one honest limit, five extremes from Everest to the Dead Sea.</p>
+    <p class="byline">Read time ≈ 11 min · every figure links to a live URL — refresh and the numbers refresh with you · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
   </header>
 </div>
 
@@ -703,8 +704,128 @@
   <hr class="rule"/>
 
   <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="extremes">
+    <p class="secnum">Section 5 · Five extremes, every value signed</p>
+    <p class="lede">A small atlas of the edges of what Earth holds —
+       the highest, the lowest, the driest, the strangest. Eighteen
+       facts in total. Every number below is the responder's signed
+       attestation; every CID dereferences to bytes any reader can
+       verify offline.</p>
+
+    <p>The point isn't trivia. The point is that <em>"how high is
+       Everest?"</em> and <em>"how far below sea level is the Dead
+       Sea?"</em> are the same kind of question — a place name, a
+       band, a value — and emem answers both with the same envelope.
+       No special case for famous places, no curated trivia table.
+       Just locate → recall → cite.</p>
+
+    <div class="scenes">
+      <div class="scene">
+        <a href="/v1/cells/defi.zb53e.rIzA.semU/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb53e.rIzA.semU/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at Mount Everest summit"/>
+        </a>
+        <div class="scene-meta">
+          <b>Mount Everest summit</b><br/>
+          27.99°N, 86.93°E<br/>
+          elevation&nbsp;<b>8 724 m</b><br/>
+          land&nbsp;cover&nbsp;70&nbsp;(snow&nbsp;&amp;&nbsp;ice)<br/>
+          NDVI&nbsp;-0.054<br/>
+          cid&nbsp;rpg5bzdpumdz…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb566.quwu.mIcO/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb566.quwu.mIcO/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over the Dead Sea"/>
+        </a>
+        <div class="scene-meta">
+          <b>Dead Sea</b><br/>
+          31.50°N, 35.50°E<br/>
+          elevation&nbsp;<b>-427 m</b><br/>
+          land&nbsp;cover&nbsp;80&nbsp;(permanent&nbsp;water)<br/>
+          NDWI&nbsp;0.164&nbsp;✓<br/>
+          cid&nbsp;2bj3gzywj6li…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb31a.fIqe.zff51/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb31a.fIqe.zff51/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at Salar de Uyuni"/>
+        </a>
+        <div class="scene-meta">
+          <b>Salar de Uyuni</b><br/>
+          -20.20°N, -67.51°E<br/>
+          elevation&nbsp;<b>3 654 m</b><br/>
+          land&nbsp;cover&nbsp;60&nbsp;(bare&nbsp;/&nbsp;sparse)<br/>
+          NDVI&nbsp;-0.001&nbsp;(salt)<br/>
+          cid&nbsp;hyzkpl7z2vbx…
+        </div>
+      </div>
+      <div class="scene">
+        <a href="/v1/cells/defi.zb4f0.hEnU.zfa27/scene.png" target="_blank">
+          <img src="/v1/cells/defi.zb4f0.hEnU.zfa27/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over the Eye of the Sahara (Richat Structure)"/>
+        </a>
+        <div class="scene-meta">
+          <b>Eye of the Sahara</b><br/>
+          21.11°N, -11.38°E<br/>
+          elevation&nbsp;<b>416 m</b><br/>
+          land&nbsp;cover&nbsp;60&nbsp;(bare&nbsp;/&nbsp;sparse)<br/>
+          NDVI&nbsp;0.068<br/>
+          cid&nbsp;qmf5jdt2xye2…
+        </div>
+      </div>
+    </div>
+
+    <p>From Everest's <code>+8 724 m</code> to the Dead Sea's
+       <code>-427 m</code> is 9 151 vertical metres between two cells
+       on the same protocol. Cop-DEM, ESA WorldCover, and the
+       Sentinel-2 NDVI/NDWI compositor produced each value; the
+       responder signed each one under the canonical preimage
+       <code>blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖
+       fact_cids)</code> over ed25519. Paste any of the eight CIDs
+       above into <a href="/verify">/verify</a> and the browser
+       recomputes the signature without a callback.</p>
+
+    <p>Everest's elevation fact above was signed on <em>2026-05-04</em>.
+       The CID is <code>rpg5bzdpumdzceisovsqpejcpxoxd3xlxg6fkoiml4l3n6qb6hkq</code>.
+       Eleven days later, the same CID still resolves to the same
+       8 724-metre reading at the same cell; the bytes hash to the
+       same handle every time. This is the entire trust contract.
+       <a href="/v1/facts/rpg5bzdpumdzceisovsqpejcpxoxd3xlxg6fkoiml4l3n6qb6hkq">/v1/facts/rpg5bzdp…</a>
+       — durability without an issuer round-trip.</p>
+
+    <p class="caption">
+      <b>Geocoder ambiguity, surfaced honestly.</b> The free-text
+       query <code>"Dead Sea"</code> on its own resolves to a small
+       pond in Tasmania, Australia. The responder reports
+       <code>place_label: "Dead Sea (pond), Tasmania, Australia"</code>
+       and the agent can see the mismatch immediately. For unique
+       global landmarks, prefer lat/lng:
+       <code>POST /v1/locate {lat: 31.5, lng: 35.5}</code> lands on
+       <code>defi.zb566.quwu.mIcO</code> — the actual Dead Sea, at
+       -427 m. Same shape, no guessing.
+    </p>
+
+    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/locate \
+    -H 'content-type: application/json' \
+    -d '{"lat":31.5,"lng":35.5}' \
+  | jq -r .cell64
+defi.zb566.quwu.mIcO
+
+<span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/recall \
+    -H 'content-type: application/json' \
+    -d '{"cell":"defi.zb566.quwu.mIcO","bands":["copdem30m.elevation_mean"]}' \
+  | jq '.facts[0].value'
+-427</pre>
+
+    <p class="source">
+      emem.dev · <code>/v1/recall</code> · 4 places · 8 fact CIDs · all <a href="/verify">/verify</a>-able
+    </p>
+  </section>
+
+  <hr class="rule"/>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="trace">
-    <p class="secnum">Section 5 · A worked answer</p>
+    <p class="secnum">Section 6 · A worked answer</p>
     <p class="lede">The point of signing isn't the math. The point is what you
        can paste into a chat and have someone else replay.</p>
 
@@ -758,7 +879,7 @@
 
   <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="diagrams">
-    <p class="secnum">Section 6 · The protocol, drawn</p>
+    <p class="secnum">Section 7 · The protocol, drawn</p>
     <p class="lede">If the live figures hold up, the next question is how the
        sausage is made. The drawings live in their own gallery — open the
        suite at <a href="/docs/diagrams/">/docs/diagrams</a>.</p>
