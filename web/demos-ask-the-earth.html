@@ -116,7 +116,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <div class=statusbar>
   <span class=brand>emem<span class=leaf>·</span>dev<span class=slash>/demos/ask-the-earth</span></span>
-  <span class=tag>eight real questions, eight live calls</span>
+  <span class=tag>ten real questions, ten live calls</span>
   <nav>
     <a href="/">home</a>
     <a href="/demos">demos</a>
@@ -129,7 +129,7 @@ footer.foot a:hover{color:var(--accent)}
 <main class=wrap id=main tabindex="-1">
   <header class=masthead>
     <p class=kicker>emem.dev · demos · 2026</p>
-    <h1>Ask the Earth.<br><span class=accent>Eight live calls, eight signed answers.</span></h1>
+    <h1>Ask the Earth.<br><span class=accent>Ten live calls, ten signed answers.</span></h1>
     <p class=lede>
       Real-world questions an agent might pass to <b>emem.dev</b>, each wired to a live endpoint. Hit
       <span class=accent>run all</span> and watch the responder answer in order. Every answer carries a
@@ -139,7 +139,7 @@ footer.foot a:hover{color:var(--accent)}
   </header>
 
   <div class=run-all>
-    <button id=runAll class=primary type=button>run all 8 in order</button>
+    <button id=runAll class=primary type=button>run all 10 in order</button>
     <span id=allStatus class=status>idle. each card also has its own run button.</span>
   </div>
 
@@ -211,6 +211,18 @@ const Q=[
        citations: ns.map(n=>({kind:'cell',text:n.cell})).slice(0,3)
      };
    }},
+  {title:"How similar are Bengaluru and Mumbai?", endpoint:"/v1/compare", method:"POST",
+   payload:{a:"Bengaluru",b:"Mumbai"},
+   render(d){
+     const c=d.cosine;
+     return {
+       answer:`Tessera cosine similarity <span class=v>${c?.toFixed?c.toFixed(4):c}</span> ${c>0.99?'<span class=u>(near-identical archetype)</span>':''} over <span class=v>${(d.shared_bands||[]).length}</span> shared bands.`,
+       citations:[
+         {kind:'cell',text:'shared bands: '+(d.shared_bands||[]).slice(0,3).join(', ')},
+         {kind:'src',text:'two-cell vector compare'}
+       ]
+     };
+   }},
   {title:"Hotspots of deforestation in Sumatra", endpoint:"/v1/hunt", method:"POST",
    payload:{event:"deforestation",region:"Sumatra"},
    render(d){
@@ -252,6 +264,21 @@ const Q=[
          {kind:'src',text:'responder '+(d.responder_pubkey_b32||'').slice(0,12)+'…'},
          {kind:'cid',text:'signed snapshot tick'}
        ]
+     };
+   }},
+  {title:"Free-text: how walkable is South Mumbai? (ask self-anchors)", endpoint:"/v1/ask", method:"POST",
+   payload:{q:"How walkable is South Mumbai?"},
+   render(d){
+     const pr=d.place_resolved||{};
+     const algs=Object.keys(d.algorithm_outcomes||{}).slice(0,3);
+     const obs=(d.band_observations||[]).length;
+     return {
+       answer:`Resolved <span class=v>${escapeHTML(pr.input||'?')}</span> ${pr.extracted_from_question?'<span class=u>(extracted from question text)</span>':''} to <span class=u>${escapeHTML(pr.label||pr.cell64||'')}</span>. <span class=v>${obs}</span> bands observed${algs.length?', algorithms: '+algs.join(', '):''}.`,
+       citations:[
+         pr.cell64?{kind:'cell',text:'cell '+pr.cell64}:null,
+         {kind:'src',text:pr.via||'geocoder'},
+         (d.algorithms_cid)?{kind:'cid',text:'algorithms_cid '+shortCid(d.algorithms_cid)}:null,
+       ].filter(Boolean)
      };
    }},
 ];
