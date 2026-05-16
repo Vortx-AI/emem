@@ -10,9 +10,9 @@ instead — those describe how to *use* emem from an agent.
 ## Repo shape
 
 Rust workspace, 14 crates, version 0.0.6, MSRV 1.88. The bulk of the code
-lives in `crates/emem-api-rest/src/lib.rs` (~24.8 k lines: HTTP/MCP router
+lives in `crates/emem-api-rest/src/lib.rs` (~29 k lines: HTTP/MCP router
 plus every inline materializer plus the foundation-embedding fan-out for
-`/v1/ask`) and `crates/emem-fetch/src/*.rs` (12 data connectors + 6
+`/v1/ask`) and `crates/emem-fetch/src/*.rs` (18 data connectors + 5
 utility modules). FastAPI sidecar in `python/jepa_v2_sidecar/` serves
 Clay v1.5, Prithvi-EO-2.0, Galileo, and JEPA-v2 over a Unix socket.
 Web surface in `web/` is plain HTML — no build step, included via
@@ -114,13 +114,13 @@ hook fails, fix the underlying issue.
 |---|---|
 | HTTP/MCP router, route registrations | `crates/emem-api-rest/src/lib.rs` |
 | Inline materializers | `crates/emem-api-rest/src/lib.rs` (search `^async fn materialize_`) |
-| Open-data connectors | `crates/emem-fetch/src/*.rs` (12 data modules + 6 utility) |
+| Open-data connectors | `crates/emem-fetch/src/*.rs` (18 data modules + 5 utility) |
 | Receipt signing + preimage | `crates/emem-storage/src/server.rs::sign_receipt` |
 | Canonical CBOR + FactCid | `crates/emem-fact/src/{cbor,cid}.rs` |
 | Cell64 / tslot / alphabet | `crates/emem-codec/src/` |
 | Merkle log + per-fact proofs | `crates/emem-storage/src/{merkle_log,server}.rs` |
 | Registries (8 manifests) | `crates/emem-core/data/*.json` + `src/` |
-| MCP tool registry (49 tools) | `crates/emem-mcp/src/lib.rs` |
+| MCP tool registry (51 tools) | `crates/emem-mcp/src/lib.rs` |
 | Read primitives | `crates/emem-primitives/src/*.rs` |
 | Foundation-embedding fan-out for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |
 | Physics solvers (heat / wave / NDVI / JEPA-v2) | `crates/emem-api-rest/src/physics.rs` |

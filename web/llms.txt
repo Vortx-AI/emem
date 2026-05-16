@@ -96,9 +96,15 @@ The endpoint applies eudr_compliance@1 per cell across the plot
 polygon, then aggregates with a 0.1 % de-minimis threshold. Article
 2(28) dispatches POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any
 cattle plot). Forest baseline is JRC GFC2020 V3 (the EU Commission's
-expected non-binding baseline) OR Hansen GFC v1.12 treecover2000 >= 10 %.
-Sims et al. 2025 driver attribution and RADD SAR alerts layer on as
-refinement when wired.
+expected non-binding baseline) confirmed against Hansen GFC v1.12
+treecover2000 >= 10 %. JRC Tropical Moist Forest annual change,
+deforestation year, degradation year, and transition subtype layer
+in via a pull-and-cache connector (JEODPP serves 84 MB tiles without
+HTTP Range, so the responder caches once into $EMEM_DATA/jrc_tmf_cache/
+with atomic rename). Sims et al. 2025 driver attribution and RADD SAR
+alerts surface as refinement when wired; today both materialize signed
+Absence with a structured NotImplemented reason rather than fabricate
+a value the responder cannot read.
 
     curl -sX POST https://emem.dev/v1/eudr_dds \
       -H 'content-type: application/json' \

@@ -136,7 +136,7 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 
 ## Primitives
 
-50 MCP tools, 72 documented REST paths (69 under `/v1/*`, surfaced through `/openapi.json`). Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
+51 MCP tools, 72 documented REST paths (69 under `/v1/*`, surfaced through `/openapi.json`). Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
 
 - **Locate:** name or lat/lng → `cell64`. Five-layer cascade: wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim. Polygon geometry from Overture `divisions/division_area`. District-level queries reroute through Overture when Nominatim returns a POI courthouse.
 - **Recall / recall_many / recall_polygon:** 118 materializer-wired band names across 35 cube slots. Auto-fetch on miss; signed Absence on out-of-coverage.
@@ -146,14 +146,14 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 - **Physics:** `/v1/heat_solve` (2-D explicit FTCS heat, MODIS LST stencil), `/v1/wave_solve` (1-D shallow-water along seaward bathymetry gradient), `/v1/jepa_predict` (closed-form NDVI AR(2) seasonal), `/v1/jepa_predict_v2` (Tessera embedding dynamics; short-circuits to last-vintage identity baseline while the trained head is pending, receipt carries `untrained_baseline`).
 - **Ask:** free-text question with topic routing. The classifier covers three intent families: place-anchored topical questions (the topic router fan-out), foundation-embedding intents on `find places like` / `what changed` / `deforestation` / `anomaly` (cross-encoder consensus over Clay + Prithvi + Tessera), corpus-meta intents on `where do you have data` / `how fresh is your corpus` (redirect to coverage surfaces), and hunter-mode discovery on `find <event> in <region>` (routes to `/v1/hunt`).
 - **Hunter:** `POST /v1/hunt` and MCP `emem_hunt` for open-world event discovery. Twelve event keywords — `algal_bloom`, `deforestation`, `flood_extent`, `wildfire`, `urban_heat_island`, `methane_plume`, `landslide`, `drought`, `soil_salinity`, `crop_stress`, `water_turbidity`, `oil_slick` — each maps to a registered detection algorithm. The responder samples up to 32 cells from the named region (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar plus any configured gate band (e.g. NDWI > 0 for water-mask events), and returns the top 8 hotspots with cell64, lat/lng, recalled value, gate value, fact CID, and a Sentinel-2 scene URL. A Tessera embedding rerank fires when at least three candidate cells have a geotessera vector available, re-ordering by cosine similarity to the cluster centroid. `oil_slick` returns `status: not_yet_implemented` with pointers at `flood_extent_sar_threshold@1` and `water_turbidity_red_band@1` instead of fabricating detections.
-- **EUDR Due Diligence Statement:** `POST /v1/eudr_dds` and MCP `emem_eudr_dds` produce a signed Annex II-shaped DDS under Regulation (EU) 2023/1115. The per-cell algorithm `eudr_compliance@1` implements Article 2(4) as written — >0.5 ha, >5 m height, >10 % canopy (not the 30 % FAO threshold; an earlier vintage of the algorithm key used the FAO threshold and was removed 2026-05-17 in favour of this regulation-aligned version). Forest baseline is JRC GFC2020 V3 (the Commission's expected non-binding baseline; live single-COG materializer at JEODPP) plus Hansen GFC v1.12 confirmation. The Article 2(28) dispatch picks POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any cattle plot under HS 0102/0201/0202). Sims et al. 2025 driver attribution and RADD Sentinel-1 alerts layer on as refinement when wired (today both materialize Absence with a structured NotImplemented reason — Zenodo / GFW S3 do not honour HTTP Range). Every response carries the explicit Article 9(1)(b) legality disclaimer — land tenure, FPIC, country-of-origin laws are structurally out of EO scope and need a partner module before TRACES NT submission. The JSON Schema at `/v1/schemas/eudr_dds.json` cites the exact EUR-Lex paragraph each field maps to.
+- **EUDR Due Diligence Statement:** `POST /v1/eudr_dds` and MCP `emem_eudr_dds` produce a signed Annex II-shaped DDS under Regulation (EU) 2023/1115. The per-cell algorithm `eudr_compliance@1` implements Article 2(4) as written: >0.5 ha, >5 m height, >10 % canopy cover, excluding land predominantly under agricultural or urban use. Forest baseline is JRC GFC2020 V3 (the Commission's expected non-binding baseline; live single-COG materializer at JEODPP) confirmed against Hansen GFC v1.12 treecover2000. JRC TMF (annual change, deforestation year, degradation year, transition subtype) reads through a pull-and-cache connector — JEODPP's TMF endpoint serves 84 MB tiles without HTTP Range, so the responder fetches once into `$EMEM_DATA/jrc_tmf_cache/` with atomic rename, then samples. The Article 2(28) dispatch picks POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any cattle plot under HS 0102/0201/0202). Sims et al. 2025 driver attribution and RADD Sentinel-1 alerts layer on as refinement: both currently materialize Absence with a structured NotImplemented reason because Zenodo and GFW S3 do not honour HTTP Range, and the responder will not fabricate a value for a connector it cannot read. Every response carries the explicit Article 9(1)(b) legality disclaimer — land tenure, FPIC, country-of-origin laws are structurally out of EO scope and need a partner module before TRACES NT submission. The JSON Schema at `/v1/schemas/eudr_dds.json` cites the exact EUR-Lex paragraph each field maps to.
 - **Domain shortcuts:** `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather`. Collapse locate → recall → polygon-aggregate into one call by place name.
 - **Field boundaries:** Fields of The World (~3.17 B field polygons, 241 countries, 10 m, CC-BY-4.0) via PMTiles range reads on `source.coop`.
 - **Visual surfaces:** `/v1/coverage_map.svg` (1440×720 plate-carrée of attested cells, log-scale density) and `/v1/places/scene_overlay.svg?place=…&band=…` (per-place value-painted bbox grid; band-aware ColorBrewer ramps, horizontal legend, km scale bar, signed source line). The MCP equivalents return the same SVG as an `EmbeddedResource` block. The full set, plus the 32-diagram protocol/industry suite, lives at [/docs/gallery](https://emem.dev/docs/gallery) and [/docs/diagrams](https://emem.dev/docs/diagrams).
 
 ## Algorithms
 
-155 named composition recipes (`flood_risk@2`, `walkability_score@1`, `heat_index@2`, `carbon_sink_score@1`, `eudr_compliance@1`, ...) live in a content-addressed registry. Each carries:
+159 named composition recipes (`flood_risk@2`, `walkability_score@1`, `heat_index@2`, `carbon_sink_score@1`, `eudr_compliance@1`, `forest_carbon_loss_co2_flux@1`, `enteric_ch4_dairy_tier1_ipcc2019@1`, `n2o_synthetic_fertilizer_ef1_ipcc2019@1`, ...) live in a content-addressed registry. Each carries:
 
 - `formula`: plain math the agent can read and apply.
 - `inputs`: band keys with role + explanation.
@@ -175,7 +175,7 @@ Designed for agents to read, not for humans to remember:
 GET /openapi.json                  — OpenAPI 3.1 of every REST route
 GET /v1/agent_card                 — live capability snapshot + manifest CIDs
 GET /v1/tools                      — 51 MCP tools with when_to_use + annotations
-GET /v1/algorithms?summary=true    — 157 algorithm keys + categories
+GET /v1/algorithms?summary=true    — 159 algorithm keys + categories
 GET /v1/topics                     — 27 topic-grouped bands + algorithms (router brain)
 GET /v1/manifests                  — bands_cid, algorithms_cid, sources_cid, schema_cid
 GET /v1/schemas/eudr_dds.json      — Annex II JSON Schema with EUR-Lex paragraph citations
@@ -223,7 +223,7 @@ emem/
 │   ├── emem-fact/                # canonical CBOR; fact, receipt, attestation
 │   ├── emem-claim/               # claim predicates (Op enum)
 │   ├── emem-cache/               # sled cache wrapper
-│   ├── emem-fetch/               # 12 data connectors + 6 utility modules
+│   ├── emem-fetch/               # 18 data connectors + 5 utility modules
 │   ├── emem-storage/             # sled hot cache + append-only merkle log
 │   ├── emem-cubes/               # 1792-D voxel cube handle
 │   ├── emem-primitives/          # recall, find_similar, trajectory, compare, diff, verify, query_region
@@ -241,7 +241,7 @@ emem/
 └── web/                          # SSR HTML, humans, verify, llms.txt, agent.json
 ```
 
-The 12 data connectors back **43 declared source schemes** and **20 live materializer registrations**. Most schemes route through `cog.rs`, the universal STAC + COG sampler, plus bespoke modules for `chirps`, `dmsp_ols`, `firms`, `ftw`, `geonames`, `hansen_gfc`, `koppen`, `overture`, `terraclimate`, `wdpa`, `worldpop`.
+The 18 data connectors back **43 declared source schemes** and **118 live materializer registrations**. Most schemes route through `cog.rs`, the universal STAC + COG sampler, plus bespoke modules for `chirps` (rainfall), `dmsp_ols` (nightlights), `esa_cci_biomass` (above-ground biomass, CEDA), `firms` (active fire), `ftw` (Fields of The World), `geonames` (gazetteer), `gmrt` (topobathymetry, PointServer + GridServer), `hansen_gfc` (forest change), `jrc_gfc2020` (EUDR forest baseline, JEODPP single-COG), `jrc_tmf` (tropical moist forest, pull-and-cache), `koppen` (climate classification), `overture` (places / buildings / divisions), `radd_alerts` (Sentinel-1 disturbance), `terraclimate` (climate), `wdpa` (protected areas), `worldpop` (population), `wri_gdm_drivers` (Sims et al. 2025 driver attribution).
 
 ## Inference
 
@@ -260,7 +260,7 @@ Sidecar crash does not cascade. The REST router degrades to scalar bands and sig
 - **No edge / onboard inference.** Sidecar runs on a single host.
 - **Single-host deployment.** No federation, no global routing, no SOC 2.
 - **JEPA v2 is untrained today.** The endpoint exists and signs honestly; predictions equal the last attested vintage until the dynamics head is trained.
-- **12 data connectors, 20 live materializer registrations.** Catalog-by-count is not the pitch; every wired band is auto-fetchable, signed, and content-addressed. Bands without a wired materializer are listed under `declared_but_no_materializer_at_this_responder`.
+- **18 data connectors, 118 live materializer registrations.** Catalog-by-count is not the pitch; every wired band is auto-fetchable, signed, and content-addressed. Bands without a wired materializer are listed under `declared_but_no_materializer_at_this_responder`.
 - **Foundation-encoder materializers are uneven.** `geotessera` (Tessera 128-D) has a wired materializer and auto-fetches on miss. `clay_v1` and `prithvi_eo2` are seed-only at this responder — the GPU sidecar runs both models, but the auto-materialise path that fans out to upstream tile archives is not wired today. Recall against either returns whatever has already been signed; the hunter-mode envelope discloses this per request under `materializer_status[]`.
 - **Tessera is upstream-rate-limited.** `dl2.geotessera.org` reliably serves 2024 vintages today; historical backfill across all eight vintages (2017–2024) is partial. The Tessera-coherence rerank in hunter mode gracefully degrades to primary-scalar order when the upstream is unreachable, surfacing the reason under `embedding_rerank.reason`.
 - **MODIS LST is rate-limited.** `modis.lst_day_8day` materialises through the NASA/ORNL REST API at roughly 30 s per cell. Hunter mode caps the per-region fan-out for the LST family to 8 cells (env override `EMEM_HUNTER_SLOW_BAND_CAP`) so urban-heat queries return inside the gateway timeout.
