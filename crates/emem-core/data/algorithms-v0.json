@@ -2214,6 +2214,113 @@
       }
     },
     {
+      "key": "enteric_ch4_dairy_tier1_ipcc2019@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        {
+          "band": "terraclimate.tmean_normal_c",
+          "role": "climate_zone_proxy",
+          "explanation": "Mean annual air temperature at 2 m from TerraClimate 1991-2020 normals. IPCC 2019 Vol 4 Ch 10 Annex 10A defines three coarse climate zones for the Tier 1 enteric-CH4 EF table: cool (MAT < 15 °C), temperate (15 °C ≤ MAT < 25 °C), and warm / tropical (MAT ≥ 25 °C). The cell's terraclimate.tmean_normal_c is the rasterised proxy for that lookup; for operational accounting, override with the operator's farm-management-record climate zone when available."
+        }
+      ],
+      "formula": "Three-zone IPCC 2019 Vol 4 Ch 10 Table 10.10 / 10.11 lookup for dairy cattle enteric methane emissions in kg CH4 per head per year. Cool climate (MAT < 15 °C): 109 kg CH4/head/year (Table 10.11 row 'Western Europe + N America non-high-productivity mid-range'). Temperate (15 ≤ MAT < 25 °C): 89 kg CH4/head/year (global Tier 1 default for medium-productivity systems). Warm / tropical (MAT ≥ 25 °C): 65 kg CH4/head/year (Asia / Africa / Latin America non-high-productivity median). Tier 1 only — for high-productivity confined-dairy systems (Holstein-Friesian in N America / W Europe) the IPCC 2019 default rises to 138 kg CH4/head/year and the operator MUST override via Tier 2 enteric-fermentation IPCC Equation 10.21 with herd-specific dry-matter intake.",
+      "evaluation": {
+        "op": "where",
+        "cond": {"op": "band", "band": "terraclimate.tmean_normal_c"},
+        "gt": 25.0,
+        "then_": {"op": "const", "value": 65.0},
+        "else_": {
+          "op": "where",
+          "cond": {"op": "band", "band": "terraclimate.tmean_normal_c"},
+          "gt": 15.0,
+          "then_": {"op": "const", "value": 89.0},
+          "else_": {"op": "const", "value": 109.0}
+        }
+      },
+      "output": {
+        "kind": "scalar",
+        "unit": "kg_ch4_per_head_per_year",
+        "range": [40, 200],
+        "explanation": "Tier 1 enteric-CH4 emission factor for a single dairy cow at this cell's climate zone, per IPCC 2019 Vol 4 Ch 10 Table 10.11. Multiply by HEAD COUNT to obtain absolute annual CH4 flux in kg CH4/year; multiply by 27.9 (IPCC AR6 100-yr GWP for non-fossil CH4) to convert to CO2-equivalents. Pair with the FAO Gridded Livestock of the World v4 dairy-cattle density (2020 reference year, 5 arc-min, ~10 km grid; not yet wired at this responder as a band) for cell-level inventory mapping. Returns 0 when terraclimate is Absence (pre-cut-off pole/sea cells)."
+      },
+      "when_to_use": "National GHG inventory backfill for dairy enteric fermentation where farm-management-record Tier 2 data is unavailable; regional ESG aggregation of dairy supply chains; rapid scenario analysis for dairy-sector decarbonisation policy. Pair with GLW4 cattle-density grids for cell-level totals. NOT for credit issuance — Verra / Gold Standard enteric-CH4 methodologies require Tier 2 dry-matter intake + digestibility records per the IPCC 2019 Equation 10.21 chain.",
+      "primitive": "POST /v1/recall {bands:['terraclimate.tmean_normal_c']} → apply Expr AST → multiply by head count.",
+      "deterministic": true,
+      "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Volume 4 (AFOLU) Chapter 10 'Emissions from Livestock and Manure Management'. Table 10.10 (Tier 1 enteric-fermentation EFs by livestock category, global default 109 kg CH4/head/year for non-high-productivity dairy cattle). Table 10.11 (regional disaggregation: N America high-prod 138, W Europe 117, E Europe 99, Oceania 81, Latin America 71, Asia 68, Africa 46, Middle East 71). Equation 10.21 (Tier 2 dry-matter intake chain, required for credit issuance). Annex 10A (climate-zone definitions via mean annual temperature). URL https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch10_Livestock.pdf. FAO. 2024. Gridded Livestock of the World v4, dairy-cattle density 2020 reference year. https://data.apps.fao.org/catalog/iso/9d1e149b-d63f-4213-978b-317a8eb42d02.",
+      "references": [
+        "https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch10_Livestock.pdf",
+        "https://data.apps.fao.org/catalog/iso/9d1e149b-d63f-4213-978b-317a8eb42d02"
+      ],
+      "frequency_of_calculation": "per inventory cycle (annual at minimum). Terraclimate normals are a 1991-2020 30-year mean and do not vary year-to-year — the per-cell EF only changes when the regional climate-zone boundary shifts under climate change (irrelevant on a single-inventory-year timescale).",
+      "accuracy_band": "±30-50 % at the per-cow level (IPCC 2019 Tier 1 stated uncertainty range; Tier 1 dairy-cattle EFs vary 46-138 kg CH4/head/year across regions in Table 10.11). Tightens to ±10-20 % at the national inventory aggregate where errors average. The single-temperature-band climate-zone proxy here adds ±15 % over the IPCC-recommended country-level Tier 1 lookup; use the operator's farm-management-record Tier 2 chain (IPCC Equation 10.21 with dry-matter intake, digestibility, fat content) when accuracy below ±15 % is required.",
+      "honest_limits": "1. Tier 1 only — DO NOT use for Verra / Gold Standard / VCS credit issuance, which require Tier 2 herd-specific dry-matter intake records under IPCC Equation 10.21. 2. The three-zone temperature proxy collapses the Table 10.11 regional disaggregation (8 regions) into 3 climate bins — this loses signal in transition zones (e.g. Mediterranean basin straddles cool/temperate; SE Asia montane straddles temperate/warm). For inventory-grade accuracy use the operator's country-of-production code + Table 10.11 directly. 3. Returns ONLY the EF, NOT the absolute flux — the operator must supply the cell-level head count separately (FAO GLW4 dairy-cattle density 2020 is the recommended public source until that band wires here). 4. Dairy cattle only — for non-dairy cattle, buffalo, sheep, goats, swine, poultry, register separate algorithms with the same pattern.",
+      "multimodal": {
+        "delivery_resolution_m": 4000,
+        "baseline_sources": [
+          "terraclimate.tmean_normal_c"
+        ],
+        "variance_sources": [],
+        "fusion_method": "none",
+        "priority_chain": [
+          "static"
+        ],
+        "anchor_band": "terraclimate.tmean_normal_c",
+        "fallback_strategy": "absence"
+      }
+    },
+    {
+      "key": "n2o_synthetic_fertilizer_ef1_ipcc2019@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        {
+          "band": "terraclimate.precip_normal_mm",
+          "role": "wet_dry_climate_proxy",
+          "explanation": "Mean annual precipitation in mm from TerraClimate 1991-2020 normals. IPCC 2019 Vol 4 Ch 11 splits the direct-N2O emission factor (EF1) into a wet-climate value (mean annual precipitation > 1000 mm, plus irrigated cropland) at 0.016 kg N2O-N per kg N applied, and a dry-climate value (< 1000 mm rainfed) at 0.005. The cell's terraclimate.precip_normal_mm is the rasterised proxy for that wet/dry dispatch; for irrigated drylands use the wet value regardless (irrigation pushes soil moisture into the wet regime)."
+        }
+      ],
+      "formula": "Two-zone IPCC 2019 Vol 4 Ch 11 Table 11.1 lookup for the direct-N2O emission factor EF1 (synthetic fertilizer applied to cropland), revised from the 2006 single-value default of 0.010 to the 2019 wet/dry disaggregation. Wet climate (mean annual precipitation > 1000 mm or irrigated): EF1 = 0.016 kg N2O-N per kg N input. Dry climate (≤ 1000 mm rainfed): EF1 = 0.005. The basis is the Cui et al. 2021 (Glob Change Biol 27:5849) global meta-analysis of 1404 field-measurement records that the IPCC 2019 Refinement cites as the underpinning evidence. Returns the dimensionless EF1; the operator multiplies by their cell-level kg N applied (from Adalibieke et al. 2023 Sci Data 10:617 crop-specific N fertilizer maps, HYDE 3.4 gridded inputs, or farm records) to obtain kg N2O-N/ha. Multiply by 44/28 = 1.5714 to convert N2O-N to N2O molecular mass.",
+      "evaluation": {
+        "op": "where",
+        "cond": {"op": "band", "band": "terraclimate.precip_normal_mm"},
+        "gt": 1000.0,
+        "then_": {"op": "const", "value": 0.016},
+        "else_": {"op": "const", "value": 0.005}
+      },
+      "output": {
+        "kind": "scalar",
+        "unit": "kg_n2o_n_per_kg_n_applied",
+        "range": [0.005, 0.016],
+        "explanation": "Dimensionless EF1 — kg N2O-N emitted directly per kg N applied as synthetic fertilizer at this cell, per IPCC 2019 Vol 4 Ch 11 Table 11.1 wet/dry climate dispatch (Cui et al. 2021 meta-analysis basis, n=1404 field measurements). Multiply by kg N applied per hectare for direct N2O-N flux; then × 44/28 (=1.5714) for N2O molecular mass. ADD indirect contributions separately: EF4 (volatilisation, 0.010 kg N2O-N per kg N-NH3+NOx volatilised, IPCC 2019 Vol 4 Ch 11 Table 11.3) and EF5 (leaching/runoff, 0.011 kg N2O-N per kg N leached, Table 11.3). The IPCC 2019 default for FracGASF (synthetic-fertilizer volatilisation fraction) is 0.11, FracLEACH-(H) is 0.24 in wet climates and 0.00 in dry. So total direct + indirect from 100 kg N synthetic in a wet climate ≈ 100 × (0.016 + 0.11×0.010 + 0.24×0.011) × 44/28 ≈ 3.07 kg N2O/ha; in a dry climate ≈ 100 × (0.005 + 0.11×0.010 + 0×0.011) × 44/28 ≈ 0.96 kg N2O/ha."
+      },
+      "when_to_use": "National GHG inventory backfill for cropland N2O where farm-management-record Tier 2 data is unavailable; ESG carbon-footprint analysis of food supply chains; rapid scenario analysis for fertilizer-reduction policy. Pair with Adalibieke et al. 2023 (Sci Data 10:617) crop-specific N fertilizer maps (5 arc-min, 13 crop groups, 1961-2019; not yet wired at this responder as a band) for cell-level inventory mapping. NOT for atmospheric N2O retrieval — TROPOMI does not retrieve N2O reliably and surface-flux validation requires a chamber or eddy-covariance measurement.",
+      "primitive": "POST /v1/recall {bands:['terraclimate.precip_normal_mm']} → apply Expr AST → multiply by operator's per-cell N application rate.",
+      "deterministic": true,
+      "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Volume 4 (AFOLU) Chapter 11 'N2O Emissions from Managed Soils and CO2 Emissions from Lime and Urea Application'. Table 11.1 (EF1 wet 0.016 kg N2O-N per kg N for synthetic + organic in wet climates and irrigated; EF1 dry 0.005; EF1 flooded rice 0.004). Table 11.3 (EF4 volatilisation 0.010; EF5 leaching 0.011; FracGASF synthetic 0.11; FracLEACH-(H) wet 0.24, dry 0.00). URL https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch11_Soils_N2O_CO2.pdf. Cui, X. et al. 2021. Global mapping of crop-specific emission factors highlights hotspots of nitrous oxide mitigation. Nature Food 2:886-893. DOI 10.1038/s43016-021-00384-9 (the meta-analysis basis for the IPCC 2019 EF1 revision, n=1404 field measurements). Adalibieke, W. et al. 2023. Global crop-specific nitrogen fertilization dataset (1961-2020). Scientific Data 10:617. DOI 10.1038/s41597-023-02526-z (recommended companion N-input map).",
+      "references": [
+        "https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch11_Soils_N2O_CO2.pdf",
+        "https://doi.org/10.1038/s43016-021-00384-9",
+        "https://doi.org/10.1038/s41597-023-02526-z"
+      ],
+      "frequency_of_calculation": "per inventory cycle (annual at minimum). Terraclimate normals are a 1991-2020 30-year mean — the per-cell EF only flips when the 1000 mm wet/dry boundary shifts (irrelevant on a single-inventory-year timescale).",
+      "accuracy_band": "±100-200 % at the per-cell flux level for the Tier 1 default (Cui et al. 2021 reports the wet-climate EF1 95 % CI as [0.012, 0.022] and dry-climate as [0.003, 0.008]). Tightens to ±50-100 % at the national aggregate where errors average. For accuracy below ±50 %, switch to Tier 2 with country-specific crop × management × climate disaggregation (IPCC 2019 Vol 4 Ch 11 §11.2.1.2).",
+      "honest_limits": "1. Tier 1 only — covers DIRECT N2O from synthetic fertilizer in cropland soils. Operators accounting for the FULL N-cycle must add indirect N2O (EF4 volatilisation + EF5 leaching from Table 11.3), organic-amendment N2O (separate algorithm, EF1 same wet/dry 0.016/0.005), urine + dung N from grazing animals (Tables 11.1 + 11.4 split), and biological-nitrogen-fixation N from legumes. 2. The wet/dry dispatch uses a single precipitation threshold of 1000 mm — irrigated drylands SHOULD be treated as wet but this algorithm does not know about irrigation (use the operator's irrigation-extent map to override). Flooded rice fields use a different EF1 of 0.004 (Table 11.1) — for paddy rice, use a dedicated rice-N2O algorithm instead. 3. Returns ONLY the EF, NOT the absolute flux — the operator must supply the cell-level N input separately (Adalibieke et al. 2023 5 arc-min crop-specific N maps recommended; HYDE 3.4 gridded inputs acceptable; farm records preferred). 4. Atmospheric N2O retrieval is structurally separate — TROPOMI does not see N2O, and IASI / CrIS column N2O measurements lack the vertical sensitivity for surface-flux validation.",
+      "multimodal": {
+        "delivery_resolution_m": 4000,
+        "baseline_sources": [
+          "terraclimate.precip_normal_mm"
+        ],
+        "variance_sources": [],
+        "fusion_method": "none",
+        "priority_chain": [
+          "static"
+        ],
+        "anchor_band": "terraclimate.precip_normal_mm",
+        "fallback_strategy": "absence"
+      }
+    },
+    {
       "key": "biodiversity_proxy@1",
       "kind": "combined",
       "domain": "esg",
