@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <title>emem — visual suite (32 diagrams)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<meta name="color-scheme" content="dark"/>
+<meta name="color-scheme" content="light dark"/>
 <meta name="description" content="Thirty-two diagrams: the first ten describe the protocol, twenty are one-page industry pitches, and two cover the encoder split. Live renders at /docs/gallery."/>
 <link rel="canonical" href="https://emem.dev/docs/diagrams/"/>
 <meta property="og:type" content="website"/>
@@ -13,15 +13,29 @@
 <meta property="og:description" content="The protocol in ten figures, the deployment in twenty. Each SVG is byte-stable, embed-anywhere."/>
 <meta property="og:image" content="https://emem.dev/og-image.svg"/>
 <style>
+  /* Unified emem design tokens — light + dark via prefers-color-scheme,
+     same palette as /, /demos, /humans, /gallery. */
   :root {
-    --bg: #0a0a18;
-    --bg2: #02050f;
-    --ink: #eaeaea;
-    --mut: #9aa3b8;
-    --line: #1f2752;
-    --acc1: #1e3aff;
-    --acc2: #7c3aed;
-    --hi: #7af9ff;
+    --bg:   oklch(0.975 0.005 85);
+    --bg2:  oklch(0.955 0.005 85);
+    --ink:  oklch(0.20 0.005 85);
+    --mut:  oklch(0.50 0.005 85);
+    --line: oklch(0.86 0.005 85);
+    --acc1: oklch(0.45 0.09 145);
+    --acc2: oklch(0.50 0.14 300);
+    --hi:   oklch(0.45 0.09 145);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:   oklch(0.16 0.005 85);
+      --bg2:  oklch(0.13 0.005 85);
+      --ink:  oklch(0.93 0.005 85);
+      --mut:  oklch(0.62 0.005 85);
+      --line: oklch(0.32 0.005 85);
+      --acc1: oklch(0.78 0.10 145);
+      --acc2: oklch(0.78 0.14 300);
+      --hi:   oklch(0.78 0.10 145);
+    }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: linear-gradient(180deg,var(--bg),var(--bg2)); color: var(--ink); font-family: ui-monospace, SF Mono, Menlo, Consolas, monospace; }

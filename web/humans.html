@@ -32,21 +32,28 @@
 /* ─────────────────────────────────────────────────────────────────────────
    tokens — LCH-aware dark palette, scientific not gamelike
    ───────────────────────────────────────────────────────────────────────── */
+/* humans.html is the one emem surface that stays dark by design — the
+   <canvas id=stage> starfield is hardcoded to true-black (#06070a) and
+   reading it on a light paper would break the visual identity. Tokens
+   below are the unified OKLch dark palette (same values as the dark
+   half of every other page's prefers-color-scheme block), so the
+   variable spellings agree even though prefers-color-scheme is not
+   honoured here. */
 :root{
-  --bg:#0A0B0E;            /* true black field for stars */
-  --bg-1:#0E0F13;
-  --bg-2:#13151A;
-  --bg-3:#1A1D24;
-  --fg:#E8E8EA;
-  --fg-2:#B5B7BE;
-  --fg-3:#7C7E87;
-  --fg-mute:#7A7D87;     /* WCAG AA at 4.5:1 vs --bg (was #5A5C66 = 2.96:1) */
-  --line:rgba(232,232,234,0.08);
-  --line-2:rgba(232,232,234,0.16);
-  --accent:#7CFFB2;        /* the only saturated green; means "verified"/"active" */
-  --accent-dim:#3FB37E;
-  --warn:#FF7C7C;
-  --pending:#FFD27C;
+  --bg:oklch(0.16 0.005 85);
+  --bg-1:oklch(0.19 0.005 85);
+  --bg-2:oklch(0.23 0.006 85);
+  --bg-3:oklch(0.27 0.006 85);
+  --fg:oklch(0.93 0.005 85);
+  --fg-2:oklch(0.80 0.005 85);
+  --fg-3:oklch(0.62 0.005 85);
+  --fg-mute:oklch(0.55 0.005 85);
+  --line:oklch(0.30 0.005 85);
+  --line-2:oklch(0.40 0.005 85);
+  --accent:oklch(0.78 0.10 145);
+  --accent-dim:oklch(0.66 0.10 145);
+  --warn:oklch(0.74 0.15 25);
+  --pending:oklch(0.80 0.12 80);
   /* Band-family hues (LCH-balanced) */
   --fam-foundation:#B27CFF;
   --fam-optical:#7CFFB2;

@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <title>The emem gallery — verifiable Earth observation, in plain figures</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<meta name="color-scheme" content="light"/>
+<meta name="color-scheme" content="light dark"/>
 <meta name="description" content="Earth-observation figures from the emem.dev responder. Each map is a live endpoint URL; each pixel resolves to a content-addressed, ed25519-signed fact. No API keys, no accounts."/>
 <link rel="canonical" href="https://emem.dev/docs/gallery"/>
 <meta property="og:type" content="article"/>
@@ -16,17 +16,41 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
+  /* Unified emem design tokens — light + dark via prefers-color-scheme,
+     same palette as /, /demos, /humans, /verify. Gallery-specific
+     aliases (--paper-sunk, --ink-mute, --ink-dim) map to the unified
+     equivalents so the gallery's existing class rules don't need
+     rewriting. Editorial serif retained for figure prose. */
   :root {
-    --paper: #faf7f2;
-    --paper-sunk: #f3ede2;
-    --ink: #1a1a1a;
-    --ink-mute: #4a4a4a;
-    --ink-dim: #7a7a7a;
-    --rule: #d9d2c5;
-    --accent: #3a5a40;
+    --paper:      oklch(0.975 0.005 85);
+    --paper-2:    oklch(0.955 0.005 85);
+    --paper-3:    oklch(0.93 0.006 85);
+    --paper-sunk: var(--paper-3);
+    --ink:        oklch(0.20 0.005 85);
+    --ink-2:      oklch(0.32 0.005 85);
+    --ink-3:      oklch(0.50 0.005 85);
+    --ink-mute:   var(--ink-2);
+    --ink-dim:    var(--ink-3);
+    --rule:       oklch(0.86 0.005 85);
+    --accent:     oklch(0.45 0.09 145);
     --serif: 'Source Serif 4', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
     --sans: 'Inter', 'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, sans-serif;
     --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:      oklch(0.16 0.005 85);
+      --paper-2:    oklch(0.19 0.005 85);
+      --paper-3:    oklch(0.23 0.006 85);
+      --paper-sunk: var(--paper-3);
+      --ink:        oklch(0.93 0.005 85);
+      --ink-2:      oklch(0.80 0.005 85);
+      --ink-3:      oklch(0.62 0.005 85);
+      --ink-mute:   var(--ink-2);
+      --ink-dim:    var(--ink-3);
+      --rule:       oklch(0.32 0.005 85);
+      --accent:     oklch(0.78 0.10 145);
+    }
   }
   * { box-sizing: border-box; }
   html { background: var(--paper); }
@@ -43,7 +67,7 @@
   a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--rule); }
   a:hover { text-decoration-color: var(--ink); color: var(--accent); }
   code, .mono { font-family: var(--mono); font-size: 0.88em; background: var(--paper-sunk); padding: 1px 5px; border-radius: 2px; }
-  ::selection { background: #f5e4b7; color: var(--ink); }
+  ::selection { background: var(--accent); color: var(--paper); }
 
   .wrap { max-width: 760px; margin: 0 auto; padding: 0 28px; }
   .wrap-wide { max-width: 920px; margin: 0 auto; padding: 0 28px; }
@@ -144,7 +168,7 @@
     border-radius: 2px;
     margin-bottom: 12px;
   }
-  .case .badge.limit { color: #8a3a1f; }
+  .case .badge.limit { color: oklch(0.55 0.16 25); }
 
   /* Worked example — terminal-feeling but quiet. Cream paper, mono. */
   .worked {
@@ -162,7 +186,7 @@
   .worked .sh { color: var(--accent); }
   .worked .k { color: var(--ink-mute); }
   .worked .v { color: var(--ink); }
-  .worked .cid { color: #8a6500; }
+  .worked .cid { color: oklch(0.60 0.13 80); }
 
   /* Section rule + section number. */
   .rule { height: 1px; background: var(--rule); border: 0; margin: 0 0 64px; }
