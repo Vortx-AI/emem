@@ -229,7 +229,11 @@ mod tests {
         // clay_v1 (384 dims at 199) + _reserved_128 (121 dims at 583);
         // count rose 34 → 35 because one slot split into two. Subsequent
         // band offsets stay byte-stable.
-        assert_eq!(r.bands.len(), 35);
+        // 2026-05-16: reserved (119 dims at 1673) carved into four EUDR
+        // bands (jrc_gfc2020, jrc_tmf, radd, wri_gdm; total 20 dims) plus
+        // a slimmed reserved (99 dims at 1693). Count rose 35 → 39 because
+        // one reserved slot split into five. Σ stays at 1792.
+        assert_eq!(r.bands.len(), 39);
     }
 
     #[test]
@@ -279,7 +283,17 @@ mod tests {
         // reserved was 1672 → moved to 1673 (one slot taken).
         assert_eq!(idx["chirps.precip_daily_mm"].offset, 1672);
         assert_eq!(idx["chirps.precip_daily_mm"].dims, 1);
-        assert_eq!(idx["reserved"].offset, 1673);
-        assert_eq!(idx["reserved"].dims, 119);
+        // 2026-05-16: reserved (119 dims at 1673) split into four EUDR
+        // bands (20 dims total) + slimmed reserved (99 dims at 1693).
+        assert_eq!(idx["jrc_gfc2020"].offset, 1673);
+        assert_eq!(idx["jrc_gfc2020"].dims, 4);
+        assert_eq!(idx["jrc_tmf"].offset, 1677);
+        assert_eq!(idx["jrc_tmf"].dims, 8);
+        assert_eq!(idx["radd"].offset, 1685);
+        assert_eq!(idx["radd"].dims, 4);
+        assert_eq!(idx["wri_gdm"].offset, 1689);
+        assert_eq!(idx["wri_gdm"].dims, 4);
+        assert_eq!(idx["reserved"].offset, 1693);
+        assert_eq!(idx["reserved"].dims, 99);
     }
 }

@@ -3561,12 +3561,12 @@
       "domain": "carbon",
       "inputs": [
         {
-          "band": "hansen.tree_cover_2000",
+          "band": "forest_change.treecover2000",
           "role": "baseline_cover",
-          "explanation": "Hansen Global Forest Change v1.11 baseline tree-cover percentage at year 2000. Cell qualifies as 'forest' if \u226530% per FAO definition."
+          "explanation": "Hansen Global Forest Change v1.12 baseline tree-cover percentage at year 2000. Cell qualifies as 'forest' if \u226530% per FAO 2020 Global Forest Resources Assessment definition. NOTE: EUDR Article 2(4) uses a 10% threshold, not 30%; see eudr_compliance@2 for the regulation-aligned version."
         },
         {
-          "band": "hansen.loss_year",
+          "band": "forest_change.lossyear",
           "role": "loss_year",
           "explanation": "Year of the FIRST Hansen-detected tree-cover loss event (2001\u20132024, encoded 1\u201324). Year \u2265 21 (i.e. 2021 or later) \u2192 fail per EUDR cut-off date 31 Dec 2020."
         },
@@ -3586,7 +3586,9 @@
           "explanation": "Sentinel-1 \u03b3\u2070 VV change across the cut-off \u2014 a \u03b3\u2070 drop \u22651.5 dB is a forest-clearing structural signature even under monsoon cloud (Bouvet et al. 2018) and lets the receipt stand up in tropical-belt audits where optical blackouts are routine."
         }
       ],
-      "formula": "if tree_cover_2000 < 30 -> 'not_in_scope'; if loss_year >= 21 -> 'fail' (confirm with NDVI(t<2021) - NDVI(t>=2021) >= 0.30 OR \u0394sentinel1_raw <= -1.5 dB straddling cut-off when optical missing); if tree_cover_2000 >= 30 and loss_year < 21 -> 'pass'; aggregate over polygon: any cell == 'fail' -> polygon FAIL with cell-area % deforested reported",
+      "formula": "if treecover2000 < 30 -> 'not_in_scope'; if lossyear >= 21 -> 'fail' (confirm with NDVI(t<2021) - NDVI(t>=2021) >= 0.30 OR \u0394sentinel1_raw <= -1.5 dB straddling cut-off when optical missing); if treecover2000 >= 30 and lossyear < 21 -> 'pass'; aggregate over polygon: any cell == 'fail' -> polygon FAIL with cell-area % deforested reported",
+      "deprecated": true,
+      "deprecation_note": "@1 cites the FAO 2020 GFRA >=30% canopy forest definition. EUDR Regulation (EU) 2023/1115 Article 2(4) defines forest as >10% canopy cover (+ >0.5 ha + >5 m height + non-agricultural use exclusion). Use eudr_compliance@2 for the regulation-aligned threshold and the JRC GFC2020 V3 baseline that the EU Commission funded specifically for EUDR audits.",
       "output": {
         "kind": "classification",
         "values": [
@@ -3595,10 +3597,10 @@
           "not_in_scope",
           "indeterminate"
         ],
-        "explanation": "EU Regulation 2023/1115 plot-level compliance verdict. The signed receipt cites hansen.tree_cover_2000 and hansen.loss_year fact_cids = audit-grade evidence accepted by EU Due Diligence Information System. ALWAYS print the % polygon area in 'fail' alongside the verdict; one bad pixel shouldn't disqualify a 100-ha plot if the loss footprint is 0.01 ha edge-effect."
+        "explanation": "FAO-style 30%-canopy forest-loss verdict per Hansen GFC v1.12. DEPRECATED for EUDR Due Diligence Statements — see eudr_compliance@2 for the EUDR-aligned 10% threshold and JRC GFC2020 V3 baseline. ALWAYS print the % polygon area in 'fail' alongside the verdict; one bad pixel shouldn't disqualify a 100-ha plot if the loss footprint is 0.01 ha edge-effect."
       },
       "when_to_use": "EUDR Due Diligence Statements for the seven controlled commodities (cattle, cocoa, coffee, oil palm, rubber, soy, wood and their derivatives). Pair with a polygon (`/v1/recall_polygon`) \u2014 never run on a single point; EUDR requires geolocation polygons \u22654 ha or all parcel coordinates for smaller plots.",
-      "primitive": "POST /v1/recall_polygon {polygon, bands:['hansen.tree_cover_2000','hansen.loss_year','esa.worldcover.lc_2021']} \u2192 apply formula \u2192 emit signed verdict",
+      "primitive": "POST /v1/recall_polygon {polygon, bands:['forest_change.treecover2000','forest_change.lossyear','esa_worldcover.lc_2021']} \u2192 apply formula \u2192 emit signed verdict",
       "deterministic": true,
       "citation": "European Union. 2023. Regulation (EU) 2023/1115 of 31 May 2023 on the making available on the Union market and the export from the Union of certain commodities and products associated with deforestation and forest degradation. Hansen, M.C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850\u2013853 (annual updates v1.11 = 2024 release). FAO 2020. Global Forest Resources Assessment 2020 (forest-definition >30% canopy cover).",
       "frequency_of_calculation": "annual at minimum (Hansen GFC publishes a new vintage each year, typically April). For active commodity supply chains, re-run on every Hansen v1.x release AND on every RADD/GLAD near-real-time alert (when wired) to detect new losses inside the EUDR cut-off window.",
@@ -3606,8 +3608,8 @@
       "multimodal": {
         "delivery_resolution_m": 10,
         "baseline_sources": [
-          "hansen.tree_cover_2000",
-          "hansen.loss_year",
+          "forest_change.treecover2000",
+          "forest_change.lossyear",
           "esa_worldcover.lc_2021"
         ],
         "variance_sources": [
@@ -3621,6 +3623,169 @@
           "static"
         ],
         "anchor_band": "indices.ndvi",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+    {
+      "key": "eudr_compliance@2",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        {
+          "band": "jrc_gfc2020.forest_2020",
+          "role": "eudr_forest_baseline",
+          "explanation": "JRC Global Forest Cover for the year 2020 V3 — the EU Commission's expected (non-binding) baseline for EUDR Due Diligence Statements. Value 1 means the cell met the Regulation 2023/1115 Article 2(4) forest definition at the 2020-12-31 cut-off date: >0.5 ha, >5 m tree height, >10 % canopy cover, excluding land predominantly under agricultural or urban use."
+        },
+        {
+          "band": "forest_change.treecover2000",
+          "role": "hansen_baseline_cover",
+          "explanation": "Hansen GFC v1.12 baseline tree-cover percentage at year 2000. Used as a confirming baseline at the 10 % EUDR threshold (NOT the 30 % FAO threshold used by eudr_compliance@1)."
+        },
+        {
+          "band": "forest_change.lossyear",
+          "role": "loss_year_after_cutoff",
+          "explanation": "Year of the FIRST Hansen-detected tree-cover loss event (2001-2024, encoded 1-24). Value >= 21 (i.e. 2021 or later) means loss after the EUDR cut-off date of 31 December 2020."
+        }
+      ],
+      "formula": "let forest_at_cutoff = (jrc_gfc2020.forest_2020 >= 1) OR (forest_change.treecover2000 >= 10); if NOT forest_at_cutoff -> 'not_in_scope' [code 3]; else if forest_change.lossyear >= 21 -> 'fail' [code 2]; else -> 'pass' [code 1]. Optional refinement layer (handled at /v1/eudr_dds): if wri_gdm.driver_class is available and in {5=wildfire, 7=natural} -> reclassify 'fail' -> 'not_in_scope'; if radd.alert_date is available and post-2020-12-31 -> upgrade 'pass' -> 'fail' for cells where Hansen optical was cloud-blocked. Verdict 'indeterminate' [code 4] is emitted by the dispatcher when any required input is missing.",
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "max",
+          "terms": [
+            {
+              "op": "where",
+              "cond": {"op": "band", "band": "jrc_gfc2020.forest_2020"},
+              "gt": 0.5,
+              "then_": {"op": "const", "value": 1.0},
+              "else_": {"op": "const", "value": 0.0}
+            },
+            {
+              "op": "where",
+              "cond": {"op": "band", "band": "forest_change.treecover2000"},
+              "gt": 9.999,
+              "then_": {"op": "const", "value": 1.0},
+              "else_": {"op": "const", "value": 0.0}
+            }
+          ]
+        },
+        "gt": 0.5,
+        "then_": {
+          "op": "where",
+          "cond": {"op": "band", "band": "forest_change.lossyear"},
+          "gt": 20.5,
+          "then_": {"op": "const", "value": 2.0},
+          "else_": {"op": "const", "value": 1.0}
+        },
+        "else_": {"op": "const", "value": 3.0}
+      },
+      "output": {
+        "kind": "classification",
+        "values": [
+          "pass",
+          "fail",
+          "not_in_scope",
+          "indeterminate"
+        ],
+        "explanation": "EUDR per-cell compliance verdict. 1 = pass (forest at 2020-12-31 cut-off, no Hansen loss after cut-off). 2 = fail (forest at cut-off, Hansen loss in 2021 or later — pair with wri_gdm.driver_class to confirm commodity-driven). 3 = not_in_scope (cell did not meet the EUDR forest definition at the cut-off date — neither JRC GFC2020 V3 forest nor Hansen ≥10 % canopy). 4 = indeterminate (a required input was Absence; dispatcher emits the indeterminate label out-of-band, AST cannot itself emit 4)."
+      },
+      "when_to_use": "EUDR Due Diligence Statements for the seven controlled commodity groups (cattle, cocoa, coffee, oil palm, rubber, soy, wood and their derivatives) under Regulation (EU) 2023/1115. Pair with the /v1/eudr_dds endpoint for the polygon-aggregated Annex II-shaped output; the per-cell algorithm here is the unit primitive.",
+      "primitive": "POST /v1/recall_polygon {polygon, bands:['jrc_gfc2020.forest_2020','forest_change.treecover2000','forest_change.lossyear']} → apply Expr AST per cell → aggregate. Or POST /v1/eudr_dds for the full Annex II envelope.",
+      "deterministic": true,
+      "citation": "European Union. 2023. Regulation (EU) 2023/1115 of 31 May 2023 on the making available on the Union market and the export from the Union of certain commodities and products associated with deforestation and forest degradation (Article 2(4) forest definition, Article 2(28) geolocation rule, Article 8 due diligence, Article 9 + Annex II DDS). Bourgoin, C. et al. 2026. GFC2020: A Global Map of Forest Land Use for year 2020 to support the EU Deforestation Regulation. ESSD 18:1331. DOI 10.5194/essd-2025-351. Hansen, M.C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850–853 (annual updates; v1.12 = 2025 release covering loss through 2024). Sims, M.J. et al. 2025. Global drivers of forest loss at 1 km resolution. Environmental Research Letters 20:074027.",
+      "frequency_of_calculation": "annual at minimum (Hansen GFC publishes a new vintage each year, typically April). For active commodity supply chains, re-run on every Hansen v1.x release AND on every RADD/GLAD near-real-time alert to detect new losses inside the EUDR cut-off window. JRC GFC2020 is a single 2020 baseline; it does not need annual recall.",
+      "accuracy_band": "JRC GFC2020 V3 producer's accuracy 88 % globally, 80-85 % in the agroforestry-dominated West African belt (Bourgoin et al. 2026). Hansen GFC user's accuracy 87 % for 2000 cover ≥ 25 %, 73 % for cover 0-25 % (Hansen et al. 2013, supplementary). Compound expected DDS-grade accuracy with WRI GDM driver-attribution filter on top: ~95 % for the 'fail' verdict when both baselines and the driver class agree.",
+      "honest_limits": "1. EUDR explicitly excludes land 'predominantly under agricultural or urban land use' (Article 2(4)) — this algorithm does NOT detect that exclusion at the cell level; agroforestry plots (shade-grown coffee, cocoa, rubber plantations) may misregister. Pair with wri_gdm.driver_class at the /v1/eudr_dds layer for commodity-driven loss attribution. 2. JRC GFC2020 is labelled by the EU 'non-mandatory, non-exclusive and not legally binding' — the Commission funded it specifically to support EUDR audits, but operators may use other defensible forest baselines. 3. This algorithm covers the geolocation+deforestation parts of the DDS only; Article 9(1)(b) legality verification (country-of-origin laws, land tenure, indigenous community consent under FPIC) is structurally out of Earth-observation scope. 4. The 4-hectare POINT-vs-POLYGON dispatch rule of Article 2(28) is handled at the /v1/eudr_dds endpoint, not in this per-cell algorithm.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [
+          "jrc_gfc2020.forest_2020",
+          "forest_change.treecover2000",
+          "forest_change.lossyear"
+        ],
+        "variance_sources": [
+          "indices.ndvi",
+          "sentinel1_raw"
+        ],
+        "fusion_method": "consensus_vote",
+        "priority_chain": [
+          "static",
+          "s2",
+          "s1"
+        ],
+        "anchor_band": "jrc_gfc2020.forest_2020",
+        "fallback_strategy": "tier_demote"
+      }
+    },
+    {
+      "key": "eudr_dds@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        {
+          "band": "jrc_gfc2020.forest_2020",
+          "role": "eudr_forest_baseline",
+          "explanation": "JRC GFC2020 V3 forest definition baseline."
+        },
+        {
+          "band": "forest_change.treecover2000",
+          "role": "hansen_baseline_cover",
+          "explanation": "Hansen canopy at year 2000; 10 % threshold for EUDR confirmation."
+        },
+        {
+          "band": "forest_change.lossyear",
+          "role": "loss_year_after_cutoff",
+          "explanation": "Hansen first-loss year; >= 21 (2021+) = post-cut-off."
+        },
+        {
+          "band": "radd.alert_date",
+          "role": "sar_loss_confirmer_humid_tropics",
+          "explanation": "RADD Sentinel-1 SAR-based alert date — orchestrated fallback for cells where Sentinel-2 optical is cloud-blocked. Humid-tropics-only (50 countries)."
+        },
+        {
+          "band": "wri_gdm.driver_class",
+          "role": "commodity_vs_natural_filter",
+          "explanation": "Sims et al. 2025 driver attribution (1 km). Reclassifies wildfire (class 5) and other natural disturbance (class 7) loss out of EUDR scope."
+        }
+      ],
+      "formula": "Polygon-in, signed-Annex-II-DDS-out wrapper around eudr_compliance@2. Steps: (1) Read the input polygon; if any plot has area <= 4 ha treat the centroid as a POINT per Article 2(28), else a POLYGON. (2) For each cell inside the plot, evaluate eudr_compliance@2's AST. (3) Layer wri_gdm.driver_class refinement: cells with driver_class in {5,7} downgrade 'fail' -> 'not_in_scope'. (4) Layer radd.alert_date orchestration: cells where Hansen reports no loss but RADD reports a post-cut-off alert with confidence >= 3 upgrade 'pass' -> 'fail'. (5) Aggregate: polygon verdict = FAIL if any cell is 'fail' AND failing-cell area / total plot area >= 0.001 (0.1 % threshold; smaller footprints surface as 'fail_below_de_minimis' to flag edge-effect false positives). (6) Emit the Annex II structured envelope with the signed receipt: every cell's fact_cid is cited; the polygon-level verdict carries its own algorithm_cid.",
+      "output": {
+        "kind": "classification",
+        "values": [
+          "pass",
+          "fail",
+          "fail_below_de_minimis",
+          "not_in_scope",
+          "indeterminate"
+        ],
+        "explanation": "EUDR Due Diligence Statement polygon-level verdict, per Annex II of Regulation 2023/1115. The /v1/eudr_dds endpoint emits the full structured envelope (operator, commodity, HS/CN, country of production, geolocation block per Article 2(28), risk_assessment_outcome). This algorithm key is the metadata anchor; the actual aggregation logic lives in the endpoint handler because the per-cell AST cannot model polygon aggregation."
+      },
+      "when_to_use": "Producing a TRACES-NT-uploadable DDS for an EU operator placing relevant commodities on the Union market under Regulation 2023/1115. Always paired with the operator's own commodity + supplier metadata (HS/CN code, country of production, quantity) which the endpoint accepts as request fields. Never run for legality verification — Article 9(1)(b) legality is structurally out of Earth-observation scope.",
+      "primitive": "POST /v1/eudr_dds {polygons:[{plot_id, geometry_geojson, country_of_production, commodity_hs, quantity_kg, operator}], cut_off_date:'2020-12-31'} → Annex II envelope with per-plot verdict + signed cell receipts.",
+      "deterministic": true,
+      "citation": "Regulation (EU) 2023/1115 of 31 May 2023, Articles 2(4), 2(28), 8, 9 and Annex II. Commission Guidance C(2024)/04524. EUDR Information System: https://eudr.webcloud.ec.europa.eu/tracesnt/login (TRACES NT API spec lives in CircaBC; SOAP/XML behind EU Login).",
+      "frequency_of_calculation": "per DDS submission; an operator typically runs once before placing a consignment on the Union market and stores the signed receipt as part of the company's due-diligence record (Article 12 record-keeping; 5 years).",
+      "accuracy_band": "Inherits the per-cell accuracy of eudr_compliance@2 (~88-95 % depending on biome and driver-class refinement) and adds polygon-level certainty bounds: the endpoint emits failing-cell area, polygon area, and failure_fraction so the operator can show defensible numbers in a contested DDS.",
+      "honest_limits": "1. NOT a substitute for Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) — legality requires a partner module. The DDS envelope carries a legality_module: 'none' field by default to make this explicit to downstream operators. 2. JRC GFC2020 V3 is the EU Commission's expected (not legally binding) forest baseline. Operators choosing a different baseline must document the choice; the DDS envelope accepts a forest_baseline_override field. 3. The 4-hectare Article 2(28) POINT-vs-POLYGON dispatch is implemented per-plot; cattle plots are POLYGON regardless of size per the regulation's cattle exemption. 4. TRACES NT submission is the operator's responsibility; this endpoint produces the structured payload but does not authenticate to the EU Information System on the operator's behalf.",
+      "multimodal": {
+        "delivery_resolution_m": 10,
+        "baseline_sources": [
+          "jrc_gfc2020.forest_2020",
+          "forest_change.treecover2000",
+          "forest_change.lossyear"
+        ],
+        "variance_sources": [
+          "indices.ndvi",
+          "sentinel1_raw",
+          "radd.alert_date"
+        ],
+        "fusion_method": "consensus_vote",
+        "priority_chain": [
+          "static",
+          "s2",
+          "s1"
+        ],
+        "anchor_band": "jrc_gfc2020.forest_2020",
         "fallback_strategy": "tier_demote"
       }
     },
