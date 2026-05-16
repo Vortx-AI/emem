@@ -119,6 +119,7 @@ const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 // protocol.md.
 const AGENTS_MD: &str = include_str!("../../../docs/agents.md");
 const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper.md");
+const INTEGRATIONS_MD: &str = include_str!("../../../docs/integrations.md");
 const SPEC_MD: &str = include_str!("../../../docs/protocol.md");
 const CLIENTS_MD: &str = include_str!("../../../docs/agents.md");
 const MULTIMODAL_MD: &str = include_str!("../../../docs/developers/inference.md");
@@ -488,6 +489,8 @@ pub fn router(state: AppState) -> Router {
         .route("/agents.md", get(serve_agents_md))
         .route("/whitepaper", get(serve_whitepaper_md))
         .route("/whitepaper.md", get(serve_whitepaper_md))
+        .route("/integrations", get(serve_integrations_md))
+        .route("/integrations.md", get(serve_integrations_md))
         .route("/spec", get(serve_spec_md))
         .route("/spec.md", get(serve_spec_md))
         .route("/clients", get(serve_clients_md))
@@ -924,6 +927,8 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/agent_quickref"
         | "/agents.md"
         | "/whitepaper.md"
+        | "/integrations"
+        | "/integrations.md"
         | "/spec.md"
         | "/clients"
         | "/clients.md"
@@ -1654,6 +1659,9 @@ async fn serve_agents_md() -> Response {
 }
 async fn serve_whitepaper_md() -> Response {
     text_response("text/markdown; charset=utf-8", WHITEPAPER_MD)
+}
+async fn serve_integrations_md() -> Response {
+    text_response("text/markdown; charset=utf-8", INTEGRATIONS_MD)
 }
 async fn serve_spec_md() -> Response {
     text_response("text/markdown; charset=utf-8", SPEC_MD)

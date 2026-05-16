@@ -13,10 +13,30 @@ emem sits one layer beneath whatever memory your agent runtime ships
 internally. Per-session associative memory, per-tenant scratchpads, and
 vector-indexed document stores all answer different questions; emem
 answers *what is at this place*, once, signed, byte-identical for every
-caller that ever asks again. Three core moves: (a) locate a place by
-name to a `cell64`, (b) recall signed facts at that cell, (c) find
-places similar to it by foundation embedding. Every response carries
-an Ed25519 receipt that any agent can verify offline.
+caller that ever asks again. A `cell64` is to an emem-grounded reasoning
+chain what a token is to an LLM: a stable, hierarchical, machine-readable
+handle the rest of the pipeline can quote, share, and verify. Three core
+moves: (a) locate a place by name to a `cell64`, (b) recall signed facts
+at that cell, (c) find places similar to it by foundation embedding.
+Every response carries an Ed25519 receipt any agent can verify offline.
+
+The endpoints map cleanly onto the vocabulary other agent-memory libraries
+use; if you arrive from mem0, Letta, LangGraph, or a custom retrieval
+stack, the mapping below is the rosetta-stone:
+
+| Memory operation                | emem primitive       | Endpoint                          |
+|---------------------------------|----------------------|-----------------------------------|
+| retrieve by address             | `recall`             | `POST /v1/recall`                 |
+| retrieve by similarity          | `find_similar`       | `POST /v1/find_similar`           |
+| retrieve over a region          | `recall_polygon`     | `POST /v1/recall_polygon`         |
+| retrieve over time              | `trajectory`         | `POST /v1/trajectory`             |
+| address-by-name (place → key)   | `locate`             | `POST /v1/locate`                 |
+| search-by-pattern               | `hunt`               | `POST /v1/hunt`                   |
+| write (signed attestation)      | `attest`             | `POST /v1/attest`                 |
+| compare states                  | `diff`, `compare`    | `POST /v1/diff`, `POST /v1/compare` |
+| summarize / place-anchored Q&A  | `ask`                | `POST /v1/ask`                    |
+| verify a receipt                | `verify_receipt`     | `POST /v1/verify_receipt`         |
+| reflect / record task outcome   | `reviews`            | `POST /v1/reviews`                |
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 72 OpenAPI-documented paths under

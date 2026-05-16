@@ -12,7 +12,27 @@
 > idempotent; the CID is the citation two agents paste at each other to stop
 > arguing about a number.
 >
+> A cell64 is to an emem-grounded reasoning chain what a token is to an LLM:
+> a stable, hierarchical, machine-readable handle the rest of the pipeline
+> can quote, share, and verify.
+>
 > Bootstrap: GET /v1/discover  ·  Schema: /openapi.json  ·  MCP: /mcp
+
+## Memory operations (mapped to emem primitives)
+
+    Operation                       Primitive           Endpoint
+    ------------------------------- ------------------- ------------------------
+    retrieve by address             recall              POST /v1/recall
+    retrieve by similarity          find_similar        POST /v1/find_similar
+    retrieve over a region          recall_polygon      POST /v1/recall_polygon
+    retrieve over time              trajectory          POST /v1/trajectory
+    address-by-name (place → key)   locate              POST /v1/locate
+    search-by-pattern               hunt                POST /v1/hunt
+    write (signed attestation)      attest              POST /v1/attest
+    compare states                  diff, compare       POST /v1/diff, /v1/compare
+    summarize / place-anchored Q&A  ask                 POST /v1/ask
+    verify a receipt                verify_receipt      POST /v1/verify_receipt
+    reflect / record task outcome   reviews             POST /v1/reviews
 
 ## Algebra
 
@@ -208,6 +228,7 @@ Install in Claude Code by copying the bundle into your project's .claude/skills/
     /.well-known/mcp.json           — MCP server descriptor
     /.well-known/emem.json          — manifest CIDs + responder pubkey
     /agents.md                      — full integration guide (consumer agents)
+    /integrations.md                — emem as long-term memory across runtimes
     /skills.md                      — composed recipes (cookbook view)
     /whitepaper.md                  — architecture + math
     /humans                         — interactive console; every /v1/* call prints in a live log pane

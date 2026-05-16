@@ -1184,7 +1184,37 @@ is the 64-bit cell address: the entire knowledge graph for a place
 collapses to one handle a downstream tool can quote, share, and
 verify. The encoding scheme differs; the principle (address
 memory by what it is *about*, not by where it sat in a stream) is
-the same.
+the same. In this sense a `cell64` is to an emem-grounded
+reasoning chain what a token is to a language model: a stable,
+hierarchical, machine-readable handle the rest of the pipeline can
+quote, share, and verify.
+
+### 19.3 Operations vocabulary
+
+The endpoints map cleanly onto the canonical agent-memory operations
+vocabulary used by mem0, Letta, LangGraph, and the broader memory-
+layer ecosystem:
+
+| Operation                       | emem primitive       | Endpoint                          |
+|---------------------------------|----------------------|-----------------------------------|
+| retrieve by address             | `recall`             | `POST /v1/recall`                 |
+| retrieve by similarity          | `find_similar`       | `POST /v1/find_similar`           |
+| retrieve over a region          | `recall_polygon`     | `POST /v1/recall_polygon`         |
+| retrieve over time              | `trajectory`         | `POST /v1/trajectory`             |
+| address-by-name (place → key)   | `locate`             | `POST /v1/locate`                 |
+| search-by-pattern               | `hunt`               | `POST /v1/hunt`                   |
+| write (signed attestation)      | `attest`             | `POST /v1/attest`                 |
+| compare states                  | `diff`, `compare`    | `POST /v1/diff`, `POST /v1/compare` |
+| summarize / place-anchored Q&A  | `ask`                | `POST /v1/ask`                    |
+| verify a receipt                | `verify_receipt`     | `POST /v1/verify_receipt`         |
+| reflect / record task outcome   | `reviews`            | `POST /v1/reviews`                |
+
+The `reviews` endpoint persists task-outcome reviews keyed by the
+subject the review concerns (cell, band, algorithm). It is the
+reflection / experience-log layer an agent uses to record what
+worked at a place; the protocol does not enforce a schema beyond
+the subject key and an opaque body, so consumers can carry
+arbitrary structured feedback alongside the receipt.
 
 ---
 
