@@ -627,10 +627,37 @@
       "_source_note": "The full 10-epoch series (2007, 2010, 2015..=2022) is reachable through the tslot-aware materializer; the cube reserves four addressable scalars for 2022 + 2020 (the two epochs algorithms reach for most often: most-recent + EUDR-baseline). Carved from the historic 99-dim `reserved` tail in 2026-05; subsequent reserved offsets stay byte-stable."
     },
     {
+      "key": "gmrt",
+      "family": "terrain",
+      "offset": 1697,
+      "dims": 4,
+      "tempo": "static",
+      "privacy": {"class": "public"},
+      "description": "Global Multi-Resolution Topography (GMRT) v4.4.1 — global topo-bathymetric surface in metres relative to mean sea level. Produced by the Marine Geoscience Data System (MGDS) at Lamont-Doherty Earth Observatory by fusing ship-borne multibeam swaths (~50–100 m native), regional compilations (CCOM, IBCAO, GEBCO), and SRTM30_PLUS into a single seamless quad-tree pyramid. Sign convention: positive = above sea level (topography), negative = below sea level (bathymetry). Anonymous PointServer / GridServer access; no API key.",
+      "units": "metres relative to mean sea level",
+      "value_range": [-11000.0, 8850.0],
+      "interpretation": "`gmrt.topobathy_mean` is the single-pixel reading (PointServer) or small-bbox spatial mean (GridServer over a ~9.55 m cell64 footprint) at the cell. Pair with `gmrt.topobathy_min` / `gmrt.topobathy_max` to bound the cell's vertical extent and `gmrt.topobathy_std` for terrain roughness. Wave_solve and coastal_proximity read the mean as the depth h in the shallow-water solver; flood_risk@2 cross-checks it against Cop-DEM (|cop − gmrt| ≤ 5 m → dem_agreement = 1).",
+      "pitfalls": "GMRT auto-selects pyramid resolution by bbox extent: cell64-sized requests often return a single pixel in remote basins where the underlying source is SRTM30_PLUS (~1 km) but multiple pixels where multibeam coverage is dense. The reductions therefore reflect the source resolution, not the request bbox — `n_px = 1` in the GmrtWindowSample is the honest signal that the upstream pyramid level is coarser than the cell. Coverage is global (±90° lat × ±180° lng) with no envelope gap, but bathymetric accuracy degrades from ~50 m horizontal in surveyed basins to ~1 km in remote ocean interior.",
+      "references": "Ryan, W. B. F. et al. 2009. Global Multi-Resolution Topography synthesis. Geochem. Geophys. Geosyst. 10, Q03014. doi:10.1029/2008GC002332. MGDS / Lamont-Doherty Earth Observatory: https://www.gmrt.org/. Endpoints: https://www.gmrt.org/services/PointServer (JSON single-pixel), https://www.gmrt.org/services/GridServer (GeoTIFF/NetCDF subset).",
+      "scalar_keys": [
+        "gmrt.topobathy_mean",
+        "gmrt.topobathy_min",
+        "gmrt.topobathy_max",
+        "gmrt.topobathy_std"
+      ],
+      "dimensions": [
+        {"index": 0, "name": "topobathy_mean", "description": "Mean of GMRT topo-bathymetric elevation over the cell footprint (single pixel for PointServer, small-bbox mean for GridServer). Positive = above MSL, negative = below MSL.", "units": "metres", "value_range": [-11000, 8850]},
+        {"index": 1, "name": "topobathy_min",  "description": "Minimum elevation over the GridServer-returned pixels covering the cell. Collapses to the same value as the mean when GMRT returns a single pixel.",                                "units": "metres", "value_range": [-11000, 8850]},
+        {"index": 2, "name": "topobathy_max",  "description": "Maximum elevation over the GridServer-returned pixels covering the cell. Collapses to the same value as the mean when GMRT returns a single pixel.",                                "units": "metres", "value_range": [-11000, 8850]},
+        {"index": 3, "name": "topobathy_std",  "description": "Population standard deviation of elevation over the GridServer-returned pixels. Returns 0.0 when GMRT returns a single pixel; otherwise serves as a per-cell terrain-roughness proxy.", "units": "metres", "value_range": [0, 5000]}
+      ],
+      "_source_note": "Carved from the historic 95-dim `reserved` tail in 2026-05; subsequent reserved offsets stay byte-stable. Wired by `crates/emem-fetch/src/gmrt.rs` via PointServer (single-pixel, ~60 B JSON) for the `topobathy_mean` scalar and GridServer (Float32 GeoTIFF) for the min/max/std reductions over a ~9.55 m cell64 footprint."
+    },
+    {
       "key": "reserved",
       "family": "reserved",
-      "offset": 1697,
-      "dims": 95,
+      "offset": 1701,
+      "dims": 91,
       "tempo": "static",
       "privacy": {"class": "public"},
       "description": "Tail reservation slot for future cube extensions. Currently zero-padded — recall returns Absence.",

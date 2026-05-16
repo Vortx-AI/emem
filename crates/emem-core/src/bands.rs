@@ -237,7 +237,12 @@ mod tests {
         // add esa_cci_biomass (4 dims at 1693, AGB + AGB_SD at the 2022 +
         // 2020 epochs as addressable scalars) plus a slimmed reserved
         // (95 dims at 1697). Count rose 39 → 40. Σ stays at 1792.
-        assert_eq!(r.bands.len(), 40);
+        // 2026-05-16 (later still): reserved (95 dims at 1697) carved
+        // again to add gmrt (4 dims at 1697, topobathy mean/min/max/std
+        // for the wave_solve / coastal_proximity / flood_risk@2
+        // algorithms) plus a slimmed reserved (91 dims at 1701). Count
+        // rose 40 → 41. Σ stays at 1792.
+        assert_eq!(r.bands.len(), 41);
     }
 
     #[test]
@@ -301,7 +306,12 @@ mod tests {
         // the reserved tail; reserved drops from 99→95 dims at 1697.
         assert_eq!(idx["esa_cci_biomass"].offset, 1693);
         assert_eq!(idx["esa_cci_biomass"].dims, 4);
-        assert_eq!(idx["reserved"].offset, 1697);
-        assert_eq!(idx["reserved"].dims, 95);
+        // 2026-05-16 (later still): gmrt carves 4 dims at 1697 for the
+        // topo-bathymetric mean/min/max/std scalars; reserved drops
+        // from 95 → 91 dims at 1701. Subsequent offsets stay byte-stable.
+        assert_eq!(idx["gmrt"].offset, 1697);
+        assert_eq!(idx["gmrt"].dims, 4);
+        assert_eq!(idx["reserved"].offset, 1701);
+        assert_eq!(idx["reserved"].dims, 91);
     }
 }

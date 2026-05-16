@@ -12545,107 +12545,6 @@ async fn materialize_elevation_mean(
     Ok(ElevationMaterialization::Primary(cid))
 }
 
-/// Fetch topo-bathymetric elevation from GMRT (Global Multi-Resolution
-/// Topography), build a signed Primary fact under the responder's
-/// identity, and persist it. GMRT returns negative values over water
-/// (real bathymetric depth) and positive values over land in a single
-/// scientific dataset, so this band answers cite-ably for any cell on
-/// Earth — including the Mariana Trench.
-///
-/// Reference: <https://www.gmrt.org/services/PointServer> — peer-
-/// reviewed, no auth, maintained by Lamont-Doherty Earth Observatory.
-async fn materialize_gmrt_topobathy(
-    cell64: &str,
-    s: &AppState,
-) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
-    let lat = info.lat_deg;
-    let lng = info.lng_deg;
-    let url = format!(
-        "https://www.gmrt.org/services/PointServer?latitude={lat:.6}&longitude={lng:.6}&format=text/plain",
-    );
-    let resp = reqwest_client()
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("gmrt https: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("gmrt status {}", resp.status()));
-    }
-    let body = resp.text().await.map_err(|e| format!("gmrt body: {e}"))?;
-    let elev_m: f64 = body
-        .trim()
-        .parse()
-        .map_err(|e| format!("gmrt non-numeric body {body:?}: {e}"))?;
-
-    let signed_at = chrono_iso8601_utc();
-    let fact = Fact::Primary(PrimaryFact {
-        cell: cell64.to_string(),
-        band: "gmrt.topobathy_mean".into(),
-        tslot: 0,
-        value: ciborium::Value::Float(elev_m),
-        unit: Some("m".into()),
-        confidence: 0.9,
-        uncertainty: None,
-        sources: vec![Source {
-            scheme: "gmrt".into(),
-            id: url.clone(),
-            cid: None,
-            hash: None,
-            captured_at: Some(signed_at.clone()),
-            url: None,
-        }],
-        derivation: Derivation {
-            fn_key: "gmrt_pointserver@1".into(),
-            args: Some(ciborium::Value::Array(vec![
-                ciborium::Value::Float(lat),
-                ciborium::Value::Float(lng),
-            ])),
-        },
-        privacy_class: "public".into(),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signer: s.identity.pubkey,
-        signed_at: signed_at.clone(),
-        served_via: None,
-    });
-
-    let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
-    let leaf_hash = blake3::hash(&buf);
-    let mut leaf = [0u8; 32];
-    leaf.copy_from_slice(leaf_hash.as_bytes());
-    let batch_root = emem_attest::merkle_root(&[leaf]);
-
-    let mut h = blake3::Hasher::new();
-    h.update(&batch_root);
-    h.update(s.manifests.registry_cid.as_str().as_bytes());
-    h.update(s.manifests.schema_cid.as_str().as_bytes());
-    let signed_digest = h.finalize();
-    let sig = s.identity.signing.sign(signed_digest.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&sig.to_bytes());
-
-    let att = Attestation {
-        facts: vec![fact],
-        batch_root,
-        attester: s.identity.pubkey,
-        attester_key_epoch: KeyEpoch(s.identity.epoch.0),
-        registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signature: EmCoreSignature(sig_bytes),
-        attested_at: signed_at,
-    };
-
-    let cids = s
-        .storage
-        .put_attestation(&att)
-        .await
-        .map_err(|e| format!("put_attestation (gmrt): {e}"))?;
-    cids.into_iter()
-        .next()
-        .ok_or_else(|| "put_attestation (gmrt) returned no fact_cid".to_string())
-}
-
 /// Parse an ORNL MODIS calendar date `YYYY-MM-DD` to Unix epoch seconds
 /// (UTC midnight). Returns `None` if the string isn't well-formed.
 fn modis_calendar_to_unix(s: &str) -> Option<i64> {
@@ -17470,6 +17369,273 @@ async fn materialize_jrc_gfc2020_band(
     }
 }
 
+// ---------------- JRC TMF v2025 materializer (pull-and-cache) ----------------
+//
+// Vancutsem et al. 2021 Science Advances 7:eabe1603. JRC Tropical
+// Moist Forest v2025. 30 m primary product, ±30° latitude tropical
+// belt. The upstream dispatcher does not honour HTTP Range, so the
+// connector pulls full ~80 MB tiles on first miss and serves
+// subsequent per-cell reads from a local COG cache at
+// `$EMEM_DATA/jrc_tmf_cache/` (see crates/emem-fetch/src/jrc_tmf.rs).
+async fn materialize_jrc_tmf_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::jrc_tmf;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+
+    let coverage_gap = |la: f64, ln: f64, dataset: &str| {
+        let reason = format!(
+            "jrc_tmf_coverage_gap: cell ({la:.6},{ln:.6}) outside ±30° tropical-belt envelope (dataset {dataset})."
+        );
+        let url = format!(
+            "https://ies-ows.jrc.ec.europa.eu/iforce/tmf_v1/download.py?type=tile&dataset={dataset}&lat=oob&lon=oob"
+        );
+        (url, reason)
+    };
+
+    let (value_int, unit, dataset_tag): (i64, &'static str, String) = match band {
+        "jrc_tmf.annual_change" => match jrc_tmf::fetch_annual_change(&cli, lat, lng, 2025).await {
+            Ok(v) => (
+                v as i64,
+                "annual_change_class",
+                "AnnualChange_2025".to_string(),
+            ),
+            Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                let (url, reason) = coverage_gap(la, ln, "AnnualChange_2025");
+                return sign_band_absence(
+                    cell64,
+                    s,
+                    band,
+                    0,
+                    "jrc.tmf.v2025",
+                    &url,
+                    &signed_at,
+                    &reason,
+                )
+                .await;
+            }
+            Err(e) => return Err(format!("jrc_tmf.annual_change fetch failed: {e}")),
+        },
+        "jrc_tmf.deforestation_year" => {
+            match jrc_tmf::fetch_deforestation_year(&cli, lat, lng).await {
+                Ok(v) => (
+                    v as i64,
+                    "year_of_deforestation",
+                    "DeforestationYear".to_string(),
+                ),
+                Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                    let (url, reason) = coverage_gap(la, ln, "DeforestationYear");
+                    return sign_band_absence(
+                        cell64,
+                        s,
+                        band,
+                        0,
+                        "jrc.tmf.v2025",
+                        &url,
+                        &signed_at,
+                        &reason,
+                    )
+                    .await;
+                }
+                Err(e) => return Err(format!("jrc_tmf.deforestation_year fetch failed: {e}")),
+            }
+        }
+        "jrc_tmf.degradation_year" => match jrc_tmf::fetch_degradation_year(&cli, lat, lng).await {
+            Ok(v) => (
+                v as i64,
+                "year_of_degradation",
+                "DegradationYear".to_string(),
+            ),
+            Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                let (url, reason) = coverage_gap(la, ln, "DegradationYear");
+                return sign_band_absence(
+                    cell64,
+                    s,
+                    band,
+                    0,
+                    "jrc.tmf.v2025",
+                    &url,
+                    &signed_at,
+                    &reason,
+                )
+                .await;
+            }
+            Err(e) => return Err(format!("jrc_tmf.degradation_year fetch failed: {e}")),
+        },
+        "jrc_tmf.transition_subtype" => {
+            match jrc_tmf::fetch_transition_subtype(&cli, lat, lng).await {
+                Ok(v) => (
+                    v as i64,
+                    "transition_subtype_class",
+                    "TransitionMap_Subtypes".to_string(),
+                ),
+                Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                    let (url, reason) = coverage_gap(la, ln, "TransitionMap_Subtypes");
+                    return sign_band_absence(
+                        cell64,
+                        s,
+                        band,
+                        0,
+                        "jrc.tmf.v2025",
+                        &url,
+                        &signed_at,
+                        &reason,
+                    )
+                    .await;
+                }
+                Err(e) => return Err(format!("jrc_tmf.transition_subtype fetch failed: {e}")),
+            }
+        }
+        _ => return Err(format!("jrc_tmf band {band} not registered")),
+    };
+
+    let url = format!(
+        "https://ies-ows.jrc.ec.europa.eu/iforce/tmf_v1/download.py?type=tile&dataset={dataset_tag}&lat={lat:.6}&lon={lng:.6}"
+    );
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot: 0,
+        value: ciborium::Value::Integer(value_int.into()),
+        unit: Some(unit.into()),
+        confidence: 0.93,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: "jrc.tmf.v2025".into(),
+            id: url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(signed_at.clone()),
+            url: Some(url.clone()),
+        }],
+        derivation: Derivation {
+            fn_key: "jrc_tmf_v2025_pixel@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(dataset_tag),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+        served_via: None,
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+// ---------------- GMRT bathymetry + topography materializer ----------------
+//
+// Ryan et al. 2009 G3 10:Q03014. Global Multi-Resolution Topography
+// from MGDS / Lamont-Doherty. Open anonymous HTTPS via the GMRT
+// services API: PointServer for single-pixel `topobathy_mean`,
+// GridServer for the small-bbox min/max/std reductions. The connector
+// at crates/emem-fetch/src/gmrt.rs handles both endpoints.
+async fn materialize_gmrt_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::gmrt;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+    let scheme = "gmrt.v4_4_1";
+    let url_hint = format!(
+        "https://www.gmrt.org/services/PointServer?latitude={lat:.6}&longitude={lng:.6}&format=text/plain"
+    );
+
+    let value = match band {
+        "gmrt.topobathy_mean" => match gmrt::fetch_topobathy_m(&cli, lat, lng).await {
+            Ok(v) => v as f64,
+            Err(gmrt::GmrtError::CoverageGap { lat: la, lng: ln }) => {
+                let reason =
+                    format!("gmrt_coverage_gap: cell ({la:.6},{ln:.6}) outside GMRT footprint.");
+                return sign_band_absence(
+                    cell64, s, band, 0, scheme, &url_hint, &signed_at, &reason,
+                )
+                .await;
+            }
+            Err(gmrt::GmrtError::NotImplemented { reason }) => {
+                let full = format!("gmrt_not_implemented: {reason}");
+                return sign_band_absence(cell64, s, band, 0, scheme, &url_hint, &signed_at, &full)
+                    .await;
+            }
+            Err(e) => return Err(format!("gmrt.topobathy_mean fetch failed: {e}")),
+        },
+        b @ ("gmrt.topobathy_min" | "gmrt.topobathy_max" | "gmrt.topobathy_std") => {
+            match gmrt::fetch_topobathy_window(&cli, lat, lng).await {
+                Ok(window) => match b {
+                    "gmrt.topobathy_min" => window.min_m as f64,
+                    "gmrt.topobathy_max" => window.max_m as f64,
+                    "gmrt.topobathy_std" => window.std_m as f64,
+                    _ => unreachable!(),
+                },
+                Err(gmrt::GmrtError::CoverageGap { lat: la, lng: ln }) => {
+                    let reason = format!(
+                        "gmrt_coverage_gap: cell ({la:.6},{ln:.6}) outside GMRT footprint."
+                    );
+                    return sign_band_absence(
+                        cell64, s, b, 0, scheme, &url_hint, &signed_at, &reason,
+                    )
+                    .await;
+                }
+                Err(gmrt::GmrtError::NotImplemented { reason }) => {
+                    let full = format!("gmrt_not_implemented: {reason}");
+                    return sign_band_absence(
+                        cell64, s, b, 0, scheme, &url_hint, &signed_at, &full,
+                    )
+                    .await;
+                }
+                Err(e) => return Err(format!("{b} fetch failed: {e}")),
+            }
+        }
+        _ => return Err(format!("gmrt band {band} not registered")),
+    };
+
+    let unit = "metres_above_sea_level";
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot: 0,
+        value: ciborium::Value::Float(value),
+        unit: Some(unit.into()),
+        confidence: 0.93,
+        uncertainty: None,
+        sources: vec![Source {
+            scheme: scheme.into(),
+            id: url_hint.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(signed_at.clone()),
+            url: Some(url_hint.clone()),
+        }],
+        derivation: Derivation {
+            fn_key: "gmrt_v4_4_1_pixel@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(gmrt::GMRT_VERSION_TAG.into()),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+        served_via: None,
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 // ---------------- ESA CCI Biomass v6 materializer ----------------
 //
 // Santoro et al. 2025. ESA CCI Biomass v6.0 from CEDA archive — open,
@@ -19249,7 +19415,6 @@ async fn materialize_band_at(
                 Err(e) => Err(e),
             };
         }
-        "gmrt.topobathy_mean" => return materialize_gmrt_topobathy(cell64, s).await,
         "surface_water.recurrence" => return materialize_jrc_gsw_recurrence(cell64, s).await,
         // Phase 3b — Prithvi-EO-2.0-300M-TL embedding. Pulls a 6-band
         // S2 L2A chip resampled to a uniform 30 m × 224×224 grid, sends
@@ -19426,6 +19591,28 @@ async fn materialize_band_at(
             | "esa_cci_biomass.agb_se_t_per_ha_2020"
     ) {
         return materialize_esa_cci_biomass_band(cell64, s, band).await;
+    }
+
+    // JRC TMF v2025 — tropical-belt annual change, deforestation /
+    // degradation year, transition subtype. Pull-and-cache against
+    // the JRC tile dispatcher.
+    if matches!(
+        band,
+        "jrc_tmf.annual_change"
+            | "jrc_tmf.deforestation_year"
+            | "jrc_tmf.degradation_year"
+            | "jrc_tmf.transition_subtype"
+    ) {
+        return materialize_jrc_tmf_band(cell64, s, band).await;
+    }
+
+    // GMRT v4.4.1 — global bathymetry + topography from MGDS /
+    // Lamont-Doherty. PointServer for mean, GridServer for min/max/std.
+    if matches!(
+        band,
+        "gmrt.topobathy_mean" | "gmrt.topobathy_min" | "gmrt.topobathy_max" | "gmrt.topobathy_std"
+    ) {
+        return materialize_gmrt_band(cell64, s, band).await;
     }
 
     // RADD SAR alerts (Reiche et al. 2021). Honest stub — signs
@@ -19712,35 +19899,6 @@ async fn try_materialize_bands(
     for b in bands {
         match b.as_str() {
             "modis.ndvi_mean" => match materialize_modis_ndvi(cell64, s).await {
-                Ok(cid) => {
-                    tracing::info!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_fact_cid = %cid.as_str(),
-                        materialize_kind = "primary",
-                        "materialize_ok"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: Some(cid.as_str().to_string()),
-                        skip_reason: None,
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_error = %e,
-                        "materialize_failed"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: None,
-                        skip_reason: Some(e),
-                    });
-                }
-            },
-            "gmrt.topobathy_mean" => match materialize_gmrt_topobathy(cell64, s).await {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
@@ -20623,6 +20781,39 @@ async fn try_materialize_bands(
                     }),
                 }
             }
+            // JRC TMF v2025 — tropical-belt annual change + degradation /
+            // deforestation year + transition subtype. Pull-and-cache.
+            "jrc_tmf.annual_change"
+            | "jrc_tmf.deforestation_year"
+            | "jrc_tmf.degradation_year"
+            | "jrc_tmf.transition_subtype" => match materialize_jrc_tmf_band(cell64, s, b).await {
+                Ok(cid) => out.push(MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: Some(cid.as_str().to_string()),
+                    skip_reason: None,
+                }),
+                Err(e) => out.push(MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: Some(e),
+                }),
+            },
+            // GMRT v4.4.1 — global bathymetry + topography.
+            "gmrt.topobathy_mean"
+            | "gmrt.topobathy_min"
+            | "gmrt.topobathy_max"
+            | "gmrt.topobathy_std" => match materialize_gmrt_band(cell64, s, b).await {
+                Ok(cid) => out.push(MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: Some(cid.as_str().to_string()),
+                    skip_reason: None,
+                }),
+                Err(e) => out.push(MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: Some(e),
+                }),
+            },
             // ESA CCI Biomass v6 — per-cell AGB density + standard
             // deviation from CEDA's open HTTPS mirror. Live, range-
             // readable, GEDI-anchored.
