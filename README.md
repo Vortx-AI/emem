@@ -134,6 +134,7 @@ The MCP endpoint is `https://emem.dev/mcp`. Drop a config snippet into your clie
 | LlamaIndex (Python)   | [examples/llamaindex.py](examples/llamaindex.py)                    |
 | LlamaIndex MCP agent  | [examples/llamaindex/](examples/llamaindex/)                        |
 | Agno MCP agent        | [examples/agno/](examples/agno/)                                    |
+| Pydantic AI MCP agent | [examples/pydantic-ai/](examples/pydantic-ai/)                      |
 
 Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending; install from the repo today).
 
