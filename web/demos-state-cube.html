@@ -10,24 +10,42 @@
 <link rel=alternate type=text/markdown href="/llms.txt">
 <link rel="service mcp" href="/mcp">
 <meta name=robots content="index,follow">
-<meta name=color-scheme content="dark">
+<meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/demos/state-cube">
 <meta property=og:title content="emem.dev/demos/state-cube — the 1792-D voxel at any place">
 <meta property=og:description content="One endpoint, two views. Read a single encoder or the full cube. Fidelity preserved via extras when slots truncate.">
 <meta property=og:image content="https://emem.dev/og-image.svg">
-<link rel=preconnect href="https://fonts.googleapis.com">
-<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
+<link rel=icon href="/logo-mark.png">
 <style>
+/* Unified emem design tokens — light + dark via prefers-color-scheme,
+   same palette as /, /demos, /humans, /verify. Variable names kept on
+   the legacy --bg/--fg axis so the existing class rules below don't
+   need rewriting; the values map to OKLch tokens. */
 :root{
-  --bg:#0A0B0E;--bg-1:#0E0F13;--bg-2:#13151A;--bg-3:#1A1D24;
-  --fg:#E8E8EA;--fg-2:#B5B7BE;--fg-3:#7C7E87;--fg-mute:#7A7D87;
-  --line:rgba(232,232,234,0.08);--line-2:rgba(232,232,234,0.16);
-  --accent:#7CFFB2;--accent-dim:#3FB37E;
-  --warn:#FF7C7C;--pending:#FFD27C;--info:#7CC8FF;--purple:#B27CFF;
+  --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
+  --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
+  --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
+  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.55 0.005 85);
+  --line:oklch(0.88 0.005 85);   --line-2:oklch(0.78 0.005 85);
+  --accent:oklch(0.45 0.09 145); --accent-dim:oklch(0.55 0.10 145);
+  --warn:oklch(0.55 0.16 25);    --pending:oklch(0.60 0.13 80);
+  --info:oklch(0.55 0.12 230);   --purple:oklch(0.50 0.14 300);
   --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:'Inter Tight','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --sans:var(--mono);
+  font-size:90%;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
+    --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
+    --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
+    --fg-3:oklch(0.62 0.005 85);  --fg-mute:oklch(0.55 0.005 85);
+    --line:oklch(0.30 0.005 85);  --line-2:oklch(0.40 0.005 85);
+    --accent:oklch(0.78 0.10 145);--accent-dim:oklch(0.66 0.10 145);
+    --warn:oklch(0.74 0.15 25);   --pending:oklch(0.80 0.12 80);
+    --info:oklch(0.78 0.10 230);  --purple:oklch(0.78 0.14 300);
+  }
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 *{box-sizing:border-box}

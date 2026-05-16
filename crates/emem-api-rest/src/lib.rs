@@ -106,6 +106,7 @@ const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-answer.html");
 const DEMOS_INDEX_HTML: &str = include_str!("../../../web/demos-index.html");
 const DEMOS_STATE_CUBE_HTML: &str = include_str!("../../../web/demos-state-cube.html");
+const DEMOS_ASK_THE_EARTH_HTML: &str = include_str!("../../../web/demos-ask-the-earth.html");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
@@ -473,6 +474,7 @@ pub fn router(state: AppState) -> Router {
         .route("/demos/", get(serve_demos_index))
         .route("/demos/signed-answer", get(serve_demos_signed_answer))
         .route("/demos/state-cube", get(serve_demos_state_cube))
+        .route("/demos/ask-the-earth", get(serve_demos_ask_the_earth))
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -1806,6 +1808,13 @@ async fn serve_demos_index() -> Response {
 /// `/v1/state_multi`.  Live-against-the-responder.
 async fn serve_demos_state_cube() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_STATE_CUBE_HTML)
+}
+
+/// `/demos/ask-the-earth` — eight real-world questions an agent might
+/// pass to Earth memory, each hitting a live endpoint.  Doubles as the
+/// browser-side smoke-test rig for the read surface.
+async fn serve_demos_ask_the_earth() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_ASK_THE_EARTH_HTML)
 }
 
 /// `/skills.md` — composed-recipe cookbook for agents.

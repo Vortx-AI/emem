@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/demos/ask-the-earth — real questions, signed answers</title>
+<meta name=description content="Eight real-world questions an agent might ask Earth memory. Each one runs live against emem.dev and returns a signed, content-addressed answer. No fixtures.">
+<link rel=canonical href="https://emem.dev/demos/ask-the-earth">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel=alternate type=text/markdown href="/llms.txt">
+<link rel="service mcp" href="/mcp">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="light dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/demos/ask-the-earth">
+<meta property=og:title content="emem.dev/demos/ask-the-earth — real questions, signed answers">
+<meta property=og:description content="Eight real-world questions, eight live API calls. The protocol from a user's seat.">
+<meta property=og:image content="https://emem.dev/og-image.svg">
+<link rel=icon href="/logo-mark.png">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);--ink-3:oklch(0.50 0.005 85);
+  --accent:oklch(0.45 0.09 145);--accent-2:oklch(0.55 0.10 145);
+  --rule:oklch(0.86 0.005 85);
+  --warn:oklch(0.55 0.16 25);--pending:oklch(0.70 0.13 80);--info:oklch(0.55 0.12 230);
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --t-xs:.72rem;--t-sm:.82rem;--t-base:.92rem;--t-lg:1.08rem;--t-xl:1.4rem;--t-2xl:2rem;
+  font-size:90%;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);--ink-3:oklch(0.62 0.005 85);
+    --rule:oklch(0.32 0.005 85);
+    --accent:oklch(0.78 0.10 145);--accent-2:oklch(0.85 0.12 145);
+    --warn:oklch(0.74 0.15 25);--pending:oklch(0.80 0.12 80);--info:oklch(0.78 0.10 230);
+  }
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-variant-numeric:tabular-nums}
+::selection{background:var(--accent);color:var(--paper)}
+a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--rule)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+button{font:inherit;font-family:var(--mono);color:var(--ink);background:transparent;border:1px solid var(--rule);padding:.42em .9em;cursor:pointer;border-radius:3px;letter-spacing:.02em;font-size:var(--t-xs)}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{border-color:var(--accent);color:var(--accent);background:color-mix(in oklch, var(--accent) 8%, transparent)}
+button.primary:hover{background:color-mix(in oklch, var(--accent) 16%, transparent)}
+button:disabled{opacity:.4;cursor:not-allowed}
+
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;display:flex;align-items:center;height:2.2rem;padding:0 1rem;font-size:var(--t-xs);color:var(--ink-3);gap:.7rem;flex-wrap:wrap}
+.statusbar .brand{font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.statusbar .brand .slash{color:var(--ink-3)}
+.statusbar .brand .leaf{color:var(--accent)}
+.statusbar .tag{color:var(--ink-3)}
+.statusbar nav{display:flex;gap:.7rem;margin-left:auto}
+.statusbar nav a{color:var(--ink-3);border-bottom:none}
+.statusbar nav a:hover{color:var(--accent)}
+
+.wrap{max-width:1040px;margin:0 auto;padding:2rem 1.4rem 5rem}
+@media(max-width:760px){.wrap{padding:1.4rem 1rem 4rem}}
+header.masthead{padding-bottom:1.4rem;border-bottom:1px solid var(--rule);margin-bottom:1.6rem}
+.kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .55rem}
+h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing:-.01em;margin:0 0 .65rem;line-height:1.18}
+h1 .accent{color:var(--accent)}
+.lede{color:var(--ink-2);font-size:var(--t-lg);margin:0;line-height:1.55;max-width:70ch}
+.lede b{color:var(--ink);font-weight:500}
+.lede .accent{color:var(--accent);font-weight:500}
+
+.run-all{display:flex;align-items:center;gap:.7rem;margin:1.4rem 0 1.4rem;padding:.7rem .9rem;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px}
+.run-all .status{flex:1;font-size:var(--t-xs);color:var(--ink-3)}
+
+.cards{display:grid;grid-template-columns:1fr;gap:1rem}
+.q{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.05rem 1.2rem;transition:border-color .15s}
+.q.busy{border-color:var(--pending)}
+.q.ok{border-left:3px solid var(--accent)}
+.q.fail{border-left:3px solid var(--warn);border-color:var(--warn)}
+.q .head{display:flex;align-items:baseline;gap:.6rem;margin-bottom:.55rem;flex-wrap:wrap}
+.q .num{font-size:var(--t-xs);letter-spacing:.18em;color:var(--ink-3);text-transform:uppercase;font-weight:500}
+.q.ok .num,.q.busy .num,.q.fail .num{color:var(--accent)}
+.q h2{font-size:var(--t-lg);font-weight:600;margin:0;color:var(--ink);letter-spacing:-.005em;flex:1;min-width:240px}
+.q .endpoint{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.18em .55em;border:1px solid var(--rule);border-radius:2px}
+.q .req{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.5rem .7rem;border:1px solid var(--rule);border-radius:3px;margin:.4rem 0;overflow-x:auto;white-space:pre}
+.q .actions{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin:.45rem 0}
+.q .actions .meta{font-size:var(--t-xs);color:var(--ink-3)}
+.q .answer{font-size:var(--t-base);color:var(--ink);margin:.55rem 0 .25rem;line-height:1.55}
+.q .answer .v{color:var(--accent);font-weight:600}
+.q .answer .u{color:var(--ink-3);font-size:var(--t-xs)}
+.q .citations{display:flex;flex-wrap:wrap;gap:.35rem;margin:.35rem 0 .15rem}
+.q .cite{display:inline-flex;align-items:center;gap:.35rem;font-size:var(--t-xs);color:var(--ink-2);background:var(--paper);border:1px solid var(--rule);padding:.12em .55em;border-radius:99px}
+.q .cite .dot{width:6px;height:6px;border-radius:50%;background:var(--accent-2)}
+.q .cite[data-kind=cell] .dot{background:var(--accent)}
+.q .cite[data-kind=src] .dot{background:var(--info)}
+.q details{margin-top:.5rem}
+.q details summary{font-size:var(--t-xs);color:var(--ink-3);cursor:pointer;list-style:none;padding:.18em 0}
+.q details summary::-webkit-details-marker{display:none}
+.q details summary::before{content:'\25b8  ';color:var(--ink-3)}
+.q details[open] summary::before{content:'\25be  '}
+.q details pre{font-size:var(--t-xs);background:var(--paper);border:1px solid var(--rule);padding:.65rem .8rem;border-radius:3px;color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.55;max-height:280px;overflow-y:auto;margin:.3rem 0 0}
+
+.spinner{display:inline-block;width:10px;height:10px;border:1.5px solid var(--pending);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:.4em}
+@keyframes spin{to{transform:rotate(360deg)}}
+footer.foot{margin-top:2.4rem;padding-top:1.1rem;border-top:1px solid var(--rule);display:flex;gap:1rem;flex-wrap:wrap;font-size:var(--t-xs);color:var(--ink-3)}
+footer.foot a{color:var(--ink-3);border-bottom:none}
+footer.foot a:hover{color:var(--accent)}
+.muted{color:var(--ink-3)}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1rem;top:1rem;background:var(--paper);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+</style>
+</head>
+<body>
+<a class=skip href="#main">Skip to questions</a>
+
+<div class=statusbar>
+  <span class=brand>emem<span class=leaf>·</span>dev<span class=slash>/demos/ask-the-earth</span></span>
+  <span class=tag>eight real questions, eight live calls</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="/demos">demos</a>
+    <a href="/verify">verify</a>
+    <a href="/openapi.json">openapi</a>
+    <a href="/spec.md">spec</a>
+  </nav>
+</div>
+
+<main class=wrap id=main tabindex="-1">
+  <header class=masthead>
+    <p class=kicker>emem.dev · demos · 2026</p>
+    <h1>Ask the Earth.<br><span class=accent>Eight live calls, eight signed answers.</span></h1>
+    <p class=lede>
+      Real-world questions an agent might pass to <b>emem.dev</b>, each wired to a live endpoint. Hit
+      <span class=accent>run all</span> and watch the responder answer in order. Every answer carries a
+      fact CID and the responder pubkey signature; nothing is mocked. <b>This page is also our test rig.</b>
+      It's how we hammer the new endpoints from a user's seat instead of from a unit test.
+    </p>
+  </header>
+
+  <div class=run-all>
+    <button id=runAll class=primary type=button>run all 8 in order</button>
+    <span id=allStatus class=status>idle. each card also has its own run button.</span>
+  </div>
+
+  <section class=cards id=cards aria-label="Eight questions"></section>
+
+  <footer class=foot>
+    <a href="/">home</a>
+    <a href="/demos">all demos</a>
+    <a href="/agents.md">agents.md</a>
+    <a href="/whitepaper.md">whitepaper</a>
+    <span class=muted>each card cites a fact_cid the responder signed; verify offline at /verify/&lt;cid&gt;</span>
+  </footer>
+</main>
+
+<script>
+const $=(id)=>document.getElementById(id);
+const HOST=location.origin;
+function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function pretty(o){return JSON.stringify(o,null,2);}
+function shortCid(c){return c?c.slice(0,12)+'…':''}
+
+const Q=[
+  {title:"How high is Mount Everest?", endpoint:"/v1/elevation", method:"POST",
+   payload:{place:"Mount Everest"},
+   render(d){
+     const cell=(d.cells||[{}])[0]; const e=cell.elevation_m;
+     return {
+       answer:`<span class=v>${e?.toFixed?e.toFixed(0):e} m</span> above sea level. ${escapeHTML(cell.interpretation||'')}`,
+       citations:[
+         cell.cell?{kind:'cell',text:'cell '+cell.cell}:null,
+         {kind:'src',text:'Cop-DEM 90 m + ESA WorldCover'},
+         (cell.sub_facts?.copdem30m_elevation_mean?.fact_cid)?{kind:'cid',text:'fact_cid '+shortCid(cell.sub_facts.copdem30m_elevation_mean.fact_cid)}:null,
+       ].filter(Boolean)
+     };
+   }},
+  {title:"What is the air quality in Delhi right now?", endpoint:"/v1/air", method:"POST",
+   payload:{place:"Delhi"},
+   render(d){
+     const b=d.bands||{};
+     const no2=b['cams.no2']?.value?.aggregate; const pm25=b['cams.pm2_5']?.value?.aggregate;
+     return {
+       answer:`PM2.5 <span class=v>${pm25!=null?pm25.toFixed(1):'—'}</span> <span class=u>µg/m³</span> · NO₂ <span class=v>${no2!=null?no2.toFixed(1):'—'}</span> <span class=u>µg/m³</span>`,
+       citations:[
+         {kind:'cell',text:`${d.coverage_fraction!=null?Math.round(d.coverage_fraction*100)+'% coverage':'aggregated'}`},
+         {kind:'src',text:'CAMS via Open-Meteo (~11 km)'},
+       ]
+     };
+   }},
+  {title:"NDVI at Yellowstone National Park", endpoint:"/v1/ndvi", method:"POST",
+   payload:{place:"Yellowstone National Park"},
+   render(d){
+     const v=d.value??d.ndvi;
+     const cids=(d.fact_cids||[]).slice(0,1);
+     return {
+       answer:`<span class=v>${v?.toFixed?v.toFixed(3):v}</span> <span class=u>(green vegetation index, [-1,1])</span>`,
+       citations:[
+         {kind:'src',text:`${d.aggregator||'mean'} over Sentinel-2 indices`},
+         ...(cids.map(c=>({kind:'cid',text:'fact_cid '+shortCid(c)})))
+       ]
+     };
+   }},
+  {title:"Find places like Bengaluru", endpoint:"/v1/find_similar", method:"POST",
+   payload:{key:"Bengaluru",k:3},
+   render(d){
+     const ns=(d.neighbors||d.neighbours||[]).slice(0,3);
+     const places=ns.map(n=>`${escapeHTML(n.place_label_cached||n.cell)} <span class=u>cos ${n.score?.toFixed?n.score.toFixed(3):n.score}</span>`).join(' · ');
+     return {
+       answer:`Top neighbours in Tessera embedding space: ${places}`,
+       citations: ns.map(n=>({kind:'cell',text:n.cell})).slice(0,3)
+     };
+   }},
+  {title:"Hotspots of deforestation in Sumatra", endpoint:"/v1/hunt", method:"POST",
+   payload:{event:"deforestation",region:"Sumatra"},
+   render(d){
+     const h=(d.hotspots||[]).slice(0,3);
+     return {
+       answer:`Top hotspots ranked by NDVI: ${h.map(x=>`<span class=v>NDVI ${x.value?.toFixed?x.value.toFixed(3):x.value}</span> at ${x.cell64.slice(0,18)}…`).join(' · ')}`,
+       citations: h.map(x=>({kind:'cell',text:x.cell64})).slice(0,3)
+     };
+   }},
+  {title:"Field polygons in Salinas, California (each carries cell64)", endpoint:"/v1/field_boundaries", method:"POST",
+   payload:{place:"Salinas, California"},
+   render(d){
+     const feats=(d.geojson?.features||[]).slice().sort((a,b)=>b.properties.area_m2-a.properties.area_m2).slice(0,3);
+     return {
+       answer:`<span class=v>${d.count||0}</span> field polygons · total <span class=v>${d.total_area_m2?(d.total_area_m2/1e4).toFixed(0):'—'}</span> <span class=u>ha</span>. Each polygon carries <code>cell64_centroid</code>, the protocol-native handle that links straight to /v1/recall.`,
+       citations: feats.map(f=>({kind:'cell',text:'cell '+f.properties.cell64_centroid+' · '+ (f.properties.area_m2/1e4).toFixed(1)+' ha'}))
+     };
+   }},
+  {title:"State cube at Bengaluru (1792-D voxel)", endpoint:"/v1/state", method:"POST",
+   payload:{cell:"Bengaluru",view:"cube",materialize:true},
+   render(d){
+     const pct=Math.round(100*(d.filled_dims||0)/(d.dim||1792));
+     return {
+       answer:`<span class=v>${d.filled_bands||0}</span> bands filled · <span class=v>${pct}%</span> of 1792 dims · state_cid <span class=u>${shortCid(d.state_cid||'')}</span>${(d.extras||[]).length?` · <span class=v>${d.extras.length}</span> full-fidelity extras`:''}`,
+       citations:[
+         {kind:'cell',text:'cell '+d.cell},
+         {kind:'cid',text:'state_cid '+shortCid(d.state_cid||'')},
+         ...((d.extras||[]).map(e=>({kind:'src',text:e.band+' native '+e.dim+'-D (slot '+e.cube_slot_dim+'-D)'})))
+       ]
+     };
+   }},
+  {title:"How dense is the corpus right now?", endpoint:"/v1/corpus_state_stats", method:"GET",
+   payload:null,
+   render(d){
+     const top=(d.by_band||[]).slice(0,3);
+     return {
+       answer:`<span class=v>${(d.facts_scanned||0).toLocaleString()}</span> facts scanned · <span class=v>${(d.distinct_cells||0).toLocaleString()}</span> distinct cells · <span class=v>${d.distinct_bands||0}</span> bands. Top: ${top.map(b=>`${b.band} (${b.fact_count})`).join(' · ')}`,
+       citations:[
+         {kind:'src',text:'responder '+(d.responder_pubkey_b32||'').slice(0,12)+'…'},
+         {kind:'cid',text:'signed snapshot tick'}
+       ]
+     };
+   }},
+];
+
+function renderCard(i){
+  const q=Q[i];
+  const id='q'+i;
+  const card=document.createElement('article');
+  card.className='q'; card.id=id;
+  card.innerHTML=`
+    <div class=head>
+      <span class=num>question ${i+1}</span>
+      <h2>${escapeHTML(q.title)}</h2>
+      <span class=endpoint>${q.method} ${escapeHTML(q.endpoint)}</span>
+    </div>
+    <pre class=req>${q.method} ${HOST}${q.endpoint}${q.payload?'\n'+JSON.stringify(q.payload):''}</pre>
+    <div class=actions>
+      <button data-i="${i}" class=runOne type=button>run</button>
+      <span class=meta id="meta_${id}">idle</span>
+    </div>
+    <div id="ans_${id}" class=answer></div>
+    <div id="cits_${id}" class=citations></div>
+    <details><summary>raw response</summary><pre id="raw_${id}">click run</pre></details>
+  `;
+  return card;
+}
+
+async function fire(i){
+  const q=Q[i]; const card=$('q'+i);
+  card.classList.remove('ok','fail'); card.classList.add('busy');
+  $('meta_q'+i).innerHTML='<span class=spinner></span>calling…';
+  const t0=performance.now();
+  try{
+    const opts={method:q.method,headers:{'content-type':'application/json'}};
+    if(q.payload) opts.body=JSON.stringify(q.payload);
+    const r=await fetch(HOST+q.endpoint,opts);
+    const dt=Math.round(performance.now()-t0);
+    const txt=await r.text(); let data; try{data=JSON.parse(txt)}catch(e){data={raw:txt}}
+    if(!r.ok){throw new Error(r.status+': '+(data?.message||data?.raw||'').slice(0,200));}
+    const out=q.render(data);
+    card.classList.remove('busy'); card.classList.add('ok');
+    $('meta_q'+i).textContent=`ok · ${dt} ms`;
+    $('ans_q'+i).innerHTML=out.answer;
+    $('cits_q'+i).innerHTML=out.citations.map(c=>`<span class=cite data-kind="${c.kind||''}"><span class=dot></span>${escapeHTML(c.text)}</span>`).join('');
+    $('raw_q'+i).textContent=pretty(data);
+  }catch(e){
+    card.classList.remove('busy'); card.classList.add('fail');
+    $('meta_q'+i).textContent='error';
+    $('ans_q'+i).innerHTML='<span style="color:var(--warn)">'+escapeHTML(e.message||String(e))+'</span>';
+    $('raw_q'+i).textContent=String(e);
+  }
+}
+
+const cards=$('cards');
+Q.forEach((_,i)=>cards.appendChild(renderCard(i)));
+document.querySelectorAll('.runOne').forEach(b=>{
+  b.addEventListener('click',()=>fire(parseInt(b.dataset.i,10)));
+});
+$('runAll').addEventListener('click',async()=>{
+  $('allStatus').innerHTML='<span class=spinner></span>running…';
+  let ok=0,fail=0;
+  for(let i=0;i<Q.length;i++){
+    await fire(i);
+    if($('q'+i).classList.contains('ok'))ok++; else fail++;
+  }
+  $('allStatus').textContent=`done · ${ok} ok · ${fail} failed`;
+});
+</script>
+
+</body>
+</html>

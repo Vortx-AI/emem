@@ -97,6 +97,31 @@ footer a:hover{color:var(--accent)}
   <section class=grid aria-label="Demo cards">
 
     <article class="card status-live">
+      <a class=title href="/demos/ask-the-earth">Ask the Earth · eight real questions</a>
+      <span class=endpoint>GET /demos/ask-the-earth</span>
+      <p class=desc>Eight real-world questions an agent might pass to emem.dev, each wired to a live endpoint. Run all in order, watch the responder answer, every answer cites a fact_cid. Doubles as our browser-side smoke-test rig.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/elevation</span>
+        <span class=tag>/v1/air</span>
+        <span class=tag>/v1/hunt</span>
+        <span class=tag>/v1/state</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/demos/state-cube">State cube · 1792-D voxel at a place</a>
+      <span class=endpoint>GET /demos/state-cube</span>
+      <p class=desc>One endpoint, two views. <code>view=encoder</code> returns a single 128-D or 1024-D foundation embedding. <code>view=cube</code> assembles the full 1792-D voxel with per-band coverage and full-fidelity extras when slots truncate Clay/Prithvi.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/state</span>
+        <span class=tag>/v1/state_multi</span>
+        <span class=tag>extras[]</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
       <a class=title href="/demos/signed-answer">Signed answer in four steps</a>
       <span class=endpoint>GET /demos/signed-answer</span>
       <p class=desc>Resolve a place, recall a band, verify the receipt's Ed25519 signature in the browser, then reproduce the fact CID from a fresh call. The trust path of the protocol made visible.</p>
