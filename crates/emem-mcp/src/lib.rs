@@ -172,6 +172,33 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],"properties"
 
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
 
+const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 OR free-text place name."},
+"view":{"type":"string","enum":["encoder","cube"],"description":"Default `encoder` (single-band native vector). Pass `cube` for the full 1792-D voxel with coverage manifest and full-fidelity extras."},
+"encoder":{"type":"string","description":"For `view=encoder`: which vector band to read. Defaults to `geotessera`."},
+"tslot":{"type":"integer","description":"Optional tslot bucket; omit for natural per-band vintages."},
+"materialize":{"type":"boolean","description":"`view=cube` only. Opt in to auto-materialisation. Default false (read what's already attested). Setting true can spawn 30+ upstream fetches on a cold cell."},
+"include_reserved":{"type":"boolean","description":"`view=cube` only. Include declared-but-inert placeholder slots (`_reserved_128`, `reserved`) in the coverage manifest. Default false."}
+}}"#;
+
+const SCHEMA_STATE_MULTI: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string"},
+"encoders":{"type":"array","items":{"type":"string"},"description":"Optional explicit list; defaults to all wired foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`)."},
+"tslot":{"type":"integer"}
+}}"#;
+
+const SCHEMA_STATE_DIFF: &str = r#"{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{
+"cell":{"type":"string"},
+"encoder":{"type":"string","description":"Default `geotessera`."},
+"tslot_a":{"type":"integer","description":"First tslot."},
+"tslot_b":{"type":"integer","description":"Second tslot; must differ from `tslot_a`."}
+}}"#;
+
+const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_cid"],"properties":{
+"cell":{"type":"string","description":"cell64 — neither component may contain `:`."},
+"fact_cid":{"type":"string","description":"26-char base32-nopad-lowercase content-id of the fact."}
+}}"#;
+
 const SCHEMA_EXPLAIN_ALGORITHM: &str = r#"{
 "type":"object",
 "required":["key"],
@@ -377,6 +404,46 @@ pub const TOOLS: &[ToolDescriptor] = &[
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },
     // ── Read primitives ──────────────────────────────────────────────
+    ToolDescriptor {
+        name: "emem_state",
+        title: "Read the place's state vector (single encoder OR full 1792-D cube)",
+        description: "Dense state vector for a place. Two views: `encoder` (single foundation embedding at its native dim — 128-D Tessera, 1024-D Clay, 1024-D Prithvi) and `cube` (the full 1792-D voxel concatenated across every wired band, with per-band coverage manifest and full-fidelity extras for any encoder whose native dim exceeds its cube slot).",
+        when_to_use: "Call when the agent needs a dense, ready-to-feed vector for downstream similarity / linear-probe / clustering, or wants a single rebindable handle (`memory_token` / `state_cid`) for a place. Default `view=encoder` (cheap, single recall) — pass `encoder` (default `geotessera`) to pick the band. Pass `view=cube` for the responder's full attested view at the cell; the response carries `coverage[]` so an agent can distinguish attested-zero (signed Absence) from not-yet-materialised, and `extras[]` preserves full Clay/Prithvi 1024-D vectors when the cube truncates to a 384-D slot. Pair with `emem_find_similar` for k-NN, `emem_compare` for two-cell cosine, or `emem_verify_receipt` to verify the signed payload offline.",
+        input_schema: SCHEMA_STATE_FULL,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","view":"cube"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_state_multi",
+        title: "Multi-encoder state at one cell (foundation fan-out)",
+        description: "Fans out across every wired foundation-embedding encoder (`geotessera`, `clay_v1`, `prithvi_eo2`) for one cell and returns a structured per-encoder state map. Each encoder is attempted independently; encoders that fail at this cell surface under `missing` with a typed reason instead of killing the request.",
+        when_to_use: "Call when the agent wants cross-encoder consensus (do Tessera, Clay, and Prithvi agree on the archetype here?), redundancy-aware reasoning (which encoder is freshest at this cell?), or a concatenated multi-encoder state for downstream linear probes. Pass `encoders: [...]` to override the default foundation set.",
+        input_schema: SCHEMA_STATE_MULTI,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_state_diff",
+        title: "Between-tslot state vector delta (residual + cosine)",
+        description: "Vector delta between the same cell at two tslots: returns the per-element residual, its L2 norm (scalar change-magnitude), the cosine between the two source vectors (orientation drift), and both source fact CIDs so the agent can quote both attestations as evidence.",
+        when_to_use: "Call when the user asks 'how much did X change between A and B' for a foundation embedding at one place. Pass `tslot_a` and `tslot_b` (must differ); default `encoder=geotessera`. For per-band scalar change (NDVI delta, elevation delta) use `emem_diff` instead.",
+        input_schema: SCHEMA_STATE_DIFF,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","encoder":"geotessera","tslot_a":1672531200,"tslot_b":1704067200}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_memory_token",
+        title: "Compose a memory_token citation handle",
+        description: "Compose a `memt:<cell64>:<fact_cid>` (or `memt:<cell64>:<state_cid>`) citation handle. Validates both components are non-empty and do not contain the outer separator `:`.",
+        when_to_use: "Call when the agent wants a single rebindable string to cite a place + attested fact across messages, threads, or tools. The token is the recommended way for agents to pass earth-memory citations to other agents without re-fetching. Pair with `emem_verify_receipt` on the receiving end to verify the signed payload.",
+        input_schema: SCHEMA_MEMORY_TOKEN,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
     ToolDescriptor {
         name: "emem_recall",
         title: "Recall facts at a cell (auto-materializes on miss)",

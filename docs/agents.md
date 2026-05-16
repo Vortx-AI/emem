@@ -46,9 +46,11 @@ stack, the mapping below is the rosetta-stone:
 | verify a receipt                | `verify_receipt`     | `POST /v1/verify_receipt`         |
 | reflect / record task outcome   | `reviews`            | `POST /v1/reviews`                |
 | compose a memory token          | `memory_token`       | `POST /v1/memory_token`           |
-| read dense state vector         | `state`              | `POST /v1/state`                  |
+| read dense state (1 encoder)    | `state` view=encoder | `POST /v1/state`                  |
+| read full 1792-D cube           | `state` view=cube    | `POST /v1/state`                  |
 | read multi-encoder state map    | `state_multi`        | `POST /v1/state_multi`            |
 | state delta between two tslots  | `state_diff`         | `POST /v1/state_diff`             |
+| corpus observability            | `corpus_state_stats` | `GET /v1/corpus_state_stats`      |
 | subscribe to corpus events      | `stream` (SSE)       | `GET /v1/stream`                  |
 | run the agent benchmark         | `benchmark`          | `GET /v1/benchmark`, `POST /v1/benchmark/grade` |
 

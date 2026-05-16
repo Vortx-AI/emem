@@ -690,6 +690,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/state", post(post_state))
         .route("/v1/state_multi", post(post_state_multi))
         .route("/v1/state_diff", post(post_state_diff))
+        .route("/v1/corpus_state_stats", get(get_corpus_state_stats))
         .route("/v1/stream", get(get_stream_sse))
         .route("/v1/benchmark", get(get_benchmark))
         .route("/v1/benchmark/grade", post(post_benchmark_grade))
@@ -11945,46 +11946,151 @@ async fn get_stream_sse(
 struct StateReq {
     /// cell64 or a free-text place name (resolved via /v1/locate).
     cell: String,
-    /// Vector band to read. Defaults to `geotessera` (128-D Tessera
-    /// annual embedding). Other vector-typed bands (e.g.
-    /// `geotessera.multi_year`) work the same way.
+    /// Which view of the place's state to return. Two modes:
+    ///
+    /// - `"encoder"` (default): the dense vector of a single named
+    ///   encoder band at its native dimension (e.g. 128-D Tessera,
+    ///   1024-D Clay, 1024-D Prithvi). Cheap, single recall.
+    /// - `"cube"`: the responder's full 1792-D fixed-width cube
+    ///   assembled across every wired band in canonical offset order
+    ///   (whitepaper §4). Bands the responder has no fact for are
+    ///   zero-filled, with `coverage[]` distinguishing attested-zero
+    ///   (signed Absence) from not-yet-materialised. Where a fact's
+    ///   native dim exceeds its cube slot (Clay & Prithvi facts are
+    ///   1024-D but their slot is 384-D), the cube carries the
+    ///   leading prefix and the response includes the full native
+    ///   vector in `extras[]` so no fidelity is lost.
+    ///
+    /// Legacy alias: `"full"` is accepted as a synonym for `"cube"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    view: Option<String>,
+    /// Vector band to read in `view="encoder"`. Defaults to
+    /// `geotessera` (128-D Tessera annual embedding). Other vector-
+    /// typed bands work the same way (`clay_v1` → 1024-D, `prithvi_eo2`
+    /// → 1024-D, `geotessera.multi_year` → 128-D). Ignored when
+    /// `view="cube"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     encoder: Option<String>,
     /// Tslot bucket (Unix-epoch / band's tempo cadence). Omit to let
     /// the materialiser pick the natural vintage (e.g. 2024 for
-    /// geotessera).
+    /// geotessera, now for weather bands).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tslot: Option<u64>,
+    /// `view="cube"` only: opt in to auto-materialisation. Default
+    /// false. When true, every cold band fires its upstream fetch —
+    /// a cold cell can spawn 30+ upstream requests, so reserve for
+    /// one-off warm-up calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    materialize: Option<bool>,
+    /// `view="cube"` only: include declared-but-inert placeholder
+    /// slots (`_reserved_128`, `reserved`) in the `coverage[]`
+    /// manifest. Default false — the cube allocates those dims either
+    /// way to keep offsets byte-stable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    include_reserved: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtraVector {
+    /// Band key the extra payload belongs to (e.g. `clay_v1`).
+    band: String,
+    /// Why this extra was emitted. Today the only emitter is
+    /// `cube_truncation` — fact native-dim exceeded the cube slot, so
+    /// the cube carries the leading prefix and the full vector is
+    /// surfaced here losslessly.
+    reason: &'static str,
+    /// Native dimension of the underlying fact.
+    dim: usize,
+    /// Dimension the cube allocated for this band.
+    cube_slot_dim: u16,
+    /// The full-fidelity vector.
+    vector: Vec<f32>,
+    /// L2 norm of the full vector.
+    l2_norm: f32,
+    /// Fact CID of the underlying signed fact.
+    fact_cid: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct StateResp {
     /// Resolved cell64 the state vector is keyed by.
     cell: String,
-    /// Band the vector was read from.
+    /// `"encoder"` or `"cube"` — surfaces the view the responder served
+    /// so an agent can branch on the response shape.
+    view: &'static str,
+    /// `view="encoder"`: band that was read.
+    /// `view="cube"`: literal `"cube"` (the cube is composed of every
+    /// band, no single encoder identity).
     encoder: String,
-    /// Length of the vector (e.g. 128 for `geotessera`).
+    /// Length of `vector`. 128 for default Tessera, 1024 for Clay /
+    /// Prithvi at native dim, 1792 for the cube.
     dim: usize,
     /// The dense state vector. f32 keeps the wire body compact;
     /// upstream is int8 + per-pixel f32 scale, already decoded by
     /// the recall path.
     vector: Vec<f32>,
-    /// Tslot bucket the vector was attested at.
+    /// `view="encoder"`: tslot bucket the fact was attested at.
+    /// `view="cube"`: 0 (per-band tslots live in `coverage[]`).
     tslot: u64,
-    /// Fact CID of the underlying signed fact. `GET /v1/facts/<cid>`
-    /// dereferences the same bytes on any conforming responder,
-    /// forever.
+    /// `view="encoder"`: fact CID of the underlying signed fact.
+    /// `view="cube"`: empty string (no single fact_cid; cite the per-
+    /// band fact_cids in `coverage[]` and the cube's `state_cid`).
     fact_cid: String,
-    /// Memory-token handle composed for convenience,
-    /// `memt:<cell>:<fact_cid>` per whitepaper §19.4.
+    /// `view="encoder"`: `memt:<cell>:<fact_cid>` — citation handle.
+    /// `view="cube"`: `memt:<cell>:<state_cid>` — the right-hand side
+    /// is the cube's content-id, not a single fact_cid (the cube is
+    /// assembled from up to 41 cited facts; their CIDs are in
+    /// `receipt.fact_cids[]`).
     memory_token: String,
-    /// L2 norm of the returned vector. Two consumers computing this
+    /// L2 norm of the returned `vector`. Two consumers computing this
     /// should agree to floating-point reproducibility within the
-    /// canonical decoding rules; published here so an agent can spot
-    /// a drifted decoder without re-summing.
+    /// canonical decoding rules.
     l2_norm: f32,
-    /// Signed receipt covering the underlying recall.
+    /// Signed receipt covering the underlying recall(s).
     receipt: JsonValue,
+    /// `view="cube"` only: `base32_nopad_lowercase(blake3(canonical LE
+    /// f32 bytes)[:32])` — self-certifying CID of the assembled cube.
+    /// Two responders that hold byte-identical facts produce the same
+    /// `state_cid`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state_cid: Option<String>,
+    /// `view="cube"` only: CID of the bands manifest the cube was
+    /// built against. Verifies the cube's layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manifest_cid: Option<String>,
+    /// `view="cube"` only: per-band coverage manifest. Lets an agent
+    /// tell zero-because-attested-zero from zero-because-not-yet-
+    /// materialised. Statuses: `primary` | `scalar_filled` | `absence`
+    /// | `dim_mismatch` | `non_vector` | `missing` | `placeholder`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    coverage: Option<Vec<BandCoverage>>,
+    /// `view="cube"` only: total dims covered by bands whose status
+    /// was `primary`, `scalar_filled`, or `dim_mismatch` — slots that
+    /// carry real signal vs padded zeros.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    filled_dims: Option<u16>,
+    /// `view="cube"` only: count of bands with primary facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    filled_bands: Option<usize>,
+    /// `view="cube"` only: count of bands with signed Absence facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    absent_bands: Option<usize>,
+    /// `view="cube"` only: count of bands with neither primary nor
+    /// Absence at this cell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    missing_bands: Option<usize>,
+    /// `view="cube"` only: full-fidelity vectors for bands whose
+    /// native dim exceeded their cube slot (Clay, Prithvi). The cube
+    /// carries the leading prefix, this array carries the full
+    /// vector so no information is lost — agents can use the cube for
+    /// cross-place fingerprinting and `extras[]` for per-encoder
+    /// fidelity in the same response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    extras: Option<Vec<ExtraVector>>,
+    /// `view="cube"` only: per-band materialisation notes when the
+    /// request opted into auto-materialisation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    materialize_notes: Option<JsonValue>,
     /// Geocoder route, if the input was a place name rather than a
     /// cell64. Same shape as /v1/recall's `resolved_from`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -11995,19 +12101,53 @@ async fn post_state(
     State(s): State<AppState>,
     Json(req): Json<StateReq>,
 ) -> Result<Json<StateResp>, ApiError> {
+    let view = req
+        .view
+        .as_ref()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| "encoder".to_string());
+    let view_normalised = match view.as_str() {
+        "encoder" | "single" | "default" => "encoder",
+        // `"full"` is the legacy alias from the brief 0.0.6 window
+        // where the cube view lived under `/v1/state_full`; honoured
+        // so callers wired against that name keep working.
+        "cube" | "full" => "cube",
+        other => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "/v1/state: unknown view `{}`. Valid: `encoder` (single encoder, default), `cube` (full 1792-D cube).",
+                        other
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    };
+
+    match view_normalised {
+        "encoder" => state_view_encoder(s, req).await,
+        "cube" => state_view_cube(s, req).await,
+        _ => unreachable!("view_normalised is one of the two arms above"),
+    }
+}
+
+/// `/v1/state` view=encoder: single-band dense vector at the band's
+/// native dimension. Behaviour-compatible with the pre-refactor shape.
+async fn state_view_encoder(
+    s: AppState,
+    req: StateReq,
+) -> Result<Json<StateResp>, ApiError> {
     let encoder = req
         .encoder
+        .as_ref()
         .map(|e| e.trim().to_string())
         .filter(|e| !e.is_empty())
         .unwrap_or_else(|| "geotessera".to_string());
 
-    // Resolve cell from place if necessary; reuses the geocoder cascade
-    // every other handler runs through, so the agent sees the same
-    // resolution semantics on /v1/state as on /v1/recall.
     let (cell, resolved) = resolve_cell_field(&req.cell).await?;
-
-    // Drive the standard recall path so the result carries a signed
-    // receipt and benefits from auto-materialise on cold cells.
     let recall_req = RecallReq {
         cell: cell.clone(),
         bands: Some(vec![encoder.clone()]),
@@ -12015,9 +12155,6 @@ async fn post_state(
     };
     let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
-    // Pull the matching primary fact. Filter to the requested encoder
-    // band so multi-band recalls (shouldn't happen given the filter,
-    // but defensive) don't pick the wrong slot.
     let primary = resp
         .facts
         .iter()
@@ -12030,22 +12167,19 @@ async fn post_state(
             ErrorBody {
                 code: ErrorCode::CidNotFound,
                 message: format!(
-                    "/v1/state: no fact at cell {} for encoder {}; the cell may be cold or the encoder unwired at this responder. See /v1/materializers.",
+                    "/v1/state view=encoder: no fact at cell {} for encoder {}; the cell may be cold or the encoder unwired at this responder. See /v1/materializers.",
                     cell, encoder
                 ),
                 details: None,
             },
         ))?;
 
-    // Decode the CBOR value into a Vec<f32>. Vector-typed bands are
-    // CBOR arrays of floats by the protocol's wire rule; scalar bands
-    // are not vectors and produce a typed 422.
     let vector = emem_primitives::cbor_ops::as_vec_f32(&primary.value).ok_or_else(|| ApiError(
         StatusCode::UNPROCESSABLE_ENTITY,
         ErrorBody {
             code: ErrorCode::InvalidArgument,
             message: format!(
-                "/v1/state: band `{}` does not return a vector value. Pass an encoder band whose value is an array of floats (e.g. geotessera, geotessera.multi_year).",
+                "/v1/state view=encoder: band `{}` does not return a vector value. Pass an encoder band whose value is an array of floats (e.g. geotessera, clay_v1, prithvi_eo2).",
                 encoder
             ),
             details: None,
@@ -12054,9 +12188,6 @@ async fn post_state(
     let dim = vector.len();
     let l2_norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
 
-    // First fact_cid in the receipt corresponds to the first cited
-    // fact. Since we requested exactly one band, receipt.fact_cids has
-    // at most one entry for the matched fact.
     let fact_cid = resp
         .receipt
         .fact_cids
@@ -12066,7 +12197,7 @@ async fn post_state(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
-                message: "/v1/state: recall returned a fact without a fact_cid in the receipt envelope".into(),
+                message: "/v1/state view=encoder: recall returned a fact without a fact_cid in the receipt envelope".into(),
                 details: None,
             },
         ))?;
@@ -12078,6 +12209,7 @@ async fn post_state(
 
     Ok(Json(StateResp {
         cell,
+        view: "encoder",
         encoder,
         dim,
         vector,
@@ -12086,6 +12218,15 @@ async fn post_state(
         memory_token,
         l2_norm,
         receipt: receipt_v,
+        state_cid: None,
+        manifest_cid: None,
+        coverage: None,
+        filled_dims: None,
+        filled_bands: None,
+        absent_bands: None,
+        missing_bands: None,
+        extras: None,
+        materialize_notes: None,
         resolved_from: resolved_env,
     }))
 }
@@ -12374,6 +12515,464 @@ async fn post_state_diff(
         memory_token_a,
         memory_token_b,
         resolved_from: resolved_env,
+    }))
+}
+
+// ── /v1/state view=cube ──────────────────────────────────────────────────
+//
+// The 1792-D voxel — full concatenation across every declared band in
+// the canonical bands manifest, in canonical offset order (whitepaper
+// §4). Cube layout is data: each Band record in `bands-v0.json` carries
+// `offset` and `dims`, and `BandRegistry::validate()` enforces Σ dims ==
+// total_dims == 1792 at load time. Two responders that pin the same
+// `bands_cid` and hold byte-identical facts produce the same `state_cid`.
+//
+// Fidelity preservation: where a fact's native dim exceeds its cube slot
+// (Clay and Prithvi facts are 1024-D, slots are 384-D), the cube carries
+// the leading prefix (cube stays fixed-width so cross-place fingerprints
+// stay comparable) AND the response surfaces the full native vector in
+// `extras[]`. No truncation loss — the cube is a fingerprint, the extras
+// are the full payload.
+//
+// Materialisation. Default `materialize=false`: read only facts the
+// responder already holds. `materialize=true` opts in to the auto-
+// materialise path, which can fire 30+ upstream fetches on a cold cell.
+
+#[derive(Debug, Serialize)]
+struct BandCoverage {
+    key: String,
+    offset: u16,
+    dims: u16,
+    /// One of: `primary` (a vector or scalar primary fact filled the
+    /// slot), `scalar_filled` (a scalar primary fact filled a 1-dim
+    /// slot), `absence` (a signed Absence covers the slot — agent should
+    /// not retry), `dim_mismatch` (fact length differed from cube slot;
+    /// value was truncated or projected), `non_vector` (fact value not
+    /// numeric — slot zero-filled), `missing` (no fact at this cell and
+    /// no Absence either — likely cold or no materialiser at this
+    /// responder), `placeholder` (declared reserved slot with no live
+    /// connector by design).
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fact_cid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tslot: Option<u64>,
+}
+
+/// Bands that occupy declared but inert cube slots. They always read
+/// missing/placeholder; the cube still allocates the dims so offsets
+/// stay byte-stable. Compared against `Band.key`.
+const RESERVED_BAND_KEYS: &[&str] = &["_reserved_128", "reserved"];
+
+fn is_reserved_band(key: &str) -> bool {
+    RESERVED_BAND_KEYS.iter().any(|k| *k == key)
+}
+
+async fn state_view_cube(
+    s: AppState,
+    req: StateReq,
+) -> Result<Json<StateResp>, ApiError> {
+    let (cell, resolved) = resolve_cell_field(&req.cell).await?;
+    let materialize = req.materialize.unwrap_or(false);
+    let include_reserved = req.include_reserved.unwrap_or(false);
+
+    let reg = &*emem_core::bands::DEFAULT;
+    let total_dims = reg.total_dims as usize;
+    let mut vector: Vec<f32> = vec![0.0_f32; total_dims];
+    let mut coverage: Vec<BandCoverage> = Vec::with_capacity(reg.bands.len());
+    let mut extras: Vec<ExtraVector> = Vec::new();
+    let mut filled_dims: u16 = 0;
+    let mut filled_bands: usize = 0;
+    let mut absent_bands: usize = 0;
+    let mut missing_bands: usize = 0;
+
+    // Run a single recall for every non-reserved band. Reserved slots
+    // are declared placeholders without a materialiser by design — never
+    // bother the upstream path for them.
+    let live_band_keys: Vec<String> = reg
+        .bands
+        .iter()
+        .filter(|b| !is_reserved_band(&b.key))
+        .map(|b| b.key.clone())
+        .collect();
+
+    let recall_req = RecallReq {
+        cell: cell.clone(),
+        bands: Some(live_band_keys.clone()),
+        tslot: req.tslot,
+    };
+
+    let (resp, materialize_notes) = if materialize {
+        let (r, n) = recall_with_auto_materialize(&recall_req, &s).await?;
+        (r, Some(serde_json::to_value(n).unwrap_or(json!([]))))
+    } else {
+        (recall(&recall_req, &s).await?, None)
+    };
+
+    // Index the facts by band for O(1) lookup as we walk the canonical
+    // band order. Two passes over `resp.facts` are cheap (≤ 41 entries
+    // each) and keep the band-walk linear.
+    use std::collections::HashMap;
+    let mut by_band_primary: HashMap<&str, &emem_fact::PrimaryFact> = HashMap::new();
+    let mut by_band_absence: HashMap<&str, &emem_fact::NegativeFact> = HashMap::new();
+    for f in &resp.facts {
+        match f {
+            emem_fact::Fact::Primary(p) => {
+                by_band_primary.insert(p.band.as_str(), p);
+            }
+            emem_fact::Fact::Absence(a) => {
+                by_band_absence.insert(a.band.as_str(), a);
+            }
+            // Derivative facts are not direct band readings; the cube
+            // wants primary signal per slot. Skip them.
+            emem_fact::Fact::Derivative(_) => {}
+        }
+    }
+
+    for band in &reg.bands {
+        let off = band.offset as usize;
+        let dims = band.dims as usize;
+        let key = band.key.as_str();
+
+        // Reserved slots: declared inert. Emit placeholder coverage only
+        // if the caller asked for it; the vector slot stays zero either
+        // way so byte-stability of the layout is preserved.
+        if is_reserved_band(key) {
+            if include_reserved {
+                coverage.push(BandCoverage {
+                    key: band.key.clone(),
+                    offset: band.offset,
+                    dims: band.dims,
+                    status: "placeholder",
+                    fact_cid: None,
+                    tslot: None,
+                });
+            }
+            continue;
+        }
+
+        if let Some(p) = by_band_primary.get(key) {
+            // Vector-valued bands: decode the CBOR array.
+            if let Some(vec_val) = emem_primitives::cbor_ops::as_vec_f32(&p.value) {
+                if vec_val.len() == dims {
+                    vector[off..off + dims].copy_from_slice(&vec_val);
+                    filled_dims = filled_dims.saturating_add(band.dims);
+                    filled_bands += 1;
+                    coverage.push(BandCoverage {
+                        key: band.key.clone(),
+                        offset: band.offset,
+                        dims: band.dims,
+                        status: "primary",
+                        fact_cid: lookup_fact_cid_for_band(&resp, key),
+                        tslot: Some(p.tslot),
+                    });
+                } else if !vec_val.is_empty() {
+                    // Slot is shorter than the fact (e.g. clay_v1 facts
+                    // carry 1024-D but the slot is 384-D, see band-
+                    // registry note for clay_v1 / prithvi_eo2) — copy
+                    // the leading prefix into the cube AND surface the
+                    // full native vector in `extras` so cube callers
+                    // who want the full encoder fidelity get it in the
+                    // same response. No information loss.
+                    let take = vec_val.len().min(dims);
+                    vector[off..off + take].copy_from_slice(&vec_val[..take]);
+                    filled_dims = filled_dims.saturating_add(take as u16);
+                    filled_bands += 1;
+                    let fact_cid = lookup_fact_cid_for_band(&resp, key);
+                    coverage.push(BandCoverage {
+                        key: band.key.clone(),
+                        offset: band.offset,
+                        dims: band.dims,
+                        status: "dim_mismatch",
+                        fact_cid: fact_cid.clone(),
+                        tslot: Some(p.tslot),
+                    });
+                    if vec_val.len() > dims {
+                        let full_l2 = vec_val.iter().map(|x| x * x).sum::<f32>().sqrt();
+                        extras.push(ExtraVector {
+                            band: band.key.clone(),
+                            reason: "cube_truncation",
+                            dim: vec_val.len(),
+                            cube_slot_dim: band.dims,
+                            vector: vec_val,
+                            l2_norm: full_l2,
+                            fact_cid,
+                        });
+                    }
+                } else {
+                    coverage.push(BandCoverage {
+                        key: band.key.clone(),
+                        offset: band.offset,
+                        dims: band.dims,
+                        status: "non_vector",
+                        fact_cid: lookup_fact_cid_for_band(&resp, key),
+                        tslot: Some(p.tslot),
+                    });
+                }
+            } else if dims == 1 {
+                // Scalar-valued band whose CBOR encoding is `Integer`
+                // or `Float`. The 1-dim slot accepts any numeric.
+                if let Some(scalar) = cbor_as_f32(&p.value) {
+                    vector[off] = scalar;
+                    filled_dims = filled_dims.saturating_add(1);
+                    filled_bands += 1;
+                    coverage.push(BandCoverage {
+                        key: band.key.clone(),
+                        offset: band.offset,
+                        dims: band.dims,
+                        status: "scalar_filled",
+                        fact_cid: lookup_fact_cid_for_band(&resp, key),
+                        tslot: Some(p.tslot),
+                    });
+                } else {
+                    coverage.push(BandCoverage {
+                        key: band.key.clone(),
+                        offset: band.offset,
+                        dims: band.dims,
+                        status: "non_vector",
+                        fact_cid: lookup_fact_cid_for_band(&resp, key),
+                        tslot: Some(p.tslot),
+                    });
+                }
+            } else {
+                // Multi-dim slot but the fact value is not a CBOR array.
+                // Often a structured map (e.g. weather bands carry an
+                // object of named scalars). We don't try to flatten —
+                // emit non_vector so the agent picks a different band.
+                coverage.push(BandCoverage {
+                    key: band.key.clone(),
+                    offset: band.offset,
+                    dims: band.dims,
+                    status: "non_vector",
+                    fact_cid: lookup_fact_cid_for_band(&resp, key),
+                    tslot: Some(p.tslot),
+                });
+            }
+        } else if let Some(a) = by_band_absence.get(key) {
+            absent_bands += 1;
+            coverage.push(BandCoverage {
+                key: band.key.clone(),
+                offset: band.offset,
+                dims: band.dims,
+                status: "absence",
+                fact_cid: lookup_fact_cid_for_band(&resp, key),
+                tslot: Some(a.tslot),
+            });
+        } else {
+            missing_bands += 1;
+            coverage.push(BandCoverage {
+                key: band.key.clone(),
+                offset: band.offset,
+                dims: band.dims,
+                status: "missing",
+                fact_cid: None,
+                tslot: None,
+            });
+        }
+    }
+
+    // Self-certifying CID over canonical little-endian f32 bytes.
+    let mut bytes: Vec<u8> = Vec::with_capacity(total_dims * 4);
+    for x in &vector {
+        bytes.extend_from_slice(&x.to_le_bytes());
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&bytes);
+    let hash = hasher.finalize();
+    let state_cid =
+        data_encoding::BASE32_NOPAD.encode(&hash.as_bytes()[..32]).to_lowercase();
+
+    let l2_norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let memory_token = format!("memt:{}:{}", cell, state_cid);
+    let receipt_v = serde_json::to_value(&resp.receipt).unwrap_or(json!({}));
+    let manifest_cid = s.manifests.bands_cid.clone();
+    let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
+
+    Ok(Json(StateResp {
+        cell,
+        view: "cube",
+        encoder: "cube".to_string(),
+        dim: total_dims,
+        vector,
+        tslot: 0,
+        fact_cid: String::new(),
+        memory_token,
+        l2_norm,
+        receipt: receipt_v,
+        state_cid: Some(state_cid),
+        manifest_cid: Some(manifest_cid),
+        coverage: Some(coverage),
+        filled_dims: Some(filled_dims),
+        filled_bands: Some(filled_bands),
+        absent_bands: Some(absent_bands),
+        missing_bands: Some(missing_bands),
+        extras: if extras.is_empty() { None } else { Some(extras) },
+        materialize_notes,
+        resolved_from: resolved_env,
+    }))
+}
+
+/// Walk the recall receipt's fact_cids in declaration order and pull
+/// the one corresponding to `band`. The receipt cites facts in the same
+/// order they appear in `resp.facts`, so position-matching is correct.
+fn lookup_fact_cid_for_band(
+    resp: &emem_primitives::recall::RecallResp,
+    band: &str,
+) -> Option<String> {
+    for (i, f) in resp.facts.iter().enumerate() {
+        let b = match f {
+            emem_fact::Fact::Primary(p) => p.band.as_str(),
+            emem_fact::Fact::Absence(a) => a.band.as_str(),
+            emem_fact::Fact::Derivative(d) => d.band.as_str(),
+        };
+        if b == band {
+            return resp.receipt.fact_cids.get(i).map(|c| c.0.clone());
+        }
+    }
+    None
+}
+
+/// CBOR-to-f32 for scalar-shaped fact values (Integer / Float).
+fn cbor_as_f32(v: &ciborium::Value) -> Option<f32> {
+    use ciborium::Value;
+    match v {
+        Value::Float(f) => Some(*f as f32),
+        Value::Integer(i) => {
+            let as_i: i128 = (*i).into();
+            Some(as_i as f32)
+        }
+        _ => None,
+    }
+}
+
+// ── /v1/corpus_state_stats ───────────────────────────────────────────────
+//
+// Observability primitive ported from in-attention memory literature
+// (state-norm monitoring): without it the responder's corpus is a black
+// box. We surface real numbers, signed, so an agent can spot a corpus
+// collapse / explosion without manually crawling the index.
+//
+// Source: a bounded scan of the canonical (canonical_key, fact_cid)
+// index — same path /v1/stream uses for its corpus heartbeat. Output
+// stays cheap (≤ 32 768 facts scanned) so the endpoint is safe to poll.
+
+#[derive(Debug, Serialize)]
+struct CorpusBandStat {
+    band: String,
+    fact_count: u64,
+    cell_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct CorpusStateStats {
+    responder_pubkey_b32: String,
+    responder_key_epoch: u32,
+    /// Unix epoch seconds at which the stats were assembled.
+    served_at_unix_s: u64,
+    /// Number of (canonical_key, fact_cid) entries the scan walked. The
+    /// scan is bounded so this can be less than the true corpus size on
+    /// a large responder.
+    scan_limit: u32,
+    facts_scanned: u64,
+    distinct_cells: u64,
+    distinct_bands: u64,
+    /// Per-band breakdown. Sorted by `fact_count` descending — the
+    /// thickest bands first.
+    by_band: Vec<CorpusBandStat>,
+    /// Manifest CIDs in force at this responder. Quote these alongside
+    /// the numbers so the stats are reproducible against a known-good
+    /// bands manifest.
+    manifests: JsonValue,
+    /// Signed envelope over the assembled stats. Same preimage shape as
+    /// /v1/stream's tick so verifiers reuse one helper.
+    signature: JsonValue,
+}
+
+async fn get_corpus_state_stats(
+    State(s): State<AppState>,
+) -> Result<Json<CorpusStateStats>, ApiError> {
+    const SCAN_LIMIT: usize = 32_768;
+    let entries = s
+        .storage
+        .iter_index(Some(SCAN_LIMIT))
+        .await
+        .map_err(|e| ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("/v1/corpus_state_stats: index scan failed: {e}"),
+                details: None,
+            },
+        ))?;
+
+    use std::collections::{HashMap, HashSet};
+    let mut cells: HashSet<String> = HashSet::new();
+    let mut bands_to_cells: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut bands_to_count: HashMap<String, u64> = HashMap::new();
+    for (key, _cid) in &entries {
+        cells.insert(key.cell.clone());
+        bands_to_cells
+            .entry(key.band.clone())
+            .or_default()
+            .insert(key.cell.clone());
+        *bands_to_count.entry(key.band.clone()).or_default() += 1;
+    }
+
+    let mut by_band: Vec<CorpusBandStat> = bands_to_count
+        .into_iter()
+        .map(|(band, fact_count)| {
+            let cell_count = bands_to_cells
+                .get(&band)
+                .map(|s| s.len() as u64)
+                .unwrap_or(0);
+            CorpusBandStat {
+                band,
+                fact_count,
+                cell_count,
+            }
+        })
+        .collect();
+    by_band.sort_by(|a, b| b.fact_count.cmp(&a.fact_count).then_with(|| a.band.cmp(&b.band)));
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let version = env!("CARGO_PKG_VERSION");
+    let preimage = format!(
+        "emem.corpus_state_stats|v{}|epoch{}|t{}|cells:{}|bands:{}|facts:{}",
+        version,
+        s.identity.epoch.0,
+        now,
+        cells.len(),
+        by_band.len(),
+        entries.len(),
+    );
+    let sig = s.identity.signing.sign(preimage.as_bytes()).to_bytes();
+    let sig_b32 = data_encoding::BASE32_NOPAD.encode(&sig).to_lowercase();
+
+    Ok(Json(CorpusStateStats {
+        responder_pubkey_b32: pubkey_b32,
+        responder_key_epoch: s.identity.epoch.0,
+        served_at_unix_s: now,
+        scan_limit: SCAN_LIMIT as u32,
+        facts_scanned: entries.len() as u64,
+        distinct_cells: cells.len() as u64,
+        distinct_bands: by_band.len() as u64,
+        by_band,
+        manifests: json!({
+            "registry_cid": s.manifests.registry_cid.as_str(),
+            "bands_cid":    s.manifests.bands_cid,
+            "sources_cid":  s.manifests.sources_cid,
+        }),
+        signature: json!({
+            "preimage":      preimage,
+            "signature_b32": sig_b32,
+            "alg":           "ed25519",
+        }),
     }))
 }
 
