@@ -22,7 +22,7 @@ python emem_mcp_geospatial_agent.py
 1. Connects to `https://emem.dev/mcp` via Streamable HTTP.
 2. Auto-discovers all emem MCP tools (locate, recall, compare, verify, etc.).
 3. Creates a ReAct agent that reasons over the tools.
-4. Asks: *"What are the geospatial facts at coordinates 23.351921, 85.309145?"*
+4. Asks: *"What are the geospatial facts at coordinates 60.3172, 24.9633?"*
 5. The agent locates the place, recalls elevation / land cover / vegetation /
    surface water, and summarises — citing signed `fact_cid`s from the receipts.
 

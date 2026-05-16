@@ -11,7 +11,7 @@ Usage:
     export OPENAI_API_KEY="sk-..."
     python emem_mcp_geospatial_agent.py
 
-The agent will locate the coordinates (23.351921, 85.309145), recall
+The agent will locate the coordinates (60.3172, 24.9633), recall
 geospatial facts, and summarise what it finds -- citing signed receipts.
 """
 
@@ -24,7 +24,7 @@ from llama_index.llms.openai import OpenAI
 EMEM_MCP_URL = "https://emem.dev/mcp"
 
 QUESTION = (
-    "I have coordinates 23.351921, 85.309145. "
+    "I have coordinates 60.3172, 24.9633. "
     "Locate this place, recall its geospatial facts (elevation, "
     "land cover, vegetation, surface water), and summarise what "
     "you find. Cite the signed receipt fact_cids in your answer."
