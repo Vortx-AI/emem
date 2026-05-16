@@ -2,18 +2,28 @@
 
 ## What this is
 
-A verifiable Earth-observation protocol for AI agents. Three core moves:
-(a) locate a place by name to a `cell64`, (b) recall signed facts at that
-cell, (c) find places similar to it by foundation embedding. Every
-response carries an Ed25519 receipt that any agent can verify offline.
+**Working memory of Earth, for AI agents.** Every patch of ground gets a
+64-bit address (`cell64`, about 9.55 m on a side at the equator); every
+measurement there is stored as a fact keyed by `(cell, band, tslot)`;
+every read returns a content-addressed receipt the caller can verify
+offline. The address space is the planet, the state is persistent, the
+bytes are reproducible across any replica that mirrors them.
+
+emem sits one layer beneath whatever memory your agent runtime ships
+internally. Per-session associative memory, per-tenant scratchpads, and
+vector-indexed document stores all answer different questions; emem
+answers *what is at this place*, once, signed, byte-identical for every
+caller that ever asks again. Three core moves: (a) locate a place by
+name to a `cell64`, (b) recall signed facts at that cell, (c) find
+places similar to it by foundation embedding. Every response carries
+an Ed25519 receipt that any agent can verify offline.
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 71 OpenAPI-documented paths (68 under
-`/v1/*`), 49 MCP tools, 155 algorithms in the content-addressed
-registry, 35 band-cube slots, 118 materializer-wired band names, 43
-source schemes, and 12 fetch connectors. Version 0.0.6, MSRV Rust 1.88.
-No API keys; the MCP surface is read-only because writes need an Ed25519
-secret no LLM host can manage safely.
+port 5051. The live surface ships 72 OpenAPI-documented paths under
+`/v1/*`, 50 MCP tools, 159 algorithms in the content-addressed registry,
+41 bands in the manifest, 43 source schemes, and 12 fetch connectors.
+Version 0.0.6, MSRV Rust 1.88. No API keys; the MCP surface is read-only
+because writes need an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
 

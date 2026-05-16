@@ -1,6 +1,17 @@
 # emem — Earth memory protocol
 
-> Cite-able, content-addressed, ed25519-signed memory of every place on Earth.
+> Working memory of Earth, for AI agents. Every patch of ground is an address
+> (cell64, ~9.55 m), every measurement there is a signed fact, every read is a
+> content-addressed receipt your code can verify offline. The address space is
+> the planet; the state is persistent; the bytes are reproducible across any
+> replica that mirrors it.
+>
+> Where most agent runtimes ship per-session associative memory or per-tenant
+> scratchpads, emem is the layer underneath: shared, cross-session,
+> cross-tenant, persistent working memory of the world itself. Calls are
+> idempotent; the CID is the citation two agents paste at each other to stop
+> arguing about a number.
+>
 > Bootstrap: GET /v1/discover  ·  Schema: /openapi.json  ·  MCP: /mcp
 
 ## Algebra

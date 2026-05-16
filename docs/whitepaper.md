@@ -48,12 +48,28 @@ across runs (no canonical address for "the patch of land at
 lat=12.97°, lng=77.59° on 2024-09-01"), and no way to cite (the
 underlying tile, timestamp, and algorithm get smeared together).
 
-emem's response is a small set of address rules plus one signing
-rule. Every fact is keyed by `(cell64, band, tslot)`. Every fact's
-CID is `base32_nopad_lower(blake3(canonical_cbor)[..16])`. Every
-response carries an Ed25519 receipt over a deterministic preimage
-naming the cited CIDs. An offline verifier with the responder's
-pubkey reproduces the preimage and checks the signature.
+The wider context is memory. Long-term assistants and agent systems
+need to accumulate, update, and reuse historical information across
+sessions; current practice splits along three lines. Textual stores
+inject prior history through the context window. Parametric stores
+fold knowledge into adapter or prefix weights. Outside-channel stores
+keep state in a separate module reached by retrieval. Each of these
+operates over a *single agent's* history, scoped to a conversation
+or a tenant. emem occupies a different layer: a shared, cross-session,
+cross-tenant working memory of *Earth itself*, where the addresses
+are places rather than token positions, the state is persistent
+rather than per-conversation, and the bytes are reproducible across
+replicas rather than fuzzily retrieved. Section 19.2 places this
+layer alongside the in-agent memory patterns and addresses the
+standard objections to outside-channel state.
+
+emem's response to the citation failure is a small set of address
+rules plus one signing rule. Every fact is keyed by
+`(cell64, band, tslot)`. Every fact's CID is
+`base32_nopad_lower(blake3(canonical_cbor)[..16])`. Every response
+carries an Ed25519 receipt over a deterministic preimage naming the
+cited CIDs. An offline verifier with the responder's pubkey
+reproduces the preimage and checks the signature.
 
 The surface stays small on purpose: three core primitives, one
 verify call, seven derived primitives (`compare`, `compare_bands`,
@@ -1083,6 +1099,8 @@ an absent capability.
 
 ## 19. Comparison with adjacent work
 
+### 19.1 Geospatial adjacents
+
 - **STAC** describes scenes; emem describes per-pixel facts with
   provenance. STAC catalogs are an upstream connector kind, not the
   protocol.
@@ -1092,6 +1110,81 @@ an absent capability.
   Merkle path.
 - **IPLD** is a CID layer; emem composes a CID rule on top of IPLD's
   CBOR tag 42 base32 encoding plus a domain-specific fact ontology.
+
+### 19.2 emem in the memory-mechanism landscape
+
+Memory mechanisms for LLM agents fall along three established lines,
+each of which scopes to a single agent's history:
+
+- **Textual stores** inject prior turns through the input context.
+  Strength: flexible, no architecture change. Weakness:
+  context-window limits, retrieval noise, compaction loss.
+- **Parametric stores** fold prior interactions into adapter or
+  prefix weights. Strength: zero retrieval cost at inference time.
+  Weakness: static; cannot adapt to evolving information without
+  retraining.
+- **Outside-channel stores** keep state in a separate module reached
+  by retrieval or encoding on a side channel. Strength: modular.
+  Weaknesses: integration overhead, drift between the retrieval
+  index and the backbone, and the silent-empty problem (a missing
+  entry returns nothing rather than an attestable absence).
+
+Recent work on compact, in-attention memory states (online
+associative-memory matrices updated by gated delta-rule learning)
+sharpens the per-session story further. None of these layers
+operate at the scope emem operates at, because none of them
+address the same question: *what is at this place on Earth, right
+now, that any agent can cite later?*
+
+emem is a persistent, planet-keyed, content-addressed memory layer.
+It inherits the outside-channel virtues (modular, additive, LLM-
+and runtime-agnostic — call it from any agent, in any host, with no
+SDK install) and addresses the classical outside-channel failure
+modes directly:
+
+| Classical weakness          | emem's design response                                                                                                                                                                                                       |
+|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| *Integration complexity*    | Single Streamable-HTTP MCP endpoint plus mirrored REST. No SDK install, no auth, no per-tenant provisioning. Idempotent reads.                                                                                               |
+| *Backbone misalignment*     | emem does not return embeddings the backbone has to fuse. It returns typed scalar facts in named units with a content-addressed CID. The agent paraphrases at its own attention; emem's contract ends at the bytes.          |
+| *Retrieval drift / noise*   | The address is the place, not a similarity query. Two agents asking for `copdem30m.elevation_mean @ defi.zb4d9.pefa.zf619` get byte-identical CBOR back. No fuzzy ranking, no recall@k surprise.                              |
+| *Per-session / per-tenant*  | emem's state is the planet, persisted on disk and content-addressed. A receipt minted by responder A in 2026-05 verifies offline against the same pubkey in 2030, on a self-hosted replica B that never spoke to A.          |
+| *Silent empty*              | A missing band at a cell returns a signed `Absence` fact with a typed reason, not an empty array. The absence itself is content-addressed and citable as evidence.                                                            |
+
+The relationship to in-agent memory is complementary, not
+competitive. In-agent memory compresses a conversation's recent
+history so the backbone stops spending quadratic attention on it;
+emem compresses the planet's history so the backbone never loads
+the raw scenes in the first place. An agent that uses both gets
+compact internal memory of the chat plus shared external memory of
+the world; the receipt CID is the bridge between them.
+
+The properties emem holds that the in-agent layers structurally
+cannot:
+
+- **Reproducibility.** `fact_cid` dereferences to the same bytes on
+  any conforming responder. Retrieval-style stores are reproducible
+  only when the index is frozen, and only up to similarity, not
+  byte equality.
+- **Verifiability.** Ed25519 over a deterministic BLAKE3 preimage.
+  Any party with the issuer's pubkey can verify a receipt without
+  calling back. Browser-side verification ships at `/verify`.
+- **Citation.** A 26-character CID an agent can quote verbatim to a
+  user, a regulator, a competing agent, or its future self. The
+  CID is the bibliographic primitive of this memory layer.
+- **Cross-agent sharing.** Two agents on different runtimes, in
+  different processes, in different timezones, with no shared
+  state, paste the same CID and pull the same bytes. The protocol's
+  job is to make this property hold across time and replicas.
+
+The closing technical point worth importing from the in-attention
+memory literature is *compact state*. There, an 8×8 matrix is
+shown to be enough to retain useful historical signal once it is
+addressed associatively rather than positionally. emem's analogue
+is the 64-bit cell address: the entire knowledge graph for a place
+collapses to one handle a downstream tool can quote, share, and
+verify. The encoding scheme differs; the principle (address
+memory by what it is *about*, not by where it sat in a stream) is
+the same.
 
 ---
 
