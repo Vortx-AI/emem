@@ -877,8 +877,101 @@ defi.zb566.quwu.mIcO
   <hr class="rule"/>
 
   <!-- ──────────────────────────────────────────────────────────────── -->
+  <section class="case" id="eudr">
+    <p class="secnum">Section 7 · EUDR Due Diligence Statement</p>
+    <p class="lede">A polygon in, an Annex II envelope out. The forest
+       definition follows Regulation (EU) 2023/1115 Article 2(4) as
+       written — ten percent canopy, not the FAO thirty.</p>
+
+    <p class="badge">Case · Coffee plot, Amazonas, Brazil</p>
+    <h2>Signed compliance verdict from forest baseline plus loss-year</h2>
+    <p class="dek">The endpoint runs eudr_compliance@2 over every cell
+       inside the plot polygon. Forest baseline is the JRC GFC2020 V3
+       single-COG mirror (the EU Commission's expected non-binding
+       baseline) plus Hansen treecover2000 at the regulation's ten-
+       percent threshold. Sims et al. 2025 driver attribution and RADD
+       Sentinel-1 alerts layer on as refinement when the connectors are
+       wired; today they sign Absence with a structured NotImplemented
+       reason and the verdict comes from JRC + Hansen alone.</p>
+
+    <pre class="worked"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/eudr_dds \
+    -H 'content-type: application/json' \
+    -d '{"plots":[{"plot_id":"farm-001",
+      "geometry_geojson":{"type":"Polygon","coordinates":[[
+        [-60.5,-3.5],[-60.4,-3.5],[-60.4,-3.4],[-60.5,-3.4],[-60.5,-3.5]]]},
+      "country_of_production":"BRA","commodity_hs":"0901",
+      "commodity_name":"coffee","quantity_kg":12000}],
+      "operator":{"name":"Acme Coffee BV","eori":"NL123456789"}}'
+
+<span class="k">{
+  </span>"schema":          <span class="v">"emem.eudr_dds.v1",</span><span class="k">
+  </span>"regulation":      <span class="v">"EU 2023/1115",</span><span class="k">
+  </span>"regulation_articles": [<span class="v">"2(4)","2(28)","8","9","Annex II"</span>]<span class="k">,
+  </span>"cut_off_date":    <span class="v">"2020-12-31",</span><span class="k">
+  </span>"forest_baseline": <span class="v">"jrc_gfc2020_v3",</span><span class="k">
+  </span>"baseline_note":   <span class="v">"JRC GFC2020 V3 is the EU Commission's</span>
+                     <span class="v">expected (non-binding) baseline per</span>
+                     <span class="v">Regulation 2023/1115; operators may use a</span>
+                     <span class="v">defensible alternative."</span><span class="k">,
+  </span>"legality_module": <span class="v">"none",</span><span class="k">
+  </span>"legality_disclaimer": <span class="v">"Article 9(1)(b) legality verification</span>
+                     <span class="v">(land tenure, FPIC, country-of-origin laws</span>
+                     <span class="v">under Article 2(40)) is structurally out of</span>
+                     <span class="v">Earth-observation scope. ..."</span><span class="k">,
+  </span>"due_diligence_statement": {
+    <span class="k">"operator":     </span>{<span class="v">"name":"Acme Coffee BV", ...</span>},
+    <span class="k">"verdict":      </span><span class="v">"pass",</span><span class="k">
+    "verdict_code": </span><span class="v">1,</span><span class="k">
+    "n_plots":      </span><span class="v">1</span><span class="k">
+  </span>},
+  <span class="k">"per_plot_results":</span> [...]
+<span class="k">}</span></pre>
+
+    <p>The plot here resolves to a 100 km<sup>2</sup> bbox over
+       primary Amazon forest. The Article 2(28) dispatch picks POLYGON
+       (the plot is well above the four-hectare threshold; coffee is
+       not cattle). The endpoint samples sixteen cells inside the
+       polygon, recalls JRC forest_2020 plus Hansen treecover2000 and
+       lossyear at each, evaluates the eudr_compliance@2 logic, and
+       aggregates with a 0.1 % de-minimis threshold so a single bad
+       pixel on the polygon edge does not flip the plot to FAIL.</p>
+
+    <p>What an auditor sees in the response. The fact CIDs at every
+       cell are signed by the responder under its Ed25519 identity.
+       Quote any one of them at <a href="/verify">/verify</a> and the
+       browser recomputes blake3 + ed25519 in JavaScript — no server
+       call needed to confirm the signature held.</p>
+
+    <p>What the engine does not claim. The
+       <code>legality_module</code> field defaults to <code>"none"</code>
+       and the response carries the explicit disclaimer that Article
+       9(1)(b) legality verification — land tenure, free prior and
+       informed consent, country-of-origin law compliance under
+       Article 2(40) — is structurally out of Earth-observation scope.
+       The geolocation block at the cell level is signed; the legal
+       layer above it is not. Operators submitting to TRACES NT pair
+       this DDS with a partner module that handles those questions.</p>
+
+    <p class="caption">
+      eudr_compliance@1 cited the FAO 2020 Global Forest Resources
+      Assessment thirty-percent canopy threshold and is marked
+      deprecated for that reason. The regulation as written uses ten.
+      Plots between ten and thirty percent canopy — frequently
+      smallholder agroforestry under cocoa or coffee — fall inside the
+      EUDR scope and would have been silently dropped under the older
+      algorithm.
+    </p>
+    <p class="source">
+      emem.dev · <code>/v1/eudr_dds</code> · <code>eudr_compliance@2</code>
+      · schema at <a href="/v1/schemas/eudr_dds.json"><code>/v1/schemas/eudr_dds.json</code></a>
+    </p>
+  </section>
+
+  <hr class="rule"/>
+
+  <!-- ──────────────────────────────────────────────────────────────── -->
   <section class="figure" id="diagrams">
-    <p class="secnum">Section 7 · The protocol, drawn</p>
+    <p class="secnum">Section 8 · The protocol, drawn</p>
     <p class="lede">A separate suite covers how the protocol works
        under the hood. Architecture diagrams, address algebra, the
        trust plane, and twenty industry deployments. Open the set at

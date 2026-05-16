@@ -3644,10 +3644,10 @@
         {
           "band": "forest_change.lossyear",
           "role": "loss_year_after_cutoff",
-          "explanation": "Year of the FIRST Hansen-detected tree-cover loss event (2001-2024, encoded 1-24). Value >= 21 (i.e. 2021 or later) means loss after the EUDR cut-off date of 31 December 2020."
+          "explanation": "Year of the FIRST Hansen-detected tree-cover loss event. The Hansen materialiser at this responder decodes the raw byte to the calendar year (2001..2024 in v1.12); 0 means 'no loss observed in coverage'. Value >= 2021 means loss after the EUDR cut-off date of 31 December 2020."
         }
       ],
-      "formula": "let forest_at_cutoff = (jrc_gfc2020.forest_2020 >= 1) OR (forest_change.treecover2000 >= 10); if NOT forest_at_cutoff -> 'not_in_scope' [code 3]; else if forest_change.lossyear >= 21 -> 'fail' [code 2]; else -> 'pass' [code 1]. Optional refinement layer (handled at /v1/eudr_dds): if wri_gdm.driver_class is available and in {5=wildfire, 7=natural} -> reclassify 'fail' -> 'not_in_scope'; if radd.alert_date is available and post-2020-12-31 -> upgrade 'pass' -> 'fail' for cells where Hansen optical was cloud-blocked. Verdict 'indeterminate' [code 4] is emitted by the dispatcher when any required input is missing.",
+      "formula": "let forest_at_cutoff = (jrc_gfc2020.forest_2020 >= 1) OR (forest_change.treecover2000 >= 10); if NOT forest_at_cutoff -> 'not_in_scope' [code 3]; else if forest_change.lossyear >= 2021 -> 'fail' [code 2]; else -> 'pass' [code 1]. (forest_change.lossyear is the calendar year as decoded by the Hansen v1.12 materialiser; 0 = no loss observed.) Optional refinement layer (handled at /v1/eudr_dds): if wri_gdm.driver_class is available and in {5=wildfire, 7=natural} -> reclassify 'fail' -> 'not_in_scope'; if radd.alert_date is available and post-2020-12-31 -> upgrade 'pass' -> 'fail' for cells where Hansen optical was cloud-blocked. Verdict 'indeterminate' [code 4] is emitted by the dispatcher when any required input is missing.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -3673,7 +3673,7 @@
         "then_": {
           "op": "where",
           "cond": {"op": "band", "band": "forest_change.lossyear"},
-          "gt": 20.5,
+          "gt": 2020.5,
           "then_": {"op": "const", "value": 2.0},
           "else_": {"op": "const", "value": 1.0}
         },

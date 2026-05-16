@@ -83,6 +83,34 @@ at flood_extent_sar_threshold@1 and water_turbidity_red_band@1.
 Free-text questions of the form `find <event> in <region>` route
 through /v1/ask's classifier and land on the same path.
 
+## EUDR Due Diligence Statements
+
+    eudr_dds :: Plot[] × CutOffDate → Annex II envelope × Receipt[]
+
+Regulation (EU) 2023/1115 plot-level compliance under the regulation
+as written. Forest definition follows Article 2(4): >0.5 ha, >5 m
+tree height, >10 % canopy cover, excluding land predominantly under
+agricultural or urban use. Cut-off date is 2020-12-31 per Article 1(2).
+
+The endpoint applies eudr_compliance@2 per cell across the plot
+polygon, then aggregates with a 0.1 % de-minimis threshold. Article
+2(28) dispatches POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any
+cattle plot). Forest baseline is JRC GFC2020 V3 (the EU Commission's
+expected non-binding baseline) OR Hansen GFC v1.12 treecover2000 >= 10 %.
+Sims et al. 2025 driver attribution and RADD SAR alerts layer on as
+refinement when wired.
+
+    curl -sX POST https://emem.dev/v1/eudr_dds \
+      -H 'content-type: application/json' \
+      -d '{"plots":[{"plot_id":"farm-001","geometry_geojson":{"type":"Polygon","coordinates":[[[-60.5,-3.5],[-60.4,-3.5],[-60.4,-3.4],[-60.5,-3.4],[-60.5,-3.5]]]},"country_of_production":"BRA","commodity_hs":"0901","commodity_name":"coffee","quantity_kg":12000}],"operator":{"name":"Acme Coffee BV","eori":"NL123456789"}}'
+
+The structured Annex II JSON schema lives at /v1/schemas/eudr_dds.json
+with $comment fields citing the exact EUR-Lex paragraph each field
+maps to. EUDR Article 9(1)(b) legality verification (land tenure, FPIC,
+country-of-origin laws) is structurally out of Earth-observation scope;
+every response carries an explicit `legality_disclaimer` for that reason.
+Pair with a partner legality module before submitting to TRACES NT.
+
 ## Instructions
 
 Behavioural rules an agent should follow when using emem (Stripe convention,
@@ -110,6 +138,8 @@ downstream answer grounded rather than punting.
     "live air quality reading at <place>"        → PurpleAir / OpenAQ (cams.* is global model output, not sensor)
     "stream the latest tile of <band>"           → upstream STAC API (emem is snapshot-at-tslot, not streaming)
     "what's inside this building"                → indoor mapping is out of scope
+    "verify EUDR Article 9(1)(b) legality"       → partner legality module (land tenure / FPIC / country-of-origin is not EO)
+    "submit my DDS to TRACES NT"                 → operator's own EU Login + EORI flow (emem produces the payload, not the submission)
 
 ## Citation contract
 

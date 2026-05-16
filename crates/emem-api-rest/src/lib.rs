@@ -4243,7 +4243,9 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             { "pattern": "live air quality reading at <place>",        "reason": "real-time air quality is out of scope; cams.* bands carry global model output, not sensor-grade now-casts. For PurpleAir / OpenAQ ground truth, call those services directly." },
             { "pattern": "stream the latest tile of <band>",           "reason": "emem is a snapshot-at-tslot model, not a streaming feed. For continuous ingest, subscribe to the upstream STAC API." },
             { "pattern": "what's inside this building",                "reason": "indoor mapping is out of scope. emem grids the outdoor surface." },
-            { "pattern": "the price of carbon credits today",          "reason": "market data is out of scope. emem signs the physical MRV signal (NDVI trajectories, biomass change), not the credit price." }
+            { "pattern": "the price of carbon credits today",          "reason": "market data is out of scope. emem signs the physical MRV signal (NDVI trajectories, biomass change), not the credit price." },
+            { "pattern": "verify land tenure / FPIC / country-of-origin law compliance for an EUDR DDS", "reason": "EUDR Article 9(1)(b) legality verification is structurally out of Earth-observation scope. /v1/eudr_dds covers the geolocation + deforestation parts of Annex II only; pair with a partner legality module before submitting to TRACES NT." },
+            { "pattern": "submit a Due Diligence Statement to the EU Information System on my behalf", "reason": "TRACES NT submission requires EU Login + EORI registration and is the operator's responsibility. /v1/eudr_dds produces the structured payload; the operator authenticates and submits." }
         ],
         "primary_tools": ["emem_recall", "emem_compare", "emem_find_similar", "emem_diff", "emem_verify", "emem_ask", "emem_hunt"],
         // Order matters: bands → materializers → coverage_matrix builds
@@ -23523,7 +23525,11 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
         };
     }
     // forest_at_cutoff == true. Now check loss after cut-off.
-    let hansen_loss = matches!(hansen_ly, Some(v) if v >= 21);
+    // forest_change.lossyear is decoded by the Hansen materialiser to
+    // the calendar year (2001..=2024 in v1.12); 0 means "no loss
+    // observed". A value >= 2021 means loss after the 2020-12-31
+    // EUDR cut-off.
+    let hansen_loss = matches!(hansen_ly, Some(v) if v >= 2021);
     let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2021_001);
     let any_loss = hansen_loss || radd_post_cutoff;
     if !any_loss {
