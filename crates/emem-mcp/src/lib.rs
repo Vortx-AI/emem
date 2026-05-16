@@ -199,6 +199,10 @@ const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_c
 "fact_cid":{"type":"string","description":"26-char base32-nopad-lowercase content-id of the fact."}
 }}"#;
 
+const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
+"token":{"type":"string","description":"A `memt:<cell64>:<fact_cid>` citation handle to dereference."}
+}}"#;
+
 const SCHEMA_EXPLAIN_ALGORITHM: &str = r#"{
 "type":"object",
 "required":["key"],
@@ -441,6 +445,16 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the agent wants a single rebindable string to cite a place + attested fact across messages, threads, or tools. The token is the recommended way for agents to pass earth-memory citations to other agents without re-fetching. Pair with `emem_verify_receipt` on the receiving end to verify the signed payload.",
         input_schema: SCHEMA_MEMORY_TOKEN,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    },
+    ToolDescriptor {
+        name: "emem_memory_token_resolve",
+        title: "Dereference a memory_token in one round-trip",
+        description: "Parse a `memt:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually.",
+        when_to_use: "Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the underlying signed bytes. The response carries the parsed cell + fact_cid, the full fact body, and the stable `fact_url` an agent can hand to any other peer. 404 with a typed code if the responder doesn't hold the cid; try /v1/fetch with the cid then, or paste the token at a mirror.",
+        input_schema: SCHEMA_MEMORY_TOKEN_RESOLVE,
+        example_args: r#"{"token":"memt:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     },

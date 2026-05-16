@@ -694,6 +694,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/trajectory", post(post_trajectory))
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
+        .route("/v1/memory_token/resolve", post(post_memory_token_resolve))
         .route("/v1/state", post(post_state))
         .route("/v1/state_multi", post(post_state_multi))
         .route("/v1/state_diff", post(post_state_diff))
@@ -12119,6 +12120,11 @@ struct StateResp {
     /// request opted into auto-materialisation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     materialize_notes: Option<JsonValue>,
+    /// Helpful next-step hint when the response is sparse (e.g. all
+    /// bands cold). Lets an LLM or CLI agent self-correct without
+    /// chasing the docs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
     /// Geocoder route, if the input was a place name rather than a
     /// cell64. Same shape as /v1/recall's `resolved_from`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -12252,6 +12258,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         missing_bands: None,
         extras: None,
         materialize_notes: None,
+        hint: None,
         resolved_from: resolved_env,
     }))
 }
@@ -12452,11 +12459,31 @@ async fn post_state_diff(
     let (resp_a, _) = recall_with_auto_materialize(&fetch(req.tslot_a), &s).await?;
     let (resp_b, _) = recall_with_auto_materialize(&fetch(req.tslot_b), &s).await?;
 
-    fn extract(
-        resp: &emem_primitives::recall::RecallResp,
-        encoder: &str,
-        which: &str,
-    ) -> Result<(Vec<f32>, String), ApiError> {
+    // Helper used on the 404 path: list every tslot the storage holds
+    // for (cell, encoder). Costs one index lookup; only consulted when
+    // a recall miss happens, so successful calls pay nothing.
+    async fn list_tslots_for_band(s: &AppState, cell: &str, band: &str) -> Vec<u64> {
+        match s.storage.scan_cell(cell, None).await {
+            Ok(entries) => {
+                let mut ts: Vec<u64> = entries
+                    .into_iter()
+                    .filter(|(k, _)| k.band == band)
+                    .map(|(k, _)| k.tslot)
+                    .collect();
+                ts.sort_unstable();
+                ts.dedup();
+                ts
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    let extract = |resp: &emem_primitives::recall::RecallResp,
+                   encoder: &str,
+                   which: &str,
+                   requested_tslot: u64,
+                   available: &[u64]|
+     -> Result<(Vec<f32>, String), ApiError> {
         let primary = resp
             .facts
             .iter()
@@ -12464,16 +12491,30 @@ async fn post_state_diff(
                 emem_fact::Fact::Primary(p) if p.band == encoder => Some(p),
                 _ => None,
             })
-            .ok_or_else(|| ApiError(
-                StatusCode::NOT_FOUND,
-                ErrorBody {
-                    code: ErrorCode::CidNotFound,
-                    message: format!(
-                        "/v1/state_diff: no fact at tslot_{which} for encoder {encoder}; check /v1/coverage_matrix"
-                    ),
-                    details: None,
-                },
-            ))?;
+            .ok_or_else(|| {
+                let msg = if available.is_empty() {
+                    format!(
+                        "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for ({cell},{encoder}). The responder holds no facts on this band at this cell. Try /v1/recall with `bands:[{encoder}]` (no tslot) to materialise the latest vintage first, then ask state_diff against two tslots that show up under /v1/recall_polygon or /v1/coverage_matrix.",
+                        cell = "this cell"
+                    )
+                } else {
+                    let preview: Vec<String> =
+                        available.iter().rev().take(6).map(|t| t.to_string()).collect();
+                    format!(
+                        "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for encoder {encoder}. {} tslot(s) available at this cell for this band; pick from the latest first: [{}]. Tessera annual vintages are year-aligned tslots (per /v1/data_availability for tempo); arbitrary Unix epochs will miss.",
+                        available.len(),
+                        preview.join(", ")
+                    )
+                };
+                ApiError(
+                    StatusCode::NOT_FOUND,
+                    ErrorBody {
+                        code: ErrorCode::CidNotFound,
+                        message: msg,
+                        details: None,
+                    },
+                )
+            })?;
         let vec = emem_primitives::cbor_ops::as_vec_f32(&primary.value).ok_or_else(|| ApiError(
             StatusCode::UNPROCESSABLE_ENTITY,
             ErrorBody {
@@ -12496,10 +12537,15 @@ async fn post_state_diff(
                 },
             ))?;
         Ok((vec, cid))
-    }
+    };
 
-    let (vec_a, fact_cid_a) = extract(&resp_a, &encoder, "a")?;
-    let (vec_b, fact_cid_b) = extract(&resp_b, &encoder, "b")?;
+    // Pre-scan the cell once for this encoder. If either side 404s, the
+    // error message includes a sorted list of tslots that DO exist for
+    // (cell, encoder) so the agent can retry with a viable pair.
+    let available_tslots: Vec<u64> = list_tslots_for_band(&s, &cell, &encoder).await;
+
+    let (vec_a, fact_cid_a) = extract(&resp_a, &encoder, "a", req.tslot_a, &available_tslots)?;
+    let (vec_b, fact_cid_b) = extract(&resp_b, &encoder, "b", req.tslot_b, &available_tslots)?;
     if vec_a.len() != vec_b.len() {
         return Err(ApiError(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -12815,6 +12861,23 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
     let manifest_cid = s.manifests.bands_cid.clone();
     let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
 
+    // Honest UX nudge: an LLM hitting view=cube on a cold cell gets a
+    // mostly-zero 1792-D vector and no obvious next step. Emit a hint
+    // that explains the responder's read-only-by-default contract and
+    // the explicit knob that warms the cell.
+    let hint = if filled_bands == 0 && !materialize {
+        Some(format!(
+            "all 41 cube slots are cold at this cell on this responder. Pass `materialize: true` to fan out and fetch every band's upstream value (~30+ HTTP calls, slow on cold cells), or call `/v1/recall` with a narrow `bands: [...]` list to warm only the slots you need."
+        ))
+    } else if filled_bands < 3 && !materialize {
+        Some(format!(
+            "{}/41 cube slots filled at this cell. Pass `materialize: true` to expand coverage, or chain `/v1/find_similar` / `/v1/recall` on the specific bands you need.",
+            filled_bands
+        ))
+    } else {
+        None
+    };
+
     Ok(Json(StateResp {
         cell,
         view: "cube",
@@ -12839,6 +12902,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
             Some(extras)
         },
         materialize_notes,
+        hint,
         resolved_from: resolved_env,
     }))
 }
@@ -13246,6 +13310,128 @@ async fn post_memory_token(
         fact_cid: cid.to_string(),
         grammar: "memt:<cell64>:<fact_cid>",
         docs: "/whitepaper.md#195-memory-token-format",
+    }))
+}
+
+/// Parse a `memt:<cell64>:<fact_cid>` token into its components. Strict
+/// on shape because a malformed handle should fail fast rather than
+/// trip the storage layer.
+fn parse_memory_token(token: &str) -> Result<(String, String), String> {
+    let token = token.trim();
+    if !token.starts_with("memt:") {
+        return Err(
+            "memory token must start with the `memt:` discriminator; expected `memt:<cell64>:<fact_cid>`".into(),
+        );
+    }
+    let rest = &token[5..];
+    let mut parts = rest.splitn(2, ':');
+    let cell = parts
+        .next()
+        .ok_or_else(|| "memory token missing cell64 component".to_string())?;
+    let cid = parts
+        .next()
+        .ok_or_else(|| "memory token missing fact_cid component".to_string())?;
+    if cell.is_empty() || cid.is_empty() {
+        return Err("memory token has empty cell64 or fact_cid component".into());
+    }
+    if !emem_codec::is_cell64_shape(cell) {
+        return Err(format!(
+            "memory token cell64 segment `{cell}` is not a valid cell64 shape (expected four `.`-separated base-1024 bigrams)"
+        ));
+    }
+    // fact_cid is 26-char base32-nopad-lowercase per the protocol; accept
+    // a wider 32..=96 ASCII-alphanumeric range here because the cid is the
+    // truth oracle - storage will 404 on miss with a typed code.
+    if !(cid.len() >= 26 && cid.len() <= 96 && cid.bytes().all(|c| c.is_ascii_alphanumeric())) {
+        return Err(format!(
+            "memory token fact_cid segment `{cid}` is not a recognisable CID shape"
+        ));
+    }
+    Ok((cell.to_string(), cid.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryTokenResolveReq {
+    /// `memt:<cell64>:<fact_cid>` — the citation handle to dereference.
+    token: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryTokenResolveResp {
+    /// Echoed token.
+    token: String,
+    /// Parsed cell64.
+    cell: String,
+    /// Parsed fact CID.
+    fact_cid: String,
+    /// The signed fact body. Same bytes `GET /v1/facts/<cid>` would
+    /// return; we include it inline so an agent gets the
+    /// content-addressed payload in a single round-trip.
+    fact: JsonValue,
+    /// Whether the responder could resolve the fact_cid in its own
+    /// store. `true` means the bytes are attached; `false` is paired
+    /// with HTTP 404 and is unreachable on a successful response.
+    resolved: bool,
+    /// Stable URL the agent can hand to any other peer; the bytes at
+    /// that URL are byte-identical to `fact`.
+    fact_url: String,
+    /// Verification hint: the same data is verifiable offline by
+    /// recomputing `blake3(canonical_cbor(fact))` and the ed25519
+    /// signature against the responder pubkey at
+    /// `/.well-known/emem.json`. Useful for agents that want to confirm
+    /// the receipt without trusting the wire.
+    offline_verify_at: &'static str,
+}
+
+/// `POST /v1/memory_token/resolve` — single round-trip dereference of a
+/// `memt:<cell>:<fact_cid>` citation handle. Saves the agent from
+/// parsing the token + chaining `GET /v1/facts/<cid>`.
+async fn post_memory_token_resolve(
+    State(s): State<AppState>,
+    Json(req): Json<MemoryTokenResolveReq>,
+) -> Result<Json<MemoryTokenResolveResp>, ApiError> {
+    let (cell, cid) = parse_memory_token(&req.token).map_err(|message| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message,
+                details: None,
+            },
+        )
+    })?;
+
+    let cid_obj = emem_fact::FactCid::new(cid.clone());
+    let facts = s
+        .storage
+        .get_facts_many(&[cid_obj])
+        .await
+        .map_err(ApiError::from)?;
+
+    let Some(Some(fact)) = facts.into_iter().next() else {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "no fact for cid={cid}. Token may reference a fact this responder doesn't hold; try /v1/fetch to materialise from upstream, or paste the token at another responder that mirrors the same content."
+                ),
+                details: None,
+            },
+        ));
+    };
+
+    let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
+    let fact_url = format!("https://emem.dev/v1/facts/{}", cid);
+
+    Ok(Json(MemoryTokenResolveResp {
+        token: req.token.trim().to_string(),
+        cell,
+        fact_cid: cid,
+        fact: fact_json,
+        resolved: true,
+        fact_url,
+        offline_verify_at: "/verify",
     }))
 }
 
