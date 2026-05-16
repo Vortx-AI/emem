@@ -663,6 +663,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
         .route("/v1/hunt", post(post_hunt))
+        .route("/v1/eudr_dds", post(post_eudr_dds))
         .route("/v1/recall", post(post_recall))
         // Boring-API skin: lat/lng GETs over the deep recall protocol.
         .route("/v1/at", get(get_v1_at))
@@ -689,6 +690,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/jepa_predict", post(physics::post_jepa_predict))
         .route("/v1/jepa_predict_v2", post(physics::post_jepa_predict_v2))
         .route("/v1/schema", get(get_schema))
+        .route("/v1/schemas/eudr_dds.json", get(get_eudr_dds_schema))
         .route("/v1/verify", post(post_verify))
         .route("/v1/intent", post(post_intent))
         .route("/v1/attest", post(post_attest))
@@ -8715,6 +8717,106 @@ async fn get_schema() -> Json<JsonValue> {
     Json(serde_json::to_value(&*emem_core::schema::DEFAULT).unwrap_or(JsonValue::Null))
 }
 
+/// Annex II + Article 2(28) JSON Schema for the EUDR Due Diligence
+/// Statement output. Hand-translated from Regulation (EU) 2023/1115
+/// with $comment fields citing the exact EUR-Lex paragraph each field
+/// maps to. The schema is byte-stable and content-addressable.
+async fn get_eudr_dds_schema() -> Json<JsonValue> {
+    Json(json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://emem.dev/v1/schemas/eudr_dds.json",
+        "title": "EUDR Due Diligence Statement (emem.eudr_dds.v1)",
+        "description": "Per-plot due diligence verdict under Regulation (EU) 2023/1115. Hand-translated from Annex II + Article 2(28); the JSON Schema is NOT a downloadable EU artefact (the EU Commission publishes Annex II as prose and TRACES NT operates a CircaBC-gated SOAP/XML API). Treat this schema as a faithful conformance lens, not the authoritative TRACES contract.",
+        "type": "object",
+        "required": ["schema", "regulation", "cut_off_date", "due_diligence_statement", "per_plot_results"],
+        "properties": {
+            "schema":          {"const": "emem.eudr_dds.v1", "$comment": "schema discriminator"},
+            "regulation":      {"const": "EU 2023/1115", "$comment": "Regulation (EU) 2023/1115 of the European Parliament and of the Council of 31 May 2023"},
+            "regulation_articles": {"type": "array", "items": {"type": "string"}, "$comment": "EUR-Lex Article references covered by this envelope"},
+            "cut_off_date":    {"type": "string", "format": "date", "$comment": "Article 1(2): the regulation's cut-off date is 31 December 2020"},
+            "forest_baseline": {"type": "string", "enum": ["jrc_gfc2020_v3", "hansen_only", "both"], "$comment": "Article 2(4) forest definition; default JRC GFC2020 V3 is the Commission's expected (non-binding) baseline per Bourgoin et al. 2026 ESSD 18:1331"},
+            "baseline_note":   {"type": "string", "$comment": "Explanatory note on the chosen baseline"},
+            "legality_module": {"type": "string", "$comment": "Article 9(1)(b) legality is structurally out of EO scope; default 'none'"},
+            "legality_disclaimer": {"type": "string", "$comment": "Required structured disclaimer when legality_module == 'none'"},
+            "schema_url":      {"type": "string", "format": "uri", "$comment": "Self-reference to this schema document"},
+            "algorithm_key":   {"const": "eudr_dds@1", "$comment": "Polygon-aggregator algorithm key in the emem registry"},
+            "underlying_per_cell_algorithm": {"const": "eudr_compliance@2", "$comment": "Per-cell verdict algorithm key"},
+            "due_diligence_statement": {
+                "type": "object",
+                "$comment": "Annex II §1-7 envelope summary",
+                "required": ["verdict", "verdict_code", "n_plots"],
+                "properties": {
+                    "operator": {
+                        "type": ["object", "null"],
+                        "$comment": "Annex II §1: operator/trader identification",
+                        "properties": {
+                            "name":    {"type": "string", "$comment": "Annex II §1(a)"},
+                            "eori":    {"type": ["string", "null"], "$comment": "Annex II §1(b): Economic Operators Registration and Identification number"},
+                            "address": {"type": ["string", "null"], "$comment": "Annex II §1(c)"}
+                        }
+                    },
+                    "verdict": {"type": "string", "enum": ["pass", "fail", "fail_below_de_minimis", "not_in_scope", "indeterminate"], "$comment": "Overall DDS verdict aggregated across plots"},
+                    "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 5], "$comment": "Numeric verdict from eudr_compliance@2 output values + 5 = fail_below_de_minimis"},
+                    "n_plots":      {"type": "integer", "minimum": 1}
+                }
+            },
+            "per_plot_results": {
+                "type": "array",
+                "minItems": 1,
+                "$comment": "One entry per plot in the request",
+                "items": {
+                    "type": "object",
+                    "required": ["plot_id", "verdict", "verdict_code", "geometry_kind", "geolocation"],
+                    "properties": {
+                        "plot_id":         {"type": "string", "$comment": "Annex II §5 plot identifier"},
+                        "verdict":         {"type": "string"},
+                        "verdict_code":    {"type": "integer"},
+                        "fail_fraction":   {"type": "number", "minimum": 0, "maximum": 1, "$comment": "Fraction of sampled cells that fail; the 0.1 % de-minimis threshold distinguishes 'fail' from 'fail_below_de_minimis'"},
+                        "failing_cells":   {"type": "integer", "minimum": 0},
+                        "total_cells":     {"type": "integer", "minimum": 0},
+                        "area_ha_approx":  {"type": "number", "$comment": "Article 2(28) dispatch input: > 4 ha → POLYGON; ≤ 4 ha non-cattle → POINT"},
+                        "geometry_kind":   {"type": "string", "enum": ["polygon", "point"], "$comment": "Article 2(28): POLYGON for >4 ha or any cattle plot; POINT for ≤4 ha non-cattle"},
+                        "is_cattle":       {"type": "boolean", "$comment": "Article 2(28) cattle exemption: HS 0102/0201/0202 always POLYGON regardless of size"},
+                        "country_of_production": {"type": "string", "$comment": "Annex II §4: ISO 3166-1 alpha-3"},
+                        "commodity_hs":    {"type": "string", "$comment": "Annex II §2: Combined Nomenclature code (CN, minimum HS-6)"},
+                        "commodity_name":  {"type": ["string", "null"]},
+                        "quantity_kg":     {"type": "number", "$comment": "Annex II §3: net mass in kg"},
+                        "supplier":        {"type": ["string", "null"]},
+                        "geolocation": {
+                            "type": "object",
+                            "$comment": "Article 2(28): coordinates in latitude + longitude with at least 6 decimal digits",
+                            "required": ["centroid", "bbox", "decimal_digits_per_article_2_28"],
+                            "properties": {
+                                "centroid": {"type": "object", "required": ["lat", "lng"], "properties": {"lat": {"type": "number"}, "lng": {"type": "number"}, "precision_digits": {"type": "integer", "minimum": 6}}},
+                                "bbox":     {"type": "object", "required": ["min_lat", "max_lat", "min_lng", "max_lng"], "properties": {"min_lat": {"type": "number"}, "max_lat": {"type": "number"}, "min_lng": {"type": "number"}, "max_lng": {"type": "number"}}},
+                                "decimal_digits_per_article_2_28": {"type": "integer", "minimum": 6, "$comment": "Article 2(28) requires at least 6 decimal digits"}
+                            }
+                        },
+                        "per_cell_verdicts": {
+                            "type": "array",
+                            "$comment": "Per-cell signed evidence inside the plot polygon",
+                            "items": {"type": "object", "required": ["cell", "verdict", "fact_cids"], "properties": {
+                                "cell":     {"type": "string", "$comment": "cell64 identifier (~9.55 m at the equator)"},
+                                "verdict":  {"type": "integer"},
+                                "label":    {"type": "string"},
+                                "jrc_forest_2020":       {"type": ["integer", "null"]},
+                                "hansen_treecover_2000": {"type": ["integer", "null"]},
+                                "hansen_lossyear":       {"type": ["integer", "null"]},
+                                "wri_driver_class":      {"type": ["integer", "null"], "$comment": "Sims et al. 2025 driver attribution"},
+                                "radd_alert_date":       {"type": ["integer", "null"], "$comment": "Reiche et al. 2021 SAR alert date YYYYDDD"},
+                                "refinement_applied":    {"type": ["string", "null"]},
+                                "fact_cids":             {"type": "array", "items": {"type": "string"}, "$comment": "Annex II §7: signed fact CIDs cited as evidence"}
+                            }}
+                        }
+                    }
+                }
+            },
+            "responder_pubkey_b32": {"type": "string", "$comment": "Ed25519 public key of the signing responder"},
+            "served_at":     {"type": "string", "format": "date-time"}
+        }
+    }))
+}
+
 async fn post_verify(
     State(s): State<AppState>,
     Json(mut req): Json<VerifyReq>,
@@ -10222,6 +10324,16 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        "emem_eudr_dds" => {
+            // EUDR Due Diligence Statement: polygon(s) in, signed
+            // Annex II envelope out. Mirrors POST /v1/eudr_dds.
+            let req: EudrDdsReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_eudr_dds(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_recall_polygon" => {
             let req: RecallPolygonReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -11016,6 +11128,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/intent":            {"post":{"summary":"intent → plan","operationId":"emem_intent","responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON)","operationId":"emem_attest","responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
             "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
@@ -11113,6 +11226,22 @@ async fn openapi() -> Json<JsonValue> {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@2 per cell, applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), aggregates with a 0.1 % de-minimis threshold, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope.", "properties":{
+                    "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
+                        "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
+                        "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
+                        "country_of_production":{"type":"string","description":"ISO 3166-1 alpha-3 (e.g. BRA, IDN, CIV)."},
+                        "commodity_hs":{"type":"string","description":"Combined Nomenclature code (HS-6+). First 4 digits detect cattle (0102/0201/0202) for the Article 2(28) cattle exemption."},
+                        "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
+                        "quantity_kg":{"type":"number","description":"Net mass in kilograms (Annex II §3)."},
+                        "supplier":{"type":"string","description":"Optional supplier identifier."}
+                    }}},
+                    "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date (ISO 8601). The regulation's value is 2020-12-31."},
+                    "forest_baseline_override":{"type":"string","description":"Optional baseline override: 'jrc_gfc2020_v3' (default), 'hansen_only', or 'both' (consensus)."},
+                    "legality_module":{"type":"string","description":"Operator-chosen legality provider. Default 'none' surfaces the explicit Article 9(1)(b) out-of-scope disclaimer."},
+                    "operator":{"type":"object","description":"Operator identification per Annex II §1.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
+                    "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":256,"default":16,"description":"Sample budget per POLYGON plot. POINT plots evaluate at 1 cell regardless of this value."}
+                }},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
                 "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
                 "WaveSolveReq":    {"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{"coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},"offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},"period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); 6–18 s is the typical wind-wave + swell envelope."},"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Number of seaward cells to sample for the bathymetric profile."}}},
@@ -17261,6 +17390,260 @@ async fn materialize_hansen_band(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+// ---------------- JRC Global Forest Cover 2020 V3 materializer ------------
+//
+// Single global 41 GB COG at JEODPP, range-readable. The EU Commission's
+// expected (non-binding) EUDR baseline per Regulation (EU) 2023/1115
+// Article 2(4). Band `jrc_gfc2020.forest_2020` returns 1 = EUDR-definition
+// forest at 2020-12-31 cut-off, 0 = non-forest. Cells outside ±82°
+// latitude sign Absence; the connector enforces the bound before any I/O.
+async fn materialize_jrc_gfc2020_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::jrc_gfc2020;
+    if band != "jrc_gfc2020.forest_2020" {
+        return Err(format!("jrc_gfc2020 band {band} not registered"));
+    }
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+    let url = jrc_gfc2020::cog_url().to_string();
+
+    match jrc_gfc2020::fetch_forest_2020(&cli, lat, lng).await {
+        Ok(value) => {
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: 0,
+                value: ciborium::Value::Integer((value as i64).into()),
+                unit: Some("boolean_eudr_forest_2020".into()),
+                confidence: 0.88,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "jrc.gfc2020.v3".into(),
+                    id: url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "jrc_gfc2020_v3_pixel@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Text(jrc_gfc2020::JRC_GFC2020_VERSION_TAG.into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(jrc_gfc2020::JrcGfc2020Error::CoverageGap { lat: la, lng: ln }) => {
+            let reason = format!(
+                "jrc_gfc2020_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the JRC GFC2020 V3 ±82° latitude envelope."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                "jrc.gfc2020.v3",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(e) => Err(format!("jrc_gfc2020.forest_2020 fetch failed: {e}")),
+    }
+}
+
+// ---------------- WRI GDM driver-attribution materializer ----------------
+//
+// Sims et al. 2025 (ERL 20:074027) 7-class driver attribution at 1 km.
+// Today the fetch path returns `NotImplemented` because the public
+// Zenodo mirror does not honour HTTP Range and the COG uses LZW with
+// 8 samples-per-pixel — a combo the shared sampler doesn't support
+// yet. The connector's pure helpers (class_label, is_commodity_driven,
+// is_natural) still ship today. This materializer signs an Absence
+// carrying the structured NotImplemented reason so EUDR refinement
+// callers can surface it honestly rather than infer a verdict.
+async fn materialize_wri_gdm_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::wri_gdm_drivers;
+    if band != "wri_gdm.driver_class" {
+        return Err(format!("wri_gdm band {band} not registered"));
+    }
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let signed_at = chrono_iso8601_utc();
+    let url = wri_gdm_drivers::cog_url().to_string();
+
+    let cli = s2_http_client();
+    match wri_gdm_drivers::fetch_driver_class(&cli, lat, lng).await {
+        Ok(Some(class)) => {
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: 0,
+                value: ciborium::Value::Integer((class as i64).into()),
+                unit: Some("driver_class_1_7".into()),
+                confidence: 0.75,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "wri.gdm.v1_2".into(),
+                    id: url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "wri_gdm_v1_2_pixel@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Text(wri_gdm_drivers::WRI_GDM_VERSION_TAG.into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Ok(None) => {
+            let reason = format!(
+                "wri_gdm_no_hansen_loss: cell ({lat:.6},{lng:.6}) has no Hansen-detected loss event, so the Sims et al. 2025 driver attribution does not apply at this cell."
+            );
+            sign_band_absence(cell64, s, band, 0, "wri.gdm.v1_2", &url, &signed_at, &reason).await
+        }
+        Err(wri_gdm_drivers::WriGdmError::CoverageGap { lat: la, lng: ln, bound }) => {
+            let reason = format!(
+                "wri_gdm_coverage_gap: cell ({la:.6},{ln:.6}) is outside the WRI GDM ±{bound:.0}° latitude envelope."
+            );
+            sign_band_absence(cell64, s, band, 0, "wri.gdm.v1_2", &url, &signed_at, &reason).await
+        }
+        Err(wri_gdm_drivers::WriGdmError::NotImplemented { reason }) => {
+            let full = format!(
+                "wri_gdm_not_implemented: per-cell driver-class fetch not yet wired at this responder. Reason: {reason}. The connector's class-label helpers ship today; the per-cell sampler awaits a range-readable mirror that supports the LZW + 8 samples-per-pixel encoding."
+            );
+            sign_band_absence(cell64, s, band, 0, "wri.gdm.v1_2", &url, &signed_at, &full).await
+        }
+        Err(e) => Err(format!("wri_gdm.driver_class fetch failed: {e}")),
+    }
+}
+
+// ---------------- RADD SAR-alerts materializer ----------------
+//
+// Reiche et al. 2021 (ERL 16:024005) Sentinel-1 humid-tropics
+// deforestation alerts. Today the GFW raster lives on a Requester-Pays
+// S3 bucket with no anonymous HTTPS COG mirror, so the connector
+// returns `NotImplemented` for in-coverage cells. This materializer
+// signs an Absence carrying the structured reason so EUDR SAR-fallback
+// callers can surface the gap honestly.
+async fn materialize_radd_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::radd_alerts;
+    if !matches!(band, "radd.alert_date" | "radd.confidence") {
+        return Err(format!("radd band {band} not registered"));
+    }
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let signed_at = chrono_iso8601_utc();
+    let url = format!(
+        "{}#tile={}",
+        radd_alerts::RADD_BASE_URL,
+        radd_alerts::tile_url_for(lat, lng).unwrap_or_else(|| "out_of_coverage".into())
+    );
+
+    let cli = s2_http_client();
+    match radd_alerts::fetch_alert(&cli, lat, lng).await {
+        Ok(Some(alert)) => {
+            let value = if band == "radd.alert_date" {
+                ciborium::Value::Integer((alert.alert_date_yyyyddd as i64).into())
+            } else {
+                ciborium::Value::Integer((alert.confidence as i64).into())
+            };
+            let unit = if band == "radd.alert_date" {
+                "year_doy_yyyyddd"
+            } else {
+                "confidence_2_3"
+            };
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: 0,
+                value,
+                unit: Some(unit.into()),
+                confidence: 0.90,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "radd.v20260510".into(),
+                    id: url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "radd_v20260510_pixel@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Text(radd_alerts::RADD_VERSION_TAG.into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Ok(None) => {
+            let reason = format!(
+                "radd_no_alert: cell ({lat:.6},{lng:.6}) has no RADD alert observed in the current vintage."
+            );
+            sign_band_absence(cell64, s, band, 0, "radd.v20260510", &url, &signed_at, &reason).await
+        }
+        Err(radd_alerts::RaddError::CoverageGap { lat: la, lng: ln, iso3_hint }) => {
+            let reason = format!(
+                "radd_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the RADD humid-tropics footprint ({iso3_hint})."
+            );
+            sign_band_absence(cell64, s, band, 0, "radd.v20260510", &url, &signed_at, &reason).await
+        }
+        Err(radd_alerts::RaddError::NotImplemented { reason }) => {
+            let full = format!(
+                "radd_not_implemented: per-cell SAR-alert fetch not yet wired at this responder. Reason: {reason}. The GFW raster is on a Requester-Pays S3 bucket with no anonymous range-readable HTTPS mirror; humid-tropics geofencing and tile-name math ship today."
+            );
+            sign_band_absence(cell64, s, band, 0, "radd.v20260510", &url, &signed_at, &full).await
+        }
+        Err(e) => Err(format!("{band} fetch failed: {e}")),
+    }
+}
+
 // ---------------- CHIRPS daily-precipitation materializer ----------------
 //
 // UCSB CHIRPS v2.0: 0.05° Float32 daily precipitation, ±50° latitude,
@@ -18867,6 +19250,26 @@ async fn materialize_band_at(
         return materialize_hansen_band(cell64, s, band).await;
     }
 
+    // JRC GFC2020 V3 — EUDR-aligned forest baseline (Article 2(4) at
+    // 10 % canopy / 0.5 ha / 5 m height). Single global COG at JEODPP.
+    if band == "jrc_gfc2020.forest_2020" {
+        return materialize_jrc_gfc2020_band(cell64, s, band).await;
+    }
+
+    // WRI GDM driver attribution (Sims et al. 2025). Honest stub —
+    // signs Absence with NotImplemented reason until the LZW + multi-
+    // band sampler lands.
+    if band == "wri_gdm.driver_class" {
+        return materialize_wri_gdm_band(cell64, s, band).await;
+    }
+
+    // RADD SAR alerts (Reiche et al. 2021). Honest stub — signs
+    // Absence with NotImplemented reason until a range-readable
+    // anonymous HTTPS mirror exists.
+    if matches!(band, "radd.alert_date" | "radd.confidence") {
+        return materialize_radd_band(cell64, s, band).await;
+    }
+
     // SoilGrids 2.0 (ISRIC) — static, global, 250 m soil-property maps. One
     // fact per cell at tslot=0 because the maps don't update sub-annually.
     if matches!(
@@ -19997,6 +20400,68 @@ async fn try_materialize_bands(
             }
             // ESA WorldCover 2021 (single global release).
             "esa_worldcover.lc_2021" => match materialize_esa_worldcover_2021(cell64, s).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary_or_absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
+            // WRI GDM driver attribution (Sims 2025). Signs Absence
+            // with NotImplemented reason today; refinement-aware
+            // callers (EUDR DDS) treat Absence as "no refinement".
+            "wri_gdm.driver_class" => match materialize_wri_gdm_band(cell64, s, b).await {
+                Ok(cid) => out.push(MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: Some(cid.as_str().to_string()),
+                    skip_reason: None,
+                }),
+                Err(e) => out.push(MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: Some(e),
+                }),
+            },
+            // RADD SAR alerts (Reiche 2021). Same Absence pattern.
+            "radd.alert_date" | "radd.confidence" => {
+                match materialize_radd_band(cell64, s, b).await {
+                    Ok(cid) => out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    }),
+                    Err(e) => out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    }),
+                }
+            }
+            // JRC Global Forest Cover 2020 V3 — the EU Commission's
+            // expected (non-binding) EUDR baseline. Single global COG,
+            // static per cell.
+            "jrc_gfc2020.forest_2020" => match materialize_jrc_gfc2020_band(cell64, s, b).await {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
@@ -22777,6 +23242,541 @@ fn materializer_status_for(input_bands: &[&'static str]) -> JsonValue {
         }));
     }
     JsonValue::Array(out)
+}
+
+// ---------------- EUDR Due Diligence Statement endpoint ----------------
+//
+// POST /v1/eudr_dds — given one or more plots (geometry + commodity
+// + country + quantity), emit a signed Annex II-shaped Due Diligence
+// Statement per Regulation (EU) 2023/1115. Each plot's verdict comes
+// from running eudr_compliance@2's logic across a sample of cells
+// inside its polygon; the overall DDS verdict aggregates plot
+// verdicts. Article 2(28) dispatches POINT (≤ 4 ha non-cattle) vs
+// POLYGON (> 4 ha or cattle) and surfaces both representations.
+//
+// The endpoint NEVER claims Article 9(1)(b) legality coverage — see
+// the `legality_disclaimer` field in every response.
+
+#[derive(Debug, Clone, Deserialize)]
+struct EudrDdsReq {
+    /// Plots to evaluate. Each plot carries the polygon geometry,
+    /// the operator-supplied metadata, and ships its own verdict.
+    plots: Vec<EudrPlot>,
+    /// EUDR cut-off date in ISO 8601. Defaults to the regulation's
+    /// 2020-12-31; only loss after this date counts as failure.
+    #[serde(default = "default_eudr_cutoff_date")]
+    cut_off_date: String,
+    /// Operator may override the forest baseline (advanced; the
+    /// default JRC GFC2020 V3 is what the EU Commission funded).
+    /// Acceptable values: `"jrc_gfc2020_v3"` (default), `"hansen_only"`
+    /// (Hansen ≥ 10 % canopy alone), `"both"` (consensus).
+    #[serde(default)]
+    forest_baseline_override: Option<String>,
+    /// Operator's chosen legality module. Default `null` surfaces in
+    /// the response as `"none"` and the response carries the explicit
+    /// disclaimer that Article 9(1)(b) legality is out of EO scope.
+    #[serde(default)]
+    legality_module: Option<String>,
+    /// Operator identification per Annex II §1.
+    #[serde(default)]
+    operator: Option<EudrOperator>,
+    /// Sample budget per plot. Default 16; hard max 256. Small plots
+    /// (≤ 4 ha) get a 1-cell evaluation regardless of this value.
+    #[serde(default)]
+    max_cells_per_plot: Option<usize>,
+}
+
+fn default_eudr_cutoff_date() -> String {
+    "2020-12-31".into()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct EudrPlot {
+    /// Operator-supplied identifier — preserved verbatim in the
+    /// response so downstream supply-chain records remain joinable.
+    plot_id: String,
+    /// GeoJSON `Polygon` (preferred for > 4 ha plots) or `Point`
+    /// (acceptable for ≤ 4 ha non-cattle plots per Article 2(28)).
+    /// The endpoint also accepts a bare `{bbox: [minlng, minlat,
+    /// maxlng, maxlat]}` for tooling convenience.
+    geometry_geojson: JsonValue,
+    /// ISO 3166-1 alpha-3 country code (e.g. `"BRA"`, `"IDN"`,
+    /// `"CIV"`).
+    country_of_production: String,
+    /// Combined Nomenclature code (HS-6 minimum). The endpoint uses
+    /// the first 4 digits to detect cattle (`0102`, `0201`, `0202`)
+    /// for the Article 2(28) cattle exemption.
+    commodity_hs: String,
+    /// Optional plain-English name for the commodity (e.g. `"coffee
+    /// arabica"`, `"palm oil"`).
+    #[serde(default)]
+    commodity_name: Option<String>,
+    /// Net mass in kilograms (Annex II §3). Volume / item count are
+    /// not supported in this MVP; pass a kg-equivalent.
+    quantity_kg: f64,
+    /// Optional supplier identifier.
+    #[serde(default)]
+    supplier: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct EudrOperator {
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    eori: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    address: Option<String>,
+}
+
+/// Resolve a plot's geometry into a (bbox, optional polygon, area_ha)
+/// triple. Accepts GeoJSON `Polygon`, GeoJSON `Point`, or a bare
+/// `{bbox: [minlng, minlat, maxlng, maxlat]}` envelope.
+fn extract_plot_geometry(
+    geojson: &JsonValue,
+) -> Result<((f64, f64, f64, f64), Option<emem_core::Polygon>, f64), String> {
+    // Bbox shortcut: {bbox: [minlng, minlat, maxlng, maxlat]}.
+    if let Some(bbox_arr) = geojson.get("bbox").and_then(|v| v.as_array()) {
+        if bbox_arr.len() == 4 {
+            let nums: Vec<f64> = bbox_arr.iter().filter_map(|v| v.as_f64()).collect();
+            if nums.len() == 4 {
+                let (mn_ln, mn_la, mx_ln, mx_la) = (nums[0], nums[1], nums[2], nums[3]);
+                let bbox = (mn_la, mx_la, mn_ln, mx_ln);
+                let area = approx_plot_area_ha(bbox);
+                return Ok((bbox, None, area));
+            }
+        }
+    }
+    // GeoJSON Polygon.
+    if let Some(typ) = geojson.get("type").and_then(|v| v.as_str()) {
+        match typ {
+            "Polygon" => {
+                let coords = geojson
+                    .get("coordinates")
+                    .and_then(|v| v.as_array())
+                    .ok_or("Polygon missing coordinates")?;
+                let mut rings: Vec<Vec<[f64; 2]>> = Vec::with_capacity(coords.len());
+                for ring in coords {
+                    let ring_arr = ring.as_array().ok_or("ring not array")?;
+                    let mut r = Vec::with_capacity(ring_arr.len());
+                    for pt in ring_arr {
+                        let p = pt.as_array().ok_or("vertex not array")?;
+                        if p.len() < 2 {
+                            return Err("vertex needs [lng, lat]".into());
+                        }
+                        r.push([
+                            p[0].as_f64().ok_or("lng not number")?,
+                            p[1].as_f64().ok_or("lat not number")?,
+                        ]);
+                    }
+                    rings.push(r);
+                }
+                let poly = emem_core::Polygon::from_geojson_coords(&rings)
+                    .ok_or("polygon construction failed (need ≥4 vertices per ring)")?;
+                let bbox = poly.outer_bbox();
+                let area = approx_plot_area_ha(bbox);
+                Ok((bbox, Some(poly), area))
+            }
+            "Point" => {
+                let coords = geojson
+                    .get("coordinates")
+                    .and_then(|v| v.as_array())
+                    .ok_or("Point missing coordinates")?;
+                if coords.len() < 2 {
+                    return Err("Point needs [lng, lat]".into());
+                }
+                let lng = coords[0].as_f64().ok_or("lng not number")?;
+                let lat = coords[1].as_f64().ok_or("lat not number")?;
+                // 1-cell envelope (~9.55 m at equator).
+                let eps = 1e-4;
+                let bbox = (lat - eps, lat + eps, lng - eps, lng + eps);
+                // POINT plots are ≤ 4 ha by definition under
+                // Article 2(28); we surface 0.01 ha so downstream
+                // logic dispatches POINT.
+                Ok((bbox, None, 0.01))
+            }
+            other => Err(format!("unsupported GeoJSON type: {other} (use Polygon or Point)")),
+        }
+    } else {
+        Err("geometry_geojson missing 'type' field (use GeoJSON Polygon/Point or {bbox})".into())
+    }
+}
+
+/// Rough area in hectares from a (lat_min, lat_max, lng_min, lng_max)
+/// bbox using equirectangular approximation at the bbox centre. Good
+/// enough for the Article 2(28) 4-hectare dispatch; not for accounting.
+fn approx_plot_area_ha(bbox: (f64, f64, f64, f64)) -> f64 {
+    let (mn_la, mx_la, mn_ln, mx_ln) = bbox;
+    let dlat_km = (mx_la - mn_la).abs() * 111.0;
+    let mid_lat_rad = ((mn_la + mx_la) * 0.5).to_radians();
+    let dlng_km = (mx_ln - mn_ln).abs() * 111.0 * mid_lat_rad.cos().abs();
+    let area_km2 = dlat_km * dlng_km;
+    area_km2 * 100.0
+}
+
+/// Per-cell verdict computed in Rust (mirrors eudr_compliance@2's AST
+/// but with graceful handling of missing inputs). Codes match the
+/// algorithm's output values: 1=pass, 2=fail, 3=not_in_scope,
+/// 4=indeterminate.
+#[derive(Debug, Clone, Serialize)]
+struct EudrCellVerdict {
+    cell: String,
+    verdict: u8,
+    label: &'static str,
+    jrc_forest_2020: Option<i64>,
+    hansen_treecover_2000: Option<i64>,
+    hansen_lossyear: Option<i64>,
+    wri_driver_class: Option<i64>,
+    radd_alert_date: Option<i64>,
+    refinement_applied: Option<&'static str>,
+    fact_cids: Vec<String>,
+}
+
+fn verdict_label(code: u8) -> &'static str {
+    match code {
+        1 => "pass",
+        2 => "fail",
+        3 => "not_in_scope",
+        4 => "indeterminate",
+        5 => "fail_below_de_minimis",
+        _ => "unknown",
+    }
+}
+
+/// Recall the EUDR inputs at one cell and apply the per-cell verdict
+/// logic. Graceful: missing required inputs → indeterminate; missing
+/// optional refinement inputs → use whatever's available.
+async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
+    let bands = vec![
+        "jrc_gfc2020.forest_2020".to_string(),
+        "forest_change.treecover2000".to_string(),
+        "forest_change.lossyear".to_string(),
+        "wri_gdm.driver_class".to_string(),
+        "radd.alert_date".to_string(),
+    ];
+    let mut jrc: Option<i64> = None;
+    let mut hansen_tc: Option<i64> = None;
+    let mut hansen_ly: Option<i64> = None;
+    let mut wri_class: Option<i64> = None;
+    let mut radd_date: Option<i64> = None;
+    let mut fact_cids: Vec<String> = Vec::new();
+
+    for b in &bands {
+        let cid = match try_materialize_one_band(cell64, b, s).await {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        fact_cids.push(cid.as_str().to_string());
+        if let Ok(Some(fact)) = s
+            .storage
+            .get_facts_many(std::slice::from_ref(&cid))
+            .await
+            .map(|v| v.into_iter().next().flatten())
+        {
+            if let emem_fact::Fact::Primary(p) = fact {
+                if let ciborium::Value::Integer(i) = p.value {
+                    if let Ok(v) = i64::try_from(i) {
+                        match b.as_str() {
+                            "jrc_gfc2020.forest_2020" => jrc = Some(v),
+                            "forest_change.treecover2000" => hansen_tc = Some(v),
+                            "forest_change.lossyear" => hansen_ly = Some(v),
+                            "wri_gdm.driver_class" => wri_class = Some(v),
+                            "radd.alert_date" => radd_date = Some(v),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Per-cell verdict per Article 2(4) + 2020-12-31 cut-off.
+    // forest_at_cutoff = (JRC == 1) OR (Hansen treecover2000 >= 10).
+    let forest_at_cutoff = matches!(jrc, Some(v) if v >= 1)
+        || matches!(hansen_tc, Some(v) if v >= 10);
+    if !forest_at_cutoff {
+        // Need at least one baseline reading to be confident.
+        if jrc.is_none() && hansen_tc.is_none() {
+            return EudrCellVerdict {
+                cell: cell64.into(),
+                verdict: 4,
+                label: verdict_label(4),
+                jrc_forest_2020: jrc,
+                hansen_treecover_2000: hansen_tc,
+                hansen_lossyear: hansen_ly,
+                wri_driver_class: wri_class,
+                radd_alert_date: radd_date,
+                refinement_applied: Some("no_baseline_input"),
+                fact_cids,
+            };
+        }
+        return EudrCellVerdict {
+            cell: cell64.into(),
+            verdict: 3,
+            label: verdict_label(3),
+            jrc_forest_2020: jrc,
+            hansen_treecover_2000: hansen_tc,
+            hansen_lossyear: hansen_ly,
+            wri_driver_class: wri_class,
+            radd_alert_date: radd_date,
+            refinement_applied: None,
+            fact_cids,
+        };
+    }
+    // forest_at_cutoff == true. Now check loss after cut-off.
+    let hansen_loss = matches!(hansen_ly, Some(v) if v >= 21);
+    let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2021_001);
+    let any_loss = hansen_loss || radd_post_cutoff;
+    if !any_loss {
+        return EudrCellVerdict {
+            cell: cell64.into(),
+            verdict: 1,
+            label: verdict_label(1),
+            jrc_forest_2020: jrc,
+            hansen_treecover_2000: hansen_tc,
+            hansen_lossyear: hansen_ly,
+            wri_driver_class: wri_class,
+            radd_alert_date: radd_date,
+            refinement_applied: if radd_date.is_some() {
+                Some("radd_confirmed_no_loss")
+            } else {
+                None
+            },
+            fact_cids,
+        };
+    }
+    // Loss after cut-off — apply Sims driver refinement if available.
+    // Classes 5 (wildfire) and 7 (other natural) are out of EUDR scope.
+    if let Some(c) = wri_class {
+        if c == 5 || c == 7 {
+            return EudrCellVerdict {
+                cell: cell64.into(),
+                verdict: 3,
+                label: verdict_label(3),
+                jrc_forest_2020: jrc,
+                hansen_treecover_2000: hansen_tc,
+                hansen_lossyear: hansen_ly,
+                wri_driver_class: wri_class,
+                radd_alert_date: radd_date,
+                refinement_applied: Some("sims_natural_cause"),
+                fact_cids,
+            };
+        }
+    }
+    // Commodity-driven (1, 2, 3) or unknown driver → fail.
+    EudrCellVerdict {
+        cell: cell64.into(),
+        verdict: 2,
+        label: verdict_label(2),
+        jrc_forest_2020: jrc,
+        hansen_treecover_2000: hansen_tc,
+        hansen_lossyear: hansen_ly,
+        wri_driver_class: wri_class,
+        radd_alert_date: radd_date,
+        refinement_applied: match wri_class {
+            Some(c) if (1..=3).contains(&c) => Some("sims_commodity_driven"),
+            Some(_) => Some("sims_other_anthropogenic"),
+            None => Some("no_driver_refinement"),
+        },
+        fact_cids,
+    }
+}
+
+/// Helper to materialize a single band at a cell and return its CID.
+/// Goes through the same auto-materialize path as recall.
+async fn try_materialize_one_band(
+    cell64: &str,
+    band: &str,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    // JRC GFC2020 V3.
+    if band == "jrc_gfc2020.forest_2020" {
+        return materialize_jrc_gfc2020_band(cell64, s, band).await;
+    }
+    // Hansen GFC v1.12.
+    if matches!(band, "forest_change.lossyear" | "forest_change.treecover2000" | "forest_change.gain") {
+        return materialize_hansen_band(cell64, s, band).await;
+    }
+    // WRI GDM Sims 2025.
+    if band == "wri_gdm.driver_class" {
+        return materialize_wri_gdm_band(cell64, s, band).await;
+    }
+    // RADD SAR.
+    if matches!(band, "radd.alert_date" | "radd.confidence") {
+        return materialize_radd_band(cell64, s, band).await;
+    }
+    Err(format!("eudr_dds: band {band} not wired"))
+}
+
+/// Aggregate per-cell verdicts to a plot-level verdict per Annex II.
+/// Uses a 0.1 % de-minimis threshold: a single failing cell at 1 % of
+/// plot area cannot flip a 100-ha plot to FAIL on a 0.01-ha edge
+/// effect; surface as `fail_below_de_minimis` so the operator can
+/// quote the failing fraction.
+fn aggregate_plot_verdict(per_cell: &[EudrCellVerdict]) -> (u8, f64, usize, usize) {
+    if per_cell.is_empty() {
+        return (4, 0.0, 0, 0);
+    }
+    let n = per_cell.len();
+    let mut n_fail = 0usize;
+    let mut n_indeterminate = 0usize;
+    let mut n_not_in_scope = 0usize;
+    for v in per_cell {
+        match v.verdict {
+            2 => n_fail += 1,
+            3 => n_not_in_scope += 1,
+            4 => n_indeterminate += 1,
+            _ => {}
+        }
+    }
+    let fail_fraction = n_fail as f64 / n as f64;
+    // If every cell is not_in_scope, the plot is not_in_scope.
+    if n_not_in_scope == n {
+        return (3, fail_fraction, n_fail, n);
+    }
+    // If majority are indeterminate, plot is indeterminate.
+    if n_indeterminate as f64 / n as f64 > 0.5 {
+        return (4, fail_fraction, n_fail, n);
+    }
+    if n_fail == 0 {
+        return (1, fail_fraction, n_fail, n);
+    }
+    // De-minimis check: < 0.1 % of cells failing → flag.
+    if fail_fraction < 0.001 && n_fail > 0 {
+        return (5, fail_fraction, n_fail, n);
+    }
+    (2, fail_fraction, n_fail, n)
+}
+
+/// HS-code prefix detection for cattle per Annex I of Regulation
+/// (EU) 2023/1115: live bovine animals (0102), fresh/chilled bovine
+/// meat (0201), frozen bovine meat (0202). Cattle plots are POLYGON
+/// regardless of size per Article 2(28).
+fn hs_code_is_cattle(hs: &str) -> bool {
+    let h = hs.trim();
+    h.starts_with("0102") || h.starts_with("0201") || h.starts_with("0202")
+}
+
+async fn post_eudr_dds(
+    State(s): State<AppState>,
+    Json(req): Json<EudrDdsReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    if req.plots.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "eudr_dds: `plots` cannot be empty; pass at least one plot".into(),
+                details: None,
+            },
+        ));
+    }
+    let max_cells_default = req.max_cells_per_plot.unwrap_or(16).clamp(1, 256);
+
+    let mut per_plot_results: Vec<JsonValue> = Vec::with_capacity(req.plots.len());
+    let mut overall_verdicts: Vec<u8> = Vec::with_capacity(req.plots.len());
+
+    for plot in &req.plots {
+        let (bbox, polygon_opt, area_ha) = match extract_plot_geometry(&plot.geometry_geojson) {
+            Ok(t) => t,
+            Err(e) => {
+                per_plot_results.push(json!({
+                    "plot_id":  plot.plot_id,
+                    "verdict":  "indeterminate",
+                    "verdict_code": 4,
+                    "error":    format!("geometry parse: {e}"),
+                }));
+                overall_verdicts.push(4);
+                continue;
+            }
+        };
+        let is_cattle = hs_code_is_cattle(&plot.commodity_hs);
+        // Article 2(28): POLYGON for > 4 ha or cattle; POINT for the
+        // rest. POINT still evaluates at the centroid cell.
+        let geometry_kind = if area_ha > 4.0 || is_cattle {
+            "polygon"
+        } else {
+            "point"
+        };
+        // Sample budget: small POINT plots only need 1 cell.
+        let n_cells = if geometry_kind == "point" { 1 } else { max_cells_default };
+        let cells = if let Some(poly) = polygon_opt {
+            sample_cells_in_polygon(bbox, n_cells, &[poly])
+        } else {
+            sample_cells_in_bbox(bbox, n_cells)
+        };
+        let mut per_cell = Vec::with_capacity(cells.len());
+        for c in &cells {
+            per_cell.push(evaluate_eudr_cell(&s, c).await);
+        }
+        let (plot_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
+        overall_verdicts.push(plot_verdict);
+
+        // Article 2(28) representation: POINT plots surface their
+        // centroid; POLYGON plots surface the bbox + per-cell cids.
+        let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
+        per_plot_results.push(json!({
+            "plot_id":         plot.plot_id,
+            "verdict":         verdict_label(plot_verdict),
+            "verdict_code":    plot_verdict,
+            "fail_fraction":   fail_fraction,
+            "failing_cells":   n_fail,
+            "total_cells":     n_total,
+            "area_ha_approx":  area_ha,
+            "geometry_kind":   geometry_kind,
+            "is_cattle":       is_cattle,
+            "country_of_production": plot.country_of_production,
+            "commodity_hs":    plot.commodity_hs,
+            "commodity_name":  plot.commodity_name,
+            "quantity_kg":     plot.quantity_kg,
+            "supplier":        plot.supplier,
+            "geolocation": {
+                "centroid":   {"lat": lat_c, "lng": lng_c, "precision_digits": 6},
+                "bbox":       {"min_lat": bbox.0, "max_lat": bbox.1, "min_lng": bbox.2, "max_lng": bbox.3},
+                "decimal_digits_per_article_2_28": 6,
+            },
+            "per_cell_verdicts": per_cell,
+        }));
+    }
+    let overall = if overall_verdicts.iter().any(|&v| v == 2) {
+        2
+    } else if overall_verdicts.iter().any(|&v| v == 5) {
+        5
+    } else if overall_verdicts.iter().all(|&v| v == 1) {
+        1
+    } else if overall_verdicts.iter().all(|&v| v == 3) {
+        3
+    } else {
+        4
+    };
+
+    let baseline = req
+        .forest_baseline_override
+        .clone()
+        .unwrap_or_else(|| "jrc_gfc2020_v3".into());
+
+    let body = json!({
+        "schema":          "emem.eudr_dds.v1",
+        "regulation":      "EU 2023/1115",
+        "regulation_articles": ["2(4)","2(28)","8","9","Annex II"],
+        "cut_off_date":    req.cut_off_date,
+        "forest_baseline": baseline,
+        "baseline_note":   "JRC GFC2020 V3 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative.",
+        "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
+        "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
+        "schema_url":      "/v1/schemas/eudr_dds.json",
+        "algorithm_key":   "eudr_dds@1",
+        "underlying_per_cell_algorithm": "eudr_compliance@2",
+        "due_diligence_statement": {
+            "operator":     req.operator,
+            "verdict":      verdict_label(overall),
+            "verdict_code": overall,
+            "n_plots":      req.plots.len(),
+        },
+        "per_plot_results": per_plot_results,
+        "responder_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
+        "served_at":     chrono_iso8601_utc(),
+    });
+    Ok(Json(body))
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {

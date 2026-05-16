@@ -214,6 +214,23 @@ const SCHEMA_HUNT: &str = r#"{"type":"object","required":["event"],"properties":
 }, "description":"Explicit polygon bbox; alternative to `region`. Provide when you already have coordinates from a prior locate / recall_polygon call."}
 }}"#;
 
+const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properties":{
+"plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate for EUDR compliance.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
+  "plot_id":{"type":"string","description":"Operator-supplied plot identifier; preserved verbatim."},
+  "geometry_geojson":{"description":"GeoJSON Polygon (preferred for >4 ha) OR GeoJSON Point (≤4 ha non-cattle per Article 2(28)) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}."},
+  "country_of_production":{"type":"string","description":"ISO 3166-1 alpha-3 (e.g. BRA, IDN, CIV)."},
+  "commodity_hs":{"type":"string","description":"Combined Nomenclature code (HS-6+). First 4 digits detect cattle (0102/0201/0202) for the Article 2(28) cattle exemption: cattle plots are POLYGON regardless of size."},
+  "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
+  "quantity_kg":{"type":"number","description":"Net mass in kilograms (Annex II §3)."},
+  "supplier":{"type":"string","description":"Optional supplier identifier."}
+}}},
+"cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date in ISO 8601. The regulation's value is 2020-12-31; only loss after this date counts as failure."},
+"forest_baseline_override":{"type":"string","description":"Optional baseline override. Default 'jrc_gfc2020_v3' is the EU Commission's expected (non-binding) baseline. Acceptable: 'jrc_gfc2020_v3', 'hansen_only', 'both'."},
+"legality_module":{"type":"string","description":"Operator-chosen legality provider. Default null surfaces the explicit Article 9(1)(b) out-of-EO-scope disclaimer."},
+"operator":{"type":"object","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
+"max_cells_per_plot":{"type":"integer","minimum":1,"maximum":256,"default":16,"description":"Sample budget per POLYGON plot. POINT plots evaluate at 1 cell."}
+}}"#;
+
 const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder. REQUIRED unless `polygon_bbox` is provided."},
 "polygon_bbox":{"type":"object","properties":{
@@ -346,6 +363,16 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks an open-world discovery question (\"find oil spills in the Persian Gulf\", \"where is deforestation happening in the Amazon\", \"show me algal blooms in Lake Erie\", \"hunt wildfires across California\"). Surface 3–8 hotspots with their scene.png as image attachments and quote at least one fact_cid. For `oil_slick` the responder honestly reports `not_yet_implemented` and points at SAR-darkening + turbidity proxies — don't fabricate detections. The ranking uses the algorithm's primary scalar input only; for the full per-cell algorithm score, fetch the formula at /v1/algorithms/<key> and apply it client-side over the same recalled bands.",
         input_schema: SCHEMA_HUNT,
         example_args: r#"{"event":"algal_bloom","region":"Lake Erie"}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    },
+    ToolDescriptor {
+        name: "emem_eudr_dds",
+        title: "EUDR Due Diligence Statement — polygon-in, signed Annex II envelope out",
+        description: "Produce a Due Diligence Statement per Regulation (EU) 2023/1115 for one or more plots. Each plot carries operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint applies the regulation's 10 % canopy / 0.5 ha / 5 m height forest definition (Article 2(4)) using the EU Commission's expected JRC GFC2020 V3 baseline plus Hansen GFC v1.12 loss-year confirmation; Sims et al. 2025 driver attribution and RADD SAR fallback layer on when those connectors are wired (Absence today). The response is an Annex II-shaped envelope with per-plot verdict (pass/fail/not_in_scope/indeterminate/fail_below_de_minimis), failing-cell fraction, and signed fact CIDs for every per-cell verdict — operators quote them in the company's Article 12 record. Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws) is structurally out of EO scope; the response carries an explicit `legality_disclaimer` for that reason.",
+        when_to_use: "Call when a commodity supplier or EU importer needs to evidence due diligence under Regulation (EU) 2023/1115. Use the plot-level signed receipts as evidence inside the operator's company record; pair with a partner legality module before submitting the final DDS to the EU Information System (TRACES NT). For a single plot, pass one entry in `plots`. For batch supply-chain audits, pass up to a few dozen plots in one call — the endpoint fans out per plot. Surface the failing-cell fraction, the chosen forest baseline, and the legality disclaimer in the user-facing response so the operator understands what the engine claims (and does not).",
+        input_schema: SCHEMA_EUDR_DDS,
+        example_args: r#"{"plots":[{"plot_id":"farm-001","geometry_geojson":{"type":"Polygon","coordinates":[[[-60.5,-3.5],[-60.4,-3.5],[-60.4,-3.4],[-60.5,-3.4],[-60.5,-3.5]]]},"country_of_production":"BRA","commodity_hs":"0901","commodity_name":"coffee","quantity_kg":12000}],"operator":{"name":"Acme Coffee BV","eori":"NL123456789"}}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     },

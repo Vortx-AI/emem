@@ -31,14 +31,17 @@ pub mod firms;
 pub mod ftw;
 pub mod geonames;
 pub mod hansen_gfc;
+pub mod jrc_gfc2020;
 pub mod koppen;
 pub mod overture;
 pub mod proj;
+pub mod radd_alerts;
 pub mod stac;
 pub mod template;
 pub mod terraclimate;
 pub mod wdpa;
 pub mod worldpop;
+pub mod wri_gdm_drivers;
 
 /// A single fetch request.
 ///
