@@ -1,4 +1,5 @@
-<!doctype html><html lang=en><head>
+<!doctype html><html lang=en>
+<head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>emem, Earth memory for AI agents</title>
 <meta name=description content="Earth memory protocol for AI agents. Cell × Band × Tslot → Fact. Every read is an ed25519-signed receipt with a content-addressed CID. MCP + REST. No API keys.">
@@ -8,6 +9,9 @@
 <link rel=alternate type=application/json href=/v1/discover>
 <link rel=alternate type=application/json href=/openapi.json>
 <link rel="service mcp" href=/mcp>
+<link rel=icon type="image/svg+xml" href=/favicon.svg>
+<link rel=icon type="image/png" sizes="32x32" href=/favicon.png>
+<link rel="apple-touch-icon" sizes="180x180" href=/apple-touch-icon.png>
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/">
 <meta property=og:title content="emem, Earth memory for AI agents">
@@ -18,6 +22,9 @@
 <meta name=twitter:title content="emem, Earth memory for AI agents">
 <meta name=twitter:description content="Signed, content-addressed Earth memory. MCP + REST. No keys.">
 <meta name=twitter:image content="https://emem.dev/og-image.svg">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <!-- ##GA_BEGIN## -->
 <script>
 // Google Consent Mode v2: every storage purpose denied before gtag.js
@@ -42,125 +49,958 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
 <!-- ##GA_END## -->
 <script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"WebAPI","@id":"https://emem.dev/#api","name":"emem","url":"https://emem.dev","description":"Earth memory protocol for AI agents. Cell × Band × Tslot → Fact. Every read is an ed25519-signed receipt with a content-addressed CID.","documentation":"https://emem.dev/openapi.json","provider":{"@id":"https://vortx.ai/#org"},"license":"https://www.apache.org/licenses/LICENSE-2.0","termsOfService":"https://emem.dev/terms"},{"@type":"SoftwareApplication","@id":"https://emem.dev/#app","name":"emem","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://emem.dev","downloadUrl":"https://github.com/Vortx-AI/emem","license":"https://www.apache.org/licenses/LICENSE-2.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"creator":{"@id":"https://vortx.ai/#org"}},{"@type":"WebSite","@id":"https://emem.dev/#site","name":"emem","url":"https://emem.dev","publisher":{"@id":"https://vortx.ai/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://emem.dev/v1/locate?place={query}"},"query-input":"required name=query"}},{"@type":"Organization","@id":"https://vortx.ai/#org","name":"Vortx AI Private Limited","url":"https://vortx.ai","email":"avijeet@vortx.ai","logo":"https://emem.dev/logo.png","sameAs":["https://github.com/Vortx-AI"]},{"@type":"Service","@id":"https://emem.dev/#service","name":"emem use cases","provider":{"@id":"https://vortx.ai/#org"},"serviceType":"Earth-observation memory for AI agents","areaServed":{"@type":"Place","name":"Earth"},"hasOfferCatalog":{"@type":"OfferCatalog","name":"emem agent use cases","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"Consumer health","description":"Air quality (CAMS PM2.5, NO₂, O₃), urban heat exposure, wildfire smoke risk, pollen seasonality."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Real estate and insurance","description":"Flood risk composite, walkability, elevation, surface-water recurrence, storm-surge exposure."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Climate finance and carbon MRV","description":"Above-ground biomass proxies, mangrove cover, deforestation rate, NDVI / EVI trajectories with signed receipts for VM0042 / VCS / Gold Standard MRV."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"ESG and SDG reporting","description":"Biodiversity proxies (Tessera embedding novelty), supply-chain forest-loss adjacency, land-cover transitions for SDG 15."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Agriculture","description":"Crop stress (NDVI / NDRE), evapotranspiration (MODIS ET), soil moisture proxy, growing-season anomaly."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Urban planning","description":"Surface temperature, urban heat island, building density (Overture), road network length, green-space share."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Disaster response","description":"S1 backscatter for flood extent under cloud, MODIS burned area, JRC GSW for permanent vs flood water."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Conservation and biodiversity","description":"Hansen forest loss, ESA WorldCover transitions, ecoregion lookup, mangrove change."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Energy siting","description":"Solar irradiance (NASA POWER), wind speed (ERA5), DEM slope, land cover constraints."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Mining impact","description":"Pre / post NDVI delta, surface-water encroachment, land-cover change attestable per cell."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Tourism and recreation","description":"Marine wave height (ECMWF WAM), SST, snow cover seasonality, weather nowcast (MET Norway)."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Fisheries","description":"Sea-surface temperature, ocean chlorophyll-a proxy, marine wave conditions, bathymetry (GMRT)."}}]}},{"@type":"FAQPage","@id":"https://emem.dev/#faq","mainEntity":[{"@type":"Question","name":"What is emem?","acceptedAnswer":{"@type":"Answer","text":"emem is an Earth memory protocol for AI agents. Every place on Earth gets a stable address called a cell64 (about 10 m on a side). Facts at that address (elevation, weather, land cover, foundation embeddings) are recall-able as Cell × Band × Tslot → Fact, signed with ed25519, content-addressed with blake3. There are no API keys for read endpoints."}},{"@type":"Question","name":"How do I connect Claude, Cursor, Cline, Gemini, or ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Point any MCP client at https://emem.dev/mcp. The full tool catalog appears under tools/list. Claude Code, Claude Desktop, Cursor, Cline, Gemini CLI, and ChatGPT Custom GPTs all support Streamable HTTP MCP. For ChatGPT Actions, import https://emem.dev/openapi.action.json with auth: none."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"L0 and L1 read endpoints are free and anonymous. No accounts, no API keys, no payment. Apache-2.0 source. Operators self-hosting their own responder pay only for their own compute."}},{"@type":"Question","name":"Can I verify the answers offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every read returns a receipt with the responder's ed25519 public key, the signed payload, and the content-addressed CID for each fact. Recompute blake3 over the canonical CBOR fact, verify ed25519 against the signer pubkey, and the answer is reproducible. POST /v1/verify_receipt does this for you, or do it offline in any ed25519 + blake3 implementation."}},{"@type":"Question","name":"Where does the data come from?","acceptedAnswer":{"@type":"Answer","text":"Sentinel-2 L2A and Sentinel-1 GRD via the Element84 STAC, MODIS Terra/Aqua via NASA LP DAAC, Copernicus DEM, GMRT topo and bathy, JRC Global Surface Water, Hansen Global Forest Change, ESA WorldCover, SoilGrids 2.0, MET Norway nowcast weather, ECMWF ERA5 and CAMS via Open-Meteo, NASA POWER, Overture Maps. Foundation embeddings: Tessera v1 (Cambridge), Prithvi-EO-2.0 (NASA / IBM), Galileo Base (NASA Harvest)."}},{"@type":"Question","name":"How does emem handle GDPR, CCPA, and DPDP? Does it use Google Analytics?","acceptedAnswer":{"@type":"Answer","text":"The canonical channel carries no PII. The hosted responder logs only a blake3-hashed truncated IP (non-reversible), the request path, and GET query strings, retained for 30 days then vacuumed by systemd-journald. The HTML landing page loads Google Analytics 4 (operator-configurable measurement ID, see /.well-known/agent-card.json) under Consent Mode v2 with default-denied. An explicit consent banner asks human visitors whether to enable cookie-based analytics, with equal-prominence Accept and Reject buttons. AI crawlers do not run JS and do not see the banner. The decision is stored in a first-party cookie emem_consent (180-day max-age, SameSite=Lax, Secure) and can be revoked via the Manage cookies link in the footer. Data subject rights under GDPR Art. 15-21, UK GDPR, India DPDP 2023, and CCPA / CPRA route to avijeet@vortx.ai. Full policy at https://emem.dev/privacy."}}]}]}</script>
 <style>
-:root{--paper:#fafafa;--ink:#1a1a1a;--mute:#666;--rule:#dcd7cc;--accent:#06c}
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --pad-x:1.5rem;--col-meta:220px;
+  --t-xs:11px;--t-sm:12px;--t-base:13.5px;--t-md:15px;--t-lg:18px;--t-xl:22px;--t-2xl:30px;--t-3xl:44px;--t-4xl:64px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  }
+}
 *{box-sizing:border-box}
-body{font:16px/1.6 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;max-width:42em;margin:0 auto;padding:3em 1.2em 5em;color:var(--ink);background:var(--paper)}
-h1{margin:0 0 .12em;font-size:2.25em;font-weight:600;letter-spacing:-.01em}
-h1+.lede{color:var(--mute);margin:.1em 0 1.6em;font-size:1.05em}
-h2{font-size:1.1em;margin:2em 0 .55em;letter-spacing:.02em;text-transform:uppercase;color:var(--mute);font-weight:600;font-size:.8em}
-p{margin:0 0 1em;max-width:38em}
-code,pre,kbd{font-family:'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace;font-size:.86em}
-code{background:#f0ebe0;border-radius:3px;padding:.05em .35em;color:#3a2c1e}
-pre{background:#f7f2e6;border:1px solid var(--rule);border-radius:4px;padding:.85em 1em;overflow-x:auto;line-height:1.5}
-pre code{background:transparent;padding:0;color:var(--ink)}
-a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:3px}
-a:hover{color:var(--accent);text-decoration-color:var(--accent)}
-hr{border:0;border-top:1px solid var(--rule);margin:2.2em 0}
-ul{padding-left:1.2em;margin:0 0 1em}
-li{margin-bottom:.35em}
-.stats{display:flex;flex-wrap:wrap;gap:.5em 1.4em;margin:0 0 1em;color:var(--mute);font-size:.92em;font-family:'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace}
-.stats b{color:var(--ink);font-weight:600}
-.figure{margin:1.4em 0 1em;border:1px solid var(--rule);background:#fff;border-radius:4px;overflow:hidden}
-.figure img{display:block;width:100%;height:auto}
-.figure-cap{font-size:.86em;color:var(--mute);padding:.6em .8em;border-top:1px solid var(--rule);background:#fdfbf6;font-style:italic}
-nav{margin-top:2.4em;font-size:.92em;line-height:2;padding-top:1.2em;border-top:1px solid var(--rule)}
-nav a{margin-right:.9em;display:inline-block}
-#emem-consent{position:fixed;left:1em;right:1em;bottom:1em;max-width:36em;margin:0 auto;background:#fff;border:1px solid var(--rule);border-radius:6px;padding:1em 1.1em;box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:.9em;line-height:1.5;z-index:9999}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--accent);color:var(--paper)}
+
+/* statusbar */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{color:var(--ink);background:var(--paper-3)}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.4rem}
+.statusbar .brand::before{content:"";width:8px;height:8px;background:var(--accent);display:inline-block}
+.statusbar .spacer{flex:1}
+
+/* page shell */
+.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.section{border-bottom:1px solid var(--rule);padding:3.5rem 0;display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.section-meta{font-size:var(--t-xs);color:var(--mute);line-height:1.6;position:sticky;top:56px;align-self:start;max-height:calc(100vh - 80px);overflow:auto}
+.section-meta .idx{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.5rem}
+.section-meta .idx-num{font-weight:700;color:var(--ink);font-size:var(--t-sm)}
+.section-meta .idx-label{color:var(--mute-2);text-transform:uppercase;letter-spacing:.08em;font-size:var(--t-xs)}
+.section-meta dl{margin:1rem 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:.4rem}
+.section-meta dt{color:var(--mute-2);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.section-meta dd{margin:0 0 .5rem 0;color:var(--ink-2);font-size:var(--t-xs)}
+.section-body>h2{margin:0 0 1rem;font-size:var(--t-2xl);font-weight:500;letter-spacing:-.02em;line-height:1.1;color:var(--ink)}
+.section-body>h2 .num{color:var(--mute-2);margin-right:.6rem;font-weight:300}
+.section-body>.lede{font-size:var(--t-md);color:var(--ink-2);max-width:60ch;margin:0 0 2rem;font-weight:400}
+.section-body p{max-width:64ch;margin:0 0 1.1rem;color:var(--ink-2)}
+.section-body strong{color:var(--ink);font-weight:700}
+.section-body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.section-body a:hover{background:var(--accent-bg)}
+
+/* hero */
+.hero{padding:4rem 0 3rem;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.hero-meta{font-size:var(--t-xs);color:var(--mute);display:flex;flex-direction:column;gap:1.5rem}
+.hero-meta .kv{display:grid;grid-template-columns:1fr;gap:.3rem}
+.hero-meta .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.hero-meta .kv .v{color:var(--ink-2);font-size:var(--t-xs);word-break:break-all}
+.hero-meta .kv .v.accent{color:var(--accent)}
+.hero h1{font-size:var(--t-4xl);font-weight:300;letter-spacing:-.04em;line-height:.98;margin:0 0 1.4rem;color:var(--ink)}
+.hero h1 .accent{color:var(--accent);font-weight:600}
+.hero .sub{font-size:var(--t-lg);color:var(--ink-2);max-width:56ch;line-height:1.4;margin:0 0 1.4rem;font-weight:400}
+.hero-formula{font-size:var(--t-md);color:var(--ink);margin:1rem 0 .5rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-weight:500}
+.hero-formula .box{border:1px solid var(--rule-strong);padding:.3rem .6rem;background:var(--paper-2)}
+.hero-formula .arrow{color:var(--mute)}
+.hero-formula .out{border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);padding:.3rem .6rem;font-weight:700}
+.formula-gloss{font-size:var(--t-sm);color:var(--mute);margin:.2rem 0 1.4rem;letter-spacing:.02em}
+.hero-cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.6rem}
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
+.btn:hover{background:var(--ink-2)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--paper-3)}
+
+/* code block */
+.code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.5rem 0;font-size:var(--t-sm);line-height:1.6}
+.code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
+.code-head .tab{padding:.4rem .8rem;border-right:1px solid var(--rule);color:var(--mute)}
+.code-head .lang{padding:.4rem .8rem;border-right:1px solid var(--rule);font-weight:700;color:var(--ink-2)}
+.code-head .spacer{flex:1}
+.code-head .copy{padding:.4rem .8rem;border:0;border-left:1px solid var(--rule);cursor:pointer;color:var(--mute);background:transparent;font-family:var(--mono);font-size:var(--t-xs)}
+.code-head .copy:hover{color:var(--ink);background:var(--paper-2)}
+.code-head .copy.copied{color:var(--accent)}
+.code pre{margin:0;padding:1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:var(--t-sm);white-space:pre}
+.code pre code{font-family:inherit}
+.tok-c{color:var(--mute)}
+.tok-k{color:var(--ink);font-weight:700}
+.tok-s{color:var(--accent)}
+.tok-n{color:var(--absent)}
+.tok-p{color:var(--mute)}
+.tok-u{color:var(--ink-2)}
+.tok-cmd{color:var(--mute-2)}
+.tok-flag{color:var(--ink-2);font-weight:700}
+.tok-key{color:var(--ink);font-weight:700}
+
+/* fact block */
+.fact{border:1px solid var(--rule);background:var(--paper-2);padding:1rem 1.1rem;font-size:var(--t-sm);margin:1rem 0;position:relative}
+.fact-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;font-size:var(--t-xs);color:var(--mute);flex-wrap:wrap}
+.fact-head .signed{display:inline-flex;align-items:center;gap:.3rem;color:var(--accent);font-weight:700}
+.fact-head .signed::before{content:"";width:6px;height:6px;background:var(--accent);border-radius:50%}
+.fact-head .ts{color:var(--mute-2);font-size:10px}
+.fact-grid{display:grid;grid-template-columns:100px 1fr;gap:.4rem 1rem;align-items:baseline}
+.fact-grid .k{color:var(--mute);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.05em}
+.fact-grid .v{color:var(--ink);word-break:break-all}
+.fact-grid .v.big{font-size:var(--t-xl);font-weight:700;color:var(--ink)}
+.fact-grid .v .unit{color:var(--mute);font-weight:400;font-size:var(--t-md);margin-left:.3rem}
+.fact-grid .v.cid{color:var(--accent);font-size:var(--t-xs)}
+.fact-verify{margin-top:.8rem;padding-top:.8rem;border-top:1px dashed var(--rule);display:flex;align-items:center;gap:.75rem;font-size:var(--t-xs);flex-wrap:wrap}
+.fact-verify .check{color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.fact-verify a{color:var(--accent)}
+
+/* connect grid */
+.connect{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));border:1px solid var(--rule);margin:1.5rem 0}
+.connect .client{padding:.8rem 1rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);font-size:var(--t-xs);cursor:pointer;background:var(--paper-2);display:flex;flex-direction:column;gap:.3rem}
+.connect .client:hover{background:var(--paper-3)}
+.connect .client.active{background:var(--ink);color:var(--paper)}
+.connect .client.active .meta{color:var(--mute-2)}
+.connect .client .name{font-weight:700;color:var(--ink)}
+.connect .client.active .name{color:var(--paper)}
+.connect .client .meta{color:var(--mute);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.stats .stat{padding:1.2rem 1.1rem;border-right:1px solid var(--rule)}
+.stats .stat:last-child{border-right:0}
+.stats .stat .n{font-size:var(--t-3xl);font-weight:300;letter-spacing:-.03em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+.stats .stat .n .small{font-size:var(--t-md);color:var(--mute);font-weight:400;margin-left:.3rem}
+.stats .stat .lbl{margin-top:.5rem;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.stats .stat{border-bottom:1px solid var(--rule)}}
+
+/* endpoints table */
+.endpoints{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm)}
+.endpoints th,.endpoints td{padding:.55rem .8rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+.endpoints th{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+.endpoints tr:hover td{background:var(--paper-2)}
+.endpoints .method{font-weight:700;font-size:var(--t-xs);color:var(--accent);width:60px}
+.endpoints .method.post{color:var(--absent)}
+.endpoints .path{color:var(--ink);font-weight:600;white-space:nowrap}
+.endpoints .desc{color:var(--ink-2)}
+
+/* coverage map frame */
+.coverage{border:1px solid var(--rule);background:var(--paper-2);position:relative;overflow:hidden;margin:1.5rem 0}
+.coverage-head{border-bottom:1px solid var(--rule);background:var(--paper-3);padding:.5rem .9rem;font-size:var(--t-xs);color:var(--mute);display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.coverage-head .label{color:var(--ink);font-weight:700}
+.coverage-head .spacer{flex:1}
+.coverage-head .legend{display:flex;align-items:center;gap:.4rem}
+.coverage-head .legend .step{width:14px;height:10px;border:1px solid var(--rule)}
+.coverage-head .legend .step.s1{background:var(--paper-3)}
+.coverage-head .legend .step.s2{background:oklch(from var(--accent) l c h / 0.25)}
+.coverage-head .legend .step.s3{background:oklch(from var(--accent) l c h / 0.55)}
+.coverage-head .legend .step.s4{background:var(--accent)}
+.coverage img{display:block;width:100%;height:auto;background:var(--paper-2)}
+
+/* loop diagram */
+.loop{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.loop .step{padding:1rem;border-right:1px solid var(--rule);position:relative;background:var(--paper-2)}
+.loop .step:last-child{border-right:0}
+.loop .step .n{font-size:10px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.1em;font-weight:700}
+.loop .step .verb{font-size:var(--t-lg);font-weight:700;color:var(--ink);margin:.3rem 0}
+.loop .step .desc{font-size:var(--t-xs);color:var(--mute);line-height:1.4}
+.loop .step::after{content:"→";position:absolute;right:-8px;top:50%;transform:translateY(-50%);background:var(--paper);border:1px solid var(--rule);width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);z-index:2}
+.loop .step:last-child::after{display:none}
+@media (max-width:900px){.loop{grid-template-columns:repeat(2,1fr)}.loop .step::after{display:none}.loop .step{border-bottom:1px solid var(--rule)}}
+
+/* hunter cards */
+.hunter{display:grid;grid-template-columns:repeat(2,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.hunter .case{padding:1.1rem 1.2rem}
+.hunter .case .verb{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+.hunter .case .title{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:.3rem 0 .5rem}
+.hunter .case .target{font-size:var(--t-xs);color:var(--accent);margin-bottom:.8rem}
+.hunter .case .row{display:flex;justify-content:space-between;padding:.2rem 0;font-size:var(--t-xs);color:var(--ink-2);border-bottom:1px dashed var(--rule);gap:.5rem;flex-wrap:wrap}
+.hunter .case .row:last-child{border-bottom:0}
+.hunter .case .row .cid{color:var(--accent)}
+.hunter .case .row .val{font-weight:700;color:var(--ink)}
+@media (max-width:720px){.hunter{grid-template-columns:1fr}}
+
+/* encoders grid */
+.encoders{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin:1.5rem 0 0}
+.encoders .enc{padding:1.2rem;border-right:1px solid var(--rule);background:var(--paper-2)}
+.encoders .enc:last-child{border-right:0}
+.encoders .enc .name{font-size:var(--t-lg);font-weight:700;color:var(--ink);margin-bottom:.3rem}
+.encoders .enc .input{font-size:var(--t-xs);color:var(--mute);margin-bottom:.6rem}
+.encoders .enc .field{font-size:var(--t-2xl);font-weight:300;color:var(--accent);line-height:1;letter-spacing:-.02em}
+.encoders .enc .field .unit{font-size:var(--t-sm);color:var(--mute);margin-left:.2rem}
+.encoders .enc .fieldlbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-top:.3rem}
+.encoders .enc .latency{margin-top:.8rem;font-size:var(--t-xs);color:var(--ink-2);display:flex;justify-content:space-between;border-top:1px dashed var(--rule);padding-top:.5rem}
+.consensus{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);border-top:0}
+.consensus .c{padding:.7rem 1.2rem;border-right:1px solid var(--rule);font-size:var(--t-xs);display:flex;align-items:baseline;gap:.5rem}
+.consensus .c:last-child{border-right:0}
+.consensus .c .n{font-size:var(--t-lg);font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
+.consensus .c.all .n{color:var(--accent)}
+.consensus .c.one .n{color:var(--absent)}
+.consensus .c .lbl{color:var(--mute)}
+@media (max-width:720px){.encoders,.consensus{grid-template-columns:1fr}.encoders .enc,.consensus .c{border-right:0;border-bottom:1px solid var(--rule)}}
+
+/* absent table */
+.absent-table{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm);border:1px solid var(--rule)}
+.absent-table td{padding:.6rem .9rem;border-bottom:1px solid var(--rule);vertical-align:top}
+.absent-table tr:last-child td{border-bottom:0}
+.absent-table td:first-child{font-weight:700;color:var(--absent);white-space:nowrap;width:240px;border-right:1px solid var(--rule)}
+.absent-table td:last-child{color:var(--ink-2)}
+
+/* ops list */
+.ops{list-style:none;margin:1.5rem 0;padding:0;counter-reset:op;border-top:1px solid var(--rule)}
+.ops>li{counter-increment:op;padding:.9rem 0 .9rem 3.2rem;border-bottom:1px solid var(--rule);position:relative;color:var(--ink-2);font-size:var(--t-sm);line-height:1.55;max-width:72ch}
+.ops>li::before{content:counter(op,decimal-leading-zero);position:absolute;left:0;top:.95rem;font-size:10px;font-weight:700;color:var(--mute-2);letter-spacing:.06em}
+.ops>li b{color:var(--ink);font-weight:700}
+
+/* ascii rule */
+.ascii-rule{font-family:var(--mono);color:var(--rule-strong);font-size:var(--t-xs);margin:1.5rem 0;white-space:nowrap;overflow:hidden;user-select:none}
+
+/* tokens */
+.cid{color:var(--accent);font-size:.92em;word-break:break-all}
+.cell{color:var(--ink);font-weight:700;background:var(--paper-3);padding:0 .3rem}
+.band{color:var(--ink);background:var(--paper-3);padding:0 .3rem}
+
+/* try-it */
+.tryit{border:1px solid var(--rule-strong);background:var(--paper-2);margin:1.5rem 0}
+.tryit-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute);padding:.4rem .9rem;gap:.6rem;flex-wrap:wrap}
+.tryit-head .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.tryit-head .url{color:var(--ink-2);font-weight:700}
+.tryit-body{padding:1rem 1.2rem}
+.tryit-input{display:flex;border:1px solid var(--rule-strong);background:var(--paper);margin-bottom:1rem}
+.tryit-input .prefix{padding:.6rem .8rem;border-right:1px solid var(--rule);color:var(--mute);font-size:var(--t-sm);background:var(--paper-2)}
+.tryit-input input{flex:1;padding:.6rem .8rem;border:0;background:transparent;font-family:var(--mono);font-size:var(--t-sm);color:var(--ink);outline:none}
+.tryit-input button{padding:.6rem 1rem;background:var(--ink);color:var(--paper);border:0;font-family:var(--mono);font-size:var(--t-sm);font-weight:700;cursor:pointer;border-left:1px solid var(--ink)}
+.tryit-input button:hover{background:var(--ink-2)}
+.tryit-result{font-size:var(--t-sm);color:var(--ink-2);border-top:1px dashed var(--rule);padding-top:1rem;min-height:60px}
+.tryit-result.empty{color:var(--mute)}
+.tryit-result .ok{color:var(--accent);font-weight:700}
+.tryit-result pre{margin:.5rem 0 0;font-size:var(--t-xs);color:var(--ink);background:var(--paper-3);padding:.6rem .8rem;overflow-x:auto;border:1px solid var(--rule)}
+.tryit-suggest{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
+.tryit-suggest .sug{font-size:var(--t-xs);padding:.2rem .5rem;border:1px solid var(--rule);background:var(--paper);cursor:pointer;color:var(--ink-2)}
+.tryit-suggest .sug:hover{background:var(--paper-3);color:var(--ink)}
+
+/* footer */
+.foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
+.foot-meta .desc{color:var(--mute);line-height:1.5}
+.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
+.foot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--ink-2);text-decoration:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom a{color:inherit}
+
+/* consent banner */
+#emem-consent{position:fixed;left:1em;right:1em;bottom:1em;max-width:36em;margin:0 auto;background:var(--paper-2);border:1px solid var(--rule-strong);padding:1em 1.1em;box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:var(--t-sm);line-height:1.5;z-index:9999;color:var(--ink-2)}
 #emem-consent[hidden]{display:none}
-#emem-consent p{margin:0 0 .7em}
+#emem-consent p{margin:0 0 .7em;max-width:none}
+#emem-consent strong{color:var(--ink);font-weight:700}
+#emem-consent code{background:var(--paper-3);padding:0 .25em;color:var(--ink);font-family:var(--mono);font-size:.9em}
 #emem-consent .row{display:flex;flex-wrap:wrap;gap:.5em;align-items:center}
-#emem-consent button{padding:.45em 1.1em;border-radius:4px;border:1px solid var(--accent);background:#fff;color:var(--accent);font:inherit;cursor:pointer;min-width:6em}
-#emem-consent button[data-act=accept]{background:var(--accent);color:#fff}
+#emem-consent button{padding:.5em 1.1em;border:1px solid var(--accent);background:var(--paper);color:var(--accent);font:inherit;font-family:var(--mono);font-weight:700;cursor:pointer;min-width:6em}
+#emem-consent button[data-act=accept]{background:var(--accent);color:var(--paper)}
 #emem-consent button:hover{filter:brightness(1.06)}
 #emem-consent button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-#emem-consent a{margin-left:auto;font-size:.92em}
-@media(prefers-color-scheme:dark){
-  :root{--paper:#13141a;--ink:#e6e6e6;--mute:#9a96a0;--rule:#2a2730;--accent:#7af}
-  body{background:var(--paper);color:var(--ink)}
-  code{background:#1e1b24;color:#e0d5b8}
-  pre{background:#1a181f;border-color:var(--rule)}
-  .figure{background:#1a181f}
-  .figure-cap{background:#15131a}
-  #emem-consent{background:#1c1c1e;color:#e6e6e6;border-color:#333}
-}
-@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-@media(max-width:560px){body{padding:2em 1em 4em}h1{font-size:1.85em}}
+#emem-consent a{margin-left:auto;font-size:.92em;color:var(--accent);text-decoration:underline}
+
+/* responsive */
+@media (max-width:900px){:root{--col-meta:160px}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
+@media (max-width:720px){.section,.hero,.foot{grid-template-columns:1fr}.section-meta,.hero-meta,.foot-meta{position:static}.foot-grid{grid-template-columns:repeat(2,1fr)}.endpoints{font-size:var(--t-xs)}.endpoints th,.endpoints td{padding:.4rem .5rem}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
-</head><body>
-<h1>emem</h1>
-<p class="lede">Earth memory, signed at the edge.</p>
+</head>
+<body>
 
-<p>When an LLM is asked what is at a place, it usually guesses. It has no stable handle for the patch of ground at 19.07°&nbsp;N, 72.87°&nbsp;E, and no audit trail for the number it returns. emem is the missing handle. Every cell on Earth gets a 64-bit identifier (about 9.55&nbsp;m on a side at the equator), every measurement at that cell is recorded as a fact keyed by cell, band, and time, and every fact is signed with ed25519 over the blake3 hash of its canonical CBOR. Paste the 26-character content id into a chat and your colleague can pull the same bytes from any responder and verify the signature in their browser at <a href=/verify>/verify</a>.</p>
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <span class="brand">emem</span>
+    <a href="#connect">connect</a>
+    <a href="#first-call">first call</a>
+    <a href="#corpus">corpus</a>
+    <a href="#hunter">hunter</a>
+    <a href="#for-agents">for agents</a>
+    <a href="#limits">limits</a>
+    <span class="spacer"></span>
+    <a href="/verify">/verify</a>
+    <a href="/humans">/humans</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  </div>
+</header>
 
-<p>The hosted responder is <code>https://emem.dev</code>. There are no keys, no accounts, no SaaS quotas. The corpus today covers thirty-five bands across optical, radar, terrain, weather, land cover, human geography, and three foundation embeddings (Clay&nbsp;v1.5, Prithvi-EO-2.0, Tessera). Forty-three upstream sources back the materialiser; the catalogue at <a href=/v1/materializers>/v1/materializers</a> lists which ones are wired on this node. One hundred and fifty-five composition recipes turn raw bands into named scores (flood risk, walkability, biodiversity proxy, carbon-MRV index, EUDR compliance) and live at <a href=/v1/algorithms>/v1/algorithms</a>. The MCP surface speaks Streamable&nbsp;HTTP and exposes fifty tools at <code>/mcp</code>; the same handlers answer plain REST at <a href=/openapi.json>/openapi.json</a>.</p>
+<section class="hero page">
+  <aside class="hero-meta">
+    <div class="kv"><span class="k">responder</span><span class="v">https://emem.dev</span></div>
+    <div class="kv"><span class="k">pubkey (ed25519, b32)</span><span class="v accent">777er3yihg&#8230;womvka</span></div>
+    <div class="kv"><span class="k">protocol</span><span class="v">MCP 2025-03-26 + REST</span></div>
+    <div class="kv"><span class="k">auth</span><span class="v">none. reads are open.</span></div>
+    <div class="kv"><span class="k">license</span><span class="v">Apache-2.0</span></div>
+  </aside>
 
-<figure class="figure">
-  <a href="/v1/coverage_map.svg"><img src="/v1/coverage_map.svg" alt="Global map of cells with at least one signed fact" loading="lazy" width="900"/></a>
-  <figcaption class="figure-cap">The corpus right now. Plate-carrée projection, 1° bins, log-scale density. Open the SVG in a new tab and the URL is the same one an agent fetches via MCP. <a href=/docs/gallery>/docs/gallery</a> shows the same view for individual cities; <a href=/docs/diagrams/>/docs/diagrams</a> is the suite of thirty-two figures that document the protocol.</figcaption>
-</figure>
+  <div>
+    <h1>Earth memory,<br><span class="accent">signed at the edge.</span></h1>
 
-<h2>A first call</h2>
-<pre><code>$ curl -sX POST https://emem.dev/v1/locate \
-    -H 'content-type: application/json' \
-    -d '{"q":"South Mumbai"}' | jq .cell64
-"defi.zb4d9.pefa.zf619"
+    <p class="sub">Ask an AI about the flood risk on a street, the vegetation around a coffee farm, the elevation of a building site, and it usually guesses. emem is what it should look up instead.</p>
 
-$ curl -sX POST https://emem.dev/v1/recall \
-    -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["copdem30m.elevation_mean"]}' \
-  | jq '.facts[0]'
-{ "value": 14.0, "unit": "m_msl",
-  "fact_cid": "bafy2bzaceaqxfn4obg…",
-  "receipt": { "signature": "ed25519:…64-bytes…",
-               "responder": "777er3yihg…" } }</code></pre>
+    <p class="sub">Every spot on Earth, roughly ten metres across, has a permanent address. Every measurement at that spot is stored as a fact: what was measured, when, and by whom. Every fact is cryptographically signed, so an answer can be checked years later by anyone, on any computer, without trusting the server it came from.</p>
 
-<p>The recall was answered out of the hot cache. If the cell had been cold, the responder would have fetched Copernicus DEM through its STAC connector, signed the value as its own primary attestation, persisted it, and returned in the same response. Warm reads take milliseconds. The first request to a fresh cell pays the upstream cost once, and every subsequent caller anywhere on the network sees the cached fact and the same signature.</p>
+    <div class="hero-formula">
+      <span class="box">Cell</span>
+      <span class="op">×</span>
+      <span class="box">Band</span>
+      <span class="op">×</span>
+      <span class="box">Tslot</span>
+      <span class="arrow">→</span>
+      <span class="out">Fact</span>
+    </div>
+    <p class="formula-gloss">a place, a measurement, a moment, and a signature.</p>
 
-<h2>Drop into Claude, Cursor, ChatGPT</h2>
-<p>The same handlers serve plain REST and Streamable-HTTP MCP. To wire emem into Claude Desktop, Claude Code, or Cursor, paste the four lines below into the client's MCP-server file. Tested live; no install, no auth.</p>
-<pre><code>{
-  "mcpServers": {
-    "emem": {
-      "type": "http",
-      "url": "https://emem.dev/mcp"
-    }
-  }
-}</code></pre>
-<p>For ChatGPT Custom GPT Actions, import the OpenAPI document at <a href=/openapi.json>/openapi.json</a>; for LangChain or LlamaIndex, the runnable wrappers live in <a href=https://github.com/Vortx-AI/emem/tree/main/examples>examples/</a>. Full client matrix at the top of the README.</p>
+    <p class="sub">For an AI agent or a developer, that means one URL, no keys, and receipts your code can verify offline. For a journalist, an underwriter, a regulator, or a curious reader, it means the number an assistant just quoted has a verifiable source.</p>
 
-<h2>Hunting for events, not anchored on a place</h2>
-<p>Most agent questions name a place. A few don't. <em>"Find me where the algal bloom is."</em> <em>"Where is the deforestation happening?"</em> Hunter mode answers those. The classifier in <a href=/v1/ask><code>/v1/ask</code></a> detects the verb pattern plus an event keyword and routes to <code>/v1/hunt</code>; the structured endpoint takes the event plus a region and returns the top eight cells ranked by the algorithm's primary scalar (water-mask gated where the algorithm requires water). Twelve events ship today, from algal blooms and deforestation to wildfires, methane plumes, and inundation extent. Oil-slick detection has no algorithm in the registry yet and the responder says so honestly, pointing at the closest available physics.</p>
-<pre><code>$ curl -sX POST https://emem.dev/v1/hunt \
-    -H 'content-type: application/json' \
-    -d '{"event":"algal_bloom","region":"Lake Erie"}' \
-  | jq '.hotspots[0]'
-{ "cell64": "defi.zb5dc.bObe.wOgI",
-  "lat": 41.838, "lng": -81.163,
-  "primary_band": "indices.ndvi", "value": -0.057,
-  "gate_band": "indices.ndwi", "gate_value": 0.141,
-  "fact_cid": "tc54vlpl62a4d2kah5rwcmfvd3eo7xqkszmkpwxk4xrkpaeeshaa",
-  "scene_url": "https://emem.dev/v1/cells/defi.zb5dc.bObe.wOgI/scene.png" }</code></pre>
-<p>Worked examples for four events live in the gallery at <a href=/docs/gallery#hunter>/docs/gallery</a>.</p>
+    <p class="sub" style="font-size:var(--t-md);margin-top:1.4rem">The hosted responder at <a href="https://emem.dev" rel="noopener">emem.dev</a> covers elevation, vegetation, surface water, weather, land cover, air quality, soil, and three satellite-image embeddings, sourced from Copernicus, Sentinel, MODIS, JRC, Hansen, SoilGrids, and dozens of other open datasets. Wire it into Claude, Cursor, or ChatGPT by pasting one line into a config file. Read the full machine surface at <a href="/openapi.json">/openapi.json</a>.</p>
 
-<h2>What three encoders see</h2>
-<p>For questions of the form <em>"is this place changing?"</em>, emem runs three independent foundation encoders over the same scene and votes. Clay&nbsp;v1.5 reads Sentinel-2 at a 2.6&nbsp;km receptive field, Prithvi-EO-2.0 reads HLS at 6.7&nbsp;km, and Tessera reads Sentinel-1 plus Sentinel-2 at the per-pixel scale. Each one carries its own aliasing pattern, so the disagreements are informative. Where all three agree, the change is real; where one says yes and two say no, the algorithm flags receptive-field aliasing rather than a land-surface event. The recipe is <code>clay_prithvi_tessera_triple_consensus@1</code>, with six domain variants for deforestation, wetland change, urban expansion, disaster anomaly, climate archetype, and coastal erosion. The whitepaper at <a href=/whitepaper.md>/whitepaper.md</a> walks the math.</p>
+    <div class="hero-cta">
+      <a class="btn" href="#connect">wire it up</a>
+      <a class="btn ghost" href="#first-call">first call</a>
+      <a class="btn ghost" href="/agents.md">agents.md</a>
+      <a class="btn ghost" href="/openapi.json">openapi.json</a>
+    </div>
+  </div>
+</section>
 
-<h2>Verifying without trusting</h2>
-<p>The responder's public key is published at <a href=/.well-known/emem.json>/.well-known/emem.json</a>. Every receipt names that key, the served timestamp, the primitive, the cells, and the fact ids that contributed to the answer. The browser-side verifier at <a href=/verify>/verify</a> recomputes the canonical preimage from a receipt and checks the signature using <code>@noble/curves</code>. No callback to emem.dev, nothing to trust about the issuer. A receipt issued today verifies in any year against the same pubkey, regardless of whether this node is still online. Self-host a responder yourself, and the receipts you minted there stay verifiable when we are not. The full path, from a place name to a verified signature in four live calls, is at <a href=/demos/signed-answer>/demos/signed-answer</a>.</p>
+<section class="section page" id="corpus">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">01</span><span class="idx-label">Corpus</span></div>
+    <dl>
+      <dt>refreshes</dt><dd>regenerates on demand</dd>
+      <dt>projection</dt><dd>plate-carrée</dd>
+      <dt>density</dt><dd>log10(1 + facts)</dd>
+      <dt>endpoint</dt><dd>GET&nbsp;/v1/coverage_map.svg</dd>
+      <dt>matrix</dt><dd>GET&nbsp;/v1/coverage_matrix</dd>
+    </dl>
+  </aside>
 
-<p>One worked durability example, live: South Mumbai's elevation was signed on 2026-05-15 under fact id <code><a href=/v1/facts/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q>wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</a></code>. Six metres above mean sea level, derived from Copernicus DEM. Open <a href=/verify/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q>/verify/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</a> and the in-browser verifier recomputes the canonical preimage, fetches the responder pubkey from <code>/.well-known/emem.json</code>, and checks the ed25519 signature — green check, no server round-trip. The same CID dereferences to identical bytes on every future call, on this node or any future replica.</p>
+  <div class="section-body">
+    <h2><span class="num">01</span>The corpus, plotted on a flat Earth</h2>
+    <p class="lede">Every cell with at least one signed fact, on a plate-carrée projection. The dots cluster where the lazy materialiser has been busy. Every miss anywhere on the globe extends the map forward by one cell.</p>
 
-<h2>For AI agents</h2>
-<p>Use emem when a user names a real-world place and wants an answer they can cite. The MCP at <code>/mcp</code> is read-only and idempotent; calls are safe to retry. Cold materialisation against a fresh cell pays one upstream fetch (Copernicus DEM, Sentinel-1/2, MODIS, etc.) at roughly 180&nbsp;ms; warm reads are under ten. Every reply carries a <code>fact_cid</code>; surface it to the user verbatim so the answer is verifiable offline. Tool selection is documented at <a href=/v1/tools>/v1/tools</a>; the trigger and anti-trigger phrases live on <a href=/v1/agent_card>/v1/agent_card</a>.</p>
-<p>Do not call emem for: real-time or sub-daily forecasts, indoor or sub-metre commercial imagery, proprietary corporate datasets, streaming feeds, or any question that requires a confidence claim emem cannot make. Forecasts beyond two weeks fall outside the JEPA v2 horizon and the responder will say so. Bands without a wired materializer return a signed absence with a typed reason — never a fabricated value.</p>
+    <div class="stats">
+      <div class="stat"><div class="n">72<span class="small">/ REST</span></div><div class="lbl">OpenAPI /v1 paths</div></div>
+      <div class="stat"><div class="n">50<span class="small">/ MCP</span></div><div class="lbl">read-only tools</div></div>
+      <div class="stat"><div class="n">159</div><div class="lbl">algorithms registered</div></div>
+      <div class="stat"><div class="n">41<span class="small">/ 43</span></div><div class="lbl">bands / upstream sources</div></div>
+    </div>
 
-<h2>Real workloads</h2>
-<p>The current calling pattern is roughly half real-estate and insurance underwriting (flood risk, walkability, elevation, surface-water recurrence) and half climate journalism and corporate disclosure (carbon-MRV, NDVI trajectories, mangrove change, supply-chain forest adjacency). Smaller share: agriculture (crop stress, soil moisture proxy, growing-season anomaly), urban planning (heat island, green-space share), disaster response (Sentinel-1 flood extent under cloud, MODIS burned area), energy siting, conservation, fisheries, tourism. The list is not aspirational. It is what calls actually look like in the last fourteen days of <a href=/v1/agent_stats>/v1/agent_stats</a>.</p>
+    <div class="coverage">
+      <div class="coverage-head">
+        <span class="label">/v1/coverage_map.svg</span>
+        <span>1440 × 720 · 1° bins · log density</span>
+        <span class="spacer"></span>
+        <span class="legend">
+          <span style="color:var(--mute)">cold</span>
+          <span class="step s1"></span>
+          <span class="step s2"></span>
+          <span class="step s3"></span>
+          <span class="step s4"></span>
+          <span style="color:var(--mute)">dense</span>
+        </span>
+      </div>
+      <a href="/v1/coverage_map.svg"><img src="/v1/coverage_map.svg" alt="Global plate-carrée map of cells with at least one signed fact" loading="lazy" width="1440" height="720"></a>
+    </div>
 
-<h2>Honest limits</h2>
-<p>We serve only open data. Sub-metre commercial imagery (Planet Pelican, Maxar) is not here; bring your own connector. The JEPA v2 dynamics head is structurally wired but the trained head is upstream-bottlenecked on multi-vintage Tessera data, so <code>/v1/jepa_predict_v2</code> short-circuits to the last attested vintage with an honest <code>untrained_baseline</code> flag on the receipt, not a fake prediction. Tessera's own historical backfill is partial; 2024 is reliable, earlier vintages are sparse. The deployment is single-host. There is no federation, no global routing layer, no SOC&nbsp;2. Bands not wired at this responder return a signed absence with a typed reason, not silence. Check <a href=/v1/materializers>/v1/materializers</a> first.</p>
+    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">Each tile is one <span class="cell">cell64</span> (about 9.55&nbsp;m square at the equator) the responder has answered for. Open the SVG in a new tab and an agent fetches the same URL via MCP.</p>
+  </div>
+</section>
 
-<nav><a href=/llms.txt>llms.txt</a> <a href=/agents.md>agents.md</a> <a href=/spec.md>spec.md</a> <a href=/whitepaper.md>whitepaper</a> <a href=/docs/gallery>gallery</a> <a href=/humans>humans</a> <a href=/verify>verify</a> <a href=/v1/discover>discover</a> <a href=/openapi.json>openapi</a> <a href=/mcp>mcp</a> <a href=/.well-known/agent-card.json>agent-card</a> <a href=/v1/agent_stats>agent_stats</a> <a href=/privacy>privacy</a> <a href=/terms>terms</a> <a href="#" id="emem-consent-manage">manage cookies</a> <a href=https://github.com/Vortx-AI/emem>github</a></nav>
+<section class="section page" id="connect">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">02</span><span class="idx-label">Connect</span></div>
+    <dl>
+      <dt>transport</dt><dd>Streamable HTTP</dd>
+      <dt>spec</dt><dd>MCP 2025-03-26</dd>
+      <dt>auth</dt><dd>none for reads</dd>
+      <dt>writes</dt><dd>Ed25519, plain REST only</dd>
+      <dt>retries</dt><dd>idempotent, safe to retry</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">02</span>Wire it into your runtime</h2>
+    <p class="lede">Same JSON in every host that speaks MCP. For runtimes without native Streamable HTTP, the <span class="band">mcp-remote</span> stdio bridge works. No keys, no install.</p>
+
+    <div class="connect" id="client-tabs">
+      <div class="client active" data-client="claude-code"><span class="name">Claude Code</span><span class="meta">.mcp.json</span></div>
+      <div class="client" data-client="cursor"><span class="name">Cursor 0.42+</span><span class="meta">.cursor/mcp.json</span></div>
+      <div class="client" data-client="claude-desktop"><span class="name">Claude Desktop</span><span class="meta">claude_desktop_config.json</span></div>
+      <div class="client" data-client="cline"><span class="name">Cline (VS Code)</span><span class="meta">MCP settings</span></div>
+      <div class="client" data-client="gemini"><span class="name">Gemini CLI</span><span class="meta">extension install</span></div>
+      <div class="client" data-client="openai"><span class="name">OpenAI custom GPT</span><span class="meta">Action import</span></div>
+      <div class="client" data-client="stdio"><span class="name">stdio bridge</span><span class="meta">mcp-remote</span></div>
+      <div class="client" data-client="rest"><span class="name">Plain REST</span><span class="meta">POST /v1/*</span></div>
+    </div>
+
+    <div class="code" id="connect-code">
+      <div class="code-head">
+        <span class="lang">JSON</span>
+        <span class="tab" id="connect-filename">.mcp.json</span>
+        <span class="spacer"></span>
+        <button class="copy" data-copy-target="#connect-pre">copy</button>
+      </div>
+<pre id="connect-pre"><code><span class="tok-p">{</span>
+  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
+    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
+      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>
+      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>
+    <span class="tok-p">}</span>
+  <span class="tok-p">}</span>
+<span class="tok-p">}</span></code></pre>
+    </div>
+
+    <p>Reads are idempotent. The MCP layer is a convenience wrapper over the same handlers behind <a href="/openapi.json">/openapi.json</a>. Writes (<span class="band">/v1/attest</span>, <span class="band">/v1/challenge</span>) require an Ed25519 secret the attester controls and are not exposed via MCP for that reason.</p>
+
+    <div class="ascii-rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:1.5rem">Five-step loop, after first contact.</p>
+
+    <div class="loop">
+      <div class="step"><div class="n">01</div><div class="verb">discover</div><div class="desc">/v1/agent_card or /v1/discover once per session. Cache it.</div></div>
+      <div class="step"><div class="n">02</div><div class="verb">locate</div><div class="desc">Place name (or lat/lng) → cell64. Geocoder cascade reports which layer answered.</div></div>
+      <div class="step"><div class="n">03</div><div class="verb">recall</div><div class="desc">Cell × bands → signed facts. Materialises on miss; warm reads under 10 ms.</div></div>
+      <div class="step"><div class="n">04</div><div class="verb">reason</div><div class="desc">find_similar, compare, trajectory, query_region. Stay inside the protocol.</div></div>
+      <div class="step"><div class="n">05</div><div class="verb">verify</div><div class="desc">Quote the fact_cid back to the user. They can verify offline at /verify.</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="section page" id="first-call">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">First call</span></div>
+    <dl>
+      <dt>cold latency</dt><dd>~180 ms</dd>
+      <dt>warm latency</dt><dd>~10 ms</dd>
+      <dt>materialisers</dt><dd>20 wired</dd>
+      <dt>sources</dt><dd>43 schemes</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">03</span>From a place name to a signed number</h2>
+    <p class="lede">Two POSTs. The recall comes back with the value, its unit, the upstream sources, and a 64-byte Ed25519 receipt over the canonical preimage.</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">step 1 · locate</span><span class="spacer"></span><button class="copy" data-copy-target="#code-locate">copy</button></div>
+<pre id="code-locate"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/locate</span> \
+    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"q":"South Mumbai"}'</span> | <span class="tok-k">jq</span> .cell64
+<span class="tok-s">"defi.zb4d9.pefa.zf619"</span></code></pre>
+    </div>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">step 2 · recall</span><span class="spacer"></span><button class="copy" data-copy-target="#code-recall">copy</button></div>
+<pre id="code-recall"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \
+    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d9.pefa.zf619",
+         "bands":["copdem30m.elevation_mean"]}'</span></code></pre>
+    </div>
+
+    <p>The same response, parsed for the human eye:</p>
+
+    <div class="fact">
+      <div class="fact-head">
+        <span class="signed">SIGNED · ed25519</span><span>·</span>
+        <span class="ts">2026-05-15T11:17:00Z</span><span>·</span>
+        <span>via copdem30m</span>
+      </div>
+      <div class="fact-grid">
+        <span class="k">value</span><span class="v big">6.0<span class="unit">m above mean sea level</span></span>
+        <span class="k">cell64</span><span class="v">defi.zb4d9.pefa.zf619</span>
+        <span class="k">band</span><span class="v">copdem30m.elevation_mean</span>
+        <span class="k">tslot</span><span class="v">0&nbsp;<span style="color:var(--mute)">(static)</span></span>
+        <span class="k">fact_cid</span><span class="v cid">wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</span>
+        <span class="k">signed_by</span><span class="v cid">777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka</span>
+      </div>
+      <div class="fact-verify">
+        <span class="check">verified</span>
+        <span>Signature recomputable offline against the responder pubkey.</span>
+        <a href="/verify/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q" style="margin-left:auto">/verify</a>
+      </div>
+    </div>
+
+    <p>Cold materialisation on a fresh cell pays one upstream round-trip and persists the answer. Every subsequent caller, anywhere, sees the same fact and the same signature. The CID is the citation an agent quotes back to the user.</p>
+
+    <div class="ascii-rule">────────────────────────────────────────────────────────────────────────────────────────</div>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:1.6rem">Same protocol, different question: which other places on Earth look like Bengaluru?</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">find_similar · cosine over 128-D Tessera</span><span class="spacer"></span><button class="copy" data-copy-target="#code-similar">copy</button></div>
+<pre id="code-similar"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/find_similar</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"key":"defi.zb493.xoso.zcb6a","k":3}'</span></code></pre>
+    </div>
+
+    <div class="fact">
+      <div class="fact-head">
+        <span class="signed">NEIGHBOURS · cosine</span><span>·</span>
+        <span>seed defi.zb493.xoso.zcb6a (Bengaluru)</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:var(--t-sm)">
+        <thead>
+          <tr style="border-bottom:1px solid var(--rule)">
+            <th style="text-align:left;padding:.4rem .4rem .4rem 0;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">score</th>
+            <th style="text-align:left;padding:.4rem .4rem .4rem 0;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">cell64</th>
+            <th style="text-align:left;padding:.4rem .4rem .4rem 0;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">place</th>
+            <th style="text-align:right;padding:.4rem 0 .4rem .4rem;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">lat, lng</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px dashed var(--rule)">
+            <td style="padding:.45rem .4rem .45rem 0;font-weight:700;color:var(--accent)">0.6537</td>
+            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">defi.zb5cf.nura.zd83c</td>
+            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">New York City, USA</td>
+            <td style="padding:.45rem 0 .45rem .4rem;text-align:right;color:var(--ink-2)">40.7229, -73.9987</td>
+          </tr>
+          <tr>
+            <td style="padding:.45rem .4rem .45rem 0;font-weight:700;color:var(--accent)">0.6426</td>
+            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">defi.zb563.noxo.xAvu</td>
+            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">Shanghai, China</td>
+            <td style="padding:.45rem 0 .45rem .4rem;text-align:right;color:var(--ink-2)">31.2304, 121.4737</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Verified response from <a href="/agents.md">/agents.md</a>. The score is cosine over the 128-D Tessera annual embedding. Two more modes exist: <span class="band">hamming</span> (about 1000x faster, around 65 percent recall@10) and <span class="band">hamming_then_rerank</span> (matches cosine precision at roughly 16x less work, the default for production agents).</p>
+
+    <div class="tryit" id="tryit">
+      <div class="tryit-head">
+        <span class="dot"></span>
+        <span class="url">POST&nbsp;/v1/locate</span>
+        <span style="color:var(--mute)">then</span>
+        <span class="url">POST&nbsp;/v1/recall</span>
+        <span style="margin-left:auto;color:var(--mute)">live demo · cached responses</span>
+      </div>
+      <div class="tryit-body">
+        <div class="tryit-input">
+          <span class="prefix">place</span>
+          <input id="tryit-place" type="text" value="South Mumbai" placeholder="e.g. Bengaluru">
+          <button id="tryit-go">run</button>
+        </div>
+        <div class="tryit-suggest">
+          <span class="sug" data-place="South Mumbai">South Mumbai</span>
+          <span class="sug" data-place="Bengaluru">Bengaluru</span>
+        </div>
+        <div class="tryit-result empty" id="tryit-result">
+          Two verified responses are cached in this page (South Mumbai and Bengaluru). The cell64, value, and fact_cid are byte-identical to what the live responder returns. For any other place, run the command above against <span class="band">https://emem.dev/v1/recall</span> in your terminal.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section page" id="hunter">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Hunter</span></div>
+    <dl>
+      <dt>endpoint</dt><dd>POST /v1/hunt</dd>
+      <dt>events live</dt><dd>12</dd>
+      <dt>region accepts</dt><dd>name, polygon_bbox, geojson</dd>
+      <dt>sample size</dt><dd>up to 32 cells</dd>
+      <dt>returns</dt><dd>top 8, ranked</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">04</span>Questions that don't anchor on a place</h2>
+    <p class="lede">"Where is the algal bloom." "Where is the deforestation." Hunter mode sweeps a region for a pattern, picks the matching detector from the algorithm registry, and ranks the top eight cells.</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="spacer"></span><button class="copy" data-copy-target="#code-hunt">copy</button></div>
+<pre id="code-hunt"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/hunt</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"event":"algal_bloom","region":"Lake Erie"}'</span></code></pre>
+    </div>
+
+    <div class="hunter">
+      <div class="case">
+        <div class="verb">verified · /v1/hunt</div>
+        <div class="title">Algal bloom over Lake Erie</div>
+        <div class="target">event: algal_bloom · primary_band indices.ndvi · gate_band indices.ndwi</div>
+        <div class="row">
+          <span>defi.zb5dc.bObe.wOgI · 41.838°N, -81.163°W</span>
+          <span class="val">NDVI -0.057 · NDWI 0.141</span>
+          <span class="cid">tc54vlpl…aeeshaa</span>
+        </div>
+        <div style="font-size:var(--t-xs);color:var(--mute);margin-top:.7rem;line-height:1.5">
+          One verified hotspot from the live registry. The cell, the gated NDWI value, and the fact_cid are the response on <span class="band">/v1/hunt</span> with <span class="band">{"event":"algal_bloom","region":"Lake Erie"}</span>. The accompanying scene is at <a href="/v1/cells/defi.zb5dc.bObe.wOgI/scene.png">/v1/cells/defi.zb5dc.bObe.wOgI/scene.png</a>.
+        </div>
+      </div>
+    </div>
+
+    <p>The CID above is real. Open <a href="/v1/facts/tc54vlpl62a4d2kah5rwcmfvd3eo7xqkszmkpwxk4xrkpaeeshaa">/v1/facts/tc54vlpl…</a> on this responder, or any future replica, and you get byte-identical CBOR back.</p>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:1.8rem">Twelve events ship today. The registry decides which algorithm runs.</p>
+
+    <table class="absent-table">
+      <tbody>
+        <tr><td>algal_bloom</td><td>chlorophyll proxy from NDCI with an NDWI water gate</td></tr>
+        <tr><td>deforestation</td><td>triple-encoder consensus uplifted by Hansen GFC mask</td></tr>
+        <tr><td>wildfire_active</td><td>VIIRS / MODIS thermal anomaly</td></tr>
+        <tr><td>burned_area</td><td>MODIS MCD64A1 monthly burned-pixel composite</td></tr>
+        <tr><td>methane_plume</td><td>TROPOMI XCH4 anomaly over baseline</td></tr>
+        <tr><td>flood_extent</td><td>Sentinel-1 SAR VV threshold under cloud</td></tr>
+        <tr><td>water_turbidity</td><td>Sentinel-2 red-band reflectance, water-mask gated</td></tr>
+        <tr><td>urban_expansion</td><td>Overture buildings delta with S2 SWIR corroboration</td></tr>
+        <tr><td>wetland_change</td><td>JRC GSW recurrence delta plus optical leg</td></tr>
+        <tr><td>coastal_erosion</td><td>triple consensus clamped to ±5 m bathymetry</td></tr>
+        <tr><td>disaster_anomaly</td><td>2-σ neighbour z-score, spatial only, adaptive gate</td></tr>
+        <tr><td>climate_archetype_shift</td><td>12-class Köppen-Geiger reclassification</td></tr>
+      </tbody>
+    </table>
+
+    <p>When the event has no registered algorithm (today, <span class="band">oil_slick</span>), the responder returns <span class="band">status: not_yet_implemented</span> and points at the closest available physics (Sentinel-1 surface roughness, red-band turbidity). No hotspots, no fabricated receipt.</p>
+  </div>
+</section>
+
+<section class="section page" id="encoders">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Encoders</span></div>
+    <dl>
+      <dt>recipe</dt><dd>clay_prithvi_tessera_triple_consensus@1</dd>
+      <dt>variants</dt><dd>6 domains</dd>
+      <dt>VRAM budget</dt><dd>20 GB total</dd>
+      <dt>vote</dt><dd>all_three / two_of_three / one_or_none</dd>
+      <dt>aliasing</dt><dd>independent receptive fields</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">05</span>Three encoders, one cell, an audit on agreement</h2>
+    <p class="lede">For "is this place changing", emem runs three independent foundation encoders over the same scene and votes. Each carries its own aliasing pattern; the disagreements are informative.</p>
+
+    <div class="encoders">
+      <div class="enc">
+        <div class="name">Clay v1.5</div>
+        <div class="input">Sentinel-2 L2A · 10 bands · 256×256</div>
+        <div class="field">1024<span class="unit">D CLS</span></div>
+        <div class="fieldlbl">receptive field · 2.6 km</div>
+        <div class="latency"><span>warm</span><span>~12 ms</span></div>
+      </div>
+      <div class="enc">
+        <div class="name">Prithvi-EO-2.0</div>
+        <div class="input">HLS V2 · 6 bands · 224×224</div>
+        <div class="field">1024<span class="unit">D CLS</span></div>
+        <div class="fieldlbl">receptive field · 6.7 km</div>
+        <div class="latency"><span>warm</span><span>~13 ms</span></div>
+      </div>
+      <div class="enc">
+        <div class="name">Tessera</div>
+        <div class="input">S1 + S2 · annual · per-pixel</div>
+        <div class="field">128<span class="unit">D</span></div>
+        <div class="fieldlbl">receptive field · per-pixel</div>
+        <div class="latency"><span>vintage</span><span>2024 reliable</span></div>
+      </div>
+    </div>
+    <div class="consensus">
+      <div class="c all"><span class="n">3/3</span><span class="lbl">all_three agree · change is real</span></div>
+      <div class="c"><span class="n">2/3</span><span class="lbl">two_of_three · likely real</span></div>
+      <div class="c one"><span class="n">1/3</span><span class="lbl">flag · receptive-field aliasing</span></div>
+    </div>
+
+    <p style="margin-top:1.5rem">Where all three agree, the change is real. Where one says yes and two say no, the algorithm flags receptive-field aliasing rather than a land-surface event. Every tuned threshold carries a <span class="band">learned_from</span> citation; pass the algorithm key to <span class="band">POST /v1/algorithms/:key</span> and replay the math.</p>
+  </div>
+</section>
+
+<section class="section page" id="primitives">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Read surface</span></div>
+    <dl>
+      <dt>discovery</dt><dd>8 paths</dd>
+      <dt>introspection</dt><dd>15 paths</dd>
+      <dt>read primitives</dt><dd>11 paths</dd>
+      <dt>physics</dt><dd>4 paths</dd>
+      <dt>verification</dt><dd>5 paths</dd>
+      <dt>MCP tools</dt><dd>50 read-only</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">06</span>The read surface, table-flat</h2>
+    <p class="lede">High-traffic endpoints. The full machine surface is at <a href="/openapi.json">/openapi.json</a>; the MCP descriptors mirror them at <a href="/v1/tools">/v1/tools</a>.</p>
+
+    <table class="endpoints">
+      <thead>
+        <tr><th>Method</th><th>Path</th><th>MCP tool</th><th>Body / use</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="method post">POST</td><td class="path">/v1/locate</td><td>emem_locate</td><td class="desc">place name → cell64 + neighbourhood + live band inventory</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td>emem_recall</td><td class="desc">{cell, bands?, tslot?} → signed facts, auto-materialise on miss</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall_many</td><td>emem_recall_many</td><td class="desc">batch recall, up to 256 cells per envelope</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall_polygon</td><td>emem_recall_polygon</td><td class="desc">recall across a place's polygon, optional Fields-of-The-World overlay</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/find_similar</td><td>emem_find_similar</td><td class="desc">k-NN by 128-D Tessera embedding; cosine / hamming / hamming_then_rerank</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/ask</td><td>emem_ask</td><td class="desc">place-anchored Q&amp;A with packaged receipts; routes to one of 27 band-topics</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/hunt</td><td>emem_hunt</td><td class="desc">event + region → top 8 cells, ranked by the algorithm's primary scalar</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/verify</td><td>emem_verify</td><td class="desc">structured claim → verdict + evidence fact_cids</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/verify_receipt</td><td>emem_verify_receipt</td><td class="desc">recompute preimage, check Ed25519 over BLAKE3</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/trajectory</td><td>emem_trajectory</td><td class="desc">{cell, band, window:[a,b]} → time series</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/diff</td><td>emem_diff</td><td class="desc">signed delta between two tslots; rejects tautology (a == b)</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/heat_solve</td><td>emem_heat_solve</td><td class="desc">explicit-FD heat solver, CFL-stable</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict</td><td>emem_jepa_predict</td><td class="desc">closed-form AR(2) NDVI predictor with fixed coefficients</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/intent</td><td>emem_intent</td><td class="desc">typed Intent dispatcher; EUDR pre-screen is kind=verify with claim algorithm=deforestation_triple@1</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/cells/:cell64/scene.png</td><td>emem_cell_scene_rgb</td><td class="desc">Sentinel-2 L2A · 256×256 · pure-Rust STAC + COG range read</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/coverage_map.svg</td><td>emem_coverage_map</td><td class="desc">1440 × 720 plate-carrée density map of attested cells</td></tr>
+      </tbody>
+    </table>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:2rem">Nine one-shot domain tools that wrap locate → recall → aggregate.</p>
+    <p>For agents that already know what they want to ask, these collapse the loop into a single MCP call with just <span class="band">{place}</span> or <span class="band">{lat, lng}</span>. Same signed receipts, same fact_cids; the work happens on the responder.</p>
+
+    <table class="endpoints">
+      <thead>
+        <tr><th>MCP tool</th><th>REST</th><th>Topic</th><th>Backing source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="path">emem_at</td><td>/v1/at</td><td class="desc">mixed bands at a place</td><td class="desc">whatever is wired at the cell</td></tr>
+        <tr><td class="path">emem_ndvi</td><td>/v1/ndvi</td><td class="desc">vegetation condition</td><td class="desc">MODIS NDVI, indices.ndvi</td></tr>
+        <tr><td class="path">emem_air</td><td>/v1/air</td><td class="desc">air quality</td><td class="desc">CAMS (PM2.5, NO2, O3)</td></tr>
+        <tr><td class="path">emem_lst</td><td>/v1/lst</td><td class="desc">land-surface temperature</td><td class="desc">MODIS LST day &amp; night</td></tr>
+        <tr><td class="path">emem_soil</td><td>/v1/soil</td><td class="desc">soil properties</td><td class="desc">SoilGrids carbon, pH, texture</td></tr>
+        <tr><td class="path">emem_water</td><td>/v1/water</td><td class="desc">surface water</td><td class="desc">JRC GSW recurrence, NDWI</td></tr>
+        <tr><td class="path">emem_forest</td><td>/v1/forest</td><td class="desc">forest cover &amp; loss</td><td class="desc">Hansen GFC, canopy bands</td></tr>
+        <tr><td class="path">emem_weather</td><td>/v1/weather</td><td class="desc">now-only weather</td><td class="desc">met.no nowcast</td></tr>
+        <tr><td class="path">emem_elevation</td><td>/v1/elevation</td><td class="desc">terrain elevation</td><td class="desc">Copernicus DEM 30 m</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section page" id="verify">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">07</span><span class="idx-label">Verify</span></div>
+    <dl>
+      <dt>signature</dt><dd>Ed25519 (64 B)</dd>
+      <dt>digest</dt><dd>BLAKE3</dd>
+      <dt>encoding</dt><dd>canonical CBOR</dd>
+      <dt>cid</dt><dd>base32-nopad · 16 B truncated</dd>
+      <dt>in-browser</dt><dd>@noble/curves + @noble/hashes</dd>
+      <dt>fallback</dt><dd>POST /v1/verify_receipt</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">07</span>Verifying without trusting</h2>
+    <p class="lede">The responder pubkey is the only trust anchor. The preimage is a deterministic concatenation; any agent can recompute it offline and check the signature. A receipt issued today verifies in any year, on any node, as long as the pubkey is preserved.</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">PSEUDO</span><span class="tab">preimage</span><span class="spacer"></span><button class="copy" data-copy-target="#code-preimage">copy</button></div>
+<pre id="code-preimage"><code><span class="tok-k">blake3</span><span class="tok-p">(</span>
+    request_id <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> served_at  <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> primitive <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span>
+    cell1 <span class="tok-s">","</span> cell2 <span class="tok-s">","</span> ... <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> cid1 <span class="tok-s">","</span> cid2 <span class="tok-s">","</span> ...
+<span class="tok-p">)</span>
+
+<span class="tok-c"># trailing commas after the last cell and last cid are intentional</span>
+<span class="tok-c"># the signing loop appends "," after every entry</span></code></pre>
+    </div>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">PYTHON</span><span class="tab">verify_offline.py</span><span class="spacer"></span><button class="copy" data-copy-target="#code-verify-py">copy</button></div>
+<pre id="code-verify-py"><code><span class="tok-k">import</span> blake3
+<span class="tok-k">from</span> cryptography.hazmat.primitives.asymmetric.ed25519 <span class="tok-k">import</span> Ed25519PublicKey
+
+r = receipt  <span class="tok-c"># the receipt block from any /v1/* response</span>
+
+h = blake3.blake3()
+<span class="tok-k">for</span> field <span class="tok-k">in</span> (r[<span class="tok-s">"request_id"</span>], r[<span class="tok-s">"served_at"</span>], r[<span class="tok-s">"primitive"</span>]):
+    h.update(field.encode()); h.update(<span class="tok-s">b"|"</span>)
+<span class="tok-k">for</span> c <span class="tok-k">in</span> r[<span class="tok-s">"cells"</span>]:     h.update(c.encode()); h.update(<span class="tok-s">b","</span>)
+h.update(<span class="tok-s">b"|"</span>)
+<span class="tok-k">for</span> c <span class="tok-k">in</span> r[<span class="tok-s">"fact_cids"</span>]: h.update(c.encode()); h.update(<span class="tok-s">b","</span>)
+
+pk = Ed25519PublicKey.from_public_bytes(<span class="tok-k">bytes</span>(r[<span class="tok-s">"responder_pubkey"</span>]))
+pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</span>]), h.digest())
+<span class="tok-c"># VALID. no callback to emem.dev required.</span></code></pre>
+    </div>
+
+    <p>For an in-browser verification with copy-paste UI, see <a href="/verify">/verify</a>. The full path from a place name to a verified signature in four live calls is at <a href="/demos/signed-answer">/demos/signed-answer</a>.</p>
+  </div>
+</section>
+
+<section class="section page" id="absence">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">08</span><span class="idx-label">Absence</span></div>
+    <dl>
+      <dt>contract</dt><dd>no silent fallbacks</dd>
+      <dt>shape</dt><dd>signed Absence fact</dd>
+      <dt>citable</dt><dd>yes, content-addressed</dd>
+      <dt>distinguishes</dt><dd>wrong query vs. empty cell</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">08</span>Empty is a signed answer, not a 404</h2>
+    <p class="lede">When a band has no data at a cell, the responder does not return an empty array. It signs an Absence fact with a typed reason. An agent that cites <span class="band">evidence:&nbsp;["absence_cid_…"]</span> is making a verifiable claim that no data exists, rather than guessing from an HTTP code.</p>
+
+    <table class="absent-table">
+      <tbody>
+        <tr><td>unavailable_capability</td><td>sidecar extension missing. GPU off, encoder offline, or the surface is wired but the worker is not serving.</td></tr>
+        <tr><td>outside_coverage</td><td>cell falls outside the upstream product footprint (e.g. Tessera 2024 over a fresh ocean cell)</td></tr>
+        <tr><td>gpu_unavailable</td><td>required GPU model is loaded but not serving inferences right now</td></tr>
+        <tr><td>archetype_seed_unavailable</td><td>climate / place archetype centroids not loaded on this responder</td></tr>
+        <tr><td>no_auto_materializer_registered</td><td>band reserved in the cube but no upstream connector is wired. Submit a signed Attestation to seed it.</td></tr>
+        <tr><td>present_only</td><td>band is now-only (e.g. met.no nowcast); past tslots will always return absence</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section page" id="workloads">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">09</span><span class="idx-label">Workloads</span></div>
+    <dl>
+      <dt>window</dt><dd>last 14 days</dd>
+      <dt>source</dt><dd>/v1/agent_stats</dd>
+      <dt>note</dt><dd>shape, not aspiration</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">09</span>What agents actually ask for</h2>
+    <p class="lede">A snapshot of the calling pattern at this responder. Real-estate, insurance, climate journalism, and disclosure dominate; smaller shares are still real work.</p>
+
+    <table class="absent-table" style="margin-top:0">
+      <tbody>
+        <tr><td>real estate &amp; insurance underwriting</td><td>flood risk, walkability, elevation, surface-water recurrence. Roughly half of all calls.</td></tr>
+        <tr><td>climate journalism &amp; corporate disclosure</td><td>carbon-MRV, NDVI trajectories, mangrove change, supply-chain forest adjacency. Roughly the other half.</td></tr>
+        <tr><td>agriculture</td><td>crop stress, soil moisture proxy, growing-season anomaly. Smaller share.</td></tr>
+        <tr><td>urban planning</td><td>heat island, green-space share.</td></tr>
+        <tr><td>disaster response</td><td>Sentinel-1 flood extent under cloud, MODIS burned area.</td></tr>
+        <tr><td>energy siting, conservation, fisheries, tourism</td><td>long tail. Live, in single digits.</td></tr>
+      </tbody>
+    </table>
+
+    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">No fixed percentages. The exact mix shifts; <a href="/v1/agent_stats">/v1/agent_stats</a> publishes the live histogram for the last fourteen days.</p>
+  </div>
+</section>
+
+<section class="section page" id="limits">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">10</span><span class="idx-label">Limits</span></div>
+    <dl>
+      <dt>deployment</dt><dd>single host</dd>
+      <dt>federation</dt><dd>not yet</dd>
+      <dt>SOC 2</dt><dd>no</dd>
+      <dt>data scope</dt><dd>open data only</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">10</span>Honest limits, named in writing</h2>
+    <p class="lede">Things emem will not do. Read these before wiring a workload.</p>
+
+    <table class="absent-table">
+      <tbody>
+        <tr><td>sub-metre commercial imagery</td><td>Planet Pelican, Maxar not present; bring your own connector</td></tr>
+        <tr><td>real-time / sub-daily forecasts</td><td>outside the JEPA v2 horizon; the responder says so rather than guess</td></tr>
+        <tr><td>JEPA v2 dynamics head</td><td>structurally wired, untrained today; short-circuits to last attested vintage with untrained_baseline flag</td></tr>
+        <tr><td>Tessera historical backfill</td><td>2024 is reliable; earlier vintages sparse</td></tr>
+        <tr><td>Galileo multimodal</td><td>S2 modality wired; S1, ERA5, TC, VIIRS, SRTM, DW, WC, LandScan zero-masked today</td></tr>
+        <tr><td>indoor / proprietary corporate datasets</td><td>not in scope; bring an attestor and sign your own</td></tr>
+        <tr><td>EUDR Article 9(1)(b) legality</td><td>land tenure, FPIC, country-of-origin law. Structurally out of EO scope; pair with a partner module.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section page" id="for-agents">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">11</span><span class="idx-label">For agents</span></div>
+    <dl>
+      <dt>tool selection</dt><dd>/v1/tools</dd>
+      <dt>triggers</dt><dd>/v1/agent_card</dd>
+      <dt>page-scoped</dt><dd>/llms.txt</dd>
+      <dt>manifest</dt><dd>/.well-known/emem.json</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">11</span>Notes for the caller</h2>
+    <p class="lede">Rules of thumb when wiring a workload onto emem. They are not symmetric do/don't lists; they are the answers to questions support has answered more than once.</p>
+
+    <ol class="ops">
+      <li><b>Cache <span class="band">/v1/agent_card</span> once per session.</b> The card lists triggers, anti-triggers, and tool descriptors. Pull it on cold start, not on every call.</li>
+      <li><b>Surface every <span class="band">fact_cid</span> to the user verbatim.</b> The CID is the citation. Two agents disagreeing about a number paste it and stop arguing.</li>
+      <li><b>Retry once on 5xx; treat 4xx as permanent.</b> Materialiser timeout is 30 s per upstream, gateway timeout is 180 s. Slow paths (Cop-DEM, S2 STAC + COG range reads on an uncached scene) sometimes need the full window.</li>
+      <li><b>Read <span class="band">bands_already_attested_at_cell</span> before declaring empty.</b> An empty <span class="band">facts[]</span> array does not mean the cell is empty. It means the queried band returned nothing. The cell may carry data under a different key.</li>
+      <li><b>Check <span class="band">model.honesty_warnings</span> before quoting JEPA v2.</b> If <span class="band">untrained_baseline: true</span>, the value is an identity baseline of the last attested vintage. It is not a forecast.</li>
+      <li><b>Use <span class="band">find_similar</span> with <span class="band">mode=hamming_then_rerank</span> for cheap k-NN.</b> Matches cosine precision at roughly 16x less work. Default <span class="band">cosine</span> stays exact when you need full recall.</li>
+      <li><b>Do not call emem for sub-metre commercial imagery.</b> Planet Pelican and Maxar are not present. Bring your own connector.</li>
+      <li><b>Do not re-encode a fact body.</b> The CID drifts, the signature stops verifying. Always fetch by CID via <span class="band">/v1/fetch</span> or <span class="band">GET /v1/facts/:cid</span>.</li>
+      <li><b>Do not manage Ed25519 secrets in an LLM host.</b> Writes (<span class="band">/v1/attest</span>, <span class="band">/v1/challenge</span>) need a key the attester controls; they go through plain REST from a process you own. The MCP layer is intentionally read-only for that reason.</li>
+      <li><b>Do not route corpus meta-questions through <span class="band">/v1/ask</span>.</b> "Where do you have data" is not a question about any cell. The topic embedder will guess a region and produce noise. Call <span class="band">/v1/coverage_matrix</span> or <span class="band">/v1/discover</span> directly.</li>
+    </ol>
+
+    <p style="margin-top:2rem">When in doubt, walk the loop. <a href="#connect">discover</a>, <a href="#first-call">locate</a>, recall, reason, <a href="#verify">verify</a>. Every step is idempotent and signed.</p>
+  </div>
+</section>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">Earth memory protocol. Cell × Band × Tslot → Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper.md">whitepaper</a></li>
+          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card</a></li>
+          <li><a href="/v1/agent_stats">agent_stats</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/.well-known/emem.json">.well-known</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Human</h4>
+        <ul>
+          <li><a href="/humans">/humans</a></li>
+          <li><a href="/verify">/verify</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a></li>
+          <li><a href="/privacy">privacy · terms</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span><a href="/.well-known/emem.json">manifest</a> · <a href="#" id="emem-consent-manage">manage cookies</a></span>
+    </div>
+  </div>
+</footer>
 
 <div id=emem-consent hidden role=dialog aria-modal=false aria-labelledby=emem-consent-h>
   <p id=emem-consent-h>This site loads <strong>Google Analytics 4</strong> for aggregate visit counts. By default no cookies are set and no personal data is sent (Consent Mode v2, all denied). Click <strong>Accept</strong> to enable cookie-based analytics, or <strong>Reject</strong> to keep the cookieless default. Decision stored in a first-party cookie <code>emem_consent</code>, valid for 180 days, revocable from the footer.</p>
@@ -170,9 +1010,93 @@ $ curl -sX POST https://emem.dev/v1/recall \
     <a href=/privacy>Privacy policy</a>
   </div>
 </div>
+
 <script>
 (function(){
-  var KEY='emem_consent', MAX_AGE=180*24*60*60; // seconds
+  // Connect tab switcher.
+  var tabs = document.querySelectorAll('#client-tabs .client');
+  var pre = document.getElementById('connect-pre');
+  var filename = document.getElementById('connect-filename');
+  var configs = {
+    'claude-code':    { file: '.mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'cursor':         { file: '.cursor/mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'claude-desktop': { file: 'claude_desktop_config.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'cline':          { file: 'cline_mcp_settings.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span><span class="tok-p">,</span>\n      <span class="tok-key">"autoApprove"</span><span class="tok-p">:</span> [<span class="tok-s">"emem_recall"</span><span class="tok-p">,</span> <span class="tok-s">"emem_locate"</span><span class="tok-p">,</span> <span class="tok-s">"emem_verify"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'gemini':         { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">gemini</span> extensions install \\\n    <span class="tok-u">https://emem.dev/gemini-extension.json</span>' },
+    'openai':         { file: 'GPT builder', body: '<span class="tok-c"># Custom GPT, Actions, Import from URL</span>\n<span class="tok-u">https://emem.dev/openapi.action.json</span>\n\n<span class="tok-c"># No API key. Reads are open.</span>' },
+    'stdio':          { file: 'shell', body: '<span class="tok-c"># For runtimes without native Streamable-HTTP MCP</span>\n<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"command"</span><span class="tok-p">:</span> <span class="tok-s">"npx"</span><span class="tok-p">,</span>\n      <span class="tok-key">"args"</span><span class="tok-p">:</span> [<span class="tok-s">"-y"</span><span class="tok-p">,</span> <span class="tok-s">"mcp-remote"</span><span class="tok-p">,</span> <span class="tok-s">"https://emem.dev/mcp"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'rest':           { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \\\n    <span class="tok-flag">-H</span> <span class="tok-s">\'content-type: application/json\'</span> \\\n    <span class="tok-flag">-d</span> <span class="tok-s">\'{"cell":"defi.zb4d9.pefa.zf619",\n         "bands":["copdem30m.elevation_mean"]}\'</span>' }
+  };
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){ t.classList.remove('active'); });
+      tab.classList.add('active');
+      var c = configs[tab.dataset.client];
+      if (c) {
+        filename.textContent = c.file;
+        pre.innerHTML = '<code>' + c.body + '</code>';
+      }
+    });
+  });
+
+  // Copy buttons.
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var target = document.querySelector(btn.dataset.copyTarget);
+      if (!target) return;
+      var text = target.innerText || target.textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function(){});
+      }
+      var orig = btn.textContent;
+      btn.textContent = 'copied';
+      btn.classList.add('copied');
+      setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1200);
+    });
+  });
+
+  // Try-it console. Only entries with verified CIDs and values from docs/agents.md and the homepage. No fabricated CIDs.
+  var responses = {
+    'South Mumbai': { cell: 'defi.zb4d9.pefa.zf619', lat: 18.95, lng: 72.83, band: 'copdem30m.elevation_mean', value: 6.0, unit: 'm', cid: 'wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q' },
+    'Bengaluru':    { cell: 'defi.zb493.xoso.zcb6a', lat: 12.971641, lng: 77.594609, band: 'copdem30m.elevation_mean', value: 910.0, unit: 'm', cid: 'cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq' }
+  };
+  var input = document.getElementById('tryit-place');
+  var go = document.getElementById('tryit-go');
+  var out = document.getElementById('tryit-result');
+  var sugs = document.querySelectorAll('.tryit-suggest .sug');
+  function escapeHtml (s) { return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  function run () {
+    var q = input.value.trim();
+    var r = responses[q];
+    out.classList.remove('empty');
+    if (!r) {
+      out.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> The page only inlines two verified responses (South Mumbai, Bengaluru) because we will not fabricate a fact_cid we have not recomputed. To recall any other place, run the curl command above against <span class="band">/v1/recall</span> or call <span class="band">emem_locate</span> from your MCP client.';
+      return;
+    }
+    out.innerHTML =
+      '<span class="ok">200 OK</span> · verified cached response · cell64 and fact_cid match the live responder byte-for-byte' +
+      '<pre><span class="tok-p">{</span>\n' +
+      '  <span class="tok-key">"cell64"</span>: <span class="tok-s">"'+r.cell+'"</span>,\n' +
+      '  <span class="tok-key">"centre"</span>: { <span class="tok-key">"lat"</span>: <span class="tok-n">'+r.lat+'</span>, <span class="tok-key">"lng"</span>: <span class="tok-n">'+r.lng+'</span> },\n' +
+      '  <span class="tok-key">"facts"</span>: [{\n' +
+      '    <span class="tok-key">"band"</span>:  <span class="tok-s">"'+r.band+'"</span>,\n' +
+      '    <span class="tok-key">"value"</span>: <span class="tok-n">'+r.value+'</span>, <span class="tok-key">"unit"</span>: <span class="tok-s">"'+r.unit+'"</span>,\n' +
+      '    <span class="tok-key">"fact_cid"</span>: <span class="tok-s">"'+r.cid+'"</span>\n' +
+      '  }],\n' +
+      '  <span class="tok-key">"receipt"</span>: {\n' +
+      '    <span class="tok-key">"primitive"</span>:    <span class="tok-s">"emem.recall"</span>,\n' +
+      '    <span class="tok-key">"responder_pubkey_b32"</span>: <span class="tok-s">"777er3yihg…womvka"</span>,\n' +
+      '    <span class="tok-key">"signature"</span>:    [64 bytes ed25519 over blake3 preimage]\n' +
+      '  }\n' +
+      '<span class="tok-p">}</span></pre>' +
+      '<div style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">request_id, served_at, schema_cid, registry_cid omitted for brevity. The full envelope ships on every live call.</div>';
+  }
+  if (go) go.addEventListener('click', run);
+  if (input) input.addEventListener('keydown', function(e){ if (e.key === 'Enter') run(); });
+  sugs.forEach(function(s){ s.addEventListener('click', function(){ input.value = s.dataset.place; run(); }); });
+
+  // Consent banner.
+  var KEY='emem_consent', MAX_AGE=180*24*60*60;
   var banner=document.getElementById('emem-consent');
   var manage=document.getElementById('emem-consent-manage');
   function readCookie(){var m=document.cookie.match(/(?:^|;\s*)emem_consent=([^;]*)/);return m?decodeURIComponent(m[1]):null;}
