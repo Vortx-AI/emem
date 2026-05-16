@@ -55,8 +55,8 @@ stack, the mapping below is the rosetta-stone:
 | run the agent benchmark         | `benchmark`          | `GET /v1/benchmark`, `POST /v1/benchmark/grade` |
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 72 OpenAPI-documented paths under
-`/v1/*`, 50 MCP tools, 159 algorithms in the content-addressed registry,
+port 5051. The live surface ships 80 paths under
+`/v1/*`, 55 MCP tools, 159 algorithms in the content-addressed registry,
 41 bands in the manifest, 43 source schemes, and 12 fetch connectors.
 Version 0.0.6, MSRV Rust 1.88. No API keys; the MCP surface is read-only
 because writes need an Ed25519 secret no LLM host can manage safely.

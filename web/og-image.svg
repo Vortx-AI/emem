@@ -51,7 +51,7 @@
     <text x="290" y="232" font-size="32" fill="#9aa" letter-spacing="2">EARTH MEMORY PROTOCOL</text>
     <text x="80"  y="340" font-size="34" fill="#cfd">Cite-able, content-addressed, signed</text>
     <text x="80"  y="384" font-size="34" fill="#cfd">memory of every place on Earth.</text>
-    <text x="80"  y="450" font-size="28" fill="#a8b3ff">1 protocol · 36 MCP tools · ed25519 receipts</text>
+    <text x="80"  y="450" font-size="28" fill="#a8b3ff">1 protocol · 55 MCP tools · ed25519 receipts</text>
     <text x="80"  y="488" font-size="28" fill="#a8b3ff">Pure Rust · Open data · Apache-2.0</text>
     <text x="80"  y="572" font-size="32" fill="url(#acc)" font-weight="700">https://emem.dev</text>
     <text x="80"  y="610" font-size="22" fill="#888">github.com/Vortx-AI/emem</text>

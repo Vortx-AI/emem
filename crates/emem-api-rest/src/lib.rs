@@ -104,6 +104,7 @@ const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
 const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-answer.html");
+const DEMOS_INDEX_HTML: &str = include_str!("../../../web/demos-index.html");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
@@ -467,6 +468,8 @@ pub fn router(state: AppState) -> Router {
         // can share a one-click verifiable link.
         .route("/verify", get(serve_verify_html))
         .route("/verify/:cid", get(serve_verify_html))
+        .route("/demos", get(serve_demos_index))
+        .route("/demos/", get(serve_demos_index))
         .route("/demos/signed-answer", get(serve_demos_signed_answer))
         .route("/skills.md", get(serve_skills_md))
         .route(
@@ -1785,6 +1788,15 @@ async fn serve_verify_html() -> Response {
 /// a concrete URL to point at.
 async fn serve_demos_signed_answer() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_SIGNED_ANSWER_HTML)
+}
+
+/// `/demos` — index of live, signed walkthroughs against the hosted
+/// responder.  Companion to the per-demo HTML pages (currently
+/// `/demos/signed-answer`); links out to `/gallery`, `/verify`,
+/// `/v1/stream`, `/v1/benchmark`, `/v1/corpus_state_stats`.  Keeps the
+/// "where do I start?" entry point cheap and discoverable.
+async fn serve_demos_index() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_INDEX_HTML)
 }
 
 /// `/skills.md` — composed-recipe cookbook for agents.
@@ -11812,7 +11824,9 @@ struct StreamParams {
 async fn get_stream_sse(
     State(s): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<StreamParams>,
-) -> axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+) -> axum::response::sse::Sse<
+    impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+> {
     use axum::response::sse::{Event, KeepAlive, Sse};
     use futures_util::StreamExt;
     use std::time::Duration;
@@ -11859,52 +11873,48 @@ async fn get_stream_sse(
                 }),
             };
 
-        // Signed tick preimage: the canonical concatenation any
-        // verifier can reconstruct from the event body. Matches the
-        // protocol's "every responder claim is signed" rule.
-        let version = env!("CARGO_PKG_VERSION");
-        let pubkey_b32 = data_encoding::BASE32_NOPAD
-            .encode(&s.identity.pubkey.0)
-            .to_lowercase();
-        let registry_cid = s.manifests.registry_cid.as_str();
-        let preimage = format!(
-            "emem.stream.tick|v{}|epoch{}|{}|registry:{}|cells:{}",
-            version,
-            s.identity.epoch.0,
-            served_at,
-            registry_cid,
-            snapshot_block
-                .get("distinct_cells")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0),
-        );
-        let sig = s
-            .identity
-            .signing
-            .sign(preimage.as_bytes())
-            .to_bytes();
-        let sig_b32 = data_encoding::BASE32_NOPAD.encode(&sig).to_lowercase();
+            // Signed tick preimage: the canonical concatenation any
+            // verifier can reconstruct from the event body. Matches the
+            // protocol's "every responder claim is signed" rule.
+            let version = env!("CARGO_PKG_VERSION");
+            let pubkey_b32 = data_encoding::BASE32_NOPAD
+                .encode(&s.identity.pubkey.0)
+                .to_lowercase();
+            let registry_cid = s.manifests.registry_cid.as_str();
+            let preimage = format!(
+                "emem.stream.tick|v{}|epoch{}|{}|registry:{}|cells:{}",
+                version,
+                s.identity.epoch.0,
+                served_at,
+                registry_cid,
+                snapshot_block
+                    .get("distinct_cells")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+            );
+            let sig = s.identity.signing.sign(preimage.as_bytes()).to_bytes();
+            let sig_b32 = data_encoding::BASE32_NOPAD.encode(&sig).to_lowercase();
 
-        let payload = json!({
-            "type":       "corpus.state",
-            "served_at":  served_at,
-            "now_unix_s": now,
-            "version":    version,
-            "responder": {
-                "pubkey_b32": pubkey_b32,
-                "key_epoch":  s.identity.epoch.0,
-            },
-            "corpus":     snapshot_block,
-            "manifests": {
-                "registry_cid": registry_cid,
-                "bands_cid":    &s.manifests.bands_cid,
-            },
-            "signature": {
-                "preimage":      preimage,
-                "signature_b32": sig_b32,
-                "alg":           "ed25519",
-            },
-        });
+            let payload = json!({
+                "type":       "corpus.state",
+                "served_at":  served_at,
+                "now_unix_s": now,
+                "version":    version,
+                "responder": {
+                    "pubkey_b32": pubkey_b32,
+                    "key_epoch":  s.identity.epoch.0,
+                },
+                "corpus":     snapshot_block,
+                "manifests": {
+                    "registry_cid": registry_cid,
+                    "bands_cid":    &s.manifests.bands_cid,
+                },
+                "signature": {
+                    "preimage":      preimage,
+                    "signature_b32": sig_b32,
+                    "alg":           "ed25519",
+                },
+            });
 
             Ok::<_, std::convert::Infallible>(
                 Event::default()
@@ -12136,10 +12146,7 @@ async fn post_state(
 
 /// `/v1/state` view=encoder: single-band dense vector at the band's
 /// native dimension. Behaviour-compatible with the pre-refactor shape.
-async fn state_view_encoder(
-    s: AppState,
-    req: StateReq,
-) -> Result<Json<StateResp>, ApiError> {
+async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp>, ApiError> {
     let encoder = req
         .encoder
         .as_ref()
@@ -12495,7 +12502,11 @@ async fn post_state_diff(
     let dot: f32 = vec_a.iter().zip(vec_b.iter()).map(|(a, b)| a * b).sum();
     let na = vec_a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let nb = vec_b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let cosine_a_b = if na > 0.0 && nb > 0.0 { dot / (na * nb) } else { 0.0 };
+    let cosine_a_b = if na > 0.0 && nb > 0.0 {
+        dot / (na * nb)
+    } else {
+        0.0
+    };
 
     let memory_token_a = format!("memt:{}:{}", cell, fact_cid_a);
     let memory_token_b = format!("memt:{}:{}", cell, fact_cid_b);
@@ -12565,13 +12576,10 @@ struct BandCoverage {
 const RESERVED_BAND_KEYS: &[&str] = &["_reserved_128", "reserved"];
 
 fn is_reserved_band(key: &str) -> bool {
-    RESERVED_BAND_KEYS.iter().any(|k| *k == key)
+    RESERVED_BAND_KEYS.contains(&key)
 }
 
-async fn state_view_cube(
-    s: AppState,
-    req: StateReq,
-) -> Result<Json<StateResp>, ApiError> {
+async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, ApiError> {
     let (cell, resolved) = resolve_cell_field(&req.cell).await?;
     let materialize = req.materialize.unwrap_or(false);
     let include_reserved = req.include_reserved.unwrap_or(false);
@@ -12779,8 +12787,9 @@ async fn state_view_cube(
     let mut hasher = blake3::Hasher::new();
     hasher.update(&bytes);
     let hash = hasher.finalize();
-    let state_cid =
-        data_encoding::BASE32_NOPAD.encode(&hash.as_bytes()[..32]).to_lowercase();
+    let state_cid = data_encoding::BASE32_NOPAD
+        .encode(&hash.as_bytes()[..32])
+        .to_lowercase();
 
     let l2_norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
     let memory_token = format!("memt:{}:{}", cell, state_cid);
@@ -12806,7 +12815,11 @@ async fn state_view_cube(
         filled_bands: Some(filled_bands),
         absent_bands: Some(absent_bands),
         missing_bands: Some(missing_bands),
-        extras: if extras.is_empty() { None } else { Some(extras) },
+        extras: if extras.is_empty() {
+            None
+        } else {
+            Some(extras)
+        },
         materialize_notes,
         resolved_from: resolved_env,
     }))
@@ -12892,18 +12905,16 @@ async fn get_corpus_state_stats(
     State(s): State<AppState>,
 ) -> Result<Json<CorpusStateStats>, ApiError> {
     const SCAN_LIMIT: usize = 32_768;
-    let entries = s
-        .storage
-        .iter_index(Some(SCAN_LIMIT))
-        .await
-        .map_err(|e| ApiError(
+    let entries = s.storage.iter_index(Some(SCAN_LIMIT)).await.map_err(|e| {
+        ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: format!("/v1/corpus_state_stats: index scan failed: {e}"),
                 details: None,
             },
-        ))?;
+        )
+    })?;
 
     use std::collections::{HashMap, HashSet};
     let mut cells: HashSet<String> = HashSet::new();
@@ -12932,7 +12943,11 @@ async fn get_corpus_state_stats(
             }
         })
         .collect();
-    by_band.sort_by(|a, b| b.fact_count.cmp(&a.fact_count).then_with(|| a.band.cmp(&b.band)));
+    by_band.sort_by(|a, b| {
+        b.fact_count
+            .cmp(&a.fact_count)
+            .then_with(|| a.band.cmp(&b.band))
+    });
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -13116,9 +13131,7 @@ struct BenchmarkGradeResp {
     by_id: Vec<BenchmarkGradeItem>,
 }
 
-async fn post_benchmark_grade(
-    Json(req): Json<BenchmarkGradeReq>,
-) -> Json<BenchmarkGradeResp> {
+async fn post_benchmark_grade(Json(req): Json<BenchmarkGradeReq>) -> Json<BenchmarkGradeResp> {
     let items = benchmark_items();
     let total = items.len();
     let mut correct = 0usize;
@@ -13132,7 +13145,10 @@ async fn post_benchmark_grade(
                 if s == *expected {
                     (true, None)
                 } else {
-                    (false, Some(format!("expected fact_cid `{}`, got `{}`", expected, s)))
+                    (
+                        false,
+                        Some(format!("expected fact_cid `{}`, got `{}`", expected, s)),
+                    )
                 }
             }
             (
@@ -13146,7 +13162,13 @@ async fn post_benchmark_grade(
                 if s == *expected_cell {
                     (true, None)
                 } else {
-                    (false, Some(format!("expected top neighbour `{}`, got `{}`", expected_cell, s)))
+                    (
+                        false,
+                        Some(format!(
+                            "expected top neighbour `{}`, got `{}`",
+                            expected_cell, s
+                        )),
+                    )
                 }
             }
             (_, None) => (false, Some("no submission for this item".into())),

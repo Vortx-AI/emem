@@ -21,7 +21,7 @@
 - `GET /v1/schema` — canonical CBOR wire schema
 - `GET /v1/topics` — 26 declared topic clusters with `live_bands_by_topic` filtered to this responder's wired materializers
 - `GET /v1/agent_card` — agent-readable summary, live counts, manifest CIDs
-- `GET /v1/tools` — 49 MCP tools with `when_to_use` strings + four behavioural annotations
+- `GET /v1/tools` — 55 MCP tools with `when_to_use` strings + four behavioural annotations
 - `GET /v1/quickstart` — copy-paste snippets for the canonical flows
 - `GET /v1/cells/{cell64}/info` — bbox, centre, approximate metres
 - `GET /v1/cells/{cell64}/scene.png` — optional Sentinel-2 thumbnail
@@ -104,7 +104,7 @@ live try-it drawer. Press `?` for the keyboard shortcut sheet.
 ## Try-it drawer (`T`)
 
 A slide-out drawer exposes 20 primitives the page knows about (the full
-agent surface has 49 MCP tools — discover at `GET /v1/tools`). For each:
+agent surface has 55 MCP tools — discover at `GET /v1/tools`). For each:
 
 - pre-filled JSON request body seeded from the corpus this responder
   actually serves (densest cell, top band)

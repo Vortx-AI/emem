@@ -10,9 +10,9 @@ deploy, `whitepaper.md` for the math.
 ## The shape of the system
 
 A single Rust binary `emem-server` listens on one port (default
-`0.0.0.0:5051`) and serves both HTTP/REST (**169 routes**, **79 under
+`0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **80 unique paths under
 `/v1/*`**) and an MCP JSON-RPC endpoint at `POST /mcp`
-(**49 tools**). An optional Python sidecar over a Unix domain socket
+(**55 tools**). An optional Python sidecar over a Unix domain socket
 handles GPU inference for Clay v1.5, Prithvi-EO-2.0, Galileo, and
 JEPA v2. Storage is a sled hot cache plus an append-only Merkle
 log on local disk. Identity is a 32-byte ed25519 secret at

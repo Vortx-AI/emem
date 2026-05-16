@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/demos — index of live, signed walkthroughs</title>
+<meta name=description content="Index of emem.dev demo surfaces: signed-answer walkthrough, case-study gallery, live corpus stream, in-browser receipt verifier, agent benchmark. Every page hits the same hosted responder.">
+<link rel=canonical href="https://emem.dev/demos">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel=alternate type=text/markdown href="/llms.txt">
+<link rel="service mcp" href="/mcp">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="light dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/demos">
+<meta property=og:title content="emem.dev/demos — live, signed walkthroughs">
+<meta property=og:description content="Pick a demo. Each one runs against the live responder and is verifiable end-to-end.">
+<meta property=og:image content="https://emem.dev/og-image.svg">
+<link rel=icon href="/logo-mark.png">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);--ink-3:oklch(0.50 0.005 85);
+  --accent:oklch(0.45 0.09 145);--rule:oklch(0.86 0.005 85);
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --t-xs:.72rem;--t-sm:.82rem;--t-base:.92rem;--t-lg:1.08rem;--t-xl:1.4rem;--t-2xl:2rem;--t-3xl:3rem;
+  font-size:90%;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);--ink-3:oklch(0.62 0.005 85);
+    --rule:oklch(0.32 0.005 85);
+    --accent:oklch(0.78 0.10 145);
+  }
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-variant-numeric:tabular-nums}
+::selection{background:var(--accent);color:var(--paper)}
+a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--rule)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;display:flex;align-items:center;height:2.2rem;padding:0 1rem;font-size:var(--t-xs);color:var(--ink-3)}
+.statusbar .brand{font-weight:600;color:var(--ink);letter-spacing:-.01em;margin-right:1rem}
+.statusbar .brand .leaf{color:var(--accent)}
+.statusbar nav{display:flex;gap:.7rem;margin-left:auto}
+.statusbar nav a{color:var(--ink-3);border-bottom:none}
+.statusbar nav a:hover{color:var(--accent)}
+.wrap{max-width:1080px;margin:0 auto;padding:2rem 1.4rem 5rem}
+@media(max-width:760px){.wrap{padding:1.4rem 1rem 4rem}}
+header.masthead{padding-bottom:1.6rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
+.kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
+h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing:-.01em;margin:0 0 .7rem;line-height:1.18}
+h1 .accent{color:var(--accent)}
+.lede{color:var(--ink-2);font-size:var(--t-lg);margin:0;line-height:1.55;max-width:60ch}
+.lede b{color:var(--ink);font-weight:500}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:1rem;margin-top:1.6rem}
+.card{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.1rem 1.2rem;display:flex;flex-direction:column;gap:.55rem;transition:border-color .15s,background .15s}
+.card:hover{border-color:var(--accent);background:var(--paper-3)}
+.card a.title{font-size:var(--t-lg);font-weight:600;color:var(--ink);letter-spacing:-.01em;border-bottom:none}
+.card:hover a.title{color:var(--accent)}
+.card .endpoint{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.18em .55em;border:1px solid var(--rule);border-radius:2px;align-self:flex-start;font-feature-settings:"ss01"}
+.card .desc{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;flex:1}
+.card .meta{display:flex;gap:.55rem;font-size:var(--t-xs);color:var(--ink-3);margin-top:.3rem}
+.card .meta .tag{padding:.06em .45em;border:1px solid var(--rule);border-radius:2px;background:var(--paper)}
+.card.status-live .meta .tag.status{color:var(--accent);border-color:currentColor}
+.note{margin-top:2.4rem;color:var(--ink-3);font-size:var(--t-sm);line-height:1.55;max-width:62ch}
+.note code{background:var(--paper-2);padding:.06em .35em;border-radius:2px;border:1px solid var(--rule)}
+footer{margin-top:3rem;padding-top:1.4rem;border-top:1px solid var(--rule);color:var(--ink-3);font-size:var(--t-xs);display:flex;flex-wrap:wrap;gap:.7rem;align-items:center}
+footer a{color:var(--ink-3);border-bottom:none}
+footer a:hover{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class=statusbar>
+  <span class=brand>emem<span class=leaf>·</span>dev<span class=leaf>/demos</span></span>
+  <span>index of live walkthroughs against the hosted responder</span>
+  <nav>
+    <a href="/">home</a>
+    <a href="/agents.md">agents.md</a>
+    <a href="/openapi.json">openapi</a>
+    <a href="/mcp">mcp</a>
+    <a href="https://github.com/Vortx-AI/emem">github</a>
+  </nav>
+</div>
+
+<main class=wrap>
+  <header class=masthead>
+    <p class=kicker>emem.dev · demos · 2026</p>
+    <h1>Pick a demo.<br><span class=accent>Each one runs live and is verifiable end-to-end.</span></h1>
+    <p class=lede>Every page below talks to the same hosted responder at <b>emem.dev</b>. No fixtures, no mocked endpoints. Receipts come back signed by the same Ed25519 identity (<code>/.well-known/emem.json</code>) and recomputing the fact CID in your own checkout returns byte-identical bytes.</p>
+  </header>
+
+  <section class=grid aria-label="Demo cards">
+
+    <article class="card status-live">
+      <a class=title href="/demos/signed-answer">Signed answer in four steps</a>
+      <span class=endpoint>GET /demos/signed-answer</span>
+      <p class=desc>Resolve a place, recall a band, verify the receipt's Ed25519 signature in the browser, then reproduce the fact CID from a fresh call. The trust path of the protocol made visible.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/locate</span>
+        <span class=tag>/v1/recall</span>
+        <span class=tag>/v1/verify_receipt</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/gallery">Case-study gallery</a>
+      <span class=endpoint>GET /gallery</span>
+      <p class=desc>Earth-observation figures rendered live by the responder. Walkability, flood exposure, urban heat, NDVI trajectories, deforestation hotspots, each with a signed receipt the reader can verify.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/recall_polygon</span>
+        <span class=tag>/v1/hunt</span>
+        <span class=tag>/v1/trajectory</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/verify">In-browser receipt verifier</a>
+      <span class=endpoint>GET /verify or /verify/&lt;fact_cid&gt;</span>
+      <p class=desc>Paste any fact CID or receipt JSON; the verifier recomputes the BLAKE3 over the canonical CBOR, checks the Ed25519 signature against the responder pubkey, and shows pass or fail in the browser. No callback to emem.dev.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>blake3</span>
+        <span class=tag>ed25519</span>
+        <span class=tag>offline-safe</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/v1/stream">Corpus heartbeat (SSE)</a>
+      <span class=endpoint>GET /v1/stream</span>
+      <p class=desc>Server-sent stream of signed corpus ticks: fact count, distinct cells, distinct bands, manifest CIDs. Each tick carries an Ed25519 signature over its preimage so a peer can verify the snapshot without trusting the wire.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>SSE</span>
+        <span class=tag>signed-ticks</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/v1/benchmark">Agent benchmark</a>
+      <span class=endpoint>GET /v1/benchmark · POST /v1/benchmark/grade</span>
+      <p class=desc>Five hand-verified items every agent should pass: two elevation recalls, one NDVI at a known algal-bloom cell, two find_similar neighbour cells. Submit answers, get a per-item score.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>recall</span>
+        <span class=tag>find_similar</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/v1/corpus_state_stats">Corpus state stats</a>
+      <span class=endpoint>GET /v1/corpus_state_stats</span>
+      <p class=desc>Signed snapshot of the live corpus: distinct cells, distinct bands, per-band fact counts (top first), manifest CIDs in force. Honest observability primitive, scanned-then-signed.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>observability</span>
+      </div>
+    </article>
+
+  </section>
+
+  <p class=note>Want to write a new demo? The hosted surface is a stable URL contract; point an <code>iframe</code>, <code>fetch</code>, or MCP tool call at any path under <code>/v1/*</code>. Source for the page you're reading lives at <a href="https://github.com/Vortx-AI/emem/blob/main/web/demos-index.html">web/demos-index.html</a>; PRs welcome.</p>
+
+  <footer>
+    <span>emem.dev · Earth as memory, for real-world agents</span>
+    <span>·</span>
+    <a href="/spec.md">spec</a>
+    <a href="/whitepaper.md">whitepaper</a>
+    <a href="/agents.md">agents.md</a>
+    <a href="/.well-known/emem.json">.well-known</a>
+  </footer>
+</main>
+
+</body>
+</html>

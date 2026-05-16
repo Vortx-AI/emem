@@ -131,6 +131,15 @@ pub struct FieldPolygon {
     /// polygon's mean latitude. Accurate to <1 % for fields up to a
     /// few km across; good enough for "total cropland area" displays.
     pub area_m2: f64,
+    /// cell64 string at the polygon's centroid — the canonical
+    /// (cell64, ~9.55 m) address an agent can pass to `/v1/recall`,
+    /// `/v1/state`, `/v1/find_similar`, etc. to read protocol-native
+    /// facts at this field without recomputing the geometry.  Centroid
+    /// is the area-weighted (shoelace) centroid of the exterior ring,
+    /// which lies inside convex fields; for concave fields it may sit
+    /// near the boundary but stays within ~one cell of the visual
+    /// centre.
+    pub centroid_cell64: String,
 }
 
 /// Result of one `fetch_field_polygons_bbox` call.
@@ -362,7 +371,7 @@ fn decode_tile_to_polygons(
             let Some(polygons) = polygon_to_geojson(&feat.geometry, z, tx, ty, extent) else {
                 continue; // non-polygon feature (point/line) — FTW shouldn't emit these but skip safely
             };
-            for (geom_json, area_m2) in polygons {
+            for (geom_json, area_m2, centroid_cell64) in polygons {
                 // Bbox intersection check on bounding rect of ring 0
                 // (the exterior). Cheaper than full intersection and
                 // sufficient since we only fetched bbox-covering tiles.
@@ -377,6 +386,7 @@ fn decode_tile_to_polygons(
                     geometry: geom_json,
                     properties,
                     area_m2,
+                    centroid_cell64,
                 });
             }
         }
@@ -394,7 +404,7 @@ fn polygon_to_geojson(
     tx: u32,
     ty: u32,
     extent: u32,
-) -> Option<Vec<(serde_json::Value, f64)>> {
+) -> Option<Vec<(serde_json::Value, f64, String)>> {
     match geom {
         geo_types::Geometry::Polygon(p) => {
             Some(vec![project_polygon_with_area(p, z, tx, ty, extent)])
@@ -416,7 +426,7 @@ fn project_polygon_with_area(
     tx: u32,
     ty: u32,
     extent: u32,
-) -> (serde_json::Value, f64) {
+) -> (serde_json::Value, f64, String) {
     let project_ring = |ring: &geo_types::LineString<f32>| -> Vec<[f64; 2]> {
         ring.0
             .iter()
@@ -430,6 +440,8 @@ fn project_polygon_with_area(
     let mut rings: Vec<Vec<[f64; 2]>> = Vec::with_capacity(1 + p.interiors().len());
     let exterior = project_ring(p.exterior());
     let area_m2 = planar_area_m2(&exterior);
+    let (clat, clng) = ring_centroid_lat_lng(&exterior);
+    let centroid_cell64 = emem_codec::geo::cell64_from_latlng(clat, clng);
     // GeoJSON requires the ring to be closed (first == last); the MVT
     // wire form doesn't repeat the closing vertex.
     let close = |mut r: Vec<[f64; 2]>| {
@@ -446,7 +458,45 @@ fn project_polygon_with_area(
         "type": "Polygon",
         "coordinates": rings,
     });
-    (geometry, area_m2)
+    (geometry, area_m2, centroid_cell64)
+}
+
+/// Area-weighted (shoelace) centroid of a `[lon, lat]` ring.  Returns
+/// `(lat, lng)` so the caller can hand it straight to
+/// `cell64_from_latlng`.  Falls back to the vertex arithmetic mean
+/// when the ring is degenerate (collinear or fewer than three
+/// vertices); both are honest centres for the cell64 anchor since the
+/// cell grid is ~9.55 m and ag fields are tens of metres across.
+fn ring_centroid_lat_lng(ring: &[[f64; 2]]) -> (f64, f64) {
+    if ring.len() < 3 {
+        if ring.is_empty() {
+            return (0.0, 0.0);
+        }
+        let n = ring.len() as f64;
+        let sum_lat: f64 = ring.iter().map(|p| p[1]).sum();
+        let sum_lng: f64 = ring.iter().map(|p| p[0]).sum();
+        return (sum_lat / n, sum_lng / n);
+    }
+    let mut a2 = 0.0_f64;
+    let mut cx = 0.0_f64;
+    let mut cy = 0.0_f64;
+    for i in 0..ring.len() {
+        let j = (i + 1) % ring.len();
+        let (xi, yi) = (ring[i][0], ring[i][1]);
+        let (xj, yj) = (ring[j][0], ring[j][1]);
+        let cross = xi * yj - xj * yi;
+        a2 += cross;
+        cx += (xi + xj) * cross;
+        cy += (yi + yj) * cross;
+    }
+    if a2.abs() < 1e-18 {
+        let n = ring.len() as f64;
+        let sum_lat: f64 = ring.iter().map(|p| p[1]).sum();
+        let sum_lng: f64 = ring.iter().map(|p| p[0]).sum();
+        return (sum_lat / n, sum_lng / n);
+    }
+    let six_a = 3.0 * a2;
+    (cy / six_a, cx / six_a)
 }
 
 /// Shoelace area on a ring whose vertices are `[lon, lat]` in degrees,
@@ -562,6 +612,14 @@ pub fn to_geojson_feature_collection(c: &FieldCollection) -> serde_json::Value {
                 serde_json::Number::from_f64(f.area_m2)
                     .map(serde_json::Value::Number)
                     .unwrap_or(serde_json::Value::Null),
+            );
+            // Protocol-native handle: the cell64 at the area-weighted
+            // centroid of the exterior ring.  Agents can hand this to
+            // /v1/recall, /v1/state, /v1/find_similar, /v1/memory_token
+            // without recomputing geometry.
+            props.insert(
+                "cell64_centroid".into(),
+                serde_json::Value::String(f.centroid_cell64.clone()),
             );
             serde_json::json!({
                 "type": "Feature",
