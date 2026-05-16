@@ -130,7 +130,9 @@ The MCP endpoint is `https://emem.dev/mcp`. Drop a config snippet into your clie
 | Gemini CLI            | `gemini extensions install https://emem.dev/gemini-extension.json`  |
 | ChatGPT (Custom GPT)  | [examples/openai-gpt-action.json](examples/openai-gpt-action.json)  |
 | LangChain (Python)    | [examples/langchain.py](examples/langchain.py)                      |
+| LangChain MCP agent   | [examples/langchain/](examples/langchain/)                          |
 | LlamaIndex (Python)   | [examples/llamaindex.py](examples/llamaindex.py)                    |
+| LlamaIndex MCP agent  | [examples/llamaindex/](examples/llamaindex/)                        |
 
 Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending; install from the repo today).
 
