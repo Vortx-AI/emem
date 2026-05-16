@@ -1435,11 +1435,11 @@ arbitrary structured feedback alongside the receipt.
   any vector-typed band today, so the spec is forward-compatible.
   The next encoder to land is the Galileo multimodal embedding
   (currently S2-only at this responder).
-- **Benchmark suite `/v1/benchmark`.** A small, hand-verified set
-  of place-anchored questions with expected fact_cids, plus a
-  grader endpoint, lets any agent measure its ground-rate against
-  emem. The protocol is ready; the verified test items need
-  curation.
+- **More benchmark items.** `/v1/benchmark` ships five hand-verified
+  items (three recall, two find_similar) and `/v1/benchmark/grade`
+  scores submitted answers against expected. The next motion is
+  growing the catalogue (hunt events, trajectory windows, state
+  diffs); curation is the rate-limit.
 - **Per-cell subscribe filter on `/v1/stream`.** The Server-Sent
   Events stream at `/v1/stream` ships a signed corpus tick every
   N seconds (default 15, range [5, 300]). The next motion is

@@ -688,7 +688,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
         .route("/v1/state", post(post_state))
+        .route("/v1/state_multi", post(post_state_multi))
+        .route("/v1/state_diff", post(post_state_diff))
         .route("/v1/stream", get(get_stream_sse))
+        .route("/v1/benchmark", get(get_benchmark))
+        .route("/v1/benchmark/grade", post(post_benchmark_grade))
         // Physics primitives — explicit-FD heat / wave PDE solvers and a
         // constrained JEPA-pattern NDVI predictor. See crates/emem-api-rest/src/physics.rs.
         .route("/v1/heat_solve", post(physics::post_heat_solve))
@@ -12084,6 +12088,488 @@ async fn post_state(
         receipt: receipt_v,
         resolved_from: resolved_env,
     }))
+}
+
+// ── /v1/state_multi ──────────────────────────────────────────────────────
+//
+// Multi-State Read: the planet-keyed analogue of MSW (Multi-State Write)
+// in the in-attention memory literature. A single request fans out over
+// every wired foundation-embedding encoder for the cell and returns a
+// structured per-encoder state map. Each encoder is independently
+// attempted; encoders that are not wired at this responder, or fail to
+// produce a vector at this cell, surface under `missing` with a typed
+// reason rather than killing the request.
+//
+// Use cases: cross-encoder consensus (do Tessera, Clay, and Prithvi
+// agree this is the same archetype?), redundancy-aware reasoning
+// (which encoder's state is freshest at this cell?), and concatenated
+// state for downstream linear probes.
+
+const FOUNDATION_ENCODERS: &[&str] = &["geotessera", "clay_v1", "prithvi_eo2"];
+
+#[derive(Debug, Deserialize)]
+struct StateMultiReq {
+    cell: String,
+    /// Optional explicit encoder list; defaults to every wired
+    /// foundation-embedding band (`geotessera`, `clay_v1`, `prithvi_eo2`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    encoders: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tslot: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct EncoderState {
+    encoder: String,
+    dim: usize,
+    vector: Vec<f32>,
+    l2_norm: f32,
+    tslot: u64,
+    fact_cid: String,
+    memory_token: String,
+}
+
+#[derive(Debug, Serialize)]
+struct EncoderMissing {
+    encoder: String,
+    reason: String,
+}
+
+#[derive(Debug, Serialize)]
+struct StateMultiResp {
+    cell: String,
+    encoders: Vec<EncoderState>,
+    missing: Vec<EncoderMissing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_from: Option<JsonValue>,
+}
+
+async fn post_state_multi(
+    State(s): State<AppState>,
+    Json(req): Json<StateMultiReq>,
+) -> Result<Json<StateMultiResp>, ApiError> {
+    let (cell, resolved) = resolve_cell_field(&req.cell).await?;
+    let encoders: Vec<String> = req
+        .encoders
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| FOUNDATION_ENCODERS.iter().map(|s| s.to_string()).collect());
+
+    let mut hits: Vec<EncoderState> = Vec::with_capacity(encoders.len());
+    let mut missing: Vec<EncoderMissing> = Vec::new();
+    for encoder in encoders {
+        let recall_req = RecallReq {
+            cell: cell.clone(),
+            bands: Some(vec![encoder.clone()]),
+            tslot: req.tslot,
+        };
+        match recall_with_auto_materialize(&recall_req, &s).await {
+            Ok((resp, _notes)) => {
+                let primary = resp.facts.iter().find_map(|f| match f {
+                    emem_fact::Fact::Primary(p) if p.band == encoder => Some(p),
+                    _ => None,
+                });
+                match primary {
+                    Some(p) => {
+                        match emem_primitives::cbor_ops::as_vec_f32(&p.value) {
+                            Some(vec) => {
+                                let l2_norm = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
+                                let fact_cid = resp
+                                    .receipt
+                                    .fact_cids
+                                    .first()
+                                    .map(|c| c.0.clone())
+                                    .unwrap_or_default();
+                                let memory_token = format!("memt:{}:{}", cell, fact_cid);
+                                hits.push(EncoderState {
+                                    encoder: encoder.clone(),
+                                    dim: vec.len(),
+                                    vector: vec,
+                                    l2_norm,
+                                    tslot: p.tslot,
+                                    fact_cid,
+                                    memory_token,
+                                });
+                            }
+                            None => missing.push(EncoderMissing {
+                                encoder: encoder.clone(),
+                                reason: "encoder band returned a non-vector value at this cell"
+                                    .into(),
+                            }),
+                        }
+                    }
+                    None => missing.push(EncoderMissing {
+                        encoder: encoder.clone(),
+                        reason: "no primary fact at this cell for this encoder; cell may be cold or encoder unwired".into(),
+                    }),
+                }
+            }
+            Err(e) => missing.push(EncoderMissing {
+                encoder: encoder.clone(),
+                reason: format!("recall failed: {}", e.1.message),
+            }),
+        }
+    }
+
+    let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
+    Ok(Json(StateMultiResp {
+        cell,
+        encoders: hits,
+        missing,
+        resolved_from: resolved_env,
+    }))
+}
+
+// ── /v1/state_diff ───────────────────────────────────────────────────────
+//
+// Vector delta of the same place between two tslots. The planet-keyed
+// analogue of the gated delta-rule's residual term: how much the state
+// at this cell moved between vintage A and vintage B. Returns the delta
+// vector, its L2 norm (the scalar change-magnitude), the cosine between
+// the two source vectors (orientation drift), and both source fact CIDs
+// so the agent can quote both attestations as evidence.
+
+#[derive(Debug, Deserialize)]
+struct StateDiffReq {
+    cell: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    encoder: Option<String>,
+    tslot_a: u64,
+    tslot_b: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct StateDiffResp {
+    cell: String,
+    encoder: String,
+    dim: usize,
+    delta_vector: Vec<f32>,
+    l2_norm_of_delta: f32,
+    cosine_a_b: f32,
+    tslot_a: u64,
+    tslot_b: u64,
+    fact_cid_a: String,
+    fact_cid_b: String,
+    memory_token_a: String,
+    memory_token_b: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_from: Option<JsonValue>,
+}
+
+async fn post_state_diff(
+    State(s): State<AppState>,
+    Json(req): Json<StateDiffReq>,
+) -> Result<Json<StateDiffResp>, ApiError> {
+    if req.tslot_a == req.tslot_b {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "/v1/state_diff: tslot_a and tslot_b must differ; nothing to diff against itself".into(),
+                details: None,
+            },
+        ));
+    }
+    let encoder = req
+        .encoder
+        .map(|e| e.trim().to_string())
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| "geotessera".to_string());
+    let (cell, resolved) = resolve_cell_field(&req.cell).await?;
+
+    let fetch = |tslot: u64| -> RecallReq {
+        RecallReq {
+            cell: cell.clone(),
+            bands: Some(vec![encoder.clone()]),
+            tslot: Some(tslot),
+        }
+    };
+    let (resp_a, _) = recall_with_auto_materialize(&fetch(req.tslot_a), &s).await?;
+    let (resp_b, _) = recall_with_auto_materialize(&fetch(req.tslot_b), &s).await?;
+
+    fn extract(
+        resp: &emem_primitives::recall::RecallResp,
+        encoder: &str,
+        which: &str,
+    ) -> Result<(Vec<f32>, String), ApiError> {
+        let primary = resp
+            .facts
+            .iter()
+            .find_map(|f| match f {
+                emem_fact::Fact::Primary(p) if p.band == encoder => Some(p),
+                _ => None,
+            })
+            .ok_or_else(|| ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!(
+                        "/v1/state_diff: no fact at tslot_{which} for encoder {encoder}; check /v1/coverage_matrix"
+                    ),
+                    details: None,
+                },
+            ))?;
+        let vec = emem_primitives::cbor_ops::as_vec_f32(&primary.value).ok_or_else(|| ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("/v1/state_diff: encoder {encoder} produced a non-vector value at tslot_{which}"),
+                details: None,
+            },
+        ))?;
+        let cid = resp
+            .receipt
+            .fact_cids
+            .first()
+            .map(|c| c.0.clone())
+            .ok_or_else(|| ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("/v1/state_diff: recall at tslot_{which} returned a fact without a fact_cid"),
+                    details: None,
+                },
+            ))?;
+        Ok((vec, cid))
+    }
+
+    let (vec_a, fact_cid_a) = extract(&resp_a, &encoder, "a")?;
+    let (vec_b, fact_cid_b) = extract(&resp_b, &encoder, "b")?;
+    if vec_a.len() != vec_b.len() {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "/v1/state_diff: dim mismatch ({} vs {}); encoder vintages produced incompatible vectors",
+                    vec_a.len(),
+                    vec_b.len()
+                ),
+                details: None,
+            },
+        ));
+    }
+    let dim = vec_a.len();
+    let delta_vector: Vec<f32> = vec_a.iter().zip(vec_b.iter()).map(|(a, b)| b - a).collect();
+    let l2_norm_of_delta = delta_vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let dot: f32 = vec_a.iter().zip(vec_b.iter()).map(|(a, b)| a * b).sum();
+    let na = vec_a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let nb = vec_b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let cosine_a_b = if na > 0.0 && nb > 0.0 { dot / (na * nb) } else { 0.0 };
+
+    let memory_token_a = format!("memt:{}:{}", cell, fact_cid_a);
+    let memory_token_b = format!("memt:{}:{}", cell, fact_cid_b);
+
+    let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
+    Ok(Json(StateDiffResp {
+        cell,
+        encoder,
+        dim,
+        delta_vector,
+        l2_norm_of_delta,
+        cosine_a_b,
+        tslot_a: req.tslot_a,
+        tslot_b: req.tslot_b,
+        fact_cid_a,
+        fact_cid_b,
+        memory_token_a,
+        memory_token_b,
+        resolved_from: resolved_env,
+    }))
+}
+
+// ── /v1/benchmark + /v1/benchmark/grade ──────────────────────────────────
+//
+// A small, hand-verified benchmark for agents grounding on emem. Each
+// item names a task (recall by cell+band, or find_similar from a seed)
+// and the expected answer. Agents call the item-named endpoint, submit
+// their answer via /v1/benchmark/grade, and get a per-item score plus a
+// total. Items are content-verified against the live responder; the
+// expected CIDs and neighbour cells are byte-identical to what
+// /agents.md and /docs/whitepaper.md cite. New items follow as the
+// responder grows; v0 is five.
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum BenchmarkExpectation {
+    /// Expect `fact_cid` to equal this string.
+    FactCid { expected: &'static str },
+    /// Expect the top neighbour to be at least this cell, with cosine
+    /// no less than `score_min`.
+    TopNeighbour {
+        expected_cell: &'static str,
+        score_min: f32,
+    },
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct BenchmarkItem {
+    id: &'static str,
+    task: &'static str,
+    prompt: &'static str,
+    cell: &'static str,
+    band_or_encoder: &'static str,
+    endpoint: &'static str,
+    expected: BenchmarkExpectation,
+    notes: &'static str,
+}
+
+fn benchmark_items() -> Vec<BenchmarkItem> {
+    vec![
+        BenchmarkItem {
+            id: "elev-south-mumbai",
+            task: "recall",
+            prompt: "Recall the Copernicus DEM elevation_mean for South Mumbai. Submit the fact_cid.",
+            cell: "defi.zb4d9.pefa.zf619",
+            band_or_encoder: "copdem30m.elevation_mean",
+            endpoint: "POST /v1/recall",
+            expected: BenchmarkExpectation::FactCid {
+                expected: "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
+            },
+            notes: "Verified against /agents.md; value is 6.0 m above mean sea level.",
+        },
+        BenchmarkItem {
+            id: "elev-bengaluru",
+            task: "recall",
+            prompt: "Recall the Copernicus DEM elevation_mean for Bengaluru. Submit the fact_cid.",
+            cell: "defi.zb493.xoso.zcb6a",
+            band_or_encoder: "copdem30m.elevation_mean",
+            endpoint: "POST /v1/recall",
+            expected: BenchmarkExpectation::FactCid {
+                expected: "cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq",
+            },
+            notes: "Verified against /agents.md; value is 910 m.",
+        },
+        BenchmarkItem {
+            id: "ndvi-lake-erie-algal",
+            task: "recall",
+            prompt: "Recall the NDVI fact at the Lake Erie algal-bloom cell. Submit the fact_cid.",
+            cell: "defi.zb5dc.bObe.wOgI",
+            band_or_encoder: "indices.ndvi",
+            endpoint: "POST /v1/recall",
+            expected: BenchmarkExpectation::FactCid {
+                expected: "tc54vlpl62a4d2kah5rwcmfvd3eo7xqkszmkpwxk4xrkpaeeshaa",
+            },
+            notes: "Verified against /v1/hunt event=algal_bloom region='Lake Erie'; NDVI = -0.057.",
+        },
+        BenchmarkItem {
+            id: "similar-bengaluru-nyc",
+            task: "find_similar",
+            prompt: "From seed Bengaluru, run find_similar k=3 over geotessera. Submit the top neighbour cell64.",
+            cell: "defi.zb493.xoso.zcb6a",
+            band_or_encoder: "geotessera",
+            endpoint: "POST /v1/find_similar",
+            expected: BenchmarkExpectation::TopNeighbour {
+                expected_cell: "defi.zb5cf.nura.zd83c",
+                score_min: 0.60,
+            },
+            notes: "Verified against /agents.md; cosine 0.6537 (NYC).",
+        },
+        BenchmarkItem {
+            id: "similar-bengaluru-shanghai",
+            task: "find_similar",
+            prompt: "From seed Bengaluru, run find_similar k=3 over geotessera. The second neighbour cell64.",
+            cell: "defi.zb493.xoso.zcb6a",
+            band_or_encoder: "geotessera",
+            endpoint: "POST /v1/find_similar",
+            expected: BenchmarkExpectation::TopNeighbour {
+                expected_cell: "defi.zb563.noxo.xAvu",
+                score_min: 0.60,
+            },
+            notes: "Verified against /agents.md; cosine 0.6426 (Shanghai).",
+        },
+    ]
+}
+
+async fn get_benchmark() -> Json<JsonValue> {
+    let items = benchmark_items();
+    Json(json!({
+        "version":    "v0",
+        "n_items":    items.len(),
+        "items":      items,
+        "grader_url": "/v1/benchmark/grade",
+        "docs":       "/whitepaper.md#20-open-questions",
+        "_note":      "Hand-verified items pulled from /agents.md and /docs/whitepaper.md. Submission shape: { \"answers\": { \"<id>\": \"<fact_cid or cell64>\", ... } }. The grader scores exact-match for fact_cid items and (cell + score-min) for find_similar items.",
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct BenchmarkGradeReq {
+    /// Map of item id → submitted answer. For `recall` items, the
+    /// answer is a fact_cid string. For `find_similar` items, the
+    /// answer is a cell64 string (the top neighbour).
+    answers: std::collections::HashMap<String, JsonValue>,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchmarkGradeItem {
+    id: String,
+    correct: bool,
+    submitted: Option<JsonValue>,
+    expected: BenchmarkExpectation,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct BenchmarkGradeResp {
+    version: &'static str,
+    total: usize,
+    correct: usize,
+    by_id: Vec<BenchmarkGradeItem>,
+}
+
+async fn post_benchmark_grade(
+    Json(req): Json<BenchmarkGradeReq>,
+) -> Json<BenchmarkGradeResp> {
+    let items = benchmark_items();
+    let total = items.len();
+    let mut correct = 0usize;
+    let mut by_id: Vec<BenchmarkGradeItem> = Vec::with_capacity(total);
+
+    for it in items.into_iter() {
+        let submitted = req.answers.get(it.id).cloned();
+        let (is_correct, reason) = match (&it.expected, submitted.as_ref()) {
+            (BenchmarkExpectation::FactCid { expected }, Some(v)) => {
+                let s = v.as_str().unwrap_or("");
+                if s == *expected {
+                    (true, None)
+                } else {
+                    (false, Some(format!("expected fact_cid `{}`, got `{}`", expected, s)))
+                }
+            }
+            (
+                BenchmarkExpectation::TopNeighbour {
+                    expected_cell,
+                    score_min: _,
+                },
+                Some(v),
+            ) => {
+                let s = v.as_str().unwrap_or("");
+                if s == *expected_cell {
+                    (true, None)
+                } else {
+                    (false, Some(format!("expected top neighbour `{}`, got `{}`", expected_cell, s)))
+                }
+            }
+            (_, None) => (false, Some("no submission for this item".into())),
+        };
+        if is_correct {
+            correct += 1;
+        }
+        by_id.push(BenchmarkGradeItem {
+            id: it.id.to_string(),
+            correct: is_correct,
+            submitted,
+            expected: it.expected.clone(),
+            reason,
+        });
+    }
+
+    Json(BenchmarkGradeResp {
+        version: "v0",
+        total,
+        correct,
+        by_id,
+    })
 }
 
 async fn post_memory_token(

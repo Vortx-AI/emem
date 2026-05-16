@@ -86,7 +86,11 @@ Spec, parse rules, failure modes: /whitepaper.md#194-memory-tokens
     reflect / record task outcome   reviews             POST /v1/reviews
     compose a memory token          memory_token        POST /v1/memory_token
     read dense state vector         state               POST /v1/state
+    read multi-encoder state map    state_multi         POST /v1/state_multi
+    state delta between two tslots  state_diff          POST /v1/state_diff
     subscribe to corpus events      stream (SSE)        GET  /v1/stream
+    run agent benchmark             benchmark           GET  /v1/benchmark
+                                                        POST /v1/benchmark/grade
 
 ## Algebra
 

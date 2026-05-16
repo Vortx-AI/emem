@@ -47,7 +47,10 @@ stack, the mapping below is the rosetta-stone:
 | reflect / record task outcome   | `reviews`            | `POST /v1/reviews`                |
 | compose a memory token          | `memory_token`       | `POST /v1/memory_token`           |
 | read dense state vector         | `state`              | `POST /v1/state`                  |
+| read multi-encoder state map    | `state_multi`        | `POST /v1/state_multi`            |
+| state delta between two tslots  | `state_diff`         | `POST /v1/state_diff`             |
 | subscribe to corpus events      | `stream` (SSE)       | `GET /v1/stream`                  |
+| run the agent benchmark         | `benchmark`          | `GET /v1/benchmark`, `POST /v1/benchmark/grade` |
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 72 OpenAPI-documented paths under
