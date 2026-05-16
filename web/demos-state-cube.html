@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/demos/state-cube — the 1792-D voxel at any place</title>
+<meta name=description content="Resolve a place, read its full 1792-D state vector across every wired band, see the per-band coverage and the signed extras that preserve full Clay/Prithvi fidelity. Live against the responder.">
+<link rel=canonical href="https://emem.dev/demos/state-cube">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel=alternate type=text/markdown href="/llms.txt">
+<link rel="service mcp" href="/mcp">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/demos/state-cube">
+<meta property=og:title content="emem.dev/demos/state-cube — the 1792-D voxel at any place">
+<meta property=og:description content="One endpoint, two views. Read a single encoder or the full cube. Fidelity preserved via extras when slots truncate.">
+<meta property=og:image content="https://emem.dev/og-image.svg">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
+<style>
+:root{
+  --bg:#0A0B0E;--bg-1:#0E0F13;--bg-2:#13151A;--bg-3:#1A1D24;
+  --fg:#E8E8EA;--fg-2:#B5B7BE;--fg-3:#7C7E87;--fg-mute:#7A7D87;
+  --line:rgba(232,232,234,0.08);--line-2:rgba(232,232,234,0.16);
+  --accent:#7CFFB2;--accent-dim:#3FB37E;
+  --warn:#FF7C7C;--pending:#FFD27C;--info:#7CC8FF;--purple:#B27CFF;
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'Inter Tight','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-variant-numeric:tabular-nums}
+.mono,code,kbd,samp,pre{font-family:var(--mono)}
+a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;letter-spacing:.02em;font-size:12px}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+button.primary:hover{background:rgba(124,255,178,.14)}
+button:disabled{opacity:.4;cursor:not-allowed}
+input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px}
+input:focus,select:focus{border-color:var(--accent)}
+::selection{background:rgba(124,255,178,.25);color:#fff}
+.app{max-width:960px;margin:0 auto;padding:1.4em 1.4em 4em}
+@media(max-width:760px){.app{padding:1em .8em 4em}}
+header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
+header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:16px;color:var(--fg)}
+header.top .brand .slash{color:var(--fg-mute)}
+header.top .brand .leaf{color:var(--accent)}
+header.top .tag{font-size:11px;color:var(--fg-3);font-family:var(--mono);letter-spacing:.04em}
+header.top .spacer{flex:1}
+header.top .navlinks{display:flex;gap:.6em;font-size:11px;font-family:var(--mono);color:var(--fg-3)}
+header.top .navlinks a{color:var(--fg-3);border-bottom:none}
+header.top .navlinks a:hover{color:var(--accent)}
+.lede{color:var(--fg-2);font-size:14.5px;margin:0 0 1.4em;line-height:1.65;max-width:680px}
+.lede b{color:var(--fg);font-weight:500}
+.lede .accent{color:var(--accent);font-weight:500}
+.controls{background:var(--bg-1);border:1px solid var(--line);padding:1em 1.2em;border-radius:4px;margin-bottom:1.4em;display:grid;grid-template-columns:1.4fr 1fr 1fr auto;gap:.6em;align-items:end}
+@media(max-width:680px){.controls{grid-template-columns:1fr}}
+.controls label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-mute);margin-bottom:.4em}
+.controls button{height:38px}
+.steps{display:flex;flex-direction:column;gap:1em}
+.step{background:var(--bg-1);border:1px solid var(--line);border-radius:4px;padding:1.1em 1.2em;transition:border-color .2s,opacity .2s}
+.step.idle{opacity:.6}
+.step.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(124,255,178,.08) inset}
+.step.done{border-left:3px solid var(--accent-dim)}
+.step .head{display:flex;align-items:baseline;gap:.6em;margin-bottom:.65em;flex-wrap:wrap}
+.step .num{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--fg-mute);text-transform:uppercase;font-weight:500}
+.step.active .num,.step.done .num{color:var(--accent)}
+.step h2{font-family:var(--mono);font-size:15px;font-weight:600;margin:0;color:var(--fg);letter-spacing:-.01em}
+.step .endpoint{font-family:var(--mono);font-size:11px;color:var(--fg-3);background:var(--bg-2);padding:.18em .55em;border:1px solid var(--line);border-radius:2px}
+.step .desc{color:var(--fg-2);font-size:13px;margin:.2em 0 .9em;line-height:1.65;max-width:660px}
+.step .actions{display:flex;gap:.4em;align-items:center;flex-wrap:wrap;margin-bottom:.6em}
+.step .out pre{font-family:var(--mono);font-size:11.5px;background:var(--bg-2);border:1px solid var(--line);padding:.7em .85em;border-radius:3px;color:var(--fg);white-space:pre-wrap;word-break:break-word;overflow-x:auto;line-height:1.55;max-height:300px;overflow-y:auto;margin:.4em 0 0}
+.chips{display:flex;flex-wrap:wrap;gap:.35em;margin:.4em 0 .15em}
+.chip{display:inline-flex;align-items:center;gap:.35em;font-family:var(--mono);font-size:11px;color:var(--fg-2);background:var(--bg-2);border:1px solid var(--line);padding:.12em .55em;border-radius:99px;letter-spacing:.01em}
+.chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--fg-mute)}
+.chip[data-kind=cell] .dot{background:var(--accent)}
+.chip[data-kind=cid] .dot{background:var(--purple)}
+.chip[data-kind=enc] .dot{background:var(--info)}
+.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent)}
+.chip[data-kind=ok] .dot{background:var(--accent)}
+.chip[data-kind=warn]{color:var(--pending);border-color:var(--pending)}
+.chip[data-kind=warn] .dot{background:var(--pending)}
+.coverage-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:.3em;margin:.4em 0 .2em}
+.cov{font-family:var(--mono);font-size:10.5px;padding:.3em .55em;border:1px solid var(--line);border-radius:2px;background:var(--bg-2);display:flex;align-items:center;gap:.4em;overflow:hidden}
+.cov .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.cov[data-s=primary] .dot{background:var(--accent)}
+.cov[data-s=primary] .k{color:var(--fg)}
+.cov[data-s=scalar_filled] .dot{background:var(--accent-dim)}
+.cov[data-s=scalar_filled] .k{color:var(--fg)}
+.cov[data-s=dim_mismatch] .dot{background:var(--purple)}
+.cov[data-s=dim_mismatch] .k{color:var(--purple)}
+.cov[data-s=absence] .dot{background:var(--pending)}
+.cov[data-s=absence] .k{color:var(--pending)}
+.cov[data-s=missing] .dot{background:var(--fg-mute)}
+.cov[data-s=missing] .k{color:var(--fg-3)}
+.cov .k{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cov .d{color:var(--fg-mute);font-size:9.5px}
+.metric-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.5em;margin:.5em 0}
+.metric{background:var(--bg-2);border:1px solid var(--line);padding:.55em .7em;border-radius:3px}
+.metric .label{font-size:10px;color:var(--fg-mute);letter-spacing:.12em;text-transform:uppercase;margin-bottom:.3em}
+.metric .val{font-family:var(--mono);font-size:18px;color:var(--accent);font-weight:600}
+.metric .sub{font-size:10.5px;color:var(--fg-3);margin-top:.2em}
+.legend{display:flex;flex-wrap:wrap;gap:.7em;margin:.3em 0 .6em;font-size:10.5px;color:var(--fg-3)}
+.legend span{display:inline-flex;align-items:center;gap:.35em}
+.legend .dot{width:7px;height:7px;border-radius:50%}
+.spinner{display:inline-block;width:10px;height:10px;border:1.5px solid var(--pending);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:.4em}
+@keyframes spin{to{transform:rotate(360deg)}}
+footer.foot{margin-top:2.4em;padding-top:1.1em;border-top:1px solid var(--line);display:flex;gap:1em;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--fg-mute)}
+footer.foot a{color:var(--fg-3);border-bottom:none}
+footer.foot a:hover{color:var(--accent)}
+.muted{color:var(--fg-3)}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+</style>
+</head>
+<body>
+<a class=skip href="#main">Skip to walk</a>
+<main class=app id=main tabindex="-1">
+  <header class=top role=banner>
+    <span class=brand>emem.dev<span class=slash>/</span><span class=leaf>demos/state-cube</span></span>
+    <span class=tag>the 1792-D voxel at any place</span>
+    <span class=spacer></span>
+    <nav class=navlinks aria-label="protocol surfaces">
+      <a href="/demos">demos</a>
+      <a href="/verify">verify</a>
+      <a href="/openapi.json">openapi</a>
+      <a href="/spec.md">spec</a>
+    </nav>
+  </header>
+
+  <p class=lede>
+    One endpoint, two views. <code>POST /v1/state</code> with <code>view=encoder</code> returns one named foundation
+    embedding at its native dimension. <code>view=cube</code> returns the responder's full 1792-D voxel assembled
+    across every wired band in canonical offset order, with per-band coverage so an agent can tell attested-zero from
+    not-yet-materialised, and <span class=accent>extras that preserve full Clay/Prithvi 1024-D fidelity</span> when
+    the cube slot truncates them. <b>The cube is a fixed-width fingerprint; the extras carry the full payload.</b>
+    Pick a place, hit run, watch a real responder fill the slots in front of you.
+  </p>
+
+  <section class=controls aria-label="Inputs">
+    <div>
+      <label for=placeInput>place</label>
+      <input id=placeInput type=text spellcheck=false autocomplete=off value="Bengaluru">
+    </div>
+    <div>
+      <label for=encInput>encoder (view=encoder only)</label>
+      <select id=encInput>
+        <option value="geotessera" selected>geotessera (128-D)</option>
+        <option value="clay_v1">clay_v1 (1024-D)</option>
+        <option value="prithvi_eo2">prithvi_eo2 (1024-D)</option>
+      </select>
+    </div>
+    <div>
+      <label for=matInput>materialise</label>
+      <select id=matInput>
+        <option value="true" selected>true (warm + fetch)</option>
+        <option value="false">false (read what's cached)</option>
+      </select>
+    </div>
+    <div>
+      <button id=runAll class=primary type=button>run the walk</button>
+    </div>
+  </section>
+
+  <section class=steps id=steps aria-label="Steps">
+
+    <article class="step active" id=step1>
+      <div class=head>
+        <span class=num>step 1</span>
+        <h2>locate</h2>
+        <span class=endpoint>POST /v1/locate</span>
+      </div>
+      <p class=desc>
+        Resolve the place name to a single <code>cell64</code>. The next two steps key off this cell.
+      </p>
+      <div class=actions>
+        <button id=btn1 class=primary type=button>run</button>
+        <span id=tag1 class=muted></span>
+      </div>
+      <div class=chips id=chips1></div>
+      <div class=out><pre id=out1>no run yet</pre></div>
+    </article>
+
+    <article class="step idle" id=step2>
+      <div class=head>
+        <span class=num>step 2</span>
+        <h2>state · view=encoder</h2>
+        <span class=endpoint>POST /v1/state</span>
+      </div>
+      <p class=desc>
+        Single-encoder state vector at the cell. Returns the encoder's native vector, an L2 norm, a fact CID,
+        and a pre-composed memory token <code>memt:&lt;cell&gt;:&lt;fact_cid&gt;</code> for citation.
+      </p>
+      <div class=actions>
+        <button id=btn2 type=button>run</button>
+        <span id=tag2 class=muted></span>
+      </div>
+      <div class=chips id=chips2></div>
+      <div class=metric-row id=metric2></div>
+      <div class=out><pre id=out2>idle</pre></div>
+    </article>
+
+    <article class="step idle" id=step3>
+      <div class=head>
+        <span class=num>step 3</span>
+        <h2>state · view=cube</h2>
+        <span class=endpoint>POST /v1/state</span>
+      </div>
+      <p class=desc>
+        Full 1792-D voxel across every wired band, in canonical offset order. With <code>materialize=true</code>
+        cold bands trigger upstream fetches. The response carries <code>coverage[]</code> (per-band status),
+        <code>state_cid</code> (BLAKE3 over canonical LE f32 bytes), and <code>extras[]</code> for any encoder
+        whose native dim exceeds its cube slot.
+      </p>
+      <div class=actions>
+        <button id=btn3 type=button>run</button>
+        <span id=tag3 class=muted></span>
+      </div>
+      <div class=chips id=chips3></div>
+      <div class=metric-row id=metric3></div>
+      <div class=legend aria-label="coverage status legend">
+        <span><span class=dot style="background:var(--accent)"></span> primary</span>
+        <span><span class=dot style="background:var(--accent-dim)"></span> scalar_filled</span>
+        <span><span class=dot style="background:var(--purple)"></span> dim_mismatch (extras preserves full)</span>
+        <span><span class=dot style="background:var(--pending)"></span> absence (signed)</span>
+        <span><span class=dot style="background:var(--fg-mute)"></span> missing (cold)</span>
+      </div>
+      <div class=coverage-grid id=coverage3></div>
+      <div class=out><pre id=out3>idle</pre></div>
+    </article>
+
+    <article class="step idle" id=step4>
+      <div class=head>
+        <span class=num>step 4</span>
+        <h2>state_multi · cross-encoder fan-out</h2>
+        <span class=endpoint>POST /v1/state_multi</span>
+      </div>
+      <p class=desc>
+        Three foundation encoders at the same place, side by side. Useful for cross-encoder consensus
+        (do Tessera, Clay, and Prithvi agree on the archetype here?) and redundancy-aware reasoning.
+      </p>
+      <div class=actions>
+        <button id=btn4 type=button>run</button>
+        <span id=tag4 class=muted></span>
+      </div>
+      <div class=chips id=chips4></div>
+      <div class=metric-row id=metric4></div>
+      <div class=out><pre id=out4>idle</pre></div>
+    </article>
+
+  </section>
+
+  <footer class=foot>
+    <a href="/">home</a>
+    <a href="/demos">all demos</a>
+    <a href="/agents.md">agents.md</a>
+    <a href="/whitepaper.md#19-emem-in-the-memory-landscape">whitepaper §19</a>
+    <a href="/openapi.json">openapi.json</a>
+    <span class=muted>signed by the responder, verifiable offline</span>
+  </footer>
+</main>
+
+<script>
+const $=(id)=>document.getElementById(id);
+const HOST=location.origin;
+
+let state={cell:null,resolved:null};
+
+function setStep(n,cls){
+  for(let i=1;i<=4;i++){
+    const s=$('step'+i);
+    s.classList.remove('active','idle','done');
+    if(i<n) s.classList.add('done');
+    else if(i===n) s.classList.add('active');
+    else s.classList.add('idle');
+  }
+}
+function tag(id,t){$(id).textContent=t||'';}
+function chips(id,items){
+  const el=$(id); el.innerHTML='';
+  for(const it of items){
+    const c=document.createElement('span');
+    c.className='chip'; c.dataset.kind=it.kind||'';
+    c.innerHTML='<span class=dot></span>'+escapeHTML(it.text);
+    el.appendChild(c);
+  }
+}
+function escapeHTML(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function pretty(obj){return JSON.stringify(obj,null,2);}
+function metric(el,label,val,sub){
+  const m=document.createElement('div'); m.className='metric';
+  m.innerHTML='<div class=label>'+escapeHTML(label)+'</div><div class=val>'+escapeHTML(val)+'</div>'+(sub?'<div class=sub>'+escapeHTML(sub)+'</div>':'');
+  el.appendChild(m);
+}
+
+async function call(path, body){
+  const opts={method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)};
+  const r=await fetch(HOST+path,opts);
+  const t=await r.text();
+  try{return {ok:r.ok,status:r.status,data:JSON.parse(t)};}
+  catch(e){return {ok:r.ok,status:r.status,data:{raw:t}};}
+}
+
+async function step1(){
+  setStep(1);
+  const p=$('placeInput').value.trim();
+  tag('tag1','<span class=spinner></span>resolving '+p);
+  $('tag1').innerHTML=tag('tag1','').textContent || '';
+  $('tag1').innerHTML='<span class="spinner"></span> resolving '+escapeHTML(p);
+  const r=await call('/v1/locate',{place:p});
+  if(!r.ok){$('out1').textContent='ERROR '+r.status+'\n'+pretty(r.data); tag('tag1','locate failed'); return false;}
+  state.cell=r.data.cell64 || r.data.cell;
+  state.resolved=r.data;
+  chips('chips1',[
+    {kind:'cell',text:'cell '+state.cell},
+    {kind:'ok',text:(r.data.label||p)+' '+(typeof r.data.lat==='number'?r.data.lat.toFixed(4):'')+', '+(typeof r.data.lng==='number'?r.data.lng.toFixed(4):'')}
+  ]);
+  $('out1').textContent=pretty(r.data);
+  tag('tag1','resolved in '+(r.data.lookup_ms||'?')+' ms');
+  setStep(2);
+  return true;
+}
+async function step2(){
+  setStep(2);
+  const enc=$('encInput').value;
+  $('tag2').innerHTML='<span class="spinner"></span> reading '+escapeHTML(enc)+' at '+escapeHTML(state.cell);
+  const r=await call('/v1/state',{cell:state.cell,encoder:enc});
+  if(!r.ok){$('out2').textContent='ERROR '+r.status+'\n'+pretty(r.data); tag('tag2','failed'); return false;}
+  const d=r.data;
+  chips('chips2',[
+    {kind:'enc',text:'encoder '+d.encoder},
+    {kind:'cell',text:'cell '+d.cell},
+    {kind:'cid',text:'fact_cid '+(d.fact_cid||'').slice(0,12)+'...'},
+    {kind:'ok',text:'memory_token ready'}
+  ]);
+  const mr=$('metric2'); mr.innerHTML='';
+  metric(mr,'dim',String(d.dim||0),(d.dim===128)?'tessera native':'native');
+  metric(mr,'L2 norm', (d.l2_norm||0).toFixed(3));
+  metric(mr,'tslot', String(d.tslot||0), 'unix seconds');
+  metric(mr,'view', d.view||'encoder');
+  $('out2').textContent=pretty({cell:d.cell,view:d.view,encoder:d.encoder,dim:d.dim,l2_norm:d.l2_norm,tslot:d.tslot,fact_cid:d.fact_cid,memory_token:d.memory_token,vector_first_4:(d.vector||[]).slice(0,4)});
+  tag('tag2','ok');
+  setStep(3);
+  return true;
+}
+async function step3(){
+  setStep(3);
+  const mat=$('matInput').value==='true';
+  $('tag3').innerHTML='<span class="spinner"></span> assembling 1792-D voxel'+(mat?' (with auto-materialize)':' (cached only)');
+  const r=await call('/v1/state',{cell:state.cell,view:'cube',materialize:mat,include_reserved:false});
+  if(!r.ok){$('out3').textContent='ERROR '+r.status+'\n'+pretty(r.data); tag('tag3','failed'); return false;}
+  const d=r.data;
+  const cov=d.coverage||[];
+  const ex=d.extras||[];
+  chips('chips3',[
+    {kind:'cell',text:'cell '+d.cell},
+    {kind:'cid',text:'state_cid '+(d.state_cid||'').slice(0,12)+'...'},
+    {kind:'ok',text:'memory_token ready'},
+    ex.length?{kind:'enc',text:ex.length+' extras (full-fidelity)'}:null,
+  ].filter(Boolean));
+  const mr=$('metric3'); mr.innerHTML='';
+  metric(mr,'dim',String(d.dim||1792),'fixed-width cube');
+  const pct = Math.round(100*(d.filled_dims||0)/(d.dim||1792));
+  metric(mr,'filled dims',(d.filled_dims||0)+' / '+(d.dim||1792), pct+'% of slots carry signal');
+  metric(mr,'L2 norm',(d.l2_norm||0).toFixed(3));
+  metric(mr,'primary bands',String(d.filled_bands||0), (d.absent_bands||0)+' absence, '+(d.missing_bands||0)+' missing');
+  const cg=$('coverage3'); cg.innerHTML='';
+  // Sort: primary, scalar_filled, dim_mismatch, absence, missing
+  const order={primary:0,scalar_filled:1,dim_mismatch:2,absence:3,missing:4,non_vector:5,placeholder:6};
+  cov.sort((a,b)=>(order[a.status]||9)-(order[b.status]||9) || a.offset-b.offset);
+  for(const c of cov){
+    const el=document.createElement('div'); el.className='cov'; el.dataset.s=c.status;
+    el.innerHTML='<span class=dot></span><span class=k>'+escapeHTML(c.key)+'</span><span class=d>'+c.dims+'</span>';
+    el.title=c.key+' @ offset '+c.offset+' ('+c.dims+'-D) '+c.status;
+    cg.appendChild(el);
+  }
+  const summary={
+    cell:d.cell, view:d.view, dim:d.dim,
+    state_cid:d.state_cid, manifest_cid:d.manifest_cid,
+    filled_dims:d.filled_dims, filled_bands:d.filled_bands,
+    absent_bands:d.absent_bands, missing_bands:d.missing_bands,
+    l2_norm:d.l2_norm, memory_token:d.memory_token,
+    extras_summary: ex.map(e=>({band:e.band,reason:e.reason,native_dim:e.dim,cube_slot_dim:e.cube_slot_dim,l2_norm:e.l2_norm,fact_cid:e.fact_cid})),
+    receipt_request_id:(d.receipt&&d.receipt.request_id)||null,
+  };
+  $('out3').textContent=pretty(summary);
+  tag('tag3','ok · '+pct+'% filled');
+  setStep(4);
+  return true;
+}
+async function step4(){
+  setStep(4);
+  $('tag4').innerHTML='<span class="spinner"></span> fanning out across foundation encoders';
+  const r=await call('/v1/state_multi',{cell:state.cell});
+  if(!r.ok){$('out4').textContent='ERROR '+r.status+'\n'+pretty(r.data); tag('tag4','failed'); return false;}
+  const d=r.data;
+  const hits=d.encoders||[];
+  const misses=d.missing||[];
+  chips('chips4',[
+    {kind:'cell',text:'cell '+d.cell},
+    {kind:'ok',text:hits.length+' encoders'},
+    misses.length?{kind:'warn',text:misses.length+' missing'}:null,
+  ].filter(Boolean));
+  const mr=$('metric4'); mr.innerHTML='';
+  for(const e of hits){
+    metric(mr,e.encoder,String(e.dim)+'-D', 'L2='+(e.l2_norm||0).toFixed(3));
+  }
+  const summary={
+    cell:d.cell,
+    encoders: hits.map(e=>({encoder:e.encoder,dim:e.dim,l2_norm:e.l2_norm,fact_cid:e.fact_cid,memory_token:e.memory_token})),
+    missing: misses,
+  };
+  $('out4').textContent=pretty(summary);
+  const cls=$('step4'); cls.classList.remove('active'); cls.classList.add('done');
+  tag('tag4','ok');
+  return true;
+}
+
+$('btn1').addEventListener('click', step1);
+$('btn2').addEventListener('click', async()=>{ if(!state.cell) await step1(); await step2(); });
+$('btn3').addEventListener('click', async()=>{ if(!state.cell) await step1(); await step3(); });
+$('btn4').addEventListener('click', async()=>{ if(!state.cell) await step1(); await step4(); });
+$('runAll').addEventListener('click', async()=>{
+  if(!(await step1())) return;
+  if(!(await step2())) return;
+  if(!(await step3())) return;
+  await step4();
+});
+</script>
+
+</body>
+</html>

@@ -105,6 +105,7 @@ const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-answer.html");
 const DEMOS_INDEX_HTML: &str = include_str!("../../../web/demos-index.html");
+const DEMOS_STATE_CUBE_HTML: &str = include_str!("../../../web/demos-state-cube.html");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
@@ -471,6 +472,7 @@ pub fn router(state: AppState) -> Router {
         .route("/demos", get(serve_demos_index))
         .route("/demos/", get(serve_demos_index))
         .route("/demos/signed-answer", get(serve_demos_signed_answer))
+        .route("/demos/state-cube", get(serve_demos_state_cube))
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -1792,11 +1794,18 @@ async fn serve_demos_signed_answer() -> Response {
 
 /// `/demos` — index of live, signed walkthroughs against the hosted
 /// responder.  Companion to the per-demo HTML pages (currently
-/// `/demos/signed-answer`); links out to `/gallery`, `/verify`,
-/// `/v1/stream`, `/v1/benchmark`, `/v1/corpus_state_stats`.  Keeps the
-/// "where do I start?" entry point cheap and discoverable.
+/// `/demos/signed-answer`, `/demos/state-cube`); links out to
+/// `/gallery`, `/verify`, `/v1/stream`, `/v1/benchmark`,
+/// `/v1/corpus_state_stats`.
 async fn serve_demos_index() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_INDEX_HTML)
+}
+
+/// `/demos/state-cube` — interactive walk of `/v1/state` view=encoder,
+/// view=cube (with `extras[]` preserving Clay/Prithvi fidelity), and
+/// `/v1/state_multi`.  Live-against-the-responder.
+async fn serve_demos_state_cube() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_STATE_CUBE_HTML)
 }
 
 /// `/skills.md` — composed-recipe cookbook for agents.
@@ -25757,6 +25766,126 @@ async fn post_eudr_dds(
     Ok(Json(body))
 }
 
+/// Extract ordered candidate place names from a free-text question so
+/// `/v1/ask` can self-anchor when the caller didn't pass `place`.
+///
+/// Strategy, cheapest-first (each candidate is verified by calling
+/// `locate_inner`; the first that resolves wins, so wrong guesses are
+/// harmless):
+/// 1. Prepositional anchors: "in X", "at X", "near X", "of X", "for X",
+///    "around X" — take 1..=5 words after the preposition, stopping at
+///    a question-mark, end-of-string, or another preposition.
+/// 2. The longest run of consecutive capitalised words (proper-noun
+///    detector).  Captures bare nouns like "Yellowstone" or "South
+///    Mumbai" that no anchor preceded.
+/// 3. The full question with trailing punctuation stripped (last
+///    resort; lets the geocoder do its best).
+///
+/// Returns at most 4 distinct candidates in priority order.  No
+/// hardcoded place names; the verification step is the geocoder, so
+/// this stays correct as new places get added or aliased.
+fn extract_place_candidates(q: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let push_unique = |s: String, out: &mut Vec<String>| {
+        let trimmed = s
+            .trim_matches(|c: char| !c.is_alphanumeric())
+            .trim()
+            .to_string();
+        if trimmed.len() < 2 {
+            return;
+        }
+        if !out.iter().any(|x| x.eq_ignore_ascii_case(&trimmed)) {
+            out.push(trimmed);
+        }
+    };
+
+    // 1. Prepositional anchors.
+    let anchors: &[&str] = &["in", "at", "near", "of", "for", "around", "across"];
+    let toks: Vec<&str> = q.split_whitespace().collect();
+    for (i, w) in toks.iter().enumerate() {
+        let lw = w.to_ascii_lowercase();
+        let lw = lw.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+        if anchors.iter().any(|a| *a == lw) && i + 1 < toks.len() {
+            // Take 1..=5 follow tokens but stop at another preposition
+            // or a sentence-terminator.
+            let mut window: Vec<&str> = Vec::new();
+            for tok in toks.iter().skip(i + 1).take(5) {
+                let lt = tok.to_ascii_lowercase();
+                let lt = lt.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+                if anchors.iter().any(|a| *a == lt) {
+                    break;
+                }
+                if tok.ends_with('?') || tok.ends_with('.') {
+                    let cleaned = tok.trim_end_matches(['?', '.', ',', '!']);
+                    window.push(cleaned);
+                    break;
+                }
+                window.push(tok);
+            }
+            if !window.is_empty() {
+                push_unique(window.join(" "), &mut out);
+            }
+        }
+    }
+
+    // 2. Longest run of consecutive capitalised words.
+    let mut best: Vec<&str> = Vec::new();
+    let mut cur: Vec<&str> = Vec::new();
+    for tok in q.split_whitespace() {
+        let clean = tok.trim_matches(|c: char| !c.is_alphanumeric());
+        let is_cap = clean
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false);
+        // Skip the first word of the sentence (questions usually start
+        // with a capitalised verb: "How walkable...", "Show me...")
+        // unless the run is at least length 2.
+        if is_cap {
+            cur.push(clean);
+        } else {
+            if cur.len() > best.len() {
+                best = cur.clone();
+            }
+            cur.clear();
+        }
+    }
+    if cur.len() > best.len() {
+        best = cur;
+    }
+    if !best.is_empty() {
+        // Drop a leading "How/Show/What/Where/Tell/Find/Give/Get/Is/Are/
+        // Can/Does/Do/Why" if the run starts the question — these are
+        // question-stem verbs, not place name parts.
+        let stem: &[&str] = &[
+            "How", "Show", "What", "Where", "Tell", "Find", "Give", "Get", "Is", "Are", "Can",
+            "Does", "Do", "Why", "When", "Who", "Which", "List",
+        ];
+        let starts_with_stem = best
+            .first()
+            .map(|w| stem.iter().any(|s| s == w))
+            .unwrap_or(false);
+        if starts_with_stem && best.len() > 1 {
+            best.remove(0);
+        }
+        if !best.is_empty() {
+            push_unique(best.join(" "), &mut out);
+        }
+    }
+
+    // 3. Whole question, last-resort.  Strip trailing punctuation.
+    let stripped = q
+        .trim_end_matches(['?', '.', ',', '!', ';', ':'])
+        .trim()
+        .to_string();
+    if !stripped.is_empty() && stripped.len() <= 80 {
+        push_unique(stripped, &mut out);
+    }
+
+    out.truncate(4);
+    out
+}
+
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
@@ -25882,25 +26011,90 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             }),
         )
     } else {
-        // No explicit location field. The honest schema (see SCHEMA_ASK
-        // in emem-mcp) declares one-of place|cell|lat+lng as required, so
-        // a spec-compliant client never lands here — but if a fuzzy
-        // client (or a bare `q` fallback) does, return a *soft* envelope
-        // (isError=false) so the LLM at the call stack top sees a useful
-        // structured response rather than an error toast. The LLM is
-        // far better at extracting a place name from the user's turn
-        // than any hardcoded heuristic we could ship.
-        return Ok(json!({
-            "schema":   "emem.ask.v1",
-            "status":   "needs_location",
-            "question": req.q,
-            "message":  "no location provided. Pass `place` (free text), `cell` (cell64), or `lat`+`lng`.",
-            "next_steps": [
-                "call emem_ask again with `place: \"<place name>\"` extracted from the user's turn",
-                "or call emem_locate first to resolve a place hint, then pass the returned cell64 here",
-            ],
-            "agent_hint": "Pick a noun phrase (city, park, address, landmark) from the user's question and pass it as `place`. emem_ask will then run the full locate → recall → algorithm chain and return a packaged answer.",
-        }));
+        // No explicit location field. Before falling back to the soft
+        // `needs_location` envelope, try to extract a place candidate
+        // from the question text itself: walk the small set of
+        // prepositional anchors ("in X", "at X", "near X", "of X")
+        // plus the longest run of consecutive capitalised words, and
+        // call locate_inner on each candidate in order. The first one
+        // that resolves to a cell wins. This means a curl user or a
+        // CLI agent that sends only `q` ("walkability of South Mumbai")
+        // still gets an answer instead of a toast; LLM callers that
+        // already pass `place` skip this path entirely.
+        let mut hit: Option<(String, JsonValue)> = None;
+        for cand in extract_place_candidates(&req.q) {
+            match locate_inner(LocateReq {
+                lat: None,
+                lng: None,
+                place: Some(cand.clone()),
+            })
+            .await
+            {
+                Ok(body) => {
+                    let cell_str = body
+                        .0
+                        .get("cell64")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    if emem_codec::is_cell64_shape(&cell_str) {
+                        let label = body
+                            .0
+                            .get("place_label")
+                            .cloned()
+                            .unwrap_or(JsonValue::Null);
+                        let lat = body
+                            .0
+                            .get("lat_input")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        let lng = body
+                            .0
+                            .get("lng_input")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        let via = body.0.get("via").cloned().unwrap_or(json!("unknown"));
+                        let polygon_bbox = body
+                            .0
+                            .get("polygon_bbox")
+                            .cloned()
+                            .unwrap_or(JsonValue::Null);
+                        hit = Some((
+                            cell_str.clone(),
+                            json!({
+                                "cell64": cell_str,
+                                "input": cand,
+                                "label": label,
+                                "lat":   lat,
+                                "lng":   lng,
+                                "via":   via,
+                                "polygon_bbox": polygon_bbox,
+                                "extracted_from_question": true,
+                            }),
+                        ));
+                        break;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        if let Some(h) = hit {
+            h
+        } else {
+            // Genuinely nothing to anchor on. Soft envelope so the LLM
+            // at the top of the call stack sees a structured response.
+            return Ok(json!({
+                "schema":   "emem.ask.v1",
+                "status":   "needs_location",
+                "question": req.q,
+                "message":  "no location provided and could not extract one from the question. Pass `place` (free text), `cell` (cell64), or `lat`+`lng`.",
+                "next_steps": [
+                    "call emem_ask again with `place: \"<place name>\"` extracted from the user's turn",
+                    "or call emem_locate first to resolve a place hint, then pass the returned cell64 here",
+                ],
+                "agent_hint": "Pick a noun phrase (city, park, address, landmark) from the user's question and pass it as `place`. emem_ask will then run the full locate → recall → algorithm chain and return a packaged answer.",
+            }));
+        }
     };
 
     let topics = route_question_to_topics(&req.q);
