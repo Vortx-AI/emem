@@ -21660,7 +21660,11 @@ async fn hunt_with_explicit_bbox(
     };
 
     let slow_cap = slow_band_cells_cap(spec.primary_band);
-    let n_cells = slow_cap.unwrap_or(32);
+    // Cold-region cap: at HUNTER_CONCURRENCY=32, materializer_timeout=30s,
+    // a 12-cell sweep finishes inside the 180 s gateway window even when
+    // every cell triggers a cold STAC + COG materialise (Sentinel-2 / RADD).
+    // Slow primary bands (MODIS LST) still cap lower via slow_band_cells_cap.
+    let n_cells = slow_cap.unwrap_or(12);
     let cells = sample_cells_in_bbox(bbox, n_cells);
     if cells.is_empty() {
         return Ok(json!({
@@ -22683,7 +22687,11 @@ struct RankedCell {
 /// `hunter_response` and `hunt_with_explicit_bbox` so ranking
 /// semantics never drift between entry points.
 async fn fan_out_and_rank(s: &AppState, cells: &[String], spec: RankingSpec) -> Vec<RankedCell> {
-    const HUNTER_CONCURRENCY: usize = 16;
+    // STAC + COG fan-out is I/O-bound. 32 concurrent fetches keep all of
+    // a typical 12-cell cold sweep in flight simultaneously so the wall
+    // time approaches one upstream latency instead of two batches.
+    // Tracked: lib.rs:21663 / 23087 cap n_cells at 12 (cold-region safe).
+    const HUNTER_CONCURRENCY: usize = 32;
     let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(HUNTER_CONCURRENCY));
     type Out = (
         String,
@@ -23079,12 +23087,15 @@ async fn hunter_response(
         }
     };
 
-    // Cap n_cells aggressively for known-slow primary bands so a
-    // 32-cell sweep against MODIS LST (which makes one rate-limited
-    // ORNL request per cell, ~30 s each) doesn't trip the 64 s
-    // gateway timeout. Default cap: 8 cells. Configurable via env.
+    // Cap n_cells for cold-region safety. At HUNTER_CONCURRENCY=32 with
+    // materializer_timeout=30 s, a 12-cell sweep completes within the
+    // 180 s gateway window even when every cell triggers a cold STAC +
+    // COG materialise (Sentinel-2 / RADD). Pre-2026-05-17 default was 32,
+    // which routinely 504'd on first-touch Amazonas / Tokyo / Mumbai
+    // queries (~90 s + Tessera rerank often >180 s). Slow primary bands
+    // (MODIS LST) cap lower via slow_band_cells_cap.
     let slow_cap = slow_band_cells_cap(spec.primary_band);
-    let n_cells = slow_cap.unwrap_or(32);
+    let n_cells = slow_cap.unwrap_or(12);
 
     // Sample up to `n_cells` from the bbox. Use the polygon_geojson if
     // available; fall back to bbox grid. Track whether we fell back so
