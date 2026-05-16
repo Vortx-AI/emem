@@ -2157,24 +2157,35 @@
         {
           "band": "forest_change.lossyear",
           "role": "loss_year",
-          "explanation": "Calendar year of the first Hansen-detected tree-cover loss event at this cell (v1.12: 2001..=2024, 0 = no loss observed). Any non-zero year flags a one-time forest-to-non-forest transition that triggers the per-cell flux."
+          "explanation": "Calendar year of the first Hansen-detected tree-cover loss event at this cell (v1.12: 2001..=2024, 0 = no loss observed). Loss after 2020-12-31 (lossyear >= 2021) is what the EUDR cut-off counts; pre-cut-off losses are quantifiable but fall outside Regulation 2023/1115 due-diligence scope."
         },
         {
           "band": "forest_change.treecover2000",
           "role": "baseline_cover",
-          "explanation": "Hansen v1.12 baseline tree-cover percentage at year 2000. Cells with treecover2000 < 30 % are excluded from the flux (they were not closed-canopy forest at the start of the record, so the IPCC tropical-forest emission factor is inapplicable)."
+          "explanation": "Hansen v1.12 baseline tree-cover percentage at year 2000. Cells with treecover2000 < 30 % are excluded from the flux (they were not closed-canopy forest at the start of the record, so the IPCC AFOLU emission factor is inapplicable)."
+        },
+        {
+          "band": "esa_cci_biomass.agb_t_per_ha_2020",
+          "role": "per_cell_agb_baseline",
+          "explanation": "ESA CCI Biomass v6.0 above-ground biomass density (t dry matter / ha) at the 2020 epoch \u2014 the recommended pre-cut-off baseline for EUDR-aligned flux accounting. Santoro et al. 2025 fuse Sentinel-1, Envisat ASAR, ALOS-1/2 PALSAR backscatter calibrated against GEDI + ICESat-2 LiDAR allometric plots at 100 m resolution. When this band is Absence (cell outside the -50\u00b0S to +80\u00b0N envelope, or in a 10\u00b0 tile not published by ESA), the algorithm returns null with skip_reason \u2014 the cell is genuinely outside the highest-tier biomass map and the operator must either fall back to a regional Tier-1 constant or seed a higher-tier value."
         }
       ],
-      "formula": "Per-cell ONE-TIME CO2 flux from a Hansen-detected forest-loss event, in t CO2 / ha. Three-step IPCC 2019 Vol 4 Ch 4 bookkeeping: (1) gate: lossyear >= 1 AND treecover2000 >= 30 % (closed-canopy forest at baseline). (2) biomass density: AGB = 250 t d.m./ha (tropical/subtropical humid-forest default from IPCC 2019 Vol 4 Ch 4 Table 4.7 climate-zone TROPICAL_HUMID; the algorithm uses this as a single global default until per-cell biomass-density bands wire \u2014 see pitfalls); BGB = AGB \u00d7 R_root_shoot with R = 0.24 (Mokany et al. 2006 root-shoot ratio for tropical/subtropical forests > 125 t d.m./ha); total_biomass = AGB \u00d7 (1 + R) = 310 t d.m./ha. (3) carbon-fraction \u00d7 CO2-conversion: C_stock = total_biomass \u00d7 0.47 (IPCC 2019 Vol 4 Ch 4 default carbon fraction of biomass) = 145.7 t C/ha; CO2_flux = C_stock \u00d7 (44/12) = 534 t CO2/ha. Cells gated out return 0 (not Absence \u2014 the algorithm DOES execute, it returns the honest 'no flux at this cell' answer). Aggregate across a polygon by summing per-cell flux \u00d7 cell_area_ha. Compose with wri_gdm.driver_class to filter natural-cause loss (classes 5 = wildfire, 7 = other natural) out of attribution scope.",
+      "formula": "Per-cell ONE-TIME CO2 flux from a Hansen-detected forest-loss event, in t CO2 / ha, anchored on the ESA CCI Biomass v6.0 per-cell AGB density at the 2020 epoch. Three-step IPCC 2019 Vol 4 Ch 4 bookkeeping: (1) gate: lossyear >= 2021 (post-EUDR-cut-off) AND treecover2000 >= 30 % (closed-canopy forest at the Hansen baseline). (2) biomass density: AGB read live from esa_cci_biomass.agb_t_per_ha_2020 (Santoro et al. 2025); BGB = AGB \u00d7 R_root_shoot with R = 0.24 (Mokany et al. 2006 root-shoot ratio for tropical/subtropical forests > 125 t d.m./ha, lower for temperate / boreal \u2014 see honest_limits); total_biomass = AGB \u00d7 (1 + R) = AGB \u00d7 1.24. (3) carbon-fraction \u00d7 CO2-conversion: C_stock = total_biomass \u00d7 0.47 (IPCC 2019 Vol 4 Ch 4 Equation 2.10 default carbon fraction of biomass); CO2_flux = C_stock \u00d7 (44/12); combined multiplier = 1.24 \u00d7 0.47 \u00d7 44 / 12 = 2.13693... t CO2 per t AGB. Cells gated out (no loss OR not closed canopy at 2000) return 0. Cells where ESA CCI AGB is Absence return null. Aggregate across a polygon by summing per-cell flux \u00d7 cell_area_ha. Compose with wri_gdm.driver_class to filter natural-cause loss (classes 5 = wildfire, 7 = other natural) out of attribution scope.",
       "evaluation": {
         "op": "where",
         "cond": {"op": "band", "band": "forest_change.lossyear"},
-        "gt": 0.5,
+        "gt": 2020.5,
         "then_": {
           "op": "where",
           "cond": {"op": "band", "band": "forest_change.treecover2000"},
           "gt": 29.999,
-          "then_": {"op": "const", "value": 534.0},
+          "then_": {
+            "op": "mul",
+            "terms": [
+              {"op": "const", "value": 2.13693},
+              {"op": "band", "band": "esa_cci_biomass.agb_t_per_ha_2020"}
+            ]
+          },
           "else_": {"op": "const", "value": 0.0}
         },
         "else_": {"op": "const", "value": 0.0}
@@ -2182,10 +2193,10 @@
       "output": {
         "kind": "scalar",
         "unit": "t_co2_per_ha",
-        "range": [0, 1000],
-        "explanation": "Per-cell one-time CO2 emission from a Hansen-detected forest-loss event, in tonnes CO2 per hectare. The 534 t CO2/ha default reflects tropical/subtropical humid-forest biomass density (IPCC 2019 Vol 4 Ch 4 Table 4.7); for boreal forest the correct default is ~290 t CO2/ha (AGB 70-90 t d.m./ha) and for temperate forest ~430 t CO2/ha (AGB 130-150 t d.m./ha). The algorithm returns the tropical-humid default until a per-cell biomass-density band (ESA CCI Biomass v6 or GEDI L4B) is wired. Multiply by cell area (~0.0091 ha at the equator for cell64) and aggregate across the polygon for total flux. Zero return means either no loss OR the cell was not closed-canopy forest at year 2000 \u2014 both honest answers, not Absence."
+        "range": [0, 2000],
+        "explanation": "Per-cell one-time CO2 emission from a Hansen-detected post-EUDR-cut-off (2021+) forest-loss event, in tonnes CO2 per hectare. Multiplier 2.13693 = 1.24 (root-shoot expansion, Mokany 2006) \u00d7 0.47 (carbon fraction, IPCC 2019 Vol 4 Ch 4) \u00d7 44/12 (CO2 per C). Per-cell AGB is read live from ESA CCI Biomass v6.0 at the 2020 epoch (Santoro et al. 2025, 100 m global). Multiply by cell area (~0.0091 ha at the equator for cell64) and aggregate across the polygon for total flux. Zero return = no post-cut-off loss OR cell was not closed-canopy forest at year 2000 (honest 'no flux at this cell'). Null with skip_reason = ESA CCI Biomass v6.0 is Absence at this cell (outside the -50\u00b0S to +80\u00b0N envelope; operator must seed a higher-tier biomass value or fall back to a regional Tier-1 constant)."
       },
-      "when_to_use": "Cumulative forest-loss CO2 flux for tropical-humid biomes (Amazon, Congo, SE Asia humid tropics) under the Hansen-loss \u00d7 IPCC-biomass \u00d7 carbon-fraction \u00d7 44/12 bookkeeping. Pair with WRI Land & Carbon Watch (Harris et al. 2021) for the operational reference. Compose with /v1/eudr_dds for plot-level commodity-driven flux: filter by wri_gdm.driver_class \u2208 {1, 2, 3} (permanent agriculture, hard commodities, shifting cultivation) to isolate commodity-driven emissions. Do NOT use the 534 default outside the tropical-humid biome \u2014 for temperate / boreal / savanna / mangrove / peat forests use the biome-specific IPCC defaults listed in the output explanation or wire ESA CCI Biomass v6.",
+      "when_to_use": "Per-cell CO2 flux from post-EUDR-cut-off (2021+) forest loss anywhere ESA CCI Biomass v6 is published (-50\u00b0S to +80\u00b0N envelope). Pair with WRI Land & Carbon Watch (Harris et al. 2021) for the operational reference. Compose with /v1/eudr_dds for plot-level commodity-driven flux: filter by wri_gdm.driver_class \u2208 {1, 2, 3} (permanent agriculture, hard commodities, shifting cultivation) to isolate commodity-driven emissions. Outside the ESA CCI envelope (high Arctic, Antarctica, mid-ocean) the algorithm returns null with skip_reason \u2014 the operator must seed a regional Tier-1 biomass constant from IPCC 2019 Vol 4 Ch 4 Table 4.7 or accept the gap.",
       "primitive": "POST /v1/recall {bands:['forest_change.lossyear','forest_change.treecover2000']} \u2192 apply Expr AST per cell \u2192 multiply by area_ha \u2192 aggregate per polygon.",
       "deterministic": true,
       "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Volume 4 (AFOLU) Chapter 4 'Forest Land'. Table 4.7 (above-ground biomass in tropical/subtropical humid forest: 240-300 t d.m./ha, mid-range 250 t d.m./ha). Equation 2.10 (default carbon fraction of biomass CF = 0.47). URL https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch04_Forest%20Land.pdf. Mokany, K., Raison, R.J. & Prokushkin, A.S. 2006. Critical analysis of root:shoot ratios in terrestrial biomes. Global Change Biology 12(1):84-96. DOI 10.1111/j.1365-2486.2005.001043.x (R_root_shoot = 0.24 for tropical/subtropical forest > 125 t d.m./ha AGB). Hansen, M.C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850-853 (the loss-detection upstream). Harris, N.L. et al. 2021. Global maps of twenty-first century forest carbon fluxes. Nature Climate Change 11:234-240. DOI 10.1038/s41558-020-00976-6 (the WRI Land & Carbon Watch operational implementation of the same bookkeeping). Sims, M.J. et al. 2025. Global drivers of forest loss at 1 km resolution. Environmental Research Letters 20:074027 (commodity-vs-natural driver attribution for refinement).",
@@ -2196,20 +2207,21 @@
         "https://gfr.wri.org/data-methods"
       ],
       "frequency_of_calculation": "annual at minimum (Hansen GFC publishes a new vintage each year, typically April-May). Per-cell flux is computed once per loss event; the cell's contribution does NOT recur in subsequent years (the carbon is gone from the canopy after the loss). For continuous-time monitoring use /v1/trajectory over forest_change.lossyear and sum per year.",
-      "accuracy_band": "\u00b120-30 % at the polygon-aggregated flux level within the tropical-humid envelope (Harris et al. 2021 stated uncertainty for the WRI Land & Carbon Watch operational product, which uses the same input chain with a per-cell biomass-density map from Spawn 2020 + GEDI). The single-default-biomass simplification here (534 t CO2/ha global) widens the uncertainty to \u00b150 % when applied per-cell; the operational fix is to wire ESA CCI Biomass v6 or GEDI L4B as the per-cell biomass band and switch the Expr from constant to band-multiply.",
-      "honest_limits": "1. The 534 t CO2/ha constant is a TROPICAL-HUMID default (IPCC Vol 4 Ch 4 Table 4.7 mid-range 250 t d.m./ha AGB \u00d7 1.24 root-shoot \u00d7 0.47 C \u00d7 3.667 CO2/C). Applying it to boreal forest (AGB ~80 t d.m./ha) over-estimates CO2 flux by ~3x; applying to savanna (AGB ~30) over-estimates by ~8x. Use only on confirmed tropical-humid cells until a biome-conditional version ships. 2. Hansen treecover2000 >= 30 % is the FAO definition, NOT the EUDR 10 % threshold \u2014 this algorithm answers the CARBON-FLUX question, not the EUDR-COMPLIANCE question; for EUDR use /v1/eudr_dds. 3. The flux is ONE-TIME (event accounting); cells with loss in 2003 do not contribute a flux in 2024. For annualised fluxes pair with /v1/trajectory. 4. Plantation harvest is counted as loss the same as primary deforestation \u2014 when wri_gdm.driver_class is wired and class \u2208 {1, 2, 3}, prefer the driver-filtered version; class \u2208 {5, 7} (natural) should subtract. 5. Soil carbon flux (~150 t CO2/ha additional for tropical deforestation per IPCC 2019 Vol 4 Ch 2) is NOT included; this is BIOMASS-pool flux only.",
+      "accuracy_band": "\u00b120-30 % at the polygon-aggregated flux level (Harris et al. 2021 stated uncertainty for the WRI Land & Carbon Watch operational product, which uses the same input chain). ESA CCI Biomass v6 per-cell AGB stated accuracy: relative RMSE 30-50 % depending on biome and AGB density (Santoro et al. 2025); the SE raster esa_cci_biomass.agb_se_t_per_ha_2020 carries the 1-\u03c3 standard deviation per pixel and is recallable independently for explicit uncertainty propagation. Mokany 2006 root-shoot ratio R = 0.24 is the tropical/subtropical default \u2014 for boreal forest R = 0.40 (over-estimates flux here by ~13 %) and for temperate R = 0.30 (over-estimates by ~5 %); the R-correction is a known systematic and can be applied client-side via biome stratification.",
+      "honest_limits": "1. ESA CCI Biomass v6 coverage is -50\u00b0S to +80\u00b0N (Santoro et al. 2025); cells outside that return null with skip_reason. 2. The root-shoot multiplier 1.24 is the tropical/subtropical Mokany 2006 default \u2014 boreal cells use R = 0.40 \u2192 multiplier 1.40, temperate use R = 0.30 \u2192 multiplier 1.30. Biome-conditional Expr requires an ecoregions scalar key, which is not yet wired; until then, this flux over-estimates by 5-13 % outside the tropics. 3. Hansen treecover2000 >= 30 % is the FAO definition, NOT the EUDR 10 % threshold \u2014 this algorithm answers the CARBON-FLUX question, not the EUDR-COMPLIANCE question; for EUDR use /v1/eudr_dds. 4. The flux is ONE-TIME (event accounting at loss-year); cells with loss in 2021 do not contribute a flux in 2024. For annualised fluxes pair with /v1/trajectory. 5. Plantation harvest reads as loss the same as primary deforestation \u2014 when wri_gdm.driver_class is wired and class \u2208 {1, 2, 3}, prefer the driver-filtered version; class \u2208 {5, 7} (natural) should subtract. 6. Soil carbon flux (~150 t CO2/ha additional for tropical deforestation per IPCC 2019 Vol 4 Ch 2) is NOT included; this is BIOMASS-pool flux only. 7. The algorithm only counts POST-EUDR-cut-off loss (lossyear >= 2021); for cumulative historical flux 2001-2024, override the gate threshold or run a parallel algorithm.",
       "multimodal": {
-        "delivery_resolution_m": 30,
+        "delivery_resolution_m": 100,
         "baseline_sources": [
           "forest_change.lossyear",
-          "forest_change.treecover2000"
+          "forest_change.treecover2000",
+          "esa_cci_biomass.agb_t_per_ha_2020"
         ],
         "variance_sources": [],
-        "fusion_method": "none",
+        "fusion_method": "consensus_vote",
         "priority_chain": [
           "static"
         ],
-        "anchor_band": "forest_change.lossyear",
+        "anchor_band": "esa_cci_biomass.agb_t_per_ha_2020",
         "fallback_strategy": "absence"
       }
     },

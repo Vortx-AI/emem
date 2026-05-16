@@ -233,7 +233,11 @@ mod tests {
         // bands (jrc_gfc2020, jrc_tmf, radd, wri_gdm; total 20 dims) plus
         // a slimmed reserved (99 dims at 1693). Count rose 35 → 39 because
         // one reserved slot split into five. Σ stays at 1792.
-        assert_eq!(r.bands.len(), 39);
+        // 2026-05-16 (later): reserved (99 dims at 1693) carved further to
+        // add esa_cci_biomass (4 dims at 1693, AGB + AGB_SD at the 2022 +
+        // 2020 epochs as addressable scalars) plus a slimmed reserved
+        // (95 dims at 1697). Count rose 39 → 40. Σ stays at 1792.
+        assert_eq!(r.bands.len(), 40);
     }
 
     #[test]
@@ -293,7 +297,11 @@ mod tests {
         assert_eq!(idx["radd"].dims, 4);
         assert_eq!(idx["wri_gdm"].offset, 1689);
         assert_eq!(idx["wri_gdm"].dims, 4);
-        assert_eq!(idx["reserved"].offset, 1693);
-        assert_eq!(idx["reserved"].dims, 99);
+        // 2026-05-16 (later): esa_cci_biomass carves 4 dims at 1693 from
+        // the reserved tail; reserved drops from 99→95 dims at 1697.
+        assert_eq!(idx["esa_cci_biomass"].offset, 1693);
+        assert_eq!(idx["esa_cci_biomass"].dims, 4);
+        assert_eq!(idx["reserved"].offset, 1697);
+        assert_eq!(idx["reserved"].dims, 95);
     }
 }

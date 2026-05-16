@@ -27,6 +27,7 @@ pub mod chirps;
 pub mod cog;
 pub mod connectors;
 pub mod dmsp_ols;
+pub mod esa_cci_biomass;
 pub mod firms;
 pub mod ftw;
 pub mod geonames;

@@ -600,10 +600,37 @@
       "scalar_keys": ["wri_gdm.driver_class"]
     },
     {
+      "key": "esa_cci_biomass",
+      "family": "vegetation",
+      "offset": 1693,
+      "dims": 4,
+      "tempo": "slow",
+      "privacy": {"class": "public"},
+      "description": "ESA Climate Change Initiative Biomass v6.0 above-ground biomass (AGB) and per-pixel standard deviation (AGB_SD) at 100 m global. Produced by GAMMA Remote Sensing for ESA CCI from Sentinel-1 + Envisat ASAR + ALOS-1/2 PALSAR SAR retrievals (BIOMASAR-C and BIOMASAR-L) calibrated against GEDI + ICESat-2 LiDAR shot-level AGB. The dataset publishes 10 epochs (2007, 2010, 2015..=2022) — NOT annual. Range-readable from the CEDA archive (anonymous HTTPS, 299 × 10° × 10° tiles per layer per year).",
+      "units": "t/ha (Mg/ha) for both AGB and the per-pixel standard deviation",
+      "value_range": [0.0, 65535.0],
+      "interpretation": "`esa_cci_biomass.agb_t_per_ha_2022` is the most-recent published AGB value at the cell; pair with `esa_cci_biomass.agb_se_t_per_ha_2022` for the 1-σ uncertainty band. The 2020 sibling pair lets agents anchor a 2020-baseline change reading without re-fetching. Older epochs (2007, 2010, 2015..=2021) are reachable via the tslot-aware materializer using the same cell + year tuple.",
+      "pitfalls": "ESA labels the SD raster 'AGB_SD' (standard deviation); in geospatial usage this serves as the per-pixel 1-σ standard error. A confirmed in-coverage pixel reading 0 t/ha IS a Primary fact (no measurable above-ground biomass — sparse savanna, bare desert, snow/ice cell), NOT an Absence; the dataset does not carry a GDAL_NODATA tag at the L4 product. Coverage extends roughly -50°S to +80°N (ESA does not publish tiles outside that envelope or for all-ocean tiles); cells outside that footprint surface as Absence. The dataset is NOT annual — requesting 2008, 2009, 2011..=2014, or 2023+ surfaces YearNotAvailable.",
+      "references": "Santoro, M. et al. 2025. ESA Biomass Climate Change Initiative (Biomass_cci): Global datasets of forest above-ground biomass for the years 2007, 2010, 2015, 2016, 2017, 2018, 2019, 2020, 2021 and 2022, v6.0. NERC EDS CEDA. doi:10.5285/95913ffb6467447ca72c4e9d8cf30501. Catalogue: https://catalogue.ceda.ac.uk/uuid/95913ffb6467447ca72c4e9d8cf30501 ; data: https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v6.0/geotiff/",
+      "scalar_keys": [
+        "esa_cci_biomass.agb_t_per_ha_2022",
+        "esa_cci_biomass.agb_se_t_per_ha_2022",
+        "esa_cci_biomass.agb_t_per_ha_2020",
+        "esa_cci_biomass.agb_se_t_per_ha_2020"
+      ],
+      "dimensions": [
+        {"index": 0, "name": "agb_t_per_ha_2022",     "description": "Above-ground biomass at the cell, year 2022 (most-recent v6.0 epoch).",                                                       "units": "t/ha",   "value_range": [0, 65535]},
+        {"index": 1, "name": "agb_se_t_per_ha_2022",  "description": "Per-pixel standard deviation (1-σ uncertainty) of the AGB estimate, year 2022.",                                              "units": "t/ha",   "value_range": [0, 65535]},
+        {"index": 2, "name": "agb_t_per_ha_2020",     "description": "Above-ground biomass at the cell, year 2020 (commonly the EUDR / CRR baseline year for forest accounting).",                  "units": "t/ha",   "value_range": [0, 65535]},
+        {"index": 3, "name": "agb_se_t_per_ha_2020",  "description": "Per-pixel standard deviation (1-σ uncertainty) of the AGB estimate, year 2020.",                                              "units": "t/ha",   "value_range": [0, 65535]}
+      ],
+      "_source_note": "The full 10-epoch series (2007, 2010, 2015..=2022) is reachable through the tslot-aware materializer; the cube reserves four addressable scalars for 2022 + 2020 (the two epochs algorithms reach for most often: most-recent + EUDR-baseline). Carved from the historic 99-dim `reserved` tail in 2026-05; subsequent reserved offsets stay byte-stable."
+    },
+    {
       "key": "reserved",
       "family": "reserved",
-      "offset": 1693,
-      "dims": 99,
+      "offset": 1697,
+      "dims": 95,
       "tempo": "static",
       "privacy": {"class": "public"},
       "description": "Tail reservation slot for future cube extensions. Currently zero-padded — recall returns Absence.",

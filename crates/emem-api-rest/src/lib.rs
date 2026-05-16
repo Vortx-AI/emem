@@ -17470,6 +17470,98 @@ async fn materialize_jrc_gfc2020_band(
     }
 }
 
+// ---------------- ESA CCI Biomass v6 materializer ----------------
+//
+// Santoro et al. 2025. ESA CCI Biomass v6.0 from CEDA archive — open,
+// anonymous HTTPS, range-readable. 100 m global pan-tropical to boreal
+// above-ground biomass density (AGB) + standard deviation, 10 epochs
+// (2007, 2010, 2015..=2022). Anchors `forest_carbon_loss_co2_flux@1`
+// lift from a single tropical constant to per-cell biome-aware flux.
+async fn materialize_esa_cci_biomass_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::esa_cci_biomass;
+    // Parse the year + layer (AGB vs SE) out of the band suffix.
+    let (year, want_se): (u16, bool) = match band {
+        "esa_cci_biomass.agb_t_per_ha_2022" => (2022, false),
+        "esa_cci_biomass.agb_se_t_per_ha_2022" => (2022, true),
+        "esa_cci_biomass.agb_t_per_ha_2020" => (2020, false),
+        "esa_cci_biomass.agb_se_t_per_ha_2020" => (2020, true),
+        _ => return Err(format!("esa_cci_biomass band {band} not registered")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+
+    let cli = s2_http_client();
+    let signed_at = chrono_iso8601_utc();
+    let url = esa_cci_biomass::tile_url_for(year, lat, lng).unwrap_or_default();
+
+    match esa_cci_biomass::fetch_agb(&cli, lat, lng, year).await {
+        Ok(sample) => {
+            let value = if want_se {
+                sample.se_t_per_ha as f64
+            } else {
+                sample.agb_t_per_ha as f64
+            };
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: 0,
+                value: ciborium::Value::Float(value),
+                unit: Some("t_per_ha".into()),
+                confidence: if want_se { 0.95 } else { 0.85 },
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "esa.cci.biomass.v6".into(),
+                    id: url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "esa_cci_biomass_v6_pixel@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((year as i64).into()),
+                        ciborium::Value::Text(esa_cci_biomass::ESA_CCI_BIOMASS_VERSION_TAG.into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(esa_cci_biomass::EsaCciBiomassError::CoverageGap { lat: la, lng: ln }) => {
+            let reason = format!(
+                "esa_cci_biomass_coverage_gap: cell ({la:.6},{ln:.6}) lies outside ESA CCI Biomass v6.0 coverage envelope (-50°S to +80°N, plus 10°-tile non-existence over open ocean / barren interior)."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                "esa.cci.biomass.v6",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(esa_cci_biomass::EsaCciBiomassError::YearNotAvailable { year: y }) => Err(format!(
+            "esa_cci_biomass.{band}: year {y} not in v6.0 epoch list (2007, 2010, 2015..=2022)"
+        )),
+        Err(e) => Err(format!("esa_cci_biomass.{band} fetch failed: {e}")),
+    }
+}
+
 // ---------------- WRI GDM driver-attribution materializer ----------------
 //
 // Sims et al. 2025 (ERL 20:074027) 7-class driver attribution at 1 km.
@@ -19323,6 +19415,19 @@ async fn materialize_band_at(
         return materialize_wri_gdm_band(cell64, s, band).await;
     }
 
+    // ESA CCI Biomass v6 (Santoro 2025). Live single-COG range read
+    // against CEDA's open HTTPS mirror. Per-cell AGB density (t/ha)
+    // and standard deviation for epochs 2020 and 2022.
+    if matches!(
+        band,
+        "esa_cci_biomass.agb_t_per_ha_2022"
+            | "esa_cci_biomass.agb_se_t_per_ha_2022"
+            | "esa_cci_biomass.agb_t_per_ha_2020"
+            | "esa_cci_biomass.agb_se_t_per_ha_2020"
+    ) {
+        return materialize_esa_cci_biomass_band(cell64, s, band).await;
+    }
+
     // RADD SAR alerts (Reiche et al. 2021). Honest stub — signs
     // Absence with NotImplemented reason until a range-readable
     // anonymous HTTPS mirror exists.
@@ -20506,6 +20611,26 @@ async fn try_materialize_bands(
             // RADD SAR alerts (Reiche 2021). Same Absence pattern.
             "radd.alert_date" | "radd.confidence" => {
                 match materialize_radd_band(cell64, s, b).await {
+                    Ok(cid) => out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    }),
+                    Err(e) => out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    }),
+                }
+            }
+            // ESA CCI Biomass v6 — per-cell AGB density + standard
+            // deviation from CEDA's open HTTPS mirror. Live, range-
+            // readable, GEDI-anchored.
+            "esa_cci_biomass.agb_t_per_ha_2022"
+            | "esa_cci_biomass.agb_se_t_per_ha_2022"
+            | "esa_cci_biomass.agb_t_per_ha_2020"
+            | "esa_cci_biomass.agb_se_t_per_ha_2020" => {
+                match materialize_esa_cci_biomass_band(cell64, s, b).await {
                     Ok(cid) => out.push(MaterializeOutcome {
                         band: b.clone(),
                         fact_cid: Some(cid.as_str().to_string()),
