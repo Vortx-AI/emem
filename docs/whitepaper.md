@@ -427,11 +427,11 @@ upstream call.
 
 ## 7. Bands — the 1792-D voxel
 
-The band ontology loads from `bands-v0.json`. **Thirty-five band
+The band ontology loads from `bands-v0.json`. **Forty-one band
 cube slots** sum to exactly **1792 dims**. Offsets are contiguous;
 reserved slots leave room for new bands without breaking existing
-offsets. **118 materializer-wired band names** answer recall today —
-the gap between 35 cube slots and 118 names is the parametric
+offsets. **118 materializer-wired band names** answer recall today;
+the gap between 41 cube slots and 118 names is the parametric
 expansion (every Sentinel-2 reflectance band, every spectral index,
 every Tessera vintage, every Open-Meteo variant) under a fixed
 underlying slot.
@@ -472,7 +472,7 @@ exposed at `/v1/manifests` and on the `/v1/bands` response root.
 
 ## 8. Algorithms
 
-The algorithm registry (`algorithms-v0.json`) holds **155 entries** in
+The algorithm registry (`algorithms-v0.json`) holds **159 entries** in
 three kinds:
 
 ```text
@@ -960,7 +960,7 @@ templating).
 
 ## 14. Topics
 
-`topics-v0.json` declares **26 topics** routing free-text questions to
+`topics-v0.json` declares **27 topics** routing free-text questions to
 the right `(bands, algorithms)` pair. **11 topics are fully wired
 live** — every declared band has a registered materialiser.
 Routing is by cosine over a 768-D BAAI/bge-base-en-v1.5 embedding
@@ -1018,13 +1018,13 @@ produce byte-identical CIDs over the manifest set at
 
 ```text
   bands_cid        BLAKE3 over canonical_cbor(BandsManifest)
-                   (1792 dims, 35 cube slots)
+                   (1792 dims, 41 cube slots)
   algorithms_cid   BLAKE3 over canonical_cbor(AlgorithmsManifest)
-                   (155 entries)
+                   (159 entries)
   sources_cid      BLAKE3 over canonical_cbor(SourcesManifest)
                    (43 schemes)
   topics_cid       BLAKE3 over canonical_cbor(TopicsManifest)
-                   (26 topics)
+                   (27 topics)
   schema_cid       BLAKE3 over canonical_cbor(SchemaBundle)
   registry_cid     BLAKE3 over canonical_cbor(FunctionRegistry)
                    (17 primary / 2 derivative / 1 negative)
@@ -1215,18 +1215,30 @@ request granularity rather than the model's token granularity.
 - **Read.** Three endpoints, three shapes of the same motion.
   `POST /v1/recall` answers by address (cell × band × tslot → fact)
   and returns typed scalar facts in named units. `POST /v1/state`
-  returns the compact 128-D Tessera annual embedding for the cell
-  directly as a typed `vector: Vec<f32>`, signed, with an L2 norm,
-  the fact CID, and a pre-composed memory-token handle in the
-  same envelope. `POST /v1/find_similar` answers by content (seed
-  cell → k cells ranked by foundation-embedding cosine, with a
-  fast Hamming mode for cheap k-NN). The state vector returned by
-  `/v1/state` is the planet-keyed analogue of a compact
-  associative-memory matrix in an in-attention memory mechanism: a
-  fixed-size dense representation of "what is at this place" that
-  an agent can drop into its own context, feed back into
-  similarity scoring, or use as a fingerprint for change detection.
-  All three reads come back signed.
+  is the canonical state-vector endpoint, with two views selected
+  by the `view` field. `view="encoder"` (the default) returns one
+  named encoder band at its native dimension (128-D Tessera annual,
+  1024-D Clay v1.5 CLS, 1024-D Prithvi-EO-2.0 CLS) as a typed
+  `vector: Vec<f32>`, with an L2 norm, the fact CID, and a
+  pre-composed memory-token handle in the same envelope.
+  `view="cube"` returns the responder's full 1792-D cube assembled
+  across every wired band in canonical offset order; the response
+  carries a per-band `coverage[]` manifest so an agent can tell
+  attested-zero (signed Absence) from not-yet-materialised, and an
+  `extras[]` array surfacing the full native vector whenever a
+  fact's dim exceeds its cube slot (the cube stays a fixed-width
+  fingerprint, the extras carry the full payload, no information
+  loss). Both views self-certify: `view="encoder"` cites a
+  `fact_cid`; `view="cube"` cites `state_cid =
+  base32(blake3(canonical_LE_f32_bytes))` plus a child fact CID per
+  cited band. `POST /v1/state_multi` fans out across the wired
+  foundation encoders. `POST /v1/state_diff` returns the residual
+  vector and cosine between two tslots at the same cell. `POST
+  /v1/find_similar` answers by content (seed cell → k cells ranked
+  by foundation-embedding cosine, with a fast Hamming mode for cheap
+  k-NN). `GET /v1/corpus_state_stats` is the observability primitive:
+  bounded index scan, per-band fact / cell counts, manifest CIDs
+  in force, signed envelope. All reads come back signed.
 - **Steer.** The agent has no in-attention hook, so steering
   happens through the agent's own context: the `fact_cid` is the
   cite-handle. Once a CID is in the conversation, every downstream
@@ -1438,8 +1450,9 @@ arbitrary structured feedback alongside the receipt.
 - **More benchmark items.** `/v1/benchmark` ships five hand-verified
   items (three recall, two find_similar) and `/v1/benchmark/grade`
   scores submitted answers against expected. The next motion is
-  growing the catalogue (hunt events, trajectory windows, state
-  diffs); curation is the rate-limit.
+  growing the catalogue (hunt events, trajectory windows, state-diff
+  tasks now that `/v1/state_diff` is wired); curation is the
+  rate-limit.
 - **Per-cell subscribe filter on `/v1/stream`.** The Server-Sent
   Events stream at `/v1/stream` ships a signed corpus tick every
   N seconds (default 15, range [5, 300]). The next motion is
