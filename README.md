@@ -133,6 +133,7 @@ The MCP endpoint is `https://emem.dev/mcp`. Drop a config snippet into your clie
 | LangChain MCP agent   | [examples/langchain/](examples/langchain/)                          |
 | LlamaIndex (Python)   | [examples/llamaindex.py](examples/llamaindex.py)                    |
 | LlamaIndex MCP agent  | [examples/llamaindex/](examples/llamaindex/)                        |
+| Agno MCP agent        | [examples/agno/](examples/agno/)                                    |
 
 Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending; install from the repo today).
 

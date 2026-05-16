@@ -11,8 +11,8 @@ Usage:
     export OPENAI_API_KEY="sk-..."
     python emem_mcp_geospatial_agent.py
 
-The agent will locate the coordinates (60.3172, 24.9633), recall
-geospatial facts, and summarise what it finds -- citing signed receipts.
+The agent will check whether Helsinki Airport, Finland (60.3172, 24.9633)
+appears to be low-lying or flood-prone, citing signed receipts.
 """
 
 import asyncio
@@ -24,10 +24,9 @@ from llama_index.llms.openai import OpenAI
 EMEM_MCP_URL = "https://emem.dev/mcp"
 
 QUESTION = (
-    "I have coordinates 60.3172, 24.9633. "
-    "Locate this place, recall its geospatial facts (elevation, "
-    "land cover, vegetation, surface water), and summarise what "
-    "you find. Cite the signed receipt fact_cids in your answer."
+    "Using emem, check whether Helsinki Airport, Finland (60.3172, 24.9633) "
+    "appears to be low-lying or flood-prone. Use verifiable evidence and "
+    "cite signed facts or receipts when available."
 )
 
 
