@@ -455,23 +455,30 @@
           "band": "indices.ndvi",
           "role": "ndvi",
           "unit": "ratio",
-          "explanation": "Sentinel-2 NDVI. Saturates above ~0.8 in dense canopies; the reported AGB caps accordingly."
+          "explanation": "Sentinel-2 NDVI, applicability NDVI \u2208 [0.40, 0.85] (Baccini et al. 2008 calibration range for tropical moist forest). Below 0.40 the cell is not closed-canopy forest and the power-law extrapolates into noise; above 0.85 NDVI saturates and no longer separates biomass densities."
         }
       ],
-      "formula": "let n = clamp(indices.ndvi, 0.05, 0.85); AGB_Mg_ha = 232.7 * pow(n, 1.79)",
+      "formula": "let n = clamp(indices.ndvi, 0.40, 0.85); AGB_Mg_ha = 505 * pow(n, 2.04)  // Baccini et al. 2008 (Environ Res Lett 3:045011), pan-tropical Africa fit, n=263 inventory plots paired with MODIS NDVI 463 m, R\u00b2 = 0.82, RMSE 50.5 Mg/ha. Outside NDVI \u2208 [0.40, 0.85] return Absence{reason:'outside_calibration_envelope'}.",
       "output": {
         "kind": "scalar",
         "unit": "Mg_ha",
         "range": [
           0,
-          220
+          350
         ],
-        "explanation": "Above-ground biomass density in Mg dry-matter per hectare via the Anaya et al. 2009 NDVI\u2013AGB power law for tropical-savanna mosaics, AGB = 232.7\u00b7NDVI^1.79 (R\u00b2=0.74, n=85 plots, calibrated against tropical forest inventory). Saturates near NDVI = 0.85 (~165 Mg/ha), beyond that NDVI no longer separates biomass densities. For >150 Mg/ha use a SAR (Sentinel-1 cross-pol) or LiDAR (GEDI L4A) attestation; for ESA CCI Biomass v5 wire the dedicated band."
+        "explanation": "Above-ground biomass density in Mg dry-matter per hectare via the Baccini et al. 2008 NDVI\u2013AGB power law for pan-tropical moist forest, AGB = 505\u00b7NDVI^2.04 (R\u00b2 = 0.82, RMSE = 50.5 Mg/ha, n = 263 ground inventory plots from tropical Africa, paired with MODIS Terra NDVI 463 m). Calibration envelope NDVI \u2208 [0.40, 0.85] \u2192 AGB \u2208 [70, 350] Mg/ha. Saturates near NDVI = 0.85 (~350 Mg/ha); above that the relationship flattens and Sentinel-1 cross-pol (\u03b3\u2070 HV) or GEDI L4A LiDAR is the defensible attestation."
       },
-      "when_to_use": "Carbon-stock estimation, REDD+ baselines, agroforestry MRV at moderate-to-low biomass densities. ALWAYS print the saturation caveat in the receipt above ~150 Mg/ha.",
+      "when_to_use": "Tropical-moist-forest carbon-stock screening, REDD+ baselines, agroforestry MRV inside the Baccini calibration envelope (NDVI \u2208 [0.40, 0.85]). For boreal, temperate, savanna, mangrove, or peat-swamp forest the coefficients are inapplicable \u2014 use a biome-specific fit (Saatchi et al. 2011 PNAS provides biome-stratified maps; ESA CCI Biomass v5 provides per-pixel SAR+LiDAR-fused AGB at 100 m). ALWAYS print the saturation caveat in the receipt above NDVI = 0.80.",
       "primitive": "POST /v1/recall {bands:['indices.ndvi']}",
       "deterministic": true,
-      "citation": "Anaya, J.A., Chuvieco, E., Palacios-Orueta, A. 2009. Above-ground biomass assessment in Colombia: a remote-sensing approach. Forest Ecology and Management 257(4):1237\u20131246. Cross-validated by Lu, D. 2006. The potential and challenge of remote sensing-based biomass estimation. International Journal of Remote Sensing 27(7):1297\u20131328."
+      "citation": "Baccini, A., Laporte, N., Goetz, S.J., Sun, M. & Dong, H. 2008. A first map of tropical Africa's above-ground biomass derived from satellite imagery. Environmental Research Letters 3:045011. DOI 10.1088/1748-9326/3/4/045011. Cross-referenced by Saatchi, S.S. et al. 2011. Benchmark map of forest carbon stocks in tropical regions across three continents. PNAS 108(24):9899\u20139904. DOI 10.1073/pnas.1019576108. For pan-tropical map harmonisation see Avitabile, V. et al. 2016. An integrated pan-tropical biomass map using multiple reference datasets. Global Change Biology 22(4):1406\u20131420. DOI 10.1111/gcb.13139.",
+      "references": [
+        "https://doi.org/10.1088/1748-9326/3/4/045011",
+        "https://doi.org/10.1073/pnas.1019576108",
+        "https://doi.org/10.1111/gcb.13139"
+      ],
+      "accuracy_band": "R\u00b2 = 0.82, RMSE 50.5 Mg/ha for tropical Africa moist forest within the calibration envelope (Baccini et al. 2008). Drops to R\u00b2 \u2248 0.45 for boreal, temperate, and savanna applications \u2014 do not extrapolate outside the tropics without a biome-specific refit. Above NDVI = 0.80 saturation pushes uncertainty to \u00b1100 Mg/ha; treat as a lower-bound estimate.",
+      "pitfalls": "1. Power-law coefficients (a=505, b=2.04) are calibrated for TROPICAL MOIST FOREST (Baccini et al. 2008, African inventory plots). They DO NOT transfer to boreal, temperate, savanna, mangrove, or peat-swamp forest \u2014 the regional fits there differ by factors of 2\u20133. Treat outputs outside Africa, the Amazon, and SE Asia humid tropics as relative ranking, not absolute Mg/ha. 2. NDVI saturation above 0.85 means the algorithm CANNOT distinguish 350 Mg/ha from 600 Mg/ha old-growth \u2014 the receipt MUST be paired with a SAR (Sentinel-1 \u03b3\u2070 HV) or GEDI L4A attestation in dense-canopy regimes. 3. Cloud-contaminated NDVI biases AGB low; require Scene Classification Layer SCL \u2208 {4,5,6} (vegetation/bare/water) before evaluating. 4. Sub-pixel mixing (10 m S2 vs the 463 m MODIS calibration) is uncorrected \u2014 sparse-canopy savanna may be over-predicted at S2 resolution. 5. NOT a substitute for direct LiDAR or SAR biomass products (ESA CCI Biomass v5, GEDI L4B); use this only when those higher-tier bands are unavailable for the cell."
     },
     {
       "key": "snow_likelihood_from_ndsi@1",
@@ -2099,6 +2106,8 @@
       "key": "carbon_sink_score@1",
       "kind": "combined",
       "domain": "esg",
+      "deprecated": true,
+      "deprecation_note": "The 0.40 / 0.35 / 0.25 weights on NDVI + biomass_proxy + K-ring-NDVI are AD-HOC \u2014 they are not sourced from any published carbon-flux scoring framework. The Pan 2011 / Saatchi 2011 citations describe forest-carbon STOCK maps and the global sink magnitude, but neither paper defines a per-cell NDVI-weighted sink-score index. The closest published frameworks (Houghton & Nassikas 2017 bookkeeping; Harris et al. 2021 Global Forest Watch carbon-flux model) use forest-area change \u00d7 biomass density \u00d7 IPCC emission factors, NOT an NDVI heuristic. Migrate to a forthcoming `forest_carbon_loss_co2_flux@1` that does proper IPCC-anchored flux accounting (GFC loss \u00d7 Spawn et al. 2020 / ESA CCI Biomass density \u00d7 IPCC 2019 Vol 4 Ch 4 Table 4.7 carbon-fraction \u00d7 44/12 \u2192 tCO2/cell/yr). Until that successor ships, treat this score ONLY as an internal greenness-and-biomass relative ranking \u2014 do not surface in any regulator-defensible MRV pipeline.",
       "inputs": [
         {
           "band": "indices.ndvi",
@@ -2110,7 +2119,7 @@
           "band": "<composite>",
           "role": "biomass_proxy",
           "weight": 0.35,
-          "explanation": "agb_ndvi_powerlaw@1"
+          "explanation": "agb_ndvi_powerlaw@1 \u2014 itself a tropical-moist-forest-calibrated power law, see that entry for envelope."
         },
         {
           "band": "indices.ndvi",
@@ -2119,7 +2128,7 @@
           "transform": "_K_ring_mean_3; clamp01(mean)"
         }
       ],
-      "formula": "0.40*clamp01(indices.ndvi) + 0.35*biomass_proxy + 0.25*clamp01(mean_K3(ndvi))",
+      "formula": "0.40*clamp01(indices.ndvi) + 0.35*biomass_proxy + 0.25*clamp01(mean_K3(ndvi))  // WEIGHTS ARE AD-HOC, NOT FROM A PUBLISHED FRAMEWORK \u2014 see deprecation_note. Migrate to forest_carbon_loss_co2_flux@1 for IPCC-anchored tCO2/cell/yr flux accounting.",
       "output": {
         "kind": "scalar",
         "unit": "sink_index",
@@ -2127,12 +2136,82 @@
           0,
           1
         ],
-        "explanation": "Directional ranking of carbon-sink capacity (NOT tonnes CO\u2082/year, for that, use a GEDI L4A or ESA CCI Biomass attestation). Useful for ESG scoring of land parcels and conservation prioritisation."
+        "explanation": "Directional ranking of greenness + biomass proxy (NOT tonnes CO\u2082/year, NOT a published sink-score index \u2014 the weights are heuristic). For per-cell carbon-flux accounting use a GEDI L4A or ESA CCI Biomass attestation combined with forest-cover-change \u00d7 IPCC emission factors."
       },
-      "when_to_use": "ESG dashboards comparing parcels for carbon-credit eligibility, land-trust acquisition, or biodiversity-credit baselines. Note that current-year NDVI is a snapshot; pair with `embedding_change_score@1` to detect deforestation.",
+      "when_to_use": "DEPRECATED \u2014 internal relative ranking only. For regulator-defensible carbon-flux MRV migrate to the IPCC-anchored successor `forest_carbon_loss_co2_flux@1` (forest-loss area \u00d7 biomass-density map \u00d7 IPCC carbon-fraction \u00d7 44/12) or wire ESA CCI Biomass v5 + Hansen GFC loss directly. Do NOT surface in ESG dashboards as a CO\u2082/yr equivalent.",
       "primitive": "POST /v1/recall_many for K-ring + agb_ndvi_powerlaw@1",
       "deterministic": true,
-      "citation": "Pan, Y. et al. 2011. A large and persistent carbon sink in the world's forests. Science 333(6045):988\u2013993. Saatchi, S.S. et al. 2011. Benchmark map of forest carbon stocks. PNAS 108(24):9899\u20139904."
+      "citation": "Pan, Y. et al. 2011. A large and persistent carbon sink in the world's forests. Science 333(6045):988\u2013993. DOI 10.1126/science.1201609 (cited for the global-sink CONTEXT only \u2014 does not define this score's weights). Saatchi, S.S. et al. 2011. Benchmark map of forest carbon stocks in tropical regions across three continents. PNAS 108(24):9899\u20139904. DOI 10.1073/pnas.1019576108 (cited for biomass-density context only). Houghton, R.A. & Nassikas, A.A. 2017. Global and regional fluxes of carbon from land use and land cover change 1850\u20132015. Global Biogeochemical Cycles 31:456\u2013472. DOI 10.1002/2016GB005546 (bookkeeping framework that the SUCCESSOR algorithm follows). Harris, N.L. et al. 2021. Global maps of twenty-first century forest carbon fluxes. Nature Climate Change 11:234\u2013240. DOI 10.1038/s41558-020-00976-6 (GFW carbon-flux operational model that the SUCCESSOR algorithm matches).",
+      "references": [
+        "https://doi.org/10.1038/s41558-020-00976-6",
+        "https://doi.org/10.1002/2016GB005546"
+      ],
+      "accuracy_band": "UNQUANTIFIED \u2014 the algorithm is a heuristic ranking, not a calibrated flux estimator. No R\u00b2 against measured CO\u2082 flux has been or can be reported because the index is dimensionless and the weights are ad-hoc. Use forest_carbon_loss_co2_flux@1 (forthcoming) for \u00b120\u201330 % flux accuracy traced to Harris et al. 2021 and IPCC 2019 Vol 4 Ch 4.",
+      "pitfalls": "1. Weights are AD-HOC \u2014 there is no published source that justifies 0.40 / 0.35 / 0.25 for these three NDVI-derived terms. The Pan 2011 and Saatchi 2011 citations describe stocks and global sinks, not per-cell weighting. 2. Output is a unitless 0\u20131 index, NOT tCO2/yr; downstream code that converts this to a flux is incorrect and the receipt must refuse such conversion. 3. Greenness \u2260 sink \u2014 a continuously green parcel may be net-source if the prior year was deforested-and-regrowing; a partial-canopy temperate forest may be net-sink. The index has no temporal-flux semantics. 4. Migrate to forest_carbon_loss_co2_flux@1 (forthcoming) or wire ESA CCI Biomass v5 + Hansen GFC loss + IPCC carbon-fraction directly for any regulator-defensible MRV use case."
+    },
+    {
+      "key": "forest_carbon_loss_co2_flux@1",
+      "kind": "combined",
+      "domain": "carbon",
+      "inputs": [
+        {
+          "band": "forest_change.lossyear",
+          "role": "loss_year",
+          "explanation": "Calendar year of the first Hansen-detected tree-cover loss event at this cell (v1.12: 2001..=2024, 0 = no loss observed). Any non-zero year flags a one-time forest-to-non-forest transition that triggers the per-cell flux."
+        },
+        {
+          "band": "forest_change.treecover2000",
+          "role": "baseline_cover",
+          "explanation": "Hansen v1.12 baseline tree-cover percentage at year 2000. Cells with treecover2000 < 30 % are excluded from the flux (they were not closed-canopy forest at the start of the record, so the IPCC tropical-forest emission factor is inapplicable)."
+        }
+      ],
+      "formula": "Per-cell ONE-TIME CO2 flux from a Hansen-detected forest-loss event, in t CO2 / ha. Three-step IPCC 2019 Vol 4 Ch 4 bookkeeping: (1) gate: lossyear >= 1 AND treecover2000 >= 30 % (closed-canopy forest at baseline). (2) biomass density: AGB = 250 t d.m./ha (tropical/subtropical humid-forest default from IPCC 2019 Vol 4 Ch 4 Table 4.7 climate-zone TROPICAL_HUMID; the algorithm uses this as a single global default until per-cell biomass-density bands wire \u2014 see pitfalls); BGB = AGB \u00d7 R_root_shoot with R = 0.24 (Mokany et al. 2006 root-shoot ratio for tropical/subtropical forests > 125 t d.m./ha); total_biomass = AGB \u00d7 (1 + R) = 310 t d.m./ha. (3) carbon-fraction \u00d7 CO2-conversion: C_stock = total_biomass \u00d7 0.47 (IPCC 2019 Vol 4 Ch 4 default carbon fraction of biomass) = 145.7 t C/ha; CO2_flux = C_stock \u00d7 (44/12) = 534 t CO2/ha. Cells gated out return 0 (not Absence \u2014 the algorithm DOES execute, it returns the honest 'no flux at this cell' answer). Aggregate across a polygon by summing per-cell flux \u00d7 cell_area_ha. Compose with wri_gdm.driver_class to filter natural-cause loss (classes 5 = wildfire, 7 = other natural) out of attribution scope.",
+      "evaluation": {
+        "op": "where",
+        "cond": {"op": "band", "band": "forest_change.lossyear"},
+        "gt": 0.5,
+        "then_": {
+          "op": "where",
+          "cond": {"op": "band", "band": "forest_change.treecover2000"},
+          "gt": 29.999,
+          "then_": {"op": "const", "value": 534.0},
+          "else_": {"op": "const", "value": 0.0}
+        },
+        "else_": {"op": "const", "value": 0.0}
+      },
+      "output": {
+        "kind": "scalar",
+        "unit": "t_co2_per_ha",
+        "range": [0, 1000],
+        "explanation": "Per-cell one-time CO2 emission from a Hansen-detected forest-loss event, in tonnes CO2 per hectare. The 534 t CO2/ha default reflects tropical/subtropical humid-forest biomass density (IPCC 2019 Vol 4 Ch 4 Table 4.7); for boreal forest the correct default is ~290 t CO2/ha (AGB 70-90 t d.m./ha) and for temperate forest ~430 t CO2/ha (AGB 130-150 t d.m./ha). The algorithm returns the tropical-humid default until a per-cell biomass-density band (ESA CCI Biomass v6 or GEDI L4B) is wired. Multiply by cell area (~0.0091 ha at the equator for cell64) and aggregate across the polygon for total flux. Zero return means either no loss OR the cell was not closed-canopy forest at year 2000 \u2014 both honest answers, not Absence."
+      },
+      "when_to_use": "Cumulative forest-loss CO2 flux for tropical-humid biomes (Amazon, Congo, SE Asia humid tropics) under the Hansen-loss \u00d7 IPCC-biomass \u00d7 carbon-fraction \u00d7 44/12 bookkeeping. Pair with WRI Land & Carbon Watch (Harris et al. 2021) for the operational reference. Compose with /v1/eudr_dds for plot-level commodity-driven flux: filter by wri_gdm.driver_class \u2208 {1, 2, 3} (permanent agriculture, hard commodities, shifting cultivation) to isolate commodity-driven emissions. Do NOT use the 534 default outside the tropical-humid biome \u2014 for temperate / boreal / savanna / mangrove / peat forests use the biome-specific IPCC defaults listed in the output explanation or wire ESA CCI Biomass v6.",
+      "primitive": "POST /v1/recall {bands:['forest_change.lossyear','forest_change.treecover2000']} \u2192 apply Expr AST per cell \u2192 multiply by area_ha \u2192 aggregate per polygon.",
+      "deterministic": true,
+      "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Volume 4 (AFOLU) Chapter 4 'Forest Land'. Table 4.7 (above-ground biomass in tropical/subtropical humid forest: 240-300 t d.m./ha, mid-range 250 t d.m./ha). Equation 2.10 (default carbon fraction of biomass CF = 0.47). URL https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch04_Forest%20Land.pdf. Mokany, K., Raison, R.J. & Prokushkin, A.S. 2006. Critical analysis of root:shoot ratios in terrestrial biomes. Global Change Biology 12(1):84-96. DOI 10.1111/j.1365-2486.2005.001043.x (R_root_shoot = 0.24 for tropical/subtropical forest > 125 t d.m./ha AGB). Hansen, M.C. et al. 2013. High-Resolution Global Maps of 21st-Century Forest Cover Change. Science 342:850-853 (the loss-detection upstream). Harris, N.L. et al. 2021. Global maps of twenty-first century forest carbon fluxes. Nature Climate Change 11:234-240. DOI 10.1038/s41558-020-00976-6 (the WRI Land & Carbon Watch operational implementation of the same bookkeeping). Sims, M.J. et al. 2025. Global drivers of forest loss at 1 km resolution. Environmental Research Letters 20:074027 (commodity-vs-natural driver attribution for refinement).",
+      "references": [
+        "https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch04_Forest%20Land.pdf",
+        "https://doi.org/10.1111/j.1365-2486.2005.001043.x",
+        "https://doi.org/10.1038/s41558-020-00976-6",
+        "https://gfr.wri.org/data-methods"
+      ],
+      "frequency_of_calculation": "annual at minimum (Hansen GFC publishes a new vintage each year, typically April-May). Per-cell flux is computed once per loss event; the cell's contribution does NOT recur in subsequent years (the carbon is gone from the canopy after the loss). For continuous-time monitoring use /v1/trajectory over forest_change.lossyear and sum per year.",
+      "accuracy_band": "\u00b120-30 % at the polygon-aggregated flux level within the tropical-humid envelope (Harris et al. 2021 stated uncertainty for the WRI Land & Carbon Watch operational product, which uses the same input chain with a per-cell biomass-density map from Spawn 2020 + GEDI). The single-default-biomass simplification here (534 t CO2/ha global) widens the uncertainty to \u00b150 % when applied per-cell; the operational fix is to wire ESA CCI Biomass v6 or GEDI L4B as the per-cell biomass band and switch the Expr from constant to band-multiply.",
+      "honest_limits": "1. The 534 t CO2/ha constant is a TROPICAL-HUMID default (IPCC Vol 4 Ch 4 Table 4.7 mid-range 250 t d.m./ha AGB \u00d7 1.24 root-shoot \u00d7 0.47 C \u00d7 3.667 CO2/C). Applying it to boreal forest (AGB ~80 t d.m./ha) over-estimates CO2 flux by ~3x; applying to savanna (AGB ~30) over-estimates by ~8x. Use only on confirmed tropical-humid cells until a biome-conditional version ships. 2. Hansen treecover2000 >= 30 % is the FAO definition, NOT the EUDR 10 % threshold \u2014 this algorithm answers the CARBON-FLUX question, not the EUDR-COMPLIANCE question; for EUDR use /v1/eudr_dds. 3. The flux is ONE-TIME (event accounting); cells with loss in 2003 do not contribute a flux in 2024. For annualised fluxes pair with /v1/trajectory. 4. Plantation harvest is counted as loss the same as primary deforestation \u2014 when wri_gdm.driver_class is wired and class \u2208 {1, 2, 3}, prefer the driver-filtered version; class \u2208 {5, 7} (natural) should subtract. 5. Soil carbon flux (~150 t CO2/ha additional for tropical deforestation per IPCC 2019 Vol 4 Ch 2) is NOT included; this is BIOMASS-pool flux only.",
+      "multimodal": {
+        "delivery_resolution_m": 30,
+        "baseline_sources": [
+          "forest_change.lossyear",
+          "forest_change.treecover2000"
+        ],
+        "variance_sources": [],
+        "fusion_method": "none",
+        "priority_chain": [
+          "static"
+        ],
+        "anchor_band": "forest_change.lossyear",
+        "fallback_strategy": "absence"
+      }
     },
     {
       "key": "biodiversity_proxy@1",
@@ -3529,14 +3608,19 @@
           0,
           350
         ],
-        "explanation": "Above-ground nitrogen uptake at the time of observation, in kg N / ha. Driver for top-dressing-fertiliser recommendation. Calibrate `specific_leaf_mass` per crop and per phenology stage; the SPAD-leaf-tissue ground-truth set is what closes the loop. Output of <30 kg N/ha mid-season on a high-input crop = strong N-deficit signal."
+        "explanation": "ABOVE-GROUND NITROGEN UPTAKE \u2014 the kg N / ha currently held in standing plant tissue at the time of observation. THIS IS NOT FERTILIZER APPLICATION RATE. The output answers 'how much N is in the canopy now?' (a remote-sensing-derived plant-status variable), NOT 'how much fertiliser has been applied?' (an input-rate variable that needs a separate input map). Driver for top-dressing recommendations and mid-season N-deficit alerting. Calibrate `specific_leaf_mass` per crop and per phenology stage; the SPAD-leaf-tissue ground-truth set is what closes the loop. Output of <30 kg N/ha mid-season on a high-input crop = strong N-deficit signal."
       },
-      "when_to_use": "Mid-season N-deficit detection on cereals (wheat, rice, maize) and high-N horticulture. Pair with NDRE temporal trajectory (drop > 0.05 in 7 d = active deficit) to surface 'apply N within 7 days' recommendations. NOT for legumes \u2014 they fix atmospheric N and the canopy-N relationship inverts.",
+      "when_to_use": "Mid-season N-deficit detection on cereals (wheat, rice, maize) and high-N horticulture. Pair with NDRE temporal trajectory (drop > 0.05 in 7 d = active deficit) to surface 'apply N within 7 days' recommendations. NOT for legumes \u2014 they fix atmospheric N and the canopy-N relationship inverts. NOT a substitute for fertilizer-application-rate input maps in N2O emission accounting.",
       "primitive": "POST /v1/recall {bands:['indices.ndre','modis.lai_8day','indices.ndvi']} \u2192 apply formula",
       "deterministic": true,
-      "citation": "Gitelson, A.A., Gritz, Y. & Merzlyak, M.N. 2003. Relationships between leaf chlorophyll content and spectral reflectance. Journal of Plant Physiology 160:271\u2013282. Cao, Q. et al. 2017. Active canopy sensing of winter wheat nitrogen status: an evaluation of two sensors, NDRE-based VIs, and a soil reflectance NIR-based VI. Field Crops Research 154:133\u2013144. Clevers, J.G.P.W. & Kooistra, L. 2012. Using hyperspectral remote sensing data for retrieving canopy chlorophyll and nitrogen content. IEEE JSTARS 5:574\u2013583.",
+      "citation": "Gitelson, A.A., Gritz, Y. & Merzlyak, M.N. 2003. Relationships between leaf chlorophyll content and spectral reflectance. Journal of Plant Physiology 160:271\u2013282. Cao, Q. et al. 2017. Active canopy sensing of winter wheat nitrogen status: an evaluation of two sensors, NDRE-based VIs, and a soil reflectance NIR-based VI. Field Crops Research 154:133\u2013144. Clevers, J.G.P.W. & Kooistra, L. 2012. Using hyperspectral remote sensing data for retrieving canopy chlorophyll and nitrogen content. IEEE JSTARS 5:574\u2013583. For the orthogonal fertilizer-input-rate map see Adalibieke, W. et al. 2023. Global crop-specific nitrogen fertilization dataset (1961\u20132020). Scientific Data 10:617. DOI 10.1038/s41597-023-02526-z. For HYDE 3.4 crop-N gridded inputs see Klein Goldewijk, K. et al. 2017. HYDE 3.2 (with 3.4 update 2024). Earth System Science Data 9:927.",
+      "references": [
+        "https://doi.org/10.1038/s41597-023-02526-z",
+        "https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch11_N2O&CO2.pdf"
+      ],
       "frequency_of_calculation": "every Sentinel-2 cloud-free pass (5-day revisit cadence, ~8\u201314 d cloud-permitting in non-monsoon). Sub-weekly updates not informative \u2014 leaf-N changes on ~3-day timescale at most.",
-      "accuracy_band": "NDRE\u2192leaf-N R\u00b2~0.77 (Gitelson 2003); NDRE\u00d7LAI\u2192kg N/ha R\u00b2~0.85 with crop-specific SPAD calibration on \u2265200 plots; without SPAD calibration treat as relative ranking only, not absolute kg/ha.",
+      "accuracy_band": "NDRE\u2192leaf-N R\u00b2~0.77 (Gitelson 2003); NDRE\u00d7LAI\u2192kg N/ha (above-ground plant uptake) R\u00b2~0.85 with crop-specific SPAD calibration on \u2265200 plots (Cao et al. 2017); without SPAD calibration treat as relative ranking only, not absolute kg/ha. The output is plant-tissue N \u2014 it does NOT estimate fertiliser-input rate, and its R\u00b2 against measured fertiliser input is approximately zero (it confounds soil supply, mineralisation, atmospheric deposition, and applied fertiliser into a single canopy signal).",
+      "pitfalls": "1. DO NOT use this as a proxy for fertilizer-application rate. The output is canopy-resident plant N (above-ground uptake), which is the integral of soil supply + mineralisation + atmospheric deposition + applied fertiliser minus losses (leaching, volatilisation, denitrification) \u2014 NOT the application input. For fertiliser-input-rate maps use a dedicated input dataset: Adalibieke et al. 2023 (Sci Data 10:617, crop-specific N at 5 arc-min globally), HYDE 3.4 crop-N gridded inputs, or the FAO FertiSTAT national-statistics product. 2. DO NOT use this output directly for N2O emission estimation. N2O accounting requires the fertiliser-input map AND the IPCC 2019 Refinement Vol 4 Ch 11 EF1 default (0.010 kg N2O-N per kg N input, with regional refinements for rain-fed vs irrigated) \u2014 combine the fertiliser map with EF1, not this uptake signal. 3. Specific-leaf-mass defaults to 50 g/m\u00b2 (generic) and is the largest source of error; calibrate per crop and per phenology stage (wheat early-tillering \u2248 35, wheat anthesis \u2248 65, maize V6 \u2248 40, maize V12 \u2248 55) for any operational use. 4. NDVI gate (NDVI < 0.3 \u2192 Absence) prevents bare-soil noise but also clips legitimate post-anthesis senescence \u2014 flag explicitly in growth-stage-aware applications. 5. NOT for legumes (soybean, pulses) \u2014 atmospheric-N fixation breaks the chlorophyll\u2013uptake relationship and over-predicts uptake by 1.5\u20132\u00d7 in nodulated stands.",
       "multimodal": {
         "delivery_resolution_m": 10,
         "baseline_sources": [
@@ -3883,7 +3967,7 @@
           "explanation": "Cumulative NDVI over the season scales with rice biomass and substrate availability for methanogens."
         }
       ],
-      "formula": "regime = if mean(ndwi) > 0.0 over season AND oscillation_count(ndwi crossing 0.0) <= 1 -> 'continuous_flood'; else if oscillation_count >= 3 -> 'AWD'; else if mean(ndwi) > 0.0 AND oscillation_count == 2 -> 'mid_season_drainage'; else 'upland_or_dry_seeded'; EF_kg_CH4_ha_day = lookup(IPCC 2019 Table 5.11) where { 'continuous_flood': 1.30, 'mid_season_drainage': 1.30 * 0.71, 'AWD': 1.30 * 0.52, 'upland_or_dry_seeded': 0.0 }; T_mod = exp(0.0917 * (T_paddy - 25));  CH4_kg_ha_season = EF_kg_CH4_ha_day * season_days * T_mod * (1.0 + 0.5 * (cumNDVI - 25)/25)",
+      "formula": "Step 1 (regime classification from NDWI trajectory across season): if mean(ndwi) > 0.0 AND oscillation_count(ndwi crossing 0.0) <= 1 -> 'continuous_flood'; else if oscillation_count >= 3 -> 'AWD' (Alternate Wetting and Drying, multiple aeration cycles); else if mean(ndwi) > 0.0 AND oscillation_count == 2 -> 'mid_season_drainage' (single drainage); else 'upland_or_dry_seeded'. Step 2 (baseline EFc from IPCC 2019 Refinement Vol 4 Ch 5 Table 5.11, regional baseline emission factor for continuously flooded fields without organic amendments): EFc_kg_CH4_ha_day = { Asia.continental: 1.32, Asia.SE: 1.22, Asia.S: 0.85, Europe: 1.56, NorthAmerica: 0.65, Africa: 1.19, default_global: 1.19 } (regional pick from cell.country \u2192 IPCC region). Step 3 (water-regime scaling factor SFw from Table 5.12): SFw = { 'continuous_flood': 1.00, 'mid_season_drainage': 0.71, 'AWD': 0.52, 'upland_or_dry_seeded': 0.00 }. Step 4 (pre-season water regime SFp from Table 5.13, default 'non-flooded pre-season >180 d'): SFp = 0.68 unless explicit pre-season flooding flag, then SFp = 1.00 (short-flooded) or 1.90 (long-flooded >30 d). Step 5 (organic amendment SFo from Table 5.14, default no amendment): SFo = 1.00 unless straw incorporation flag is set, then SFo = 1 + (ROA \u00b7 CFOA)^0.59 with CFOA = 0.19 for straw incorporated <30 d before cultivation, 0.29 for straw <30 d compost, 0.05 for FYM, 0.27 for green manure. Step 6 (Q10 temperature correction from Yan et al. 2005, IPCC-cited): T_mod = exp(0.0917 \u00b7 (T_paddy_\u00b0C \u2212 25)). Step 7 (final): CH4_kg_ha_season = EFc \u00b7 SFw \u00b7 SFp \u00b7 SFo \u00b7 cultivation_period_days \u00b7 T_mod. Optional cumulative-NDVI biomass refinement [+/\u2212 25 %] is RESEARCH-TIER ONLY and disabled at the IPCC Tier-2 default.",
       "output": {
         "kind": "scalar",
         "unit": "kg_CH4_ha_season",
@@ -3891,14 +3975,20 @@
           0,
           800
         ],
-        "explanation": "Modelled seasonal CH\u2084 emission per hectare. Convert to CO\u2082e by \u00d7 27.9 (IPCC AR6 100-yr GWP). Multiply (continuous_flood \u2212 AWD) \u00d7 project area to derive Verra VM0042 / Gold Standard MMM-PRA AWD credit volume. NOT a measurement \u2014 explicitly labelled `model:'IPCC_2019_Tier2'` in the receipt; ground-truth on \u22651 eddy-covariance flux tower is REQUIRED before claiming credit issuance."
+        "explanation": "Modelled seasonal CH\u2084 emission per hectare following IPCC 2019 Refinement Vol 4 Ch 5 Equation 5.1, EFi = EFc \u00b7 SFw \u00b7 SFp \u00b7 SFo. Convert to CO\u2082e by \u00d7 27.9 (IPCC AR6 100-yr GWP for non-fossil CH\u2084). The AWD vs continuous-flood DELTA (continuous_flood EFi minus AWD EFi) \u00d7 project area is what feeds Verra VM0042 + AWD methodology module CV2 and Gold Standard MMM-PRA credit volume. NOT a measurement \u2014 explicitly labelled `model:'IPCC_2019_Tier2'` in the receipt; ground-truth on \u22651 eddy-covariance flux tower is REQUIRED before claiming credit issuance under VM0042."
       },
-      "when_to_use": "Rice-paddy carbon-credit MRV (Boomitra, Nurture.farm, Varaha, Mooved); AWD adoption verification; national rice-methane inventory backfill where direct flux measurement is absent. Do NOT use on dry-seeded rice or upland rice \u2014 the model has no skill there.",
-      "primitive": "POST /v1/trajectory {bands:['indices.ndwi','sentinel1_raw','indices.ndvi'], from:sowing, to:harvest}; POST /v1/recall {bands:['weather.temperature_2m']}; classify regime; apply EF formula",
+      "when_to_use": "Rice-paddy carbon-credit MRV (Boomitra, Nurture.farm, Varaha, Mooved); AWD adoption verification; national rice-methane inventory backfill where direct flux measurement is absent. Do NOT use on dry-seeded rice or upland rice \u2014 the IPCC Tier-2 scaling factors have no skill there (SFw = 0 by definition); use Tier-1 default or a dedicated dry-seeded model instead.",
+      "primitive": "POST /v1/trajectory {bands:['indices.ndwi','sentinel1_raw','indices.ndvi'], from:sowing, to:harvest}; POST /v1/recall {bands:['weather.temperature_2m']}; classify regime; apply IPCC 2019 Equation 5.1 with regional EFc lookup",
       "deterministic": true,
-      "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Vol 4 Ch 5.5 'Rice Cultivations' (Table 5.11 baseline EF + scaling factors). Yan, X. et al. 2009. Statistical analysis of the major variables controlling methane emission from rice fields. Global Change Biology 15:1817\u20131819. Bouvet, A. et al. 2018. Use of the SAR shadowing effect for deforestation detection. RSE 215:228\u2013243. Verra Verified Carbon Standard. 2024. VM0042 + AWD methodology module.",
+      "citation": "IPCC. 2019. 2019 Refinement to the 2006 IPCC Guidelines for National Greenhouse Gas Inventories, Volume 4 (AFOLU) Chapter 5 'Cropland', Section 5.5 'Rice Cultivations'. Equation 5.1 (EFi = EFc \u00b7 SFw \u00b7 SFp \u00b7 SFo); Table 5.11 (regional baseline EFc for continuously flooded fields, default global value 1.19 kg CH4/ha/day with regional overrides Asia.continental 1.32, Asia.SE 1.22, Asia.S 0.85, Europe 1.56, NorthAmerica 0.65, Africa 1.19); Table 5.12 (water-regime scaling factor SFw during cultivation period: continuously flooded 1.00, intermittently flooded single aeration 0.71, intermittently flooded multiple aerations / AWD 0.52, regular rainfed 0.54, drought-prone 0.16, deep water 0.06); Table 5.13 (pre-season water-regime SFp: non-flooded pre-season <180 d default 1.22, non-flooded pre-season >180 d 0.68, flooded pre-season >30 d 1.90, flooded pre-season <30 d 1.00); Table 5.14 (organic amendment SFo via SFo = (1 + \u03a3ROA \u00b7 CFOA)^0.59 with CFOA = 1.00 straw <30 d, 0.19 straw >30 d, 0.29 compost, 0.05 FYM, 0.27 green manure). URL https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch05_Cropland.pdf. Yan, X. et al. 2005. Statistical analysis of the major variables controlling methane emission from rice fields. Global Change Biology 11(7):1131\u20131141. DOI 10.1111/j.1365-2486.2005.00976.x (Q10 = 2.5 temperature scaling). Bouvet, A. et al. 2018. Sentinel-1 SAR backscatter under rice canopy. RSE 215:228\u2013243 (\u03b3\u2070 VV < \u221217 dB standing-water signature). Verra Verified Carbon Standard. 2024. VM0042 v2.1 Improved Agricultural Land Management + AWD methodology module CV2.",
+      "references": [
+        "https://www.ipcc-nggip.iges.or.jp/public/2019rf/pdf/4_Volume4/19R_V4_Ch05_Cropland.pdf",
+        "https://doi.org/10.1111/j.1365-2486.2005.00976.x",
+        "https://verra.org/methodologies/vm0042-methodology-for-improved-agricultural-land-management-v2-1/"
+      ],
       "frequency_of_calculation": "once per rice season (typically 110\u2013150 d). Mid-season interim estimates can be issued every 10 days from sowing for monitoring dashboards but credit issuance MUST anchor on the full-season trajectory.",
-      "accuracy_band": "\u00b125\u201330% (IPCC Tier-2 uncertainty for rice CH\u2084). Eddy-covariance ground-truth lifts the AWD-vs-continuous-flood discrimination to >90% \u2014 that's the part Verra cares about, not the absolute flux magnitude.",
+      "accuracy_band": "\u00b125\u201330 % at the seasonal-flux magnitude level (IPCC 2019 Vol 4 Ch 5 stated Tier-2 uncertainty for rice CH\u2084, dominated by the SFw uncertainty range of 0.46\u20130.59 for AWD in Table 5.12). The AWD-vs-continuous-flood DISCRIMINATION (which is what Verra VM0042 actually monetises) lifts to >90 % concordance with eddy-covariance ground-truth when at least one flux tower in the project region anchors the EFc \u2014 that's the operationally meaningful accuracy, not the absolute flux magnitude.",
+      "pitfalls": "1. Regional EFc selection (Table 5.11) MUST use the cell's IPCC region (default global 1.19 kg CH4/ha/day is a fallback); silently using the global value in South Asia under-estimates by \u224829 % (S Asia EFc 0.85) and over-estimates in Europe by \u224831 % (Europe EFc 1.56). 2. The water-regime classifier from NDWI assumes Sentinel-2 cloud-free passes spanning the cultivation period; under monsoon cloud cover (>60 % of S2 passes lost) the regime call MUST fall back to Sentinel-1 \u03b3\u2070 VV \u2014 without S1 fallback, mid-season-drainage and AWD become indistinguishable. 3. SFp (pre-season) defaults to 0.68 (non-flooded >180 d) \u2014 if the cell was a fallow-flooded paddy or a fish-rice rotation, this under-estimates by up to 2.8\u00d7; flag with an explicit pre-season-flood input when available. 4. SFo (organic amendment) defaults to 1.00 (no amendment) \u2014 straw incorporation within 30 d of cultivation can lift CH4 by 2\u20134\u00d7; agricultural-survey or remote-detection of post-harvest straw burn/incorporation should override. 5. NOT a substitute for eddy-covariance flux towers under Verra VM0042 issuance \u2014 this algorithm produces the Tier-2 INVENTORY estimate; the credit-issuance methodology requires at least one project-specific flux measurement per agro-ecological zone.",
       "multimodal": {
         "delivery_resolution_m": 10,
         "baseline_sources": [
