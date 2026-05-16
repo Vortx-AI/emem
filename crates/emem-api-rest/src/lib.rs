@@ -686,6 +686,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/diff", post(post_diff))
         .route("/v1/trajectory", post(post_trajectory))
         .route("/v1/backfill", post(post_backfill))
+        .route("/v1/memory_token", post(post_memory_token))
         // Physics primitives — explicit-FD heat / wave PDE solvers and a
         // constrained JEPA-pattern NDVI predictor. See crates/emem-api-rest/src/physics.rs.
         .route("/v1/heat_solve", post(physics::post_heat_solve))
@@ -2465,9 +2466,42 @@ async fn health(State(s): State<AppState>) -> Json<JsonValue> {
 }
 
 async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
+    // Lightweight operator attestation: a signed liveness claim binding
+    // (protocol version, key epoch, attested_at, manifest CIDs) under the
+    // responder's Ed25519 key. The verifier reconstructs `preimage` from
+    // the named fields and checks the signature against `responder.pubkey_b32`.
+    // This is not a TEE attestation chain (binary hash and build
+    // provenance are not yet covered), but it is a verifiable claim that
+    // the named responder produced this manifest at the named instant.
+    let version = env!("CARGO_PKG_VERSION");
+    let attested_at = {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        iso8601_utc(secs)
+    };
+    let pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let bands_cid: &str = s.manifests.bands_cid.as_ref();
+    let registry_cid: &str = s.manifests.registry_cid.as_str();
+    let attest_preimage = format!(
+        "emem.operator_attestation|v{}|epoch{}|{}|bands:{}|registry:{}",
+        version, s.identity.epoch.0, attested_at, bands_cid, registry_cid
+    );
+    let attest_sig = s
+        .identity
+        .signing
+        .sign(attest_preimage.as_bytes())
+        .to_bytes();
+    let attest_sig_b32 = data_encoding::BASE32_NOPAD
+        .encode(&attest_sig)
+        .to_lowercase();
+
     Json(json!({
         "protocol": "emem",
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": version,
         "manifests": {
             "bands_cid": &s.manifests.bands_cid,
             "sources_cid": &s.manifests.sources_cid,
@@ -2477,11 +2511,20 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
             "topics_cid": TOPICS_CID.clone(),
         },
         "responder": {
-            "pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
+            "pubkey_b32": pubkey_b32,
             "key_epoch": s.identity.epoch.0,
             "signature_alg": "ed25519",
             "hash_alg": "blake3",
             "cid_encoding": "base32-nopad-lowercase",
+        },
+        "operator_attestation": {
+            "version":      version,
+            "key_epoch":    s.identity.epoch.0,
+            "attested_at":  attested_at,
+            "preimage":     attest_preimage,
+            "signature_b32": attest_sig_b32,
+            "alg":          "ed25519",
+            "_note":        "Verify by recomputing `preimage` from the named fields and checking ed25519 over it against `responder.pubkey_b32`. Not a TEE attestation; the running binary's hash and build provenance are not covered. Full TEE attestation is on the roadmap (whitepaper §20).",
         },
         "tools_url": "/v1/tools",
         "openapi_url": "/openapi.json",
@@ -11659,6 +11702,75 @@ struct LocateReq {
 
 async fn post_locate(Json(req): Json<LocateReq>) -> Result<Json<JsonValue>, ApiError> {
     locate_inner(req).await
+}
+
+// ── /v1/memory_token ─────────────────────────────────────────────────────
+//
+// Compose a compact memory-token handle from a (cell, fact_cid) pair. The
+// token is a single colon-separated string an agent can drop into LLM
+// context as a stable, self-describing reference to one fact at one cell:
+//
+//     memt:<cell64>:<fact_cid>
+//
+// cell64 strings are dot-separated (four base-1024 bigrams), so colons
+// serve as the outer separator. The format is parseable by splitting on
+// ':'; first segment is the type discriminator `memt`, second is the
+// cell64, third is the 26-character fact_cid. Whitepaper §19.5 holds the
+// canonical grammar. This endpoint composes; to verify the fact bytes,
+// take the returned `fact_cid` and call `GET /v1/facts/:cid` or
+// `POST /v1/verify_receipt`.
+
+#[derive(Debug, Deserialize)]
+struct MemoryTokenReq {
+    cell: String,
+    fact_cid: String,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryTokenResp {
+    memory_token: String,
+    cell: String,
+    fact_cid: String,
+    grammar: &'static str,
+    docs: &'static str,
+}
+
+async fn post_memory_token(
+    Json(req): Json<MemoryTokenReq>,
+) -> Result<Json<MemoryTokenResp>, ApiError> {
+    let cell = req.cell.trim();
+    let cid = req.fact_cid.trim();
+    if cell.is_empty() || cid.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory_token requires non-empty `cell` and `fact_cid`".into(),
+                details: None,
+            },
+        ));
+    }
+    // Cheap shape guard: the outer separator is ':' so neither component
+    // may contain one; the composed token must be unambiguously parseable
+    // by `split(':')`.
+    if cell.contains(':') || cid.contains(':') {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory_token components must not contain ':' (the outer separator)"
+                    .into(),
+                details: None,
+            },
+        ));
+    }
+    Ok(Json(MemoryTokenResp {
+        memory_token: format!("memt:{}:{}", cell, cid),
+        cell: cell.to_string(),
+        fact_cid: cid.to_string(),
+        grammar: "memt:<cell64>:<fact_cid>",
+        docs: "/whitepaper.md#195-memory-token-format",
+    }))
 }
 
 /// One cell-typed field of a primitive request after geocoding. Either

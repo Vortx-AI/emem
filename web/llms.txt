@@ -18,6 +18,28 @@
 >
 > Bootstrap: GET /v1/discover  ·  Schema: /openapi.json  ·  MCP: /mcp
 
+## Memory tokens (the cite-handle for a signed fact at a place)
+
+A memory token is one parseable string an agent can drop into any
+context: LLM prompt, tool-call argument, log line, agent-to-agent
+message. Format:
+
+    memt:<cell64>:<fact_cid>
+
+Example:
+
+    memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
+
+Compose:
+
+    POST /v1/memory_token  {"cell":"<cell64>","fact_cid":"<fact_cid>"}
+
+Resolve (returns the signed fact bytes on any responder):
+
+    GET /v1/facts/<fact_cid>
+
+Spec, parse rules, failure modes: /whitepaper.md#194-memory-tokens
+
 ## Memory operations (mapped to emem primitives)
 
     Operation                       Primitive           Endpoint
@@ -33,6 +55,7 @@
     summarize / place-anchored Q&A  ask                 POST /v1/ask
     verify a receipt                verify_receipt      POST /v1/verify_receipt
     reflect / record task outcome   reviews             POST /v1/reviews
+    compose a memory token          memory_token        POST /v1/memory_token
 
 ## Algebra
 

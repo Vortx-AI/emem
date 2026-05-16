@@ -1266,7 +1266,130 @@ cannot:
   silently-injected provider defaults. Empty is a signed Absence
   fact, not an empty array.
 
-### 19.4 Operations vocabulary
+### 19.4 Memory tokens
+
+The memory token is a compact, self-describing handle that binds a cell
+to a signed fact in a single string an agent can drop into an LLM
+prompt, an HTTP header, a log line, or a message between two agents.
+The handle is the unit of cross-process memory exchange: paste one
+token and any reader on any responder can resolve the same bytes.
+
+#### 19.4.1 Grammar
+
+The token is colon-separated and consists of three segments:
+
+```
+    memory_token  ::=  "memt" ":" cell64 ":" fact_cid
+    cell64        ::=  bigram "." bigram "." bigram "." bigram
+    fact_cid      ::=  26 chars of base32-nopad-lowercase
+```
+
+The first segment is the fixed prefix `memt`, identifying the string as
+an emem memory token. The second segment is the cell64 in its
+four-bigram dotted form. The third segment is the 26-character fact_cid
+(the base32-nopad-lowercase truncation of `blake3(canonical_cbor(fact))`
+to 16 bytes). Neither component may contain a `:` character; the outer
+separator is reserved.
+
+A canonical token therefore looks like:
+
+```
+    memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
+```
+
+That is roughly 57 characters, well within typical LLM-token budgets
+for a single context reference (it costs eight to twelve LLM tokens
+depending on the tokenizer).
+
+#### 19.4.2 Semantics
+
+A memory token does not carry the value itself; it carries the
+*address* of the value. To dereference, an agent splits on `:`, takes
+the third segment, and calls `GET /v1/facts/:cid` (or quotes the CID
+to any other responder mirroring the same content-addressed corpus).
+The cell segment is redundant on the dereference path, since the fact
+body embeds the cell; including it inline lets a human reader place
+the token without a round-trip.
+
+The token is **deterministic**: the same `(cell, fact_cid)` pair always
+produces the same string. It is **idempotent**: composing the same
+inputs twice is a no-op. It carries **no signature of its own**; the
+fact it references is already signed at the responder, and the CID is
+self-certifying (recomputing `blake3(canonical_cbor)` over the fetched
+fact must produce exactly the embedded base32 string).
+
+A memory token may appear:
+
+- in an LLM prompt, as a stable bibliographic reference an agent
+  quotes the way one might quote a DOI;
+- in a tool-call argument, as a single string the receiving tool
+  parses and resolves;
+- in a chat between two agents, as the handshake artefact that
+  prevents the two from arguing about an underlying number;
+- in a log line, as a forensic anchor a future debugger can replay.
+
+#### 19.4.3 Compose endpoint
+
+`POST /v1/memory_token` composes a token from explicit components:
+
+```json
+{
+  "cell":     "defi.zb4d9.pefa.zf619",
+  "fact_cid": "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q"
+}
+```
+
+returns
+
+```json
+{
+  "memory_token": "memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
+  "cell":         "defi.zb4d9.pefa.zf619",
+  "fact_cid":     "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
+  "grammar":      "memt:<cell64>:<fact_cid>",
+  "docs":         "/whitepaper.md#194-memory-tokens"
+}
+```
+
+Composition is offline and runs with no upstream call. Agents are free
+to compose tokens locally without contacting `/v1/memory_token`; the
+endpoint is a convenience plus a single source of truth for grammar
+validation.
+
+#### 19.4.4 Parse and verify
+
+To resolve a token an agent does:
+
+```
+    parts = token.split(":")
+    assert parts[0] == "memt"
+    cell, fact_cid = parts[1], parts[2]
+    body = GET /v1/facts/<fact_cid>
+    assert blake3(canonical_cbor(body))[:16] == base32_decode(fact_cid)
+```
+
+The last line is the bit of work that turns the token from a pointer
+into a *certified* pointer: the CID does not just name the bytes, it
+verifies them. A man-in-the-middle that swaps a different fact for the
+same CID is detected by the digest check; a bit-flip on the wire is
+detected the same way.
+
+#### 19.4.5 Failure modes named explicitly
+
+- *Malformed grammar.* Anything that does not split into exactly three
+  `:`-separated segments with first segment `memt` is rejected by the
+  parser. Callers should treat as `bad_input`, not retry.
+- *Unknown CID.* The compose step does not check the corpus, so a
+  composed token can reference a fact_cid that no responder holds
+  yet. Dereferencing returns `cid_not_found`. This is the lazy
+  materialisation path: the token can be minted before the fact is
+  written, and the write closes the loop.
+- *CID drift after re-encode.* Re-encoding a fact body (changing key
+  order, changing precision, normalising whitespace) produces a
+  different CID. The memory token then dangles. The protocol's rule is
+  to never re-encode: always fetch by CID, never reconstruct.
+
+### 19.5 Operations vocabulary
 
 The endpoints map cleanly onto the canonical agent-memory operations
 vocabulary used by mem0, Letta, LangGraph, and the broader memory-
@@ -1297,6 +1420,32 @@ arbitrary structured feedback alongside the receipt.
 
 ## 20. Open questions
 
+- **State-vector endpoint `/v1/state`.** §19.3 names recall and
+  find_similar as the read-side of the memory-exposure triad. A
+  dedicated state-vector endpoint, returning the dense 128-D
+  Tessera (or Clay / Prithvi when wired) embedding as a typed
+  `vec<f32>` plus signed receipt, is the next step. It collapses
+  the recall+decode dance into a single round-trip and makes the
+  "compact state addressable by place" property explicit on the
+  wire surface. Compose-only memory tokens (§19.4) and
+  `find_similar` ship today; the state-vector endpoint follows.
+- **Benchmark suite `/v1/benchmark`.** A small, hand-verified set
+  of place-anchored questions with expected fact_cids, plus a
+  grader endpoint, lets any agent measure its ground-rate against
+  emem. The protocol is ready; the verified test items need
+  curation.
+- **Streaming (SSE / WebSocket) for hot memory access.** A
+  persistent stream that pushes new attestations at subscribed
+  cells turns emem from a polled store into a true event source.
+  Requires runtime broadcast state and async fanout; deferred to
+  a focused effort.
+- **TEE-attested operator claim.** §5.7 anchors trust in the
+  responder's Ed25519 identity, and `/.well-known/emem.json`
+  ships a lightweight signed liveness claim today. A full
+  attestation chain (Intel SGX / AMD SEV-SNP measurement of the
+  running emem-server binary, bound to the build provenance of a
+  named git commit) is the long-form path; the lightweight claim
+  is the short-form bridge.
 - **H3 hex migration.** Spec target is H3-equivalent DGGS at
   resolution 13. cell64 is square at the equator, progressively
   non-square poleward. Migration requires a new manifest CID for

@@ -58,8 +58,8 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
   --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
   --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
-  --pad-x:1.5rem;--col-meta:220px;
-  --t-xs:11px;--t-sm:12px;--t-base:13.5px;--t-md:15px;--t-lg:18px;--t-xl:22px;--t-2xl:30px;--t-3xl:44px;--t-4xl:64px;
+  --pad-x:1.5rem;--col-meta:13.75rem;
+  --t-xs:.6875rem;--t-sm:.75rem;--t-base:.84375rem;--t-md:.9375rem;--t-lg:1.125rem;--t-xl:1.375rem;--t-2xl:1.875rem;--t-3xl:2.75rem;--t-4xl:4rem;
 }
 @media (prefers-color-scheme: dark){
   :root{
@@ -73,6 +73,9 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
   }
 }
 *{box-sizing:border-box}
+/* Type & spacing scale at 80% of the natural 16px baseline. Everything
+   downstream is expressed in rem, so this single knob retunes the page. */
+html{font-size:80%}
 html,body{margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::selection{background:var(--accent);color:var(--paper)}
@@ -120,6 +123,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero-formula .arrow{color:var(--mute)}
 .hero-formula .out{border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);padding:.3rem .6rem;font-weight:700}
 .formula-gloss{font-size:var(--t-sm);color:var(--mute);margin:.2rem 0 1rem;letter-spacing:.02em}
+.memt-block{border:1px solid var(--rule-strong);background:var(--paper-2);margin:0 0 1.6rem;font-size:var(--t-sm);overflow:hidden}
+.memt-block .memt-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);padding:.4rem .8rem;gap:.6rem;flex-wrap:wrap}
+.memt-block .memt-head .label{font-weight:700;color:var(--ink);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.06em}
+.memt-block .memt-head .gloss{color:var(--mute);font-size:var(--t-xs)}
+.memt-block .memt-head .spacer{flex:1}
+.memt-block .memt-head a{font-size:var(--t-xs);color:var(--accent);text-decoration:none}
+.memt-block .memt-head a:hover{text-decoration:underline}
+.memt-block .memt-body{padding:.8rem 1rem;display:grid;gap:.4rem}
+.memt-block .memt-grammar{font-size:var(--t-xs);color:var(--mute)}
+.memt-block .memt-grammar b{color:var(--ink);font-weight:700}
+.memt-block .memt-example{word-break:break-all;color:var(--accent);font-size:var(--t-sm);padding:.4rem .55rem;background:var(--paper);border:1px solid var(--rule)}
+.memt-block .memt-parts{display:grid;grid-template-columns:max-content 1fr;gap:.25rem .8rem;font-size:var(--t-xs);color:var(--ink-2);margin-top:.1rem}
+.memt-block .memt-parts .k{color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
 .hero-pillars{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--rule-strong);margin:0 0 1.6rem;font-size:var(--t-sm)}
 .hero-pillars .pillar{flex:1;min-width:120px;padding:.55rem .8rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.2rem;background:var(--paper-2)}
 .hero-pillars .pillar:last-child{border-right:0}
@@ -321,7 +337,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 #emem-consent a{margin-left:auto;font-size:.92em;color:var(--accent);text-decoration:underline}
 
 /* responsive */
-@media (max-width:900px){:root{--col-meta:160px}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
+@media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
 @media (max-width:720px){.section,.hero,.foot{grid-template-columns:1fr}.section-meta,.hero-meta,.foot-meta{position:static}.foot-grid{grid-template-columns:repeat(2,1fr)}.endpoints{font-size:var(--t-xs)}.endpoints th,.endpoints td{padding:.4rem .5rem}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -376,6 +392,26 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="pillar"><span class="word">signed</span><span class="gloss">ed25519 over canonical CBOR</span></div>
       <div class="pillar"><span class="word">global</span><span class="gloss">~9.55 m cells, lazy materialised</span></div>
       <div class="pillar"><span class="word">unadulterated</span><span class="gloss">addressed, not similarity-ranked</span></div>
+    </div>
+
+    <div class="memt-block" aria-label="memory token, the cite-handle for one signed fact at one place">
+      <div class="memt-head">
+        <span class="label">memory token</span>
+        <span class="gloss">one string an agent can paste anywhere; resolves to one signed fact at one place</span>
+        <span class="spacer"></span>
+        <a href="/whitepaper.md#194-memory-tokens">spec</a>
+        <a href="/integrations.md#memory-tokens">integrate</a>
+      </div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>format:</b> <code>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</code></div>
+        <div class="memt-example">memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</div>
+        <div class="memt-parts">
+          <span class="k">cell</span><span><code>defi.zb4d9.pefa.zf619</code> &nbsp;(South Mumbai, 18.95°N 72.83°E)</span>
+          <span class="k">fact</span><span><code>copdem30m.elevation_mean = 6.0 m</code> via Copernicus DEM, signed</span>
+          <span class="k">resolve</span><span><code>GET /v1/facts/&lt;fact_cid&gt;</code> returns the same bytes on any responder, forever</span>
+          <span class="k">compose</span><span><code>POST /v1/memory_token {"cell":"…","fact_cid":"…"}</code></span>
+        </div>
+      </div>
     </div>
 
     <p class="sub">Whatever memory your agent runtime ships internally (per-session associative state, per-tenant scratchpad, vector-indexed retriever), emem is the layer beneath: shared, cross-session, cross-tenant, persistent working memory of Earth itself, keyed by place and signed at the edge. A <span class="band">cell64</span> is to an emem-grounded reasoning chain what a token is to an LLM: a stable, hierarchical, machine-readable handle the rest of the pipeline can quote, share, and verify.</p>
