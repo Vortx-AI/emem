@@ -56,6 +56,7 @@ Spec, parse rules, failure modes: /whitepaper.md#194-memory-tokens
     verify a receipt                verify_receipt      POST /v1/verify_receipt
     reflect / record task outcome   reviews             POST /v1/reviews
     compose a memory token          memory_token        POST /v1/memory_token
+    read dense state vector         state               POST /v1/state
 
 ## Algebra
 

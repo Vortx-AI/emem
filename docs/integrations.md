@@ -9,6 +9,59 @@ This page is a one-page rosetta stone: per runtime, the smallest possible
 config that turns emem into the long-term memory layer for an agent that
 already exists, plus a pointer to a runnable example in this repository.
 
+## State vectors
+
+The dense state for any place on Earth, returned as a typed
+`vector: Vec<f32>` you can drop straight into an LLM's context, feed
+into a similarity search, or cache as a fingerprint for change
+detection. Signed, content-addressed, and packaged with a pre-composed
+memory-token handle.
+
+```bash
+curl -sX POST https://emem.dev/v1/state \
+  -H 'content-type: application/json' \
+  -d '{"cell":"South Mumbai","encoder":"geotessera"}'
+```
+
+Response shape:
+
+```json
+{
+  "cell":         "defi.zb4d9.pefa.zf619",
+  "encoder":      "geotessera",
+  "dim":          128,
+  "vector":       [0.043, -0.115, 0.298, ... ],
+  "l2_norm":      3.7146,
+  "tslot":        54,
+  "fact_cid":     "<26 chars base32-nopad-lowercase>",
+  "memory_token": "memt:defi.zb4d9.pefa.zf619:<fact_cid>",
+  "receipt":      { /* signed ed25519 over canonical blake3 preimage */ }
+}
+```
+
+Inputs:
+
+- `cell` may be a cell64 string or a free-text place name (resolved
+  through the standard geocoder cascade; the `resolved_from` field
+  reports which layer answered).
+- `encoder` defaults to `geotessera` (128-D Tessera annual embedding).
+  Pass `geotessera.multi_year` for the 8-year stacked vintage when
+  the band is wired at this responder. Future encoders (Clay v1.5
+  1024-D, Prithvi-EO-2.0 1024-D) come online as their materialiser
+  workers ship.
+- `tslot` optional; omit and the materialiser picks the natural
+  vintage for the band (e.g. 2024 for `geotessera`).
+
+Use sites:
+
+| Use site                           | What the vector is doing                                                |
+|------------------------------------|-------------------------------------------------------------------------|
+| LLM context prefix                 | A numerical fingerprint of "what is here" the model can attend over     |
+| Input to `/v1/find_similar`        | The query vector for k-NN over the geotessera index                     |
+| Change detection                   | Diff two vintages of `/v1/state` for the same cell to spot land change  |
+| Cross-encoder bridge               | Pass the vector to a ridge-regression bridge into another encoder space |
+| Long-term agent memory             | Cache the vector under a user/intent key; recall byte-identically later |
+
 ## Memory tokens
 
 The fastest way to hand one signed fact at one place to any agent, any

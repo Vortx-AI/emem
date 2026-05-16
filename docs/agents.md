@@ -38,6 +38,7 @@ stack, the mapping below is the rosetta-stone:
 | verify a receipt                | `verify_receipt`     | `POST /v1/verify_receipt`         |
 | reflect / record task outcome   | `reviews`            | `POST /v1/reviews`                |
 | compose a memory token          | `memory_token`       | `POST /v1/memory_token`           |
+| read dense state vector         | `state`              | `POST /v1/state`                  |
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 72 OpenAPI-documented paths under

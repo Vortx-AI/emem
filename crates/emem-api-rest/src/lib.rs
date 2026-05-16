@@ -687,6 +687,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/trajectory", post(post_trajectory))
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
+        .route("/v1/state", post(post_state))
         // Physics primitives — explicit-FD heat / wave PDE solvers and a
         // constrained JEPA-pattern NDVI predictor. See crates/emem-api-rest/src/physics.rs.
         .route("/v1/heat_solve", post(physics::post_heat_solve))
@@ -11733,6 +11734,176 @@ struct MemoryTokenResp {
     fact_cid: String,
     grammar: &'static str,
     docs: &'static str,
+}
+
+// ── /v1/state ────────────────────────────────────────────────────────────
+//
+// Compact state-vector primitive. The read-side of the read/steer/write
+// memory-exposure triad described in whitepaper §19.3: given a place and
+// an encoder (default `geotessera`, the 128-D Tessera annual foundation
+// embedding), return the dense state vector for that cell, signed, with
+// a self-certifying CID and the memory-token handle already composed.
+//
+// The state vector is the planet-keyed analogue of a compact
+// associative-memory matrix in an in-attention memory mechanism: a
+// fixed-size dense representation of "what is at this place" that an
+// agent can drop into context, feed into similarity scoring, or use as
+// a fingerprint for change detection.
+//
+// Implementation: drive the standard recall path on the encoder's band
+// so the response inherits the signed receipt, the auto-materialise
+// behaviour, and the cell-resolution cascade. Decode the fact's CBOR
+// value to Vec<f32> and project to a typed wire shape. Bands whose
+// value is not an array of numbers return 422 InvalidArgument so the
+// agent knows to pick a different encoder.
+
+#[derive(Debug, Deserialize)]
+struct StateReq {
+    /// cell64 or a free-text place name (resolved via /v1/locate).
+    cell: String,
+    /// Vector band to read. Defaults to `geotessera` (128-D Tessera
+    /// annual embedding). Other vector-typed bands (e.g.
+    /// `geotessera.multi_year`) work the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    encoder: Option<String>,
+    /// Tslot bucket (Unix-epoch / band's tempo cadence). Omit to let
+    /// the materialiser pick the natural vintage (e.g. 2024 for
+    /// geotessera).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tslot: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct StateResp {
+    /// Resolved cell64 the state vector is keyed by.
+    cell: String,
+    /// Band the vector was read from.
+    encoder: String,
+    /// Length of the vector (e.g. 128 for `geotessera`).
+    dim: usize,
+    /// The dense state vector. f32 keeps the wire body compact;
+    /// upstream is int8 + per-pixel f32 scale, already decoded by
+    /// the recall path.
+    vector: Vec<f32>,
+    /// Tslot bucket the vector was attested at.
+    tslot: u64,
+    /// Fact CID of the underlying signed fact. `GET /v1/facts/<cid>`
+    /// dereferences the same bytes on any conforming responder,
+    /// forever.
+    fact_cid: String,
+    /// Memory-token handle composed for convenience,
+    /// `memt:<cell>:<fact_cid>` per whitepaper §19.4.
+    memory_token: String,
+    /// L2 norm of the returned vector. Two consumers computing this
+    /// should agree to floating-point reproducibility within the
+    /// canonical decoding rules; published here so an agent can spot
+    /// a drifted decoder without re-summing.
+    l2_norm: f32,
+    /// Signed receipt covering the underlying recall.
+    receipt: JsonValue,
+    /// Geocoder route, if the input was a place name rather than a
+    /// cell64. Same shape as /v1/recall's `resolved_from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolved_from: Option<JsonValue>,
+}
+
+async fn post_state(
+    State(s): State<AppState>,
+    Json(req): Json<StateReq>,
+) -> Result<Json<StateResp>, ApiError> {
+    let encoder = req
+        .encoder
+        .map(|e| e.trim().to_string())
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| "geotessera".to_string());
+
+    // Resolve cell from place if necessary; reuses the geocoder cascade
+    // every other handler runs through, so the agent sees the same
+    // resolution semantics on /v1/state as on /v1/recall.
+    let (cell, resolved) = resolve_cell_field(&req.cell).await?;
+
+    // Drive the standard recall path so the result carries a signed
+    // receipt and benefits from auto-materialise on cold cells.
+    let recall_req = RecallReq {
+        cell: cell.clone(),
+        bands: Some(vec![encoder.clone()]),
+        tslot: req.tslot,
+    };
+    let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
+
+    // Pull the matching primary fact. Filter to the requested encoder
+    // band so multi-band recalls (shouldn't happen given the filter,
+    // but defensive) don't pick the wrong slot.
+    let primary = resp
+        .facts
+        .iter()
+        .find_map(|f| match f {
+            emem_fact::Fact::Primary(p) if p.band == encoder => Some(p),
+            _ => None,
+        })
+        .ok_or_else(|| ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "/v1/state: no fact at cell {} for encoder {}; the cell may be cold or the encoder unwired at this responder. See /v1/materializers.",
+                    cell, encoder
+                ),
+                details: None,
+            },
+        ))?;
+
+    // Decode the CBOR value into a Vec<f32>. Vector-typed bands are
+    // CBOR arrays of floats by the protocol's wire rule; scalar bands
+    // are not vectors and produce a typed 422.
+    let vector = emem_primitives::cbor_ops::as_vec_f32(&primary.value).ok_or_else(|| ApiError(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: format!(
+                "/v1/state: band `{}` does not return a vector value. Pass an encoder band whose value is an array of floats (e.g. geotessera, geotessera.multi_year).",
+                encoder
+            ),
+            details: None,
+        },
+    ))?;
+    let dim = vector.len();
+    let l2_norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+    // First fact_cid in the receipt corresponds to the first cited
+    // fact. Since we requested exactly one band, receipt.fact_cids has
+    // at most one entry for the matched fact.
+    let fact_cid = resp
+        .receipt
+        .fact_cids
+        .first()
+        .map(|c| c.0.clone())
+        .ok_or_else(|| ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "/v1/state: recall returned a fact without a fact_cid in the receipt envelope".into(),
+                details: None,
+            },
+        ))?;
+    let tslot = primary.tslot;
+    let memory_token = format!("memt:{}:{}", cell, fact_cid);
+
+    let receipt_v = serde_json::to_value(&resp.receipt).unwrap_or(json!({}));
+    let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
+
+    Ok(Json(StateResp {
+        cell,
+        encoder,
+        dim,
+        vector,
+        tslot,
+        fact_cid,
+        memory_token,
+        l2_norm,
+        receipt: receipt_v,
+        resolved_from: resolved_env,
+    }))
 }
 
 async fn post_memory_token(

@@ -414,6 +414,26 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
+    <div class="memt-block" aria-label="state vector, the dense per-place embedding an agent can drop into context">
+      <div class="memt-head">
+        <span class="label">state vector</span>
+        <span class="gloss">128-D Tessera embedding for any place on Earth, signed, ready to drop into an LLM context</span>
+        <span class="spacer"></span>
+        <a href="/whitepaper.md#193-memory-exposure-how-agents-reach-emem">spec</a>
+        <a href="/integrations.md#state-vectors">integrate</a>
+      </div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>endpoint:</b> <code>POST /v1/state {"cell":"&lt;place|cell64&gt;","encoder":"geotessera"}</code></div>
+        <div class="memt-example">{"cell":"defi.zb4d9.pefa.zf619","encoder":"geotessera","dim":128,"vector":[0.043,-0.115,…],"l2_norm":3.71,"fact_cid":"…","memory_token":"memt:…","receipt":{…}}</div>
+        <div class="memt-parts">
+          <span class="k">read</span><span>the dense state for any cell on Earth in one round-trip, signed and content-addressed</span>
+          <span class="k">steer</span><span>drop the vector into your LLM's context, or feed it to <code>/v1/find_similar</code> to ask "what looks like this place?"</span>
+          <span class="k">write</span><span><code>POST /v1/attest</code> with a signed Attestation; the same cell becomes readable from any replica</span>
+          <span class="k">read · steer · write</span><span>three motions, one wire surface, planet-scale state</span>
+        </div>
+      </div>
+    </div>
+
     <p class="sub">Whatever memory your agent runtime ships internally (per-session associative state, per-tenant scratchpad, vector-indexed retriever), emem is the layer beneath: shared, cross-session, cross-tenant, persistent working memory of Earth itself, keyed by place and signed at the edge. A <span class="band">cell64</span> is to an emem-grounded reasoning chain what a token is to an LLM: a stable, hierarchical, machine-readable handle the rest of the pipeline can quote, share, and verify.</p>
 
     <p class="sub">For an AI agent or a developer, that means one URL, no keys, and receipts your code can verify offline. For a journalist, an underwriter, a regulator, or a curious reader, it means the number an assistant just quoted has a verifiable source.</p>

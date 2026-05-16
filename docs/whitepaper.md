@@ -1212,13 +1212,21 @@ planetary memory layer through the same three motions, scaled to
 the cell × band × tslot address space and to the agent's
 request granularity rather than the model's token granularity.
 
-- **Read.** `POST /v1/recall` and `POST /v1/find_similar` are the
-  read-side. `recall` answers by address (cell × band × tslot →
-  fact); `find_similar` answers by content (seed cell → k cells
-  ranked by foundation-embedding cosine, with a fast Hamming mode
-  for cheap k-NN). The compact 128-D Tessera annual embedding is
-  the dense state vector for a cell; the typed scalar bands are
-  the named state coordinates. Both come back signed.
+- **Read.** Three endpoints, three shapes of the same motion.
+  `POST /v1/recall` answers by address (cell × band × tslot → fact)
+  and returns typed scalar facts in named units. `POST /v1/state`
+  returns the compact 128-D Tessera annual embedding for the cell
+  directly as a typed `vector: Vec<f32>`, signed, with an L2 norm,
+  the fact CID, and a pre-composed memory-token handle in the
+  same envelope. `POST /v1/find_similar` answers by content (seed
+  cell → k cells ranked by foundation-embedding cosine, with a
+  fast Hamming mode for cheap k-NN). The state vector returned by
+  `/v1/state` is the planet-keyed analogue of a compact
+  associative-memory matrix in an in-attention memory mechanism: a
+  fixed-size dense representation of "what is at this place" that
+  an agent can drop into its own context, feed back into
+  similarity scoring, or use as a fingerprint for change detection.
+  All three reads come back signed.
 - **Steer.** The agent has no in-attention hook, so steering
   happens through the agent's own context: the `fact_cid` is the
   cite-handle. Once a CID is in the conversation, every downstream
@@ -1420,15 +1428,13 @@ arbitrary structured feedback alongside the receipt.
 
 ## 20. Open questions
 
-- **State-vector endpoint `/v1/state`.** §19.3 names recall and
-  find_similar as the read-side of the memory-exposure triad. A
-  dedicated state-vector endpoint, returning the dense 128-D
-  Tessera (or Clay / Prithvi when wired) embedding as a typed
-  `vec<f32>` plus signed receipt, is the next step. It collapses
-  the recall+decode dance into a single round-trip and makes the
-  "compact state addressable by place" property explicit on the
-  wire surface. Compose-only memory tokens (§19.4) and
-  `find_similar` ship today; the state-vector endpoint follows.
+- **More encoder bands on `/v1/state`.** `geotessera` (128-D
+  Tessera annual) ships today; Clay v1.5 (1024-D CLS) and
+  Prithvi-EO-2.0 (1024-D CLS) ship per cell when their materialiser
+  workers are wired at this responder. The wire surface accepts
+  any vector-typed band today, so the spec is forward-compatible.
+  The next encoder to land is the Galileo multimodal embedding
+  (currently S2-only at this responder).
 - **Benchmark suite `/v1/benchmark`.** A small, hand-verified set
   of place-anchored questions with expected fact_cids, plus a
   grader endpoint, lets any agent measure its ground-rate against
