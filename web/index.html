@@ -119,7 +119,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero-formula .box{border:1px solid var(--rule-strong);padding:.3rem .6rem;background:var(--paper-2)}
 .hero-formula .arrow{color:var(--mute)}
 .hero-formula .out{border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);padding:.3rem .6rem;font-weight:700}
-.formula-gloss{font-size:var(--t-sm);color:var(--mute);margin:.2rem 0 1.4rem;letter-spacing:.02em}
+.formula-gloss{font-size:var(--t-sm);color:var(--mute);margin:.2rem 0 1rem;letter-spacing:.02em}
+.hero-pillars{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--rule-strong);margin:0 0 1.6rem;font-size:var(--t-sm)}
+.hero-pillars .pillar{flex:1;min-width:120px;padding:.55rem .8rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.2rem;background:var(--paper-2)}
+.hero-pillars .pillar:last-child{border-right:0}
+.hero-pillars .pillar .word{font-weight:700;color:var(--ink);font-size:var(--t-md);letter-spacing:-.01em}
+.hero-pillars .pillar .gloss{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+@media (max-width:560px){.hero-pillars{flex-direction:column}.hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}.hero-pillars .pillar:last-child{border-bottom:0}}
 .hero-cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.6rem}
 .btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
 .btn:hover{background:var(--ink-2)}
@@ -365,7 +371,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     </div>
     <p class="formula-gloss">a place, a measurement, a moment, and a signature.</p>
 
-    <p class="sub">Whatever memory your agent runtime ships internally — per-session associative state, per-tenant scratchpad, vector-indexed retriever — emem is the layer beneath: shared, cross-session, cross-tenant, persistent working memory of Earth itself, keyed by place and signed at the edge. A <span class="band">cell64</span> is to an emem-grounded reasoning chain what a token is to an LLM: a stable, hierarchical, machine-readable handle the rest of the pipeline can quote, share, and verify.</p>
+    <div class="hero-pillars" aria-label="emem memory pillars">
+      <div class="pillar"><span class="word">connected</span><span class="gloss">one URL, MCP + REST, no SDK</span></div>
+      <div class="pillar"><span class="word">signed</span><span class="gloss">ed25519 over canonical CBOR</span></div>
+      <div class="pillar"><span class="word">global</span><span class="gloss">~9.55 m cells, lazy materialised</span></div>
+      <div class="pillar"><span class="word">unadulterated</span><span class="gloss">addressed, not similarity-ranked</span></div>
+    </div>
+
+    <p class="sub">Whatever memory your agent runtime ships internally (per-session associative state, per-tenant scratchpad, vector-indexed retriever), emem is the layer beneath: shared, cross-session, cross-tenant, persistent working memory of Earth itself, keyed by place and signed at the edge. A <span class="band">cell64</span> is to an emem-grounded reasoning chain what a token is to an LLM: a stable, hierarchical, machine-readable handle the rest of the pipeline can quote, share, and verify.</p>
 
     <p class="sub">For an AI agent or a developer, that means one URL, no keys, and receipts your code can verify offline. For a journalist, an underwriter, a regulator, or a curious reader, it means the number an assistant just quoted has a verifiable source.</p>
 

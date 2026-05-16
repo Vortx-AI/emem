@@ -1138,9 +1138,9 @@ now, that any agent can cite later?*
 
 emem is a persistent, planet-keyed, content-addressed memory layer.
 It inherits the outside-channel virtues (modular, additive, LLM-
-and runtime-agnostic — call it from any agent, in any host, with no
-SDK install) and addresses the classical outside-channel failure
-modes directly:
+and runtime-agnostic; callable from any agent, in any host, with
+no SDK install) and addresses the classical outside-channel
+failure modes directly:
 
 | Classical weakness          | emem's design response                                                                                                                                                                                                       |
 |-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -1157,6 +1157,19 @@ emem compresses the planet's history so the backbone never loads
 the raw scenes in the first place. An agent that uses both gets
 compact internal memory of the chat plus shared external memory of
 the world; the receipt CID is the bridge between them.
+
+A practical way to think about it: agent runtimes are converging on
+a tiered memory architecture. Tier 1 is short-term attention, the
+context window the backbone reasons over directly. Tier 2 is
+in-process long-term memory, an associative state or scratchpad
+maintained per session or per tenant. emem is a third tier with a
+distinct scope: shared, external, planet-keyed, signed. It does
+not replace tiers 1 or 2; it relieves them of the load of carrying
+geospatial truth. The same receipt CID that an emem call hands the
+agent flows through tier 2 (cached by the runtime's long-term
+store) and shows up in tier 1 (quoted in the next prompt) without
+the underlying CBOR ever needing to be paraphrased or compressed.
+The three tiers compose; each is byte-stable at its own scope.
 
 The properties emem holds that the in-agent layers structurally
 cannot:
@@ -1189,7 +1202,71 @@ reasoning chain what a token is to a language model: a stable,
 hierarchical, machine-readable handle the rest of the pipeline can
 quote, share, and verify.
 
-### 19.3 Operations vocabulary
+### 19.3 Memory exposure: how agents reach emem
+
+Modern in-attention memory mechanisms expose memory to a language
+model through three motions per token: *read* the prior state,
+*steer* the model's attention with the read signal, and *write*
+the current information back into the state. emem exposes a
+planetary memory layer through the same three motions, scaled to
+the cell × band × tslot address space and to the agent's
+request granularity rather than the model's token granularity.
+
+- **Read.** `POST /v1/recall` and `POST /v1/find_similar` are the
+  read-side. `recall` answers by address (cell × band × tslot →
+  fact); `find_similar` answers by content (seed cell → k cells
+  ranked by foundation-embedding cosine, with a fast Hamming mode
+  for cheap k-NN). The compact 128-D Tessera annual embedding is
+  the dense state vector for a cell; the typed scalar bands are
+  the named state coordinates. Both come back signed.
+- **Steer.** The agent has no in-attention hook, so steering
+  happens through the agent's own context: the `fact_cid` is the
+  cite-handle. Once a CID is in the conversation, every downstream
+  prompt that includes it pins the agent to the same bytes on the
+  same responder forever. This is the equivalent of an
+  in-attention correction at the granularity an external service
+  can guarantee: a byte-stable handle that survives session
+  boundaries.
+- **Write.** `POST /v1/attest` is the write-side. Each Attestation
+  carries an Ed25519 signature over the canonical CBOR body and
+  becomes a new fact at `(cell, band, tslot)`. Writes are gated by
+  the operator's identity policy; reads are open. The write is
+  idempotent: the same body produces the same CID, so multiple
+  attesters of identical facts converge rather than duplicate.
+
+The cycle is shaped like an in-attention memory mechanism's
+inner loop but lives on a different time-scale. In a per-session
+memory state, read/steer/write fires once per token; in emem it
+fires once per agent request, with the state shared across every
+agent on every host. The compactness principle, that a small
+state addressed associatively is enough to steer downstream
+reasoning, is the same. emem's small state is the 26-character
+fact_cid; everything an agent says about the place after quoting
+the CID is steered by it without re-paraphrasing the bytes.
+
+Four properties this layer offers that the in-attention layers
+cannot:
+
+- **Connected.** One URL (`https://emem.dev` or any self-hosted
+  responder), one wire (Streamable-HTTP MCP, mirrored REST), zero
+  per-tenant provisioning. Any agent in any host reaches the same
+  bytes.
+- **Signed.** Ed25519 over a deterministic BLAKE3 preimage. Any
+  party with the issuer's pubkey verifies a receipt without
+  calling back. Browser-side verification ships at `/verify`.
+- **Global.** The address space is the planet at ~9.55 m square
+  cells at the equator. There is no out-of-corpus region except
+  the deep ocean (where the responder signs Absence with a typed
+  reason). New cells materialise lazily; first caller pays the
+  upstream cost, every subsequent caller anywhere gets the same
+  bytes.
+- **Unadulterated.** The address is the place, not a similarity
+  query. Two agents asking the same question get byte-identical
+  CBOR back. No fuzzy ranking, no implicit normalisation, no
+  silently-injected provider defaults. Empty is a signed Absence
+  fact, not an empty array.
+
+### 19.4 Operations vocabulary
 
 The endpoints map cleanly onto the canonical agent-memory operations
 vocabulary used by mem0, Letta, LangGraph, and the broader memory-
@@ -1252,6 +1329,14 @@ arbitrary structured feedback alongside the receipt.
   `crates/emem-fetch/data/cities5000.txt.gz`.
 - Hansen, M.C., et al. "High-resolution global maps of 21st-century
   forest cover change." *Science* 342, 850-853 (2013).
+- Lei, J., Zhang, D., Li, J., et al. "δ-mem: Efficient Online Memory
+  for Large Language Models." arXiv:2605.12357 (2026). (Compact
+  in-attention associative memory; informs §19.3.)
+- Lewis, P., et al. "Retrieval-Augmented Generation for
+  Knowledge-Intensive NLP Tasks." NeurIPS (2020). (Textual outside-
+  channel memory; §19.2.)
+- Packer, C., et al. "MemGPT: Towards LLMs as Operating Systems."
+  arXiv:2310.08560 (2023). (Per-tenant managed scratchpad; §19.2.)
   (`deforestation_triple` uplift.)
 - Healey, S.P., et al. "Mapping forest change using stacked
   generalization." *RSE* 204:717-728 (2018). (Consensus threshold
