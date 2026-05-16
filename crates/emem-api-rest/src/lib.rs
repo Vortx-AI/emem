@@ -12005,12 +12005,23 @@ struct StateReq {
     /// geotessera, now for weather bands).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tslot: Option<u64>,
-    /// `view="cube"` only: opt in to auto-materialisation. Default
-    /// false. When true, every cold band fires its upstream fetch —
-    /// a cold cell can spawn 30+ upstream requests, so reserve for
-    /// one-off warm-up calls.
+    /// `view="cube"` only: opt in to FULL auto-materialisation. Default
+    /// false. When true, every cold band fires its upstream fetch — a
+    /// cold cell can spawn 30+ upstream requests, so reserve for
+    /// one-off warm-up calls. Note: independent of `materialize`, the
+    /// cube view auto-warms one cheap canonical band (geotessera) when
+    /// the cell is otherwise empty, so view=cube is never strictly
+    /// less informative than view=encoder on the same place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     materialize: Option<bool>,
+    /// `view="cube"` only: limit the cube assembly to a subset of band
+    /// families (e.g. `["foundation","vegetation"]`). Slots from other
+    /// families stay zero-filled and report `status:"filtered_out"`.
+    /// Useful when an agent wants a focused fingerprint (e.g. only
+    /// foundation embeddings for cross-place similarity) without paying
+    /// the upstream-fetch cost of the full cube. Default: all families.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    families: Option<Vec<String>>,
     /// `view="cube"` only: include declared-but-inert placeholder
     /// slots (`_reserved_128`, `reserved`) in the `coverage[]`
     /// manifest. Default false — the cube allocates those dims either
@@ -12125,6 +12136,13 @@ struct StateResp {
     /// chasing the docs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     hint: Option<String>,
+    /// `view="cube"` only: humanised key-value map of every scalar-typed
+    /// band that filled. Spares an LLM from decoding f32 offsets from
+    /// the dense vector to read NDVI/elevation/temperature/etc. Keys
+    /// are band keys; values are the numeric reading at this cell. Empty
+    /// for vector-only cubes (foundation embeddings only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scalars: Option<std::collections::BTreeMap<String, f32>>,
     /// Geocoder route, if the input was a place name rather than a
     /// cell64. Same shape as /v1/recall's `resolved_from`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -12259,6 +12277,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         extras: None,
         materialize_notes: None,
         hint: None,
+        scalars: None,
         resolved_from: resolved_env,
     }))
 }
@@ -12653,18 +12672,43 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
     let mut vector: Vec<f32> = vec![0.0_f32; total_dims];
     let mut coverage: Vec<BandCoverage> = Vec::with_capacity(reg.bands.len());
     let mut extras: Vec<ExtraVector> = Vec::new();
+    let mut scalars: std::collections::BTreeMap<String, f32> = Default::default();
     let mut filled_dims: u16 = 0;
     let mut filled_bands: usize = 0;
     let mut absent_bands: usize = 0;
     let mut missing_bands: usize = 0;
 
-    // Run a single recall for every non-reserved band. Reserved slots
-    // are declared placeholders without a materialiser by design — never
-    // bother the upstream path for them.
+    // Optional `families` filter: when present, only consult bands whose
+    // family snake_case name is in the list. Other bands stay
+    // zero-filled and report `status:"filtered_out"`. Invalid family
+    // names silently drop (no error) so an agent can pass a superset
+    // without negotiating with the registry up front.
+    let allowed_families: Option<std::collections::HashSet<String>> = req
+        .families
+        .as_ref()
+        .map(|v| v.iter().map(|f| f.trim().to_ascii_lowercase()).collect());
+
+    let band_is_allowed = |b: &emem_core::bands::Band| -> bool {
+        if is_reserved_band(&b.key) {
+            return false;
+        }
+        if let Some(allowed) = allowed_families.as_ref() {
+            let fam = serde_json::to_string(&b.family)
+                .ok()
+                .map(|s| s.trim_matches('"').to_ascii_lowercase())
+                .unwrap_or_default();
+            return allowed.contains(&fam);
+        }
+        true
+    };
+
+    // Run a single recall for every band that passes the families gate.
+    // Reserved slots are declared placeholders without a materialiser by
+    // design — never bother the upstream path for them.
     let live_band_keys: Vec<String> = reg
         .bands
         .iter()
-        .filter(|b| !is_reserved_band(&b.key))
+        .filter(|b| band_is_allowed(b))
         .map(|b| b.key.clone())
         .collect();
 
@@ -12680,6 +12724,44 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
     } else {
         (recall(&recall_req, &s).await?, None)
     };
+
+    // Symmetry fix with view=encoder: if the cube came back empty (no
+    // primary facts at this cell, no Absences either) AND the caller
+    // didn't ask for materialise=true, auto-warm the foundation encoder
+    // (geotessera). This costs one upstream call on a cold cell and
+    // mirrors what `view=encoder` would do for the same place, so the
+    // cube is never strictly less informative than a bare encoder read.
+    let has_any_primary = resp
+        .facts
+        .iter()
+        .any(|f| matches!(f, emem_fact::Fact::Primary(_)));
+    let mut auto_warm_notes: Option<JsonValue> = None;
+    let resp_after_warm = if !materialize
+        && !has_any_primary
+        && req.materialize.is_none()
+        && band_is_allowed(
+            reg.lookup("geotessera")
+                .expect("geotessera in default band registry"),
+        ) {
+        let warm_req = RecallReq {
+            cell: cell.clone(),
+            bands: Some(vec!["geotessera".into()]),
+            tslot: req.tslot,
+        };
+        match recall_with_auto_materialize(&warm_req, &s).await {
+            Ok((r, n)) => {
+                auto_warm_notes = Some(serde_json::to_value(n).unwrap_or(json!([])));
+                // Re-issue the full recall so the cube assembly sees
+                // the freshly persisted geotessera fact alongside any
+                // other cached bands.
+                recall(&recall_req, &s).await.unwrap_or(r)
+            }
+            Err(_) => resp,
+        }
+    } else {
+        resp
+    };
+    let resp = resp_after_warm;
 
     // Index the facts by band for O(1) lookup as we walk the canonical
     // band order. Two passes over `resp.facts` are cheap (≤ 41 entries
@@ -12720,6 +12802,23 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
                     tslot: None,
                 });
             }
+            continue;
+        }
+
+        // Families filter: bands whose family wasn't in the allow-list
+        // get zero-filled and reported under `filtered_out` so the agent
+        // can tell "I asked for vegetation only" from "this band was
+        // simply cold". Filtered bands do not count toward
+        // filled/absent/missing.
+        if !band_is_allowed(band) {
+            coverage.push(BandCoverage {
+                key: band.key.clone(),
+                offset: band.offset,
+                dims: band.dims,
+                status: "filtered_out",
+                fact_cid: None,
+                tslot: None,
+            });
             continue;
         }
 
@@ -12783,11 +12882,14 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
                 }
             } else if dims == 1 {
                 // Scalar-valued band whose CBOR encoding is `Integer`
-                // or `Float`. The 1-dim slot accepts any numeric.
+                // or `Float`. The 1-dim slot accepts any numeric. Also
+                // surface in `scalars` so a model doesn't have to decode
+                // f32 offsets to read NDVI / elevation / temperature.
                 if let Some(scalar) = cbor_as_f32(&p.value) {
                     vector[off] = scalar;
                     filled_dims = filled_dims.saturating_add(1);
                     filled_bands += 1;
+                    scalars.insert(band.key.clone(), scalar);
                     coverage.push(BandCoverage {
                         key: band.key.clone(),
                         offset: band.offset,
@@ -12861,18 +12963,25 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
     let manifest_cid = s.manifests.bands_cid.clone();
     let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
 
-    // Honest UX nudge: an LLM hitting view=cube on a cold cell gets a
-    // mostly-zero 1792-D vector and no obvious next step. Emit a hint
-    // that explains the responder's read-only-by-default contract and
-    // the explicit knob that warms the cell.
+    // Honest UX nudge: an LLM hitting view=cube and getting a sparse
+    // result needs to know the explicit knob. The auto-warm step above
+    // already filled geotessera if the cell was empty, so this hint
+    // covers the still-sparse-after-warm case.
+    let auto_warmed = auto_warm_notes.is_some();
     let hint = if filled_bands == 0 && !materialize {
-        Some(format!(
-            "all 41 cube slots are cold at this cell on this responder. Pass `materialize: true` to fan out and fetch every band's upstream value (~30+ HTTP calls, slow on cold cells), or call `/v1/recall` with a narrow `bands: [...]` list to warm only the slots you need."
-        ))
+        Some(
+            "all cube slots are cold at this cell on this responder. Pass `materialize: true` to fan out and fetch every band's upstream value (~30+ HTTP calls, slow on cold cells), or call `/v1/recall` with a narrow `bands: [...]` list to warm only the slots you need."
+                .to_string(),
+        )
     } else if filled_bands < 3 && !materialize {
         Some(format!(
-            "{}/41 cube slots filled at this cell. Pass `materialize: true` to expand coverage, or chain `/v1/find_similar` / `/v1/recall` on the specific bands you need.",
-            filled_bands
+            "{}/41 cube slots filled at this cell{}. Pass `materialize: true` to expand coverage, or chain `/v1/find_similar` / `/v1/recall` on the specific bands you need.",
+            filled_bands,
+            if auto_warmed {
+                " (geotessera auto-warmed because the cell was otherwise empty; pass materialize:false to suppress)"
+            } else {
+                ""
+            }
         ))
     } else {
         None
@@ -12901,8 +13010,18 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         } else {
             Some(extras)
         },
-        materialize_notes,
+        materialize_notes: match (materialize_notes, auto_warm_notes) {
+            (Some(a), Some(b)) => Some(json!({"explicit": a, "auto_warm": b})),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        },
         hint,
+        scalars: if scalars.is_empty() {
+            None
+        } else {
+            Some(scalars)
+        },
         resolved_from: resolved_env,
     }))
 }

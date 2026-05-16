@@ -174,10 +174,11 @@ const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
 
 const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 OR free-text place name."},
-"view":{"type":"string","enum":["encoder","cube"],"description":"Default `encoder` (single-band native vector). Pass `cube` for the full 1792-D voxel with coverage manifest and full-fidelity extras."},
+"view":{"type":"string","enum":["encoder","cube"],"description":"Default `encoder` (single-band native vector). Pass `cube` for the full 1792-D voxel with coverage manifest, full-fidelity extras, and a humanised `scalars` map."},
 "encoder":{"type":"string","description":"For `view=encoder`: which vector band to read. Defaults to `geotessera`."},
 "tslot":{"type":"integer","description":"Optional tslot bucket; omit for natural per-band vintages."},
-"materialize":{"type":"boolean","description":"`view=cube` only. Opt in to auto-materialisation. Default false (read what's already attested). Setting true can spawn 30+ upstream fetches on a cold cell."},
+"materialize":{"type":"boolean","description":"`view=cube` only. Opt in to FULL auto-materialisation. Default false. The cube view auto-warms geotessera on a cold cell regardless of this flag, so view=cube is never less informative than view=encoder."},
+"families":{"type":"array","items":{"type":"string"},"description":"`view=cube` only. Limit the cube to a subset of band families (e.g. [\"foundation\",\"vegetation\"]). Slots from other families report `status:\"filtered_out\"`."},
 "include_reserved":{"type":"boolean","description":"`view=cube` only. Include declared-but-inert placeholder slots (`_reserved_128`, `reserved`) in the coverage manifest. Default false."}
 }}"#;
 
