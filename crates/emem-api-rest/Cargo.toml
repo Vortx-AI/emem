@@ -20,6 +20,8 @@ axum            = { workspace = true }
 tower           = { workspace = true }
 tower-http      = { workspace = true }
 tokio           = { workspace = true }
+tokio-stream    = { workspace = true }
+futures-util    = { workspace = true }
 reqwest         = { workspace = true }
 emem-codec      = { workspace = true }
 serde           = { workspace = true }

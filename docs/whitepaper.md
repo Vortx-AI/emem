@@ -1440,18 +1440,22 @@ arbitrary structured feedback alongside the receipt.
   grader endpoint, lets any agent measure its ground-rate against
   emem. The protocol is ready; the verified test items need
   curation.
-- **Streaming (SSE / WebSocket) for hot memory access.** A
-  persistent stream that pushes new attestations at subscribed
-  cells turns emem from a polled store into a true event source.
-  Requires runtime broadcast state and async fanout; deferred to
-  a focused effort.
-- **TEE-attested operator claim.** §5.7 anchors trust in the
-  responder's Ed25519 identity, and `/.well-known/emem.json`
-  ships a lightweight signed liveness claim today. A full
-  attestation chain (Intel SGX / AMD SEV-SNP measurement of the
-  running emem-server binary, bound to the build provenance of a
-  named git commit) is the long-form path; the lightweight claim
-  is the short-form bridge.
+- **Per-cell subscribe filter on `/v1/stream`.** The Server-Sent
+  Events stream at `/v1/stream` ships a signed corpus tick every
+  N seconds (default 15, range [5, 300]). The next motion is
+  per-cell / per-band / per-region subscribe filters so an agent
+  only receives events relevant to its workload. That requires a
+  broadcast channel the write path emits to, plus subscriber
+  bookkeeping; deferred to a focused effort.
+- **Full TEE attestation report.** `/.well-known/emem.json` ships
+  an operator attestation binding the running binary's BLAKE3
+  hash, git commit, and build timestamp under the responder's
+  Ed25519 key. The `tee_quote` field on the same object ships as
+  `null` from this responder until the binary is deployed under
+  Intel SGX or AMD SEV-SNP; the quoting service of either platform
+  populates the field with a hardware-attested measurement of the
+  process. Operators running emem under a TEE are expected to
+  populate `tee_quote` directly from the platform.
 - **H3 hex migration.** Spec target is H3-equivalent DGGS at
   resolution 13. cell64 is square at the equator, progressively
   non-square poleward. Migration requires a new manifest CID for

@@ -20,6 +20,14 @@ moves: (a) locate a place by name to a `cell64`, (b) recall signed facts
 at that cell, (c) find places similar to it by foundation embedding.
 Every response carries an Ed25519 receipt any agent can verify offline.
 
+**The two primitives every agent uses daily.** Many tools ship; two are
+the daily-use surface. The state vector is the read-side: one call
+returns the dense 128-D Tessera embedding for any place, signed and
+content-addressed (`POST /v1/state`). The memory token is the cite-side:
+one parseable string an agent drops into any context, resolves to the
+same signed bytes on any replica forever (`memt:<cell64>:<fact_cid>`).
+Wiring is the wire; these are what flows on it.
+
 The endpoints map cleanly onto the vocabulary other agent-memory libraries
 use; if you arrive from mem0, Letta, LangGraph, or a custom retrieval
 stack, the mapping below is the rosetta-stone:
@@ -39,6 +47,7 @@ stack, the mapping below is the rosetta-stone:
 | reflect / record task outcome   | `reviews`            | `POST /v1/reviews`                |
 | compose a memory token          | `memory_token`       | `POST /v1/memory_token`           |
 | read dense state vector         | `state`              | `POST /v1/state`                  |
+| subscribe to corpus events      | `stream` (SSE)       | `GET /v1/stream`                  |
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 72 OpenAPI-documented paths under

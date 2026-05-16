@@ -18,11 +18,40 @@
 >
 > Bootstrap: GET /v1/discover  ·  Schema: /openapi.json  ·  MCP: /mcp
 
-## Memory tokens (the cite-handle for a signed fact at a place)
+## Two primitives every agent uses daily
 
-A memory token is one parseable string an agent can drop into any
-context: LLM prompt, tool-call argument, log line, agent-to-agent
-message. Format:
+emem ships many tools; two are the daily-use surface.
+
+### State vector  ·  POST /v1/state
+
+The dense state for a place, signed, content-addressed:
+
+    curl -sX POST https://emem.dev/v1/state \
+      -H 'content-type: application/json' \
+      -d '{"cell":"South Mumbai","encoder":"geotessera"}'
+
+returns
+
+    {
+      "cell":         "defi.zb4d9.pefa.zf619",
+      "encoder":      "geotessera",
+      "dim":          128,
+      "vector":       [0.043, -0.115, ...],
+      "l2_norm":      3.71,
+      "fact_cid":     "<26-char base32>",
+      "memory_token": "memt:<cell>:<fact_cid>",
+      "receipt":      { "signature": "ed25519:…", ... }
+    }
+
+Drop the vector into LLM context, feed it to `/v1/find_similar`, or
+diff two vintages to detect change at the place. No fuzzy retrieval;
+two callers asking for the same `(cell, encoder, tslot)` get
+byte-identical bytes back.
+
+### Memory token  ·  POST /v1/memory_token
+
+One parseable string an agent drops into any context (LLM prompt,
+tool-call argument, log line, agent-to-agent message):
 
     memt:<cell64>:<fact_cid>
 
@@ -30,7 +59,7 @@ Example:
 
     memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
 
-Compose:
+Compose offline by string concat, or via:
 
     POST /v1/memory_token  {"cell":"<cell64>","fact_cid":"<fact_cid>"}
 
@@ -57,6 +86,7 @@ Spec, parse rules, failure modes: /whitepaper.md#194-memory-tokens
     reflect / record task outcome   reviews             POST /v1/reviews
     compose a memory token          memory_token        POST /v1/memory_token
     read dense state vector         state               POST /v1/state
+    subscribe to corpus events      stream (SSE)        GET  /v1/stream
 
 ## Algebra
 

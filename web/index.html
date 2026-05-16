@@ -75,7 +75,7 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
 *{box-sizing:border-box}
 /* Type & spacing scale at 80% of the natural 16px baseline. Everything
    downstream is expressed in rem, so this single knob retunes the page. */
-html{font-size:80%}
+html{font-size:90%}
 html,body{margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::selection{background:var(--accent);color:var(--paper)}
@@ -394,6 +394,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="pillar"><span class="word">unadulterated</span><span class="gloss">addressed, not similarity-ranked</span></div>
     </div>
 
+    <h2 style="font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;margin:1.8rem 0 .8rem;color:var(--ink)">Two primitives every agent uses daily.</h2>
+    <p style="font-size:var(--t-sm);color:var(--mute);margin:0 0 1rem;max-width:62ch">The state vector is the read-side: ask for any place and get back a 128-D learned representation, signed, ready to drop into context. The memory token is the cite-side: one string an agent pastes anywhere and any reader can resolve back to the same signed fact. MCP and REST are the wire; these two are what flows on it.</p>
+
     <div class="memt-block" aria-label="memory token, the cite-handle for one signed fact at one place">
       <div class="memt-head">
         <span class="label">memory token</span>
@@ -441,8 +444,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p class="sub" style="font-size:var(--t-md);margin-top:1.4rem">The hosted responder at <a href="https://emem.dev" rel="noopener">emem.dev</a> covers elevation, vegetation, surface water, weather, land cover, air quality, soil, and three satellite-image embeddings, sourced from Copernicus, Sentinel, MODIS, JRC, Hansen, SoilGrids, and dozens of other open datasets. Wire it into Claude, Cursor, or ChatGPT by pasting one line into a config file. Read the full machine surface at <a href="/openapi.json">/openapi.json</a>.</p>
 
     <div class="hero-cta">
-      <a class="btn" href="#connect">wire it up</a>
-      <a class="btn ghost" href="#first-call">first call</a>
+      <a class="btn" href="/whitepaper.md#193-memory-exposure-how-agents-reach-emem">state vector</a>
+      <a class="btn" href="/whitepaper.md#194-memory-tokens">memory token</a>
+      <a class="btn ghost" href="#connect">wire MCP</a>
       <a class="btn ghost" href="/agents.md">agents.md</a>
       <a class="btn ghost" href="/openapi.json">openapi.json</a>
     </div>

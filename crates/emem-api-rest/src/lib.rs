@@ -688,6 +688,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
         .route("/v1/state", post(post_state))
+        .route("/v1/stream", get(get_stream_sse))
         // Physics primitives — explicit-FD heat / wave PDE solvers and a
         // constrained JEPA-pattern NDVI predictor. See crates/emem-api-rest/src/physics.rs.
         .route("/v1/heat_solve", post(physics::post_heat_solve))
@@ -2034,6 +2035,30 @@ fn public_origin() -> Option<String> {
     None
 }
 
+/// BLAKE3 hex digest of the running executable. Computed once at first
+/// call by reading `/proc/self/exe` (Linux) or `std::env::current_exe()`
+/// (everywhere else); cached for the lifetime of the process. Used by
+/// the operator-attestation field of `/.well-known/emem.json` to bind
+/// the running binary to a verifiable hash. Returns the literal
+/// `"unreadable"` if the executable path resolves but the read fails
+/// (sandboxed environment, deleted-and-replaced binary, etc.); the
+/// honest absence is published rather than a fabricated value.
+fn binary_blake3_hex() -> &'static str {
+    static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let path = match std::env::current_exe() {
+                Ok(p) => p,
+                Err(_) => return "unknown".to_string(),
+            };
+            match std::fs::read(&path) {
+                Ok(bytes) => blake3::hash(&bytes).to_hex().to_string(),
+                Err(_) => "unreadable".to_string(),
+            }
+        })
+        .as_str()
+}
+
 /// Render `secs` (Unix epoch seconds) as RFC 3339 / ISO 8601 UTC.
 fn iso8601_utc(secs: u64) -> String {
     // Days since epoch + civil-from-days (Howard Hinnant) — avoids pulling chrono
@@ -2467,14 +2492,20 @@ async fn health(State(s): State<AppState>) -> Json<JsonValue> {
 }
 
 async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
-    // Lightweight operator attestation: a signed liveness claim binding
-    // (protocol version, key epoch, attested_at, manifest CIDs) under the
-    // responder's Ed25519 key. The verifier reconstructs `preimage` from
-    // the named fields and checks the signature against `responder.pubkey_b32`.
-    // This is not a TEE attestation chain (binary hash and build
-    // provenance are not yet covered), but it is a verifiable claim that
-    // the named responder produced this manifest at the named instant.
+    // Operator attestation: a signed liveness claim binding the running
+    // binary's provenance (git commit, build timestamp, BLAKE3 hash of
+    // the on-disk executable) plus the protocol state (version, key
+    // epoch, manifest CIDs, served_at) under the responder's Ed25519
+    // key. A verifier reconstructs `preimage` from the named fields and
+    // checks the signature against `responder.pubkey_b32`. The chain is
+    // operator-grade, not yet TEE-grade: a full Intel SGX / AMD SEV-SNP
+    // attestation report (`tee_quote`) is deployment infrastructure and
+    // ships as `null` from this responder until that infra lands;
+    // whitepaper §20 holds the path.
     let version = env!("CARGO_PKG_VERSION");
+    let git_commit = option_env!("EMEM_GIT_COMMIT").unwrap_or("unknown");
+    let build_timestamp = option_env!("EMEM_BUILD_TIMESTAMP").unwrap_or("unknown");
+    let binary_blake3 = binary_blake3_hex();
     let attested_at = {
         let secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2488,8 +2519,15 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
     let bands_cid: &str = s.manifests.bands_cid.as_ref();
     let registry_cid: &str = s.manifests.registry_cid.as_str();
     let attest_preimage = format!(
-        "emem.operator_attestation|v{}|epoch{}|{}|bands:{}|registry:{}",
-        version, s.identity.epoch.0, attested_at, bands_cid, registry_cid
+        "emem.operator_attestation|v{}|epoch{}|{}|git:{}|build:{}|binary:{}|bands:{}|registry:{}",
+        version,
+        s.identity.epoch.0,
+        attested_at,
+        git_commit,
+        build_timestamp,
+        binary_blake3,
+        bands_cid,
+        registry_cid,
     );
     let attest_sig = s
         .identity
@@ -2519,13 +2557,17 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
             "cid_encoding": "base32-nopad-lowercase",
         },
         "operator_attestation": {
-            "version":      version,
-            "key_epoch":    s.identity.epoch.0,
-            "attested_at":  attested_at,
-            "preimage":     attest_preimage,
-            "signature_b32": attest_sig_b32,
-            "alg":          "ed25519",
-            "_note":        "Verify by recomputing `preimage` from the named fields and checking ed25519 over it against `responder.pubkey_b32`. Not a TEE attestation; the running binary's hash and build provenance are not covered. Full TEE attestation is on the roadmap (whitepaper §20).",
+            "version":         version,
+            "key_epoch":       s.identity.epoch.0,
+            "attested_at":     attested_at,
+            "git_commit":      git_commit,
+            "build_timestamp": build_timestamp,
+            "binary_blake3":   binary_blake3,
+            "tee_quote":       JsonValue::Null,
+            "preimage":        attest_preimage,
+            "signature_b32":   attest_sig_b32,
+            "alg":             "ed25519",
+            "_note":           "Verify by recomputing `preimage` from the named fields and checking ed25519 over it against `responder.pubkey_b32`. `binary_blake3` is the BLAKE3 hash of the running emem-server executable, computed once at startup by reading /proc/self/exe; together with `git_commit` and `build_timestamp` this binds the running code to a verifiable source tree. `tee_quote` is null on this responder (full Intel SGX / AMD SEV-SNP attestation report); operators who deploy under a TEE populate it from the platform's quoting service. Whitepaper §20 names the path.",
         },
         "tools_url": "/v1/tools",
         "openapi_url": "/openapi.json",
@@ -11734,6 +11776,144 @@ struct MemoryTokenResp {
     fact_cid: String,
     grammar: &'static str,
     docs: &'static str,
+}
+
+// ── /v1/stream ───────────────────────────────────────────────────────────
+//
+// Server-Sent Events stream of corpus state. The simplest real
+// streaming surface emem can offer without plumbing new write-path
+// hooks: on every tick (default 15 s) the responder emits a `state`
+// event containing the live corpus summary (distinct cells / distinct
+// bands / facts scanned), the responder identity (pubkey + key
+// epoch), and an Ed25519 signature over the canonical preimage so
+// downstream agents can verify the tick was actually issued by this
+// responder rather than replayed.
+//
+// SSE was picked over WebSocket on purpose: it works over plain HTTP,
+// reconnects automatically through proxies, has no framing protocol,
+// and is read-only by design (matching emem's read-side contract).
+// Per-cell subscribe filters arrive in a follow-up when the write
+// path exposes a broadcast channel; v0 is a corpus-level firehose
+// that a monitoring agent, a live dashboard, or a "is this responder
+// still healthy" probe can hook into directly.
+
+#[derive(Debug, Deserialize)]
+struct StreamParams {
+    /// Tick interval in seconds. Clamped to [5, 300]. Default 15.
+    #[serde(default)]
+    interval_s: Option<u64>,
+}
+
+async fn get_stream_sse(
+    State(s): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<StreamParams>,
+) -> axum::response::sse::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use futures_util::StreamExt;
+    use std::time::Duration;
+    use tokio_stream::wrappers::IntervalStream;
+
+    let interval_s = params.interval_s.unwrap_or(15).clamp(5, 300);
+    let tick = tokio::time::interval(Duration::from_secs(interval_s));
+
+    let stream = IntervalStream::new(tick).then(move |_| {
+        let s = s.clone();
+        async move {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let served_at = iso8601_utc(now);
+
+            // Best-effort corpus snapshot. The scan is bounded by the
+            // existing /health cap; the SSE event is informational, so a
+            // single failed scan is reported with empty counts rather than
+            // killing the stream.
+            let snapshot_block = match s.storage.iter_index(Some(32_768)).await {
+                Ok(rows) => {
+                    let mut distinct_cells = std::collections::HashSet::<String>::new();
+                    let mut distinct_bands = std::collections::HashSet::<String>::new();
+                    let total = rows.len() as u64;
+                    for (k, _) in &rows {
+                        distinct_cells.insert(k.cell.clone());
+                        distinct_bands.insert(k.band.clone());
+                    }
+                    json!({
+                        "facts_scanned":  total,
+                        "distinct_cells": distinct_cells.len(),
+                        "distinct_bands": distinct_bands.len(),
+                        "scan_index_limit": 32_768_u32,
+                    })
+                }
+                Err(_) => json!({
+                    "facts_scanned":  0,
+                    "distinct_cells": 0,
+                    "distinct_bands": 0,
+                    "scan_index_limit": 32_768_u32,
+                    "scan_error": true,
+                }),
+            };
+
+        // Signed tick preimage: the canonical concatenation any
+        // verifier can reconstruct from the event body. Matches the
+        // protocol's "every responder claim is signed" rule.
+        let version = env!("CARGO_PKG_VERSION");
+        let pubkey_b32 = data_encoding::BASE32_NOPAD
+            .encode(&s.identity.pubkey.0)
+            .to_lowercase();
+        let registry_cid = s.manifests.registry_cid.as_str();
+        let preimage = format!(
+            "emem.stream.tick|v{}|epoch{}|{}|registry:{}|cells:{}",
+            version,
+            s.identity.epoch.0,
+            served_at,
+            registry_cid,
+            snapshot_block
+                .get("distinct_cells")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+        );
+        let sig = s
+            .identity
+            .signing
+            .sign(preimage.as_bytes())
+            .to_bytes();
+        let sig_b32 = data_encoding::BASE32_NOPAD.encode(&sig).to_lowercase();
+
+        let payload = json!({
+            "type":       "corpus.state",
+            "served_at":  served_at,
+            "now_unix_s": now,
+            "version":    version,
+            "responder": {
+                "pubkey_b32": pubkey_b32,
+                "key_epoch":  s.identity.epoch.0,
+            },
+            "corpus":     snapshot_block,
+            "manifests": {
+                "registry_cid": registry_cid,
+                "bands_cid":    &s.manifests.bands_cid,
+            },
+            "signature": {
+                "preimage":      preimage,
+                "signature_b32": sig_b32,
+                "alg":           "ed25519",
+            },
+        });
+
+            Ok::<_, std::convert::Infallible>(
+                Event::default()
+                    .event("state")
+                    .data(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into())),
+            )
+        }
+    });
+
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(30))
+            .text("keep-alive"),
+    )
 }
 
 // ── /v1/state ────────────────────────────────────────────────────────────
