@@ -215,7 +215,7 @@
       "interpretation": "Current-state climate the agent can fold into algorithms like `heat_index@1` or `evapotranspiration_fao56@1`. For climatology / historical fields use `terraclimate` or `koppen`.",
       "pitfalls": "Tempo is `medium` because forecasts are refreshed hourly; recall for old tslots returns the historical reanalysis if the upstream supports it, otherwise Absence.",
       "references": "https://open-meteo.com / https://api.met.no",
-      "scalar_keys": ["weather.temperature_2m", "weather.cloud_cover", "weather.precipitation_mm", "weather.wind_speed_10m"],
+      "scalar_keys": ["weather.temperature_2m", "weather.cloud_cover", "weather.precipitation_mm", "weather.wind_speed_10m", "weather.relative_humidity_2m"],
       "dimensions": [
         {"index": 0, "name": "temperature_2m",   "description": "Air temperature at 2 m above ground.",                  "units": "°C",   "value_range": [-90, 60]},
         {"index": 1, "name": "cloud_cover",      "description": "Total cloud cover (0 = clear sky, 100 = fully overcast).", "units": "percent", "value_range": [0, 100]},
@@ -235,8 +235,8 @@
       "value_range": [-1.0, 1.0],
       "interpretation": "NDVI < 0 = water / snow; 0 – 0.2 = bare soil / urban; 0.2 – 0.5 = sparse / stressed vegetation; 0.5 – 0.8 = healthy crops / shrub; > 0.8 = dense closed canopy. NDMI tracks canopy water content (negative = dry, positive = moist). NDRE is more sensitive to chlorophyll than NDVI and saturates later — preferred for in-season nitrogen monitoring.",
       "pitfalls": "Cloud / shadow flips signs misleadingly — always co-check `weather.cloud_cover` and the scene's recorded `cloud_pct` in the receipt. NDVI saturates above ~0.85 (use NDRE / `geotessera` for dense canopies).",
-      "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI)",
-      "scalar_keys": ["indices.ndvi", "indices.ndre", "indices.ndmi"],
+      "references": "Tucker 1979 (NDVI); Gitelson & Merzlyak 1994 (NDRE); Gao 1996 (NDMI / NDWI); Xu 2006 (MNDWI = (B03-B11)/(B03+B11)); Key & Benson 2006 (NBR = (B08-B12)/(B08+B12)); Hall et al. 1995 (NDSI = (B03-B11)/(B03+B11)); Zha et al. 2003 (NDBI = (B11-B08)/(B11+B08)); Rikimaru et al. 2002 (BSI = ((B11+B04)-(B08+B02))/((B11+B04)+(B08+B02))); Hardisky et al. 1983 (NDWI_Gao = (B03-B08)/(B03+B08), the leaf-water-content form used by the algal-bloom water gate)",
+      "scalar_keys": ["indices.ndvi", "indices.ndre", "indices.ndmi", "indices.ndwi", "indices.mndwi", "indices.nbr", "indices.ndsi", "indices.ndbi", "indices.bsi"],
       "dimensions": [
         {"index": 0, "name": "ndvi", "description": "Normalised Difference Vegetation Index", "units": "unitless [-1, +1]", "value_range": [-1.0, 1.0], "formula": "NDVI = (B08 − B04) / (B08 + B04)"},
         {"index": 1, "name": "ndre", "description": "Normalised Difference Red-Edge — chlorophyll-sensitive, less prone to saturation than NDVI", "units": "unitless [-1, +1]", "value_range": [-1.0, 1.0], "formula": "NDRE = (B08 − B05) / (B08 + B05)"},

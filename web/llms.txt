@@ -92,7 +92,7 @@ as written. Forest definition follows Article 2(4): >0.5 ha, >5 m
 tree height, >10 % canopy cover, excluding land predominantly under
 agricultural or urban use. Cut-off date is 2020-12-31 per Article 1(2).
 
-The endpoint applies eudr_compliance@2 per cell across the plot
+The endpoint applies eudr_compliance@1 per cell across the plot
 polygon, then aggregates with a 0.1 % de-minimis threshold. Article
 2(28) dispatches POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any
 cattle plot). Forest baseline is JRC GFC2020 V3 (the EU Commission's

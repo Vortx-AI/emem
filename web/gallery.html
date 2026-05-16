@@ -885,7 +885,7 @@ defi.zb566.quwu.mIcO
 
     <p class="badge">Case · Coffee plot, Amazonas, Brazil</p>
     <h2>Signed compliance verdict from forest baseline plus loss-year</h2>
-    <p class="dek">The endpoint runs eudr_compliance@2 over every cell
+    <p class="dek">The endpoint runs eudr_compliance@1 over every cell
        inside the plot polygon. Forest baseline is the JRC GFC2020 V3
        single-COG mirror (the EU Commission's expected non-binding
        baseline) plus Hansen treecover2000 at the regulation's ten-
@@ -932,7 +932,7 @@ defi.zb566.quwu.mIcO
        (the plot is well above the four-hectare threshold; coffee is
        not cattle). The endpoint samples sixteen cells inside the
        polygon, recalls JRC forest_2020 plus Hansen treecover2000 and
-       lossyear at each, evaluates the eudr_compliance@2 logic, and
+       lossyear at each, evaluates the eudr_compliance@1 logic, and
        aggregates with a 0.1 % de-minimis threshold so a single bad
        pixel on the polygon edge does not flip the plot to FAIL.</p>
 
@@ -953,16 +953,18 @@ defi.zb566.quwu.mIcO
        this DDS with a partner module that handles those questions.</p>
 
     <p class="caption">
-      eudr_compliance@1 cited the FAO 2020 Global Forest Resources
-      Assessment thirty-percent canopy threshold and is marked
-      deprecated for that reason. The regulation as written uses ten.
-      Plots between ten and thirty percent canopy — frequently
-      smallholder agroforestry under cocoa or coffee — fall inside the
-      EUDR scope and would have been silently dropped under the older
-      algorithm.
+      An earlier vintage of eudr_compliance@1 (removed 2026-05-17) used
+      the FAO 2020 Global Forest Resources Assessment thirty-percent
+      canopy threshold. The regulation as written uses ten. Plots
+      between ten and thirty percent canopy — frequently smallholder
+      agroforestry under cocoa or coffee — fall inside the EUDR scope
+      and would have been silently dropped under the older threshold.
+      The current algorithm tests both the JRC GFC2020 V3 baseline (the
+      Commission's expected non-binding map) and Hansen treecover2000
+      at ten percent.
     </p>
     <p class="source">
-      emem.dev · <code>/v1/eudr_dds</code> · <code>eudr_compliance@2</code>
+      emem.dev · <code>/v1/eudr_dds</code> · <code>eudr_compliance@1</code>
       · schema at <a href="/v1/schemas/eudr_dds.json"><code>/v1/schemas/eudr_dds.json</code></a>
     </p>
   </section>

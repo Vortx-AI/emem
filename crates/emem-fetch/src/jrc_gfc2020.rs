@@ -115,15 +115,11 @@ pub fn cog_url() -> &'static str {
 /// - `Err(CoverageGap)` for cells beyond ±82° latitude.
 /// - `Err(Transport)` for HTTP / network failures.
 /// - `Err(Decode)` for COG layout / codec / range failures.
-pub async fn fetch_forest_2020(
-    client: &Client,
-    lat: f64,
-    lng: f64,
-) -> Result<u8, JrcGfc2020Error> {
+pub async fn fetch_forest_2020(client: &Client, lat: f64, lng: f64) -> Result<u8, JrcGfc2020Error> {
     if !lat.is_finite() || lat.abs() > JRC_GFC2020_LAT_BOUND {
         return Err(JrcGfc2020Error::CoverageGap { lat, lng });
     }
-    if !lng.is_finite() || lng < -180.0 || lng > 180.0 {
+    if !lng.is_finite() || !(-180.0..=180.0).contains(&lng) {
         return Err(JrcGfc2020Error::CoverageGap { lat, lng });
     }
 

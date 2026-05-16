@@ -70,8 +70,7 @@ use reqwest::Client;
 /// `{RADD_BASE_URL}/{RADD_VERSION_TAG}/raster/epsg-4326/10/100000/date_conf/geotiff/{tile_id}.tif`,
 /// but those S3 paths are Requester-Pays — see the module docs for the
 /// honest access story.
-pub const RADD_BASE_URL: &str =
-    "https://data-api.globalforestwatch.org/dataset/wur_radd_alerts";
+pub const RADD_BASE_URL: &str = "https://data-api.globalforestwatch.org/dataset/wur_radd_alerts";
 
 /// Version tag for the latest publicly-listed RADD release. Probed
 /// live against the GFW data API on 2026-05-16; the `versions` array
@@ -238,13 +237,11 @@ const HUMID_TROPICS_ISO3: [&str; 50] = [
     // --- South America (13) ---
     "BRA", "COL", "PER", "BOL", "ECU", "VEN", "GUY", "SUR", "GUF", "PRY", "PAN", "TTO", "ARG",
     // --- Central America (6) ---
-    "BLZ", "GTM", "HND", "NIC", "CRI", "MEX",
-    // --- Africa (25) ---
+    "BLZ", "GTM", "HND", "NIC", "CRI", "MEX", // --- Africa (25) ---
     "AGO", "BDI", "CAF", "CIV", "CMR", "COD", "COG", "ETH", "GAB", "GHA", "GIN", "GNB", "GNQ",
     "KEN", "LBR", "MDG", "MOZ", "NGA", "RWA", "SEN", "SLE", "SSD", "TCD", "TZA", "UGA",
     // --- Insular SE Asia (5) ---
-    "IDN", "MYS", "PHL", "BRN", "TLS",
-    // --- Pacific (1) ---
+    "IDN", "MYS", "PHL", "BRN", "TLS", // --- Pacific (1) ---
     "PNG",
 ];
 
@@ -293,9 +290,7 @@ pub async fn fetch_alert(
         return Err(RaddError::CoverageGap {
             lat,
             lng,
-            iso3_hint: format!(
-                "outside ±30° humid-tropics belt (lat={lat:.6}, lng={lng:.6})"
-            ),
+            iso3_hint: format!("outside ±30° humid-tropics belt (lat={lat:.6}, lng={lng:.6})"),
         });
     }
     // Honest disclosure — no fabricated "no alert" Primary. See module

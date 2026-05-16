@@ -8742,7 +8742,7 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
             "legality_disclaimer": {"type": "string", "$comment": "Required structured disclaimer when legality_module == 'none'"},
             "schema_url":      {"type": "string", "format": "uri", "$comment": "Self-reference to this schema document"},
             "algorithm_key":   {"const": "eudr_dds@1", "$comment": "Polygon-aggregator algorithm key in the emem registry"},
-            "underlying_per_cell_algorithm": {"const": "eudr_compliance@2", "$comment": "Per-cell verdict algorithm key"},
+            "underlying_per_cell_algorithm": {"const": "eudr_compliance@1", "$comment": "Per-cell verdict algorithm key"},
             "due_diligence_statement": {
                 "type": "object",
                 "$comment": "Annex II §1-7 envelope summary",
@@ -8758,7 +8758,7 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                         }
                     },
                     "verdict": {"type": "string", "enum": ["pass", "fail", "fail_below_de_minimis", "not_in_scope", "indeterminate"], "$comment": "Overall DDS verdict aggregated across plots"},
-                    "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 5], "$comment": "Numeric verdict from eudr_compliance@2 output values + 5 = fail_below_de_minimis"},
+                    "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 5], "$comment": "Numeric verdict from eudr_compliance@1 output values + 5 = fail_below_de_minimis"},
                     "n_plots":      {"type": "integer", "minimum": 1}
                 }
             },
@@ -11228,7 +11228,7 @@ async fn openapi() -> Json<JsonValue> {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@2 per cell, applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), aggregates with a 0.1 % de-minimis threshold, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell, applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), aggregates with a 0.1 % de-minimis threshold, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope.", "properties":{
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
                         "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
@@ -17534,13 +17534,37 @@ async fn materialize_wri_gdm_band(
             let reason = format!(
                 "wri_gdm_no_hansen_loss: cell ({lat:.6},{lng:.6}) has no Hansen-detected loss event, so the Sims et al. 2025 driver attribution does not apply at this cell."
             );
-            sign_band_absence(cell64, s, band, 0, "wri.gdm.v1_2", &url, &signed_at, &reason).await
+            sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                "wri.gdm.v1_2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
         }
-        Err(wri_gdm_drivers::WriGdmError::CoverageGap { lat: la, lng: ln, bound }) => {
+        Err(wri_gdm_drivers::WriGdmError::CoverageGap {
+            lat: la,
+            lng: ln,
+            bound,
+        }) => {
             let reason = format!(
                 "wri_gdm_coverage_gap: cell ({la:.6},{ln:.6}) is outside the WRI GDM ±{bound:.0}° latitude envelope."
             );
-            sign_band_absence(cell64, s, band, 0, "wri.gdm.v1_2", &url, &signed_at, &reason).await
+            sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                "wri.gdm.v1_2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
         }
         Err(wri_gdm_drivers::WriGdmError::NotImplemented { reason }) => {
             let full = format!(
@@ -17628,19 +17652,53 @@ async fn materialize_radd_band(
             let reason = format!(
                 "radd_no_alert: cell ({lat:.6},{lng:.6}) has no RADD alert observed in the current vintage."
             );
-            sign_band_absence(cell64, s, band, 0, "radd.v20260510", &url, &signed_at, &reason).await
+            sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                "radd.v20260510",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
         }
-        Err(radd_alerts::RaddError::CoverageGap { lat: la, lng: ln, iso3_hint }) => {
+        Err(radd_alerts::RaddError::CoverageGap {
+            lat: la,
+            lng: ln,
+            iso3_hint,
+        }) => {
             let reason = format!(
                 "radd_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the RADD humid-tropics footprint ({iso3_hint})."
             );
-            sign_band_absence(cell64, s, band, 0, "radd.v20260510", &url, &signed_at, &reason).await
+            sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                "radd.v20260510",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
         }
         Err(radd_alerts::RaddError::NotImplemented { reason }) => {
             let full = format!(
                 "radd_not_implemented: per-cell SAR-alert fetch not yet wired at this responder. Reason: {reason}. The GFW raster is on a Requester-Pays S3 bucket with no anonymous range-readable HTTPS mirror; humid-tropics geofencing and tile-name math ship today."
             );
-            sign_band_absence(cell64, s, band, 0, "radd.v20260510", &url, &signed_at, &full).await
+            sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                "radd.v20260510",
+                &url,
+                &signed_at,
+                &full,
+            )
+            .await
         }
         Err(e) => Err(format!("{band} fetch failed: {e}")),
     }
@@ -23251,7 +23309,7 @@ fn materializer_status_for(input_bands: &[&'static str]) -> JsonValue {
 // POST /v1/eudr_dds — given one or more plots (geometry + commodity
 // + country + quantity), emit a signed Annex II-shaped Due Diligence
 // Statement per Regulation (EU) 2023/1115. Each plot's verdict comes
-// from running eudr_compliance@2's logic across a sample of cells
+// from running eudr_compliance@1's logic across a sample of cells
 // inside its polygon; the overall DDS verdict aggregates plot
 // verdicts. Article 2(28) dispatches POINT (≤ 4 ha non-cattle) vs
 // POLYGON (> 4 ha or cattle) and surfaces both representations.
@@ -23330,12 +23388,14 @@ struct EudrOperator {
     address: Option<String>,
 }
 
+/// Tuple returned by [`extract_plot_geometry`]: (bbox, optional polygon,
+/// area in hectares). The bbox is `(min_lat, max_lat, min_lng, max_lng)`.
+type EudrPlotGeometry = ((f64, f64, f64, f64), Option<emem_core::Polygon>, f64);
+
 /// Resolve a plot's geometry into a (bbox, optional polygon, area_ha)
 /// triple. Accepts GeoJSON `Polygon`, GeoJSON `Point`, or a bare
 /// `{bbox: [minlng, minlat, maxlng, maxlat]}` envelope.
-fn extract_plot_geometry(
-    geojson: &JsonValue,
-) -> Result<((f64, f64, f64, f64), Option<emem_core::Polygon>, f64), String> {
+fn extract_plot_geometry(geojson: &JsonValue) -> Result<EudrPlotGeometry, String> {
     // Bbox shortcut: {bbox: [minlng, minlat, maxlng, maxlat]}.
     if let Some(bbox_arr) = geojson.get("bbox").and_then(|v| v.as_array()) {
         if bbox_arr.len() == 4 {
@@ -23396,7 +23456,9 @@ fn extract_plot_geometry(
                 // logic dispatches POINT.
                 Ok((bbox, None, 0.01))
             }
-            other => Err(format!("unsupported GeoJSON type: {other} (use Polygon or Point)")),
+            other => Err(format!(
+                "unsupported GeoJSON type: {other} (use Polygon or Point)"
+            )),
         }
     } else {
         Err("geometry_geojson missing 'type' field (use GeoJSON Polygon/Point or {bbox})".into())
@@ -23415,7 +23477,7 @@ fn approx_plot_area_ha(bbox: (f64, f64, f64, f64)) -> f64 {
     area_km2 * 100.0
 }
 
-/// Per-cell verdict computed in Rust (mirrors eudr_compliance@2's AST
+/// Per-cell verdict computed in Rust (mirrors eudr_compliance@1's AST
 /// but with graceful handling of missing inputs). Codes match the
 /// algorithm's output values: 1=pass, 2=fail, 3=not_in_scope,
 /// 4=indeterminate.
@@ -23468,23 +23530,21 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
             Err(_) => continue,
         };
         fact_cids.push(cid.as_str().to_string());
-        if let Ok(Some(fact)) = s
+        if let Ok(Some(emem_fact::Fact::Primary(p))) = s
             .storage
             .get_facts_many(std::slice::from_ref(&cid))
             .await
             .map(|v| v.into_iter().next().flatten())
         {
-            if let emem_fact::Fact::Primary(p) = fact {
-                if let ciborium::Value::Integer(i) = p.value {
-                    if let Ok(v) = i64::try_from(i) {
-                        match b.as_str() {
-                            "jrc_gfc2020.forest_2020" => jrc = Some(v),
-                            "forest_change.treecover2000" => hansen_tc = Some(v),
-                            "forest_change.lossyear" => hansen_ly = Some(v),
-                            "wri_gdm.driver_class" => wri_class = Some(v),
-                            "radd.alert_date" => radd_date = Some(v),
-                            _ => {}
-                        }
+            if let ciborium::Value::Integer(i) = p.value {
+                if let Ok(v) = i64::try_from(i) {
+                    match b.as_str() {
+                        "jrc_gfc2020.forest_2020" => jrc = Some(v),
+                        "forest_change.treecover2000" => hansen_tc = Some(v),
+                        "forest_change.lossyear" => hansen_ly = Some(v),
+                        "wri_gdm.driver_class" => wri_class = Some(v),
+                        "radd.alert_date" => radd_date = Some(v),
+                        _ => {}
                     }
                 }
             }
@@ -23493,8 +23553,8 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
 
     // Per-cell verdict per Article 2(4) + 2020-12-31 cut-off.
     // forest_at_cutoff = (JRC == 1) OR (Hansen treecover2000 >= 10).
-    let forest_at_cutoff = matches!(jrc, Some(v) if v >= 1)
-        || matches!(hansen_tc, Some(v) if v >= 10);
+    let forest_at_cutoff =
+        matches!(jrc, Some(v) if v >= 1) || matches!(hansen_tc, Some(v) if v >= 10);
     if !forest_at_cutoff {
         // Need at least one baseline reading to be confident.
         if jrc.is_none() && hansen_tc.is_none() {
@@ -23530,7 +23590,7 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
     // observed". A value >= 2021 means loss after the 2020-12-31
     // EUDR cut-off.
     let hansen_loss = matches!(hansen_ly, Some(v) if v >= 2021);
-    let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2021_001);
+    let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2_021_001);
     let any_loss = hansen_loss || radd_post_cutoff;
     if !any_loss {
         return EudrCellVerdict {
@@ -23599,7 +23659,10 @@ async fn try_materialize_one_band(
         return materialize_jrc_gfc2020_band(cell64, s, band).await;
     }
     // Hansen GFC v1.12.
-    if matches!(band, "forest_change.lossyear" | "forest_change.treecover2000" | "forest_change.gain") {
+    if matches!(
+        band,
+        "forest_change.lossyear" | "forest_change.treecover2000" | "forest_change.gain"
+    ) {
         return materialize_hansen_band(cell64, s, band).await;
     }
     // WRI GDM Sims 2025.
@@ -23704,7 +23767,11 @@ async fn post_eudr_dds(
             "point"
         };
         // Sample budget: small POINT plots only need 1 cell.
-        let n_cells = if geometry_kind == "point" { 1 } else { max_cells_default };
+        let n_cells = if geometry_kind == "point" {
+            1
+        } else {
+            max_cells_default
+        };
         let cells = if let Some(poly) = polygon_opt {
             sample_cells_in_polygon(bbox, n_cells, &[poly])
         } else {
@@ -23743,9 +23810,9 @@ async fn post_eudr_dds(
             "per_cell_verdicts": per_cell,
         }));
     }
-    let overall = if overall_verdicts.iter().any(|&v| v == 2) {
+    let overall = if overall_verdicts.contains(&2) {
         2
-    } else if overall_verdicts.iter().any(|&v| v == 5) {
+    } else if overall_verdicts.contains(&5) {
         5
     } else if overall_verdicts.iter().all(|&v| v == 1) {
         1
@@ -23771,7 +23838,7 @@ async fn post_eudr_dds(
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "schema_url":      "/v1/schemas/eudr_dds.json",
         "algorithm_key":   "eudr_dds@1",
-        "underlying_per_cell_algorithm": "eudr_compliance@2",
+        "underlying_per_cell_algorithm": "eudr_compliance@1",
         "due_diligence_statement": {
             "operator":     req.operator,
             "verdict":      verdict_label(overall),

@@ -348,8 +348,16 @@ mod tests {
     #[test]
     fn class_label_returns_none_for_out_of_range() {
         assert_eq!(class_label(0), None, "class=0 is 'no loss', not a label");
-        assert_eq!(class_label(8), None, "class=8 is out of the documented 1..=7 range");
-        assert_eq!(class_label(255), None, "uint8 sentinel must not map to a label");
+        assert_eq!(
+            class_label(8),
+            None,
+            "class=8 is out of the documented 1..=7 range"
+        );
+        assert_eq!(
+            class_label(255),
+            None,
+            "uint8 sentinel must not map to a label"
+        );
         // The exposed MIN/MAX constants must agree with the label
         // function — drift between them would produce silent gaps.
         assert!(class_label(WRI_GDM_CLASS_MIN).is_some());
@@ -364,17 +372,32 @@ mod tests {
     /// reviewable diff.
     #[test]
     fn is_commodity_driven_splits_one_two_three() {
-        assert!(is_commodity_driven(1), "Permanent agriculture is commodity-driven");
-        assert!(is_commodity_driven(2), "Hard commodities is commodity-driven");
-        assert!(is_commodity_driven(3), "Shifting cultivation is commodity-driven");
+        assert!(
+            is_commodity_driven(1),
+            "Permanent agriculture is commodity-driven"
+        );
+        assert!(
+            is_commodity_driven(2),
+            "Hard commodities is commodity-driven"
+        );
+        assert!(
+            is_commodity_driven(3),
+            "Shifting cultivation is commodity-driven"
+        );
         // Logging (4) is anthropogenic but typically followed by
         // regrowth — NOT commodity-driven under the WRI convention.
-        assert!(!is_commodity_driven(4), "Logging is NOT commodity-driven under WRI grouping");
+        assert!(
+            !is_commodity_driven(4),
+            "Logging is NOT commodity-driven under WRI grouping"
+        );
         // Wildfire (5) and Other natural (7) are natural disturbances.
         assert!(!is_commodity_driven(5));
         assert!(!is_commodity_driven(7));
         // Settlements (6) is anthropogenic but not commodity-linked.
-        assert!(!is_commodity_driven(6), "Settlements is NOT commodity-driven under WRI grouping");
+        assert!(
+            !is_commodity_driven(6),
+            "Settlements is NOT commodity-driven under WRI grouping"
+        );
         // Boundary values: 0 = no loss, >7 = corruption — neither
         // should map to commodity-driven.
         assert!(!is_commodity_driven(0));
@@ -389,7 +412,10 @@ mod tests {
     #[test]
     fn is_natural_splits_five_seven() {
         assert!(is_natural(5), "Wildfire is a natural disturbance");
-        assert!(is_natural(7), "Other natural disturbance is in the natural bucket");
+        assert!(
+            is_natural(7),
+            "Other natural disturbance is in the natural bucket"
+        );
         // Commodity-driven classes are NOT natural.
         assert!(!is_natural(1));
         assert!(!is_natural(2));
@@ -459,7 +485,9 @@ mod tests {
         );
         // NaN lat is also a coverage gap (not a Transport / Decode
         // error). The protocol forbids silently treating NaN as 0.
-        let err = fetch_driver_class(&client, f64::NAN, 0.0).await.unwrap_err();
+        let err = fetch_driver_class(&client, f64::NAN, 0.0)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, WriGdmError::CoverageGap { .. }),
             "NaN lat must surface CoverageGap, got {err:?}"
