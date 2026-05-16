@@ -278,6 +278,7 @@ Sidecar crash does not cascade. The REST router degrades to scalar bands and sig
 | Verify      | [https://emem.dev/verify](https://emem.dev/verify)                                                 |
 | Container   | `ghcr.io/vortx-ai/emem:latest` (multi-arch, anonymously pullable)                                  |
 | HF Space    | [huggingface.co/spaces/vortx-ai/emem](https://huggingface.co/spaces/vortx-ai/emem)                 |
+| MCP Directory | [docs/mcp-directory.md](docs/mcp-directory.md)                                                    |
 | Issues / PRs| [github.com/Vortx-AI/emem/issues](https://github.com/Vortx-AI/emem/issues)                         |
 | Security    | [SECURITY.md](SECURITY.md), `avijeet@vortx.ai`                                                     |
 
