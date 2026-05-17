@@ -14,6 +14,7 @@ site-url                = "/docs/"
 no-section-label        = true
 mathjax-support         = true
 additional-css          = ["theme/emem.css"]
+additional-js           = ["theme/emem-home.js"]
 
 [output.html.fold]
 enable = true
