@@ -7,6 +7,79 @@ to verify.
 
 ## [Unreleased]
 
+### Added (2026-05-16)
+
+- **Memory substrate, five new endpoints.** `POST /v1/state` returns a signed
+  dense per-place embedding (`view=encoder` default 128-D Tessera; `view=cube`
+  full 1792-D voxel). `POST /v1/state_multi` fans across `geotessera` +
+  `clay_v1` + `prithvi_eo2` with a typed `missing[]` for unwired encoders.
+  `POST /v1/state_diff` returns the per-element residual, its L2 norm, and the
+  cosine between two vintages at one cell, with both source `fact_cid`s. `POST
+  /v1/memory_token` composes a `memt:<cell64>:<fact_cid>` citation handle;
+  `POST /v1/memory_token/resolve` dereferences it in one round-trip back to the
+  signed fact body.
+- **Liveness streaming.** `GET /v1/stream` ships Server-Sent Events: a signed
+  `corpus.state` tick every `interval` seconds (default 15, clamped to
+  [5, 300]). Each tick carries a deterministic preimage and ed25519 signature
+  so subscribers verify without re-fetching. 30 s keep-alive comment keeps
+  proxies from dropping the connection. Per-cell subscribe filters remain
+  flagged in §20.
+- **Operator attestation upgrade.** `/.well-known/emem.json` now binds
+  `binary_blake3` (BLAKE3 of the running executable, read once from
+  `/proc/self/exe`) + `git_commit` (compile-time from `cargo:rustc-env`) +
+  `build_timestamp` under the responder's ed25519 key, so a verifier can
+  confirm the live binary corresponds to the published source tree without
+  trusting the operator. `tee_quote` stays `null` on this responder; full
+  Intel SGX / AMD SEV-SNP attestation populates it when deployed under a TEE.
+- **Agent benchmark.** `GET /v1/benchmark` returns 5 hand-verified eval items
+  (elevation recall, NDVI, find_similar neighbours). `POST /v1/benchmark/grade`
+  scores a submitted answers map per item with exact-match for `fact_cid` and
+  cell-plus-score for `find_similar` items.
+- **Corpus liveness snapshot.** `GET /v1/corpus_state_stats` returns the same
+  payload the SSE tick carries (signed), as a one-shot poll for agents that do
+  not want to hold an SSE connection.
+- **7 new MCP tools.** `emem_state`, `emem_state_multi`, `emem_state_diff`,
+  `emem_memory_token`, `emem_memory_token_resolve`, `emem_corpus_state_stats`,
+  `emem_benchmark` join the `tools/list` catalog and are dispatchable via
+  `tools/call`. Total MCP tools: 58 (was 51).
+- **Seven framework MCP examples.** Geospatial-agent reference implementations
+  under `examples/` for LangChain (LangGraph), LlamaIndex, AutoGen, CrewAI,
+  Pydantic AI, Agno, and Mastra (TypeScript). Each auto-discovers the live
+  emem MCP tool catalog and answers a Helsinki Airport flood-risk question
+  with cited receipts. Override the MCP URL via `EMEM_MCP_URL` to point at a
+  local responder.
+
+### Changed
+
+- `/v1/agent_card` `primary_tools` now leads with `emem_state` +
+  `emem_memory_token` so agents that read the card first wire the substrate
+  before recall. `surfaces` map adds explicit pointers for state*/memt*/
+  stream/benchmark/corpus_state_stats.
+- `/v1/discover` `primitives` block adds the five substrate endpoints;
+  `fanout` adds `stream`, `benchmark`, `corpus_state_stats`, and
+  `operator_attestation`. `/.well-known/agent-card.json`
+  `capabilities.streaming` flipped to `true` since `/v1/stream` ships.
+- `/.well-known/emem.json` adds `stream_url`, `corpus_state_stats_url`,
+  `benchmark_url`, `state_url`, `memory_token_url`,
+  `memory_token_resolve_url` pointers alongside the existing `tools_url` /
+  `openapi_url` / `mcp_url`.
+- `/v1/openapi.action.json` (Custom GPT subset) extended to include the 7
+  substrate + liveness operationIds.
+- Homepage `/` cuts three sections (Encoders, Workloads, Limits) and adds two
+  (Memory substrate at §05; Live stream + Operator attestation at §09 with
+  live JS that fetches `/v1/stream` and `/.well-known/emem.json` on load).
+  Mobile breakpoints added at 720 / 560 / 480 px. Wide tables wrapped in
+  `.scroll-x`. Hero CTAs collapsed to four clear labels (Read whitepaper /
+  OpenAPI / GitHub / Copy MCP config — with `execCommand` fallback).
+
+### Fixed
+
+- `tools/call` dispatch arms added for the 5 substrate tools — earlier they
+  were listed in `tools/list` but rejected with `unknown tool` on call.
+- `examples/langchain/`, `examples/llamaindex/`, `examples/agno/` switched
+  from hardcoded `https://emem.dev/mcp` to `os.getenv("EMEM_MCP_URL", ...)`
+  so local-responder testing works without patching source.
+
 ## [0.0.6] — 2026-05-14
 
 Triple-encoder consensus pattern, foundation-embedding `/v1/ask`

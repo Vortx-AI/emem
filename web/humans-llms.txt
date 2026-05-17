@@ -45,6 +45,15 @@
 - `POST /v1/wave_solve` — 1-D shallow-water along the seaward bathymetry gradient; 422 on land-locked
 - `POST /v1/jepa_predict` — closed-form NDVI AR(2) seasonal predictor (α=0.6, β=0.3, γ=0.1, not learned)
 - `POST /v1/jepa_predict_v2` — Tessera embedding dynamics; currently short-circuits to last attested vintage and signs receipt with `untrained_baseline`
+- `POST /v1/state` — `{cell, encoder?, view?, tslot?}` → signed dense state vector. `view=encoder` (default, 128-D Tessera) or `view=cube` (full 1792-D voxel)
+- `POST /v1/state_multi` — `{cell, encoders?, tslot?}` → per-encoder map across `geotessera` + `clay_v1` + `prithvi_eo2` with typed `missing[]` for unwired encoders
+- `POST /v1/state_diff` — `{cell, encoder?, tslot_a, tslot_b}` → residual vector + L2 norm + cosine between two vintages at one cell, with both source `fact_cid`s
+- `POST /v1/memory_token` — `{cell, fact_cid}` → composed `memt:<cell64>:<fact_cid>` citation handle
+- `POST /v1/memory_token/resolve` — `{token}` → signed fact body the cid binds, plus offline-verify URL
+- `GET /v1/stream` — Server-Sent Events; signed `corpus.state` tick every `interval` seconds (default 15, clamped to [5, 300]); each tick carries ed25519 over deterministic preimage
+- `GET /v1/corpus_state_stats` — one-shot signed snapshot of corpus liveness (same payload that backs each `/v1/stream` tick)
+- `GET /v1/benchmark` — hand-verified eval items; pair with `POST /v1/benchmark/grade` for deterministic per-item scoring
+- `GET /.well-known/emem.json` — `operator_attestation` binds `binary_blake3` + `git_commit` + `build_timestamp` under the responder's ed25519 key; verifier recomputes preimage to confirm the running binary matches the published source tree
 - Domain shortcuts (locate → recall → polygon-aggregate by place name):
   - `POST /v1/at` (multi-band), `/v1/ndvi`, `/v1/air`, `/v1/lst`, `/v1/soil`, `/v1/water`, `/v1/forest`, `/v1/weather`, `/v1/elevation`
 - `GET /verify` and `GET /verify/{fact_cid}` — in-browser ed25519 receipt verifier; reconstructs the canonical preimage and runs the signature math with @noble/curves + @noble/hashes (no callback to issuer)

@@ -16,12 +16,13 @@ appears to be low-lying or flood-prone, citing signed receipts.
 """
 
 import asyncio
+import os
 
 from llama_index.tools.mcp import BasicMCPClient, McpToolSpec
 from llama_index.core.agent.function_calling import FunctionAgent
 from llama_index.llms.openai import OpenAI
 
-EMEM_MCP_URL = "https://emem.dev/mcp"
+EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp")
 
 QUESTION = (
     "Using emem, check whether Helsinki Airport, Finland (60.3172, 24.9633) "

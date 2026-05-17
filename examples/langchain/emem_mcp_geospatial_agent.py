@@ -16,12 +16,13 @@ appears to be low-lying or flood-prone, citing signed receipts.
 """
 
 import asyncio
+import os
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 
-EMEM_MCP_URL = "https://emem.dev/mcp"
+EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp")
 
 QUESTION = (
     "Using emem, check whether Helsinki Airport, Finland (60.3172, 24.9633) "

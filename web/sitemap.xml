@@ -23,4 +23,12 @@
   <url><loc>https://emem.dev/humans</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/verify</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/demos/signed-answer</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/demos/state-cube</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/demos/ask-the-earth</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/v1/benchmark</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/corpus_state_stats</loc><changefreq>hourly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/v1/stream</loc><changefreq>always</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/v1/agent_card</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/v1/tools</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/v1/algorithms</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
 </urlset>

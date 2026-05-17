@@ -120,6 +120,7 @@ Spec, parse rules, failure modes: /whitepaper.md#194-memory-tokens
     verify a receipt                verify_receipt      POST /v1/verify_receipt
     reflect / record task outcome   reviews             POST /v1/reviews
     compose a memory token          memory_token        POST /v1/memory_token
+    resolve a memory token          memory_token/resolve POST /v1/memory_token/resolve
     read dense state (1 encoder)    state view=encoder  POST /v1/state
     read full 1792-D cube           state view=cube     POST /v1/state
     read multi-encoder state map    state_multi         POST /v1/state_multi
