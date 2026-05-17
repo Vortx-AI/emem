@@ -148,6 +148,22 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero-pillars .pillar .gloss{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
 @media (max-width:560px){.hero-pillars{flex-direction:column}.hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}.hero-pillars .pillar:last-child{border-bottom:0}}
 .hero-cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.6rem}
+
+/* Lean hero (fold 1): drops the kv sidebar, the formula box, the pillars,
+ * the daily-two cards, and the open-data sub. What's left: H1, one short
+ * sub, two CTAs, one quiet trust line. The grid collapses to one column so
+ * the hero feels like one statement, not a dashboard. */
+.hero.hero-lean{grid-template-columns:1fr;gap:0;padding:5rem 0 4rem;max-width:760px;margin:0 auto}
+.hero.hero-lean .sub{font-size:var(--t-lg);max-width:54ch;line-height:1.45;margin:0 0 1.6rem;color:var(--ink-2);font-weight:400}
+.hero.hero-lean .hero-cta{margin-top:1.4rem}
+.hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem;max-width:62ch}
+.hero-trust code{color:var(--ink-2);font-size:var(--t-xs);background:var(--paper-2);padding:.05em .35em;border:1px solid var(--rule);border-radius:2px}
+@media (max-width:560px){
+  .hero.hero-lean{padding:3rem 0 2.5rem}
+  .hero.hero-lean .hero-cta{flex-direction:column;align-items:stretch}
+  .hero.hero-lean .hero-cta .btn{justify-content:center}
+}
+
 .btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
 .btn:hover{background:var(--ink-2)}
 .btn.ghost{background:transparent;color:var(--ink)}
@@ -417,10 +433,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <span class="brand">emem</span>
-    <a href="#substrate" class="nav-sec">substrate</a>
-    <a href="#connect" class="nav-sec">connect</a>
     <a href="#first-call" class="nav-sec">first call</a>
-    <a href="#stream" class="nav-sec">stream</a>
+    <a href="#daily-two" class="nav-sec">daily two</a>
+    <a href="#connect" class="nav-sec">connect</a>
+    <a href="#substrate" class="nav-sec">substrate</a>
     <a href="#verify" class="nav-sec">verify</a>
     <a href="#for-agents" class="nav-sec">for agents</a>
     <span class="spacer"></span>
@@ -433,91 +449,30 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </header>
 
-<section class="hero page">
-  <aside class="hero-meta">
-    <div class="kv"><span class="k">responder</span><span class="v">https://emem.dev</span></div>
-    <div class="kv"><span class="k">pubkey (ed25519, b32)</span><span class="v accent">777er3yihg&#8230;womvka</span></div>
-    <div class="kv"><span class="k">protocol</span><span class="v">MCP 2025-03-26 + REST</span></div>
-    <div class="kv"><span class="k">auth</span><span class="v">none. reads are open.</span></div>
-    <div class="kv"><span class="k">license</span><span class="v">Apache-2.0</span></div>
-  </aside>
+<!--
+  Hero — fold 1: the world.
 
+  Following the parallel UX audits (human / agent / developer / restructure-spec),
+  this fold says one thing in one register: what emem is, in the world. No
+  formula, no pillars, no sidebar of kv metadata, no MCP config button.
+  Trust signals collapse to one quiet line. CTAs cap at two: one evaluation
+  (Quickstart), one proof (signed-answer demo). Everything that used to be
+  inlined here — the Cell × Band × Tslot formula, the four pillars, the state
+  vector + memory token cards, the MCP install snippet — now lives in
+  dedicated folds below where each can breathe at its own abstraction level.
+-->
+<section class="hero page hero-lean">
   <div>
     <h1>Earth as memory,<br><span class="accent">for real-world agents.</span></h1>
 
-    <p class="sub">A read-side memory layer for AI agents. Every place on Earth has a permanent address. Every measurement there is a signed fact. Every answer is a receipt your code verifies offline.</p>
-
-    <div class="hero-formula">
-      <span class="box">Cell</span>
-      <span class="op">×</span>
-      <span class="box">Band</span>
-      <span class="op">×</span>
-      <span class="box">Tslot</span>
-      <span class="arrow">→</span>
-      <span class="out">Fact</span>
-    </div>
-    <p class="formula-gloss">a place, a measurement, a moment, and a signature.</p>
-
-    <div class="hero-pillars" aria-label="emem memory pillars">
-      <div class="pillar"><span class="word">connected</span><span class="gloss">one URL, MCP + REST, no SDK</span></div>
-      <div class="pillar"><span class="word">signed</span><span class="gloss">ed25519 over canonical CBOR</span></div>
-      <div class="pillar"><span class="word">global</span><span class="gloss">~9.55 m cells, lazy materialised</span></div>
-      <div class="pillar"><span class="word">unadulterated</span><span class="gloss">addressed, not similarity-ranked</span></div>
-    </div>
-
-    <h2 style="font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;margin:1.8rem 0 .8rem;color:var(--ink)">Two primitives every agent uses daily.</h2>
-    <p style="font-size:var(--t-sm);color:var(--mute);margin:0 0 1rem;max-width:62ch">The state vector reads a place: ask for any cell and get a 128-D learned embedding, signed, ready to drop into context. The memory token cites it: one string the agent pastes anywhere and any reader resolves back to the same signed fact.</p>
-
-    <div class="memt-block" aria-label="memory token, the cite-handle for one signed fact at one place">
-      <div class="memt-head">
-        <span class="label">memory token</span>
-        <span class="gloss">one string an agent can paste anywhere; resolves to one signed fact at one place</span>
-        <span class="spacer"></span>
-        <a href="/whitepaper.md#194-memory-tokens">spec</a>
-        <a href="/integrations.md#memory-tokens">integrate</a>
-      </div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>format:</b> <code>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</code></div>
-        <div class="memt-example">memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</div>
-        <div class="memt-parts">
-          <span class="k">cell</span><span><code>defi.zb4d9.pefa.zf619</code> &nbsp;(South Mumbai, 18.95°N 72.83°E)</span>
-          <span class="k">fact</span><span><code>copdem30m.elevation_mean = 6.0 m</code> via Copernicus DEM, signed</span>
-          <span class="k">resolve</span><span><code>GET /v1/facts/&lt;fact_cid&gt;</code> returns the same bytes on any responder, forever</span>
-          <span class="k">compose</span><span><code>POST /v1/memory_token {"cell":"…","fact_cid":"…"}</code></span>
-        </div>
-      </div>
-    </div>
-
-    <div class="memt-block" aria-label="state vector, the dense per-place embedding an agent can drop into context">
-      <div class="memt-head">
-        <span class="label">state vector</span>
-        <span class="gloss">128-D Tessera embedding for any place on Earth, signed, ready to drop into an LLM context</span>
-        <span class="spacer"></span>
-        <a href="/whitepaper.md#193-memory-exposure-how-agents-reach-emem">spec</a>
-        <a href="/integrations.md#state-vectors">integrate</a>
-      </div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>endpoint:</b> <code>POST /v1/state {"cell":"&lt;place|cell64&gt;","encoder":"geotessera"}</code></div>
-        <div class="memt-example">{"cell":"defi.zb4d9.pefa.zf619","encoder":"geotessera","dim":128,"vector":[0.043,-0.115,…],"l2_norm":3.71,"fact_cid":"…","memory_token":"memt:…","receipt":{…}}</div>
-        <div class="memt-parts">
-          <span class="k">read</span><span>the dense state for any cell on Earth in one round-trip, signed and content-addressed</span>
-          <span class="k">steer</span><span>drop the vector into your LLM's context, or feed it to <code>/v1/find_similar</code> to ask "what looks like this place?"</span>
-          <span class="k">write</span><span><code>POST /v1/attest</code> with a signed Attestation; the same cell becomes readable from any replica</span>
-          <span class="k">read · steer · write</span><span>three motions, one wire surface, planet-scale state</span>
-        </div>
-      </div>
-    </div>
-
-    <p class="sub" style="font-size:var(--t-md);margin-top:1.4rem">Open data: Sentinel-2, MODIS, Copernicus DEM, JRC, Hansen GFC, ESA WorldCover, SoilGrids, NASA POWER, Overture. Foundation embeddings: Tessera, Prithvi-EO-2, Clay. One hosted responder. MCP + REST. No keys, no signup.</p>
+    <p class="sub">Every place on Earth has one signed memory. Read it in one HTTP call. Verify the receipt offline, no callback.</p>
 
     <div class="hero-cta">
       <a class="btn" href="/docs/quickstart.html">Quickstart (60 s)</a>
-      <a class="btn ghost" href="/docs/">Docs &amp; search</a>
-      <a class="btn ghost" href="/whitepaper.md">Whitepaper</a>
-      <a class="btn ghost" href="/openapi.json">OpenAPI</a>
-      <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
-      <button class="btn ghost" id="copy-mcp" type="button" data-mcp='{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}'>Copy MCP config</button>
+      <a class="btn ghost" href="/demos/signed-answer">See a signed answer &rarr;</a>
     </div>
+
+    <p class="hero-trust">open &middot; no keys &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
   </div>
 </section>
 
@@ -539,7 +494,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
     <div class="stats">
       <div class="stat"><div class="n">72<span class="small">/ REST</span></div><div class="lbl">OpenAPI /v1 paths</div></div>
-      <div class="stat"><div class="n">50<span class="small">/ MCP</span></div><div class="lbl">read-only tools</div></div>
+      <div class="stat"><div class="n">58<span class="small">/ MCP</span></div><div class="lbl">read-only tools</div></div>
       <div class="stat"><div class="n">159</div><div class="lbl">algorithms registered</div></div>
       <div class="stat"><div class="n">41<span class="small">/ 43</span></div><div class="lbl">bands / upstream sources</div></div>
     </div>
@@ -766,6 +721,69 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         </div>
         <div class="tryit-result empty" id="tryit-result">
           Two verified responses are cached in this page (South Mumbai and Bengaluru). The cell64, value, and fact_cid are byte-identical to what the live responder returns. For any other place, run the command above against <span class="band">https://emem.dev/v1/recall</span> in your terminal.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!--
+  Daily two — the state vector + memory token cards used to live in the hero
+  but were pushing it from "world" register into "implementation" register.
+  Moved here so they sit at their natural abstraction level: the two
+  primitives a working agent will call every day, after the first-call
+  curl tour above. The cards themselves are unchanged.
+-->
+<section class="section page" id="daily-two">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">03b</span><span class="idx-label">Daily two</span></div>
+    <dl>
+      <dt>state vector</dt><dd>POST /v1/state</dd>
+      <dt>memory token</dt><dd>POST /v1/memory_token</dd>
+      <dt>token grammar</dt><dd>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</dd>
+      <dt>resolve</dt><dd>GET /v1/facts/&lt;cid&gt;</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">03b</span>Two primitives every agent uses daily</h2>
+    <p class="lede">The state vector reads a place: ask for any cell and get a 128-D Tessera embedding, signed, ready to drop into context. The memory token cites it: one string the agent pastes anywhere, and any reader resolves back to the same signed fact.</p>
+
+    <div class="memt-block" aria-label="memory token, the cite-handle for one signed fact at one place">
+      <div class="memt-head">
+        <span class="label">memory token</span>
+        <span class="gloss">one string an agent can paste anywhere; resolves to one signed fact at one place</span>
+        <span class="spacer"></span>
+        <a href="/whitepaper.md#194-memory-tokens">spec</a>
+        <a href="/integrations.md#memory-tokens">integrate</a>
+      </div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>format:</b> <code>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</code></div>
+        <div class="memt-example">memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</div>
+        <div class="memt-parts">
+          <span class="k">cell</span><span><code>defi.zb4d9.pefa.zf619</code> &nbsp;(South Mumbai, 18.95&deg;N 72.83&deg;E)</span>
+          <span class="k">fact</span><span><code>copdem30m.elevation_mean = 6.0 m</code> via Copernicus DEM, signed</span>
+          <span class="k">resolve</span><span><code>GET /v1/facts/&lt;fact_cid&gt;</code> returns the same bytes on any responder, forever</span>
+          <span class="k">compose</span><span><code>POST /v1/memory_token {"cell":"&hellip;","fact_cid":"&hellip;"}</code></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="memt-block" aria-label="state vector, the dense per-place embedding an agent can drop into context">
+      <div class="memt-head">
+        <span class="label">state vector</span>
+        <span class="gloss">128-D Tessera embedding for any place on Earth, signed, ready to drop into an LLM context</span>
+        <span class="spacer"></span>
+        <a href="/whitepaper.md#193-memory-exposure-how-agents-reach-emem">spec</a>
+        <a href="/integrations.md#state-vectors">integrate</a>
+      </div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>endpoint:</b> <code>POST /v1/state {"cell":"&lt;place|cell64&gt;","encoder":"geotessera"}</code></div>
+        <div class="memt-example">{"cell":"defi.zb4d9.pefa.zf619","encoder":"geotessera","dim":128,"vector":[0.043,-0.115,&hellip;],"l2_norm":3.71,"fact_cid":"&hellip;","memory_token":"memt:&hellip;","receipt":{&hellip;}}</div>
+        <div class="memt-parts">
+          <span class="k">read</span><span>the dense state for any cell on Earth in one round-trip, signed and content-addressed</span>
+          <span class="k">steer</span><span>drop the vector into your LLM's context, or feed it to <code>/v1/find_similar</code> to ask "what looks like this place?"</span>
+          <span class="k">write</span><span><code>POST /v1/attest</code> with a signed Attestation; the same cell becomes readable from any replica</span>
         </div>
       </div>
     </div>
