@@ -40,13 +40,24 @@ pub struct CompareResp {
     pub per_band: BTreeMap<String, ciborium::Value>,
     /// Bands shared between A and B (intersection of bands at both cells).
     pub shared_bands: Vec<String>,
-    /// Bands present at A but not at B.
+    /// Bands present at A but not at B. **Caveat:** this set reflects
+    /// what has actually been recalled (warmed) at each cell, NOT
+    /// absolute capability. A band that is materializer-wired at this
+    /// responder but never recalled at cell B will appear in `only_a`
+    /// even though cell B can be warmed for it on demand. See
+    /// `asymmetry_note` for the recommended next call.
     pub only_a: Vec<String>,
-    /// Bands present at B but not at A.
+    /// Bands present at B but not at A. Same caveat as `only_a`.
     pub only_b: Vec<String>,
     /// Set when no shared vector band existed; explains the missing cosine.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Surfaced when `only_a` or `only_b` is non-empty. Tells the agent
+    /// the asymmetry might be pre-warm artefact, not a real capability
+    /// gap. Without this hint, a caller will read `only_a=["clay_v1",...]`
+    /// as "cell B has no Clay" when it just hasn't been recalled yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asymmetry_note: Option<String>,
     /// Signed receipt.
     pub receipt: Receipt,
 }
@@ -154,6 +165,16 @@ pub async fn compare(req: &CompareReq, srv: &Server) -> Result<CompareResp, Stor
         started,
         None,
     );
+    let asymmetry_note = if !only_a.is_empty() || !only_b.is_empty() {
+        Some(format!(
+            "only_a/only_b reflect facts actually stored at each cell, not absolute capability. {} band(s) in only_a / {} in only_b may simply be unwarmed at the other cell. To confirm a band is genuinely absent, call POST /v1/recall with that band on the cell missing it; the materializer (if wired) will fetch it on miss and the band will move to shared_bands on re-compare.",
+            only_a.len(),
+            only_b.len()
+        ))
+    } else {
+        None
+    };
+
     Ok(CompareResp {
         cosine: summary_cos,
         per_band,
@@ -161,6 +182,7 @@ pub async fn compare(req: &CompareReq, srv: &Server) -> Result<CompareResp, Stor
         only_a,
         only_b,
         note,
+        asymmetry_note,
         receipt,
     })
 }

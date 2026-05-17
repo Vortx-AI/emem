@@ -2196,7 +2196,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "documentationUrl":   "https://emem.dev/agents.md",
         "iconUrl":            format!("{origin}/favicon.svg"),
         "capabilities": {
-            "streaming":            false,
+            "streaming":            true,
             "pushNotifications":    false,
             "stateTransitionHistory": true,
         },
@@ -2610,6 +2610,18 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
         "mcp_url": "/mcp",
         "agent_card_url": "/v1/agent_card",
         "quickstart_url": "/v1/quickstart",
+        "stream_url": "/v1/stream",
+        "corpus_state_stats_url": "/v1/corpus_state_stats",
+        "benchmark_url": "/v1/benchmark",
+        // POST-only endpoints. A bare GET on these returns 405 by design;
+        // the `post:` prefix is a discoverability hint so a crawler doesn't
+        // chase a GET that cannot answer.
+        "state_url": "post:/v1/state",
+        "state_multi_url": "post:/v1/state_multi",
+        "state_diff_url": "post:/v1/state_diff",
+        "memory_token_url": "post:/v1/memory_token",
+        "memory_token_resolve_url": "post:/v1/memory_token/resolve",
+        "benchmark_grade_url": "post:/v1/benchmark/grade",
         // Discovery hooks for connector-directory reviewers + offline
         // signature-verifying clients. The full text lives at /privacy,
         // /terms, /support; the canonical contact is the maintainer
@@ -4377,7 +4389,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             { "pattern": "verify land tenure / FPIC / country-of-origin law compliance for an EUDR DDS", "reason": "EUDR Article 9(1)(b) legality verification is structurally out of Earth-observation scope. /v1/eudr_dds covers the geolocation + deforestation parts of Annex II only; pair with a partner legality module before submitting to TRACES NT." },
             { "pattern": "submit a Due Diligence Statement to the EU Information System on my behalf", "reason": "TRACES NT submission requires EU Login + EORI registration and is the operator's responsibility. /v1/eudr_dds produces the structured payload; the operator authenticates and submits." }
         ],
-        "primary_tools": ["emem_recall", "emem_compare", "emem_find_similar", "emem_diff", "emem_verify", "emem_ask", "emem_hunt"],
+        "primary_tools": ["emem_recall", "emem_state", "emem_memory_token", "emem_memory_token_resolve", "emem_compare", "emem_find_similar", "emem_diff", "emem_verify", "emem_ask", "emem_hunt"],
         // Order matters: bands → materializers → coverage_matrix builds
         // the agent's mental model in the right order. Bands declare
         // what *can* exist; materializers declare what auto-fetches on
@@ -4472,6 +4484,15 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "algorithms":       "/v1/algorithms",
             "temporal_route":   "/v1/temporal_route",
             "reviews":          "/v1/reviews",
+            "state":            "/v1/state",
+            "state_multi":      "/v1/state_multi",
+            "state_diff":       "/v1/state_diff",
+            "memory_token":     "/v1/memory_token",
+            "memory_token_resolve": "/v1/memory_token/resolve",
+            "stream":           "/v1/stream",
+            "corpus_state_stats":"/v1/corpus_state_stats",
+            "benchmark":        "/v1/benchmark",
+            "benchmark_grade":  "/v1/benchmark/grade",
         },
         // Honest declaration of which non-JSON surfaces exist and which
         // protocol channels actually expose them. The infrastructure
@@ -4637,7 +4658,12 @@ async fn quickstart() -> Json<JsonValue> {
             "agent_walkthroughs":   "/examples/agent-walkthroughs.md",
             "errors_with_recovery": "/v1/errors",
             "grid_resolution":      "/v1/grid_info",
-            "coverage_map_visual":  "/v1/coverage_map.svg"
+            "coverage_map_visual":  "/v1/coverage_map.svg",
+            "state_vector":         "POST /v1/state — single dense per-place embedding; pair with /v1/find_similar or /v1/state_diff",
+            "memory_token":         "POST /v1/memory_token + POST /v1/memory_token/resolve — citation handle for one fact at one cell",
+            "liveness_stream":      "GET /v1/stream — signed corpus.state SSE tick every 5–300 s",
+            "agent_benchmark":      "GET /v1/benchmark + POST /v1/benchmark/grade — hand-verified items + deterministic grader",
+            "operator_attestation": "GET /.well-known/emem.json — operator_attestation binds binary_blake3 + git_commit + build_timestamp under the responder ed25519 key"
         }
     }))
 }
@@ -4912,6 +4938,11 @@ async fn post_recall(
         // /v1/ask applies, so an LLM can quote signers without
         // touching the raw 32-byte arrays.
         enrich_recall_signer_b32(&mut v);
+        // Sibling `fact_cid` + composed `memory_token` per fact. The
+        // wire form historically left these on receipt.fact_cids[] as
+        // a parallel array; the per-fact form matches the OpenAPI
+        // `Fact` schema and removes the index-zip dance for callers.
+        enrich_facts_with_cid(&mut v);
         if let Some(map) = v.as_object_mut() {
             if !materialize_notes.is_empty() {
                 map.insert(
@@ -7294,9 +7325,36 @@ async fn boring_named(
     // the boring-endpoint latency budget once parallelised).
     let target = q.resolve_target(16).await?;
     let bands_owned: Vec<String> = bands.iter().map(|s| (*s).to_string()).collect();
-    Ok(Json(
-        boring_recall_aggregated(s, target, &bands_owned, q.tslot).await?,
-    ))
+    // Overall request budget — bounds the boring-endpoint family so a
+    // single slow connector (weather/CAMS/MODIS) doesn't drag the
+    // request past the gateway timeout. Per-materializer timeout still
+    // caps individual upstream calls at EMEM_MATERIALIZER_TIMEOUT_SECS;
+    // this is the fan-out ceiling on top of that. Tunable via
+    // EMEM_BORING_TIMEOUT_SECS (clamped 5..=120).
+    let budget = std::env::var("EMEM_BORING_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(60u64)
+        .clamp(5, 120);
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(budget),
+        boring_recall_aggregated(s, target, &bands_owned, q.tslot),
+    )
+    .await
+    {
+        Ok(Ok(v)) => Ok(Json(v)),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(ApiError(
+            StatusCode::GATEWAY_TIMEOUT,
+            ErrorBody {
+                code: emem_core::error::ErrorCode::SourceFetchFailed,
+                message: format!(
+                    "boring-endpoint fan-out over bands {bands:?} exceeded {budget}s. Tune EMEM_BORING_TIMEOUT_SECS, or call /v1/recall with a single band to bypass the fan-out."
+                ),
+                details: None,
+            },
+        )),
+    }
 }
 
 /// `GET /v1/ndvi?lat=&lon=` → indices.ndvi
@@ -7568,18 +7626,26 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
             { "intent": "verify_claim",        "method": "POST", "path": "/v1/verify",         "use_when": "user makes a structured spatial claim ('elevation > 3000 m at X')" },
             { "intent": "knn_similar",         "method": "POST", "path": "/v1/find_similar",   "use_when": "'find places like X' — k-NN over geotessera or any vector band" },
             { "intent": "place_to_cell64",     "method": "POST", "path": "/v1/locate",         "use_when": "you only have a place name or lat/lng and need cell64" },
+            { "intent": "state_vector",        "method": "POST", "path": "/v1/state",          "use_when": "want a single dense per-place embedding to drop into LLM context or feed to find_similar — view=encoder (128-D default) or view=cube (1792-D)" },
+            { "intent": "state_fan_out",       "method": "POST", "path": "/v1/state_multi",    "use_when": "want geotessera + clay_v1 + prithvi_eo2 in one call to check cross-encoder agreement" },
+            { "intent": "state_delta",         "method": "POST", "path": "/v1/state_diff",     "use_when": "compare the same cell across two vintages (residual + L2 + cosine)" },
+            { "intent": "compose_citation",    "method": "POST", "path": "/v1/memory_token",   "use_when": "wrap a (cell, fact_cid) pair as a single memt: handle to paste across agents" },
+            { "intent": "resolve_citation",    "method": "POST", "path": "/v1/memory_token/resolve", "use_when": "receive a memt: handle from another agent and want the signed fact body in one trip" },
         ],
         "discovery_endpoints": [
-            "GET  /openapi.json           — OpenAPI 3.1 spec (Custom GPT Action)",
+            "GET  /openapi.json              — OpenAPI 3.1 spec (now covers state*/memt*/stream/benchmark/corpus_state_stats)",
             "GET  /.well-known/ai-plugin.json — ChatGPT plugin manifest",
-            "GET  /.well-known/emem.json  — protocol manifest CIDs + responder pubkey",
-            "POST /mcp                    — MCP Streamable HTTP (Claude / Cursor / Cline / Codex / Antigravity)",
-            "GET  /v1/agent_card          — tool catalogue with when-to-use hints",
-            "GET  /v1/grid_info           — authoritative cell resolution + spec target",
-            "GET  /v1/data_availability   — per-band coverage windows",
-            "GET  /v1/algorithms          — 101 composition recipes with citations",
-            "GET  /clients.md             — per-client integration guide (this responder, live)",
-            "GET  /multimodal.md          — sensor-fusion architecture + validator rules",
+            "GET  /.well-known/emem.json     — protocol manifest CIDs + responder pubkey + operator_attestation (binary_blake3 + git_commit + build_timestamp, signed)",
+            "POST /mcp                       — MCP Streamable HTTP (Claude / Cursor / Cline / Codex / Antigravity)",
+            "GET  /v1/agent_card             — tool catalogue with when-to-use hints",
+            "GET  /v1/grid_info              — authoritative cell resolution + spec target",
+            "GET  /v1/data_availability      — per-band coverage windows",
+            "GET  /v1/algorithms             — composition recipes with citations",
+            "GET  /v1/stream                 — Server-Sent Events corpus heartbeat, signed per tick",
+            "GET  /v1/corpus_state_stats     — one-shot signed snapshot of corpus liveness",
+            "GET  /v1/benchmark              — hand-verified eval items; pair with POST /v1/benchmark/grade",
+            "GET  /clients.md                — per-client integration guide (this responder, live)",
+            "GET  /multimodal.md             — sensor-fusion architecture + validator rules",
         ],
         "citation_pattern": "<value> <unit> at <cell64> (fact_cid <first 8 chars>, signed by responder <first 8 chars of pubkey_b32>; source: <source_url>).",
         "anti_patterns": [
@@ -7716,6 +7782,7 @@ async fn post_recall_many(
                 total_facts += resp.facts.len();
                 let mut cell_json = serde_json::to_value(&resp).unwrap_or(json!({}));
                 enrich_facts_with_metadata(&mut cell_json);
+                enrich_facts_with_cid(&mut cell_json);
                 by_cell.insert(cell, cell_json);
             }
             Err(e) => {
@@ -10521,6 +10588,56 @@ async fn mcp_tool_call(
             }
             Ok(attach_resolved_env(v))
         }
+        // ── Memory substrate (state vectors + memory tokens) ─────────
+        // Without these arms, tools/list advertises a tool that
+        // tools/call rejects with "unknown tool" — a lying catalog.
+        "emem_state" => {
+            let req: StateReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_state(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_state_multi" => {
+            let req: StateMultiReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_state_multi(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_state_diff" => {
+            let req: StateDiffReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_state_diff(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_memory_token" => {
+            let req: MemoryTokenReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_memory_token(Json(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_memory_token_resolve" => {
+            let req: MemoryTokenResolveReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_memory_token_resolve(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_corpus_state_stats" => {
+            match get_corpus_state_stats(State(s.clone())).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_benchmark" => Ok(get_benchmark().await.0),
         "emem_query_region" => call!(QueryRegionReq, query_region),
         "emem_compare" => call!(CompareReq, compare).map(attach_resolved_env),
         "emem_compare_bands" => call!(CompareBandsReq, compare_bands).map(attach_resolved_env),
@@ -11256,12 +11373,12 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/facts/{cid}":       {"get":{"summary":"fact dereference by CID (immutable, ETag-tagged)","operationId":"emem_fetch","tags":["fetch","get_fact"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_etag,"304":json_unchanged,"404":json_not_found}}},
             "/v1/fetch":             {"post":{"summary":"REST mirror of MCP `emem_fetch`. Resolve a fact by `{cid}` OR materialize `{cell, band[, tslot]}` (cell may be place name).","operationId":"emem_fetch_post","tags":["fetch"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FetchReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt","operationId":"emem_verify_receipt","responses":{"200":json_ok}}},
-            "/v1/intent":            {"post":{"summary":"intent → plan","operationId":"emem_intent","responses":{"200":json_ok}}},
+            "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt: recompute preimage BLAKE3 from {request_id, served_at, primitive, cells[], fact_cids[]} and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON)","operationId":"emem_attest","responses":{"200":json_ok}}},
+            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (32-byte BLAKE3 of the per-fact merkle root, hex), `attester_pubkey_b32`, `signature_b32` (ed25519 over batch_root), and `facts[]` (each carries cell, band, tslot, value, and any per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester_pubkey_b32","signature_b32","facts"],"properties":{"batch_root":{"type":"string","description":"hex BLAKE3 root of the per-fact merkle tree"},"attester_pubkey_b32":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature_b32":{"type":"string","description":"base32-nopad-lc ed25519 signature over batch_root"},"facts":{"type":"array","items":{"type":"object","required":["cell","band","value"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
             "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
             // High-traffic endpoints that were previously discoverable
@@ -11336,12 +11453,21 @@ async fn openapi() -> Json<JsonValue> {
             },
             "/v1/agent_quickref":    {"get":{"summary":"agent-targeted intent map: which endpoint to call for which user intent, with usage priority + trust language","operationId":"emem_agent_quickref","tags":["boring"],"responses":{"200":json_ok}}},
             "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","operationId":"emem_discover","responses":{"200":json_ok}}},
-            "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject","operationId":"emem_reviews_post","responses":{"200":json_ok}}},
+            "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject. `subject_kind` must be one of: fact, cell, request_id, session, band, endpoint, other. `outcome` must be one of: success, partial, failed, noisy. Optional `agent_pubkey_b32` + `agent_signature_hex` for self-attesting reviews.","operationId":"emem_reviews_post","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["subject_kind","subject_id","task","outcome"],"properties":{"subject_kind":{"type":"string","enum":["fact","cell","request_id","session","band","endpoint","other"]},"subject_id":{"type":"string"},"task":{"type":"string"},"outcome":{"type":"string","enum":["success","partial","failed","noisy"]},"rating":{"type":"integer","minimum":0,"maximum":255},"comment":{"type":"string"},"agent_pubkey_b32":{"type":"string"},"agent_signature_hex":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/reviews/{subject_id}":{"get":{"summary":"list reviews for a subject","operationId":"emem_reviews_get","parameters":[{"name":"subject_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/contributors":      {"get":{"summary":"list of contributing pubkeys + per-band fact counts","operationId":"emem_contributors","responses":{"200":json_ok}}},
             "/v1/contributors/{pubkey_b32}": {"get":{"summary":"contributor profile by pubkey","operationId":"emem_contributor_one","parameters":[{"name":"pubkey_b32","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/agent_stats":       {"get":{"summary":"per-tool MCP latency + error counts","operationId":"emem_agent_stats","responses":{"200":json_ok}}},
-            "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","operationId":"emem_demos","responses":{"200":json_ok}}}
+            "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","operationId":"emem_demos","responses":{"200":json_ok}}},
+            "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory_token":      {"post":{"summary":"compose a memt:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token plus a docs link.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a memory token. Parses memt:<cell>:<fact_cid>, fetches the signed fact body by CID, returns the canonical body plus the offline-verify URL. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"memt:<cell64>:<fact_cid>"}}}}}},"responses":{"200":json_ok,"404":json_not_found}}},
+            "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
+            "/v1/stream":            {"get":{"summary":"Server-Sent Events corpus stream. Emits a signed corpus.state event every `interval` seconds (default 15, clamped to [5,300]). Each tick carries a deterministic preimage and ed25519 signature so subscribers can verify without re-fetching.","operationId":"emem_stream","parameters":[{"name":"interval","in":"query","required":false,"schema":{"type":"integer","minimum":5,"maximum":300,"default":15}}],"responses":{"200":{"description":"text/event-stream","content":{"text/event-stream":{"schema":{"type":"string"}}}}}}},
+            "/v1/benchmark":         {"get":{"summary":"hand-verified evaluation items for grading an agent against the responder. Returns {items[], grader_url, _note}. Submit answers to POST /v1/benchmark/grade for per-item scores.","operationId":"emem_benchmark","responses":{"200":json_ok}}},
+            "/v1/benchmark/grade":   {"post":{"summary":"grade an agent's submission against /v1/benchmark items. Body: {answers: {<item_id>: <fact_cid or cell64>}}. Returns per-item correctness plus an aggregate score.","operationId":"emem_benchmark_grade","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["answers"],"properties":{"answers":{"type":"object","additionalProperties":{"type":"string"}}}}}}},"responses":{"200":json_ok}}}
         },
         "components": {
             "schemas": {
@@ -11351,7 +11477,8 @@ async fn openapi() -> Json<JsonValue> {
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
                 "DiffReq":         {"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}},
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
-                "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"type":"object"}}},
+                "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"$ref":"#/components/schemas/Claim"}}},
+                "Claim":           {"type":"object","required":["band","op","value"],"properties":{"band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)"},"op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison or membership operator"},"value":{"description":"Right-hand value, band-typed (number for scalar bands, array for vector bands, set for in/ni). Required even for exists/absent where it is ignored."},"tslot":{"type":"integer","description":"Specific tslot; one of `tslot` or `window` MUST be set"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] u64 Unix-epoch range"},"agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"Aggregation over `window`"}}},
                 "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
                 "HuntReq":         {"type":"object","required":["event"],"properties":{
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
@@ -11472,6 +11599,17 @@ async fn openapi_action_json() -> Json<JsonValue> {
         // Verify + write (2)
         "emem_verify_receipt",
         "emem_attest",
+        // Memory substrate (5) — the read-side state vector + the
+        // memt:<cell>:<fact_cid> citation handle. Reads only; safe to
+        // expose in the Custom GPT subset.
+        "emem_state",
+        "emem_state_multi",
+        "emem_state_diff",
+        "emem_memory_token",
+        "emem_memory_token_resolve",
+        // Liveness (2)
+        "emem_corpus_state_stats",
+        "emem_benchmark",
     ];
     let keep: std::collections::HashSet<&str> = KEEP_OPS.iter().copied().collect();
 
@@ -11733,26 +11871,58 @@ async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
             "algorithms_cid": alg_cid,
         },
         "primitives": {
-            "ask":            "POST /v1/ask",
-            "locate":         "POST /v1/locate",
-            "recall":         "POST /v1/recall",
-            "recall_polygon": "POST /v1/recall_polygon",
-            "compare":        "POST /v1/compare",
-            "find_similar":   "POST /v1/find_similar",
-            "diff":           "POST /v1/diff",
-            "trajectory":     "POST /v1/trajectory",
-            "backfill":       "POST /v1/backfill",
-            "verify":         "POST /v1/verify_receipt",
+            "ask":                  "POST /v1/ask",
+            "locate":               "POST /v1/locate",
+            "recall":               "POST /v1/recall",
+            "recall_polygon":       "POST /v1/recall_polygon",
+            "compare":              "POST /v1/compare",
+            "find_similar":         "POST /v1/find_similar",
+            "diff":                 "POST /v1/diff",
+            "trajectory":           "POST /v1/trajectory",
+            "backfill":             "POST /v1/backfill",
+            "verify_claim":         "POST /v1/verify",
+            "verify_receipt":       "POST /v1/verify_receipt",
+            "state":                "POST /v1/state",
+            "state_multi":          "POST /v1/state_multi",
+            "state_diff":           "POST /v1/state_diff",
+            "memory_token":         "POST /v1/memory_token",
+            "memory_token_resolve": "POST /v1/memory_token/resolve",
         },
         "fanout": {
-            "agent_card": "/v1/agent_card",
-            "bands":      "/v1/bands",
-            "algorithms": "/v1/algorithms",
-            "openapi":    "/openapi.json",
-            "mcp":        "/mcp",
-            "privacy":    "/privacy",
-            "terms":      "/terms",
-            "spec":       "/spec.md",
+            "agent_card":         "/v1/agent_card",
+            "bands":              "/v1/bands",
+            "algorithms":         "/v1/algorithms",
+            "openapi":            "/openapi.json",
+            "mcp":                "/mcp",
+            "stream":             "/v1/stream",
+            "benchmark":          "/v1/benchmark",
+            "corpus_state_stats": "/v1/corpus_state_stats",
+            "operator_attestation": "/.well-known/emem.json",
+            "privacy":            "/privacy",
+            "terms":              "/terms",
+            "spec":               "/spec.md",
+        },
+        // Per-primitive request examples so a first-time agent doesn't
+        // need to fetch /openapi.json just to learn argument names. Cell
+        // fields accept place names directly — the responder runs the
+        // geocoder server-side and returns a `resolved_from` envelope.
+        "primitive_examples": {
+            "ask":            {"method":"POST","path":"/v1/ask","body":{"q":"what is the elevation at South Mumbai"}},
+            "locate":         {"method":"POST","path":"/v1/locate","body":{"place":"South Mumbai"}},
+            "recall":         {"method":"POST","path":"/v1/recall","body":{"cell":"South Mumbai","bands":["copdem30m.elevation_mean","indices.ndvi"]}},
+            "recall_polygon": {"method":"POST","path":"/v1/recall_polygon","body":{"place":"Yellowstone National Park","bands":["copdem30m.elevation_mean"],"max_cells":8}},
+            "compare":        {"method":"POST","path":"/v1/compare","body":{"a":"Bengaluru","b":"São Paulo"}},
+            "find_similar":   {"method":"POST","path":"/v1/find_similar","body":{"key":"Reykjavik","k":5,"band":"geotessera","mode":"hamming_then_rerank"}},
+            "diff":           {"method":"POST","path":"/v1/diff","body":{"cell":"defi.zb4d9.pefa.zf619","band":"indices.ndvi","tslot_a":1735689600,"tslot_b":1767225600}},
+            "trajectory":     {"method":"POST","path":"/v1/trajectory","body":{"cell":"defi.zb4d9.pefa.zf619","band":"indices.ndvi","window":[1577836800,1735689600]}},
+            "backfill":       {"method":"POST","path":"/v1/backfill","body":{"cell":"defi.zb4d9.pefa.zf619","band":"indices.ndvi","start_unix":1577836800,"end_unix":1735689600}},
+            "verify_claim":   {"method":"POST","path":"/v1/verify","body":{"cell":"defi.zb4d9.pefa.zf619","claim":{"band":"copdem30m.elevation_mean","op":"gt","value":3.0,"tslot":0}}},
+            "verify_receipt": {"method":"POST","path":"/v1/verify_receipt","body":{"receipt":{"request_id":"...","served_at":"...","primitive":"emem.recall","cells":["..."],"fact_cids":["..."],"responder_pubkey_b32":"...","signature_b32":"..."}}},
+            "state":          {"method":"POST","path":"/v1/state","body":{"cell":"South Mumbai","encoder":"geotessera"}},
+            "state_multi":    {"method":"POST","path":"/v1/state_multi","body":{"cell":"Helsinki Airport"}},
+            "state_diff":     {"method":"POST","path":"/v1/state_diff","body":{"cell":"defi.zb4d9.pefa.zf619","encoder":"geotessera","tslot_a":0,"tslot_b":1735689600}},
+            "memory_token":   {"method":"POST","path":"/v1/memory_token","body":{"cell":"defi.zb4d9.pefa.zf619","fact_cid":"wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q"}},
+            "memory_token_resolve": {"method":"POST","path":"/v1/memory_token/resolve","body":{"token":"memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q"}}
         },
     }))
 }
@@ -12448,6 +12618,42 @@ struct StateDiffResp {
 }
 
 async fn post_state_diff(
+    State(s): State<AppState>,
+    Json(req): Json<StateDiffReq>,
+) -> Result<Json<StateDiffResp>, ApiError> {
+    // Budget: 2 × per-materializer timeout + overhead. Tunable via
+    // EMEM_STATE_DIFF_TIMEOUT_SECS (clamped 10..=180). When the cell
+    // has no fact at either tslot the handler returns 404 within a
+    // few ms; the budget only matters on cold-materialise paths.
+    let budget = std::env::var("EMEM_STATE_DIFF_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(75u64)
+        .clamp(10, 180);
+    let cell_preview = req.cell.clone();
+    let ta = req.tslot_a;
+    let tb = req.tslot_b;
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(budget),
+        post_state_diff_inner(State(s), Json(req)),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => Err(ApiError(
+            StatusCode::GATEWAY_TIMEOUT,
+            ErrorBody {
+                code: emem_core::error::ErrorCode::SourceFetchFailed,
+                message: format!(
+                    "/v1/state_diff: two-tslot recall for ({cell_preview}, {ta} vs {tb}) exceeded {budget}s. Likely cause: cold materialise on one of the vintages. Try /v1/recall on each tslot first to warm, or raise EMEM_STATE_DIFF_TIMEOUT_SECS."
+                ),
+                details: None,
+            },
+        )),
+    }
+}
+
+async fn post_state_diff_inner(
     State(s): State<AppState>,
     Json(req): Json<StateDiffReq>,
 ) -> Result<Json<StateDiffResp>, ApiError> {
@@ -23434,7 +23640,11 @@ async fn build_cell_scene_rgb(
         if v.is_empty() {
             return None;
         }
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // is_finite() filter above already excluded NaN, so partial_cmp
+        // returns Some(_) for every pair — but the bare .unwrap() would
+        // still panic if any future caller passed NaN. Fall back to Equal
+        // defensively so the handler stays panic-free for all f64 inputs.
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let idx = ((v.len() as f64 - 1.0) * p).round() as usize;
         Some(v[idx.min(v.len() - 1)])
     }
@@ -23713,7 +23923,36 @@ async fn post_ask(
     State(s): State<AppState>,
     Json(req): Json<AskReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    ask_inner(s, req).await.map(Json)
+    // Overall request budget — bounds the four-classifier fan-out so a
+    // single slow downstream (LST 8-day, MODIS, met.no) doesn't drag the
+    // whole question past the gateway timeout. Per-materializer timeout
+    // still caps individual upstream calls; this is the fan-out ceiling
+    // on top. Tunable via EMEM_ASK_TIMEOUT_SECS (clamped 10..=180).
+    let budget = std::env::var("EMEM_ASK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(90u64)
+        .clamp(10, 180);
+    let q_preview: String = req.q.chars().take(80).collect();
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(budget),
+        ask_inner(s, req),
+    )
+    .await
+    {
+        Ok(Ok(v)) => Ok(Json(v)),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(ApiError(
+            StatusCode::GATEWAY_TIMEOUT,
+            ErrorBody {
+                code: emem_core::error::ErrorCode::SourceFetchFailed,
+                message: format!(
+                    "/v1/ask: classifier-driven fan-out for q={q_preview:?} exceeded {budget}s. Common causes: slow MODIS/LST connector on first cell, /v1/locate cold-cache geocoder. Try a structured POST /v1/recall or /v1/hunt with the specific band + region, or raise EMEM_ASK_TIMEOUT_SECS."
+                ),
+                details: None,
+            },
+        )),
+    }
 }
 
 /// `POST /v1/hunt` — first-class hunter-mode endpoint.
@@ -23877,11 +24116,34 @@ async fn hunt_with_explicit_bbox(
     };
 
     let slow_cap = slow_band_cells_cap(spec.primary_band);
-    // Cold-region cap: at HUNTER_CONCURRENCY=32, materializer_timeout=30s,
-    // a 12-cell sweep finishes inside the 180 s gateway window even when
-    // every cell triggers a cold STAC + COG materialise (Sentinel-2 / RADD).
-    // Slow primary bands (MODIS LST) still cap lower via slow_band_cells_cap.
-    let n_cells = slow_cap.unwrap_or(12);
+    // Area-aware sampling. The previous fixed n=12 produced sparse
+    // coverage on large polygons (Lake Erie ~25,000 km² → 9-12 cells
+    // is two orders of magnitude too sparse for blooms to land on a
+    // sample). Scale with sqrt(area_km²) so a 100 km² lake gets ~12
+    // cells and Lake Erie gets ~32, capped by EMEM_HUNT_MAX_CELLS
+    // (default 64, clamped 12..=128). Slow primary bands (MODIS LST,
+    // ~1 km native) still cap lower via slow_band_cells_cap so MODIS
+    // doesn't blow the gateway budget on big regions.
+    let n_cells = match slow_cap {
+        Some(slow) => slow,
+        None => {
+            let mid_lat_rad = ((bbox.0 + bbox.1) * 0.5).to_radians();
+            let lat_km = (bbox.1 - bbox.0) * 111.0;
+            let lng_km = (bbox.3 - bbox.2) * 111.0 * mid_lat_rad.cos().max(0.0);
+            let area_km2 = (lat_km * lng_km).max(0.0);
+            let max_cells = std::env::var("EMEM_HUNT_MAX_CELLS")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(64)
+                .clamp(12, 128);
+            // sqrt(area_km2) / 8 puts a 1 km² region at ~0.1 (→ min
+            // floor 12), 100 km² at ~1.25 (→ 12), 10 000 km² at
+            // ~12.5 (→ 12-13), 25 000 km² (Lake Erie) at ~20 (→ 20),
+            // 750 000 km² (Borneo) at ~108 (→ capped at max_cells).
+            let want = (area_km2.sqrt() / 8.0).ceil().max(12.0) as usize;
+            want.min(max_cells)
+        }
+    };
     let cells = sample_cells_in_bbox(bbox, n_cells);
     if cells.is_empty() {
         return Ok(json!({
@@ -24384,6 +24646,61 @@ fn pubkey_to_b32(bytes: &[u8; 32]) -> String {
 ///
 /// Called once on the JSON tree right after `serde_json::to_value`
 /// — surgical mutation, no shape change beyond the additive fields.
+/// Surface `fact_cid` and `memory_token` on each per-fact object in a
+/// recall response by zipping `receipt.fact_cids[]` with `facts[]`.
+///
+/// The wire shape historically carried fact_cids only as a parallel
+/// array on the receipt — agents had to index by position to get a
+/// fact's cid. That hurts copy-paste UX and pattern-matches as a bug
+/// when an LLM looks for `facts[].fact_cid` (which the OpenAPI `Fact`
+/// schema already declares). This helper closes the gap without
+/// changing the signed CBOR (the fact body still hashes to the same
+/// cid; we just attach a sibling field for client convenience).
+fn enrich_facts_with_cid(v: &mut JsonValue) {
+    let cids: Vec<String> = v
+        .get("receipt")
+        .and_then(|r| r.get("fact_cids"))
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let cell_for_token: Option<String> = v
+        .get("facts")
+        .and_then(|f| f.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|f| f.get("cell"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string());
+    if let Some(facts) = v.get_mut("facts").and_then(|f| f.as_array_mut()) {
+        for (i, fact) in facts.iter_mut().enumerate() {
+            let Some(map) = fact.as_object_mut() else {
+                continue;
+            };
+            if map.contains_key("fact_cid") {
+                continue;
+            }
+            let Some(cid) = cids.get(i).cloned() else {
+                continue;
+            };
+            let cell = map
+                .get("cell")
+                .and_then(|c| c.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| cell_for_token.clone());
+            map.insert("fact_cid".into(), JsonValue::String(cid.clone()));
+            if let Some(cell) = cell {
+                map.insert(
+                    "memory_token".into(),
+                    JsonValue::String(format!("memt:{cell}:{cid}")),
+                );
+            }
+        }
+    }
+}
+
 fn enrich_recall_signer_b32(v: &mut JsonValue) {
     fn collect_pk(arr: &[JsonValue]) -> Option<[u8; 32]> {
         if arr.len() != 32 {
@@ -25304,15 +25621,31 @@ async fn hunter_response(
         }
     };
 
-    // Cap n_cells for cold-region safety. At HUNTER_CONCURRENCY=32 with
-    // materializer_timeout=30 s, a 12-cell sweep completes within the
-    // 180 s gateway window even when every cell triggers a cold STAC +
-    // COG materialise (Sentinel-2 / RADD). Pre-2026-05-17 default was 32,
-    // which routinely 504'd on first-touch Amazonas / Tokyo / Mumbai
-    // queries (~90 s + Tessera rerank often >180 s). Slow primary bands
-    // (MODIS LST) cap lower via slow_band_cells_cap.
+    // Area-aware sampling — same model as /v1/hunt. The fixed 12-cell
+    // sweep produced sparse coverage on large polygons (Lake Erie
+    // ~25 000 km² → 9-12 cells is two orders of magnitude too sparse
+    // for blooms / fires to land on a sample). Scale with
+    // sqrt(area_km²) so small parks stay at 12 and Lake Erie reaches
+    // ~20, capped by EMEM_HUNT_MAX_CELLS (default 64, clamped 12..=128).
+    // Slow primary bands (MODIS LST) still cap lower via
+    // slow_band_cells_cap so the 180 s gateway budget holds.
     let slow_cap = slow_band_cells_cap(spec.primary_band);
-    let n_cells = slow_cap.unwrap_or(12);
+    let n_cells = match slow_cap {
+        Some(slow) => slow,
+        None => {
+            let mid_lat_rad = ((bbox.0 + bbox.1) * 0.5).to_radians();
+            let lat_km = (bbox.1 - bbox.0) * 111.0;
+            let lng_km = (bbox.3 - bbox.2) * 111.0 * mid_lat_rad.cos().max(0.0);
+            let area_km2 = (lat_km * lng_km).max(0.0);
+            let max_cells = std::env::var("EMEM_HUNT_MAX_CELLS")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(64)
+                .clamp(12, 128);
+            let want = (area_km2.sqrt() / 8.0).ceil().max(12.0) as usize;
+            want.min(max_cells)
+        }
+    };
 
     // Sample up to `n_cells` from the bbox. Use the polygon_geojson if
     // available; fall back to bbox grid. Track whether we fell back so
@@ -25954,6 +26287,41 @@ fn hs_code_is_cattle(hs: &str) -> bool {
 }
 
 async fn post_eudr_dds(
+    State(s): State<AppState>,
+    Json(req): Json<EudrDdsReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    // Budget: EUDR fan-out runs eudr_compliance@1 per cell across every
+    // plot (default 16 cells/plot, max 256/plot). With JRC GFC2020 +
+    // Hansen + RADD + WRI/Sims, cold materialise per cell can take a
+    // few seconds; 4 plots × 16 cells × 5 s ≈ 320 s without a fan-out
+    // ceiling. Tunable via EMEM_EUDR_TIMEOUT_SECS (clamped 15..=240).
+    let budget = std::env::var("EMEM_EUDR_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(120u64)
+        .clamp(15, 240);
+    let n_plots = req.plots.len();
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(budget),
+        post_eudr_dds_inner(State(s), Json(req)),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => Err(ApiError(
+            StatusCode::GATEWAY_TIMEOUT,
+            ErrorBody {
+                code: emem_core::error::ErrorCode::SourceFetchFailed,
+                message: format!(
+                    "/v1/eudr_dds: per-plot per-cell fan-out for {n_plots} plot(s) exceeded {budget}s. Likely a cold JRC GFC2020 / Hansen GFC tile read; warm by calling /v1/recall on a sample cell with bands:[\"jrc_gfc2020_v3.forest_2020\",\"hansen_gfc.lossyear_v1_12\"] first, or raise EMEM_EUDR_TIMEOUT_SECS."
+                ),
+                details: None,
+            },
+        )),
+    }
+}
+
+async fn post_eudr_dds_inner(
     State(s): State<AppState>,
     Json(req): Json<EudrDdsReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
@@ -26736,6 +27104,7 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         enrich_facts_with_metadata(&mut facts_json);
     }
     enrich_recall_signer_b32(&mut facts_json);
+    enrich_facts_with_cid(&mut facts_json);
 
     // Foundation-embedding fan-out. When the question is shaped like
     // "find places like X" or "what changed here", route through the
@@ -28233,6 +28602,33 @@ fn reqwest_client() -> reqwest::Client {
             // ORNL DAAC, SoilGrids REST, met.no, GMRT) routinely hit
             // 5–10 s p95 cold latencies; 8 s was hair-trigger.
             .timeout(std::time::Duration::from_secs(16))
+            // Defense-in-depth against DNS / TLS-handshake hangs: a
+            // 5 s connect cap prevents a single sick upstream peer
+            // (met.no, Open-Meteo, ORNL DAAC, SoilGrids) from holding
+            // the connection-establish phase indefinitely while the
+            // overall .timeout above only starts counting once bytes
+            // begin to flow. Without this, a TCP-stuck peer can
+            // burn the whole 16 s budget on connect alone, and 16
+            // sequential boring-endpoint band fetches × 16 s ≈ 4 min
+            // (the original /v1/weather 504-vector). Tunable via
+            // EMEM_HTTP_CONNECT_TIMEOUT_SECS (clamped 1..=30).
+            .connect_timeout(std::time::Duration::from_secs(
+                std::env::var("EMEM_HTTP_CONNECT_TIMEOUT_SECS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(5)
+                    .clamp(1, 30),
+            ))
+            // Pool idle connections per host so back-to-back fetches
+            // to the same JSON peer (met.no's 16 timeseries fields,
+            // Open-Meteo's CAMS multi-hour windows) reuse the
+            // established TLS session instead of paying the
+            // handshake every time.
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .pool_max_idle_per_host(8)
+            // Persist DNS resolution across requests (default trust-dns
+            // resolver lives for the client lifetime here since the
+            // client is a process-wide singleton).
             .build()
             .unwrap_or_default()
     })
@@ -28367,7 +28763,7 @@ async fn get_cell_geojson(Path(cell64_with_ext): Path<String>) -> Result<Respons
         .header("content-type", "application/geo+json; charset=utf-8")
         .header("cache-control", "public, max-age=86400, immutable")
         .body(body.into())
-        .unwrap();
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     Ok(resp)
 }
 
@@ -28490,7 +28886,7 @@ async fn get_cell_recall_geojson(
         .header("content-type", "application/geo+json; charset=utf-8")
         .header("cache-control", "public, max-age=60")
         .body(body.into())
-        .unwrap();
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     Ok(resp)
 }
 

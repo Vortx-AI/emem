@@ -207,6 +207,26 @@ fn make_neighbor(cell64: String, score: f32) -> Neighbor {
     }
 }
 
+/// Honest interpretation hint for the band-family the caller scored
+/// over. Tessera-family embeddings measure SURFACE TEXTURE (S1 + S2
+/// per-pixel signal aggregated annually). They are not climate-axis
+/// embeddings — a Reykjavik query can rank Addis Ababa highly because
+/// the volcanic-highland surface signature aliases the Iceland
+/// glacial-volcanic substrate, despite the climate gulf. Without this
+/// hint, agents read latitude similarity into the result and
+/// hallucinate "these are climatically similar cities".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterpretationHint {
+    /// One-line summary of what the embedding actually measures.
+    pub embedding_axis: String,
+    /// What the score does NOT mean — the specific failure mode an
+    /// agent typically falls into.
+    pub does_not_mean: String,
+    /// Concrete alternative endpoint when the user actually wanted
+    /// climate / biome / latitude proximity.
+    pub for_climate_proximity_use: String,
+}
+
 /// find_similar response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FindSimilarResp {
@@ -222,10 +242,41 @@ pub struct FindSimilarResp {
     /// equals `neighbors.len()`. After per-cell deduplication this can
     /// be smaller than `requested_k` when the corpus is sparse.
     pub returned_k: u32,
+    /// Band-family-typed interpretation hint. Populated for every
+    /// known band family (see `interpretation_for_band`). Tells the
+    /// agent what the cosine actually measures so it does not project
+    /// climate / biome semantics onto a surface-texture embedding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interpretation: Option<InterpretationHint>,
     /// Signed receipt. `receipt.fact_cids` carries every Fact whose
     /// vector contributed to the final ranking — one per kept neighbour
     /// (the highest-scoring fact per cell after dedupe).
     pub receipt: Receipt,
+}
+
+/// Band-family-typed interpretation. Returned alongside every
+/// `find_similar` response so the agent knows what the cosine
+/// actually measures. Extends as new embedding families wire in.
+pub fn interpretation_for_band(band: &str) -> Option<InterpretationHint> {
+    let band_root = band.split('.').next().unwrap_or(band);
+    match band_root {
+        "geotessera" => Some(InterpretationHint {
+            embedding_axis: "Surface texture from Sentinel-1 SAR + Sentinel-2 optical, aggregated annually at the cell. Captures roughness, vegetation density, soil moisture, and seasonal phenology.".into(),
+            does_not_mean: "Climate, biome, or latitude proximity. Volcanic highlands at 9°N and 64°N can score similarly because the surface signal aliases despite radically different climates.".into(),
+            for_climate_proximity_use: "POST /v1/recall with `bands:[\"koppen\"]` and compare the categorical class, or POST /v1/compare_bands with both cells' temperature/precipitation bands.".into(),
+        }),
+        "clay_v1" => Some(InterpretationHint {
+            embedding_axis: "Sentinel-2 L2A scene-level features at 256×256 chip resolution, 1024-D CLS token from a vision transformer trained on global S2.".into(),
+            does_not_mean: "Land-cover labels or land-use categories. The embedding captures visual-spectral patterns; a city centre and a quarry can score close on grey-pixel texture.".into(),
+            for_climate_proximity_use: "POST /v1/recall with `bands:[\"esa_worldcover.lc_2021\"]` for the ESA land-cover label, or compose with `koppen` for climate.".into(),
+        }),
+        "prithvi_eo2" => Some(InterpretationHint {
+            embedding_axis: "HLS V2 (Harmonised Landsat + Sentinel-2) 6-band scene features at 224×224 chip resolution, 1024-D CLS from NASA/IBM Prithvi-EO-2.0.".into(),
+            does_not_mean: "Validated change-detection scores. The embedding is a multispectral feature distillation, not a fitted classifier; downstream linear probes need their own validation.".into(),
+            for_climate_proximity_use: "POST /v1/recall with `bands:[\"koppen\"]` (categorical climate class), or POST /v1/compare_bands with weather bands.".into(),
+        }),
+        _ => None,
+    }
 }
 
 /// Map a "cosine band" to its binary sibling. Today only the
@@ -368,11 +419,13 @@ pub async fn find_similar(
 
     let cells: Vec<String> = kept.iter().map(|n| n.cell.clone()).collect();
     let returned_k = kept.len() as u32;
+    let interpretation = interpretation_for_band(&band);
     let receipt = srv.sign_receipt("emem.find_similar", cells, kept_cids, true, started, None);
     Ok(FindSimilarResp {
         neighbors: kept,
         requested_k: k as u32,
         returned_k,
+        interpretation,
         receipt,
     })
 }
@@ -676,11 +729,13 @@ async fn find_similar_binary(
 
     let cells: Vec<String> = neighbors.iter().map(|n| n.cell.clone()).collect();
     let returned_k = neighbors.len() as u32;
+    let interpretation = interpretation_for_band(cosine_band);
     let receipt = srv.sign_receipt("emem.find_similar", cells, fact_cids, true, started, None);
     Ok(FindSimilarResp {
         neighbors,
         requested_k: k as u32,
         returned_k,
+        interpretation,
         receipt,
     })
 }

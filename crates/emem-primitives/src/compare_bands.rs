@@ -363,10 +363,14 @@ pub async fn compare_bands(
             let d = bn - an;
             ("delta".to_string(), d, d.abs(), None)
         } else {
+            // Caller-visible shape mismatch (scalar vs vector or
+            // vector-length mismatch) is a 400 InvalidArgument, not a 500
+            // Internal — the caller can fix it by passing two scalar bands
+            // or two equal-length vector bands.
             return Err(StorageError::Protocol {
-                code: ErrorCode::Internal,
+                code: ErrorCode::InvalidArgument,
                 message: format!(
-                    "compare_bands: bands ({}, {}) have incomparable value types — \
+                    "compare_bands: bands ({}, {}) have incomparable value types; \
                      both must be scalar or both vector of equal length",
                     req.a, req.b
                 ),
