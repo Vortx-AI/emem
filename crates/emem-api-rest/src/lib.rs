@@ -23398,7 +23398,7 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
     // Editorial canvas: 1440 × 800 = map area 720 + caption band 80.
     const W: i32 = 1440;
     const H: i32 = 720;
-    const CAPTION_H: i32 = 80;
+    const CAPTION_H: i32 = 110;
     const TOTAL_H: i32 = H + CAPTION_H;
     let mut rects = String::new();
     for ((bin_lat, bin_lng), count) in &by_bin {
@@ -23461,9 +23461,18 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
         grid.push_str(&format!(
             "<line x1='{x}' y1='0' x2='{x}' y2='{H}' stroke='#9a8f78' stroke-width='0.6' opacity='0.45'/>"
         ));
+        // Anchor labels so they stay inside the canvas: leftmost (lng=-150)
+        // hangs off the line to the right, rightmost (lng=150) to the left,
+        // everything in between is centred under its meridian.
+        let (lx, anchor) = if lng == -150 {
+            (x + 4, "start")
+        } else if lng == 150 {
+            (x - 4, "end")
+        } else {
+            (x, "middle")
+        };
         grid.push_str(&format!(
-            "<text class='lat' x='{}' y='{}'>{lng}°</text>",
-            x + 4,
+            "<text class='lat' x='{lx}' y='{}' text-anchor='{anchor}'>{lng}°</text>",
             H - 6
         ));
     }
@@ -23591,10 +23600,15 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
             "<path d='{d}' fill='#e8e0cc' fill-opacity='0.95' stroke='#b8ad94' stroke-width='0.6'/>"
         ));
     }
-    // Legend strip — three swatches showing the 5-stop YlOrRd ramp keyed
-    // to the count scale. Anchored bottom-right of the caption band.
-    let legend_y = H + 32;
-    let legend_x = W - 360;
+    // Legend strip — 5-stop YlOrRd ramp keyed to log density. Sits in
+    // the right column of the caption band on its own vertical lane so
+    // its axis labels don't collide with the h1/dek text on the left.
+    // Layout (within caption band y = H..H+CAPTION_H):
+    //   y+30  legend caption ("log-scale density →")
+    //   y+44  gradient bar
+    //   y+66  axis labels ("1 fact", "{max_count} facts at densest 1° bin")
+    let legend_x = W - 320;
+    let legend_w = 296;
     let legend = format!(
         r##"<defs><linearGradient id="cov_ramp" x1="0" y1="0" x2="1" y2="0">
   <stop offset="0%" stop-color="#ffe8c7"/>
@@ -23603,14 +23617,15 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
   <stop offset="75%" stop-color="#e64b1f"/>
   <stop offset="100%" stop-color="#a61408"/>
 </linearGradient></defs>
-<rect x="{legend_x}" y="{legend_y}" width="320" height="8" fill="url(#cov_ramp)"/>
-<text class="lbl" x="{legend_x}" y="{ly1}">1 fact</text>
-<text class="lbl" x="{legend_x_mid}" y="{ly1}" text-anchor="middle">log-scale density</text>
-<text class="lbl" x="{legend_x_end}" y="{ly1}" text-anchor="end">{max_count} facts at densest 1° bin</text>
+<text class="lbl" x="{legend_x}" y="{caption_y}">log-scale density</text>
+<rect x="{legend_x}" y="{bar_y}" width="{legend_w}" height="8" fill="url(#cov_ramp)"/>
+<text class="lbl" x="{legend_x}" y="{lbl_y}">1 fact</text>
+<text class="lbl" x="{legend_x_end}" y="{lbl_y}" text-anchor="end">{max_count} facts at densest 1° bin</text>
 "##,
-        ly1 = legend_y + 22,
-        legend_x_mid = legend_x + 160,
-        legend_x_end = legend_x + 320,
+        caption_y = H + 30,
+        bar_y = H + 44,
+        lbl_y = H + 66,
+        legend_x_end = legend_x + legend_w,
     );
     let svg = format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
@@ -23631,16 +23646,16 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
 {rects}
 <line x1="0" y1="{H}" x2="{W}" y2="{H}" stroke="#d9d2c5" stroke-width="1"/>
 <text class="h1" x="24" y="{h1_y}">Where emem already knows something</text>
-<text class="dek" x="24" y="{dek_y}">{cell_count} cells with at least one signed fact · {total_facts} facts in the corpus · Plate-carrée, 1° bins, log-scale density</text>
+<text class="dek" x="24" y="{dek_y}">{cell_count} cells with at least one signed fact · {total_facts} facts in the corpus · Plate-carrée, 1° bins</text>
 {legend}
 <text class="src" x="24" y="{src_y}">emem.dev · responder {pubkey_short}…</text>
 </svg>
 "##,
         half_h = H / 2,
         half_w = W / 2,
-        h1_y = H + 32,
-        dek_y = H + 52,
-        src_y = H + 72,
+        h1_y = H + 30,
+        dek_y = H + 54,
+        src_y = H + 94,
     );
     (svg, cell_count, total_facts)
 }

@@ -156,7 +156,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero.hero-lean{grid-template-columns:1fr;gap:0;padding:5rem 0 4rem;max-width:760px;margin:0 auto}
 .hero.hero-lean .sub{font-size:var(--t-lg);max-width:54ch;line-height:1.45;margin:0 0 1.6rem;color:var(--ink-2);font-weight:400}
 .hero.hero-lean .hero-cta{margin-top:1.4rem}
-.hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem;max-width:62ch}
+.hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:680px){.hero-trust{white-space:normal}}
 .hero-trust code{color:var(--ink-2);font-size:var(--t-xs);background:var(--paper-2);padding:.05em .35em;border:1px solid var(--rule);border-radius:2px}
 @media (max-width:560px){
   .hero.hero-lean{padding:3rem 0 2.5rem}
