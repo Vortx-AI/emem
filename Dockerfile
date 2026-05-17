@@ -24,6 +24,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         pkg-config ca-certificates g++ && \
     rm -rf /var/lib/apt/lists/*
 
+# Install mdbook *before* the COPY layers so this layer caches across
+# every Rust / docs / web edit. emem-api-rest's lib.rs embeds the
+# rendered /docs/ site via `include_dir!("$CARGO_MANIFEST_DIR/../../docs/book")`,
+# so the cargo build below cannot proceed until docs/book/ exists.
+# `cargo install` works on every arch the build matrix supports (the
+# Rust toolchain is already present); no need to fish out a prebuilt
+# mdbook binary per ${TARGETARCH}.
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie,target=/usr/local/cargo/registry,sharing=locked \
+    cargo install --locked --version 0.5.2 mdbook
+
 # Cache `cargo fetch` against the workspace manifest before pulling in
 # source — keeps re-builds fast when only Rust files change.
 # crates/emem-api-rest pulls files from web/, docs/, examples/ via
@@ -37,6 +47,13 @@ COPY claude-skills/ claude-skills/
 # Root-level markdown is include_str!'d directly by emem-api-rest.
 # Without these the build fails with `couldn't read PRIVACY.md`.
 COPY PRIVACY.md TERMS.md SUPPORT.md SECURITY.md ./
+
+# Render the /docs/ mdbook site. The post-build `rm` drops
+# `docs/book/book.toml` — mdbook copies our build config into the output
+# because `src = "."` pulls in every non-md file; we don't want a leaked
+# build config riding inside the embedded tree.
+RUN mdbook build docs && rm -f docs/book/book.toml
+
 # BuildKit cache-mount IDs are scoped by ${TARGETARCH} so the parallel
 # linux/amd64 + linux/arm64 build jobs don't race each other unpacking
 # the same crate into a shared cache (`File exists (os error 17)` on
