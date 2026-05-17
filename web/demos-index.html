@@ -71,6 +71,22 @@ h1 .accent{color:var(--accent)}
 footer{margin-top:3rem;padding-top:1.4rem;border-top:1px solid var(--rule);color:var(--ink-3);font-size:var(--t-xs);display:flex;flex-wrap:wrap;gap:.7rem;align-items:center}
 footer a{color:var(--ink-3);border-bottom:none}
 footer a:hover{color:var(--accent)}
+@media (max-width:760px){
+  .wrap{padding:1rem .8rem 3rem}
+  h1{font-size:var(--t-xl);line-height:1.18}
+  .lede{font-size:var(--t-base)}
+  .grid{grid-template-columns:1fr;gap:.7rem}
+  .statusbar{flex-wrap:wrap;height:auto;padding:.5rem .8rem;gap:.4rem}
+  .statusbar nav{margin-left:0;flex-wrap:wrap;gap:.5rem}
+  .statusbar>span:not(.brand){display:none}
+  footer{gap:.5rem;font-size:10px}
+  footer .muted{flex-basis:100%;margin-top:.4rem}
+}
+@media (max-width:480px){
+  html{font-size:88%}
+  .card{padding:.9rem 1rem}
+  .card a.title{font-size:var(--t-base)}
+}
 </style>
 </head>
 <body>
@@ -118,6 +134,17 @@ footer a:hover{color:var(--accent)}
         <span class=tag>/v1/state</span>
         <span class=tag>/v1/state_multi</span>
         <span class=tag>extras[]</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/integrations.md#memory-tokens">Memory tokens · compose, paste, resolve</a>
+      <span class=endpoint>POST /v1/memory_token · POST /v1/memory_token/resolve</span>
+      <p class=desc>One handle, <code>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</code>, that any pipeline can paste in chat, write to long-term memory, or quote across processes. The compose endpoint validates shape; the resolve endpoint single-trips back to the signed fact body on any responder that holds it. Card links to <code>/integrations.md#memory-tokens</code> for the curl + parse recipe (the POST endpoints themselves return 405 to a browser GET, by design).</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>memt:</span>
+        <span class=tag>citation handle</span>
       </div>
     </article>
 

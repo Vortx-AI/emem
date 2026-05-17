@@ -87,7 +87,22 @@ hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
 
 /* layout */
 .app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
-@media(max-width:760px){.app{padding:1em .8em 4em}}
+@media(max-width:760px){
+  .app{padding:1em .8em 4em}
+  header.top{gap:.4em;padding-bottom:.8em;margin-bottom:1em}
+  header.top .navlinks{flex-wrap:wrap;gap:.5em}
+  .input-card{padding:.9em 1em}
+  .input-card .row{flex-direction:column;align-items:stretch}
+  .input-card .row input,.input-card .row button{flex:none;width:100%}
+}
+@media(max-width:480px){
+  html{font-size:13.5px}
+  .lede{font-size:13px}
+  .card{padding:.9em 1em}
+  .card .grid{font-size:11.5px}
+  .recipes pre{font-size:10.5px}
+  .source-row{flex-wrap:wrap}
+}
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
   border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
 header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:16px;color:var(--fg)}

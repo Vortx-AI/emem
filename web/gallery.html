@@ -198,16 +198,27 @@
   footer a { color: var(--ink-dim); }
   footer .pubkey { font-family: var(--mono); font-size: 11.5px; }
 
-  @media (max-width: 640px) {
-    body { font-size: 16px; }
+  @media (max-width: 760px) {
     .wrap, .wrap-wide { padding: 0 22px; }
     .masthead { padding-top: 56px; }
-    .masthead h1 { font-size: 32px; }
-    .masthead .standfirst { font-size: 18px; }
-    section.figure { padding-bottom: 64px; }
+    .masthead h1 { font-size: 30px; }
+    .masthead .standfirst { font-size: 17px; }
+    section.figure { padding-bottom: 56px; }
     section.figure h2 { font-size: 24px; }
-    section.figure .lede { font-size: 19px; }
-    section.figure .dek { font-size: 16.5px; }
+    section.figure .lede { font-size: 18px; }
+    section.figure .dek { font-size: 16px; }
+  }
+  @media (max-width: 480px) {
+    body { font-size: 14.5px; }
+    .wrap, .wrap-wide { padding: 0 16px; }
+    .masthead { padding-top: 36px; }
+    .masthead h1 { font-size: 24px; line-height: 1.15; }
+    .masthead .standfirst { font-size: 15px; }
+    section.figure h2 { font-size: 20px; }
+    section.figure .lede { font-size: 15.5px; }
+    section.figure .dek { font-size: 14px; }
+    section.figure { padding-bottom: 40px; }
+    footer { margin-top: 48px; padding: 24px 0 40px; font-size: 12.5px; }
   }
 </style>
 </head>
@@ -486,7 +497,7 @@
         </div>
       </div>
       <div class="scene">
-        <a href="/v1/recall?cell=defi.zb443.mExa.lEdo" target="_blank">
+        <a href="/v1/cells/defi.zb443.mExa.lEdo" target="_blank" title="GET the signed facts at this cell">
           <img src="/v1/places/scene_overlay.svg?place=Borneo&amp;band=indices.ndvi&amp;n_cells=16" loading="lazy" alt="Borneo NDVI overlay"/>
         </a>
         <div class="scene-meta">

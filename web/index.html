@@ -336,9 +336,74 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 #emem-consent button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #emem-consent a{margin-left:auto;font-size:.92em;color:var(--accent);text-decoration:underline}
 
+/* substrate (memory primitives walkthrough) */
+.substrate-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2)}
+.substrate-grid .lane{padding:1rem 1.1rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.5rem}
+.substrate-grid .lane:last-child{border-right:0}
+.substrate-grid .lane .verb{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+.substrate-grid .lane .title{font-size:var(--t-md);font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.substrate-grid .lane .endpoint{font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);word-break:break-all}
+.substrate-grid .lane .desc{font-size:var(--t-xs);color:var(--mute);line-height:1.5}
+@media (max-width:720px){.substrate-grid{grid-template-columns:1fr}.substrate-grid .lane{border-right:0;border-bottom:1px solid var(--rule)}.substrate-grid .lane:last-child{border-bottom:0}}
+
+/* live stream ticker + operator attestation */
+.live-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2);font-size:var(--t-sm)}
+.live-grid .pane{padding:1rem 1.1rem;border-right:1px solid var(--rule);min-width:0}
+.live-grid .pane:last-child{border-right:0}
+.live-grid .pane h3{margin:0 0 .3rem;font-size:var(--t-md);font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.live-grid .pane .endpoint{font-size:var(--t-xs);color:var(--accent);font-family:var(--mono);word-break:break-all;margin-bottom:.6rem}
+.live-grid .pane .row{display:grid;grid-template-columns:max-content 1fr;gap:.2rem .8rem;font-size:var(--t-xs);color:var(--ink-2);padding:.2rem 0;border-bottom:1px dashed var(--rule)}
+.live-grid .pane .row:last-of-type{border-bottom:0}
+.live-grid .pane .row .k{color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.live-grid .pane .row .v{color:var(--ink);word-break:break-all;font-family:var(--mono)}
+.live-grid .pane .row .v.cid,.live-grid .pane .row .v.sig{color:var(--accent);font-size:11px}
+.live-grid .pane .pulse{display:inline-flex;align-items:center;gap:.4rem;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.4rem}
+.live-grid .pane .pulse .dot{width:6px;height:6px;border-radius:50%;background:var(--mute-2)}
+.live-grid .pane .pulse.live .dot{background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:livepulse 1.6s cubic-bezier(.66,0,0,1) infinite}
+@keyframes livepulse{0%{box-shadow:0 0 0 0 oklch(from var(--accent) l c h / .6)}80%,100%{box-shadow:0 0 0 8px oklch(from var(--accent) l c h / 0)}}
+@media (prefers-reduced-motion:reduce){.live-grid .pane .pulse.live .dot{animation:none}}
+@media (max-width:720px){.live-grid{grid-template-columns:1fr}.live-grid .pane{border-right:0;border-bottom:1px solid var(--rule)}.live-grid .pane:last-child{border-bottom:0}}
+
+/* horizontal scroll wrapper for wide tables on small screens */
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll-x>table{min-width:560px}
+
+/* toast for copy-MCP and similar one-shot confirmations */
+.toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:.55rem 1rem;font-size:var(--t-sm);border:1px solid var(--ink);box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:99;opacity:0;pointer-events:none;transition:opacity .18s}
+.toast.show{opacity:1}
+
 /* responsive */
 @media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
-@media (max-width:720px){.section,.hero,.foot{grid-template-columns:1fr}.section-meta,.hero-meta,.foot-meta{position:static}.foot-grid{grid-template-columns:repeat(2,1fr)}.endpoints{font-size:var(--t-xs)}.endpoints th,.endpoints td{padding:.4rem .5rem}}
+@media (max-width:720px){
+  .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
+  .section-meta,.hero-meta,.foot-meta{position:static;max-height:none}
+  .section-meta{display:none}
+  .foot-grid{grid-template-columns:repeat(2,1fr)}
+  .endpoints{font-size:var(--t-xs)}
+  .endpoints th,.endpoints td{padding:.4rem .5rem}
+  .statusbar a.nav-sec{display:none}
+  .statusbar-inner{height:36px}
+  .memt-block .memt-parts{grid-template-columns:1fr}
+  .hero-cta{flex-direction:column;align-items:stretch}
+  .hero-cta .btn{justify-content:center}
+}
+@media (max-width:560px){
+  .hero h1{font-size:var(--t-2xl);line-height:1.05}
+  .hero .sub{font-size:var(--t-md)}
+  .hero-pillars{flex-direction:column}
+  .hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}
+  .hero-pillars .pillar:last-child{border-bottom:0}
+  .code pre{font-size:var(--t-xs)}
+  .loop{grid-template-columns:1fr}
+  .loop .step{border-right:0;border-bottom:1px solid var(--rule)}
+  .loop .step:last-child{border-bottom:0}
+}
+@media (max-width:480px){
+  html{font-size:86%}
+  .page{padding:0 1rem}
+  .stats{grid-template-columns:1fr}
+  .connect{grid-template-columns:repeat(2,1fr)}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -347,15 +412,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <span class="brand">emem</span>
-    <a href="#connect">connect</a>
-    <a href="#first-call">first call</a>
-    <a href="#corpus">corpus</a>
-    <a href="#hunter">hunter</a>
-    <a href="#for-agents">for agents</a>
-    <a href="#limits">limits</a>
+    <a href="#substrate" class="nav-sec">substrate</a>
+    <a href="#connect" class="nav-sec">connect</a>
+    <a href="#first-call" class="nav-sec">first call</a>
+    <a href="#stream" class="nav-sec">stream</a>
+    <a href="#verify" class="nav-sec">verify</a>
+    <a href="#for-agents" class="nav-sec">for agents</a>
     <span class="spacer"></span>
-    <a href="/verify">/verify</a>
-    <a href="/humans">/humans</a>
+    <a href="/whitepaper.md" class="nav-sec">whitepaper</a>
+    <a href="/openapi.json" class="nav-sec">openapi</a>
     <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
   </div>
 </header>
@@ -372,9 +437,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div>
     <h1>Earth as memory,<br><span class="accent">for real-world agents.</span></h1>
 
-    <p class="sub">Ask an AI about the flood risk on a street, the vegetation around a coffee farm, the elevation of a building site, and it usually guesses. emem is what it should look up instead.</p>
-
-    <p class="sub">Every spot on Earth, roughly ten metres across, has a permanent address. Every measurement at that spot is stored as a fact: what was measured, when, and by whom. Every fact is cryptographically signed, so an answer can be checked years later by anyone, on any computer, without trusting the server it came from.</p>
+    <p class="sub">A read-side memory layer for AI agents: every place on Earth gets a permanent address, every measurement at that address is a signed fact, every answer carries a content-addressed receipt your code can verify offline.</p>
 
     <div class="hero-formula">
       <span class="box">Cell</span>
@@ -437,18 +500,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
-    <p class="sub">Whatever memory your agent runtime ships internally (per-session associative state, per-tenant scratchpad, vector-indexed retriever), emem is the layer beneath: shared, cross-session, cross-tenant, persistent working memory of Earth itself, keyed by place and signed by the responder that served it. A <span class="band">cell64</span> is to an emem-grounded reasoning chain what a token is to an LLM: a stable, hierarchical, machine-readable handle the rest of the pipeline can quote, share, and verify.</p>
-
-    <p class="sub">For an AI agent or a developer, that means one URL, no keys, and receipts your code can verify offline. For a journalist, an underwriter, a regulator, or a curious reader, it means the number an assistant just quoted has a verifiable source.</p>
-
-    <p class="sub" style="font-size:var(--t-md);margin-top:1.4rem">The hosted responder at <a href="https://emem.dev" rel="noopener">emem.dev</a> covers elevation, vegetation, surface water, weather, land cover, air quality, soil, and three satellite-image embeddings, sourced from Copernicus, Sentinel, MODIS, JRC, Hansen, SoilGrids, and dozens of other open datasets. Wire it into Claude, Cursor, or ChatGPT by pasting one line into a config file. Read the full machine surface at <a href="/openapi.json">/openapi.json</a>.</p>
+    <p class="sub" style="font-size:var(--t-md);margin-top:1.4rem">Open data only: Copernicus, Sentinel, MODIS, JRC, Hansen, ESA WorldCover, SoilGrids, NASA POWER, Overture, plus Tessera, Prithvi-EO-2 and Clay foundation embeddings. One hosted responder, MCP + REST, no keys.</p>
 
     <div class="hero-cta">
-      <a class="btn" href="/whitepaper.md#193-memory-exposure-how-agents-reach-emem">state vector</a>
-      <a class="btn" href="/whitepaper.md#194-memory-tokens">memory token</a>
-      <a class="btn ghost" href="#connect">wire MCP</a>
-      <a class="btn ghost" href="/agents.md">agents.md</a>
-      <a class="btn ghost" href="/openapi.json">openapi.json</a>
+      <a class="btn" href="/whitepaper.md">Read whitepaper</a>
+      <a class="btn ghost" href="/openapi.json">OpenAPI</a>
+      <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+      <button class="btn ghost" id="copy-mcp" type="button" data-mcp='{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}'>Copy MCP config</button>
     </div>
   </div>
 </section>
@@ -745,52 +803,75 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
-<section class="section page" id="encoders">
+<section class="section page" id="substrate">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Encoders</span></div>
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Substrate</span></div>
     <dl>
-      <dt>recipe</dt><dd>clay_prithvi_tessera_triple_consensus@1</dd>
-      <dt>variants</dt><dd>6 domains</dd>
-      <dt>VRAM budget</dt><dd>20 GB total</dd>
-      <dt>vote</dt><dd>all_three / two_of_three / one_or_none</dd>
-      <dt>aliasing</dt><dd>independent receptive fields</dd>
+      <dt>read</dt><dd>POST&nbsp;/v1/state</dd>
+      <dt>compose</dt><dd>POST&nbsp;/v1/memory_token</dd>
+      <dt>resolve</dt><dd>POST&nbsp;/v1/memory_token/resolve</dd>
+      <dt>fan-out</dt><dd>POST&nbsp;/v1/state_multi</dd>
+      <dt>delta</dt><dd>POST&nbsp;/v1/state_diff</dd>
+      <dt>mcp tools</dt><dd>5 of 56</dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">05</span>Three encoders, one cell, an audit on agreement</h2>
-    <p class="lede">For "is this place changing", emem runs three independent foundation encoders over the same scene and votes. Each carries its own aliasing pattern; the disagreements are informative.</p>
+    <h2><span class="num">05</span>The memory substrate, five motions</h2>
+    <p class="lede">Below the recall surface sits a typed memory substrate. State is the read motion (planet-keyed dense vector). The memory token is the cite motion (one string any pipeline can paste). Resolve, fan-out, and diff round out the verbs.</p>
 
-    <div class="encoders">
-      <div class="enc">
-        <div class="name">Clay v1.5</div>
-        <div class="input">Sentinel-2 L2A · 10 bands · 256×256</div>
-        <div class="field">1024<span class="unit">D CLS</span></div>
-        <div class="fieldlbl">receptive field · 2.6 km</div>
-        <div class="latency"><span>warm</span><span>~12 ms</span></div>
+    <div class="substrate-grid">
+      <div class="lane">
+        <span class="verb">read · 128-D</span>
+        <span class="title">/v1/state</span>
+        <span class="endpoint">{cell, encoder?, view?}</span>
+        <span class="desc">Dense signed state at any place. <code>view=encoder</code> returns one foundation embedding (default geotessera, 128-D); <code>view=cube</code> returns the full 1792-D cube. Cell may be a place name; the geocoder cascade resolves it. Cold cells materialise on miss, then sign.</span>
       </div>
-      <div class="enc">
-        <div class="name">Prithvi-EO-2.0</div>
-        <div class="input">HLS V2 · 6 bands · 224×224</div>
-        <div class="field">1024<span class="unit">D CLS</span></div>
-        <div class="fieldlbl">receptive field · 6.7 km</div>
-        <div class="latency"><span>warm</span><span>~13 ms</span></div>
+      <div class="lane">
+        <span class="verb">cite · 1 string</span>
+        <span class="title">/v1/memory_token</span>
+        <span class="endpoint">memt:&lt;cell64&gt;:&lt;fact_cid&gt;</span>
+        <span class="desc">Compose a single colon-separated handle the agent can paste in chat, write to a long-term store, or quote across processes. Resolves back to the exact bytes on any responder that holds the fact.</span>
       </div>
-      <div class="enc">
-        <div class="name">Tessera</div>
-        <div class="input">S1 + S2 · annual · per-pixel</div>
-        <div class="field">128<span class="unit">D</span></div>
-        <div class="fieldlbl">receptive field · per-pixel</div>
-        <div class="latency"><span>vintage</span><span>2024 reliable</span></div>
+      <div class="lane">
+        <span class="verb">dereference</span>
+        <span class="title">/v1/memory_token/resolve</span>
+        <span class="endpoint">{token}</span>
+        <span class="desc">Single round-trip dereference: parse the token, fetch the fact by CID, return the canonical body plus the offline-verify URL. Returns 404 with a typed reason if the responder doesn&rsquo;t hold the fact.</span>
       </div>
     </div>
-    <div class="consensus">
-      <div class="c all"><span class="n">3/3</span><span class="lbl">all_three agree · change is real</span></div>
-      <div class="c"><span class="n">2/3</span><span class="lbl">two_of_three · likely real</span></div>
-      <div class="c one"><span class="n">1/3</span><span class="lbl">flag · receptive-field aliasing</span></div>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">read · /v1/state</span><span class="spacer"></span><button class="copy" data-copy-target="#code-state">copy</button></div>
+<pre id="code-state"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/state</span> \
+    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"South Mumbai","encoder":"geotessera"}'</span>
+
+<span class="tok-p">{</span>
+  <span class="tok-key">"cell"</span>: <span class="tok-s">"defi.zb4d7.ze56c.zf24c"</span>,
+  <span class="tok-key">"view"</span>: <span class="tok-s">"encoder"</span>, <span class="tok-key">"encoder"</span>: <span class="tok-s">"geotessera"</span>, <span class="tok-key">"dim"</span>: <span class="tok-n">128</span>,
+  <span class="tok-key">"vector"</span>: [<span class="tok-n">4.17</span>, <span class="tok-n">-3.26</span>, <span class="tok-n">1.24</span>, <span class="tok-n">4.63</span>, <span class="tok-n">-2.15</span>, <span class="tok-c">/* 123 more */</span>],
+  <span class="tok-key">"l2_norm"</span>: <span class="tok-n">37.84</span>,
+  <span class="tok-key">"fact_cid"</span>: <span class="tok-s">"…"</span>,
+  <span class="tok-key">"memory_token"</span>: <span class="tok-s">"memt:defi.zb4d7.ze56c.zf24c:…"</span>,
+  <span class="tok-key">"receipt"</span>: <span class="tok-p">{</span> <span class="tok-key">"alg"</span>: <span class="tok-s">"ed25519"</span>, <span class="tok-key">"signature"</span>: <span class="tok-s">"…"</span> <span class="tok-p">}</span>
+<span class="tok-p">}</span></code></pre>
     </div>
 
-    <p style="margin-top:1.5rem">Where all three agree, the change is real. Where one says yes and two say no, the algorithm flags receptive-field aliasing rather than a land-surface event. Every tuned threshold carries a <span class="band">learned_from</span> citation; pass the algorithm key to <span class="band">POST /v1/algorithms/:key</span> and replay the math.</p>
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">compose · /v1/memory_token</span><span class="spacer"></span><button class="copy" data-copy-target="#code-memt">copy</button></div>
+<pre id="code-memt"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/memory_token</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d9.pefa.zf619",
+         "fact_cid":"wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q"}'</span>
+
+<span class="tok-p">{</span> <span class="tok-key">"memory_token"</span>: <span class="tok-s">"memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr…m5q"</span>,
+  <span class="tok-key">"grammar"</span>: <span class="tok-s">"memt:&lt;cell64&gt;:&lt;fact_cid&gt;"</span>,
+  <span class="tok-key">"docs"</span>: <span class="tok-s">"/whitepaper.md#195-memory-token-format"</span> <span class="tok-p">}</span></code></pre>
+    </div>
+
+    <p>Two more verbs round out the substrate. <span class="band">/v1/state_multi</span> fans across every wired foundation encoder (<span class="band">geotessera</span>, <span class="band">clay_v1</span>, <span class="band">prithvi_eo2</span>) for the same cell, returning a per-encoder map plus a typed <span class="band">missing[]</span> list when an encoder is not wired at this responder. <span class="band">/v1/state_diff</span> takes one cell and two tslots and returns the delta vector, its L2 norm, and the cosine between the two source vectors, with both source <span class="band">fact_cid</span>s so the agent can quote both attestations as evidence.</p>
+
+    <p>This substrate is the <em>read · steer · write</em> triad in code: state is read, memory tokens are steered through the pipeline as citations, and writes go through <span class="band">/v1/attest</span> with the attester&rsquo;s own ed25519 key. The substrate is intentionally typed: vector-only bands accept <span class="band">/v1/state</span>, scalar bands return a typed 422 pointing the agent at <span class="band">/v1/recall</span> instead. Empty cells return a typed 404 pointing at <span class="band">/v1/materializers</span>. No silent zero-fills.</p>
   </div>
 </section>
 
@@ -800,10 +881,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <dl>
       <dt>discovery</dt><dd>8 paths</dd>
       <dt>introspection</dt><dd>15 paths</dd>
-      <dt>read primitives</dt><dd>11 paths</dd>
+      <dt>read primitives</dt><dd>16 paths</dd>
+      <dt>substrate</dt><dd>5 paths (state*, memt*)</dd>
+      <dt>liveness</dt><dd>2 paths (stream, attest)</dd>
       <dt>physics</dt><dd>4 paths</dd>
       <dt>verification</dt><dd>5 paths</dd>
-      <dt>MCP tools</dt><dd>50 read-only</dd>
+      <dt>MCP tools</dt><dd>56 read-only</dd>
     </dl>
   </aside>
 
@@ -811,6 +894,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <h2><span class="num">06</span>The read surface, table-flat</h2>
     <p class="lede">High-traffic endpoints. The full machine surface is at <a href="/openapi.json">/openapi.json</a>; the MCP descriptors mirror them at <a href="/v1/tools">/v1/tools</a>.</p>
 
+    <div class="scroll-x">
     <table class="endpoints">
       <thead>
         <tr><th>Method</th><th>Path</th><th>MCP tool</th><th>Body / use</th></tr>
@@ -821,6 +905,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <tr><td class="method post">POST</td><td class="path">/v1/recall_many</td><td>emem_recall_many</td><td class="desc">batch recall, up to 256 cells per envelope</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/recall_polygon</td><td>emem_recall_polygon</td><td class="desc">recall across a place's polygon, optional Fields-of-The-World overlay</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/find_similar</td><td>emem_find_similar</td><td class="desc">k-NN by 128-D Tessera embedding; cosine / hamming / hamming_then_rerank</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state</td><td>emem_state</td><td class="desc">dense state vector at a cell; view=encoder (default, 128-D) or view=cube (1792-D)</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">fan-out across geotessera, clay_v1, prithvi_eo2; typed missing[] when unwired</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state_diff</td><td>emem_state_diff</td><td class="desc">vintage delta at one cell: residual vector + L2 + cosine between two tslots</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/memory_token</td><td>emem_memory_token</td><td class="desc">compose memt:&lt;cell64&gt;:&lt;fact_cid&gt; citation handle</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/memory_token/resolve</td><td>emem_memory_token_resolve</td><td class="desc">single round-trip dereference; returns the signed fact body the cid names</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/stream</td><td>(SSE)</td><td class="desc">signed corpus.state ticks; interval 5&ndash;300 s, query tunable</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/corpus_state_stats</td><td>emem_corpus_state_stats</td><td class="desc">snapshot of distinct cells, distinct bands, facts scanned, per-band counts</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/benchmark</td><td>emem_benchmark</td><td class="desc">hand-verified eval items; pair with POST /v1/benchmark/grade</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/ask</td><td>emem_ask</td><td class="desc">place-anchored Q&amp;A with packaged receipts; routes to one of 27 band-topics</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/hunt</td><td>emem_hunt</td><td class="desc">event + region → top 8 cells, ranked by the algorithm's primary scalar</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/verify</td><td>emem_verify</td><td class="desc">structured claim → verdict + evidence fact_cids</td></tr>
@@ -834,10 +926,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <tr><td class="method">GET</td><td class="path">/v1/coverage_map.svg</td><td>emem_coverage_map</td><td class="desc">1440 × 720 plate-carrée density map of attested cells</td></tr>
       </tbody>
     </table>
+    </div>
 
     <p style="font-weight:700;color:var(--ink);margin-top:2rem">Nine one-shot domain tools that wrap locate → recall → aggregate.</p>
     <p>For agents that already know what they want to ask, these collapse the loop into a single MCP call with just <span class="band">{place}</span> or <span class="band">{lat, lng}</span>. Same signed receipts, same fact_cids; the work happens on the responder.</p>
 
+    <div class="scroll-x">
     <table class="endpoints">
       <thead>
         <tr><th>MCP tool</th><th>REST</th><th>Topic</th><th>Backing source</th></tr>
@@ -854,6 +948,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <tr><td class="path">emem_elevation</td><td>/v1/elevation</td><td class="desc">terrain elevation</td><td class="desc">Copernicus DEM 30 m</td></tr>
       </tbody>
     </table>
+    </div>
   </div>
 </section>
 
@@ -936,67 +1031,56 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </div>
 </section>
 
-<section class="section page" id="workloads">
+<section class="section page" id="stream">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">09</span><span class="idx-label">Workloads</span></div>
+    <div class="idx"><span class="idx-num">09</span><span class="idx-label">Liveness</span></div>
     <dl>
-      <dt>window</dt><dd>last 14 days</dd>
-      <dt>source</dt><dd>/v1/agent_stats</dd>
-      <dt>note</dt><dd>shape, not aspiration</dd>
+      <dt>stream</dt><dd>GET&nbsp;/v1/stream (SSE)</dd>
+      <dt>tick</dt><dd>5&ndash;300 s, query tunable</dd>
+      <dt>attestation</dt><dd>GET&nbsp;/.well-known/emem.json</dd>
+      <dt>binds</dt><dd>binary&nbsp;blake3 + git&nbsp;commit + build</dd>
+      <dt>signed by</dt><dd>responder ed25519</dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">09</span>What agents actually ask for</h2>
-    <p class="lede">A snapshot of the calling pattern at this responder. Real-estate, insurance, climate journalism, and disclosure dominate; smaller shares are still real work.</p>
+    <h2><span class="num">09</span>Liveness: signed ticks, signed binary</h2>
+    <p class="lede">Two surfaces an operator does not get to fake. Every stream tick is an ed25519 signature over a deterministic preimage. The operator attestation binds the running binary&rsquo;s BLAKE3 hash to its git commit, signed by the same key.</p>
 
-    <table class="absent-table" style="margin-top:0">
-      <tbody>
-        <tr><td>real estate &amp; insurance underwriting</td><td>flood risk, walkability, elevation, surface-water recurrence. Roughly half of all calls.</td></tr>
-        <tr><td>climate journalism &amp; corporate disclosure</td><td>carbon-MRV, NDVI trajectories, mangrove change, supply-chain forest adjacency. Roughly the other half.</td></tr>
-        <tr><td>agriculture</td><td>crop stress, soil moisture proxy, growing-season anomaly. Smaller share.</td></tr>
-        <tr><td>urban planning</td><td>heat island, green-space share.</td></tr>
-        <tr><td>disaster response</td><td>Sentinel-1 flood extent under cloud, MODIS burned area.</td></tr>
-        <tr><td>energy siting, conservation, fisheries, tourism</td><td>long tail. Live, in single digits.</td></tr>
-      </tbody>
-    </table>
+    <div class="live-grid">
+      <div class="pane" id="stream-pane">
+        <span class="pulse" id="stream-pulse"><span class="dot"></span><span id="stream-pulse-label">waiting&hellip;</span></span>
+        <h3>Corpus stream</h3>
+        <div class="endpoint">GET /v1/stream?interval=5  &nbsp;·&nbsp;  event: state</div>
+        <div class="row"><span class="k">served at</span><span class="v" id="stream-served">&hellip;</span></div>
+        <div class="row"><span class="k">distinct cells</span><span class="v" id="stream-cells">&hellip;</span></div>
+        <div class="row"><span class="k">distinct bands</span><span class="v" id="stream-bands">&hellip;</span></div>
+        <div class="row"><span class="k">facts scanned</span><span class="v" id="stream-facts">&hellip;</span></div>
+        <div class="row"><span class="k">registry cid</span><span class="v cid" id="stream-reg">&hellip;</span></div>
+        <div class="row"><span class="k">signature</span><span class="v sig" id="stream-sig">&hellip;</span></div>
+      </div>
+      <div class="pane" id="attest-pane">
+        <span class="pulse" id="attest-pulse"><span class="dot"></span><span id="attest-pulse-label">waiting&hellip;</span></span>
+        <h3>Operator attestation</h3>
+        <div class="endpoint">GET /.well-known/emem.json  &nbsp;·&nbsp;  operator_attestation</div>
+        <div class="row"><span class="k">version</span><span class="v" id="attest-version">&hellip;</span></div>
+        <div class="row"><span class="k">git commit</span><span class="v cid" id="attest-git">&hellip;</span></div>
+        <div class="row"><span class="k">build at</span><span class="v" id="attest-build">&hellip;</span></div>
+        <div class="row"><span class="k">binary blake3</span><span class="v cid" id="attest-bin">&hellip;</span></div>
+        <div class="row"><span class="k">tee quote</span><span class="v" id="attest-tee">&hellip;</span></div>
+        <div class="row"><span class="k">signature</span><span class="v sig" id="attest-sig">&hellip;</span></div>
+      </div>
+    </div>
 
-    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">No fixed percentages. The exact mix shifts; <a href="/v1/agent_stats">/v1/agent_stats</a> publishes the live histogram for the last fourteen days.</p>
-  </div>
-</section>
+    <p>The stream preimage carries <span class="band">version</span>, <span class="band">key_epoch</span>, <span class="band">served_at</span>, <span class="band">registry_cid</span>, and the <span class="band">distinct_cells</span> count, so a long-lived subscriber detects manifest drift the instant a registry CID rolls. The attestation preimage adds <span class="band">binary_blake3</span> + <span class="band">git_commit</span> + <span class="band">build_timestamp</span>; <span class="band">tee_quote</span> is null on this responder and stays null until the operator deploys behind an Intel SGX / AMD SEV-SNP enclave that populates it. Whitepaper &sect;20 names the remaining open items.</p>
 
-<section class="section page" id="limits">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">10</span><span class="idx-label">Limits</span></div>
-    <dl>
-      <dt>deployment</dt><dd>single host</dd>
-      <dt>federation</dt><dd>not yet</dd>
-      <dt>SOC 2</dt><dd>no</dd>
-      <dt>data scope</dt><dd>open data only</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">10</span>Honest limits, named in writing</h2>
-    <p class="lede">Things emem will not do. Read these before wiring a workload.</p>
-
-    <table class="absent-table">
-      <tbody>
-        <tr><td>sub-metre commercial imagery</td><td>Planet Pelican, Maxar not present; bring your own connector</td></tr>
-        <tr><td>real-time / sub-daily forecasts</td><td>outside the JEPA v2 horizon; the responder says so rather than guess</td></tr>
-        <tr><td>JEPA v2 dynamics head</td><td>structurally wired, untrained today; short-circuits to last attested vintage with untrained_baseline flag</td></tr>
-        <tr><td>Tessera historical backfill</td><td>2024 is reliable; earlier vintages sparse</td></tr>
-        <tr><td>Galileo multimodal</td><td>S2 modality wired; S1, ERA5, TC, VIIRS, SRTM, DW, WC, LandScan zero-masked today</td></tr>
-        <tr><td>indoor / proprietary corporate datasets</td><td>not in scope; bring an attestor and sign your own</td></tr>
-        <tr><td>EUDR Article 9(1)(b) legality</td><td>land tenure, FPIC, country-of-origin law. Structurally out of EO scope; pair with a partner module.</td></tr>
-      </tbody>
-    </table>
+    <p style="font-size:var(--t-xs);color:var(--mute)">Both panes are populated by JavaScript that calls the live responder when the page loads. If your browser blocks the call, the placeholders stay as <code>&hellip;</code>; no fallback value is fabricated.</p>
   </div>
 </section>
 
 <section class="section page" id="for-agents">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">11</span><span class="idx-label">For agents</span></div>
+    <div class="idx"><span class="idx-num">10</span><span class="idx-label">For agents</span></div>
     <dl>
       <dt>tool selection</dt><dd>/v1/tools</dd>
       <dt>triggers</dt><dd>/v1/agent_card</dd>
@@ -1006,7 +1090,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">11</span>Notes for the caller</h2>
+    <h2><span class="num">10</span>Notes for the caller</h2>
     <p class="lede">Rules of thumb when wiring a workload onto emem. They are not symmetric do/don't lists; they are the answers to questions support has answered more than once.</p>
 
     <ol class="ops">
@@ -1179,6 +1263,89 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   if (go) go.addEventListener('click', run);
   if (input) input.addEventListener('keydown', function(e){ if (e.key === 'Enter') run(); });
   sugs.forEach(function(s){ s.addEventListener('click', function(){ input.value = s.dataset.place; run(); }); });
+
+  // Copy MCP config button (hero CTA).
+  var copyMcpBtn = document.getElementById('copy-mcp');
+  if (copyMcpBtn) {
+    copyMcpBtn.addEventListener('click', function(){
+      var payload = copyMcpBtn.getAttribute('data-mcp') || '';
+      var pretty = payload;
+      try { pretty = JSON.stringify(JSON.parse(payload), null, 2); } catch (e) {}
+      var done = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(pretty).then(function(){ done = true; toast('MCP config copied'); }).catch(function(){ toast('Copy blocked; paste manually'); });
+      } else {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = pretty; document.body.appendChild(ta); ta.select();
+          done = document.execCommand && document.execCommand('copy');
+          document.body.removeChild(ta);
+          toast(done ? 'MCP config copied' : 'Copy blocked; paste manually');
+        } catch (e) { toast('Copy blocked; paste manually'); }
+      }
+    });
+  }
+  function toast (msg) {
+    var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(function(){ t.classList.add('show'); });
+    setTimeout(function(){ t.classList.remove('show'); setTimeout(function(){ t.remove(); }, 220); }, 1600);
+  }
+
+  // Live corpus stream pane: one fetch on load, then SSE if EventSource is available.
+  function setText (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+  function shortCid (s) { if (!s) return s; return s.length > 28 ? s.slice(0, 18) + '…' + s.slice(-8) : s; }
+  function paintStreamTick (d) {
+    if (!d) return;
+    var c = d.corpus || {}; var r = d.responder || {}; var m = d.manifests || {}; var s = d.signature || {};
+    setText('stream-served', d.served_at || '');
+    setText('stream-cells', (c.distinct_cells != null ? c.distinct_cells.toLocaleString() : ''));
+    setText('stream-bands', (c.distinct_bands != null ? String(c.distinct_bands) : ''));
+    setText('stream-facts', (c.facts_scanned != null ? c.facts_scanned.toLocaleString() : ''));
+    setText('stream-reg',   shortCid(m.registry_cid));
+    setText('stream-sig',   shortCid(s.signature_b32));
+    var p = document.getElementById('stream-pulse'); if (p) p.classList.add('live');
+    var pl = document.getElementById('stream-pulse-label'); if (pl) pl.textContent = 'live';
+  }
+  function loadStreamOnce () {
+    // /v1/stream is SSE; for a single-tick paint we just open the stream,
+    // take the first event, then close. EventSource handles framing.
+    if (!('EventSource' in window)) return;
+    try {
+      var es = new EventSource('/v1/stream?interval=30');
+      var got = false;
+      es.addEventListener('state', function (ev) {
+        if (got) return; got = true;
+        try { paintStreamTick(JSON.parse(ev.data)); } catch (e) {}
+        es.close();
+      });
+      // hard close after 8 s so we don't hold an open connection
+      setTimeout(function(){ if (!got) es.close(); }, 8000);
+    } catch (e) {}
+  }
+  function paintAttest (att) {
+    if (!att) return;
+    setText('attest-version', att.version || '');
+    setText('attest-git',     shortCid(att.git_commit));
+    setText('attest-build',   att.build_timestamp || '');
+    setText('attest-bin',     shortCid(att.binary_blake3));
+    setText('attest-tee',     (att.tee_quote === null || att.tee_quote === undefined) ? 'null (no TEE on this responder)' : 'present');
+    setText('attest-sig',     shortCid(att.signature_b32));
+    var p = document.getElementById('attest-pulse'); if (p) p.classList.add('live');
+    var pl = document.getElementById('attest-pulse-label'); if (pl) pl.textContent = 'signed';
+  }
+  function loadAttest () {
+    fetch('/.well-known/emem.json', { headers: { accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { paintAttest(d && d.operator_attestation); })
+      .catch(function () {});
+  }
+  // Fire after first paint so the hero is interactive without waiting on network.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ loadStreamOnce(); loadAttest(); });
+  } else {
+    loadStreamOnce(); loadAttest();
+  }
 
   // Consent banner.
   var KEY='emem_consent', MAX_AGE=180*24*60*60;

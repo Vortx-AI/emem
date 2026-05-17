@@ -61,7 +61,16 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .statusbar nav a:hover{color:var(--accent)}
 
 .wrap{max-width:1040px;margin:0 auto;padding:2rem 1.4rem 5rem}
-@media(max-width:760px){.wrap{padding:1.4rem 1rem 4rem}}
+@media(max-width:760px){
+  .wrap{padding:1.4rem 1rem 4rem}
+  .statusbar{flex-wrap:wrap;height:auto;padding:.5rem .8rem;gap:.4rem}
+  .statusbar>span:nth-of-type(2){display:none}
+}
+@media(max-width:480px){
+  html{font-size:88%}
+  h1{font-size:1.5rem;line-height:1.18}
+  .lede{font-size:.95rem}
+}
 header.masthead{padding-bottom:1.4rem;border-bottom:1px solid var(--rule);margin-bottom:1.6rem}
 .kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .55rem}
 h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing:-.01em;margin:0 0 .65rem;line-height:1.18}

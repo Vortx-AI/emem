@@ -92,7 +92,14 @@ header.top .navlinks a:hover{color:var(--accent)}
 
 .controls{background:var(--bg-1);border:1px solid var(--line);padding:1em 1.2em;border-radius:4px;margin-bottom:1.4em;
   display:grid;grid-template-columns:1fr 220px auto;gap:.6em;align-items:end}
-@media(max-width:680px){.controls{grid-template-columns:1fr}}
+@media(max-width:760px){.controls{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){
+  html{font-size:88%}
+  .controls{grid-template-columns:1fr}
+  header.top{flex-wrap:wrap;gap:.4em}
+  header.top .navlinks{flex-wrap:wrap;gap:.4em}
+  .step{padding:.9em 1em}
+}
 .controls label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--fg-mute);margin-bottom:.4em}
 .controls button{height:38px}
