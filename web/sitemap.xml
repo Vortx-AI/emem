@@ -15,6 +15,23 @@
   <url><loc>https://emem.dev/privacy</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>https://emem.dev/terms</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>https://emem.dev/support</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://emem.dev/docs/</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/docs/quickstart.html</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/docs/api/</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/docs/errors.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/docs/self-host.html</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/whitepaper.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/docs/protocol.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/docs/registries.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/docs/agents.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/docs/integrations.html</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/docs/mcp-directory.html</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/developers/architecture.html</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/developers/data-sources.html</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/developers/developing.html</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/developers/inference.html</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/operators/operating.html</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/docs/operators/deprecations.html</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/docs/gallery</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/docs/diagrams/</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/whitepaper.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
@@ -25,6 +42,9 @@
   <url><loc>https://emem.dev/demos/signed-answer</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://emem.dev/demos/state-cube</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://emem.dev/demos/ask-the-earth</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://emem.dev/demos/find-similar</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/trajectory</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/recall-polygon</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/v1/benchmark</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/v1/corpus_state_stats</loc><changefreq>hourly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/v1/stream</loc><changefreq>always</changefreq><priority>0.5</priority></url>

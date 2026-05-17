@@ -17,11 +17,16 @@
 <meta property=og:title content="emem, Earth memory for AI agents">
 <meta property=og:description content="Signed, content-addressed Earth memory. Cell × Band × Tslot → Fact. MCP + REST. No API keys.">
 <meta property=og:image content="https://emem.dev/og-image.svg">
+<meta property=og:image:width content="1200">
+<meta property=og:image:height content="630">
+<meta property=og:image:type content="image/svg+xml">
+<meta property=og:image:alt content="emem.dev — Earth memory protocol. Cell × Band × Tslot → Fact.">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
 <meta name=twitter:title content="emem, Earth memory for AI agents">
 <meta name=twitter:description content="Signed, content-addressed Earth memory. MCP + REST. No keys.">
 <meta name=twitter:image content="https://emem.dev/og-image.svg">
+<meta name=twitter:image:alt content="emem.dev — Earth memory protocol. Cell × Band × Tslot → Fact.">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
@@ -314,7 +319,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--mute);line-height:1.5}
 .foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2rem}
+.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
 .foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.4rem}
@@ -419,6 +424,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <a href="#verify" class="nav-sec">verify</a>
     <a href="#for-agents" class="nav-sec">for agents</a>
     <span class="spacer"></span>
+    <a href="/docs/">docs</a>
+    <a href="/humans">humans</a>
+    <a href="/verify" class="nav-sec">verify a receipt</a>
     <a href="/whitepaper.md" class="nav-sec">whitepaper</a>
     <a href="/openapi.json" class="nav-sec">openapi</a>
     <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
@@ -437,7 +445,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div>
     <h1>Earth as memory,<br><span class="accent">for real-world agents.</span></h1>
 
-    <p class="sub">A read-side memory layer for AI agents: every place on Earth gets a permanent address, every measurement at that address is a signed fact, every answer carries a content-addressed receipt your code can verify offline.</p>
+    <p class="sub">A read-side memory layer for AI agents. Every place on Earth has a permanent address. Every measurement there is a signed fact. Every answer is a receipt your code verifies offline.</p>
 
     <div class="hero-formula">
       <span class="box">Cell</span>
@@ -458,7 +466,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     </div>
 
     <h2 style="font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;margin:1.8rem 0 .8rem;color:var(--ink)">Two primitives every agent uses daily.</h2>
-    <p style="font-size:var(--t-sm);color:var(--mute);margin:0 0 1rem;max-width:62ch">The state vector is the read-side: ask for any place and get back a 128-D learned representation, signed, ready to drop into context. The memory token is the cite-side: one string an agent pastes anywhere and any reader can resolve back to the same signed fact. MCP and REST are the wire; these two are what flows on it.</p>
+    <p style="font-size:var(--t-sm);color:var(--mute);margin:0 0 1rem;max-width:62ch">The state vector reads a place: ask for any cell and get a 128-D learned embedding, signed, ready to drop into context. The memory token cites it: one string the agent pastes anywhere and any reader resolves back to the same signed fact.</p>
 
     <div class="memt-block" aria-label="memory token, the cite-handle for one signed fact at one place">
       <div class="memt-head">
@@ -500,10 +508,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
-    <p class="sub" style="font-size:var(--t-md);margin-top:1.4rem">Open data only: Copernicus, Sentinel, MODIS, JRC, Hansen, ESA WorldCover, SoilGrids, NASA POWER, Overture, plus Tessera, Prithvi-EO-2 and Clay foundation embeddings. One hosted responder, MCP + REST, no keys.</p>
+    <p class="sub" style="font-size:var(--t-md);margin-top:1.4rem">Open data: Sentinel-2, MODIS, Copernicus DEM, JRC, Hansen GFC, ESA WorldCover, SoilGrids, NASA POWER, Overture. Foundation embeddings: Tessera, Prithvi-EO-2, Clay. One hosted responder. MCP + REST. No keys, no signup.</p>
 
     <div class="hero-cta">
-      <a class="btn" href="/whitepaper.md">Read whitepaper</a>
+      <a class="btn" href="/docs/quickstart.html">Quickstart (60 s)</a>
+      <a class="btn ghost" href="/docs/">Docs &amp; search</a>
+      <a class="btn ghost" href="/whitepaper.md">Whitepaper</a>
       <a class="btn ghost" href="/openapi.json">OpenAPI</a>
       <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
       <button class="btn ghost" id="copy-mcp" type="button" data-mcp='{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}'>Copy MCP config</button>
@@ -646,6 +656,28 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
          "bands":["copdem30m.elevation_mean"]}'</span></code></pre>
     </div>
 
+    <p style="font-size:var(--t-sm);color:var(--mute);margin:.8rem 0 .5rem">Same two calls in Python and TypeScript — both clients are zero-config, parse to plain dicts/objects, and preserve every receipt byte for offline verification.</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">PY</span><span class="tab">python · pip install emem (client at github.com/Vortx-AI/emem/tree/main/sdks/emem-py)</span><span class="spacer"></span><button class="copy" data-copy-target="#code-py">copy</button></div>
+<pre id="code-py"><code><span class="tok-k">from</span> emem <span class="tok-k">import</span> Client
+
+<span class="tok-k">with</span> Client() <span class="tok-k">as</span> em:
+    cell  = em.locate(<span class="tok-s">"South Mumbai"</span>)[<span class="tok-s">"cell64"</span>]
+    facts = em.recall(cell, bands=[<span class="tok-s">"copdem30m.elevation_mean"</span>])
+    <span class="tok-k">print</span>(facts[<span class="tok-s">"facts"</span>][<span class="tok-cmd">0</span>][<span class="tok-s">"value"</span>])  <span class="tok-cmd"># 6.0</span></code></pre>
+    </div>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">TS</span><span class="tab">typescript · npm i @emem/client (client at github.com/Vortx-AI/emem/tree/main/sdks/emem-ts)</span><span class="spacer"></span><button class="copy" data-copy-target="#code-ts">copy</button></div>
+<pre id="code-ts"><code><span class="tok-k">import</span> { Client } <span class="tok-k">from</span> <span class="tok-s">"@emem/client"</span>;
+
+<span class="tok-k">const</span> em    = <span class="tok-k">new</span> Client();
+<span class="tok-k">const</span> loc   = <span class="tok-k">await</span> em.locate({ place: <span class="tok-s">"South Mumbai"</span> });
+<span class="tok-k">const</span> facts = <span class="tok-k">await</span> em.recall({ cell: loc.cell64, bands: [<span class="tok-s">"copdem30m.elevation_mean"</span>] });
+<span class="tok-k">console</span>.log(facts.facts[<span class="tok-cmd">0</span>].value);  <span class="tok-cmd">// 6.0</span></code></pre>
+    </div>
+
     <p>The same response, parsed for the human eye:</p>
 
     <div class="fact">
@@ -669,7 +701,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
-    <p>Cold materialisation on a fresh cell pays one upstream round-trip and persists the answer. Every subsequent caller, anywhere, sees the same fact and the same signature. The CID is the citation an agent quotes back to the user.</p>
+    <p>First call on a fresh cell: ~180 ms (one upstream fetch, then persisted). Every call after, anywhere: ~10 ms, same signature, same CID. That CID is what the agent quotes back to the user.</p>
 
     <div class="ascii-rule">────────────────────────────────────────────────────────────────────────────────────────</div>
 
@@ -725,7 +757,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="tryit-body">
         <div class="tryit-input">
           <span class="prefix">place</span>
-          <input id="tryit-place" type="text" value="South Mumbai" placeholder="e.g. Bengaluru">
+          <input id="tryit-place" type="text" aria-label="Place name to try" value="South Mumbai" placeholder="e.g. Bengaluru">
           <button id="tryit-go">run</button>
         </div>
         <div class="tryit-suggest">
@@ -1120,6 +1152,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
       <div class="foot-col">
         <h4>Protocol</h4>
         <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
           <li><a href="/spec.md">spec.md</a></li>
           <li><a href="/whitepaper.md">whitepaper</a></li>
           <li><a href="/docs/diagrams">32 diagrams</a></li>
@@ -1157,6 +1190,20 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
           <li><a href="/v1/benchmark">agent benchmark</a></li>
           <li><a href="/humans">/humans</a></li>
           <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
+          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
+          <li><a href="/docs/errors.html">errors</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="/health">health</a></li>
         </ul>
       </div>
     </div>

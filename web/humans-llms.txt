@@ -14,14 +14,14 @@
 - `GET /v1/coverage_matrix?limit=200` — per-band facts_count, last_attested_unix_s, family, tempo_seconds, history bounds
 - `GET /v1/data_availability` — per-band tempo_seconds + history_available_{from,to}_unix
 - `GET /v1/bands` — band registry (35 cube slots, 118 materializer-wired band names)
-- `GET /v1/algorithms` — algorithm registry (155 composition recipes; each carries `parameters` + `learned_from` provenance)
+- `GET /v1/algorithms` — algorithm registry (159 composition recipes; each carries `parameters` + `learned_from` provenance)
 - `GET /v1/algorithms/{key}` — per-key drill-down with formula, inputs, citation, accuracy_band
-- `GET /v1/sources` — fetch-source registry (43 declared schemes; 12 wired data connectors)
+- `GET /v1/sources` — fetch-source registry (43 declared schemes)
 - `GET /v1/manifests` — the manifest CIDs (registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet)
 - `GET /v1/schema` — canonical CBOR wire schema
-- `GET /v1/topics` — 26 declared topic clusters with `live_bands_by_topic` filtered to this responder's wired materializers
+- `GET /v1/topics` — 27 declared topic clusters with `live_bands_by_topic` filtered to this responder's wired materializers
 - `GET /v1/agent_card` — agent-readable summary, live counts, manifest CIDs
-- `GET /v1/tools` — 55 MCP tools with `when_to_use` strings + four behavioural annotations
+- `GET /v1/tools` — 58 MCP tools with `when_to_use` strings + four behavioural annotations
 - `GET /v1/quickstart` — copy-paste snippets for the canonical flows
 - `GET /v1/cells/{cell64}/info` — bbox, centre, approximate metres
 - `GET /v1/cells/{cell64}/scene.png` — optional Sentinel-2 thumbnail

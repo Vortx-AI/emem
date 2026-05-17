@@ -1,0 +1,42 @@
+[book]
+title       = "emem.dev — Earth memory protocol"
+authors     = ["Vortx-AI"]
+description = "Signed, cell-addressed Earth memory. Protocol, registries, agents, primitives."
+src         = "."
+language    = "en"
+
+[output.html]
+default-theme           = "navy"
+preferred-dark-theme    = "navy"
+git-repository-url      = "https://github.com/Vortx-AI/emem"
+edit-url-template       = "https://github.com/Vortx-AI/emem/edit/main/docs/{path}"
+site-url                = "/docs/"
+no-section-label        = true
+mathjax-support         = true
+additional-css          = ["theme/emem.css"]
+
+[output.html.fold]
+enable = true
+level  = 1
+
+[output.html.search]
+enable                  = true
+limit-results           = 30
+teaser-word-count       = 30
+use-boolean-and         = true
+boost-title             = 2
+boost-hierarchy         = 2
+boost-paragraph         = 1
+expand                  = true
+heading-split-level     = 3
+
+[output.html.print]
+enable = false
+
+[preprocessor.links]
+
+[preprocessor.index]
+
+[build]
+build-dir       = "book"
+create-missing  = false

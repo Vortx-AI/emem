@@ -72,3 +72,10 @@ notes/
 # fastembed-rs ONNX model cache (HF hub mirror, ~400 MB)
 .fastembed_cache/
 scripts/eval/results/q*.json
+
+# mdbook output for the /docs/ site. The book is built at deploy/CI time
+# (see scripts/redeploy.sh and .github/workflows/ci.yml) and baked into
+# the binary via `include_dir!("docs/book")`. Committing it would churn the
+# repo every docs edit (hashed asset filenames) and add ~5 MB; build it
+# fresh on each CI run instead.
+docs/book/

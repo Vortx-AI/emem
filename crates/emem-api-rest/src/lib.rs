@@ -60,6 +60,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 
@@ -107,6 +108,13 @@ const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-a
 const DEMOS_INDEX_HTML: &str = include_str!("../../../web/demos-index.html");
 const DEMOS_STATE_CUBE_HTML: &str = include_str!("../../../web/demos-state-cube.html");
 const DEMOS_ASK_THE_EARTH_HTML: &str = include_str!("../../../web/demos-ask-the-earth.html");
+/// Three new demo pages added in the P1 batch:
+/// - `/demos/find-similar` — k-NN over the 128-D Tessera embedding
+/// - `/demos/trajectory` — vintage time-series at a cell
+/// - `/demos/recall-polygon` — fan a single call across a polygon
+const DEMOS_FIND_SIMILAR_HTML: &str = include_str!("../../../web/demos-find-similar.html");
+const DEMOS_TRAJECTORY_HTML: &str = include_str!("../../../web/demos-trajectory.html");
+const DEMOS_RECALL_POLYGON_HTML: &str = include_str!("../../../web/demos-recall-polygon.html");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
@@ -144,6 +152,12 @@ const LOGO_1200W_PNG: &[u8] = include_bytes!("../../../web/logo-1200w.png");
 const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
+/// `/docs/api/` and `/docs/api` — the ReDoc interactive REST reference,
+/// rendering /openapi.json into a browseable sidebar+detail view. Loads
+/// the ReDoc standalone bundle from cdn.redocly.com (allow-listed in the
+/// page's CSP). Anchors are deep-linkable, so a dev can paste
+/// /docs/api/#tag/Recall in chat and another dev lands at the same spot.
+const API_REDOC_HTML: &str = include_str!("../../../web/api-redoc.html");
 
 /// Static lookup table for the 33 protocol + industry diagrams that ship
 /// in `docs/diagrams/`. The slug is the literal filename; the body is the
@@ -151,6 +165,17 @@ const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
 /// entries — the binary cost (~380 KB) buys self-contained docs, and any
 /// agent that fetches `/docs/diagrams/<name>.svg` over the wire gets the
 /// exact bytes the index.html displays.
+/// The full mdbook docs site, baked into the binary at compile time.
+///
+/// Source: `docs/` (markdowns + `book.toml` + `SUMMARY.md` + `intro.md` +
+/// `theme/emem.css`). Build output: `docs/book/`. Run `mdbook build` from
+/// `docs/` before `cargo build` to refresh the embedded tree.
+///
+/// Served at `/docs/*path` (mdbook chapters, search index, theme assets).
+/// The existing `/docs/gallery` and `/docs/diagrams[/...]` routes take
+/// precedence — axum's matchit picks the most specific route first.
+static DOCS_BOOK: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/../../docs/book");
+
 const DOCS_DIAGRAMS_INDEX_HTML: &str = include_str!("../../../docs/diagrams/index.html");
 const DOCS_DIAGRAMS: &[(&str, &str)] = &[
     (
@@ -475,6 +500,9 @@ pub fn router(state: AppState) -> Router {
         .route("/demos/signed-answer", get(serve_demos_signed_answer))
         .route("/demos/state-cube", get(serve_demos_state_cube))
         .route("/demos/ask-the-earth", get(serve_demos_ask_the_earth))
+        .route("/demos/find-similar", get(serve_demos_find_similar))
+        .route("/demos/trajectory", get(serve_demos_trajectory))
+        .route("/demos/recall-polygon", get(serve_demos_recall_polygon))
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -511,6 +539,19 @@ pub fn router(state: AppState) -> Router {
         .route("/docs/diagrams", get(serve_docs_diagrams_index))
         .route("/docs/diagrams/", get(serve_docs_diagrams_index))
         .route("/docs/diagrams/:name", get(serve_docs_diagram))
+        // ReDoc interactive API reference, rendered from /openapi.json.
+        // Both /docs/api and /docs/api/ resolve so a trailing-slash drop
+        // still works (matters for the topbar link from /docs/).
+        .route("/docs/api", get(serve_api_redoc))
+        .route("/docs/api/", get(serve_api_redoc))
+        // mdbook docs site, built from `docs/*.md` and baked into the
+        // signed binary (DOCS_BOOK = include_dir!("docs/book")). The
+        // wildcard sits below `/docs/gallery`, `/docs/diagrams[/...]`,
+        // and `/docs/api[/]` — axum's matchit prefers static and `:param`
+        // over `*wildcard`.
+        .route("/docs", get(serve_docs_book_redirect))
+        .route("/docs/", get(serve_docs_book_index))
+        .route("/docs/*path", get(serve_docs_book_path))
         .route("/multimodal", get(serve_multimodal_md))
         .route("/multimodal.md", get(serve_multimodal_md))
         .route("/llms.txt", get(serve_llms_txt))
@@ -1239,17 +1280,21 @@ async fn security_headers_layer(
     // Both `script-src` and `connect-src` must list it or the page silently
     // falls back to server-side /v1/verify_receipt and labels itself as
     // "offline verify unavailable" — which reads as a verify failure.
-    // fonts: Google Fonts CSS is on fonts.googleapis.com; the actual font
-    // binaries on fonts.gstatic.com need both font-src and connect-src.
+    //
+    // /docs/api (ReDoc) loads the Redoc standalone bundle from
+    // cdn.redocly.com. fonts: Google Fonts CSS is on fonts.googleapis.com;
+    // the actual font binaries on fonts.gstatic.com need both font-src and
+    // connect-src.
     h.insert(
         "content-security-policy",
         HeaderValue::from_static(
             "default-src 'self'; \
-         script-src 'self' https://www.googletagmanager.com https://esm.sh 'unsafe-inline'; \
+         script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com 'unsafe-inline'; \
          connect-src 'self' https://www.google-analytics.com https://esm.sh; \
          img-src 'self' data: https:; \
          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
          font-src 'self' data: https://fonts.gstatic.com; \
+         worker-src 'self' blob:; \
          frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
          base-uri 'self'; \
          form-action 'self'",
@@ -1696,6 +1741,113 @@ async fn serve_gallery_html() -> Response {
     text_response("text/html; charset=utf-8", GALLERY_HTML)
 }
 
+/// `/docs/api` and `/docs/api/` — ReDoc-rendered interactive REST
+/// reference. Serves the static HTML at `web/api-redoc.html`; ReDoc
+/// loads `/openapi.json` over the wire to render the sidebar and detail
+/// view. The CSP allow-lists cdn.redocly.com so the bundle loads.
+async fn serve_api_redoc() -> Response {
+    text_response("text/html; charset=utf-8", API_REDOC_HTML)
+}
+
+/// `/docs` (no trailing slash) — redirect to `/docs/` so the mdbook's
+/// internal relative links resolve from the right base. mdbook ships
+/// internal links like `./protocol.html`, which a browser resolves
+/// against the *directory* of the current URL.
+async fn serve_docs_book_redirect() -> Response {
+    Response::builder()
+        .status(StatusCode::PERMANENT_REDIRECT)
+        .header(axum::http::header::LOCATION, "/docs/")
+        .body(axum::body::Body::empty())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// `/docs/` — the mdbook docs site home. Renders `docs/book/index.html`
+/// from the embedded tree.
+async fn serve_docs_book_index() -> Response {
+    serve_docs_book_path_impl("index.html")
+}
+
+/// `/docs/*path` — any file in the mdbook tree (HTML chapter, search
+/// index, theme CSS, embedded SVG assets, fonts). Resolves `path` inside
+/// the compile-time-embedded `DOCS_BOOK` directory. 404s with a short
+/// agent-readable reason on misses so consumers don't silently fall back
+/// to an empty page.
+///
+/// The wildcard does *not* shadow the existing `/docs/gallery` and
+/// `/docs/diagrams[/...]` routes — axum's matchit prefers static and
+/// `:param` routes over `*wildcard` routes.
+async fn serve_docs_book_path(axum::extract::Path(path): axum::extract::Path<String>) -> Response {
+    // Bare-directory request — return the chapter's `index.html` if one
+    // exists, otherwise the book root index. Matches how a static host
+    // resolves directory URLs.
+    if path.is_empty() || path.ends_with('/') {
+        let idx = format!("{}index.html", path);
+        if DOCS_BOOK.get_file(&idx).is_some() {
+            return serve_docs_book_path_impl(&idx);
+        }
+        return serve_docs_book_path_impl("index.html");
+    }
+    serve_docs_book_path_impl(&path)
+}
+
+fn serve_docs_book_path_impl(rel: &str) -> Response {
+    // Defence in depth: include_dir already rejects parent-traversal at
+    // build time (paths are static), but reject runtime `..` segments
+    // anyway so a request can't reach outside the embedded tree even if
+    // a future refactor swaps the storage.
+    if rel.split('/').any(|seg| seg == ".." || seg == ".") {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let Some(file) = DOCS_BOOK.get_file(rel) else {
+        let body = format!(
+            "docs page not found: {rel}\nsee /docs/ for the table of contents, /docs/searchindex.json for the full index\n"
+        );
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(axum::body::Body::from(body))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    };
+    let mime = docs_book_mime(rel);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, mime)
+        // Hashed filenames (`book-a0b12cfe.js`, `searchindex-f711db3b.js`,
+        // …) make the asset bundle safely cacheable. HTML pages keep a
+        // short max-age so an `mdbook build` rolls out without forcing
+        // readers to hard-refresh.
+        .header(
+            CACHE_CONTROL,
+            if rel.ends_with(".html") {
+                "public, max-age=60, must-revalidate"
+            } else {
+                "public, max-age=86400, immutable"
+            },
+        )
+        .body(axum::body::Body::from(file.contents()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+fn docs_book_mime(rel: &str) -> &'static str {
+    let ext = rel.rsplit('.').next().unwrap_or("");
+    match ext {
+        "html" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" => "application/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml; charset=utf-8",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "txt" => "text/plain; charset=utf-8",
+        "md" => "text/markdown; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
 /// `/docs/diagrams/` and `/docs/diagrams` — the diagrams suite index.
 /// Same HTML answers both paths so the relative `<object data="…">`
 /// references inside the page resolve correctly when the page is
@@ -1816,6 +1968,21 @@ async fn serve_demos_state_cube() -> Response {
 /// browser-side smoke-test rig for the read surface.
 async fn serve_demos_ask_the_earth() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_ASK_THE_EARTH_HTML)
+}
+
+/// `/demos/find-similar` — interactive k-NN walkthrough.
+async fn serve_demos_find_similar() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_FIND_SIMILAR_HTML)
+}
+
+/// `/demos/trajectory` — interactive vintage time-series at one cell.
+async fn serve_demos_trajectory() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_TRAJECTORY_HTML)
+}
+
+/// `/demos/recall-polygon` — interactive polygon recall + per-cell heatmap.
+async fn serve_demos_recall_polygon() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_RECALL_POLYGON_HTML)
 }
 
 /// `/skills.md` — composed-recipe cookbook for agents.
@@ -10631,12 +10798,10 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
-        "emem_corpus_state_stats" => {
-            match get_corpus_state_stats(State(s.clone())).await {
-                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
-                Err(e) => Err((-(e.1.code as i64), e.1.message)),
-            }
-        }
+        "emem_corpus_state_stats" => match get_corpus_state_stats(State(s.clone())).await {
+            Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+            Err(e) => Err((-(e.1.code as i64), e.1.message)),
+        },
         "emem_benchmark" => Ok(get_benchmark().await.0),
         "emem_query_region" => call!(QueryRegionReq, query_region),
         "emem_compare" => call!(CompareReq, compare).map(attach_resolved_env),

@@ -12,9 +12,11 @@
 <meta property="og:title" content="The emem gallery — verifiable Earth observation, in plain figures"/>
 <meta property="og:description" content="Global coverage. Per-place elevation. Each rendered live by the emem.dev responder and signed for offline verification."/>
 <meta property="og:image" content="https://emem.dev/og-image.svg"/>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<!-- Typography unified with the rest of web/* — JetBrains Mono as a self-hosted
+     system stack, no Google Fonts round-trip. The page previously loaded
+     Source Serif 4 + Inter for a magazine feel; that read as visually
+     disconnected from /, /humans, /verify, and the demos suite. -->
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
   /* Unified emem design tokens — light + dark via prefers-color-scheme,
      same palette as /, /demos, /humans, /verify. Gallery-specific
@@ -33,9 +35,13 @@
     --ink-dim:    var(--ink-3);
     --rule:       oklch(0.86 0.005 85);
     --accent:     oklch(0.45 0.09 145);
-    --serif: 'Source Serif 4', 'Source Serif Pro', Georgia, 'Times New Roman', serif;
-    --sans: 'Inter', 'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, sans-serif;
-    --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+    --mono: 'JetBrains Mono', 'Berkeley Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+    /* Aliases retained so existing `font-family: var(--serif)` / `var(--sans)`
+       rules below resolve. Both now route to the mono stack — the page used
+       to mix Source Serif (display) + Inter (body) + JetBrains Mono (code);
+       collapsing to mono keeps it visually consistent with the rest of /. */
+    --serif: var(--mono);
+    --sans:  var(--mono);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -228,9 +234,9 @@
   <header class="masthead">
     <p class="kicker">emem.dev · gallery · 2026</p>
     <h1>Earth-observation figures, signed by the responder</h1>
-    <p class="standfirst">Case studies rendered by the emem.dev responder.
-       The maps are live endpoints; the hotspots are real cell64s ranked
-       by real bands; each row carries a fact CID an agent or auditor
+    <p class="standfirst">Live case studies from the emem.dev responder.
+       Every map is a live endpoint. Every hotspot is a real cell64 ranked
+       by a real band. Every row carries a fact CID an agent or auditor
        can verify offline.</p>
     <p class="byline">Read time ≈ 11 min · every figure is a live URL · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
   </header>

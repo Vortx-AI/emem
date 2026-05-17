@@ -24,6 +24,10 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  # The /docs/ site is rendered at build time by mdbook and baked into the
+  # signed binary via `include_dir!("docs/book")` in emem-api-rest. The
+  # output is gitignored, so every CI job that compiles emem-api-rest must
+  # build the book first. Pinned to a known-good version.
   clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
@@ -33,6 +37,10 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: '0.5.2'
+      - run: mdbook build docs && rm -f docs/book/book.toml
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
@@ -46,6 +54,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: '0.5.2'
+      - run: mdbook build docs && rm -f docs/book/book.toml
       - run: cargo test --workspace --release
 
   msrv:
@@ -55,6 +67,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
+      - uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: '0.5.2'
+      - run: mdbook build docs && rm -f docs/book/book.toml
       - run: cargo build --workspace
 
   # Surfaces RustSec advisories for our transitive deps. Fails only on

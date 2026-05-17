@@ -380,6 +380,19 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   text-transform:lowercase;letter-spacing:.02em;line-height:1.4}
 .log .pivot:hover{color:var(--accent);border-color:var(--accent);background:transparent}
 .log .pivot.flash{background:rgba(124,255,178,.15);color:var(--accent);border-color:var(--accent)}
+/* Expanded detail pane — full request + response JSON pretty-printed, so an
+ * agent watching the console actually sees what flowed in *both* directions.
+ * Audit caught the asymmetry: previously the row showed the request URL but
+ * the response summary alone ("3 facts") was opaque. */
+.log.expanded{flex-wrap:wrap;white-space:normal}
+.log.expanded .detail{flex-basis:100%;margin:.35em 0 .55em;border-left:2px solid var(--line-2);
+  padding:.4em .65em;background:rgba(0,0,0,.18);font-size:10.5px;color:var(--fg-2);
+  max-height:240px;overflow:auto;border-radius:2px;font-family:var(--mono);
+  white-space:pre;tab-size:2}
+.log.expanded .detail .label{color:var(--fg-mute);font-size:9.5px;text-transform:uppercase;
+  letter-spacing:.06em;display:block;margin:.1em 0 .25em}
+.log.expanded .detail .label:not(:first-child){margin-top:.75em;border-top:1px dotted var(--line);
+  padding-top:.6em}
 
 .toast{position:fixed;left:50%;bottom:calc(var(--row-console) + 3em);transform:translateX(-50%) translateY(8px);
   background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);
@@ -915,7 +928,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 <!-- command palette -->
 <div class=cmdk-back id=cmdkBack role=dialog aria-modal=true aria-label="Command palette">
   <div class=cmdk-box>
-    <input id=cmdkInput type=text autocomplete=off placeholder="ask about a place — flood risk, wildfire smoke, climate haven, heat health, where else looks like this …">
+    <input id=cmdkInput type=text autocomplete=off aria-label="Ask about a place (command palette)" placeholder="ask about a place — flood risk, wildfire smoke, climate haven, heat health, where else looks like this …">
     <!-- Example-question chips: real queries from the 105-question consumer
          eval. Click any to populate the box and submit as /v1/ask.
          Hidden once the user types so the corpus matches surface fully. -->
@@ -1062,13 +1075,17 @@ function logCall(method, url, body) {
   const t = new Date().toISOString().slice(11,19);
   const div = document.createElement('div');
   div.className = 'log';
-  const summary = body ? JSON.stringify(body).slice(0, 100) : '';
+  // Audit: previously truncated to 100 chars which hid the (cell, bands[]) payload of
+  // typical POSTs. 280 covers the typical recall / find_similar / hunt body without
+  // dominating the row; full body is on the detail pane (▸ pivot).
+  const summary = body ? JSON.stringify(body).slice(0, 280) : '';
   div.innerHTML =
     '<time>'+t+'</time>' +
     '<span class=method>'+method+'</span>' +
     '<a class=url href="'+escapeHtml(url)+'" target=_blank rel=noopener>'+escapeHtml(url)+'</a>' +
     (summary ? '<span class=req-body>'+escapeHtml(summary)+'</span>' : '') +
     '<span class=row-pivots>' +
+      '<button class=pivot data-pivot=detail title="Expand: full request + response JSON">▸</button>' +
       '<button class=pivot data-pivot=curl title="Copy as curl">curl</button>' +
       '<button class=pivot data-pivot=py   title="Copy as Python (httpx)">py</button>' +
       '<button class=pivot data-pivot=mcp  title="Copy as MCP tool call">mcp</button>' +
@@ -1083,7 +1100,7 @@ function logCall(method, url, body) {
   div._method = method;
   div._url    = url;
   div._body   = body;
-  // Pivot click handlers — copy or replay. Toast + pivot pulse to confirm.
+  // Pivot click handlers — detail toggle, copy formats, or replay.
   const pivots = div.querySelectorAll('.pivot');
   pivots.forEach(btn => {
     btn.addEventListener('click', e => {
@@ -1101,6 +1118,38 @@ function logCall(method, url, body) {
           api(div._method, div._url, div._body).catch(()=>{});
           showToast('replayed ' + div._method + ' ' + div._url);
         } catch (_) {}
+        return;
+      }
+      if (which === 'detail') {
+        // Toggle the inline detail pane. Pretty-prints request + response so
+        // an LLM watching the console can read both halves of the conversation
+        // (the previous summary-only row hid the response shape entirely).
+        const wasOpen = div.classList.toggle('expanded');
+        if (!wasOpen) {
+          const existing = div.querySelector('.detail');
+          if (existing) existing.remove();
+          btn.textContent = '▸';
+          return;
+        }
+        btn.textContent = '▾';
+        const pane = document.createElement('div');
+        pane.className = 'detail';
+        const reqText = div._body !== undefined ? JSON.stringify(div._body, null, 2) : '(no body)';
+        let resText;
+        if (div._response !== undefined) {
+          resText = typeof div._response === 'string'
+            ? div._response
+            : JSON.stringify(div._response, null, 2);
+        } else {
+          resText = '(in flight…)';
+        }
+        pane.innerHTML =
+          '<span class=label>request · '+escapeHtml(div._method+' '+div._url)+'</span>' +
+          escapeHtml(reqText) +
+          '<span class=label>response'+(div._responseStatus ? ' · '+div._responseStatus : '')+'</span>' +
+          escapeHtml(resText);
+        div.appendChild(pane);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
         return;
       }
       const text = which === 'curl' ? div._curl : which === 'py' ? div._py : div._mcp;
@@ -1196,6 +1245,9 @@ async function api(method, path, body) {
     let data = null;
     if (ct.includes('json')) data = await r.json();
     else                     data = await r.text();
+    // Stash full response on the row so the ▸ pivot can render it pretty-printed.
+    div._response = data;
+    div._responseStatus = r.status + (r.ok ? ' OK' : ' (error)') + ' · ' + ms + ' ms';
     const summary = typeof data === 'string'
       ? data.slice(0, 200)
       : (data && data.error ? String(data.error)
@@ -1217,6 +1269,15 @@ async function api(method, path, body) {
     return data;
   } catch (e) {
     const ms = (performance.now() - t0).toFixed(0);
+    // Make sure the detail pane can still show whatever the responder sent on
+    // failure (typed reason, code, message) instead of a bare "ERR".
+    if (e && e.body !== undefined) {
+      div._response = e.body;
+      div._responseStatus = (e.status||'ERR') + ' (error) · ' + ms + ' ms';
+    } else {
+      div._response = String(e);
+      div._responseStatus = 'ERR · ' + ms + ' ms';
+    }
     logResult(div, false, 'ERR', ms, String(e).slice(0,160));
     throw e;
   }
@@ -3617,7 +3678,7 @@ const PRIMITIVES = {
   },
   manifests: { path:'/v1/manifests', method:'GET', mcp:'emem_manifests', doc:'The 8 manifests of the corpus — registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet.', body: () => null },
   bands:     { path:'/v1/bands',     method:'GET', mcp:'emem_bands',     doc:'35 declared cube slots, 118 materializer-wired band names. Returns key, family, dimension, tempo, units, description.', body: () => null },
-  algorithms:{ path:'/v1/algorithms',method:'GET', mcp:'emem_algorithms',doc:'155 algorithms — preprocessors, embeddings, predictors, decoders, physics solvers, triple-consensus recipes.', body: () => null },
+  algorithms:{ path:'/v1/algorithms',method:'GET', mcp:'emem_algorithms',doc:'159 algorithms — preprocessors, embeddings, predictors, decoders, physics solvers, triple-consensus recipes.', body: () => null },
   sources:   { path:'/v1/sources',   method:'GET', mcp:'emem_sources',   doc:'External data sources the materializers can pull from. Each has a scheme, license, and a hint about what bands it produces.', body: () => null },
   topics:    { path:'/v1/topics',    method:'GET', mcp:'emem_topics',    doc:'25 topics — the human-facing question categories (flood, wildfire, heat, …). Each routes to a recall plan.', body: () => null },
   schema:    { path:'/v1/schema',    method:'GET', mcp:'emem_schema',    doc:'The wire schema. CBOR shape, signing rule, canonical encoding.', body: () => null },
@@ -3764,7 +3825,7 @@ window._ememOpenTryIt = openTryIt;
 const MANIFEST_INFO = {
   registry:   { what:'Index of every other manifest. The root pointer — a responder publishes its registry CID at /.well-known/emem.json.', tryKey:'manifests' },
   bands:      { what:'35 declared band cube slots, 118 materializer-wired band names, 1792 dimensions total. Each band lists its family, tempo, units, and producing algorithms.', tryKey:'bands' },
-  algorithms: { what:'155 algorithms — preprocessors, foundation embeddings, predictors, decoders, physics solvers, triple-consensus recipes — keyed by content hash.', tryKey:'algorithms' },
+  algorithms: { what:'159 algorithms — preprocessors, foundation embeddings, predictors, decoders, physics solvers, triple-consensus recipes — keyed by content hash.', tryKey:'algorithms' },
   sources:    { what:'External data sources the materializers can ingest from (Landsat, Copernicus, ECMWF, FTW, Overture, …). License + scheme per entry.', tryKey:'sources' },
   schema:     { what:'Canonical wire schema (CBOR shape, signing rule). Two responders that follow the same schema_cid produce byte-identical facts.', tryKey:'schema' },
   topics:     { what:'25 human-facing topics — flood, wildfire, heat, drought, biodiversity, … — that route /v1/ask into recall plans.', tryKey:'topics' },

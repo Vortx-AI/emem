@@ -41,10 +41,10 @@ startup.
 | Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
 |-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
 | `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 35 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
-| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 155         | composition recipes (solo / combined / embedding)           |
+| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 159         | composition recipes (solo / combined / embedding)           |
 | `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 20          | derivation functions (primary / derivative / negative)      |
 | `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 43 schemes  | ordered providers per scheme                                |
-| `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 26 topics   | `/v1/ask` routing (description + aliases + bands)           |
+| `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 27 topics   | `/v1/ask` routing (description + aliases + bands)           |
 | `emem-schema`           | `data/schema-v0.json`                      | `schema::SchemaRegistry`            | 8 fragments | CDDL fragments + pinned hash/sig/cid encoding               |
 | `emem-lcv1`             | `src/taxonomy.rs`                          | `taxonomy::Lcv1` + `LcvFamily`      | 64 leaves   | 8 families x 8 leaves land-cover taxonomy, u8 encoded       |
 | `emem-cell64-alphabet`  | `crates/emem-codec/src/alphabet.rs`        | `build_alphabet_v0()` (no struct)   | 65 536      | CVCV bigrams padded with `z<hex4>` synthetic suffix         |
@@ -128,7 +128,7 @@ removed when its no-key path closed.
 
 ## emem-algorithms (algorithms-v0.json)
 
-155 composition recipes split across three kinds:
+159 composition recipes split across three kinds:
 
 | Kind        | Count | What it composes                                                       |
 |-------------|-------|------------------------------------------------------------------------|
@@ -401,7 +401,7 @@ connector and which are declared but deferred.
 
 ## emem-topics (topics-v0.json)
 
-26 topics for routing free-text questions through `/v1/ask` and the MCP
+27 topics for routing free-text questions through `/v1/ask` and the MCP
 `emem_ask` tool. 11 are fully wired today (every band the topic cites has
 a live materializer); the rest carry partial wiring or aspirational bands
 deferred for connector work.
@@ -439,7 +439,7 @@ Inverse queries the registry exposes:
 - `topics_for_band(band_key) -> Vec<&Topic>`
 - `topics_for_algorithm(algo_key) -> Vec<&Topic>`
 
-Both are O(N) over the 26-topic list — small enough that no index is needed.
+Both are O(N) over the 27-topic list — small enough that no index is needed.
 
 ## emem-schema (schema-v0.json)
 
@@ -507,10 +507,10 @@ consonant/vowel string constants in the same file.
 | Manifest                 | Count today  | Invariant the validator enforces                                  |
 |--------------------------|--------------|-------------------------------------------------------------------|
 | `emem-bands`             | 35 slots     | sum of `dims` == 1792; offsets contiguous; no dup keys            |
-| `emem-algorithms`        | 155          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
+| `emem-algorithms`        | 159          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
 | `emem-functions`         | 20           | no dup keys; `deterministic == true` always; sources non-empty for primary/negative |
 | `emem-sources`           | 43 schemes   | no dup schemes; `providers[]` non-empty                           |
-| `emem-topics`            | 26 topics    | no dup keys                                                       |
+| `emem-topics`            | 27 topics    | no dup keys                                                       |
 | `emem-schema`            | 8 fragments  | `hash == "blake3"` and `signature == "ed25519"`                   |
 | `emem-lcv1`              | 64 leaves    | 8 families x 8 leaves; u8 encoding                                |
 | `emem-cell64-alphabet`   | 65 536       | in-code CVCV builder, deterministic                               |

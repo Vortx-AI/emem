@@ -1,0 +1,124 @@
+/* emem.dev — mdbook brand overlay
+ * Aligns the docs book with the rest of web/ (oklch palette, JetBrains Mono,
+ * green accent). Only overrides — keeps mdbook's default skeleton intact.
+ */
+
+:root {
+  --paper:        oklch(0.975 0.005 85);
+  --paper-2:      oklch(0.955 0.005 85);
+  --paper-3:      oklch(0.93  0.006 85);
+  --ink:          oklch(0.20  0.005 85);
+  --ink-2:        oklch(0.32  0.005 85);
+  --mute:         oklch(0.50  0.005 85);
+  --rule:         oklch(0.86  0.008 85);
+  --accent:       oklch(0.45  0.09  145);
+  --accent-bg:    oklch(0.93  0.04  145);
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.navy, .ayu, .coal {
+  --paper:        oklch(0.16 0.005 85);
+  --paper-2:      oklch(0.19 0.005 85);
+  --paper-3:      oklch(0.23 0.006 85);
+  --ink:          oklch(0.93 0.005 85);
+  --ink-2:        oklch(0.80 0.005 85);
+  --mute:         oklch(0.60 0.005 85);
+  --rule:         oklch(0.28 0.008 85);
+  --accent:       oklch(0.78 0.13  145);
+  --accent-bg:    oklch(0.26 0.05  145);
+}
+
+/* mdbook variable mapping */
+html {
+  --bg:                    var(--paper);
+  --fg:                    var(--ink);
+  --sidebar-bg:            var(--paper-2);
+  --sidebar-fg:            var(--ink-2);
+  --sidebar-non-existant:  var(--mute);
+  --sidebar-active:        var(--accent);
+  --sidebar-spacer:        var(--rule);
+  --scrollbar:             var(--rule);
+  --icons:                 var(--mute);
+  --icons-hover:           var(--ink);
+  --links:                 var(--accent);
+  --inline-code-color:     var(--accent);
+  --theme-popup-bg:        var(--paper-2);
+  --theme-popup-border:    var(--rule);
+  --theme-hover:           var(--paper-3);
+  --quote-bg:              var(--paper-2);
+  --quote-border:          var(--accent);
+  --warning-border:        var(--accent);
+  --table-border-color:    var(--rule);
+  --table-header-bg:       var(--paper-2);
+  --table-alternate-bg:    var(--paper-2);
+  --searchbar-border-color:var(--rule);
+  --searchbar-bg:          var(--paper-2);
+  --searchbar-fg:          var(--ink);
+  --searchbar-shadow-color:transparent;
+  --searchresults-header-fg:var(--mute);
+  --searchresults-border-color:var(--rule);
+  --searchresults-li-bg:   var(--paper-2);
+  --search-mark-bg:        var(--accent-bg);
+  --color-scheme:          light dark;
+}
+
+body, .content {
+  font-family: var(--mono);
+  font-feature-settings: "ss01","ss02","cv01","cv02";
+  -webkit-font-smoothing: antialiased;
+}
+
+.content h1, .content h2, .content h3, .content h4 {
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.content h1 { font-size: 1.875rem; }
+.content h2 { font-size: 1.375rem; border-bottom: 1px solid var(--rule); padding-bottom: .3rem; }
+.content h3 { font-size: 1.125rem; }
+
+.content a, .content a:visited { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+.content a:hover { border-bottom-color: var(--accent); }
+
+.menu-title { font-weight: 700; letter-spacing: 0.02em; }
+
+#sidebar .chapter li.chapter-item a {
+  color: var(--ink-2);
+}
+#sidebar .chapter li.chapter-item a:hover,
+#sidebar .chapter li.chapter-item a.active {
+  color: var(--accent);
+}
+
+#searchbar {
+  border-radius: 6px;
+}
+
+pre, code {
+  font-family: var(--mono);
+}
+pre {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+:not(pre) > code {
+  background: var(--paper-2);
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+}
+
+blockquote {
+  background: var(--quote-bg);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+}
+
+table {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+
+/* Compact, agent-readable feel — tighter spacing throughout. */
+.content p, .content ul, .content ol { margin: .55rem 0; }
+.content li { margin: .15rem 0; }

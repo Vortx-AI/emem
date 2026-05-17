@@ -21,6 +21,15 @@ UNIT=emem-server.service
 
 cd "$REPO"
 
+# Rebuild the embedded mdbook docs site so the binary picks up the
+# latest `docs/*.md` content. `docs/book/` is baked into the binary via
+# `include_dir!`; without this step a prod rebuild would ship stale docs.
+# `mdbook` copies `book.toml` into its output because `src = "."` —
+# drop it post-build so the responder doesn't leak its own build config.
+echo "==> mdbook build (docs/)"
+( cd "$REPO/docs" && mdbook build )
+rm -f "$REPO/docs/book/book.toml"
+
 echo "==> cargo build --release -p emem-cli"
 cargo build --release -p emem-cli
 

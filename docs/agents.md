@@ -9,16 +9,16 @@ every read returns a content-addressed receipt the caller can verify
 offline. The address space is the planet, the state is persistent, the
 bytes are reproducible across any replica that mirrors them.
 
-emem sits one layer beneath whatever memory your agent runtime ships
-internally. Per-session associative memory, per-tenant scratchpads, and
-vector-indexed document stores all answer different questions; emem
-answers *what is at this place*, once, signed, byte-identical for every
-caller that ever asks again. A `cell64` is to an emem-grounded reasoning
-chain what a token is to an LLM: a stable, hierarchical, machine-readable
-handle the rest of the pipeline can quote, share, and verify. Three core
-moves: (a) locate a place by name to a `cell64`, (b) recall signed facts
-at that cell, (c) find places similar to it by foundation embedding.
-Every response carries an Ed25519 receipt any agent can verify offline.
+emem sits beneath whatever memory your agent runtime ships internally.
+Session memory, tenant scratchpads, and vector document stores all answer
+different questions. emem answers one: *what is at this place?* Once,
+signed, byte-identical for every caller that asks again.
+
+A `cell64` addresses a place the way a token addresses text in an LLM.
+It's a stable hierarchical handle the rest of the pipeline can quote
+and verify. Three moves: locate a place by name to a `cell64`, recall
+signed facts at that cell, find similar places by foundation embedding.
+Every response includes an Ed25519 receipt you verify offline.
 
 **The two primitives every agent uses daily.** Many tools ship; two are
 the daily-use surface. The state vector is the read-side: one call
@@ -83,8 +83,8 @@ log. See "Watching humans use the API" below.
 | Resource | Live count |
 |---|---|
 | REST paths (OpenAPI) | 71 documented, 68 under `/v1/*` |
-| MCP tools | 49 |
-| Algorithms (composition recipes) | 155 |
+| MCP tools | 58 |
+| Algorithms (composition recipes) | 159 |
 | Band-cube slots | 35 |
 | Materializer-wired band names | 118 |
 | Source schemes | 43 |
@@ -299,7 +299,7 @@ the introspection endpoints directly:
 |---|---|---|
 | "where do you have signed facts" | `GET /v1/coverage_map.svg` | 1440 × 720 plate-carrée SVG of attested cells |
 | "how many cells / facts overall" | `GET /v1/coverage_matrix` | per-band live status + freshness + signer pubkey |
-| "what's the corpus density over <region>" | `GET /v1/coverage_matrix` + filter client-side, or `POST /v1/recall_polygon` with a bbox | per-cell densities you can aggregate |
+| "what's the corpus density over \<region\>" | `GET /v1/coverage_matrix` + filter client-side, or `POST /v1/recall_polygon` with a bbox | per-cell densities you can aggregate |
 | "which bands are wired here" | `GET /v1/materializers` | per-band auto-fetch registry |
 | "what does this responder know about" | `GET /v1/discover` | typed bootstrap that names every catalog |
 
@@ -334,7 +334,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms |
-| `/v1/algorithms` | 155 composition recipes (paginated) |
+| `/v1/algorithms` | 159 composition recipes (paginated) |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |
@@ -495,7 +495,7 @@ in `docs/ATTESTING.md`; the schema is in `/openapi.json`.
 
 ## Algorithms: triple-encoder consensus
 
-The 155-entry algorithm registry includes the standard agronomic and
+The 159-entry algorithm registry includes the standard agronomic and
 hydrological indices (NDVI, NBR, NDWI, walkability, heat index, RUSLE).
 The differentiator is the **triple-encoder consensus pattern**: when
 three independent foundation encoders flag the same cell, the answer

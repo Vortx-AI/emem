@@ -263,10 +263,10 @@ footer.foot a:hover{color:var(--accent)}
   </header>
 
   <p class=lede>
-    Every fact this protocol serves is <b>content-addressed</b> (BLAKE3 over canonical CBOR → 32-char base32 CID)
-    and every recall is wrapped in a <b>receipt</b> signed by the responder's ed25519 key over a deterministic
-    preimage. <span class=accent>This page recomputes the signature in your browser</span> — no server round-trip,
-    no trust required. Drop a fact CID, paste a receipt JSON, and watch the math.
+    Every fact this protocol serves is <b>content-addressed</b> (BLAKE3 over canonical CBOR → 32-char base32 CID).
+    Every recall is wrapped in a <b>receipt</b> signed by the responder's ed25519 key over a deterministic preimage.
+    <span class=accent>This page verifies that signature in your browser</span>, with no call back to the issuer.
+    Drop a fact CID, paste a receipt JSON, watch the math run.
   </p>
 
   <section class=input-card aria-label="Input">
@@ -463,6 +463,15 @@ function buildPreimageBytes(receipt){
   return out;
 }
 
+// Same construction as buildPreimageBytes, but returned as the readable
+// string a human can audit by eye. The byte-level path is canonical;
+// this is purely for display in the receipt card.
+function buildPreimageDisplay(receipt){
+  const cells = (receipt.cells || []).join(',') + ',';
+  const cids  = (receipt.fact_cids || []).join(',') + ',';
+  return `${receipt.request_id || ''}|${receipt.served_at || ''}|${receipt.primitive || ''}|${cells}|${cids}`;
+}
+
 // Receipts come over the wire with the signature as a 64-element byte
 // array (`signature`) and the pubkey as either a 32-byte array
 // (`responder`) or the base32 string (`responder_pubkey_b32`). Older /
@@ -501,7 +510,10 @@ async function verifyReceiptInBrowser(receipt){
     if (sig.length !== 64) throw new Error('signature is ' + sig.length + ' bytes, expected 64');
     if (pub.length !== 32) throw new Error('pubkey is ' + pub.length + ' bytes, expected 32');
     const ok = nobleEd.verify(sig, digest, pub);
-    return { via: 'browser', ok, digest };
+    // Return the preimage too so the receipt card can render exactly what
+    // was hashed — the audit caught that we showed `blake3(preimage)` but
+    // never the bytes themselves, defeating the point of in-browser verify.
+    return { via: 'browser', ok, digest, preimage, sig, pub };
   } catch (e) {
     return { via: 'browser', ok: false, error: String(e) };
   }
@@ -632,15 +644,32 @@ function renderReceipt(receipt, result){
   if (sigDisplay) {
     rows.push(['signature', `<code style="font-size:11px">${escapeHtml(sigDisplay.slice(0, 24))}…${escapeHtml(sigDisplay.slice(-8))}</code> <span class=muted>· 64-byte ed25519${sigKind ? ', ' + sigKind : ''}</span>`]);
   }
+  // Render the canonical preimage — the exact byte sequence the responder
+  // signed. Two views: the readable string (so a human auditor can read
+  // `request_id|served_at|primitive|cells|cids` in plain text), and the
+  // hex byte dump for byte-exact verification. Both come from the same
+  // buildPreimage* path so they can't disagree.
+  const preimageAscii = buildPreimageDisplay(receipt);
+  const preimageHex = result && result.preimage ? bytesToHex(result.preimage)
+                                                 : bytesToHex(buildPreimageBytes(receipt));
+  const preimageLen = result && result.preimage ? result.preimage.length
+                                                 : buildPreimageBytes(receipt).length;
+  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:10.5px;margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:11px;display:block;word-break:break-all;background:rgba(0,0,0,.18);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:10.5px;margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:10.5px;display:block;word-break:break-all;background:rgba(0,0,0,.18);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
   if (result && result.digest) {
-    rows.push(['blake3 digest', `<code style="font-size:11px">${escapeHtml(bytesToHex(result.digest))}</code>`]);
+    rows.push(['blake3(preimage)', `<code style="font-size:11px">${escapeHtml(bytesToHex(result.digest))}</code> <span class=muted>· 32-byte digest, ed25519 verifies this</span>`]);
   }
   if (result) {
     const okText = result.ok === true ? chip('ok', 'verified · ed25519') : result.ok === false ? chip('fail', 'verification failed') : chip('cid', 'pending');
-    const viaText = result.via === 'browser' ? '<span class=muted>(in-browser noble-ed25519 + noble-blake3)</span>'
-                  : result.via === 'server' ? '<span class=muted>(via POST /v1/verify_receipt)</span>'
-                  : '';
-    rows.push(['result', okText + ' ' + viaText + (result.error ? ` <span class=muted>· ${escapeHtml(result.error)}</span>` : '')]);
+    // Make the verify-path explicit. The audit caught this — when the
+    // browser falls back to the server, the user got a "verified" with
+    // no signal that the offline guarantee no longer held.
+    const viaChip = result.via === 'browser'
+      ? '<span class=chip data-kind=ok title="Recomputed in your browser with @noble/curves + @noble/hashes — no server round-trip"><span class=dot></span>offline · in browser</span>'
+      : result.via === 'server'
+      ? '<span class=chip data-kind=cid title="Browser crypto unavailable; the responder verified its own signature via POST /v1/verify_receipt"><span class=dot></span>server-verified · POST /v1/verify_receipt</span>'
+      : '';
+    rows.push(['verify path', viaChip]);
+    rows.push(['result', okText + (result.error ? ` <span class=muted>· ${escapeHtml(result.error)}</span>` : '')]);
   }
   $('receiptGrid').innerHTML = rows.map(([k, v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
 }

@@ -320,7 +320,7 @@ directly.
 - GPU off by default. To use CUDA EP, set
   `ORT_DYLIB_PATH=/opt/onnxruntime-1.22.0-cuda12/lib/libonnxruntime.so.1.22.0`
   and `EMEM_TOPIC_USE_GPU=1`. Operationally the CPU path is fine for
-  the 26-topic registry — ~110 ms warm end-to-end.
+  the 27-topic registry — ~110 ms warm end-to-end.
 
 ### Sidecar (jepa_v2)
 

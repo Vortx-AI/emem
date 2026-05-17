@@ -1,20 +1,15 @@
 # emem — Earth memory protocol
 
-> Working memory of Earth, for AI agents. Every patch of ground is an address
-> (cell64, ~9.55 m), every measurement there is a signed fact, every read is a
-> content-addressed receipt your code can verify offline. The address space is
-> the planet; the state is persistent; the bytes are reproducible across any
-> replica that mirrors it.
+> Working memory of Earth, for AI agents. Every patch of ground has an address
+> (cell64, ~9.55 m). Every measurement there is a signed fact. Every read returns
+> a content-addressed receipt you verify offline. Same CID, same bytes, every replica.
 >
-> Where most agent runtimes ship per-session associative memory or per-tenant
-> scratchpads, emem is the layer underneath: shared, cross-session,
-> cross-tenant, persistent working memory of the world itself. Calls are
-> idempotent; the CID is the citation two agents paste at each other to stop
-> arguing about a number.
+> Most runtimes ship per-session memory. emem is the layer underneath: persistent,
+> shared, cross-tenant. Calls are idempotent. The CID is how two agents settle
+> a number without trusting either one.
 >
-> A cell64 is to an emem-grounded reasoning chain what a token is to an LLM:
-> a stable, hierarchical, machine-readable handle the rest of the pipeline
-> can quote, share, and verify.
+> A cell64 addresses a place the way a token addresses text in an LLM —
+> a stable, hierarchical handle the pipeline can quote, share, and verify.
 >
 > Bootstrap: GET /v1/discover  ·  Schema: /openapi.json  ·  MCP: /mcp
 
@@ -246,8 +241,7 @@ Pair with a partner legality module before submitting to TRACES NT.
 
 ## Instructions
 
-Behavioural rules an agent should follow when using emem (Stripe convention,
-present-tense, imperative, ≤8 lines):
+Behavioral rules for agents using emem (Stripe convention, present-tense, imperative, ≤8 lines):
 
     1. Resolve a place name with /v1/locate before /v1/recall. Don't fabricate cell64s.
     2. Cite receipt.fact_cids[0] in the first 13 chars (a CID prefix). Never invent a CID.
@@ -328,6 +322,7 @@ Install in Claude Code by copying the bundle into your project's .claude/skills/
     /skills.md                      — composed recipes (cookbook view)
     /whitepaper.md                  — architecture + math
     /humans                         — interactive console; every /v1/* call prints in a live log pane
+    /docs/                          — rendered docs site (whitepaper, protocol, registries, developers, operators); client-side full-text search
     /docs/gallery                   — live coverage map + per-place scenes + 32 protocol & industry diagrams
     /docs/diagrams/                 — the 32 SVG diagrams, byte-stable, embed-anywhere
     /v1/coverage_map.svg            — global coverage as a 1440×720 plate-carrée SVG

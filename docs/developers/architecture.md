@@ -79,7 +79,7 @@ signed `Receipt`.
 | emem-core | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
 | emem-cli | 7 binaries: `emem`, `emem-server`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-ask-eval`, `emem-purge-fnkey` |
 | emem-storage | `MaterializingStorage` (cache + fetch + log composite), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (49 tools) |
+| emem-mcp | MCP tool registry (58 tools) |
 | emem-codec | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet |
 | emem-cache | sled cache wrapper (`SledHotCache`) |
 | emem-intent | 7-variant `Intent` enum and rule-based planner |
@@ -437,7 +437,7 @@ for the JEPA v2 untrained sentinel.
 REST and MCP serve the same primitives. The MCP tool list is a
 strict read-only subset of REST; writes (`attest`, `backfill`,
 reviews POST) go through REST only. `POST /mcp` is JSON-RPC 2.0,
-backed by `crates/emem-mcp/src/lib.rs` (49 tools). Three
+backed by `crates/emem-mcp/src/lib.rs` (58 tools). Three
 well-known endpoints publish capabilities: `/.well-known/mcp.json`
 (MCP transport advertisement), `/.well-known/agent-card.json`
 (recommended tool order), and `/.well-known/emem.json` (responder

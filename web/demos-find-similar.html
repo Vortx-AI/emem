@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/demos/find-similar — k-NN over the 128-D Tessera embedding</title>
+<meta name=description content="Pick a place; emem returns the K most similar cells anywhere on Earth, ranked by cosine distance over the 128-D Tessera foundation embedding. Live, signed, content-addressed.">
+<link rel=canonical href="https://emem.dev/demos/find-similar">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel="service mcp" href="/mcp">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="light dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/demos/find-similar">
+<meta property=og:title content="emem.dev/demos/find-similar — k-NN over Tessera">
+<meta property=og:description content="One curl. Find the K most similar cells on Earth.">
+<meta property=og:image content="https://emem.dev/humans-og.svg">
+<meta property=og:image:width content="1200">
+<meta property=og:image:height content="630">
+<link rel=icon href="/logo-mark.png">
+<style>
+:root{
+  --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
+  --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
+  --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
+  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.55 0.005 85);
+  --line:oklch(0.88 0.005 85);   --line-2:oklch(0.78 0.005 85);
+  --accent:oklch(0.45 0.09 145); --accent-dim:oklch(0.55 0.10 145);
+  --warn:oklch(0.55 0.16 25);
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:90%;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
+    --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
+    --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
+    --fg-3:oklch(0.62 0.005 85);  --fg-mute:oklch(0.55 0.005 85);
+    --line:oklch(0.30 0.005 85);  --line-2:oklch(0.40 0.005 85);
+    --accent:oklch(0.78 0.10 145);
+  }
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);
+  font-family:var(--mono);font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
+  border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;font-size:12px}
+button.primary{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+button.primary:hover{background:rgba(124,255,178,.14)}
+input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
+  border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px}
+input:focus,select:focus{border-color:var(--accent)}
+
+.app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
+header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
+  border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
+header.top .brand{font-weight:600;letter-spacing:-.01em;font-size:16px}
+header.top .brand .slash{color:var(--fg-mute)}
+header.top .brand .leaf{color:var(--accent)}
+header.top .tag{font-size:11px;color:var(--fg-3);letter-spacing:.04em}
+header.top .spacer{flex:1}
+header.top .navlinks{display:flex;gap:.6em;font-size:11px;color:var(--fg-3)}
+header.top .navlinks a{color:var(--fg-3);border-bottom:none}
+header.top .navlinks a:hover{color:var(--accent)}
+
+.lede{color:var(--fg-2);font-size:14.5px;margin:0 0 1.4em;line-height:1.65;max-width:680px}
+.lede b{color:var(--fg);font-weight:500}
+.lede .accent{color:var(--accent);font-weight:500}
+
+.controls{background:var(--bg-1);border:1px solid var(--line);padding:1em 1.2em;border-radius:4px;
+  margin-bottom:1.4em;display:grid;grid-template-columns:1fr 110px 130px auto;gap:.6em;align-items:end}
+@media(max-width:760px){.controls{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){html{font-size:88%}.controls{grid-template-columns:1fr}}
+.controls label{display:block;font-size:10.5px;color:var(--fg-3);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:.25em}
+
+.endpoint-pill{display:inline-block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  padding:.25em .6em;background:var(--bg-2);border:1px solid var(--line);border-radius:2px;color:var(--fg-3)}
+
+.results{display:grid;gap:.6em;margin-top:1.2em}
+.result{border:1px solid var(--line);background:var(--bg-1);padding:.8em 1em;border-radius:3px;
+  display:grid;grid-template-columns:32px 1fr 110px 110px;gap:1em;align-items:center}
+@media(max-width:560px){.result{grid-template-columns:32px 1fr 80px;font-size:12px}.result .dist{display:none}}
+.result .rank{font-weight:600;color:var(--accent);font-size:14px;text-align:right}
+.result .cell{color:var(--fg);font-size:12.5px;word-break:break-all}
+.result .cell .label{display:block;color:var(--fg-3);font-size:10.5px;margin-top:.15em}
+.result .cos{font-size:13px;color:var(--accent-dim);text-align:right}
+.result .dist{font-size:11px;color:var(--fg-3);text-align:right}
+
+.bar{height:3px;background:var(--bg-2);position:relative;border-radius:2px;margin-top:.4em;grid-column:2/-1}
+.bar > span{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:2px}
+
+.chips{display:flex;gap:.4em;flex-wrap:wrap;margin:.6em 0}
+.chip{display:inline-flex;align-items:center;gap:.4em;padding:.25em .55em;border-radius:2px;
+  background:var(--bg-2);border:1px solid var(--line);font-size:11px;color:var(--fg-2)}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.chip b{font-weight:500;color:var(--fg);margin-right:.2em}
+.chip .muted{color:var(--fg-3)}
+
+.out{margin-top:1em}
+.out pre{margin:0;font-size:11.5px;line-height:1.5;background:var(--bg-1);
+  border:1px solid var(--line);padding:.9em 1em;border-radius:3px;overflow:auto;
+  max-height:320px;color:var(--fg-2);white-space:pre-wrap;word-break:break-all}
+.out pre .k{color:var(--accent-dim)}
+.out pre .s{color:var(--fg-2)}
+.out pre .n{color:var(--accent)}
+.out pre .b{color:var(--accent)}
+
+.tag-row{font-size:11.5px;color:var(--fg-3);margin:.4em 0 .8em}
+.tag-row .spinner{display:inline-block;width:10px;height:10px;border:2px solid var(--accent);
+  border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;margin-right:.4em;vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+footer.foot{margin-top:2.4em;padding-top:1.1em;border-top:1px solid var(--line);
+  display:flex;gap:1em;flex-wrap:wrap;font-size:11px;color:var(--fg-mute)}
+footer.foot a{color:var(--fg-3);border-bottom:none}
+footer.foot a:hover{color:var(--accent)}
+
+.toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
+  background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
+  border-radius:3px;font-size:11.5px;z-index:200;opacity:0;pointer-events:none;
+  transition:opacity .18s,transform .18s}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.muted{color:var(--fg-3)}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);
+  padding:.4em .8em;z-index:200;border-radius:3px}
+</style>
+</head>
+<body>
+<a class=skip href="#main">Skip to demo</a>
+<main class=app id=main tabindex="-1">
+  <header class=top role=banner>
+    <span class=brand>emem.dev<span class=slash>/</span><span class=leaf>demos/find-similar</span></span>
+    <span class=tag>— k-NN over the 128-D Tessera embedding</span>
+    <span class=spacer></span>
+    <nav class=navlinks aria-label="protocol surfaces">
+      <a href="/demos">demos</a>
+      <a href="/docs/api/">api</a>
+      <a href="/verify">verify</a>
+      <a href="/humans">humans</a>
+    </nav>
+  </header>
+
+  <p class=lede>
+    Pick a place. emem resolves it to a <b>cell64</b>, pulls the cell's 128-D Tessera
+    embedding, and returns the K nearest neighbours on Earth by cosine distance —
+    each one a signed fact you can cite, recall, and verify.
+    <span class=accent>One call: <code>POST /v1/find_similar</code>.</span>
+  </p>
+
+  <section class=controls aria-label="Inputs">
+    <div>
+      <label for=placeInput>place (or cell64)</label>
+      <input id=placeInput type=text spellcheck=false autocomplete=off value="Bengaluru">
+    </div>
+    <div>
+      <label for=kInput>k</label>
+      <input id=kInput type=number min=1 max=50 value=8>
+    </div>
+    <div>
+      <label for=modeInput>mode</label>
+      <select id=modeInput aria-label="similarity mode">
+        <option value=cosine selected>cosine</option>
+        <option value=hamming>hamming</option>
+        <option value=hamming_then_rerank>hamming → cosine rerank</option>
+      </select>
+    </div>
+    <button id=runBtn class=primary type=button>find neighbours</button>
+  </section>
+
+  <span class=endpoint-pill>POST /v1/find_similar</span>
+
+  <div class=tag-row id=tag></div>
+  <div class=chips id=chips></div>
+
+  <section aria-label="results">
+    <div class=results id=results></div>
+  </section>
+
+  <section class=out aria-label="raw JSON">
+    <p class=muted style="font-size:11px;margin:1.2em 0 .4em;text-transform:uppercase;letter-spacing:.06em">raw response</p>
+    <pre id=raw class=mono>—</pre>
+  </section>
+
+  <footer class=foot>
+    <a href="/">home</a>
+    <a href="/demos">demos</a>
+    <a href="/demos/ask-the-earth">ask the Earth</a>
+    <a href="/demos/state-cube">state cube</a>
+    <a href="/demos/signed-answer">signed answer</a>
+    <a href="/demos/trajectory">trajectory</a>
+    <a href="/demos/recall-polygon">recall polygon</a>
+    <a href="/docs/quickstart.html">quickstart</a>
+    <a href="/openapi.json">openapi</a>
+    <a href="/mcp">mcp</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+    <span class=muted>· emem · signed by the responder</span>
+  </footer>
+</main>
+
+<div class=toast id=toast></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');setTimeout(()=>el.classList.remove('on'),1700)}
+function shortCid(s){if(!s)return '—';return s.length>20?s.slice(0,12)+'…'+s.slice(-4):s}
+function fmtJson(obj){
+  let s = JSON.stringify(obj, null, 2);
+  return s.replace(/("(\\u[\da-f]{4}|\\[^u]|[^\\"])*?")(\s*:)?|\b(true|false|null)\b|-?\d+(\.\d+)?([eE][+-]?\d+)?/g, m=>{
+    let cls='n';
+    if (/^"/.test(m)) cls = /:$/.test(m) ? 'k' : 's';
+    else if (/true|false|null/.test(m)) cls='b';
+    return `<span class="${cls}">${m}</span>`;
+  });
+}
+function setRaw(obj){
+  const el=$('raw');
+  if (typeof obj === 'string') { el.textContent = obj; return; }
+  el.innerHTML = fmtJson(obj);
+}
+async function postJson(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body||{})});
+  if (!r.ok) throw new Error(`${url} → ${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+async function resolveToCell(input){
+  // If the input already looks like a cell64 (four base-1024 bigrams separated
+  // by dots), skip the locate hop. Otherwise resolve it.
+  if (/^[a-z0-9]{4,6}\.[a-z0-9]{4,6}\.[a-z0-9]{4,6}\.[a-z0-9]{4,6}$/i.test(input)) {
+    return { cell64: input, via: '(input was already a cell64)' };
+  }
+  return postJson('/v1/locate', { q: input });
+}
+
+async function run(){
+  const place = $('placeInput').value.trim();
+  if (!place) { toast('place is empty'); return; }
+  const k = Math.max(1, Math.min(50, parseInt($('kInput').value, 10) || 8));
+  const mode = $('modeInput').value;
+  $('tag').innerHTML = '<span class=spinner></span>resolving + searching…';
+  $('results').innerHTML = '';
+  $('chips').innerHTML = '';
+  setRaw('—');
+  try {
+    const t0 = performance.now();
+    const loc = await resolveToCell(place);
+    if (!loc.cell64) throw new Error('locate did not return a cell64');
+    const j = await postJson('/v1/find_similar', { key: loc.cell64, k, mode });
+    const dt = (performance.now() - t0).toFixed(0);
+
+    // Chips: query cell, k requested, mode, latency, signer
+    const sig = j.receipt && j.receipt.responder_pubkey_b32;
+    $('chips').innerHTML = [
+      ['query cell', loc.cell64, 'cell'],
+      ['k', String(j.neighbors ? j.neighbors.length : 0), ''],
+      ['mode', mode, ''],
+      ['signer', shortCid(sig), 'pub'],
+      ['total', dt + ' ms', ''],
+    ].map(([k,v]) => `<span class=chip><span class=dot></span><b>${k}</b><span class=muted>${v}</span></span>`).join('');
+
+    // Render neighbours sorted by cosine descending. The responder already returns
+    // them sorted, but we re-sort defensively.
+    const neighbours = (j.neighbors || j.neighbours || []).slice();
+    if (!neighbours.length) {
+      $('results').innerHTML = `<div class=muted style="padding:1em">no neighbours returned — try a different cell or mode</div>`;
+    } else {
+      // Normalise the cos→bar width. Tessera cosines run roughly -0.2..0.95
+      // in practice; clamp to [0,1] for the bar.
+      const max = Math.max(...neighbours.map(n => Math.max(0, n.cos ?? n.score ?? 0)));
+      $('results').innerHTML = neighbours.map((n, i) => {
+        const cos = (n.cos ?? n.score ?? 0);
+        const pct = max > 0 ? Math.max(0, cos / max) * 100 : 0;
+        const lat = n.centre && n.centre.lat_deg;
+        const lng = n.centre && n.centre.lng_deg;
+        const label = (lat != null && lng != null) ? `${lat.toFixed(3)}, ${lng.toFixed(3)}` : (n.place_label || '');
+        return `<div class=result>
+          <div class=rank>${i+1}</div>
+          <div class=cell>${n.cell64 || n.cell}<span class=label>${label}</span></div>
+          <div class=cos>cos ${cos.toFixed(4)}</div>
+          <div class=dist>${(1 - cos).toFixed(4)}</div>
+          <div class=bar><span style="width:${pct.toFixed(1)}%"></span></div>
+        </div>`;
+      }).join('');
+    }
+    setRaw(j);
+    $('tag').innerHTML = `<span style="color:var(--accent)">✓ ${neighbours.length} neighbours in ${dt} ms · cited under <code>${shortCid(sig)}</code></span>`;
+  } catch (e) {
+    $('tag').innerHTML = `<span style="color:var(--warn)">✗ ${e.message}</span>`;
+    setRaw(String(e));
+  }
+}
+
+$('runBtn').addEventListener('click', run);
+$('placeInput').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+$('kInput').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+
+// Auto-run on first load so the page is useful without a click.
+run();
+</script>
+</body>
+</html>

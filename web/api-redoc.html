@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>emem.dev — REST API reference (interactive)</title>
+<meta name=description content="Browseable, in-page reference for the emem.dev REST surface. Powered by ReDoc against the live /openapi.json.">
+<link rel=canonical href="https://emem.dev/docs/api/">
+<meta name=robots content="index,follow">
+
+<!-- OG / Twitter -->
+<meta property=og:title content="emem.dev — REST API reference">
+<meta property=og:description content="Browseable, in-page reference for the emem.dev REST surface.">
+<meta property=og:url content="https://emem.dev/docs/api/">
+<meta property=og:type content=website>
+<meta property=og:image content="https://emem.dev/og-image.svg">
+<meta property=og:image:width content="1200">
+<meta property=og:image:height content="630">
+
+<link rel=icon href="/favicon.svg">
+<link rel="shortcut icon" href="/favicon.png">
+
+<style>
+  /* Match the rest of web/ — oklch palette, JetBrains Mono. ReDoc inherits
+   * via the theme.colors / theme.typography options below. */
+  :root {
+    --paper:   oklch(0.975 0.005 85);
+    --paper-2: oklch(0.955 0.005 85);
+    --ink:     oklch(0.20 0.005 85);
+    --ink-2:   oklch(0.32 0.005 85);
+    --mute:    oklch(0.50 0.005 85);
+    --rule:    oklch(0.86 0.008 85);
+    --accent:  oklch(0.45 0.09 145);
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:   oklch(0.16 0.005 85);
+      --paper-2: oklch(0.19 0.005 85);
+      --ink:     oklch(0.93 0.005 85);
+      --ink-2:   oklch(0.80 0.005 85);
+      --mute:    oklch(0.60 0.005 85);
+      --rule:    oklch(0.28 0.008 85);
+      --accent:  oklch(0.78 0.13 145);
+    }
+  }
+
+  html, body { margin: 0; background: var(--paper); color: var(--ink); }
+  body { font-family: var(--mono); }
+
+  /* Thin top bar so a visitor lands here from any other emem.dev surface
+   * with the same chrome instead of dropping into bare ReDoc. */
+  .topbar {
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper-2);
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(6px);
+  }
+  .topbar-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    height: 40px;
+    font-size: 11px;
+  }
+  .topbar .brand {
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--ink);
+    padding-right: 1rem;
+    border-right: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+  }
+  .topbar .brand::before {
+    content: ""; width: 8px; height: 8px;
+    background: var(--accent); display: inline-block;
+  }
+  .topbar a {
+    color: var(--ink-2);
+    text-decoration: none;
+    padding: 0 .5rem;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    border-right: 1px solid var(--rule);
+  }
+  .topbar a:hover { color: var(--ink); background: rgba(0,0,0,.04); }
+  .topbar .spacer { flex: 1; }
+
+  redoc { display: block; }
+</style>
+</head>
+<body>
+
+<header class=topbar>
+  <span class=brand>emem · API</span>
+  <a href="/">home</a>
+  <a href="/docs/">docs</a>
+  <a href="/docs/quickstart.html">quickstart</a>
+  <a href="/openapi.json">openapi.json (raw)</a>
+  <a href="/mcp">/mcp</a>
+  <span class=spacer></span>
+  <a href="/humans">/humans</a>
+  <a href="/verify">/verify</a>
+  <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+</header>
+
+<!--
+  ReDoc renders the spec at /openapi.json into a sidebar-and-detail
+  reference page. Every endpoint is deep-linkable; "Try it" is intentionally
+  not enabled (reads are open and idempotent, so we point devs at the
+  curl examples on /docs/quickstart.html for runnable calls).
+-->
+<redoc spec-url="/openapi.json"
+       theme='{"colors":{"primary":{"main":"oklch(0.45 0.09 145)"}},"typography":{"fontFamily":"JetBrains Mono, ui-monospace, SF Mono, Menlo, Consolas, monospace","headings":{"fontFamily":"JetBrains Mono, ui-monospace, monospace","fontWeight":"700"},"code":{"fontFamily":"JetBrains Mono, ui-monospace, monospace"}},"sidebar":{"backgroundColor":"transparent"}}'
+       hide-loading
+       expand-responses="200,201"
+       json-sample-expand-level="2"
+       required-props-first
+       sort-props-alphabetically
+       path-in-middle-panel></redoc>
+
+<script src="https://cdn.redocly.com/redoc/latest/bundles/redoc.standalone.js"></script>
+
+</body>
+</html>

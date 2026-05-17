@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>emem.dev/demos/recall-polygon — fan a single call out across a region</title>
+<meta name=description content="Recall a band across every cell inside a polygon. emem fans the call out, signs each cell's fact, and aggregates. One call in, per-cell receipts out.">
+<link rel=canonical href="https://emem.dev/demos/recall-polygon">
+<link rel=alternate type=application/json href="/openapi.json">
+<link rel="service mcp" href="/mcp">
+<meta name=robots content="index,follow">
+<meta name=color-scheme content="light dark">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/demos/recall-polygon">
+<meta property=og:title content="emem.dev/demos/recall-polygon — region recall">
+<meta property=og:description content="One call. Every cell in a polygon. Per-cell receipts.">
+<meta property=og:image content="https://emem.dev/humans-og.svg">
+<meta property=og:image:width content="1200">
+<meta property=og:image:height content="630">
+<link rel=icon href="/logo-mark.png">
+<style>
+:root{
+  --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
+  --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
+  --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
+  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.55 0.005 85);
+  --line:oklch(0.88 0.005 85);   --line-2:oklch(0.78 0.005 85);
+  --accent:oklch(0.45 0.09 145); --accent-dim:oklch(0.55 0.10 145);
+  --warn:oklch(0.55 0.16 25);
+  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:90%;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
+    --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
+    --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
+    --fg-3:oklch(0.62 0.005 85);  --fg-mute:oklch(0.55 0.005 85);
+    --line:oklch(0.30 0.005 85);  --line-2:oklch(0.40 0.005 85);
+    --accent:oklch(0.78 0.10 145);
+  }
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);
+  font-family:var(--mono);font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
+  border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;font-size:12px}
+button.primary{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+button.primary:hover{background:rgba(124,255,178,.14)}
+input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
+  border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px}
+input:focus,select:focus{border-color:var(--accent)}
+
+.app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
+header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
+  border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
+header.top .brand{font-weight:600;letter-spacing:-.01em;font-size:16px}
+header.top .brand .slash{color:var(--fg-mute)}
+header.top .brand .leaf{color:var(--accent)}
+header.top .tag{font-size:11px;color:var(--fg-3);letter-spacing:.04em}
+header.top .spacer{flex:1}
+header.top .navlinks{display:flex;gap:.6em;font-size:11px;color:var(--fg-3)}
+header.top .navlinks a{color:var(--fg-3);border-bottom:none}
+header.top .navlinks a:hover{color:var(--accent)}
+
+.lede{color:var(--fg-2);font-size:14.5px;margin:0 0 1.4em;line-height:1.65;max-width:680px}
+.lede b{color:var(--fg);font-weight:500}
+.lede .accent{color:var(--accent);font-weight:500}
+
+.controls{background:var(--bg-1);border:1px solid var(--line);padding:1em 1.2em;border-radius:4px;
+  margin-bottom:1.4em;display:grid;grid-template-columns:1fr 240px auto;gap:.6em;align-items:end}
+@media(max-width:760px){.controls{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){html{font-size:88%}.controls{grid-template-columns:1fr}}
+.controls label{display:block;font-size:10.5px;color:var(--fg-3);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:.25em}
+
+.endpoint-pill{display:inline-block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  padding:.25em .6em;background:var(--bg-2);border:1px solid var(--line);border-radius:2px;color:var(--fg-3)}
+
+.chips{display:flex;gap:.4em;flex-wrap:wrap;margin:.6em 0}
+.chip{display:inline-flex;align-items:center;gap:.4em;padding:.25em .55em;border-radius:2px;
+  background:var(--bg-2);border:1px solid var(--line);font-size:11px;color:var(--fg-2)}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.chip b{font-weight:500;color:var(--fg);margin-right:.2em}
+.chip .muted{color:var(--fg-3)}
+
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:.8em;margin-top:1em}
+@media(max-width:560px){.summary{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--bg-1);border:1px solid var(--line);padding:.85em 1em;border-radius:3px}
+.stat .label{font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
+.stat .v{font-size:22px;font-weight:500;color:var(--accent);font-family:var(--mono);margin-top:.2em}
+.stat .sub{font-size:11px;color:var(--fg-3);margin-top:.2em}
+
+.heatmap{margin-top:1.2em;background:var(--bg-1);border:1px solid var(--line);padding:1em;border-radius:3px}
+.heatmap .grid{display:grid;gap:1px;background:var(--bg-2);padding:1px;border-radius:2px}
+.heatmap .cell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;
+  font-size:9.5px;color:#0008;cursor:default;transition:transform .12s ease}
+.heatmap .cell:hover{transform:scale(1.06);z-index:2;outline:1px solid var(--fg);position:relative}
+.heatmap .legend{display:flex;gap:.4em;margin-top:.6em;font-size:10.5px;color:var(--fg-3);align-items:center}
+.heatmap .legend .swatch{width:14px;height:14px;border-radius:2px;border:1px solid var(--line-2)}
+
+.tag-row{font-size:11.5px;color:var(--fg-3);margin:.4em 0 .8em}
+.tag-row .spinner{display:inline-block;width:10px;height:10px;border:2px solid var(--accent);
+  border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;margin-right:.4em;vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.out{margin-top:1em}
+.out pre{margin:0;font-size:11.5px;line-height:1.5;background:var(--bg-1);
+  border:1px solid var(--line);padding:.9em 1em;border-radius:3px;overflow:auto;
+  max-height:300px;color:var(--fg-2);white-space:pre-wrap;word-break:break-all}
+.out pre .k{color:var(--accent-dim)}
+.out pre .s{color:var(--fg-2)}
+.out pre .n{color:var(--accent)}
+.out pre .b{color:var(--accent)}
+
+footer.foot{margin-top:2.4em;padding-top:1.1em;border-top:1px solid var(--line);
+  display:flex;gap:1em;flex-wrap:wrap;font-size:11px;color:var(--fg-mute)}
+footer.foot a{color:var(--fg-3);border-bottom:none}
+footer.foot a:hover{color:var(--accent)}
+
+.toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
+  background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
+  border-radius:3px;font-size:11.5px;z-index:200;opacity:0;pointer-events:none;
+  transition:opacity .18s,transform .18s}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.muted{color:var(--fg-3)}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);
+  padding:.4em .8em;z-index:200;border-radius:3px}
+</style>
+</head>
+<body>
+<a class=skip href="#main">Skip to demo</a>
+<main class=app id=main tabindex="-1">
+  <header class=top role=banner>
+    <span class=brand>emem.dev<span class=slash>/</span><span class=leaf>demos/recall-polygon</span></span>
+    <span class=tag>— fan a single call out across a region</span>
+    <span class=spacer></span>
+    <nav class=navlinks aria-label="protocol surfaces">
+      <a href="/demos">demos</a>
+      <a href="/docs/api/">api</a>
+      <a href="/verify">verify</a>
+      <a href="/humans">humans</a>
+    </nav>
+  </header>
+
+  <p class=lede>
+    Pass a place name (or GeoJSON polygon) and a band. emem resolves the polygon,
+    fans out to every <code>cell64</code> inside, recalls the band per cell, and
+    returns a flat <b>fact set</b> plus an <b>aggregate</b> (min / max / mean / count).
+    Each cell's fact has its own signed receipt; the response also carries one
+    batch receipt over the whole region.
+    <span class=accent>One call: <code>POST /v1/recall_polygon</code>.</span>
+  </p>
+
+  <section class=controls aria-label="Inputs">
+    <div>
+      <label for=placeInput>place (admin area)</label>
+      <input id=placeInput type=text spellcheck=false autocomplete=off value="Lagos">
+    </div>
+    <div>
+      <label for=bandInput>band</label>
+      <select id=bandInput>
+        <option value="indices.ndvi">loading from /v1/materializers…</option>
+      </select>
+    </div>
+    <button id=runBtn class=primary type=button>recall region</button>
+  </section>
+
+  <span class=endpoint-pill>POST /v1/recall_polygon</span>
+
+  <div class=tag-row id=tag></div>
+  <div class=chips id=chips></div>
+
+  <section class=summary aria-label="aggregate">
+    <div class=stat><div class=label>cells</div><div class=v id=statCount>—</div><div class=sub>inside the resolved polygon</div></div>
+    <div class=stat><div class=label>mean</div><div class=v id=statMean>—</div><div class=sub id=statUnit></div></div>
+    <div class=stat><div class=label>min → max</div><div class=v id=statRange>—</div><div class=sub>per-cell extremes</div></div>
+    <div class=stat><div class=label>signed by</div><div class=v id=statSigner style="font-size:13px;word-break:break-all">—</div><div class=sub>responder_pubkey_b32</div></div>
+  </section>
+
+  <div class=heatmap aria-label="per-cell heat map">
+    <p class=muted style="font-size:11px;margin:0 0 .6em;text-transform:uppercase;letter-spacing:.06em">per-cell values (geographic grid, lat × lng buckets)</p>
+    <div class=grid id=grid></div>
+    <div class=legend>
+      <span>cold</span>
+      <span class=swatch id=legendLo></span>
+      <span class=swatch id=legendMid></span>
+      <span class=swatch id=legendHi></span>
+      <span>hot</span>
+      <span style="margin-left:auto" id=legendNote class=muted></span>
+    </div>
+  </div>
+
+  <section class=out aria-label="raw JSON">
+    <p class=muted style="font-size:11px;margin:1.2em 0 .4em;text-transform:uppercase;letter-spacing:.06em">raw response (first 1.5 KB)</p>
+    <pre id=raw class=mono>—</pre>
+  </section>
+
+  <footer class=foot>
+    <a href="/">home</a>
+    <a href="/demos">demos</a>
+    <a href="/demos/ask-the-earth">ask the Earth</a>
+    <a href="/demos/state-cube">state cube</a>
+    <a href="/demos/signed-answer">signed answer</a>
+    <a href="/demos/find-similar">find similar</a>
+    <a href="/demos/trajectory">trajectory</a>
+    <a href="/docs/quickstart.html">quickstart</a>
+    <a href="/openapi.json">openapi</a>
+    <a href="/mcp">mcp</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+    <span class=muted>· emem · signed by the responder</span>
+  </footer>
+</main>
+
+<div class=toast id=toast></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');setTimeout(()=>el.classList.remove('on'),1700)}
+function shortCid(s){if(!s)return '—';return s.length>20?s.slice(0,12)+'…'+s.slice(-4):s}
+function fmtJson(obj){
+  let s = JSON.stringify(obj, null, 2);
+  return s.replace(/("(\\u[\da-f]{4}|\\[^u]|[^\\"])*?")(\s*:)?|\b(true|false|null)\b|-?\d+(\.\d+)?([eE][+-]?\d+)?/g, m=>{
+    let cls='n';
+    if (/^"/.test(m)) cls = /:$/.test(m) ? 'k' : 's';
+    else if (/true|false|null/.test(m)) cls='b';
+    return `<span class="${cls}">${m}</span>`;
+  });
+}
+function setRaw(obj){
+  const el=$('raw');
+  if (typeof obj === 'string') { el.textContent = obj.slice(0, 1500); return; }
+  const full = JSON.stringify(obj, null, 2);
+  if (full.length <= 1500) { el.innerHTML = fmtJson(obj); return; }
+  el.textContent = full.slice(0, 1500) + '\n…';
+}
+async function postJson(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body||{})});
+  if (!r.ok) {
+    let txt;
+    try { txt = JSON.stringify(await r.json()); } catch { txt = r.statusText; }
+    throw new Error(`${url} → ${r.status} ${txt}`);
+  }
+  return r.json();
+}
+
+// Map a value v in [vmin, vmax] to a green-shaded oklch colour matching the
+// accent. low = paper-2, high = accent. NaN cells render as the paper-2
+// background so they read as "no value" rather than "zero".
+function heat(v, vmin, vmax){
+  if (!Number.isFinite(v)) return 'var(--bg-2)';
+  const t = (v - vmin) / Math.max(1e-9, (vmax - vmin));
+  const L = 0.93 - t * 0.50;   // 0.93 → 0.43
+  const C = 0.02 + t * 0.10;   // 0.02 → 0.12
+  return `oklch(${L.toFixed(3)} ${C.toFixed(3)} 145)`;
+}
+
+function gridFor(cells){
+  // Bucket per-cell facts into a coarse lat × lng grid keyed by their
+  // centroid. We don't have the cell centroids in /v1/recall_polygon's per-cell
+  // shape on every responder, so fall back to bucketing by cell64 prefix if
+  // centroids are missing (gives a consistent visual ordering even without geo).
+  const have_geo = cells.some(c => c.centre && Number.isFinite(c.centre.lat_deg));
+  if (have_geo) {
+    const lats = cells.map(c => c.centre.lat_deg).filter(Number.isFinite);
+    const lngs = cells.map(c => c.centre.lng_deg).filter(Number.isFinite);
+    const latMin = Math.min(...lats), latMax = Math.max(...lats);
+    const lngMin = Math.min(...lngs), lngMax = Math.max(...lngs);
+    // Pick a grid size that fits the cells comfortably. Square-ish.
+    const target = Math.max(6, Math.min(20, Math.ceil(Math.sqrt(cells.length))));
+    const ny = target, nx = target;
+    const bucket = new Map(); // "y,x" → {sum, n, value}
+    for (const c of cells) {
+      if (!c.centre || !Number.isFinite(c.centre.lat_deg)) continue;
+      const v = (typeof c.value === 'number') ? c.value : parseFloat(c.value);
+      if (!Number.isFinite(v)) continue;
+      const x = Math.min(nx - 1, Math.floor((c.centre.lng_deg - lngMin) / Math.max(1e-9, (lngMax - lngMin)) * nx));
+      const y = Math.min(ny - 1, Math.floor((latMax - c.centre.lat_deg) / Math.max(1e-9, (latMax - latMin)) * ny));  // flip y so north is up
+      const k = `${y},${x}`;
+      const e = bucket.get(k) || { sum: 0, n: 0 };
+      e.sum += v; e.n += 1; bucket.set(k, e);
+    }
+    return { nx, ny, bucket, geo: true };
+  }
+  // Fallback: lay out cells in a rectangular grid in cell64-prefix order.
+  const sorted = cells.slice().sort((a, b) => (a.cell64 || '').localeCompare(b.cell64 || ''));
+  const nx = Math.ceil(Math.sqrt(sorted.length));
+  const ny = Math.ceil(sorted.length / nx);
+  const bucket = new Map();
+  sorted.forEach((c, i) => {
+    const v = (typeof c.value === 'number') ? c.value : parseFloat(c.value);
+    if (!Number.isFinite(v)) return;
+    const x = i % nx, y = Math.floor(i / nx);
+    bucket.set(`${y},${x}`, { sum: v, n: 1 });
+  });
+  return { nx, ny, bucket, geo: false };
+}
+
+function renderHeatmap(cells, agg){
+  const grid = $('grid');
+  grid.innerHTML = '';
+  if (!cells.length) {
+    grid.innerHTML = `<div class=muted style="padding:1em">no per-cell facts returned (try a larger place or a more common band)</div>`;
+    return;
+  }
+  const { nx, ny, bucket, geo } = gridFor(cells);
+  grid.style.gridTemplateColumns = `repeat(${nx},1fr)`;
+  let vmin = +Infinity, vmax = -Infinity;
+  for (const e of bucket.values()) {
+    const v = e.sum / e.n;
+    if (v < vmin) vmin = v;
+    if (v > vmax) vmax = v;
+  }
+  if (!Number.isFinite(vmin)) { vmin = 0; vmax = 1; }
+  for (let y = 0; y < ny; y++) {
+    for (let x = 0; x < nx; x++) {
+      const e = bucket.get(`${y},${x}`);
+      const v = e ? (e.sum / e.n) : NaN;
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.style.background = heat(v, vmin, vmax);
+      if (Number.isFinite(v)) cell.title = `mean ${v.toFixed(3)} (n=${e.n})`;
+      else cell.title = 'no data';
+      grid.appendChild(cell);
+    }
+  }
+  $('legendLo').style.background = heat(vmin, vmin, vmax);
+  $('legendMid').style.background = heat((vmin + vmax) / 2, vmin, vmax);
+  $('legendHi').style.background = heat(vmax, vmin, vmax);
+  $('legendNote').textContent = geo ? `${nx}×${ny} lat×lng grid · ${cells.length} cells inside polygon`
+                                    : `${nx}×${ny} prefix grid · ${cells.length} cells (no centroids on this response)`;
+}
+
+async function run(){
+  const place = $('placeInput').value.trim();
+  if (!place) { toast('place is empty'); return; }
+  const band = $('bandInput').value;
+  $('tag').innerHTML = '<span class=spinner></span>fanning out across the polygon…';
+  $('chips').innerHTML = '';
+  $('grid').innerHTML = '';
+  setRaw('—');
+  try {
+    const t0 = performance.now();
+    const j = await postJson('/v1/recall_polygon', { place, bands: [band] });
+    const dt = (performance.now() - t0).toFixed(0);
+
+    // Tolerate the multiple response shapes the responder ships in 0.0.x:
+    //   { cells: [{cell64, value, ...}], aggregate: {...}, receipt }
+    //   { facts: [{cell, value, ...}], ... }
+    //   { results: [...] }
+    const items = (j.cells || j.facts || j.results || []).map(c => ({
+      cell64: c.cell64 || c.cell,
+      value:  c.value ?? (c.facts && c.facts[0] && c.facts[0].value),
+      unit:   c.unit  || (c.facts && c.facts[0] && c.facts[0].unit),
+      centre: c.centre,
+      fact_cid: c.fact_cid || (c.facts && c.facts[0] && c.facts[0].fact_cid),
+    }));
+    const numericVals = items.map(c => +c.value).filter(Number.isFinite);
+    const agg = j.aggregate || {};
+    const mean = (Number.isFinite(agg.mean) ? agg.mean : (numericVals.length
+      ? numericVals.reduce((a,b)=>a+b,0)/numericVals.length : NaN));
+    const min  = (Number.isFinite(agg.min)  ? agg.min  : (numericVals.length ? Math.min(...numericVals) : NaN));
+    const max  = (Number.isFinite(agg.max)  ? agg.max  : (numericVals.length ? Math.max(...numericVals) : NaN));
+    const unit = items.find(i => i.unit)?.unit || '';
+    const sig  = j.receipt && j.receipt.responder_pubkey_b32;
+
+    $('statCount').textContent  = items.length.toString();
+    $('statMean').textContent   = Number.isFinite(mean) ? mean.toFixed(Math.abs(mean) < 1 ? 4 : 2) : '—';
+    $('statUnit').textContent   = unit ? `unit: ${unit}` : '';
+    $('statRange').textContent  = (Number.isFinite(min) && Number.isFinite(max))
+      ? `${min.toFixed(Math.abs(min) < 1 ? 3 : 1)} → ${max.toFixed(Math.abs(max) < 1 ? 3 : 1)}`
+      : '—';
+    $('statSigner').textContent = shortCid(sig);
+
+    $('chips').innerHTML = [
+      ['place', place, ''],
+      ['band',  band, ''],
+      ['cells', String(items.length), ''],
+      ['signer', shortCid(sig), 'pub'],
+      ['total', dt + ' ms', ''],
+    ].map(([k,v]) => `<span class=chip><span class=dot></span><b>${k}</b><span class=muted>${v}</span></span>`).join('');
+
+    renderHeatmap(items, agg);
+    setRaw(j);
+    $('tag').innerHTML = `<span style="color:var(--accent)">✓ ${items.length} cells in ${dt} ms · ${items.filter(i => i.fact_cid).length} per-cell receipts</span>`;
+  } catch (e) {
+    $('tag').innerHTML = `<span style="color:var(--warn)">✗ ${e.message}</span>`;
+    setRaw(String(e));
+  }
+}
+
+$('runBtn').addEventListener('click', run);
+$('placeInput').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+
+// Populate band dropdown from /v1/materializers, then auto-run.
+(async () => {
+  try {
+    const r = await fetch('/v1/materializers');
+    if (!r.ok) return;
+    const j = await r.json();
+    const bands = (j.materializers || []).map(m => (typeof m === 'string' ? m : m.band)).filter(Boolean).sort();
+    if (!bands.length) return;
+    const sel = $('bandInput');
+    sel.innerHTML = bands.map(b => {
+      const selected = b === 'indices.ndvi' ? ' selected' : '';
+      return `<option value="${b}"${selected}>${b}</option>`;
+    }).join('');
+    if (![...sel.options].some(o => o.selected)) sel.value = bands[0];
+    run();
+  } catch (e) { /* leave placeholder */ }
+})();
+</script>
+</body>
+</html>

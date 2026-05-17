@@ -161,6 +161,41 @@ footer a:hover{color:var(--accent)}
     </article>
 
     <article class="card status-live">
+      <a class=title href="/demos/find-similar">Find similar · k-NN over Tessera</a>
+      <span class=endpoint>GET /demos/find-similar</span>
+      <p class=desc>Pick a place. emem returns the K nearest cells on Earth by cosine distance over the 128-D Tessera embedding. Modes: cosine, hamming, hamming-then-rerank. Each neighbour is a signed fact you can recall and verify.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/find_similar</span>
+        <span class=tag>cosine k-NN</span>
+        <span class=tag>Tessera 128-D</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/demos/trajectory">Trajectory · every vintage at one cell</a>
+      <span class=endpoint>GET /demos/trajectory</span>
+      <p class=desc>One cell, one band, every vintage. The page resolves a place, pulls the time series, charts the line, and lists each tslot's individual fact CID so any single moment is independently citable.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/trajectory</span>
+        <span class=tag>per-vintage fact_cid</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/demos/recall-polygon">Recall polygon · fan across a region</a>
+      <span class=endpoint>GET /demos/recall-polygon</span>
+      <p class=desc>Pass a place name and a band. emem fans out across every cell inside the resolved polygon, returns a per-cell fact set + aggregate, and renders a heatmap with one signed receipt per cell.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/recall_polygon</span>
+        <span class=tag>per-cell receipts</span>
+        <span class=tag>region aggregate</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
       <a class=title href="/gallery">Case-study gallery</a>
       <span class=endpoint>GET /gallery</span>
       <p class=desc>Earth-observation figures rendered live by the responder. Walkability, flood exposure, urban heat, NDVI trajectories, deforestation hotspots, each with a signed receipt the reader can verify.</p>

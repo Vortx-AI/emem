@@ -952,7 +952,7 @@ responder MUST be able to compute from the same JSON inputs:
 | CID | Source manifest | Pinned shape |
 |-----|-----------------|--------------|
 | `bands_cid` | `bands-v0.json` | 35 cube slots summing to exactly 1792 dims; 118 materializer-wired band names route into those slots |
-| `algorithms_cid` | `algorithms-v0.json` | 155 algorithms in three kinds (Solo, Combined, Embedding); each entry carries typed `parameters`, citation-bearing `learned_from`, and `prerequisites`, so every algorithm is re-executable against the receipt that cites it. See `docs/agents.md` for the catalog, including the six triple-encoder-consensus entries (`deforestation_triple@1`, `wetland_change_triple@1`, `urban_expansion_triple@1`, `disaster_anomaly_triple@1`, `climate_archetype_triple@1`, `coastal_erosion_triple@1`) |
+| `algorithms_cid` | `algorithms-v0.json` | 159 algorithms in three kinds (Solo, Combined, Embedding); each entry carries typed `parameters`, citation-bearing `learned_from`, and `prerequisites`, so every algorithm is re-executable against the receipt that cites it. See `docs/agents.md` for the catalog, including the six triple-encoder-consensus entries (`deforestation_triple@1`, `wetland_change_triple@1`, `urban_expansion_triple@1`, `disaster_anomaly_triple@1`, `climate_archetype_triple@1`, `coastal_erosion_triple@1`) |
 | `sources_cid` | `sources-v0.json` | 43 source schemes; the majority route through the universal STAC + COG sampler (`cog.rs`), the remainder through HTTPS-JSON, Parquet S3, NCSS CSV, TAR/ZIP, Overpass QL, and PMTiles paths |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
