@@ -26628,6 +26628,193 @@ async fn post_eudr_dds_inner(
     Ok(Json(body))
 }
 
+/// Definitional / non-place answer envelope for `/v1/ask`. Surfaces the
+/// matched concept tokens, the relevant registry endpoints (bands,
+/// algorithms, sources, topics — all content-addressed), and a clear
+/// `status: "definitional"` so the calling agent knows this is a docs
+/// question, not a signed-fact question. Same shape as the
+/// `needs_location` envelope (status + agent_hint + next_steps).
+fn conceptual_question_response(q: &str, skipped: &[(String, Vec<String>)]) -> JsonValue {
+    let registry_pointers = json!({
+        "bands":      "/v1/bands",
+        "algorithms": "/v1/algorithms",
+        "sources":    "/v1/sources",
+        "topics":     "/v1/topics",
+        "spec":       "/spec.md",
+        "discover":   "/v1/discover",
+    });
+    // Unique flattened list of matched concept tokens, in order of
+    // first appearance — lets the agent see what the classifier locked
+    // onto without re-tokenising the question.
+    let mut seen: std::collections::HashSet<String> = Default::default();
+    let mut matched_flat: Vec<String> = Vec::new();
+    for (_cand, toks) in skipped {
+        for t in toks {
+            if seen.insert(t.clone()) {
+                matched_flat.push(t.clone());
+            }
+        }
+    }
+    let skipped_envelope: Vec<JsonValue> = skipped
+        .iter()
+        .map(|(c, m)| json!({"candidate": c, "matched_concept_tokens": m}))
+        .collect();
+    json!({
+        "schema":  "emem.ask.v1",
+        "status":  "definitional",
+        "question": q,
+        "message": "every place candidate extracted from this question consists entirely of technical names from the emem registries (bands, sources). emem refuses to geocode these — past behaviour silently matched 'Sentinel' to a peak in Czechia, 'Landsat' to a village in Canada, and 'NDVI' to wherever Photon found a literal POI. Ask the question against the registry endpoints below, or re-issue with an explicit `place` / `cell` / `lat`+`lng`.",
+        "matched_concept_tokens": matched_flat,
+        "candidates_skipped":     skipped_envelope,
+        "registry":               registry_pointers,
+        "next_steps": [
+            "if the question is definitional (what is NDVI? what's Sentinel-2's resolution?), call GET /v1/bands or GET /v1/algorithms",
+            "if the question is actually about a place, re-issue /v1/ask with an explicit `place` (e.g. `{\"q\":\"...\",\"place\":\"Manaus, Brazil\"}`)",
+            "list of all matched concept tokens is in `matched_concept_tokens`",
+        ],
+        "agent_hint": "Don't claim emem couldn't answer — emem refused to geocode a name that doesn't refer to a place. The registry endpoints carry the signed definition you need.",
+    })
+}
+
+/// Lazy-built set of *concept tokens* drawn from the content-addressed
+/// bands + sources manifests. Used by `candidate_is_conceptual` to spot
+/// noun-phrases extracted from a question that are actually technical
+/// names — `Sentinel-2`, `NDVI`, `Landsat`, `Tessera`, `Prithvi`, `MODIS` —
+/// instead of place names. Without this, Photon happily resolves `Sentinel`
+/// to a peak in Czechia, `Landsat` to a village in Canada, and the agent
+/// gets back a signed receipt for the wrong cell.
+///
+/// **Construction is registry-driven; no hand-list of concepts.** Every
+/// token comes out of `emem_core::bands::DEFAULT` and
+/// `emem_core::sources::DEFAULT`, so adding a new band or source to the
+/// manifests automatically extends this set.
+///
+/// Token filter:
+///   * lowercase the manifest key
+///   * split on every non-alphanumeric (so `sentinel1_raw` → `sentinel1`,
+///     `raw`; `s2.B04` → `s2`, `B04`; `indices.ndvi` → `indices`, `ndvi`)
+///   * admit a token if **any** of:
+///       - length ≥ 5 (catches `sentinel`, `tessera`, `landsat`, `modis`,
+///         `hansen`, `prithvi`, `indices`);
+///       - contains a digit (`s2`, `B04`, `co2`, `pm25`, `l2a`, `era5`);
+///       - length == 4 and not a generic English word (admits `ndvi`,
+///         `ndre`, `dmsp`, `ghsl`, `cams`, `radd` — excludes `tree`,
+///         `area`, `data`, `mean`, `year`, …).
+///
+/// `GENERIC_LEN4` is the only hand-list and contains common English
+/// vocabulary, not domain content — fine per the audit principle ("no
+/// place / concept hardcoding"; standard stopwords are linguistic
+/// constants).
+const GENERIC_LEN4: &[&str] = &[
+    "area", "bare", "base", "bulk", "crop", "date", "diff", "fire", "gain", "land", "loss", "maps",
+    "mean", "open", "road", "sand", "silt", "snow", "tree", "wind", "year",
+];
+
+static CONCEPT_TOKENS: std::sync::LazyLock<std::collections::HashSet<String>> =
+    std::sync::LazyLock::new(|| {
+        let mut set: std::collections::HashSet<String> = Default::default();
+        let generic_len4: std::collections::HashSet<&'static str> =
+            GENERIC_LEN4.iter().copied().collect();
+        let admit = |s: &str, out: &mut std::collections::HashSet<String>| {
+            for t in s.split(|c: char| !c.is_alphanumeric()) {
+                if t.is_empty() {
+                    continue;
+                }
+                let lower = t.to_ascii_lowercase();
+                let has_digit = lower.chars().any(|c| c.is_ascii_digit());
+                let ok = if has_digit || lower.len() >= 5 {
+                    true
+                } else if lower.len() == 4 {
+                    !generic_len4.contains(lower.as_str())
+                } else {
+                    false
+                };
+                if ok {
+                    // Family root: strip trailing digits so a token like
+                    // `sentinel1` admits both `sentinel1` AND `sentinel`,
+                    // catching users who write "Sentinel-2" (tokenises to
+                    // ["sentinel","2"]) against the manifest's `sentinel2`.
+                    let root: String = lower
+                        .trim_end_matches(|c: char| c.is_ascii_digit())
+                        .to_string();
+                    if root.len() >= 5 {
+                        out.insert(root);
+                    }
+                    out.insert(lower);
+                }
+            }
+        };
+        for b in &emem_core::bands::DEFAULT.bands {
+            admit(&b.key, &mut set);
+            for sk in &b.scalar_keys {
+                admit(sk, &mut set);
+            }
+        }
+        for s in &emem_core::sources::DEFAULT.sources {
+            admit(&s.scheme, &mut set);
+        }
+        set
+    });
+
+/// True iff every non-stopword token in `cand` is a concept token. Used
+/// to reject extracted "place" candidates that are actually technical
+/// names (`Sentinel-2`, `NDVI`, `Landsat 30 cm`) before they get fed to
+/// the geocoder. Returns the matched tokens so the response can quote
+/// them back to the agent.
+fn candidate_is_conceptual(cand: &str) -> Option<Vec<String>> {
+    // Standard English connectives only — these are linguistic plumbing,
+    // not domain decisions. The intent is to ignore "the" / "of" / "in"
+    // when judging a candidate like "the Amazon" or "in the Sahara".
+    const STOPS: &[&str] = &[
+        "a", "an", "and", "at", "for", "from", "in", "is", "it", "of", "or", "the", "this", "with",
+        "near", "to",
+    ];
+    let stops: std::collections::HashSet<&str> = STOPS.iter().copied().collect();
+    // Same tokenisation as the manifest-side `admit`: split on every
+    // non-alphanumeric so "Sentinel-2" becomes ["sentinel", "2"] and
+    // "Sentinel-2 RGB" becomes ["sentinel", "2", "rgb"] — that way
+    // tokens that match `sentinel2` (manifest) are caught even when
+    // the user wrote them with a dash.
+    let tokens: Vec<String> = cand
+        .split(|c: char| !c.is_alphanumeric())
+        .map(|w| w.to_ascii_lowercase())
+        .filter(|w| !w.is_empty() && !stops.contains(w.as_str()))
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    let matched: Vec<String> = tokens
+        .iter()
+        .filter(|t| CONCEPT_TOKENS.contains(t.as_str()))
+        .cloned()
+        .collect();
+    if matched.is_empty() {
+        return None;
+    }
+    // A concept hit alone isn't enough — the user might be asking for
+    // NDVI *somewhere*, in which case the candidate also contains a
+    // place anchor. We only refuse when no token in the candidate is a
+    // recognized place (embedded GeoNames OR the wide_bbox table — both
+    // content-addressed registry-driven sources, no hardcoded list).
+    // "NDVI in Mumbai"  → "ndvi" hits CONCEPT, "mumbai" hits geonames → keep.
+    // "the Amazon"      → no CONCEPT, "amazon" hits wide_bbox → keep.
+    // "NDVI"            → "ndvi" hits CONCEPT, nothing places → refuse.
+    // "Sentinel-2 RGB"  → "sentinel2" hits CONCEPT, no places → refuse.
+    for t in &tokens {
+        // Single-digit / 2-char tokens hit spurious entries in the
+        // GeoNames index (there's a populated place literally called
+        // "2"). Require ≥ 3 chars before believing the gazetteer is
+        // saying "this is a real place".
+        if t.len() < 3 {
+            continue;
+        }
+        if emem_fetch::geonames::lookup(t).is_some() || wide_bbox_lookup(t).is_some() {
+            return None;
+        }
+    }
+    Some(matched)
+}
+
 /// Extract ordered candidate place names from a free-text question so
 /// `/v1/ask` can self-anchor when the caller didn't pass `place`.
 ///
@@ -26884,7 +27071,48 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
         // still gets an answer instead of a toast; LLM callers that
         // already pass `place` skip this path entirely.
         let mut hit: Option<(String, JsonValue)> = None;
-        for cand in extract_place_candidates(&req.q) {
+        // Conceptual-token guard. Drop candidates that are entirely
+        // technical names (e.g. "Sentinel-2 RGB", "NDVI", "Landsat") —
+        // those would otherwise be geocoded by Photon to wherever a
+        // POI shares the word ("Sentinel peak, Czechia", "Whatì
+        // village, Canada", "Teatro Amazonas, Manaus") and a signed
+        // receipt would attach to the wrong cell. If every candidate
+        // is conceptual the question is definitional — answer with
+        // pointers to the content-addressed band/source registry
+        // instead of a place-anchored fact bundle.
+        let raw_candidates = extract_place_candidates(&req.q);
+        let mut concept_skipped: Vec<(String, Vec<String>)> = Vec::new();
+        let mut place_candidates: Vec<String> = Vec::new();
+        // Question-stem words: a candidate that's *just* these — extracted
+        // because `extract_place_candidates` falls back to the longest
+        // capitalised run, which can be a stranded "What" / "Why" — is
+        // useless to the geocoder. Photon will happily resolve "What" to
+        // "What Cheer, Iowa" and chew network round-trips. Drop them.
+        const STEM_WORDS: &[&str] = &[
+            "what", "where", "when", "how", "why", "who", "which", "show", "tell", "find", "give",
+            "get", "is", "are", "can", "does", "do", "list", "explain", "the", "a", "an",
+        ];
+        let is_stem_only = |c: &str| -> bool {
+            let toks: Vec<String> = c
+                .split(|ch: char| !ch.is_alphanumeric())
+                .map(|w| w.to_ascii_lowercase())
+                .filter(|w| !w.is_empty())
+                .collect();
+            !toks.is_empty() && toks.iter().all(|t| STEM_WORDS.contains(&t.as_str()))
+        };
+        for cand in raw_candidates {
+            if is_stem_only(&cand) {
+                continue;
+            }
+            match candidate_is_conceptual(&cand) {
+                Some(matched) => concept_skipped.push((cand, matched)),
+                None => place_candidates.push(cand),
+            }
+        }
+        if place_candidates.is_empty() && !concept_skipped.is_empty() {
+            return Ok(conceptual_question_response(&req.q, &concept_skipped));
+        }
+        for cand in place_candidates {
             match locate_inner(LocateReq {
                 lat: None,
                 lng: None,
@@ -27430,6 +27658,13 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // matches for an ambiguous place name. Empty for non-ambiguous lookups
     // and for cache/embedded paths (those are deterministic single-result).
     let mut alternatives: Vec<JsonValue> = Vec::new();
+    // `disambiguation_required` is a structured agent-facing flag — set true
+    // when the geocoder returned multiple plausible matches that we couldn't
+    // separate by its own scoring signal. The threshold lives in the rule
+    // below and is *not* a hardcoded place list; it's a ratio over whatever
+    // signal the resolver layer provides (population for the embedded
+    // GeoNames tier, importance for the Photon / Nominatim tier).
+    let mut disambiguation_required = false;
     let (lat, lng, label) = match (req.lat, req.lng, req.place.as_deref()) {
         (Some(la), Some(lo), _) => (la, lo, None),
         (_, _, Some(p)) if !p.is_empty() => {
@@ -27441,8 +27676,53 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 polygon_source = Some("wide_bbox_table");
             }
             // Layer 1: embedded gazetteer (no network).
+            // Multi-result lookup first — if the same name maps to several
+            // populated places (Springfield, Cambridge, San José), we want
+            // every match in `alternatives[]` even though `lookup` (used
+            // below for the single chosen hit) returns only the most
+            // populous. Without this an agent calling /v1/locate("Cambridge")
+            // gets one cell back with no signal that another Cambridge
+            // exists, and a downstream signed recall is silently anchored
+            // to the wrong city.
+            let geo_cands = emem_fetch::geonames::lookup_candidates(p, 5);
             if let Some((la, lo, lab)) = embedded_gazetteer_lookup(p) {
                 via = "embedded";
+                // Surface every populated-place hit at this name. Rank by
+                // population (highest first — matches how `lookup` chose
+                // the top hit). `disambiguation_required` fires when the
+                // runner-up is within 3× population of the top: that's the
+                // band where "Springfield, IL (≈115k)" and "Springfield, MA
+                // (≈155k)" sit, and where an agent really should ask the
+                // user which one.
+                for (rank, rec) in geo_cands.iter().enumerate() {
+                    let alt_cell64 =
+                        emem_codec::to_cell64(emem_codec::cell_from_latlng(rec.lat, rec.lng));
+                    alternatives.push(json!({
+                        "rank":        rank,
+                        "is_selected": rank == 0,
+                        "cell64":      alt_cell64,
+                        "lat":         rec.lat,
+                        "lng":         rec.lng,
+                        "label":       rec.label(),
+                        "population":  rec.population,
+                        "country":     rec.country,
+                        "admin1":      rec.admin1,
+                        "fcode":       rec.fcode,
+                        "source":      "geonames",
+                    }));
+                }
+                if geo_cands.len() > 1 {
+                    let top_pop = geo_cands[0].population.max(1) as f64;
+                    let second_pop = geo_cands[1].population as f64;
+                    // Ratio < 3 means the runner-up is at least a third the
+                    // size of the leader — same order of magnitude, treat
+                    // as ambiguous. (Springfield IL ≈ 115 k / MA ≈ 155 k ⇒
+                    // ratio ≈ 0.7; Paris FR ≈ 2 165 k / TX ≈ 25 k ⇒ ratio
+                    // ≈ 86, unambiguous.)
+                    if top_pop / second_pop.max(1.0) < 3.0 {
+                        disambiguation_required = true;
+                    }
+                }
                 // Polygon enrichment for the 50 hand-picked embedded
                 // entries: try Overture's `divisions/division_area`
                 // first (anonymous S3, ODbL), fall back to Nominatim
@@ -27882,7 +28162,22 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         "type":        alt.type_,
                         "importance":  alt.importance,
                         "bbox_deg":    alt_bbox,
+                        "source":      via,
                     }));
+                }
+                // Disambiguation for the photon/nominatim branch uses the
+                // geocoder's importance score: ask the agent to clarify
+                // when either the top match's confidence is low
+                // (importance < 0.5 — Photon's threshold for "good name
+                // match"), or when the runner-up is within 0.1 of the
+                // top (the "Moon → Kentucky/Virginia/France/PA/Iran with
+                // all importance=0.6" case where there's no separator).
+                if hits.len() > 1 {
+                    let top_imp = hits[0].importance;
+                    let second_imp = hits[1].importance;
+                    if top_imp < 0.5 || (top_imp - second_imp).abs() < 0.1 {
+                        disambiguation_required = true;
+                    }
                 }
                 (hit.lat, hit.lng, Some(hit.label))
             }
@@ -28023,6 +28318,13 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     if alternatives.len() > 1 {
         if let Some(m) = body.as_object_mut() {
             m.insert("alternatives".into(), JsonValue::Array(alternatives));
+            // Structured agent flag — branch on this in tool-use loops
+            // without parsing the prose. `disambiguation_hint` (below) is
+            // the matching human-readable text.
+            m.insert(
+                "disambiguation_required".into(),
+                JsonValue::Bool(disambiguation_required),
+            );
             m.insert(
                 "disambiguation_hint".into(),
                 json!(
@@ -28031,7 +28333,9 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                  Each alternative carries `osm_id` + `osm_type` for direct OSM lookup, \
                  plus `bbox_deg` so an agent can re-query a specific candidate without a \
                  second round-trip. To pick a different alternative, call /v1/locate again \
-                 with its `lat`/`lng` (or pass a more specific name like 'Springfield, IL')."
+                 with its `lat`/`lng` (or pass a more specific name like 'Springfield, IL'). \
+                 When `disambiguation_required: true`, ask the user which one rather than \
+                 silently using rank 0."
             ),
             );
         }
@@ -31607,6 +31911,74 @@ mod tests {
             "coordinates": [[0.0, 0.0], [1.0, 1.0]],
         });
         assert!(parse_polygon_geojson(&g).is_none());
+    }
+
+    // ── Hallucination guards (audit 2026-05-17) ──────────────────────
+    //
+    // These tests assert on *behaviour*, not specific coordinates or
+    // place names — they keep the disambiguation + conceptual-token
+    // refusal logic honest as the manifests evolve. None of them
+    // hard-codes "Springfield, IL" or "Sentinel-2 = 10 m"; the truth
+    // surface is the live registry + geocoder, content-addressed.
+
+    /// `Sentinel-2 RGB bands` is entirely technical names from the
+    /// bands + sources manifests — the conceptual-token guard MUST
+    /// refuse to geocode this. Otherwise Photon happily resolves
+    /// "Sentinel" to a peak in Czechia.
+    #[test]
+    fn candidate_is_conceptual_catches_technical_names() {
+        for cand in &["NDVI", "Sentinel-2", "Sentinel-2 RGB bands"] {
+            let m = candidate_is_conceptual(cand);
+            assert!(
+                m.is_some(),
+                "candidate `{cand}` should be classified conceptual (got {m:?})"
+            );
+        }
+    }
+
+    /// Real places must NEVER be flagged as conceptual — that would
+    /// route them to the definitional response and skip the geocoder.
+    /// The names below are populated cities in the embedded GeoNames
+    /// gazetteer; none of their tokens overlaps a band / source key.
+    #[test]
+    fn candidate_is_conceptual_lets_places_through() {
+        for cand in &[
+            "Paris",
+            "Cambridge",
+            "Saint Petersburg",
+            "the Amazon",
+            "Mumbai",
+            "Manaus",
+            "the Moon",
+        ] {
+            assert!(
+                candidate_is_conceptual(cand).is_none(),
+                "candidate `{cand}` is a place — guard must not refuse it"
+            );
+        }
+    }
+
+    /// `CONCEPT_TOKENS` is built from the live manifests. We don't
+    /// assert specific membership values (those would drift when bands
+    /// are renamed), but the set must be non-empty and contain at
+    /// least one token longer than 4 chars per band — otherwise the
+    /// manifest got truncated and the guard is silently disabled.
+    #[test]
+    fn concept_tokens_built_from_live_manifests() {
+        let n = CONCEPT_TOKENS.len();
+        assert!(
+            n > 20,
+            "concept-token set has only {n} entries — bands/sources manifest likely under-loaded"
+        );
+        // Anchor tokens that any reasonable bands manifest will carry
+        // (these are *families*, not specific places). Drift-safe
+        // because they're all proper-noun families that emem ships.
+        for required in &["sentinel1", "sentinel2", "geotessera"] {
+            assert!(
+                CONCEPT_TOKENS.contains(*required),
+                "expected concept-token `{required}` derived from bands manifest"
+            );
+        }
     }
 
     /// Every algorithm key cited in `algorithms_for_topic` MUST

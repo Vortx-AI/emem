@@ -358,12 +358,20 @@ async function run(){
     const t0 = performance.now();
     const loc = await resolveToCell(place);
     if (!loc.cell64) throw new Error('locate did not return a cell64');
-    const j = await postJson('/v1/trajectory', { cell: loc.cell64, band, limit });
+    // /v1/trajectory takes a [start_unix, end_unix] window, NOT a count
+    // (TrajectoryReq.window: [u64; 2]). Default to the last 5 years for
+    // fast/medium tempo bands (S2 NDVI, weather), 20 years for slow bands
+    // (Hansen, surface water). Server-side `limit` is *not* a schema field —
+    // we trim the returned series client-side after sorting.
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const yearsBack = /hansen|surface_water|gfc|forest_change|nightlights/i.test(band) ? 20 : 5;
+    const startUnix = nowUnix - yearsBack * 365 * 24 * 3600;
+    const j = await postJson('/v1/trajectory', { cell: loc.cell64, band, window: [startUnix, nowUnix] });
     const dt = (performance.now() - t0).toFixed(0);
 
-    // The response shape uses either `facts[]` or `trajectory[]` depending on
-    // the responder version. Tolerate both.
-    const facts = (j.facts || j.trajectory || j.points || []).slice();
+    // The trajectory response uses `series[]` (canonical). Fallback to
+    // `facts[]` / `trajectory[]` / `points[]` for older responders.
+    const facts = (j.series || j.facts || j.trajectory || j.points || []).slice();
     const tempo = j.tempo || (j.band_metadata && j.band_metadata.tempo) || 'fast';
     const rows = facts
       .filter(f => f && (f.value !== undefined && f.value !== null))
@@ -375,6 +383,12 @@ async function run(){
       }))
       .filter(r => Number.isFinite(r.value))
       .sort((a, b) => a.tslot - b.tslot);
+    // Client-side cap. /v1/trajectory returns every vintage in the
+    // window; cap to the most recent `limit` points so the chart stays
+    // legible and the table doesn't scroll forever.
+    if (rows.length > limit) {
+      rows.splice(0, rows.length - limit);
+    }
 
     const sig = j.receipt && j.receipt.responder_pubkey_b32;
     $('chips').innerHTML = [

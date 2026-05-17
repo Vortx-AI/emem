@@ -350,17 +350,47 @@ async function run(){
     const j = await postJson('/v1/recall_polygon', { place, bands: [band] });
     const dt = (performance.now() - t0).toFixed(0);
 
-    // Tolerate the multiple response shapes the responder ships in 0.0.x:
-    //   { cells: [{cell64, value, ...}], aggregate: {...}, receipt }
-    //   { facts: [{cell, value, ...}], ... }
-    //   { results: [...] }
-    const items = (j.cells || j.facts || j.results || []).map(c => ({
-      cell64: c.cell64 || c.cell,
-      value:  c.value ?? (c.facts && c.facts[0] && c.facts[0].value),
-      unit:   c.unit  || (c.facts && c.facts[0] && c.facts[0].unit),
-      centre: c.centre,
-      fact_cid: c.fact_cid || (c.facts && c.facts[0] && c.facts[0].fact_cid),
-    }));
+    // Canonical 0.0.x response shape:
+    //   { merged_facts: [{cell, band, value, ...}, ...],
+    //     by_cell: { "<cell64>": { facts: [...], receipt: {fact_cids,...} } },
+    //     cells: ["<cell64>", ...],   // string array — NOT objects
+    //     ... }
+    // We join `merged_facts` (carries `value`) with `by_cell[*].receipt.fact_cids`
+    // (carries the per-cell signed receipt). `cells` alone is a bare cell64
+    // list — useful for polygon sampling but not for downstream value
+    // display, which is why a naive `j.cells.map(c => c.cell64)` returned
+    // every field undefined and the demo reported "0 per-cell receipts".
+    const byCell = (j.by_cell && typeof j.by_cell === 'object') ? j.by_cell : {};
+    const mergedFacts = Array.isArray(j.merged_facts) ? j.merged_facts : [];
+    let items;
+    if (mergedFacts.length) {
+      items = mergedFacts.map(f => {
+        const cellKey = f.cell || f.cell64;
+        const cellEntry = byCell[cellKey] || {};
+        const receipt = cellEntry.receipt || {};
+        const fact_cid =
+          (receipt.fact_cids && receipt.fact_cids[0]) ||
+          (cellEntry.facts && cellEntry.facts[0] && cellEntry.facts[0].fact_cid) ||
+          null;
+        return {
+          cell64: cellKey,
+          value:  typeof f.value === 'number' ? f.value : parseFloat(f.value),
+          unit:   f.unit || (j.band_metadata && j.band_metadata.unit) || '',
+          centre: f.centre,
+          fact_cid,
+        };
+      });
+    } else {
+      // Older / alternate response shapes — keep the legacy fallbacks
+      // so this page still renders against pre-0.0.6 responders.
+      items = (j.facts || j.results || []).map(c => ({
+        cell64: c.cell64 || c.cell,
+        value:  c.value ?? (c.facts && c.facts[0] && c.facts[0].value),
+        unit:   c.unit  || (c.facts && c.facts[0] && c.facts[0].unit),
+        centre: c.centre,
+        fact_cid: c.fact_cid || (c.facts && c.facts[0] && c.facts[0].fact_cid),
+      }));
+    }
     const numericVals = items.map(c => +c.value).filter(Number.isFinite);
     const agg = j.aggregate || {};
     const mean = (Number.isFinite(agg.mean) ? agg.mean : (numericVals.length
@@ -368,7 +398,21 @@ async function run(){
     const min  = (Number.isFinite(agg.min)  ? agg.min  : (numericVals.length ? Math.min(...numericVals) : NaN));
     const max  = (Number.isFinite(agg.max)  ? agg.max  : (numericVals.length ? Math.max(...numericVals) : NaN));
     const unit = items.find(i => i.unit)?.unit || '';
-    const sig  = j.receipt && j.receipt.responder_pubkey_b32;
+    // recall_polygon doesn't ship a top-level receipt — each cell carries
+    // its own. Reach into any per-cell receipt for the signer bytes;
+    // they're identical across cells since this responder signed them all.
+    let sig = j.receipt && j.receipt.responder_pubkey_b32;
+    if (!sig) {
+      const firstCellKey = Object.keys(byCell)[0];
+      const responderBytes = firstCellKey && byCell[firstCellKey].receipt &&
+        byCell[firstCellKey].receipt.responder;
+      if (Array.isArray(responderBytes) && responderBytes.length === 32) {
+        // 32-byte ed25519 pubkey → hex short form. Same identity an agent
+        // would get from /v1/health.responder_pubkey_b32 (just hex not b32
+        // because JS has no base32 built-in; the bytes match).
+        sig = responderBytes.map(b => b.toString(16).padStart(2,'0')).join('').slice(0, 16);
+      }
+    }
 
     $('statCount').textContent  = items.length.toString();
     $('statMean').textContent   = Number.isFinite(mean) ? mean.toFixed(Math.abs(mean) < 1 ? 4 : 2) : '—';
