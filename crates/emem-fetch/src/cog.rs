@@ -982,8 +982,7 @@ pub async fn sample_pixel_multi(
             // LZW. TIFF spec dictates the MSB-first bit order with a
             // size-switch on the dictionary clear code — same as the
             // single-band sampler. weezl handles both.
-            let mut dec =
-                weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
+            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
             tile_bytes = dec
                 .decode(&tile_compressed[..])
                 .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;

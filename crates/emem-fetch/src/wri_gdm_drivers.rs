@@ -227,7 +227,7 @@ pub async fn fetch_driver_class(
     // predictor=1 no-op). Sentinel value 0 means "no Hansen loss event
     // → no driver attribution" — return Ok(None) so the materializer
     // can sign a Primary `class=0` fact rather than an Absence.
-    if let Some(local_path) = std::env::var("EMEM_WRI_GDM_CACHE").ok() {
+    if let Ok(local_path) = std::env::var("EMEM_WRI_GDM_CACHE") {
         let trimmed = local_path.trim().to_string();
         if !trimmed.is_empty() && std::path::Path::new(&trimmed).exists() {
             let file_url = format!("file://{trimmed}");
@@ -235,11 +235,9 @@ pub async fn fetch_driver_class(
                 .await
                 .map_err(WriGdmError::from_cog)?;
             // EPSG:4326 lat/lng — world_x is lng, world_y is lat.
-            let samples = crate::cog::sample_pixel_multi(
-                client, &file_url, &profile, lng, lat,
-            )
-            .await
-            .map_err(WriGdmError::from_cog)?;
+            let samples = crate::cog::sample_pixel_multi(client, &file_url, &profile, lng, lat)
+                .await
+                .map_err(WriGdmError::from_cog)?;
             // Band 1 (the discrete class) is the first sample in the
             // chunky interleaving. Per the Sims et al. 2025 README,
             // bands 2-8 are per-class probabilities — useful future

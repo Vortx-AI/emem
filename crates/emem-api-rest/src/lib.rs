@@ -8147,11 +8147,7 @@ async fn post_field_boundaries(
                 // prime-meridian — a half-missing bbox quietly spanned a
                 // giant strip of Earth instead of failing. Explicit
                 // field-level validation surfaces the schema bug.
-                let g = |k: &str| {
-                    m.get(k)
-                        .and_then(|v| v.as_f64())
-                        .filter(|v| v.is_finite())
-                };
+                let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).filter(|v| v.is_finite());
                 let (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) =
                     (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"))
                 else {
@@ -8306,11 +8302,7 @@ async fn post_recall_polygon(
             // Bbox fields must be finite f64s. The old .unwrap_or(0.0)
             // path silently defaulted missing fields to (0,0), so a
             // half-missing bbox quietly spanned a giant strip of Earth.
-            let g = |k: &str| {
-                m.get(k)
-                    .and_then(|v| v.as_f64())
-                    .filter(|v| v.is_finite())
-            };
+            let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).filter(|v| v.is_finite());
             let (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) =
                 (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"))
             else {
@@ -8344,11 +8336,7 @@ async fn post_recall_polygon(
             // for any malformed locate response.
             let bbox_centre = resp.0.get("bbox_deg").cloned();
             if let Some(JsonValue::Object(m)) = bbox_centre {
-                let g = |k: &str| {
-                    m.get(k)
-                        .and_then(|v| v.as_f64())
-                        .filter(|v| v.is_finite())
-                };
+                let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).filter(|v| v.is_finite());
                 let (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) =
                     (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"))
                 else {
@@ -14960,8 +14948,9 @@ async fn ornl_modis_subset_json(url: &str, band_label: &str) -> Result<JsonValue
                             }
                         }
                     }
-                    last_err =
-                        format!("modis {band_label} status {status} on attempt {attempt}/{retries}");
+                    last_err = format!(
+                        "modis {band_label} status {status} on attempt {attempt}/{retries}"
+                    );
                     if status.is_client_error() {
                         return Err(last_err); // 4xx won't change on retry
                     }
@@ -15165,8 +15154,7 @@ async fn materialize_modis_ndvi_window(
     // entries"; the picker treats that as "unknown reliability" and
     // signs the chosen value with confidence=0.50 rather than rejecting
     // every entry.
-    let mut qa_map: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut qa_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     if let Ok(qa_body) = qa_res.as_ref() {
         if let Some(qa_subset) = qa_body.get("subset").and_then(|v| v.as_array()) {
             for entry in qa_subset.iter() {
@@ -17304,70 +17292,70 @@ async fn materialize_ornl_modis_band(
     // products we've explicitly wired. None = no QC fetch (preserves
     // legacy behaviour with a confidence-unknown receipt for products
     // where a QC variable exists upstream but isn't yet decoded here).
-    let (product, variable, default_scale, unit, half_window_days, fn_key, qc_variable) =
-        match band {
-            "modis.lst_day_8day" => (
-                "MOD11A2",
-                "LST_Day_1km",
-                0.02_f64,
-                Some("K"),
-                8_i64,
-                "modis_ornl_mod11a2_lstday@1",
-                Some("QC_Day"),
-            ),
-            "modis.lst_night_8day" => (
-                "MOD11A2",
-                "LST_Night_1km",
-                0.02_f64,
-                Some("K"),
-                8_i64,
-                "modis_ornl_mod11a2_lstnight@1",
-                Some("QC_Night"),
-            ),
-            "modis.et_8day" => (
-                "MOD16A2",
-                "ET_500m",
-                0.1_f64,
-                Some("kg/m^2"),
-                8_i64,
-                "modis_ornl_mod16a2_et@1",
-                // ET_QC_500m: bits 0-1 MODLAND_QC (Mu 2011 §2.3).
-                Some("ET_QC_500m"),
-            ),
-            "modis.gpp_8day" => (
-                "MOD17A2H",
-                "Gpp_500m",
-                1e-4_f64,
-                Some("kg C/m^2"),
-                8_i64,
-                "modis_ornl_mod17a2h_gpp@1",
-                // Psn_QC_500m: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
-                Some("Psn_QC_500m"),
-            ),
-            "modis.lai_8day" => (
-                "MOD15A2H",
-                "Lai_500m",
-                0.1_f64,
-                Some("m^2/m^2"),
-                8_i64,
-                "modis_ornl_mod15a2h_lai@1",
-                // FparLai_QC: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
-                Some("FparLai_QC"),
-            ),
-            "modis.burned_area_monthly" => (
-                "MCD64A1",
-                "Burn_Date",
-                1.0_f64,
-                Some("doy"),
-                32_i64,
-                "modis_ornl_mcd64a1_burndate@1",
-                // MCD64A1 QA byte: bit 0 = land-grid-cell mask. Gates
-                // out non-land Burn_Date values that upstream marks
-                // separately from the -1 unmapped sentinel.
-                Some("QA"),
-            ),
-            _ => return Err(format!("ornl modis band not wired: {band}")),
-        };
+    let (product, variable, default_scale, unit, half_window_days, fn_key, qc_variable) = match band
+    {
+        "modis.lst_day_8day" => (
+            "MOD11A2",
+            "LST_Day_1km",
+            0.02_f64,
+            Some("K"),
+            8_i64,
+            "modis_ornl_mod11a2_lstday@1",
+            Some("QC_Day"),
+        ),
+        "modis.lst_night_8day" => (
+            "MOD11A2",
+            "LST_Night_1km",
+            0.02_f64,
+            Some("K"),
+            8_i64,
+            "modis_ornl_mod11a2_lstnight@1",
+            Some("QC_Night"),
+        ),
+        "modis.et_8day" => (
+            "MOD16A2",
+            "ET_500m",
+            0.1_f64,
+            Some("kg/m^2"),
+            8_i64,
+            "modis_ornl_mod16a2_et@1",
+            // ET_QC_500m: bits 0-1 MODLAND_QC (Mu 2011 §2.3).
+            Some("ET_QC_500m"),
+        ),
+        "modis.gpp_8day" => (
+            "MOD17A2H",
+            "Gpp_500m",
+            1e-4_f64,
+            Some("kg C/m^2"),
+            8_i64,
+            "modis_ornl_mod17a2h_gpp@1",
+            // Psn_QC_500m: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
+            Some("Psn_QC_500m"),
+        ),
+        "modis.lai_8day" => (
+            "MOD15A2H",
+            "Lai_500m",
+            0.1_f64,
+            Some("m^2/m^2"),
+            8_i64,
+            "modis_ornl_mod15a2h_lai@1",
+            // FparLai_QC: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
+            Some("FparLai_QC"),
+        ),
+        "modis.burned_area_monthly" => (
+            "MCD64A1",
+            "Burn_Date",
+            1.0_f64,
+            Some("doy"),
+            32_i64,
+            "modis_ornl_mcd64a1_burndate@1",
+            // MCD64A1 QA byte: bit 0 = land-grid-cell mask. Gates
+            // out non-land Burn_Date values that upstream marks
+            // separately from the -1 unmapped sentinel.
+            Some("QA"),
+        ),
+        _ => return Err(format!("ornl modis band not wired: {band}")),
+    };
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -17426,8 +17414,7 @@ async fn materialize_ornl_modis_band(
     // when the band has QC wired and the fetch succeeded. The empty map
     // is the "QC unavailable" sentinel that triggers the
     // confidence-unknown branch below.
-    let mut qc_map: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut qc_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     if let Some(qb) = qc_body.as_ref() {
         if let Some(qc_subset) = qb.get("subset").and_then(|v| v.as_array()) {
             for entry in qc_subset.iter() {
@@ -18436,9 +18423,8 @@ async fn materialize_sentinel1_vv(
             item.datetime
         )
     })?;
-    let tempo = band_tempo_for_key("sentinel1_raw").ok_or_else(|| {
-        "band sentinel1_raw missing from registry; cannot pick tempo".to_string()
-    })?;
+    let tempo = band_tempo_for_key("sentinel1_raw")
+        .ok_or_else(|| "band sentinel1_raw missing from registry; cannot pick tempo".to_string())?;
     let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
