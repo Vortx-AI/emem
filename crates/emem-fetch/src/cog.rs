@@ -237,7 +237,31 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
         match tag {
             256 => width = Some(val_u32 as u32),
             257 => height = Some(val_u32 as u32),
-            258 => bits_per_sample = val_u16_first,
+            258 => {
+                // BitsPerSample is a SHORT array of length `samples_per_pixel`.
+                // TIFF packs values inline only when total size ≤ 4 bytes;
+                // beyond that, the entry's value field is an offset to an
+                // external array. Single-band files (cnt=1) fit inline;
+                // multi-band files like WRI GDM v1.2 (cnt=8, 16 bytes)
+                // dereference. We pick the first u16 either way and assume
+                // the bands share BitsPerSample — the existing per-sample
+                // decoders downstream all read at this resolution. If a
+                // future multi-band file mixes bit-widths the open_profile
+                // would need an array readback, but every multi-band raster
+                // we sample today uses a uniform width.
+                bits_per_sample = if cnt * 2 <= 4 {
+                    val_u16_first
+                } else {
+                    let off = val_u32;
+                    if buf.len() < off + 2 {
+                        return Err(CogError::ShortRead {
+                            needed: off + 2,
+                            offset: 0,
+                        });
+                    }
+                    u16::from_le_bytes([buf[off], buf[off + 1]])
+                };
+            }
             259 => compression = val_u16_first,
             277 => samples_per_pixel = val_u16_first,
             284 => planar_config = val_u16_first,
@@ -251,7 +275,24 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
             273 => strip_offsets_ref = Some((cnt, val_u32)),
             278 => rows_per_strip = Some(val_u32 as u32),
             279 => strip_byte_counts_ref = Some((cnt, val_u32)),
-            339 => sample_format = val_u16_first,
+            339 => {
+                // SampleFormat is also a per-band SHORT array. Same
+                // inline-vs-offset rule as BitsPerSample (tag 258). Read
+                // the first entry; downstream decoders assume uniform
+                // sample format across bands.
+                sample_format = if cnt * 2 <= 4 {
+                    val_u16_first
+                } else {
+                    let off = val_u32;
+                    if buf.len() < off + 2 {
+                        return Err(CogError::ShortRead {
+                            needed: off + 2,
+                            offset: 0,
+                        });
+                    }
+                    u16::from_le_bytes([buf[off], buf[off + 1]])
+                };
+            }
             33550 => {
                 // ModelPixelScale: 3 doubles (sx, sy, sz)
                 if cnt < 2 {
