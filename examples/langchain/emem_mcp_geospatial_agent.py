@@ -1,8 +1,8 @@
-"""emem + LangChain via MCP — geospatial verification agent.
+"""emem + LangChain via MCP -- ask a place question and cite receipts.
 
 Connects to the live emem MCP server over Streamable HTTP, auto-discovers
-all tools, and runs a LangGraph ReAct agent that answers a geospatial
-verification question.
+all tools, and runs a LangGraph ReAct agent that resolves South Mumbai,
+recalls its elevation, and answers with the signed fact CID/receipt.
 
 Install:
     pip install langchain-mcp-adapters langgraph langchain-openai
@@ -11,8 +11,8 @@ Usage:
     export OPENAI_API_KEY="sk-..."
     python emem_mcp_geospatial_agent.py
 
-The agent will check whether Helsinki Airport, Finland (60.3172, 24.9633)
-appears to be low-lying or flood-prone, citing signed receipts.
+The agent will resolve South Mumbai, recall its elevation from
+copdem30m.elevation_mean, and return the answer with a signed fact CID.
 """
 
 import asyncio
@@ -25,9 +25,9 @@ from langchain_openai import ChatOpenAI
 EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp")
 
 QUESTION = (
-    "Using emem, check whether Helsinki Airport, Finland (60.3172, 24.9633) "
-    "appears to be low-lying or flood-prone. Use verifiable evidence and "
-    "cite signed facts or receipts when available."
+    "Using emem, resolve South Mumbai, recall its elevation "
+    "(copdem30m.elevation_mean), and answer with the signed fact CID/receipt. "
+    "Show the elevation value and the receipt so the answer can be independently verified."
 )
 
 

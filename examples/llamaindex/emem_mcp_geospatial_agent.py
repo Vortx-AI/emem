@@ -1,8 +1,8 @@
-"""emem + LlamaIndex via MCP -- geospatial verification agent.
+"""emem + LlamaIndex via MCP -- retrieve signed evidence for a place.
 
 Connects to the live emem MCP server over Streamable HTTP, auto-discovers
-all tools, and runs a LlamaIndex FunctionAgent that answers a geospatial
-verification question.
+all tools, and runs a LlamaIndex FunctionAgent that retrieves signed
+geospatial evidence about South Mumbai's elevation.
 
 Install:
     pip install llama-index-tools-mcp llama-index-llms-openai llama-index-core
@@ -11,8 +11,8 @@ Usage:
     export OPENAI_API_KEY="sk-..."
     python emem_mcp_geospatial_agent.py
 
-The agent will check whether Helsinki Airport, Finland (60.3172, 24.9633)
-appears to be low-lying or flood-prone, citing signed receipts.
+The agent will retrieve the signed record for South Mumbai's elevation
+and explain how the fact CID can be independently verified.
 """
 
 import asyncio
@@ -25,9 +25,8 @@ from llama_index.llms.openai import OpenAI
 EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp")
 
 QUESTION = (
-    "Using emem, check whether Helsinki Airport, Finland (60.3172, 24.9633) "
-    "appears to be low-lying or flood-prone. Use verifiable evidence and "
-    "cite signed facts or receipts when available."
+    "Using emem, answer: what does the signed record say about South Mumbai's "
+    "elevation? Return the fact CID and explain how it can be verified."
 )
 
 

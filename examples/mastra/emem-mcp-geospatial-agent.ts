@@ -1,8 +1,8 @@
 /**
- * Mastra + emem MCP example
+ * Mastra + emem MCP example -- event hunt: algal bloom in Lake Erie
  *
- * This example connects a Mastra agent to the emem MCP server and asks
- * a place-based geospatial verification question.
+ * This example connects a Mastra agent to the emem MCP server and hunts
+ * for algal bloom hotspots in Lake Erie using emem's hunt/event workflow.
  *
  * Prerequisites:
  *   npm install @mastra/core @mastra/mcp @ai-sdk/openai dotenv
@@ -31,15 +31,15 @@ async function main() {
   const tools = await mcpClient.getTools();
 
   const agent = new Agent({
-    name: 'emem-geospatial-agent',
+    name: 'emem-event-hunter',
     instructions:
-      'You are a geospatial verification agent. Use emem tools for place-based evidence. When emem returns signed facts or receipts, cite them in the answer.',
+      'You are a geospatial event hunter. Use emem tools to find environmental events and hotspots. When emem returns signed facts, cell IDs, or scene URLs, include them in the answer.',
     model: openai('gpt-4o-mini'),
     tools,
   });
 
   const response = await agent.generate(
-    'Using emem, check whether Helsinki Airport, Finland (60.3172, 24.9633) appears to be low-lying or flood-prone. Use verifiable evidence and cite signed facts or receipts when available.',
+    'Using emem, find algal bloom hotspots in Lake Erie. Return the top cells, primary band, values, fact CIDs, and scene URLs if available.',
   );
 
   console.log(response.text);

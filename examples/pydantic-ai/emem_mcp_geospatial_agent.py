@@ -1,7 +1,8 @@
-"""Pydantic AI + emem MCP example.
+"""Pydantic AI + emem MCP example -- structured typed answer with receipt fields.
 
 Connects a Pydantic AI agent to the emem MCP server over Streamable HTTP
-and asks a place-based geospatial verification question.
+and asks for Lake Erie algal bloom hotspot data, returning a structured
+typed answer.
 
 Install:
     pip install pydantic-ai
@@ -10,8 +11,9 @@ Usage:
     export OPENAI_API_KEY="sk-..."
     python emem_mcp_geospatial_agent.py
 
-The agent will check whether Helsinki Airport, Finland (60.3172, 24.9633)
-appears to be low-lying or flood-prone, citing signed receipts.
+The agent will hunt for algal bloom hotspots in Lake Erie and return a
+structured answer with fields: place, event, top_cell, primary_band,
+value, fact_cid, scene_url, caveats.
 """
 
 import asyncio
@@ -30,18 +32,19 @@ async def main() -> None:
         "openai:gpt-4.1-mini",
         toolsets=[server],
         system_prompt=(
-            "You are a geospatial verification agent. "
-            "Use emem tools for place-based evidence. "
-            "When emem returns signed facts or receipts, cite them in the answer."
+            "You are a geospatial evidence agent. "
+            "Use emem tools to find algal bloom hotspots. "
+            "Return a structured answer with these fields: "
+            "place, event, top_cell, primary_band, value, fact_cid, scene_url, caveats. "
+            "Use only facts that emem can support."
         ),
     )
 
     async with server:
         result = await agent.run(
-            "Using emem, check whether Helsinki Airport, Finland "
-            "(60.3172, 24.9633) appears to be low-lying or flood-prone. "
-            "Use verifiable evidence and cite signed facts or receipts "
-            "when available."
+            "Using emem, find algal bloom hotspots in Lake Erie. "
+            "Return a structured answer with fields: place, event, top_cell, "
+            "primary_band, value, fact_cid, scene_url, and caveats."
         )
 
     print(result.output)

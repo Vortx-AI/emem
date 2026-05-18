@@ -1,7 +1,8 @@
-"""CrewAI + emem MCP example.
+"""CrewAI + emem MCP example -- underwriting crew: flood/elevation/surface-water check.
 
-Connects a CrewAI agent to the emem MCP server over Streamable HTTP
-and asks a place-based geospatial verification question.
+Connects a CrewAI underwriting crew to the emem MCP server over Streamable
+HTTP. The crew checks a site for elevation, flood/surface-water signals,
+and built-up context, then writes a short risk note with receipt IDs.
 
 Install:
     pip install crewai crewai-tools[mcp]
@@ -10,8 +11,8 @@ Usage:
     export OPENAI_API_KEY="sk-..."
     python emem_mcp_geospatial_crew.py
 
-The agent will check whether Helsinki Airport, Finland (60.3172, 24.9633)
-appears to be low-lying or flood-prone, citing signed receipts.
+The crew will run a real-estate/insurance underwriting check on a site,
+using emem for signed geospatial evidence.
 """
 
 import os
@@ -30,14 +31,16 @@ def main() -> None:
 
     with MCPServerAdapter(server_params) as emem_tools:
         agent = Agent(
-            role="Geospatial verification agent",
+            role="Real-estate underwriting analyst",
             goal=(
-                "Answer place-based questions using emem's signed geospatial facts "
-                "and cite receipts when they are returned."
+                "Check a site for elevation, flood/surface-water signals, and "
+                "built-up context using emem. Write a short risk note with "
+                "receipt IDs for each fact."
             ),
             backstory=(
-                "You specialize in checking Earth-observation and geospatial evidence "
-                "for real-world places."
+                "You are an underwriting analyst at an insurance/real-estate firm. "
+                "You use satellite-derived geospatial evidence from emem to assess "
+                "physical risk at a site before a policy or deal closes."
             ),
             tools=emem_tools,
             verbose=True,
@@ -45,14 +48,14 @@ def main() -> None:
 
         task = Task(
             description=(
-                "Using emem, check whether Helsinki Airport, Finland "
-                "(60.3172, 24.9633) appears to be low-lying or flood-prone. "
-                "Use verifiable evidence and cite signed facts or receipts "
-                "when available."
+                "Run an underwriting check on South Mumbai. "
+                "Using emem, check elevation, surface-water/flood signals, "
+                "and built-up context. Write a short risk note that includes "
+                "the value and receipt ID for each fact."
             ),
             expected_output=(
-                "A concise geospatial verification answer with supporting emem evidence, "
-                "including signed facts or receipt identifiers if available."
+                "A short underwriting risk note covering elevation, flood/surface-water, "
+                "and built-up context, with emem receipt IDs for each fact cited."
             ),
             agent=agent,
         )
