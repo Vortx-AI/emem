@@ -69,7 +69,7 @@ use emem_core::{manifest::manifest_cid, ErrorCode};
 use emem_core::{KeyEpoch, Signature as EmCoreSignature};
 use emem_fact::{
     Attestation, Derivation, Fact, NegativeFact, PrimaryFact, ReasonCid, RegistryCid, SchemaCid,
-    Source,
+    Source, Uncertainty,
 };
 use emem_intent::{plan, Intent};
 use emem_primitives::{
@@ -11051,10 +11051,21 @@ async fn mcp_tool_call(
                 .get("max_cloud")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(20.0);
-            let datetime = args
-                .get("datetime")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+            // Two equivalent ways to anchor the scene in time:
+            //   `datetime`: an explicit STAC window `"A/B"`, passed through verbatim.
+            //   `at`:       a single ISO-8601 date or datetime; resolved server-side to
+            //               `[at − EMEM_SCENE_AT_LOOKBACK_DAYS, at]` so the STAC sort
+            //               returns the most recent scene at or before `at`.
+            // `datetime` wins when both are supplied. Mirrors the REST handler.
+            let mut qs: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            if let Some(d) = args.get("datetime").and_then(|v| v.as_str()) {
+                qs.insert("datetime".into(), d.to_string());
+            }
+            if let Some(a) = args.get("at").and_then(|v| v.as_str()) {
+                qs.insert("at".into(), a.to_string());
+            }
+            let datetime = resolve_scene_window(&qs).map_err(|e| (-32602i64, e))?;
             let scene = build_cell_scene_rgb(cell, max_cloud, datetime.as_deref())
                 .await
                 .map_err(|e| (-32000i64, e))?;
@@ -11576,8 +11587,18 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
-            "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":png_ok}}},
-            "/v1/cells/{cell64}/scene.rgb":{"get":{"summary":"Sentinel-2 true-colour thumbnail as raw 8-bit RGB pixel buffer (no PNG framing). Width/height returned via x-emem-scene-width/x-emem-scene-height headers.","operationId":"emem_cell_scene_rgb","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"max_cloud","in":"query","required":false,"schema":{"type":"number","default":20.0}}],"responses":{"200":{"description":"raw rgb8 plane (w*h*3 bytes)","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}}}}},
+            "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[
+                {"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},
+                {"name":"max_cloud","in":"query","required":false,"description":"max eo:cloud_cover percent","schema":{"type":"number","default":20.0}},
+                {"name":"at","in":"query","required":false,"description":"ISO-8601 date or datetime; returns the most recent S2 scene at or before this instant (window resolved server-side via EMEM_SCENE_AT_LOOKBACK_DAYS, default 7d). Ignored when `datetime` is also supplied.","schema":{"type":"string","format":"date-time","example":"2024-06-15"}},
+                {"name":"datetime","in":"query","required":false,"description":"Explicit STAC datetime window `A/B`; takes precedence over `at`.","schema":{"type":"string","example":"2024-06-01T00:00:00Z/2024-06-30T00:00:00Z"}}
+            ],"responses":{"200":png_ok}}},
+            "/v1/cells/{cell64}/scene.rgb":{"get":{"summary":"Sentinel-2 true-colour thumbnail as raw 8-bit RGB pixel buffer (no PNG framing). Width/height returned via x-emem-scene-width/x-emem-scene-height headers.","operationId":"emem_cell_scene_rgb","parameters":[
+                {"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},
+                {"name":"max_cloud","in":"query","required":false,"schema":{"type":"number","default":20.0}},
+                {"name":"at","in":"query","required":false,"description":"ISO-8601 date or datetime; returns the most recent S2 scene at or before this instant. Ignored when `datetime` is also supplied.","schema":{"type":"string","format":"date-time"}},
+                {"name":"datetime","in":"query","required":false,"description":"Explicit STAC datetime window `A/B`; takes precedence over `at`.","schema":{"type":"string"}}
+            ],"responses":{"200":{"description":"raw rgb8 plane (w*h*3 bytes)","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}}}}},
             "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property — paste straight into Mapbox/Leaflet/Deck.gl","operationId":"emem_cell_recall_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":json_ok}}},
             "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent","operationId":"emem_temporal_route_post","responses":{"200":json_ok}}},
             "/v1/elevation":         {
@@ -16117,10 +16138,27 @@ async fn materialize_weather_current(
     };
 
     let signed_at = chrono_iso8601_utc();
+    // tslot from MET Norway's reported observation time (timeseries[0].time),
+    // snapped to the band's registered tempo (weather is `ultra_fast` =
+    // hourly). Previously tslot:0 collapsed every weather observation onto
+    // the static-band sentinel — /v1/trajectory returned nothing.
+    let captured_unix = captured
+        .as_deref()
+        .and_then(parse_iso8601_unix)
+        .ok_or_else(|| {
+            format!(
+                "met.no timeseries[0].time missing or not ISO-8601: {:?}",
+                captured
+            )
+        })?;
+    let tempo = band_tempo_for_key(band).ok_or_else(|| {
+        format!("band {band} not in registry; cannot pick tempo for weather tslot")
+    })?;
+    let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
-        tslot: 0,
+        tslot,
         value: ciborium::Value::Float(value),
         unit: unit.map(|u| u.to_string()),
         confidence,
@@ -17839,13 +17877,50 @@ async fn materialize_sentinel2_band(
 
     let signed_at = chrono_iso8601_utc();
     let fn_key = format!("sentinel2_l2a_{}@1", band.replace('.', "_"));
+    // tslot from the STAC item's actual acquisition datetime, snapped to
+    // the band's registered tempo bucket. Previously hard-wired to 0,
+    // which collapsed every Sentinel-2 observation onto the static-band
+    // sentinel and silently destroyed all time-series semantics
+    // (/v1/trajectory returned an empty series for every S2-derived
+    // band). The band registry is authoritative for tempo — most S2
+    // bands are `fast` (daily), some indices are `medium` (monthly).
+    let captured_unix = parse_iso8601_unix(&item.datetime).ok_or_else(|| {
+        format!(
+            "sentinel-2 item.datetime not parseable as ISO-8601: {:?}",
+            item.datetime
+        )
+    })?;
+    let tempo = band_tempo_for_key(band).ok_or_else(|| {
+        format!("band {band} not in registry (direct key or scalar_keys); cannot pick tempo")
+    })?;
+    let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
+    // Fact-level confidence is derived from the scene's eo:cloud_cover
+    // when the STAC item reports one — a 2 %-cloudy scene and a 70 %-
+    // cloudy scene should not carry the same number. We map the cloud
+    // percentage linearly into the [0.30, 0.95] band so the receipt's
+    // confidence tracks the underlying pixel-cleanliness, then floor at
+    // 0.50 if cloud_cover was missing entirely (older STAC items, S2
+    // L1C archives without the eo:cloud_cover extension). The chosen
+    // cloud value is already echoed into derivation.args below for
+    // auditability; the fall-through path is named in the comment so a
+    // verifier can tell "constant baseline" from "cloud-derived".
+    let confidence = match item.cloud_cover {
+        Some(cc) if cc.is_finite() && (0.0..=100.0).contains(&cc) => {
+            let cleanliness = (1.0 - cc / 100.0).clamp(0.30, 0.95);
+            cleanliness as f32
+        }
+        // No upstream cloud_cover → flag a structural unknown rather than
+        // a confident number. 0.50 is the explicit "unknown scene quality"
+        // value; constants ≥ 0.80 are reserved for cloud-derived paths.
+        _ => 0.50,
+    };
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
-        tslot: 0,
+        tslot,
         value: ciborium::Value::Float(value),
         unit: fact_unit,
-        confidence: 0.90,
+        confidence,
         uncertainty: None,
         sources: vec![Source {
             scheme: "sentinel_s2_l2a".into(),
@@ -17946,10 +18021,24 @@ async fn materialize_sentinel1_vv(
     let vv_db = 10.0 * vv_lin.log10();
 
     let signed_at = chrono_iso8601_utc();
+    // tslot from the STAC item's actual acquisition datetime, snapped to
+    // `sentinel1_raw`'s registered tempo (currently `fast` = daily). The
+    // previous tslot:0 collapsed every RTC observation onto the static-
+    // band sentinel and broke /v1/trajectory for every SAR-derived band.
+    let captured_unix = parse_iso8601_unix(&item.datetime).ok_or_else(|| {
+        format!(
+            "sentinel-1 item.datetime not parseable as ISO-8601: {:?}",
+            item.datetime
+        )
+    })?;
+    let tempo = band_tempo_for_key("sentinel1_raw").ok_or_else(|| {
+        "band sentinel1_raw missing from registry; cannot pick tempo".to_string()
+    })?;
+    let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "sentinel1_raw".into(),
-        tslot: 0,
+        tslot,
         value: ciborium::Value::Float(vv_db),
         unit: Some("dB".into()),
         confidence: 0.85,
@@ -19053,19 +19142,32 @@ async fn materialize_firms_active_fires(
                     url: Some("https://firms.modaps.eosdis.nasa.gov/data/active_fire/".into()),
                 });
             }
+            // Fact-level confidence is derived from `summary.conf_max`
+            // (already aggregated from the FIRMS per-detection confidence
+            // 0..100 across the cell × hour bucket). A low-conf MODIS
+            // grass-fire flag and a high-conf VIIRS deforestation burn
+            // used to carry the same 0.90 — they now don't. conf_max
+            // saturates at 100 (high-cert) and reflects the strongest
+            // detection inside the window, which is the right thing to
+            // surface for an active-fires summary. If the upstream
+            // confidence is implausible (negative / >100 / non-finite),
+            // back off to 0.50 (structural unknown) instead of pinning a
+            // high number.
+            let confidence = {
+                let c = summary.conf_max as f32 / 100.0;
+                if c.is_finite() && (0.0..=1.0).contains(&c) && c > 0.0 {
+                    c
+                } else {
+                    0.50
+                }
+            };
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),
                 band: "firms.active_fires".into(),
                 tslot,
                 value,
                 unit: Some("firms_active_fires_summary".into()),
-                // FIRMS reports per-detection confidence; the cell-level
-                // summary is a faithful aggregation of upstream values
-                // but the upstream itself carries 0..100 confidence per
-                // hit (~85th percentile is "high"). Use 0.90 as a
-                // band-level confidence acknowledging both the upstream
-                // confidence and the small cell × hour aggregation.
-                confidence: 0.90,
+                confidence,
                 uncertainty: None,
                 sources,
                 derivation: Derivation {
@@ -19278,13 +19380,35 @@ async fn materialize_soilgrids_band(
         .pointer("/properties/layers/0")
         .ok_or_else(|| "soilgrids response missing properties.layers[0]".to_string())?;
 
-    // Some ISRIC responses use d_factor==0 / null when a property is bare
-    // (e.g. coastal slivers) — treat as "no useful value" Absence.
-    let d_factor = layer
+    // Some ISRIC responses ship null / 0 / non-finite d_factor when a
+    // property is bare (coastal slivers, ice). The old code silently
+    // fell back to d_factor=1.0 (identity scaling) and emitted the raw
+    // SoilGrids internal value tagged with `mapped_units` — a 10×–100×
+    // value lie that received a real signed receipt. Sign Absence
+    // instead so the caller sees "ISRIC declined to scale this" rather
+    // than a plausible-looking wrong number.
+    let d_factor = match layer
         .pointer("/unit_measure/d_factor")
         .and_then(|v| v.as_f64())
         .filter(|f| f.is_finite() && *f > 0.0)
-        .unwrap_or(1.0);
+    {
+        Some(d) => d,
+        None => {
+            return sign_band_absence(
+                cell64,
+                s,
+                band,
+                0,
+                scheme,
+                &url,
+                &absence_signed_at,
+                &format!(
+                    "soilgrids_missing_unit_scale: ISRIC unit_measure.d_factor null/0/non-finite for property={property} at lat={lat:.4} lng={lng:.4}; cannot rescale to documented mapped_units, refusing to emit a raw-scaled value tagged with the wrong unit"
+                ),
+            )
+            .await;
+        }
+    };
 
     // Three depth slices, thickness-weighted to 0–30 cm. Any missing or
     // null mean (ocean, frozen, no-data) makes the cell Absence-grade —
@@ -19300,6 +19424,19 @@ async fn materialize_soilgrids_band(
     ];
     let mut acc = 0.0_f64;
     let mut wsum = 0.0_f64;
+    // Track the per-depth 90 % prediction interval (ISRIC ships
+    // Q0.05/Q0.95 alongside `mean` in the same internal scale). We
+    // aggregate them with the same thickness weighting as the mean so
+    // the depth-aggregated fact carries a depth-aggregated interval.
+    // This is exact for the mean (linear); for the quantiles it is
+    // ISRIC's own recommendation for the 0-30 cm aggregate band. Each
+    // depth contributes to the interval only when it carried valid
+    // q05/q95; if any depth's quantiles were null we drop the
+    // uncertainty entirely rather than emit a partial interval.
+    let mut q05_acc = 0.0_f64;
+    let mut q95_acc = 0.0_f64;
+    let mut q_wsum = 0.0_f64;
+    let mut q_all_present = true;
     let mut missing: Vec<&str> = Vec::new();
     for (label, thickness) in want {
         let entry = depths
@@ -19318,6 +19455,32 @@ async fn materialize_soilgrids_band(
         }
         acc += mean_raw * thickness;
         wsum += thickness;
+        // ISRIC publishes both `Q0.05` (capitalised, with the period)
+        // and the alias `q0.05` across product generations — accept
+        // either. Both, when present, are in the same internal scale
+        // as `mean`.
+        let q05 = entry
+            .and_then(|d| {
+                d.pointer("/values/Q0.05")
+                    .or_else(|| d.pointer("/values/q0.05"))
+            })
+            .and_then(|v| v.as_f64())
+            .filter(|x| x.is_finite());
+        let q95 = entry
+            .and_then(|d| {
+                d.pointer("/values/Q0.95")
+                    .or_else(|| d.pointer("/values/q0.95"))
+            })
+            .and_then(|v| v.as_f64())
+            .filter(|x| x.is_finite());
+        match (q05, q95) {
+            (Some(lo), Some(hi)) => {
+                q05_acc += lo * thickness;
+                q95_acc += hi * thickness;
+                q_wsum += thickness;
+            }
+            _ => q_all_present = false,
+        }
     }
     if !missing.is_empty() {
         return sign_band_absence(
@@ -19352,6 +19515,41 @@ async fn materialize_soilgrids_band(
         )
         .await;
     }
+    // Depth-aggregated 90 % prediction interval in the documented
+    // `mapped_units`. Only emitted when ISRIC supplied Q0.05/Q0.95 at
+    // every depth that contributed to the mean. The unit-scale (d_factor)
+    // is the same for mean and quantiles in the SoilGrids response, so we
+    // apply it identically. Family is "interval" rather than "gaussian"
+    // because the underlying prediction is quantile-based, not Gaussian
+    // — agents shouldn't infer a normal σ from these bounds.
+    let uncertainty = if q_all_present && q_wsum > 0.0 {
+        let lo = (q05_acc / q_wsum) / d_factor;
+        let hi = (q95_acc / q_wsum) / d_factor;
+        if lo.is_finite() && hi.is_finite() && hi >= lo {
+            let params = ciborium::Value::Map(vec![
+                (
+                    ciborium::Value::Text("low".into()),
+                    ciborium::Value::Float(lo),
+                ),
+                (
+                    ciborium::Value::Text("high".into()),
+                    ciborium::Value::Float(hi),
+                ),
+                (
+                    ciborium::Value::Text("ci".into()),
+                    ciborium::Value::Float(0.90),
+                ),
+            ]);
+            Some(Uncertainty {
+                family: "interval".into(),
+                params,
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
@@ -19361,7 +19559,7 @@ async fn materialize_soilgrids_band(
         value: ciborium::Value::Float(value),
         unit: Some(unit.to_string()),
         confidence,
-        uncertainty: None,
+        uncertainty,
         sources: vec![Source {
             scheme: scheme.to_string(),
             id: url.clone(),
@@ -19944,6 +20142,41 @@ async fn materialize_esa_cci_biomass_band(
             } else {
                 sample.agb_t_per_ha as f64
             };
+            // The merged ESA CCI Biomass tile ships AGB and AGB_SD side
+            // by side at the same pixel — the SD is the per-cell 1-σ
+            // standard error of the AGB retrieval (Santoro et al. 2023,
+            // ESA CCI Biomass v6 ATBD). The dedicated `agb_se_t_per_ha`
+            // band continues to surface it as a first-class fact, but
+            // inlining the σ on the AGB fact saves a second recall and
+            // lets receipt verifiers see the uncertainty without
+            // chasing a co-band by CID. For the SE band itself the
+            // value IS the σ, so `uncertainty` would be tautological.
+            let uncertainty = if want_se {
+                None
+            } else {
+                let sd = sample.se_t_per_ha as f64;
+                if sd.is_finite() && sd >= 0.0 {
+                    Some(Uncertainty {
+                        family: "gaussian".into(),
+                        params: ciborium::Value::Map(vec![
+                            (
+                                ciborium::Value::Text("sigma".into()),
+                                ciborium::Value::Float(sd),
+                            ),
+                            (
+                                ciborium::Value::Text("unit".into()),
+                                ciborium::Value::Text("t_per_ha".into()),
+                            ),
+                            (
+                                ciborium::Value::Text("source".into()),
+                                ciborium::Value::Text("esa_cci_biomass_agb_sd".into()),
+                            ),
+                        ]),
+                    })
+                } else {
+                    None
+                }
+            };
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),
                 band: band.to_string(),
@@ -19951,7 +20184,7 @@ async fn materialize_esa_cci_biomass_band(
                 value: ciborium::Value::Float(value),
                 unit: Some("t_per_ha".into()),
                 confidence: if want_se { 0.95 } else { 0.85 },
-                uncertainty: None,
+                uncertainty,
                 sources: vec![Source {
                     scheme: "esa.cci.biomass.v6".into(),
                     id: url.clone(),
@@ -23882,6 +24115,49 @@ async fn build_cell_scene_rgb(
     })
 }
 
+/// Resolve `?datetime=A/B` and `?at=DATE` query params to a single STAC
+/// datetime window string. `?datetime` wins when both are present. For
+/// `?at=DATE`, the window is `[DATE − N, DATE]` so the STAC search's
+/// `sortby=datetime desc, limit=1` returns the most recent scene at or
+/// before the requested date — the natural "as-of" semantics for a
+/// satellite snapshot. N defaults to 7 days (one Sentinel-2 revisit
+/// cycle plus margin) and is tunable via `EMEM_SCENE_AT_LOOKBACK_DAYS`.
+/// Returns Ok(None) when neither param is present (caller falls back to
+/// its own "last 90 days" default). Returns Err on malformed input so
+/// the handler can return a 400 instead of silently dropping the param.
+fn resolve_scene_window(
+    qs: &std::collections::HashMap<String, String>,
+) -> Result<Option<String>, String> {
+    if let Some(d) = qs.get("datetime") {
+        return Ok(Some(d.clone()));
+    }
+    let at = match qs.get("at") {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+    let at_unix = parse_iso8601_unix(at).ok_or_else(|| {
+        format!(
+            "?at={at:?} is not a valid ISO-8601 date or datetime (expected e.g. \"2024-06-15\" or \"2024-06-15T00:00:00Z\")"
+        )
+    })?;
+    if at_unix < 0 {
+        return Err(format!(
+            "?at={at:?} resolves to a pre-1970 Unix time; satellite archives do not extend that far back"
+        ));
+    }
+    let lookback_days = std::env::var("EMEM_SCENE_AT_LOOKBACK_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|n| *n >= 1)
+        .unwrap_or(7);
+    let start_unix = (at_unix - lookback_days * 86_400).max(0);
+    Ok(Some(format!(
+        "{}/{}",
+        iso8601_utc(start_unix as u64),
+        iso8601_utc(at_unix as u64)
+    )))
+}
+
 /// `GET /v1/cells/{cell64}/scene.rgb` — raw 8-bit RGB pixel buffer
 /// (no PNG framing). Same pipeline as `scene.png` — STAC search,
 /// HTTP-Range COG reads, 2-98 percentile stretch — but the response
@@ -23899,7 +24175,10 @@ async fn get_cell_scene_rgb(
         .get("max_cloud")
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(20.0);
-    let datetime_window = qs.get("datetime").cloned();
+    let datetime_window = match resolve_scene_window(&qs) {
+        Ok(w) => w,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
     let scene = match build_cell_scene_rgb(&cell, max_cloud, datetime_window.as_deref()).await {
         Ok(s) => s,
         Err(e) => {
@@ -23971,7 +24250,10 @@ async fn get_cell_scene_png(
         .get("max_cloud")
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(20.0);
-    let datetime_window = qs.get("datetime").cloned();
+    let datetime_window = match resolve_scene_window(&qs) {
+        Ok(w) => w,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
     let scene = match build_cell_scene_rgb(&cell, max_cloud, datetime_window.as_deref()).await {
         Ok(s) => s,
         Err(e) => {
@@ -30160,6 +30442,24 @@ pub(crate) fn parse_iso8601_unix(s: &str) -> Option<i64> {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146097 + doe - 719468;
     Some(days * 86400 + h * 3600 + mi * 60 + se)
+}
+
+/// Resolve the tempo for a fact-level band key. Accepts either a cube-band
+/// `key` (e.g. `sentinel1_raw`, `dem`) or a scalar key registered in a
+/// cube band's `scalar_keys` list (e.g. `s2.B04`, `indices.ndvi`).
+/// Returns None when the key is not in the registry at all — callers
+/// should surface that as a hard error rather than picking a default
+/// tempo, because the wrong tempo silently re-buckets every observation
+/// into the wrong tslot.
+pub(crate) fn band_tempo_for_key(key: &str) -> Option<emem_core::tslot::Tempo> {
+    let reg = &*emem_core::bands::DEFAULT;
+    if let Some(b) = reg.lookup(key) {
+        return Some(b.tempo);
+    }
+    reg.bands
+        .iter()
+        .find(|b| b.scalar_keys.iter().any(|k| k == key))
+        .map(|b| b.tempo)
 }
 
 // ── Agent reviews loop ──────────────────────────────────────────────────
