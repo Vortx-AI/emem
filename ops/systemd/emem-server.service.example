@@ -61,6 +61,20 @@ Environment=EMEM_SIDECAR_TIMEOUT_MS=10000
 # this variable is unset or empty.
 Environment=EMEM_GA_MEASUREMENT_ID=
 
+# WRI Global Drivers of Forest Loss v1.2 (Sims et al. 2025) local cache.
+# One-time download from Zenodo (record 15366671, ~282 MB COG) lets the
+# materializer sample band 1 (driver class 1..7) via the shared
+# `cog::sample_pixel_multi` LZW path through a `file://` URL. Unset to
+# fall back to the honest `NotImplemented` disclosure that the per-cell
+# fetch is blocked by Zenodo's no-Range serving. Bump this when the v1.3
+# release is wired (Zenodo record 19485190).
+#
+# One-time download:
+#   mkdir -p $EMEM_DATA/wri_gdm_cache
+#   curl -L -o $EMEM_DATA/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif \
+#     https://zenodo.org/records/15366671/files/drivers_forest_loss_1km_2001_2024_v1_2.tif
+Environment=EMEM_WRI_GDM_CACHE=/home/ubuntu/emem/var/emem/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif
+
 LimitNOFILE=65536
 ExecStart=/home/ubuntu/emem/target/release/emem-server
 Restart=on-failure
