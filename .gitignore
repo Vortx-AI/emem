@@ -54,6 +54,8 @@ __pycache__/
 
 # Local Claude / IDE state
 .claude/
+CLAUDE.md
+registry_claude.md
 
 # Env files
 .env
