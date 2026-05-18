@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="web/logo-mark.png" width="128" alt="emem" />
+  <img src="https://vortx.ai/assets/vortx-logo-200.gif" width="128" alt="emem" />
 
   <h1>emem</h1>
 

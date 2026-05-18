@@ -17,8 +17,8 @@
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 
-<link rel=icon href="/favicon.svg">
-<link rel="shortcut icon" href="/favicon.png">
+<link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
+<link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
 
 <style>
   /* Match the rest of web/ — oklch palette, JetBrains Mono. ReDoc inherits
@@ -74,11 +74,11 @@
     border-right: 1px solid var(--rule);
     display: flex;
     align-items: center;
-    gap: .4rem;
+    gap: .45rem;
   }
-  .topbar .brand::before {
-    content: ""; width: 8px; height: 8px;
-    background: var(--accent); display: inline-block;
+  .topbar .brand img {
+    width: 20px; height: 20px;
+    object-fit: contain; display: block;
   }
   .topbar a {
     color: var(--ink-2);
@@ -98,7 +98,7 @@
 <body>
 
 <header class=topbar>
-  <span class=brand>emem · API</span>
+  <span class=brand><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem · API</span>
   <a href="/">home</a>
   <a href="/docs/">docs</a>
   <a href="/docs/quickstart.html">quickstart</a>
