@@ -20377,13 +20377,36 @@ async fn materialize_esa_cci_biomass_band(
                     None
                 }
             };
+            // For the AGB band, derive confidence from the relative
+            // uncertainty AGB_SD / AGB now that we have both inline.
+            // A pixel with σ=10 t/ha at AGB=200 t/ha (5 % relative) is
+            // far more trustworthy than one with σ=80 t/ha at AGB=160
+            // (50 %). Mapping: rel_uncertainty 0.05 → confidence 0.95,
+            // 0.50 → 0.50, monotone in between. Low-AGB cells (≤ 1
+            // t/ha — bare ground, water, sparse cover) have unstable
+            // ratios; we fall back to a 0.50 ("low-signal cell")
+            // marker so a downstream classifier doesn't read them as
+            // confident bare-ground signals. The dedicated SE band
+            // keeps 0.95 (its retrieval IS the value we report).
+            let confidence: f32 = if want_se {
+                0.95
+            } else {
+                let agb = sample.agb_t_per_ha as f64;
+                let sd = sample.se_t_per_ha as f64;
+                if !agb.is_finite() || !sd.is_finite() || agb <= 1.0 || sd < 0.0 {
+                    0.50
+                } else {
+                    let rel = (sd / agb).clamp(0.05, 0.50);
+                    (1.0 - rel).clamp(0.50, 0.95) as f32
+                }
+            };
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),
                 band: band.to_string(),
                 tslot: 0,
                 value: ciborium::Value::Float(value),
                 unit: Some("t_per_ha".into()),
-                confidence: if want_se { 0.95 } else { 0.85 },
+                confidence,
                 uncertainty,
                 sources: vec![Source {
                     scheme: "esa.cci.biomass.v6".into(),
