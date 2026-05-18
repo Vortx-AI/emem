@@ -14863,6 +14863,80 @@ fn modis_calendar_to_unix(s: &str) -> Option<i64> {
     Some(days * 86400)
 }
 
+/// Fetch one MODIS ORNL DAAC subset response (one band per call — the
+/// `/subset` endpoint does not accept multi-band lists). Encapsulates
+/// the same bounded-retry / timeout discipline as inline fetchers so
+/// callers can run two fetches concurrently (e.g. NDVI + reliability)
+/// without duplicating the loop body. `band_label` is purely cosmetic
+/// — it appears in error messages so a failure report names which band
+/// stalled.
+async fn ornl_modis_subset_json(url: &str, band_label: &str) -> Result<JsonValue, String> {
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let retries = materializer_retries();
+    let mut last_err = String::new();
+    for attempt in 1..=retries {
+        let send = reqwest_client()
+            .get(url)
+            .header("accept", "application/json")
+            .send();
+        match tokio::time::timeout(timeout, send).await {
+            Err(_) => {
+                last_err = format!(
+                    "modis {band_label} timeout after {}s on attempt {attempt}/{retries}",
+                    timeout.as_secs()
+                );
+                continue;
+            }
+            Ok(Err(e)) => {
+                last_err = format!("modis {band_label} https on attempt {attempt}/{retries}: {e}");
+                continue;
+            }
+            Ok(Ok(resp)) => {
+                let status = resp.status();
+                if !status.is_success() {
+                    // ORNL DAAC returns 400 with a body like "No data
+                    // available for time period A2026087 to A2026119 for
+                    // MOD16A2 19.0767 72.8762 combination." when the
+                    // upstream hasn't published data in this range yet.
+                    // Convert to an empty-subset JSON so callers' existing
+                    // empty-subset handling (sign Absence, or "no valid
+                    // observation in window" error) fires uniformly
+                    // instead of seeing "status 400" leak through.
+                    if status == reqwest::StatusCode::BAD_REQUEST {
+                        if let Ok(text) = resp.text().await {
+                            if text.contains("No data available for time period") {
+                                return Ok(json!({"subset": []}));
+                            }
+                        }
+                    }
+                    last_err =
+                        format!("modis {band_label} status {status} on attempt {attempt}/{retries}");
+                    if status.is_client_error() {
+                        return Err(last_err); // 4xx won't change on retry
+                    }
+                    continue;
+                }
+                match tokio::time::timeout(timeout, resp.json::<JsonValue>()).await {
+                    Err(_) => {
+                        last_err = format!(
+                            "modis {band_label} body timeout after {}s on attempt {attempt}/{retries}",
+                            timeout.as_secs()
+                        );
+                        continue;
+                    }
+                    Ok(Err(e)) => {
+                        last_err =
+                            format!("modis {band_label} json on attempt {attempt}/{retries}: {e}");
+                        continue;
+                    }
+                    Ok(Ok(b)) => return Ok(b),
+                }
+            }
+        }
+    }
+    Err(last_err)
+}
+
 /// Fetch a MODIS MOD13Q1 16-day NDVI composite for the cell's centroid
 /// at a target Unix epoch. When `target_unix` is `None`, picks the most
 /// recent valid composite in the last 90 days (legacy "current" behavior
@@ -14870,6 +14944,17 @@ fn modis_calendar_to_unix(s: &str) -> Option<i64> {
 /// window around `t` and selects the composite whose `calendar_date` is
 /// closest to `t` — that's the historical-backfill path used by
 /// `emem_backfill`.
+///
+/// Quality gating: each composite ships a `250m_16_days_pixel_reliability`
+/// flag (0=good, 1=marginal, 2=snow/ice, 3=cloudy) that the upstream
+/// publishes as a parallel band. We fetch reliability concurrently and
+/// reject composites with reliability ≥ 2 BEFORE picking the best
+/// observation — otherwise a cloud-contaminated NDVI value gets the
+/// same receipt as a clear-pixel one. Fact-level `confidence` is
+/// derived from the chosen composite's reliability: 0 → 0.95, 1 → 0.75.
+/// If the reliability fetch fails, we fall back to no gating and emit
+/// `confidence: 0.50` (explicit "unknown scene quality") rather than
+/// pretending NDVI alone is high-confidence.
 ///
 /// Reference: <https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset> —
 /// ORNL DAAC, no auth, free, supports up to 160 days per call.
@@ -14900,61 +14985,21 @@ async fn materialize_modis_ndvi_window(
     let url = format!(
         "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset?latitude={lat:.6}&longitude={lng:.6}&band=250m_16_days_NDVI&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
     );
+    let qa_url = format!(
+        "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset?latitude={lat:.6}&longitude={lng:.6}&band=250m_16_days_pixel_reliability&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
+    );
 
-    // Bounded fetch with explicit retry. Total wall-clock cap is
-    // `materializer_timeout_secs() * materializer_retries()`, well under
-    // the 30s gateway timeout at default config.
-    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
-    let retries = materializer_retries();
-    let mut last_err: String = String::new();
-    let mut body: Option<JsonValue> = None;
-    for attempt in 1..=retries {
-        let send = reqwest_client()
-            .get(&url)
-            .header("accept", "application/json")
-            .send();
-        match tokio::time::timeout(timeout, send).await {
-            Err(_) => {
-                last_err = format!(
-                    "modis timeout after {}s on attempt {attempt}/{retries}",
-                    timeout.as_secs()
-                );
-                continue;
-            }
-            Ok(Err(e)) => {
-                last_err = format!("modis https on attempt {attempt}/{retries}: {e}");
-                continue;
-            }
-            Ok(Ok(resp)) => {
-                let status = resp.status();
-                if !status.is_success() {
-                    last_err = format!("modis status {status} on attempt {attempt}/{retries}");
-                    if status.is_client_error() {
-                        break;
-                    } // 4xx won't change on retry
-                    continue;
-                }
-                match tokio::time::timeout(timeout, resp.json::<JsonValue>()).await {
-                    Err(_) => {
-                        last_err = format!(
-                            "modis body timeout after {}s on attempt {attempt}/{retries}",
-                            timeout.as_secs()
-                        );
-                        continue;
-                    }
-                    Ok(Err(e)) => {
-                        last_err = format!("modis json on attempt {attempt}/{retries}: {e}");
-                        continue;
-                    }
-                    Ok(Ok(b)) => {
-                        body = Some(b);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    let body = body.ok_or(last_err)?;
+    // Fire NDVI + reliability fetches concurrently. NDVI is the
+    // load-bearing band — failure there is a hard error. Reliability is
+    // the QA gate — its failure downgrades the receipt's confidence
+    // (and skips the per-composite reject) rather than failing the
+    // whole materialization. tokio::join! (not try_join!) always
+    // awaits both so a fast NDVI doesn't hide a stalled QA.
+    let (ndvi_res, qa_res) = tokio::join!(
+        ornl_modis_subset_json(&url, "MOD13Q1 NDVI"),
+        ornl_modis_subset_json(&qa_url, "MOD13Q1 pixel_reliability"),
+    );
+    let body = ndvi_res?;
 
     // Pick the entry closest to target_unix (or the latest valid one for
     // the current-mode call).
@@ -14978,7 +15023,45 @@ async fn materialize_modis_ndvi_window(
         .get("subset")
         .and_then(|v| v.as_array())
         .ok_or_else(|| "modis response missing `subset` array".to_string())?;
-    let mut best: Option<(i64, f64, String)> = None; // (priority, ndvi, cal_date)
+
+    // Build a calendar_date → reliability lookup from the QA response
+    // when we got one. Empty map ≡ "QA fetch failed or returned no
+    // entries"; the picker treats that as "unknown reliability" and
+    // signs the chosen value with confidence=0.50 rather than rejecting
+    // every entry.
+    let mut qa_map: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    if let Ok(qa_body) = qa_res.as_ref() {
+        if let Some(qa_subset) = qa_body.get("subset").and_then(|v| v.as_array()) {
+            for entry in qa_subset.iter() {
+                let cal = entry
+                    .get("calendar_date")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let r = entry
+                    .get("data")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_i64());
+                if let Some(r) = r {
+                    if cal.is_empty() {
+                        continue;
+                    }
+                    qa_map.insert(cal, r);
+                }
+            }
+        }
+    }
+    let qa_available = !qa_map.is_empty();
+
+    // (priority, ndvi, cal_date, reliability_opt). reliability_opt is
+    // None only when the QA fetch failed entirely — i.e. for the
+    // unconditional fallback path. When QA succeeded but a specific
+    // composite was missing from the QA subset, the entry is rejected
+    // (we never silently waive the gate per-composite).
+    let mut best: Option<(i64, f64, String, Option<i64>)> = None;
+    let mut rejected_for_qa = 0_usize;
     for entry in subset.iter() {
         let raw = entry
             .get("data")
@@ -14998,23 +15081,61 @@ async fn materialize_modis_ndvi_window(
         if !(-0.2..=1.0).contains(&ndvi) {
             continue;
         }
+        // Reliability gate. When QA is available, every composite must
+        // pass; missing-from-QA composites are rejected. Values 2 (snow/
+        // ice) and 3 (cloud) are upstream-marked unreliable for NDVI use.
+        let reliability_opt = if qa_available {
+            match qa_map.get(&cal).copied() {
+                Some(r) if (0..=1).contains(&r) => Some(r),
+                Some(_) | None => {
+                    rejected_for_qa += 1;
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
         let entry_unix = modis_calendar_to_unix(&cal).unwrap_or(0);
         let priority = match target_unix {
             Some(t) => (entry_unix - t).abs(),
             // Current mode: prefer most recent → priority is age (lower = better).
             None => i64::MAX - entry_unix,
         };
-        if best.as_ref().map(|(p, _, _)| priority < *p).unwrap_or(true) {
-            best = Some((priority, ndvi, cal));
+        if best
+            .as_ref()
+            .map(|(p, _, _, _)| priority < *p)
+            .unwrap_or(true)
+        {
+            best = Some((priority, ndvi, cal, reliability_opt));
         }
     }
-    let (_, ndvi, cal_date) = best.ok_or_else(||
-        if let Some(t) = target_unix {
-            format!("no valid NDVI observation in 64-day window around {t}; cell may be permanently cloudy or off-coverage")
+    let (_, ndvi, cal_date, reliability_opt) = best.ok_or_else(|| {
+        let suffix = if qa_available && rejected_for_qa > 0 {
+            format!(" ({rejected_for_qa} composite(s) rejected by pixel_reliability gate ≥ 2)")
         } else {
-            "no valid NDVI observation in last 90 days; cell may be permanently cloudy or off-coverage".to_string()
+            String::new()
+        };
+        if let Some(t) = target_unix {
+            format!("no valid NDVI observation in 64-day window around {t}; cell may be permanently cloudy or off-coverage{suffix}")
+        } else {
+            format!("no valid NDVI observation in last 90 days; cell may be permanently cloudy or off-coverage{suffix}")
         }
-    )?;
+    })?;
+    // Confidence is upstream-derived when reliability is known:
+    //   0 (good)     → 0.95
+    //   1 (marginal) → 0.75
+    // When QA was unavailable, we explicitly emit 0.50 ("scene quality
+    // unknown") rather than the historic 0.90 constant — a cloud-
+    // contaminated NDVI shouldn't ride on the same receipt-level
+    // confidence as a clear-pixel one. The chosen reliability (or
+    // -1 for "qa_unavailable") is echoed in derivation.args so a
+    // downstream verifier can audit which branch was taken.
+    let (confidence, reliability_arg) = match reliability_opt {
+        Some(0) => (0.95_f32, 0_i64),
+        Some(1) => (0.75_f32, 1_i64),
+        Some(other) => (0.50_f32, other), // shouldn't reach (gated above), defensive only
+        None => (0.50_f32, -1_i64),
+    };
 
     // Tslot is derived from the actual capture date — the MOD13Q1
     // calendar_date the responder picked above, parsed back to Unix
@@ -15035,7 +15156,7 @@ async fn materialize_modis_ndvi_window(
         tslot,
         value: ciborium::Value::Float(ndvi),
         unit: None, // NDVI is dimensionless
-        confidence: 0.9,
+        confidence,
         uncertainty: None,
         sources: vec![Source {
             scheme: "ornl_modis".into(),
@@ -15047,11 +15168,17 @@ async fn materialize_modis_ndvi_window(
         }],
         derivation: Derivation {
             fn_key: "modis_ornl_subset@1".into(),
+            // Trailing reliability arg: 0/1 = upstream pixel_reliability
+            // band value for the chosen composite; -1 = QA fetch failed
+            // and the receipt is signed without an upstream gate (lower
+            // confidence). Lets a downstream verifier re-fetch the
+            // reliability band and audit the choice.
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
                 ciborium::Value::Text("MOD13Q1".into()),
                 ciborium::Value::Text("250m_16_days_NDVI".into()),
+                ciborium::Value::Integer(reliability_arg.into()),
             ])),
         },
         privacy_class: "public".into(),
@@ -17031,60 +17158,74 @@ async fn materialize_ornl_modis_band(
     band: &str,
     target_unix: Option<i64>,
 ) -> Result<emem_fact::FactCid, String> {
-    // Map our band → (MODIS product, MODIS variable, default scale, unit, ±day window).
-    // ORNL DAAC requires the product's actual variable name (e.g. `LST_Day_1km`),
-    // not the emem alias.
-    let (product, variable, default_scale, unit, half_window_days, fn_key) = match band {
-        "modis.lst_day_8day" => (
-            "MOD11A2",
-            "LST_Day_1km",
-            0.02_f64,
-            Some("K"),
-            8_i64,
-            "modis_ornl_mod11a2_lstday@1",
-        ),
-        "modis.lst_night_8day" => (
-            "MOD11A2",
-            "LST_Night_1km",
-            0.02_f64,
-            Some("K"),
-            8_i64,
-            "modis_ornl_mod11a2_lstnight@1",
-        ),
-        "modis.et_8day" => (
-            "MOD16A2",
-            "ET_500m",
-            0.1_f64,
-            Some("kg/m^2"),
-            8_i64,
-            "modis_ornl_mod16a2_et@1",
-        ),
-        "modis.gpp_8day" => (
-            "MOD17A2H",
-            "Gpp_500m",
-            1e-4_f64,
-            Some("kg C/m^2"),
-            8_i64,
-            "modis_ornl_mod17a2h_gpp@1",
-        ),
-        "modis.lai_8day" => (
-            "MOD15A2H",
-            "Lai_500m",
-            0.1_f64,
-            Some("m^2/m^2"),
-            8_i64,
-            "modis_ornl_mod15a2h_lai@1",
-        ),
-        "modis.burned_area_monthly" => (
-            "MCD64A1",
-            "Burn_Date",
-            1.0_f64,
-            Some("doy"),
-            32_i64,
-            "modis_ornl_mcd64a1_burndate@1",
-        ),
-        _ => return Err(format!("ornl modis band not wired: {band}")),
-    };
+    // Map our band → (MODIS product, MODIS variable, default scale, unit,
+    // ±day window, fn_key, optional QC variable name). The QC variable
+    // is the per-pixel quality band ORNL publishes alongside the data
+    // band (MOD11A2 ships QC_Day / QC_Night bit-packed). When present,
+    // we fetch QC concurrently and use it to reject cloud-contaminated
+    // composites + derive a real confidence — the bit-packed semantics
+    // are product-specific so the dispatcher below only decodes the
+    // products we've explicitly wired. None = no QC fetch (preserves
+    // legacy behaviour with a confidence-unknown receipt for products
+    // where a QC variable exists upstream but isn't yet decoded here).
+    let (product, variable, default_scale, unit, half_window_days, fn_key, qc_variable) =
+        match band {
+            "modis.lst_day_8day" => (
+                "MOD11A2",
+                "LST_Day_1km",
+                0.02_f64,
+                Some("K"),
+                8_i64,
+                "modis_ornl_mod11a2_lstday@1",
+                Some("QC_Day"),
+            ),
+            "modis.lst_night_8day" => (
+                "MOD11A2",
+                "LST_Night_1km",
+                0.02_f64,
+                Some("K"),
+                8_i64,
+                "modis_ornl_mod11a2_lstnight@1",
+                Some("QC_Night"),
+            ),
+            "modis.et_8day" => (
+                "MOD16A2",
+                "ET_500m",
+                0.1_f64,
+                Some("kg/m^2"),
+                8_i64,
+                "modis_ornl_mod16a2_et@1",
+                None,
+            ),
+            "modis.gpp_8day" => (
+                "MOD17A2H",
+                "Gpp_500m",
+                1e-4_f64,
+                Some("kg C/m^2"),
+                8_i64,
+                "modis_ornl_mod17a2h_gpp@1",
+                None,
+            ),
+            "modis.lai_8day" => (
+                "MOD15A2H",
+                "Lai_500m",
+                0.1_f64,
+                Some("m^2/m^2"),
+                8_i64,
+                "modis_ornl_mod15a2h_lai@1",
+                None,
+            ),
+            "modis.burned_area_monthly" => (
+                "MCD64A1",
+                "Burn_Date",
+                1.0_f64,
+                Some("doy"),
+                32_i64,
+                "modis_ornl_mcd64a1_burndate@1",
+                None,
+            ),
+            _ => return Err(format!("ornl modis band not wired: {band}")),
+        };
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -17109,70 +17250,26 @@ async fn materialize_ornl_modis_band(
     let url = format!(
         "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={variable}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
     );
-    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
-    let retries = materializer_retries();
-    let mut last_err = String::new();
-    let mut body: Option<JsonValue> = None;
-    for attempt in 1..=retries {
-        let send = reqwest_client()
-            .get(&url)
-            .header("accept", "application/json")
-            .send();
-        match tokio::time::timeout(timeout, send).await {
-            Err(_) => {
-                last_err = format!(
-                    "{product} timeout after {}s on attempt {attempt}/{retries}",
-                    timeout.as_secs()
-                );
-                continue;
-            }
-            Ok(Err(e)) => {
-                last_err = format!("{product} https on attempt {attempt}/{retries}: {e}");
-                continue;
-            }
-            Ok(Ok(resp)) => {
-                let status = resp.status();
-                if !status.is_success() {
-                    // ORNL DAAC returns 400 with a body like "No data
-                    // available for time period A2026087 to A2026119 for
-                    // MOD16A2 19.0767 72.8762 combination." when the
-                    // upstream simply hasn't published data in this
-                    // range yet. Treat this as soft no-data (empty
-                    // subset) rather than a hard transport failure so
-                    // the caller gets a clean "no valid observation"
-                    // message instead of "status 400".
-                    if status == reqwest::StatusCode::BAD_REQUEST {
-                        if let Ok(text) = resp.text().await {
-                            if text.contains("No data available for time period") {
-                                body = Some(json!({"subset": []}));
-                                break;
-                            }
-                        }
-                    }
-                    last_err = format!("{product} status {status} on attempt {attempt}/{retries}");
-                    if status.is_client_error() {
-                        break;
-                    }
-                    continue;
-                }
-                match tokio::time::timeout(timeout, resp.json::<JsonValue>()).await {
-                    Err(_) => {
-                        last_err = format!("{product} body timeout on attempt {attempt}/{retries}");
-                        continue;
-                    }
-                    Ok(Err(e)) => {
-                        last_err = format!("{product} json on attempt {attempt}/{retries}: {e}");
-                        continue;
-                    }
-                    Ok(Ok(b)) => {
-                        body = Some(b);
-                        break;
-                    }
-                }
-            }
+    // Concurrent QC fetch when the product has a wired QC variable. QC
+    // failure is non-fatal — the data fact still ships but with a
+    // "scene quality unknown" confidence rather than a fabricated 0.85.
+    let qc_url_opt = qc_variable.map(|qv| {
+        format!(
+            "https://modis.ornl.gov/rst/api/v1/{product}/subset?latitude={lat:.6}&longitude={lng:.6}&band={qv}&startDate={start_str}&endDate={end_str}&kmAboveBelow=0&kmLeftRight=0",
+        )
+    });
+    let data_label = format!("{product} {variable}");
+    let qc_label = format!("{product} QC");
+    let (body, qc_body): (JsonValue, Option<JsonValue>) = match qc_url_opt.as_deref() {
+        Some(qc_url) => {
+            let (data_res, qc_res) = tokio::join!(
+                ornl_modis_subset_json(&url, &data_label),
+                ornl_modis_subset_json(qc_url, &qc_label),
+            );
+            (data_res?, qc_res.ok())
         }
-    }
-    let body = body.ok_or(last_err)?;
+        None => (ornl_modis_subset_json(&url, &data_label).await?, None),
+    };
     // Scale factor: prefer upstream-reported, fall back to product default.
     let scale: f64 = body
         .get("scale")
@@ -17183,7 +17280,41 @@ async fn materialize_ornl_modis_band(
         .get("subset")
         .and_then(|v| v.as_array())
         .ok_or_else(|| format!("{product} response missing `subset` array"))?;
-    let mut best: Option<(i64, f64, String)> = None;
+    // Build a calendar_date → QC byte map from the parallel QC response
+    // when the band has QC wired and the fetch succeeded. The empty map
+    // is the "QC unavailable" sentinel that triggers the
+    // confidence-unknown branch below.
+    let mut qc_map: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    if let Some(qb) = qc_body.as_ref() {
+        if let Some(qc_subset) = qb.get("subset").and_then(|v| v.as_array()) {
+            for entry in qc_subset.iter() {
+                let cal = entry
+                    .get("calendar_date")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let r = entry
+                    .get("data")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_i64());
+                if let Some(r) = r {
+                    if !cal.is_empty() {
+                        qc_map.insert(cal, r);
+                    }
+                }
+            }
+        }
+    }
+    let qc_expected = qc_variable.is_some();
+    let qc_available = !qc_map.is_empty();
+    let mut rejected_for_qa = 0_usize;
+
+    // (priority, scaled_value, cal_date, qc_opt). qc_opt = Some(byte)
+    // when we have the QC for this composite; None otherwise (legacy
+    // band path or QC fetch failed).
+    let mut best: Option<(i64, f64, String, Option<i64>)> = None;
     for entry in subset.iter() {
         let raw = entry
             .get("data")
@@ -17214,17 +17345,47 @@ async fn materialize_ornl_modis_band(
         if is_nodata {
             continue;
         }
+        // QC gate. Only applied when QC is both expected for this band
+        // AND we received a populated QC subset. mandatory_qa bits 0-1:
+        //   00 (0)  → produced, good quality
+        //   01 (1)  → produced, unreliable / unquantifiable
+        //   10 (2)  → not produced due to cloud  → reject
+        //   11 (3)  → not produced due to other  → reject
+        // Composites missing from the QC subset when QC was expected are
+        // rejected too — we never silently waive the gate per-composite.
+        let qc_opt = if qc_expected && qc_available {
+            match qc_map.get(&cal).copied() {
+                Some(byte) => {
+                    let mandatory_qa = byte & 0x03;
+                    if mandatory_qa >= 2 {
+                        rejected_for_qa += 1;
+                        continue;
+                    }
+                    Some(byte)
+                }
+                None => {
+                    rejected_for_qa += 1;
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
         let scaled = (r as f64) * scale;
         let entry_unix = modis_calendar_to_unix(&cal).unwrap_or(0);
         let priority = match target_unix {
             Some(t) => (entry_unix - t).abs(),
             None => i64::MAX - entry_unix,
         };
-        if best.as_ref().map(|(p, _, _)| priority < *p).unwrap_or(true) {
-            best = Some((priority, scaled, cal));
+        if best
+            .as_ref()
+            .map(|(p, _, _, _)| priority < *p)
+            .unwrap_or(true)
+        {
+            best = Some((priority, scaled, cal, qc_opt));
         }
     }
-    let (_, value, cal_date) = match best {
+    let (_, value, cal_date, qc_opt) = match best {
         Some(b) => b,
         None => {
             // Every entry in the subset was a no-data sentinel (e.g.
@@ -17236,11 +17397,17 @@ async fn materialize_ornl_modis_band(
             // sign_elevation_absence over Cop-DEM water.
             let reason_text = match target_unix {
                 Some(t) => format!(
-                    "no valid {product} {variable} observation in ±{half_window_days}d around unix={t}"
+                    "no valid {product} {variable} observation in ±{half_window_days}d around unix={t}{}",
+                    if qc_expected && rejected_for_qa > 0 {
+                        format!(" ({rejected_for_qa} composite(s) rejected by QC bits 0-1 ≥ 2)")
+                    } else { String::new() }
                 ),
                 None => format!(
-                    "no valid {product} {variable} observation in last {} days",
-                    4 * half_window_days
+                    "no valid {product} {variable} observation in last {} days{}",
+                    4 * half_window_days,
+                    if qc_expected && rejected_for_qa > 0 {
+                        format!(" ({rejected_for_qa} composite(s) rejected by QC bits 0-1 ≥ 2)")
+                    } else { String::new() }
                 ),
             };
             let signed_at = chrono_iso8601_utc();
@@ -17268,13 +17435,41 @@ async fn materialize_ornl_modis_band(
         .unwrap_or(now);
     let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Medium).0;
     let signed_at = chrono_iso8601_utc();
+    // Confidence derivation from the MOD11A2 QC byte (when present):
+    //   bits 0-1 (mandatory_qa) — already gated to 0/1 above; values
+    //     ≥2 are rejected entirely. 0 = good, 1 = unreliable.
+    //   bits 6-7 (LST_error)    — Average LST error:
+    //     00 ≤1K, 01 ≤2K, 10 ≤3K, 11 >3K.
+    // Combine them: a "good + ≤1K" pixel scores 0.95; a "good + >3K"
+    // pixel scores 0.55; an "unreliable + >3K" pixel scores 0.40 and
+    // would normally be flagged for manual review. When QC was not
+    // wired or the fetch failed entirely, we emit 0.50 ("scene
+    // quality unknown") rather than the historic 0.85 constant. The
+    // chosen QC byte (or -1) is echoed in derivation.args so a
+    // downstream verifier can audit which branch was taken.
+    let (confidence, qc_arg) = match qc_opt {
+        Some(byte) => {
+            let mandatory_qa = (byte & 0x03) as i64;
+            let lst_error = ((byte >> 6) & 0x03) as i64;
+            let base = if mandatory_qa == 0 { 0.95_f32 } else { 0.65_f32 };
+            let err_adj = match lst_error {
+                0 => 1.00_f32,
+                1 => 0.90_f32,
+                2 => 0.78_f32,
+                _ => 0.60_f32,
+            };
+            let c = (base * err_adj).clamp(0.30, 0.95);
+            (c, byte)
+        }
+        None => (0.50_f32, -1_i64),
+    };
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
         tslot,
         value: ciborium::Value::Float(value),
         unit: unit.map(|u| u.to_string()),
-        confidence: 0.85,
+        confidence,
         uncertainty: None,
         sources: vec![Source {
             scheme: "ornl_modis".into(),
@@ -17293,6 +17488,11 @@ async fn materialize_ornl_modis_band(
                 ciborium::Value::Text(variable.to_string()),
                 ciborium::Value::Text(cal_date.clone()),
                 ciborium::Value::Float(scale),
+                // Trailing QC byte: 0..=255 = upstream QC value for the
+                // chosen composite (when product has QC wired and the
+                // fetch succeeded); -1 = QC unavailable, receipt was
+                // signed without an upstream gate (lower confidence).
+                ciborium::Value::Integer(qc_arg.into()),
             ])),
         },
         privacy_class: "public".into(),
