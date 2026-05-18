@@ -8142,12 +8142,31 @@ async fn post_field_boundaries(
                 _ => "unknown",
             };
             if let Some(JsonValue::Object(m)) = pb {
-                let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                (
-                    (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
-                    lab,
-                    via_static,
-                )
+                // Bbox fields must be finite f64s. The old .unwrap_or(0.0)
+                // path silently defaulted missing fields to the equator /
+                // prime-meridian — a half-missing bbox quietly spanned a
+                // giant strip of Earth instead of failing. Explicit
+                // field-level validation surfaces the schema bug.
+                let g = |k: &str| {
+                    m.get(k)
+                        .and_then(|v| v.as_f64())
+                        .filter(|v| v.is_finite())
+                };
+                let (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) =
+                    (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"))
+                else {
+                    return Err(ApiError(
+                        StatusCode::BAD_REQUEST,
+                        ErrorBody {
+                            code: ErrorCode::InvalidArgument,
+                            message: format!(
+                                "field_boundaries: place '{p}' resolved with a malformed polygon_bbox (missing or non-finite min_lat/max_lat/min_lng/max_lng) — try passing polygon_bbox explicitly"
+                            ),
+                            details: None,
+                        },
+                    ));
+                };
+                ((min_lat, max_lat, min_lng, max_lng), lab, via_static)
             } else {
                 return Err(ApiError(
                 StatusCode::BAD_REQUEST,
@@ -8284,7 +8303,23 @@ async fn post_recall_polygon(
             _ => "unknown",
         };
         if let Some(JsonValue::Object(m)) = pb {
-            let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            // Bbox fields must be finite f64s. The old .unwrap_or(0.0)
+            // path silently defaulted missing fields to (0,0), so a
+            // half-missing bbox quietly spanned a giant strip of Earth.
+            let g = |k: &str| {
+                m.get(k)
+                    .and_then(|v| v.as_f64())
+                    .filter(|v| v.is_finite())
+            };
+            let (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) =
+                (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"))
+            else {
+                return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("recall_polygon: place '{p}' resolved with a malformed polygon_bbox (missing or non-finite min_lat/max_lat/min_lng/max_lng) — try passing polygon_bbox explicitly"),
+                    details: None,
+                }));
+            };
             let src = m
                 .get("source")
                 .and_then(|v| v.as_str())
@@ -8296,19 +8331,35 @@ async fn post_recall_polygon(
                 _ => "geocoder",
             };
             (
-                (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
+                (min_lat, max_lat, min_lng, max_lng),
                 src_static,
                 lab,
                 via_static,
             )
         } else {
             // No polygon — fall back to the locate centre + a tiny epsilon
-            // so sample_cells_in_bbox still returns the centre cell.
+            // so sample_cells_in_bbox still returns the centre cell. Even
+            // the centre-cell bbox must carry finite coordinates; the
+            // previous .unwrap_or(0.0) would emit a centre at Null Island
+            // for any malformed locate response.
             let bbox_centre = resp.0.get("bbox_deg").cloned();
             if let Some(JsonValue::Object(m)) = bbox_centre {
-                let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let g = |k: &str| {
+                    m.get(k)
+                        .and_then(|v| v.as_f64())
+                        .filter(|v| v.is_finite())
+                };
+                let (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) =
+                    (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"))
+                else {
+                    return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!("recall_polygon: place '{p}' centre bbox missing or non-finite coordinates — pass polygon_bbox explicitly"),
+                        details: None,
+                    }));
+                };
                 (
-                    (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")),
+                    (min_lat, max_lat, min_lng, max_lng),
                     "centre_cell_bbox",
                     lab,
                     via_static,
