@@ -104,6 +104,7 @@ const HUMANS_JSON: &str = include_str!("../../../web/humans.json");
 const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
 const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
+const NOT_FOUND_HTML: &str = include_str!("../../../web/404.html");
 const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-answer.html");
 const DEMOS_INDEX_HTML: &str = include_str!("../../../web/demos-index.html");
 const DEMOS_STATE_CUBE_HTML: &str = include_str!("../../../web/demos-state-cube.html");
@@ -772,6 +773,13 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/metrics", get(metrics))
         .route("/mcp", get(mcp_discover).post(mcp_jsonrpc))
+        // Fallback: any path the route table doesn't claim renders the
+        // canonical 404 HTML for browser clients (with a 20 s soft
+        // redirect to `/`) or a `{schema:"emem.error.v1", code:"not_found"}`
+        // JSON envelope for API clients. Both responses ship HTTP 404 —
+        // axum's default empty 404 left agents with no typed error to
+        // route on.
+        .fallback(serve_404)
         // Order: outermost wraps innermost. Trace first so spans see everything.
         .layer(axum::middleware::from_fn(security_headers_layer))
         .layer(axum::middleware::from_fn(rate_limit_layer))
@@ -1935,6 +1943,41 @@ async fn serve_humans_og_svg() -> Response {
 /// rendered with a green check the moment the math checks out.
 async fn serve_verify_html() -> Response {
     text_response("text/html; charset=utf-8", VERIFY_HTML)
+}
+
+/// Router fallback for any path the route table doesn't claim. Returns
+/// the canonical 404 HTML for browser clients with `Accept: text/html`,
+/// and a small JSON `{schema:"emem.error.v1", code, ...}` envelope for
+/// programmatic clients (the same shape every other emem error uses)
+/// so an agent sees a typed `not_found` instead of an HTML body it
+/// can't parse. Both arms return HTTP 404 — no soft 200, no redirect.
+/// The browser HTML embeds a 20 s client-side redirect to `/` with an
+/// explicit cancel; programmatic callers don't run that script and so
+/// see the 404 stay a 404.
+async fn serve_404(req: axum::http::Request<axum::body::Body>) -> Response {
+    let accept = req
+        .headers()
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let prefers_html = accept.contains("text/html") || accept.is_empty();
+    if prefers_html {
+        let mut resp = text_response("text/html; charset=utf-8", NOT_FOUND_HTML);
+        *resp.status_mut() = StatusCode::NOT_FOUND;
+        return resp;
+    }
+    let body = json!({
+        "schema":  "emem.error.v1",
+        "code":    "not_found",
+        "message": format!(
+            "no route, static surface, demo, doc, or fact CID matched {}. \
+             Call GET /openapi.json for the wired endpoints, or open the 404 \
+             HTML view with `Accept: text/html` for the canonical landing.",
+            req.uri().path()
+        ),
+        "path":    req.uri().path(),
+    });
+    (StatusCode::NOT_FOUND, Json(body)).into_response()
 }
 
 /// `/demos/signed-answer` — a four-step guided walk through the trust

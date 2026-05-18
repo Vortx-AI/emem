@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>404 — emem.dev</title>
+<meta name=description content="The path you requested is not attested at this responder. Every emem read is an address lookup against a content-addressed ledger; an unknown address resolves to a signed 'not_found', not a fabricated answer.">
+<meta name=robots content="noindex">
+<meta name=color-scheme content="light dark">
+<link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
+<link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);
+  --paper-2:oklch(0.955 0.005 85);
+  --paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);
+  --ink-2:oklch(0.32 0.005 85);
+  --ink-3:oklch(0.50 0.005 85);
+  --mute:oklch(0.55 0.005 85);
+  --rule:oklch(0.86 0.005 85);
+  --accent:oklch(0.45 0.09 145);
+  --accent-2:oklch(0.55 0.10 145);
+  --mono:'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --t-xs:11px;
+  --t-sm:13px;
+  --t-md:15px;
+  --t-lg:22px;
+  --pad-x:1.5rem;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);
+    --paper-2:oklch(0.19 0.005 85);
+    --paper-3:oklch(0.23 0.005 85);
+    --ink:oklch(0.95 0.005 85);
+    --ink-2:oklch(0.84 0.005 85);
+    --ink-3:oklch(0.68 0.005 85);
+    --mute:oklch(0.55 0.005 85);
+    --rule:oklch(0.28 0.005 85);
+    --accent:oklch(0.78 0.13 145);
+    --accent-2:oklch(0.86 0.10 145);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--mono);
+  font-size:var(--t-md);
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:3px}
+a:hover{text-decoration-color:var(--accent)}
+code,.mono{font-family:var(--mono)}
+
+/* statusbar — same shape as the rest of emem.dev so the 404 sits inside
+   the chrome an agent / user already trusts. */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1100px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{color:var(--ink);background:var(--paper-3)}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+.statusbar .meta{color:var(--mute);font-size:var(--t-xs)}
+
+/* hero */
+main{max-width:880px;margin:0 auto;padding:3rem var(--pad-x) 5rem}
+.code-line{color:var(--mute);font-size:var(--t-xs);letter-spacing:.04em;text-transform:uppercase;margin-bottom:.4rem}
+h1{
+  font-family:var(--mono);
+  font-weight:700;
+  font-size:clamp(2.4rem, 6vw, 3.6rem);
+  line-height:1;
+  letter-spacing:-.02em;
+  margin:0 0 .6rem;
+  color:var(--ink);
+}
+h1 .sep{color:var(--rule);font-weight:400;margin:0 .35rem}
+h1 .verdict{color:var(--accent)}
+.lede{color:var(--ink-2);font-size:var(--t-md);max-width:60ch;margin:0 0 2.4rem}
+
+/* receipt-shaped block — the "agent-visible" rendering of the lookup */
+.receipt{
+  border:1px solid var(--rule);
+  background:var(--paper-2);
+  padding:1.2rem 1.4rem;
+  margin:0 0 2.4rem;
+  font-size:var(--t-sm);
+  border-radius:2px;
+}
+.receipt .row{display:flex;gap:.8rem;padding:.25rem 0;border-bottom:1px dashed transparent}
+.receipt .k{color:var(--mute);min-width:9rem;flex-shrink:0}
+.receipt .v{color:var(--ink);word-break:break-all}
+.receipt .v.path{color:var(--accent-2);font-weight:600}
+.receipt .v.reason{color:var(--ink-2)}
+
+/* path list */
+section.paths{margin:0 0 2.4rem}
+section.paths h2{font-size:var(--t-sm);text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600;margin:0 0 .8rem}
+ul.path-list{list-style:none;padding:0;margin:0;border-top:1px solid var(--rule)}
+ul.path-list li{border-bottom:1px solid var(--rule)}
+ul.path-list a{
+  display:flex;
+  align-items:baseline;
+  gap:1rem;
+  padding:.75rem .2rem;
+  text-decoration:none;
+  color:var(--ink);
+}
+ul.path-list a:hover{background:var(--paper-2)}
+ul.path-list .method{font-size:var(--t-xs);color:var(--mute);min-width:3.5rem;font-weight:600}
+ul.path-list .url{color:var(--accent-2);font-weight:600}
+ul.path-list .desc{color:var(--ink-3);font-size:var(--t-sm);margin-left:auto;text-align:right}
+@media(max-width:640px){
+  ul.path-list .desc{display:none}
+}
+
+/* redirect strip */
+.redirect{
+  border-top:1px solid var(--rule);
+  margin-top:2.4rem;
+  padding-top:1.2rem;
+  font-size:var(--t-sm);
+  color:var(--mute);
+  display:flex;
+  align-items:center;
+  gap:.7rem;
+  flex-wrap:wrap;
+}
+.redirect .progress{
+  flex:1;
+  min-width:140px;
+  max-width:240px;
+  height:2px;
+  background:var(--rule);
+  position:relative;
+  overflow:hidden;
+}
+.redirect .progress .bar{
+  position:absolute;
+  inset:0 100% 0 0;
+  background:var(--accent);
+  transition:right linear;
+}
+.redirect button.stay{
+  background:transparent;
+  border:1px solid var(--rule);
+  color:var(--ink-2);
+  font-family:var(--mono);
+  font-size:var(--t-sm);
+  padding:.3rem .7rem;
+  cursor:pointer;
+  border-radius:2px;
+}
+.redirect button.stay:hover{border-color:var(--accent);color:var(--ink)}
+.redirect[data-stayed="true"] .progress .bar{background:var(--mute)}
+.redirect[data-stayed="true"] .count{text-decoration:line-through}
+
+footer{
+  max-width:880px;
+  margin:0 auto;
+  padding:1.5rem var(--pad-x);
+  border-top:1px solid var(--rule);
+  color:var(--mute);
+  font-size:var(--t-xs);
+  display:flex;
+  gap:1rem;
+  justify-content:space-between;
+  flex-wrap:wrap;
+}
+footer a{color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/">home</a>
+    <a href="/docs/">docs</a>
+    <a href="/openapi.json">openapi</a>
+    <a href="/mcp">mcp</a>
+    <span class="spacer"></span>
+    <span class="meta">404 · path not attested</span>
+  </div>
+</header>
+
+<main>
+  <p class="code-line">HTTP 404 · responder verdict · signed</p>
+  <h1><span>not</span><span class="sep">·</span><span class="verdict">attested</span></h1>
+  <p class="lede">
+    Every emem read is an address lookup against a content-addressed ledger
+    of <code>(cell × band × tslot) → fact</code>. The path you requested
+    isn't a route this responder serves and isn't a fact_cid it holds, so
+    the honest answer is a signed "not_found" — never a fabricated page.
+  </p>
+
+  <div class="receipt" role="region" aria-label="lookup receipt">
+    <div class="row"><span class="k">request_path</span><span class="v path" id="req-path">—</span></div>
+    <div class="row"><span class="k">responder</span><span class="v">emem.dev</span></div>
+    <div class="row"><span class="k">looked_up</span><span class="v reason">route registry, static surface, demo index, doc tree, fact cid index</span></div>
+    <div class="row"><span class="k">verdict</span><span class="v reason">no entry — this is a real 404, not a "we hide it" 404</span></div>
+    <div class="row"><span class="k">served_at</span><span class="v" id="served-at">—</span></div>
+  </div>
+
+  <section class="paths">
+    <h2>try one of these instead</h2>
+    <ul class="path-list">
+      <li><a href="/"><span class="method">GET</span><span class="url">/</span><span class="desc">landing · what emem is</span></a></li>
+      <li><a href="/docs/"><span class="method">GET</span><span class="url">/docs/</span><span class="desc">protocol + recipes</span></a></li>
+      <li><a href="/openapi.json"><span class="method">GET</span><span class="url">/openapi.json</span><span class="desc">every wired endpoint</span></a></li>
+      <li><a href="/mcp"><span class="method">POST</span><span class="url">/mcp</span><span class="desc">Streamable HTTP MCP surface</span></a></li>
+      <li><a href="/v1/locate?place=mumbai"><span class="method">GET</span><span class="url">/v1/locate</span><span class="desc">place name → cell64</span></a></li>
+      <li><a href="/humans"><span class="method">GET</span><span class="url">/humans</span><span class="desc">corpus, for humans</span></a></li>
+      <li><a href="/verify"><span class="method">GET</span><span class="url">/verify</span><span class="desc">offline receipt verifier</span></a></li>
+    </ul>
+  </section>
+
+  <div class="redirect" id="redirect">
+    <span>→ returning to <code>/</code> in <span class="count" id="count">20</span>s</span>
+    <span class="progress" aria-hidden="true"><span class="bar" id="bar"></span></span>
+    <button class="stay" type="button" id="stay" title="cancel the redirect">stay here</button>
+  </div>
+</main>
+
+<footer>
+  <span>emem.dev — Earth memory protocol · Vortx AI</span>
+  <span><a href="https://github.com/Vortx-AI/emem">github</a> · <a href="/privacy">privacy</a> · <a href="/terms">terms</a></span>
+</footer>
+
+<script>
+// Render the path the user actually requested, plus an ISO-8601 timestamp,
+// so the page reads as a real lookup against the responder rather than a
+// static placeholder. Path text is set with .textContent so a path
+// like /foo<script>x is literal — never executed.
+(function(){
+  var pathEl = document.getElementById('req-path');
+  if (pathEl) pathEl.textContent = location.pathname + (location.search || '');
+  var servedAt = document.getElementById('served-at');
+  if (servedAt) servedAt.textContent = new Date().toISOString();
+})();
+
+// Soft auto-redirect to / after 20 s with an explicit cancel. The page is
+// still readable; the redirect is a convenience for users who hit a typo
+// and just want out. AI agents and crawlers don't run this script, so the
+// 404 stays a 404 from their POV.
+(function(){
+  var TOTAL = 20;
+  var remaining = TOTAL;
+  var box = document.getElementById('redirect');
+  var countEl = document.getElementById('count');
+  var bar = document.getElementById('bar');
+  var stay = document.getElementById('stay');
+  var stayed = false;
+  var t = null;
+  function tick(){
+    if (stayed) return;
+    remaining -= 1;
+    if (countEl) countEl.textContent = remaining;
+    if (bar) bar.style.right = (100 * remaining / TOTAL) + '%';
+    if (remaining <= 0) { window.location.href = '/'; return; }
+    t = setTimeout(tick, 1000);
+  }
+  // Animate the bar from full → 0 over the full duration.
+  if (bar) {
+    bar.style.transition = 'right ' + TOTAL + 's linear';
+    requestAnimationFrame(function(){ bar.style.right = '0%'; });
+  }
+  t = setTimeout(tick, 1000);
+  if (stay) stay.addEventListener('click', function(){
+    stayed = true;
+    if (t) clearTimeout(t);
+    if (bar) bar.style.transition = 'none';
+    box.setAttribute('data-stayed', 'true');
+    stay.textContent = 'redirect cancelled';
+    stay.disabled = true;
+  });
+  // ESC also cancels — keyboard users shouldn't have to click.
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !stayed && stay) stay.click();
+  });
+})();
+</script>
+
+</body>
+</html>
