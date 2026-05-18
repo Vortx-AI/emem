@@ -14937,6 +14937,91 @@ async fn ornl_modis_subset_json(url: &str, band_label: &str) -> Result<JsonValue
     Err(last_err)
 }
 
+/// Per-product QC gate for ORNL DAAC MODIS subset products. Returns
+/// `true` when the composite's QC byte indicates a usable observation,
+/// `false` when the upstream marks it as cloud / not-produced / non-
+/// land. Each product's QC field has its own bit layout — references
+/// in-line, traceable to the official MODIS user guides.
+fn ornl_qc_gate(product: &str, byte: i64) -> bool {
+    let modland_qa = byte & 0x03;
+    match product {
+        // MOD11A2 LST (Wan 2007 §3.3.1): mandatory_qa bits 0-1.
+        //   00 = produced good quality   → keep
+        //   01 = produced other quality  → keep (downgrade conf)
+        //   10 = not produced due cloud  → reject
+        //   11 = not produced other      → reject
+        "MOD11A2" => modland_qa < 2,
+        // MOD16A2 ET (Mu et al. 2011, RSE 115): MODLAND_QC bits 0-1
+        // semantics identical to MOD11A2's mandatory_qa.
+        "MOD16A2" => modland_qa < 2,
+        // MOD17A2H GPP (Running et al. 2015 User Guide): Psn_QC bits
+        // 0-1 = MODLAND_QC, same gate.
+        "MOD17A2H" => modland_qa < 2,
+        // MOD15A2H LAI/FPAR (Knyazikhin 1999 ATBD §6): FparLai_QC bits
+        // 0-1 = MODLAND_QC, same gate.
+        "MOD15A2H" => modland_qa < 2,
+        // MCD64A1 burned-area (Giglio et al. 2018, RSE 217): QA bit 0
+        // = 1 (land grid cell — only valid pixels). Non-land cells
+        // get QA=0 even when Burn_Date != -1.
+        "MCD64A1" => (byte & 0x01) != 0,
+        _ => true,
+    }
+}
+
+/// Per-product QC confidence derivation. Returns a confidence in
+/// [0.30, 0.95] computed from the QC byte's product-specific bits.
+/// `byte` is the post-gate value (the gate has already rejected
+/// hard-reject classes).
+fn ornl_qc_confidence(product: &str, byte: i64) -> f32 {
+    let modland_qa = byte & 0x03;
+    // MODLAND_QC = 0 (good) maps to a high base; = 1 (unreliable /
+    // unquantifiable) drops the base. Further per-product
+    // refinements (LST error class, cloud state) multiply on top.
+    let base = if modland_qa == 0 { 0.95_f32 } else { 0.65 };
+    let c = match product {
+        // bits 6-7 = average LST error class: 00 ≤1K, 01 ≤2K, 10 ≤3K, 11 >3K.
+        "MOD11A2" => {
+            let lst_err = (byte >> 6) & 0x03;
+            let adj: f32 = match lst_err {
+                0 => 1.00,
+                1 => 0.90,
+                2 => 0.78,
+                _ => 0.60,
+            };
+            base * adj
+        }
+        // MOD17A2H Psn_QC bits 5-7 = cloud-state: 000 clear, 001 mixed,
+        // 010 cloud-present, 011 cloudy, 1xx fill. Cloud presence
+        // legitimately decimates GPP retrieval.
+        "MOD17A2H" => {
+            let cloud_state = (byte >> 5) & 0x07;
+            let adj: f32 = if cloud_state == 0 { 1.00 } else { 0.80 };
+            base * adj
+        }
+        // MOD15A2H FparLai_QC bits 5-7 = CloudState same shape as
+        // MOD17A2H. Dead-detector bit (4) is ignored — by the time
+        // upstream produces a non-fill value, the detector mask is
+        // already accounted for.
+        "MOD15A2H" => {
+            let cloud_state = (byte >> 5) & 0x07;
+            let adj: f32 = if cloud_state == 0 { 1.00 } else { 0.80 };
+            base * adj
+        }
+        // MOD16A2 ET_QC: MODLAND_QC is the dominant signal; the cloud
+        // state bits are present but in practice MODLAND_QC already
+        // reflects them. No further refinement.
+        "MOD16A2" => base,
+        // MCD64A1 land-gated burned-area: once the land bit passes,
+        // there are no further per-pixel quality signals beyond the
+        // Burn_Date value itself. Burned-area retrieval is
+        // categorical and the QA value is the confidence ceiling for
+        // confirmed-land pixels.
+        "MCD64A1" => 0.90_f32,
+        _ => 0.50,
+    };
+    c.clamp(0.30, 0.95)
+}
+
 /// Fetch a MODIS MOD13Q1 16-day NDVI composite for the cell's centroid
 /// at a target Unix epoch. When `target_unix` is `None`, picks the most
 /// recent valid composite in the last 90 days (legacy "current" behavior
@@ -17195,7 +17280,8 @@ async fn materialize_ornl_modis_band(
                 Some("kg/m^2"),
                 8_i64,
                 "modis_ornl_mod16a2_et@1",
-                None,
+                // ET_QC_500m: bits 0-1 MODLAND_QC (Mu 2011 §2.3).
+                Some("ET_QC_500m"),
             ),
             "modis.gpp_8day" => (
                 "MOD17A2H",
@@ -17204,7 +17290,8 @@ async fn materialize_ornl_modis_band(
                 Some("kg C/m^2"),
                 8_i64,
                 "modis_ornl_mod17a2h_gpp@1",
-                None,
+                // Psn_QC_500m: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
+                Some("Psn_QC_500m"),
             ),
             "modis.lai_8day" => (
                 "MOD15A2H",
@@ -17213,7 +17300,8 @@ async fn materialize_ornl_modis_band(
                 Some("m^2/m^2"),
                 8_i64,
                 "modis_ornl_mod15a2h_lai@1",
-                None,
+                // FparLai_QC: bits 0-1 MODLAND_QC, bits 5-7 CloudState.
+                Some("FparLai_QC"),
             ),
             "modis.burned_area_monthly" => (
                 "MCD64A1",
@@ -17222,7 +17310,10 @@ async fn materialize_ornl_modis_band(
                 Some("doy"),
                 32_i64,
                 "modis_ornl_mcd64a1_burndate@1",
-                None,
+                // MCD64A1 QA byte: bit 0 = land-grid-cell mask. Gates
+                // out non-land Burn_Date values that upstream marks
+                // separately from the -1 unmapped sentinel.
+                Some("QA"),
             ),
             _ => return Err(format!("ornl modis band not wired: {band}")),
         };
@@ -17346,18 +17437,16 @@ async fn materialize_ornl_modis_band(
             continue;
         }
         // QC gate. Only applied when QC is both expected for this band
-        // AND we received a populated QC subset. mandatory_qa bits 0-1:
-        //   00 (0)  → produced, good quality
-        //   01 (1)  → produced, unreliable / unquantifiable
-        //   10 (2)  → not produced due to cloud  → reject
-        //   11 (3)  → not produced due to other  → reject
-        // Composites missing from the QC subset when QC was expected are
-        // rejected too — we never silently waive the gate per-composite.
+        // AND we received a populated QC subset. The product-specific
+        // bit semantics live in `ornl_qc_gate` (cloud / not-produced /
+        // non-land rejection per the relevant MODIS user guide).
+        // Composites missing from the QC subset when QC was expected
+        // are rejected too — we never silently waive the gate
+        // per-composite.
         let qc_opt = if qc_expected && qc_available {
             match qc_map.get(&cal).copied() {
                 Some(byte) => {
-                    let mandatory_qa = byte & 0x03;
-                    if mandatory_qa >= 2 {
+                    if !ornl_qc_gate(product, byte) {
                         rejected_for_qa += 1;
                         continue;
                     }
@@ -17399,14 +17488,14 @@ async fn materialize_ornl_modis_band(
                 Some(t) => format!(
                     "no valid {product} {variable} observation in ±{half_window_days}d around unix={t}{}",
                     if qc_expected && rejected_for_qa > 0 {
-                        format!(" ({rejected_for_qa} composite(s) rejected by QC bits 0-1 ≥ 2)")
+                        format!(" ({rejected_for_qa} composite(s) rejected by {product} QC gate)")
                     } else { String::new() }
                 ),
                 None => format!(
                     "no valid {product} {variable} observation in last {} days{}",
                     4 * half_window_days,
                     if qc_expected && rejected_for_qa > 0 {
-                        format!(" ({rejected_for_qa} composite(s) rejected by QC bits 0-1 ≥ 2)")
+                        format!(" ({rejected_for_qa} composite(s) rejected by {product} QC gate)")
                     } else { String::new() }
                 ),
             };
@@ -17435,32 +17524,16 @@ async fn materialize_ornl_modis_band(
         .unwrap_or(now);
     let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Medium).0;
     let signed_at = chrono_iso8601_utc();
-    // Confidence derivation from the MOD11A2 QC byte (when present):
-    //   bits 0-1 (mandatory_qa) — already gated to 0/1 above; values
-    //     ≥2 are rejected entirely. 0 = good, 1 = unreliable.
-    //   bits 6-7 (LST_error)    — Average LST error:
-    //     00 ≤1K, 01 ≤2K, 10 ≤3K, 11 >3K.
-    // Combine them: a "good + ≤1K" pixel scores 0.95; a "good + >3K"
-    // pixel scores 0.55; an "unreliable + >3K" pixel scores 0.40 and
-    // would normally be flagged for manual review. When QC was not
-    // wired or the fetch failed entirely, we emit 0.50 ("scene
-    // quality unknown") rather than the historic 0.85 constant. The
-    // chosen QC byte (or -1) is echoed in derivation.args so a
-    // downstream verifier can audit which branch was taken.
+    // Confidence derivation from the upstream QC byte (when present)
+    // via the product-specific helper. When QC was not wired or the
+    // fetch failed entirely, we emit 0.50 ("scene quality unknown")
+    // rather than the historic 0.85 constant — the receipt's
+    // confidence should not look identical to a QC-passed
+    // observation. The chosen QC byte (or -1) is echoed in
+    // derivation.args so a downstream verifier can audit which
+    // branch was taken and re-fetch the QC band to re-check.
     let (confidence, qc_arg) = match qc_opt {
-        Some(byte) => {
-            let mandatory_qa = (byte & 0x03) as i64;
-            let lst_error = ((byte >> 6) & 0x03) as i64;
-            let base = if mandatory_qa == 0 { 0.95_f32 } else { 0.65_f32 };
-            let err_adj = match lst_error {
-                0 => 1.00_f32,
-                1 => 0.90_f32,
-                2 => 0.78_f32,
-                _ => 0.60_f32,
-            };
-            let c = (base * err_adj).clamp(0.30, 0.95);
-            (c, byte)
-        }
+        Some(byte) => (ornl_qc_confidence(product, byte), byte),
         None => (0.50_f32, -1_i64),
     };
     let fact = Fact::Primary(PrimaryFact {
@@ -18094,25 +18167,100 @@ async fn materialize_sentinel2_band(
         format!("band {band} not in registry (direct key or scalar_keys); cannot pick tempo")
     })?;
     let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
-    // Fact-level confidence is derived from the scene's eo:cloud_cover
-    // when the STAC item reports one — a 2 %-cloudy scene and a 70 %-
-    // cloudy scene should not carry the same number. We map the cloud
-    // percentage linearly into the [0.30, 0.95] band so the receipt's
-    // confidence tracks the underlying pixel-cleanliness, then floor at
-    // 0.50 if cloud_cover was missing entirely (older STAC items, S2
-    // L1C archives without the eo:cloud_cover extension). The chosen
-    // cloud value is already echoed into derivation.args below for
-    // auditability; the fall-through path is named in the comment so a
-    // verifier can tell "constant baseline" from "cloud-derived".
-    let confidence = match item.cloud_cover {
-        Some(cc) if cc.is_finite() && (0.0..=100.0).contains(&cc) => {
-            let cleanliness = (1.0 - cc / 100.0).clamp(0.30, 0.95);
-            cleanliness as f32
+
+    // Pixel-level Scene Classification Layer (SCL) sample. SCL is one of
+    // the L2A canonical assets — always present in the modern STAC
+    // catalogue, uint8 categorical at 20 m. A single COG range read at
+    // the cell centroid gives per-pixel quality, which is a tighter
+    // signal than scene-level `eo:cloud_cover`: a clear pixel inside a
+    // 40 %-cloudy scene used to carry the same confidence as a cloudy
+    // one in the same scene. SCL classes (Sen2Cor v2.10):
+    //   0 no_data, 1 saturated/defective, 2 cast shadows,
+    //   3 cloud shadows, 4 vegetation, 5 bare soil, 6 water,
+    //   7 cloud (low prob), 8 cloud (medium), 9 cloud (high),
+    //   10 thin cirrus, 11 snow/ice.
+    // Hard-reject classes (0,1,8,9,10) sign Absence — refuse to emit a
+    // confident value for a pixel the upstream marks unusable. Soft
+    // classes (2,3,7) keep the value with downgraded confidence. Clear
+    // classes (4,5,6,11) get the highest confidence. When SCL itself
+    // is the requested band, we skip the gate (the value IS the SCL).
+    // When the SCL asset is missing from the STAC item or the COG read
+    // fails, we fall back to scene-level cloud_cover.
+    let scl_value: Option<u8> = if kind == "scl_categorical" {
+        None
+    } else {
+        let scl_alias = item
+            .assets
+            .get("scl")
+            .or_else(|| item.assets.get("SCL"))
+            .cloned();
+        match scl_alias {
+            Some(scl_url) => match emem_fetch::cog::open_profile(&cli, &scl_url).await {
+                Ok(prof) => match emem_fetch::cog::sample_pixel(
+                    &cli,
+                    &scl_url,
+                    &prof,
+                    utm.easting,
+                    utm.northing,
+                )
+                .await
+                {
+                    Ok(v) if v.is_finite() && (0.0..=11.0).contains(&v) => Some(v as u8),
+                    _ => None,
+                },
+                Err(_) => None,
+            },
+            None => None,
         }
-        // No upstream cloud_cover → flag a structural unknown rather than
-        // a confident number. 0.50 is the explicit "unknown scene quality"
-        // value; constants ≥ 0.80 are reserved for cloud-derived paths.
-        _ => 0.50,
+    };
+    // Hard-reject classes — sign Absence rather than ship a confident
+    // fact built on a pixel the upstream calls unusable. The Absence
+    // reason names the exact SCL class so an agent can re-query a
+    // different scene (try a different date, relax max_cloud) or
+    // accept the absence as authoritative.
+    if let Some(class) = scl_value {
+        let reject_label = match class {
+            0 => Some("no_data"),
+            1 => Some("saturated_or_defective"),
+            8 => Some("cloud_medium_probability"),
+            9 => Some("cloud_high_probability"),
+            10 => Some("thin_cirrus"),
+            _ => None,
+        };
+        if let Some(label) = reject_label {
+            let signed_at = chrono_iso8601_utc();
+            return sign_band_absence(
+                cell64,
+                s,
+                band,
+                tslot,
+                "sentinel_s2_l2a",
+                &asset_urls.join(" ; "),
+                &signed_at,
+                &format!(
+                    "s2_scl_pixel_unusable: SCL={class} ({label}) at scene {} ({}); try a different acquisition date or relax max_cloud",
+                    item.id, item.datetime
+                ),
+            )
+            .await;
+        }
+    }
+    // Confidence: SCL-derived when the pixel-level class is known
+    // (always more accurate than scene-level cloud_cover); falls back
+    // to scene-cloud_cover when SCL is unavailable; finally to 0.50
+    // ("scene quality unknown") when neither signal is present.
+    let confidence: f32 = match scl_value {
+        Some(4) | Some(5) | Some(6) | Some(11) => 0.95, // veg / soil / water / snow — clear
+        Some(7) => 0.75,                                // cloud (low probability)
+        Some(2) | Some(3) => 0.65,                      // cast shadows / cloud shadows
+        Some(_) => 0.50, // unreachable: hard rejects returned Absence above; defensive
+        None => match item.cloud_cover {
+            Some(cc) if cc.is_finite() && (0.0..=100.0).contains(&cc) => {
+                let cleanliness = (1.0 - cc / 100.0).clamp(0.30, 0.95);
+                cleanliness as f32
+            }
+            _ => 0.50,
+        },
     };
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
@@ -18137,6 +18285,11 @@ async fn materialize_sentinel2_band(
             // landed on. Tier 1 = (40, 30) is the strict default; tier 3 =
             // (80, 90) is the relaxed worst case. If both are wider than
             // tier-1, monsoon/polar coverage was tight at this cell.
+            // Trailing scl arg: 0..=11 = the pixel-level SCL class for
+            // this cell (when wired); -1 = SCL fetch unavailable, the
+            // confidence falls back to scene-level cloud_cover. Lets a
+            // downstream verifier re-fetch the SCL band and audit the
+            // confidence derivation.
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -18149,6 +18302,7 @@ async fn materialize_sentinel2_band(
                 ciborium::Value::Float(item.cloud_cover.unwrap_or(-1.0)),
                 ciborium::Value::Float(used_cloud),
                 ciborium::Value::Integer(used_days.into()),
+                ciborium::Value::Integer(scl_value.map(|c| c as i64).unwrap_or(-1).into()),
             ])),
         },
         privacy_class: "public".into(),
