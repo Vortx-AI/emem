@@ -19726,12 +19726,17 @@ async fn materialize_soilgrids_band(
         )
         .await;
     }
+    // Ask ISRIC for mean + Q0.05 + Q0.95 in one round-trip. Without
+    // the explicit Q-asks, the response ships only `mean` and our
+    // depth-aggregated uncertainty would silently fall through to
+    // None. With the asks present, the 90 % prediction interval is
+    // depth-aggregated and emitted as Uncertainty { family:"interval" }.
     let url = format!(
         "https://rest.isric.org/soilgrids/v2.0/properties/query\
          ?lon={lng:.4}&lat={lat:.4}\
          &property={property}\
          &depth=0-5cm&depth=5-15cm&depth=15-30cm\
-         &value=mean"
+         &value=mean&value=Q0.05&value=Q0.95"
     );
     let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
     let resp = tokio::time::timeout(

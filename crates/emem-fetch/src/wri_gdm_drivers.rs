@@ -163,9 +163,8 @@ pub enum WriGdmError {
 impl WriGdmError {
     /// Map a [`CogError`] into the appropriate connector-specific
     /// variant. Transport errors surface as `Transport`; everything
-    /// else (decode, codec, layout) becomes `Decode`. Reserved for the
-    /// fetch path once a range-readable mirror is wired.
-    #[allow(dead_code)] // used once the fetch path lands
+    /// else (decode, codec, layout) becomes `Decode`. Used by the
+    /// `EMEM_WRI_GDM_CACHE` local-cache fetch path.
     fn from_cog(e: CogError) -> Self {
         match e {
             CogError::Transport(s) => WriGdmError::Transport(s),
@@ -219,14 +218,65 @@ pub async fn fetch_driver_class(
         });
     }
 
-    // Touch the client argument so the signature is the canonical
-    // shape the dispatcher expects once the fetch wires up. No HTTP
-    // call is issued — the NotImplemented path returns immediately.
-    let _ = client;
+    // Wired path: when `EMEM_WRI_GDM_CACHE` points at a local copy of
+    // the v1.2 COG (one-time download from Zenodo per the README), we
+    // sample band 1 (the discrete driver class) via the shared cog
+    // multi-band sampler at a `file://` URL. The Zenodo file is
+    // multi-band LZW with predictor=1: the cog sampler handles all
+    // three of those today (compression=5 LZW, samples_per_pixel=8,
+    // predictor=1 no-op). Sentinel value 0 means "no Hansen loss event
+    // → no driver attribution" — return Ok(None) so the materializer
+    // can sign a Primary `class=0` fact rather than an Absence.
+    if let Some(local_path) = std::env::var("EMEM_WRI_GDM_CACHE").ok() {
+        let trimmed = local_path.trim().to_string();
+        if !trimmed.is_empty() && std::path::Path::new(&trimmed).exists() {
+            let file_url = format!("file://{trimmed}");
+            let profile = crate::cog::open_profile(client, &file_url)
+                .await
+                .map_err(WriGdmError::from_cog)?;
+            // EPSG:4326 lat/lng — world_x is lng, world_y is lat.
+            let samples = crate::cog::sample_pixel_multi(
+                client, &file_url, &profile, lng, lat,
+            )
+            .await
+            .map_err(WriGdmError::from_cog)?;
+            // Band 1 (the discrete class) is the first sample in the
+            // chunky interleaving. Per the Sims et al. 2025 README,
+            // bands 2-8 are per-class probabilities — useful future
+            // surface, but the canonical attribution is band 1.
+            let raw = samples
+                .first()
+                .copied()
+                .ok_or_else(|| WriGdmError::Decode("empty samples vec".to_string()))?;
+            if !raw.is_finite() {
+                return Err(WriGdmError::Decode(format!(
+                    "non-finite driver-class pixel: {raw}"
+                )));
+            }
+            let v = raw.round() as i64;
+            if v == 0 {
+                return Ok(None);
+            }
+            if !(WRI_GDM_CLASS_MIN as i64..=WRI_GDM_CLASS_MAX as i64).contains(&v) {
+                return Err(WriGdmError::Decode(format!(
+                    "driver-class pixel value {v} outside documented envelope {}..={}",
+                    WRI_GDM_CLASS_MIN, WRI_GDM_CLASS_MAX
+                )));
+            }
+            return Ok(Some(v as u8));
+        }
+    }
 
+    // No local cache configured — keep the honest NotImplemented
+    // disclosure so the materializer signs Absence with the upstream
+    // reason rather than fabricating a class.
+    let _ = client;
     Err(WriGdmError::NotImplemented {
         reason: format!(
-            "fetch path pending range-readable mirror; Zenodo at {url} returns HTTP 200 with full body for Range: requests (verified 2026-05), and the shared cog sampler does not yet handle the multi-band LZW layout the Zenodo COG ships (compression=5, samples_per_pixel=8). Pure-logic helpers (class_label, is_commodity_driven, is_natural) are live.",
+            "fetch path needs a local cache: set EMEM_WRI_GDM_CACHE=<absolute-path-to-v1.2-COG>. \
+             Download once from {url} (Zenodo's nginx serves the full 295 MB on any Range: request, \
+             so per-cell HTTP Range is not viable). Pure-logic helpers (class_label, \
+             is_commodity_driven, is_natural) are live without the cache.",
             url = WRI_GDM_BASE_URL
         ),
     })

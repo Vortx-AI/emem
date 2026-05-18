@@ -873,9 +873,9 @@ pub async fn sample_pixel_multi(
     world_x: f64,
     world_y: f64,
 ) -> Result<Vec<f64>, CogError> {
-    if profile.compression != 8 {
+    if profile.compression != 8 && profile.compression != 5 {
         return Err(CogError::Unsupported(format!(
-            "compression={} (only Deflate (8) supported)",
+            "compression={} (only Deflate (8) and LZW (5) supported in multi-band)",
             profile.compression
         )));
     }
@@ -927,12 +927,28 @@ pub async fn sample_pixel_multi(
     }
     let tile_compressed = http_range(client, url, off, off + len - 1).await?;
 
-    let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
     let mut tile_bytes =
         Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * stride);
-    decoder
-        .read_to_end(&mut tile_bytes)
-        .map_err(|e| CogError::Inflate(e.to_string()))?;
+    match profile.compression {
+        8 => {
+            // Deflate.
+            let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
+            decoder
+                .read_to_end(&mut tile_bytes)
+                .map_err(|e| CogError::Inflate(e.to_string()))?;
+        }
+        5 => {
+            // LZW. TIFF spec dictates the MSB-first bit order with a
+            // size-switch on the dictionary clear code — same as the
+            // single-band sampler. weezl handles both.
+            let mut dec =
+                weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
+            tile_bytes = dec
+                .decode(&tile_compressed[..])
+                .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
+        }
+        _ => unreachable!("compression already gated to 5 or 8 above"),
+    }
 
     if profile.predictor == 2 {
         // Horizontal differencing applies per-sample within a row.
@@ -1016,6 +1032,24 @@ async fn http_range(
     start: u64,
     end_inclusive: u64,
 ) -> Result<Bytes, CogError> {
+    // `file://<absolute-path>` short-circuits to a direct seek+read of
+    // the local filesystem. Used by connectors that pull a one-time
+    // bulk download (e.g. WRI GDM v1.2 single global COG, Zenodo no-Range)
+    // and then sample the cached file like any other COG via the
+    // shared sampler infrastructure. Keeps every COG-decoding code
+    // path (IFD parse, tile sampling, multi-band sampler) unchanged.
+    if let Some(path) = url.strip_prefix("file://") {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut f = std::fs::File::open(path)
+            .map_err(|e| CogError::Transport(format!("file open {path}: {e}")))?;
+        f.seek(SeekFrom::Start(start))
+            .map_err(|e| CogError::Transport(format!("file seek {path}: {e}")))?;
+        let n = (end_inclusive - start + 1) as usize;
+        let mut buf = vec![0u8; n];
+        f.read_exact(&mut buf)
+            .map_err(|e| CogError::Transport(format!("file read {path}: {e}")))?;
+        return Ok(Bytes::from(buf));
+    }
     let resp = client
         .get(url)
         .header("range", format!("bytes={}-{}", start, end_inclusive))
