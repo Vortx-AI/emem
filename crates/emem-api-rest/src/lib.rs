@@ -27752,14 +27752,23 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             .unwrap_or_default()
             .to_string();
         let label = body.get("place_label").cloned().unwrap_or(JsonValue::Null);
+        // lat/lng in the response are diagnostic context — the cell64
+        // is the load-bearing identifier. When the locate body lacks
+        // lat_input / lng_input, emit JSON null rather than 0.0 so an
+        // agent doesn't mistake a missing-coords path for "this place
+        // is at Null Island".
         let lat = body
             .get("lat_input")
             .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+            .filter(|v| v.is_finite())
+            .map(JsonValue::from)
+            .unwrap_or(JsonValue::Null);
         let lng = body
             .get("lng_input")
             .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+            .filter(|v| v.is_finite())
+            .map(JsonValue::from)
+            .unwrap_or(JsonValue::Null);
         let via = body.get("via").cloned().unwrap_or(json!("unknown"));
         let polygon_bbox = body.get("polygon_bbox").cloned().unwrap_or(JsonValue::Null);
         (
@@ -27843,16 +27852,24 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
                             .get("place_label")
                             .cloned()
                             .unwrap_or(JsonValue::Null);
+                        // lat/lng diagnostic — null beats 0.0 when
+                        // locate didn't return coordinates (see the
+                        // primary place_field handler above for the
+                        // Null-Island rationale).
                         let lat = body
                             .0
                             .get("lat_input")
                             .and_then(|v| v.as_f64())
-                            .unwrap_or(0.0);
+                            .filter(|v| v.is_finite())
+                            .map(JsonValue::from)
+                            .unwrap_or(JsonValue::Null);
                         let lng = body
                             .0
                             .get("lng_input")
                             .and_then(|v| v.as_f64())
-                            .unwrap_or(0.0);
+                            .filter(|v| v.is_finite())
+                            .map(JsonValue::from)
+                            .unwrap_or(JsonValue::Null);
                         let via = body.0.get("via").cloned().unwrap_or(json!("unknown"));
                         let polygon_bbox = body
                             .0
