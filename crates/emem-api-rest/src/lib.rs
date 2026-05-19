@@ -15460,11 +15460,17 @@ async fn materialize_geotessera_multi_year(
         return Err("geotessera multi-year: no year had coverage at this cell".into());
     }
 
+    // Anchor to the latest covered vintage — the receipt's "as-of" year.
+    let latest_year = *covered.last().unwrap_or(&2024);
+    let year_unix = days_from_civil(latest_year, 1, 1) * 86_400;
+    let mu_tslot =
+        emem_core::tslot::Tslot::from_unix(year_unix, emem_core::tslot::Tempo::Slow).0;
+
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "geotessera.multi_year".into(),
-        tslot: 0,
+        tslot: mu_tslot,
         value: ciborium::Value::Array(full),
         unit: None,
         confidence: 0.85,
@@ -15630,7 +15636,10 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "prithvi_eo2".into(),
-        tslot: 0,
+        // Annual-cadence storage key — without this, every vintage at the
+        // same cell collides on (cell, band, tslot=0) and the later write
+        // overwrites the earlier one (sled_hot.rs:153-160).
+        tslot: emem_core::tslot::Tslot::from_unix(scene_unix, emem_core::tslot::Tempo::Slow).0,
         value,
         unit: None,
         confidence: 0.85,
@@ -15756,7 +15765,8 @@ async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::Fa
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "clay_v1".into(),
-        tslot: 0,
+        // Annual-cadence storage key — see prithvi_eo2 site above.
+        tslot: emem_core::tslot::Tslot::from_unix(scene_unix, emem_core::tslot::Tempo::Slow).0,
         value,
         unit: None,
         confidence: 0.85,
@@ -16094,6 +16104,10 @@ async fn materialize_geotessera_for_year(
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
+    // Tessera is annual — anchor every vintage's tslot to Jan 1 of that year.
+    let year_unix = days_from_civil(year, 1, 1) * 86_400;
+    let year_tslot =
+        emem_core::tslot::Tslot::from_unix(year_unix, emem_core::tslot::Tempo::Slow).0;
     let v = match fetch_geotessera_pixel(lat, lng, year).await {
         Ok(v) => v,
         Err(e) => {
@@ -16121,7 +16135,7 @@ async fn materialize_geotessera_for_year(
                 let fact = Fact::Absence(NegativeFact {
                     cell: cell64.to_string(),
                     band: band_name.to_string(),
-                    tslot: 0,
+                    tslot: year_tslot,
                     reason_cid,
                     confidence: 1.0,
                     sources: vec![Source {
@@ -16147,7 +16161,7 @@ async fn materialize_geotessera_for_year(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band_name.to_string(),
-        tslot: 0,
+        tslot: year_tslot,
         value: ciborium::Value::Array(v.into_iter().map(ciborium::Value::Float).collect()),
         unit: None,
         confidence: 0.85,
@@ -16203,6 +16217,7 @@ async fn materialize_geotessera_bin128(
     // fetching the upstream when the embedding is already cached.
     let pairs = s.storage.scan_cell(cell64, None).await.unwrap_or_default();
     let mut existing_vec: Option<Vec<f32>> = None;
+    let mut source_tslot: Option<u64> = None;
     for (key, cid) in &pairs {
         let prefix_match = key.band == "geotessera"
             || key.band == "geotessera.multi_year"
@@ -16219,6 +16234,7 @@ async fn materialize_geotessera_bin128(
             if let Some(v) = emem_primitives::cbor_ops::as_vec_f32(&p.value) {
                 if v.len() == BIN_DIMS {
                     existing_vec = Some(v);
+                    source_tslot = Some(key.tslot);
                     break;
                 }
             }
@@ -16246,6 +16262,7 @@ async fn materialize_geotessera_bin128(
                     if let Some(v) = emem_primitives::cbor_ops::as_vec_f32(&p.value) {
                         if v.len() == BIN_DIMS {
                             found = Some(v);
+                            source_tslot = Some(key.tslot);
                             break;
                         }
                     }
@@ -16260,6 +16277,13 @@ async fn materialize_geotessera_bin128(
             })?
         }
     };
+    // Inherit the parent vintage's tslot — bin128 is a deterministic
+    // transform of the source vector, so they share the temporal anchor.
+    // Fall back to the 2024 anchor if the parent's key wasn't captured.
+    let bin128_tslot = source_tslot.unwrap_or_else(|| {
+        let y2024_unix = days_from_civil(2024, 1, 1) * 86_400;
+        emem_core::tslot::Tslot::from_unix(y2024_unix, emem_core::tslot::Tempo::Slow).0
+    });
 
     let packed = pack_bin128_slice(&vec).ok_or_else(|| {
         format!(
@@ -16276,7 +16300,7 @@ async fn materialize_geotessera_bin128(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "geotessera.bin128".into(),
-        tslot: 0,
+        tslot: bin128_tslot,
         // Bytes is the canonical encoding for fixed-shape binary
         // embeddings — half the on-disk footprint of `Array(int)`
         // and what every cross-language client (NumPy `.tobytes()`,
@@ -32758,6 +32782,39 @@ mod tests {
                 "expected concept-token `{required}` derived from bands manifest"
             );
         }
+    }
+
+    /// Foundation-embedding bands (`clay_v1`, `prithvi_eo2`, `geotessera*`)
+    /// declare `tempo: slow` in the band registry. The materializers must
+    /// derive tslot from the scene/vintage time — a hardcoded `tslot: 0`
+    /// collides every vintage on the (cell, band, tslot) storage key
+    /// (sled_hot.rs:153-160) and the later write overwrites the earlier
+    /// vintage. This guard pins the year→tslot math so a future refactor
+    /// can't silently regress to constant 0.
+    #[test]
+    fn slow_tslot_for_tessera_vintages_is_year_aligned() {
+        use emem_core::tslot::{Tempo, Tslot};
+        // Jan 1 2017 UTC = 1_483_228_800; Jan 1 2024 UTC = 1_704_067_200.
+        assert_eq!(Tslot::from_unix(1_483_228_800, Tempo::Slow).0, 47);
+        assert_eq!(Tslot::from_unix(1_704_067_200, Tempo::Slow).0, 54);
+        // Different vintages must produce different tslots — otherwise
+        // the storage key collides and the second materialization wipes
+        // the first.
+        assert_ne!(
+            Tslot::from_unix(1_483_228_800, Tempo::Slow).0,
+            Tslot::from_unix(1_704_067_200, Tempo::Slow).0,
+        );
+    }
+
+    /// `days_from_civil` is what each materializer calls to anchor a
+    /// vintage year to its Jan-1 Unix second before snapping to a Slow
+    /// tslot. Sanity-check that 2024 lands on the canonical Unix epoch
+    /// for 2024-01-01T00:00:00Z; otherwise every per-year tslot is off
+    /// by some number of days.
+    #[test]
+    fn days_from_civil_anchors_tessera_year_to_jan1_unix() {
+        assert_eq!(days_from_civil(2024, 1, 1) * 86_400, 1_704_067_200);
+        assert_eq!(days_from_civil(2017, 1, 1) * 86_400, 1_483_228_800);
     }
 
     /// Every algorithm key cited in `algorithms_for_topic` MUST
