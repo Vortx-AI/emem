@@ -30959,6 +30959,13 @@ pub(crate) fn band_tempo_for_key(key: &str) -> Option<emem_core::tslot::Tempo> {
     if let Some(b) = reg.lookup(key) {
         return Some(b.tempo);
     }
+    // Materializer-meta is the authoritative tempo for materializable
+    // bands (e.g. `weather.*` is hourly); consult it before falling back
+    // to a cube parent's `scalar_keys` list, which otherwise mis-buckets
+    // hourly weather into the 30-day `climate` cube tempo.
+    if let Some(m) = band_materializer_meta(key) {
+        return Some(m.tempo);
+    }
     reg.bands
         .iter()
         .find(|b| b.scalar_keys.iter().any(|k| k == key))
@@ -32842,5 +32849,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `band_tempo_for_key` must consult `band_materializer_meta` before
+    /// falling back to a parent cube's `scalar_keys` tempo — otherwise
+    /// hourly weather observations get rebucketed into the 30-day
+    /// `climate` cube tslot and every nowcast in a window overwrites
+    /// the previous one.
+    #[test]
+    fn band_tempo_for_key_weather_is_ultra_fast() {
+        use emem_core::tslot::Tempo;
+        assert_eq!(
+            band_tempo_for_key("weather.temperature_2m"),
+            Some(Tempo::UltraFast)
+        );
+        assert_eq!(
+            band_tempo_for_key("weather.cloud_cover"),
+            Some(Tempo::UltraFast)
+        );
+    }
+
+    /// Scalar keys that have no materializer-meta entry must still
+    /// resolve via the parent cube band's `scalar_keys` list — the
+    /// fix is purely additive for materializable bands and must not
+    /// regress cube children.
+    #[test]
+    fn band_tempo_for_key_cube_scalar_unchanged() {
+        use emem_core::tslot::Tempo;
+        assert_eq!(band_tempo_for_key("indices.ndvi"), Some(Tempo::Fast));
+    }
+
+    /// Materializer-only bands keep their declared tempo (sanity that
+    /// the new materializer-meta consult doesn't perturb non-weather
+    /// keys).
+    #[test]
+    fn band_tempo_for_key_modis_unchanged() {
+        use emem_core::tslot::Tempo;
+        assert_eq!(band_tempo_for_key("modis.ndvi_mean"), Some(Tempo::Medium));
     }
 }
