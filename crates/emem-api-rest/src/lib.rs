@@ -2125,7 +2125,7 @@ async fn serve_terms_md() -> Response {
 async fn serve_openai_apps_challenge() -> Response {
     text_response(
         "text/plain; charset=utf-8",
-        "1CzTwZZjREejEIIMo87BI4HTnV0g0SNaozHCwVfPPwM?",
+        "1CzTwZZjREejEIIMo87BI4HTnV0g0SNaozHCwVfPPwM",
     )
 }
 async fn serve_support_md() -> Response {
