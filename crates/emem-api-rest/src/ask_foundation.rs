@@ -209,7 +209,26 @@ pub fn classify_hunter(q: &str) -> Option<HunterIntent> {
     let verb_match = HUNTER_VERBS
         .iter()
         .any(|v| lower.starts_with(v) || lower.contains(v));
-    if !verb_match {
+    // Region-anchored-event fallback: when no hunter verb is present
+    // but the question names an event (checked below) AND anchors it
+    // to a region via " in/over/across/throughout/around/near <X>",
+    // we still want to dispatch a hunt — agents commonly write
+    // "deforestation in Brazil" without a verb. We only allow this
+    // fallback when the question is NOT a retrospective CHANGE
+    // question (no "last year" / "in the last" / "since" qualifier).
+    const REGION_PREPS: &[&str] = &[
+        " in ",
+        " over ",
+        " across ",
+        " throughout ",
+        " around ",
+        " near ",
+    ];
+    const TEMPORAL_QUALIFIERS: &[&str] = &["last year", "in the last", "since"];
+    let has_region_prep = REGION_PREPS.iter().any(|p| lower.contains(p));
+    let has_temporal = TEMPORAL_QUALIFIERS.iter().any(|t| lower.contains(t));
+    let region_anchored_event = has_region_prep && !has_temporal;
+    if !verb_match && !region_anchored_event {
         return None;
     }
 
@@ -238,16 +257,22 @@ pub fn classify_hunter(q: &str) -> Option<HunterIntent> {
         || lower.contains("logging")
     {
         HunterKind::Deforestation
-    } else if lower.contains("burn scar")
+    } else if (lower.contains("burn scar")
         || lower.contains("burned area")
         || lower.contains("wildfire")
         || lower.contains("forest fire")
         || lower.contains("bushfire")
         || lower.contains("burn severity")
-        || lower.contains("fire-affected")
+        || lower.contains("fire-affected"))
+        && !lower.contains("wildfire risk")
+        && !lower.contains("fire risk")
     {
         HunterKind::Wildfire
-    } else if lower.contains("urban heat") || lower.contains("heat island") {
+    } else if (lower.contains("urban heat") || lower.contains("heat island"))
+        && !lower.contains("heat risk")
+        && !lower.contains("uhi risk")
+        && !lower.contains("urban heat risk")
+    {
         HunterKind::UrbanHeatIsland
     } else if lower.contains("landslide")
         || lower.contains("mudslide")
@@ -264,17 +289,20 @@ pub fn classify_hunter(q: &str) -> Option<HunterIntent> {
         || (lower.contains("flood") && !lower.contains("flood risk"))
     {
         HunterKind::Flood
-    } else if lower.contains("drought")
+    } else if (lower.contains("drought")
         || lower.contains("dry spell")
-        || lower.contains("rainfall deficit")
+        || lower.contains("rainfall deficit"))
+        && !lower.contains("drought risk")
     {
         HunterKind::Drought
     } else if lower.contains("salinity") || lower.contains("salinized soil") {
         HunterKind::SoilSalinity
-    } else if lower.contains("crop stress")
+    } else if (lower.contains("crop stress")
         || lower.contains("stressed crops")
         || lower.contains("crop damage")
-        || lower.contains("yellowing crops")
+        || lower.contains("yellowing crops"))
+        && !lower.contains("crop stress risk")
+        && !lower.contains("crop risk")
     {
         HunterKind::CropStress
     } else if lower.contains("turbidity")
@@ -393,8 +421,6 @@ pub fn classify_intent(q: &str) -> Option<AskIntent> {
         "coastline change",
         "coastal erosion",
         "shoreline retreat",
-        "anomaly",
-        "anomalous",
     ];
     if SIMILARITY.iter().any(|s| lower.contains(s)) {
         return Some(AskIntent::Similarity);
@@ -448,8 +474,17 @@ pub fn classify_corpus_audit(q: &str) -> Option<CorpusAuditIntent> {
     ];
     let has_corpus_word = CORPUS_WORDS.iter().any(|s| lower.contains(s));
     let has_region_prep = REGION_PREPS.iter().any(|s| lower.contains(s));
-    if has_corpus_word && has_region_prep {
+    // Relaxed corpus signal: the bare word "coverage" (without "your"
+    // prefix) is a strong corpus-supply marker. "ndvi coverage" /
+    // "flood coverage" / "weather coverage" / "coverage of <topic>"
+    // all ask where the supply is, not what the value is. We keep the
+    // "in"/"at"/"near" place-anchored questions on the place path by
+    // requiring the literal word "coverage" — "ndvi over the amazon"
+    // and "ndvi in brazil" still fall through to None here.
+    let has_coverage_word = lower.contains("coverage");
+    if (has_corpus_word || has_coverage_word) && has_region_prep {
         // "how dense is your corpus over sub saharan africa" matches.
+        // "ndvi coverage over the amazon" also matches now.
         return Some(CorpusAuditIntent::RegionalDensity);
     }
     // Global coverage — broad "where" / "what do you have" / "global
@@ -469,6 +504,12 @@ pub fn classify_corpus_audit(q: &str) -> Option<CorpusAuditIntent> {
         "what cells are attested",
         "all the cells",
         "every cell you have",
+        // Relaxed: "how much data do you have", "how dense is the
+        // corpus", "how dense is data" — corpus-supply questions
+        // without the "your" prefix.
+        "how much data do you have",
+        "how dense is the corpus",
+        "how dense is data",
     ];
     if GLOBAL.iter().any(|s| lower.contains(s)) {
         return Some(CorpusAuditIntent::GlobalCoverage);
@@ -477,6 +518,13 @@ pub fn classify_corpus_audit(q: &str) -> Option<CorpusAuditIntent> {
     // still a corpus question — treat as global so the agent gets the
     // pointers instead of needs_location.
     if has_corpus_word {
+        return Some(CorpusAuditIntent::GlobalCoverage);
+    }
+    // The bare word "coverage" without a region preposition is also a
+    // global corpus-supply question ("ndvi coverage", "coverage of
+    // weather"). We treat as GlobalCoverage so the agent gets the
+    // discovery pointers rather than needs_location.
+    if has_coverage_word {
         return Some(CorpusAuditIntent::GlobalCoverage);
     }
     None
@@ -862,6 +910,70 @@ mod tests {
             Some("the Indo-Gangetic plain".to_string())
         );
         assert_eq!(extract_region_anchor("no preposition here"), None);
+    }
+
+    #[test]
+    fn anomaly_keywords_no_longer_trigger_change_intent() {
+        assert_eq!(
+            classify_intent("what's anomalous about delhi's air quality"),
+            None
+        );
+        assert_eq!(classify_intent("any anomaly in this cell"), None);
+        // Confirmed change phrasings still match:
+        assert_eq!(
+            classify_intent("what changed here in the last year"),
+            Some(AskIntent::Change)
+        );
+        assert_eq!(
+            classify_intent("deforestation since 2020"),
+            Some(AskIntent::Change)
+        );
+    }
+
+    #[test]
+    fn risk_phrasings_route_to_topic_not_hunter() {
+        // Each of these previously matched hunter due to verb + event keyword.
+        // After the fix, they return None so the fall-through path can route
+        // them through topic_router for risk-composite algorithms.
+        for q in [
+            "find wildfire risk in oregon",
+            "find heat risk in phoenix",
+            "find drought risk in india",
+            "find crop stress risk in punjab",
+        ] {
+            assert_eq!(
+                classify_hunter(q),
+                None,
+                "expected None for risk question: {q}"
+            );
+        }
+        // Sanity: the bare event keyword + verb still matches.
+        assert!(classify_hunter("find wildfires in oregon").is_some());
+    }
+
+    #[test]
+    fn region_anchored_event_without_verb_routes_to_hunter() {
+        // Previously fell to CHANGE classifier.
+        assert!(classify_hunter("deforestation in brazil").is_some());
+        assert!(classify_hunter("methane plume over the permian").is_some());
+        // But "deforestation since 2020" (temporal CHANGE) should still NOT match hunter.
+        assert!(classify_hunter("deforestation since 2020").is_none());
+        assert!(classify_hunter("deforestation in the last year").is_none());
+    }
+
+    #[test]
+    fn coverage_questions_route_to_corpus_audit_without_your_prefix() {
+        assert_eq!(
+            classify_corpus_audit("ndvi coverage over the amazon"),
+            Some(CorpusAuditIntent::RegionalDensity),
+        );
+        assert_eq!(
+            classify_corpus_audit("how much data do you have"),
+            Some(CorpusAuditIntent::GlobalCoverage),
+        );
+        // But a value question must still NOT match.
+        assert_eq!(classify_corpus_audit("ndvi at south mumbai"), None);
+        assert_eq!(classify_corpus_audit("what's the ndvi in brazil"), None);
     }
 
     #[test]
