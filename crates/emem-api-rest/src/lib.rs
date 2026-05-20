@@ -14777,6 +14777,66 @@ fn reason_cid_for(reason: &str) -> ReasonCid {
     ReasonCid::new(cid)
 }
 
+/// One source of truth for documented static-product release dates used
+/// as `Source.captured_at` on static-band facts (tslot=0). Returns the
+/// upstream product's publication date as an ISO-8601 UTC string when the
+/// band is a static product; returns `None` for dynamic/per-vintage bands
+/// (weather, S2, MODIS, etc.) where the per-fact capture time is the
+/// correct value. Locking these dates in one place protects against
+/// silent drift back to `signed_at`.
+fn static_release_date(band: &str) -> Option<&'static str> {
+    match band {
+        // Cop-DEM GLO-30 v2021 public release.
+        "copdem30m.elevation_mean" => Some("2021-04-30T00:00:00Z"),
+        // GMRT v4.4.1 release per MGDS / Lamont-Doherty.
+        "gmrt.topobathy_mean"
+        | "gmrt.topobathy_min"
+        | "gmrt.topobathy_max"
+        | "gmrt.topobathy_std" => Some("2024-11-01T00:00:00Z"),
+        // JRC GSW v1.4, Pekel et al. update through 2021-12.
+        "surface_water.recurrence" => Some("2022-01-01T00:00:00Z"),
+        // Beck et al. 2018, Sci Data 5:180214.
+        "koppen" => Some("2018-10-30T00:00:00Z"),
+        // ISRIC SoilGrids 2.0 release.
+        "soilgrids.soc_0_30cm"
+        | "soilgrids.phh2o_0_30cm"
+        | "soilgrids.clay_0_30cm"
+        | "soilgrids.sand_0_30cm"
+        | "soilgrids.bdod_0_30cm"
+        | "soilgrids.nitrogen_0_30cm" => Some("2020-09-15T00:00:00Z"),
+        // ESA WorldCover v200 release.
+        "esa_worldcover.lc_2021" => Some("2022-10-28T00:00:00Z"),
+        // Hansen GFC v1.12 = GFC-2024 release.
+        "forest_change.lossyear"
+        | "forest_change.treecover2000"
+        | "forest_change.gain"
+        | "hansen.tree_cover_2000"
+        | "hansen.loss_year"
+        | "hansen.gain" => Some("2025-04-01T00:00:00Z"),
+        // JRC GFC2020 V3 release per JEODPP.
+        "jrc_gfc2020.forest_2020" => Some("2024-04-25T00:00:00Z"),
+        // JRC TMF v2025 release.
+        "jrc_tmf.annual_change"
+        | "jrc_tmf.deforestation_year"
+        | "jrc_tmf.degradation_year"
+        | "jrc_tmf.transition_subtype" => Some("2025-06-01T00:00:00Z"),
+        // Santoro 2025 ESA CCI Biomass v6 release (same for all four).
+        "esa_cci_biomass.agb_t_per_ha_2022"
+        | "esa_cci_biomass.agb_se_t_per_ha_2022"
+        | "esa_cci_biomass.agb_t_per_ha_2020"
+        | "esa_cci_biomass.agb_se_t_per_ha_2020" => Some("2025-03-01T00:00:00Z"),
+        // NOAA NGDC V4 stable-lights final composite, post-2013 archive close.
+        "nightlights.dmsp_ols_avg_dn" | "nightlights.year" | "nightlights.satellite" => {
+            Some("2014-04-01T00:00:00Z")
+        }
+        // NWK TerraClimate 1991-2020 normals derived release.
+        "terraclimate.precip_normal_mm"
+        | "terraclimate.aet_normal_mm"
+        | "terraclimate.tmean_normal_c" => Some("2024-01-01T00:00:00Z"),
+        _ => None,
+    }
+}
+
 /// Fetch elevation from Open-Meteo (Cop-DEM 90 m wrap), build a signed
 /// attestation under the responder's identity, store via the storage
 /// layer, return what was materialized. On a successful land query a
@@ -14857,7 +14917,7 @@ async fn materialize_elevation_mean(
             id: url.clone(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            captured_at: static_release_date("copdem30m.elevation_mean").map(str::to_string),
             url: None,
         }],
         derivation: Derivation {
@@ -17186,7 +17246,7 @@ async fn materialize_terraclimate_band(
                     id: sample.url.clone(),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date(band).map(str::to_string),
                     url: Some(sample.url.clone()),
                 }],
                 "terraclimate_ppt_annual_total_normal_1991_2020@1".to_string(),
@@ -17222,7 +17282,7 @@ async fn materialize_terraclimate_band(
                     id: sample.url.clone(),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date(band).map(str::to_string),
                     url: Some(sample.url.clone()),
                 }],
                 "terraclimate_aet_annual_total_normal_1991_2020@1".to_string(),
@@ -17255,7 +17315,7 @@ async fn materialize_terraclimate_band(
                         id: sample.tmin_url.clone(),
                         cid: None,
                         hash: None,
-                        captured_at: Some(signed_at.clone()),
+                        captured_at: static_release_date(band).map(str::to_string),
                         url: Some(sample.tmin_url.clone()),
                     },
                     Source {
@@ -17263,7 +17323,7 @@ async fn materialize_terraclimate_band(
                         id: sample.tmax_url.clone(),
                         cid: None,
                         hash: None,
-                        captured_at: Some(signed_at.clone()),
+                        captured_at: static_release_date(band).map(str::to_string),
                         url: Some(sample.tmax_url.clone()),
                     },
                 ],
@@ -18623,7 +18683,7 @@ async fn materialize_jrc_gsw_recurrence(
                 id: url.clone(),
                 cid: None,
                 hash: None,
-                captured_at: Some(signed_at.clone()),
+                captured_at: static_release_date("surface_water.recurrence").map(str::to_string),
                 url: None,
             }],
             schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -18655,7 +18715,7 @@ async fn materialize_jrc_gsw_recurrence(
             id: url.clone(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            captured_at: static_release_date("surface_water.recurrence").map(str::to_string),
             url: None,
         }],
         derivation: Derivation {
@@ -18920,7 +18980,8 @@ async fn materialize_esa_worldcover_2021(
                         id: url.clone(),
                         cid: None,
                         hash: None,
-                        captured_at: Some(signed_at.clone()),
+                        captured_at: static_release_date("esa_worldcover.lc_2021")
+                            .map(str::to_string),
                         url: None,
                     }],
                     schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -18953,7 +19014,7 @@ async fn materialize_esa_worldcover_2021(
                 id: url.clone(),
                 cid: None,
                 hash: None,
-                captured_at: Some(signed_at.clone()),
+                captured_at: static_release_date("esa_worldcover.lc_2021").map(str::to_string),
                 url: None,
             }],
             schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -18985,7 +19046,7 @@ async fn materialize_esa_worldcover_2021(
             id: url.clone(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            captured_at: static_release_date("esa_worldcover.lc_2021").map(str::to_string),
             url: None,
         }],
         derivation: Derivation {
@@ -19055,7 +19116,7 @@ async fn materialize_koppen(cell64: &str, s: &AppState) -> Result<emem_fact::Fac
                     id: format!("{upstream_url}#{upstream_member}"),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date("koppen").map(str::to_string),
                     url: Some(upstream_url.to_string()),
                 }],
                 derivation: Derivation {
@@ -19093,7 +19154,7 @@ async fn materialize_koppen(cell64: &str, s: &AppState) -> Result<emem_fact::Fac
                     id: format!("{upstream_url}#{upstream_member}"),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date("koppen").map(str::to_string),
                     url: Some(upstream_url.to_string()),
                 }],
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -19442,7 +19503,7 @@ async fn materialize_nightlights_band(
                     id: format!("{}#{}", sample.upstream_url, sample.member_name),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date(band).map(str::to_string),
                     url: Some(sample.upstream_url.clone()),
                 }],
                 derivation: Derivation {
@@ -19487,7 +19548,7 @@ async fn materialize_nightlights_band(
                     id: format!("{upstream_url}#{member}"),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date(band).map(str::to_string),
                     url: Some(upstream_url.clone()),
                 }],
                 schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -20042,7 +20103,7 @@ async fn materialize_soilgrids_band(
             id: url.clone(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            captured_at: static_release_date(band).map(str::to_string),
             url: None,
         }],
         derivation: Derivation {
@@ -20217,7 +20278,7 @@ async fn materialize_hansen_band(
             id: url.clone(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            captured_at: static_release_date(band).map(str::to_string),
             url: Some(url.clone()),
         }],
         derivation: Derivation {
@@ -20277,7 +20338,7 @@ async fn materialize_jrc_gfc2020_band(
                     id: url.clone(),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date(band).map(str::to_string),
                     url: Some(url.clone()),
                 }],
                 derivation: Derivation {
@@ -20458,7 +20519,7 @@ async fn materialize_jrc_tmf_band(
             id: url.clone(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            captured_at: static_release_date(band).map(str::to_string),
             url: Some(url.clone()),
         }],
         derivation: Derivation {
@@ -20563,7 +20624,7 @@ async fn materialize_gmrt_band(
             id: url_hint.clone(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            captured_at: static_release_date(band).map(str::to_string),
             url: Some(url_hint.clone()),
         }],
         derivation: Derivation {
@@ -20690,7 +20751,7 @@ async fn materialize_esa_cci_biomass_band(
                     id: url.clone(),
                     cid: None,
                     hash: None,
-                    captured_at: Some(signed_at.clone()),
+                    captured_at: static_release_date(band).map(str::to_string),
                     url: Some(url.clone()),
                 }],
                 derivation: Derivation {
@@ -32859,12 +32920,8 @@ mod tests {
     #[test]
     fn slow_tslot_for_tessera_vintages_is_year_aligned() {
         use emem_core::tslot::{Tempo, Tslot};
-        // Jan 1 2017 UTC = 1_483_228_800; Jan 1 2024 UTC = 1_704_067_200.
         assert_eq!(Tslot::from_unix(1_483_228_800, Tempo::Slow).0, 47);
         assert_eq!(Tslot::from_unix(1_704_067_200, Tempo::Slow).0, 54);
-        // Different vintages must produce different tslots — otherwise
-        // the storage key collides and the second materialization wipes
-        // the first.
         assert_ne!(
             Tslot::from_unix(1_483_228_800, Tempo::Slow).0,
             Tslot::from_unix(1_704_067_200, Tempo::Slow).0,
@@ -32873,13 +32930,28 @@ mod tests {
 
     /// `days_from_civil` is what each materializer calls to anchor a
     /// vintage year to its Jan-1 Unix second before snapping to a Slow
-    /// tslot. Sanity-check that 2024 lands on the canonical Unix epoch
-    /// for 2024-01-01T00:00:00Z; otherwise every per-year tslot is off
-    /// by some number of days.
+    /// tslot.
     #[test]
     fn days_from_civil_anchors_tessera_year_to_jan1_unix() {
         assert_eq!(days_from_civil(2024, 1, 1) * 86_400, 1_704_067_200);
         assert_eq!(days_from_civil(2017, 1, 1) * 86_400, 1_483_228_800);
+    }
+
+    /// Lock the documented release dates for static products against
+    /// silent drift back to `signed_at`.
+    #[test]
+    fn static_band_release_dates_dont_drift_to_signed_at() {
+        assert_eq!(
+            static_release_date("copdem30m.elevation_mean"),
+            Some("2021-04-30T00:00:00Z")
+        );
+        assert_eq!(static_release_date("koppen"), Some("2018-10-30T00:00:00Z"));
+        assert_eq!(
+            static_release_date("esa_worldcover.lc_2021"),
+            Some("2022-10-28T00:00:00Z")
+        );
+        assert_eq!(static_release_date("population"), None);
+        assert_eq!(static_release_date("s2.ndvi"), None);
     }
 
     /// Every algorithm key cited in `algorithms_for_topic` MUST
