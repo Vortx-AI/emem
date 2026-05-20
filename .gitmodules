@@ -1,0 +1,12 @@
+[submodule "references/awesome-earthobservation"]
+	path = references/awesome-earthobservation
+	url = https://github.com/acgeospatial/awesome-earthobservation-code
+[submodule "references/awesome-geospatial"]
+	path = references/awesome-geospatial
+	url = https://github.com/sacridini/Awesome-Geospatial
+[submodule "references/awesome-gis"]
+	path = references/awesome-gis
+	url = https://github.com/sshuair/awesome-gis
+[submodule "references/awesome-satellite-imagery"]
+	path = references/awesome-satellite-imagery
+	url = https://github.com/huazai2023/awesome-satellite-imagery-datasets
