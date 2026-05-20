@@ -2,7 +2,7 @@
   "manifest": "emem-bands",
   "version": "v0",
   "total_dims": 1792,
-  "tempo_classes": ["static", "slow", "medium", "fast", "ultra_fast"],
+  "tempo_classes": ["static", "slow", "composite_16day", "composite_8day", "medium", "fast", "ultra_fast"],
   "privacy_classes": ["public", "aggregate_only", "l2_only_with_model_cid", "prohibited"],
   "_note": "Source of truth: agri integrate_10m.py BAND_OFFSETS. Order is the physical layout in cube_10m.npz. MUST stay byte-identical; family is editorial. Per-band `description` / `interpretation` / `pitfalls` / `references` / `scalar_keys` are advisory and may be revised without bumping the manifest CID — they live alongside the load-bearing offset/dims/tempo/privacy fields purely so `/v1/bands` can self-explain to agents.",
   "bands": [

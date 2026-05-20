@@ -28,6 +28,12 @@ pub enum Tempo {
     Static,
     /// Annual cadence: Tessera v1, soil.
     Slow,
+    /// 16-day cadence: MODIS MOD13Q1 NDVI composites.
+    #[serde(rename = "composite_16day")]
+    Composite16Day,
+    /// 8-day cadence: MODIS LST / ET / GPP / LAI composites.
+    #[serde(rename = "composite_8day")]
+    Composite8Day,
     /// Monthly cadence: NDVI composites.
     Medium,
     /// Daily cadence: raw S2 NDVI.
@@ -46,6 +52,8 @@ impl Tempo {
         match self {
             Tempo::Static => 0,
             Tempo::Slow => 365 * 24 * 60 * 60,
+            Tempo::Composite16Day => 16 * 24 * 60 * 60,
+            Tempo::Composite8Day => 8 * 24 * 60 * 60,
             Tempo::Medium => 30 * 24 * 60 * 60,
             Tempo::Fast => 24 * 60 * 60,
             Tempo::UltraFast => 60 * 60,
@@ -74,5 +82,50 @@ impl Tslot {
             return 0;
         }
         (self.0 as i64) * (tempo.slot_seconds() as i64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn composite_16day_slot_seconds() {
+        assert_eq!(Tempo::Composite16Day.slot_seconds(), 1_382_400);
+    }
+
+    #[test]
+    fn composite_8day_slot_seconds() {
+        assert_eq!(Tempo::Composite8Day.slot_seconds(), 691_200);
+    }
+
+    #[test]
+    fn adjacent_mod13q1_composites_get_distinct_tslots() {
+        // MOD13Q1 publishes a fresh granule every 16 days. Under
+        // Tempo::Medium (30d) both would collide; under Composite16Day
+        // they MUST land in different buckets — that's the whole point
+        // of the new variant.
+        let a = Tslot::from_unix(1_704_067_200, Tempo::Composite16Day); // 2024-01-01
+        let b = Tslot::from_unix(1_705_449_600, Tempo::Composite16Day); // 2024-01-17
+        assert_ne!(a, b);
+
+        // Sanity check the failure mode: at Medium the same two anchors
+        // collapse together, which was the bug.
+        let a_medium = Tslot::from_unix(1_704_067_200, Tempo::Medium);
+        let b_medium = Tslot::from_unix(1_705_449_600, Tempo::Medium);
+        assert_eq!(a_medium, b_medium);
+    }
+
+    #[test]
+    fn composite_variants_serde_roundtrip() {
+        let s16 = serde_json::to_string(&Tempo::Composite16Day).unwrap();
+        assert_eq!(s16, "\"composite_16day\"");
+        let parsed16: Tempo = serde_json::from_str(&s16).unwrap();
+        assert_eq!(parsed16, Tempo::Composite16Day);
+
+        let s8 = serde_json::to_string(&Tempo::Composite8Day).unwrap();
+        assert_eq!(s8, "\"composite_8day\"");
+        let parsed8: Tempo = serde_json::from_str(&s8).unwrap();
+        assert_eq!(parsed8, Tempo::Composite8Day);
     }
 }

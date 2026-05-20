@@ -15314,7 +15314,10 @@ async fn materialize_modis_ndvi_window(
     let cal_unix = modis_calendar_to_unix(&cal_date)
         .or(target_unix)
         .unwrap_or(now);
-    let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Medium).0;
+    // MOD13Q1 is a native 16-day composite; bucketing at Medium (30d)
+    // collides adjacent granules into the same tslot.
+    let tslot =
+        emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Composite16Day).0;
 
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
@@ -17423,6 +17426,18 @@ async fn materialize_ornl_modis_band(
         ),
         _ => return Err(format!("ornl modis band not wired: {band}")),
     };
+    // Native cadence per ORNL product — collapses to Medium only for
+    // the monthly MCD64A1; the 8-day products tslot at Composite8Day so
+    // adjacent composites don't overwrite each other.
+    let band_tempo = match band {
+        "modis.lst_day_8day"
+        | "modis.lst_night_8day"
+        | "modis.et_8day"
+        | "modis.gpp_8day"
+        | "modis.lai_8day" => emem_core::tslot::Tempo::Composite8Day,
+        "modis.burned_area_monthly" => emem_core::tslot::Tempo::Medium,
+        _ => emem_core::tslot::Tempo::Medium,
+    };
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -17609,8 +17624,7 @@ async fn materialize_ornl_modis_band(
             // recalls at the same time hit the cached absence rather
             // than re-fetching the upstream.
             let anchor_unix = target_unix.unwrap_or(now);
-            let tslot =
-                emem_core::tslot::Tslot::from_unix(anchor_unix, emem_core::tslot::Tempo::Medium).0;
+            let tslot = emem_core::tslot::Tslot::from_unix(anchor_unix, band_tempo).0;
             return sign_band_absence(
                 cell64,
                 s,
@@ -17627,7 +17641,7 @@ async fn materialize_ornl_modis_band(
     let cal_unix = modis_calendar_to_unix(&cal_date)
         .or(target_unix)
         .unwrap_or(now);
-    let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, emem_core::tslot::Tempo::Medium).0;
+    let tslot = emem_core::tslot::Tslot::from_unix(cal_unix, band_tempo).0;
     let signed_at = chrono_iso8601_utc();
     // Confidence derivation from the upstream QC byte (when present)
     // via the product-specific helper. When QC was not wired or the
@@ -21771,7 +21785,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
 
     let m = match band {
         "modis.ndvi_mean" => MaterializerMeta {
-            tempo: Tempo::Medium,
+            tempo: Tempo::Composite16Day,
             kind: BandKind::TimeSeries,
             history_from_unix: Some(modis_start),
             history_to_unix: None,
@@ -21955,7 +21969,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
         // record below; all 8-day or 16-day or 30-day composites depending
         // on the upstream product's natural cadence.
         "modis.lst_day_8day" | "modis.lst_night_8day" => MaterializerMeta {
-            tempo: Tempo::Medium,
+            tempo: Tempo::Composite8Day,
             kind: BandKind::TimeSeries,
             // MOD11A2 first granule: 2000-03-05.
             history_from_unix: Some(days_from_civil(2000, 3, 5) * 86_400),
@@ -21963,7 +21977,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path: "ORNL DAAC MOD11A2 8-day 1 km LST subset",
         },
         "modis.et_8day" => MaterializerMeta {
-            tempo: Tempo::Medium,
+            tempo: Tempo::Composite8Day,
             kind: BandKind::TimeSeries,
             // MOD16A2 first valid granule: 2001-01-01.
             history_from_unix: Some(days_from_civil(2001, 1, 1) * 86_400),
@@ -21971,7 +21985,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path: "ORNL DAAC MOD16A2 8-day 500 m ET subset",
         },
         "modis.gpp_8day" => MaterializerMeta {
-            tempo: Tempo::Medium,
+            tempo: Tempo::Composite8Day,
             kind: BandKind::TimeSeries,
             // MOD17A2H first granule: 2000-02-18.
             history_from_unix: Some(days_from_civil(2000, 2, 18) * 86_400),
@@ -21979,7 +21993,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path: "ORNL DAAC MOD17A2H 8-day 500 m GPP subset",
         },
         "modis.lai_8day" => MaterializerMeta {
-            tempo: Tempo::Medium,
+            tempo: Tempo::Composite8Day,
             kind: BandKind::TimeSeries,
             // MOD15A2H first granule: 2002-07-04.
             history_from_unix: Some(days_from_civil(2002, 7, 4) * 86_400),
@@ -30596,10 +30610,11 @@ fn quality_kernel(tempo: emem_core::tslot::Tempo, dt_s: f64) -> (f64, &'static s
                 "Q = max(0, 1 - Δt/T_slot); AR-1 process step",
             )
         }
-        // Medium (monthly): heat-equation Gaussian. σ = slot duration so
-        // ~38% of the score remains at exactly one slot's worth of lag.
-        Tempo::Medium => {
-            let sigma = Tempo::Medium.slot_seconds() as f64;
+        // Medium (monthly) + composite cadences (8/16-day MODIS):
+        // heat-equation Gaussian, σ = slot duration so ~38% of the
+        // score remains at one slot's lag.
+        Tempo::Medium | Tempo::Composite16Day | Tempo::Composite8Day => {
+            let sigma = tempo.slot_seconds() as f64;
             let q = (-((dt / sigma).powi(2))).exp();
             (
                 q,
@@ -30655,6 +30670,10 @@ fn score_band(
             let q = match tempo {
                 Tempo::Static => 1.0,
                 Tempo::Slow => 0.5,
+                // MODIS composites sit between annual + monthly cadences
+                // when scoring "no observation yet".
+                Tempo::Composite16Day => 0.35,
+                Tempo::Composite8Day => 0.32,
                 Tempo::Medium => 0.3,
                 Tempo::Fast => 0.1,
                 Tempo::UltraFast => 0.05,
@@ -32587,6 +32606,45 @@ mod tests {
             assert!(
                 parse_temporal_diff_key(bad).is_none(),
                 "expected None for `{bad}`"
+            );
+        }
+    }
+
+    /// MODIS MOD13Q1 is a native 16-day composite; `band_materializer_meta`
+    /// MUST surface it as `Composite16Day` so adjacent granules don't
+    /// collide into the same Medium (30-day) tslot bucket.
+    #[test]
+    fn band_tempo_for_key_modis_uses_16day_composite() {
+        let m = band_materializer_meta("modis.ndvi_mean")
+            .expect("modis.ndvi_mean has a materializer");
+        assert_eq!(m.tempo, emem_core::tslot::Tempo::Composite16Day);
+        assert_eq!(
+            tempo_for_band("modis.ndvi_mean"),
+            Some(emem_core::tslot::Tempo::Composite16Day)
+        );
+    }
+
+    /// The 8-day ORNL MODIS products tslot at their native cadence.
+    #[test]
+    fn band_tempo_for_key_modis_8day_uses_8day_composite() {
+        for key in [
+            "modis.lst_day_8day",
+            "modis.lst_night_8day",
+            "modis.et_8day",
+            "modis.gpp_8day",
+            "modis.lai_8day",
+        ] {
+            let m = band_materializer_meta(key)
+                .unwrap_or_else(|| panic!("{key} should have a materializer"));
+            assert_eq!(
+                m.tempo,
+                emem_core::tslot::Tempo::Composite8Day,
+                "{key} should be Composite8Day"
+            );
+            assert_eq!(
+                tempo_for_band(key),
+                Some(emem_core::tslot::Tempo::Composite8Day),
+                "{key} via tempo_for_band"
             );
         }
     }
