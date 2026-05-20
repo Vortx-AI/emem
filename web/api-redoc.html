@@ -125,7 +125,13 @@
        sort-props-alphabetically
        path-in-middle-panel></redoc>
 
-<script src="https://cdn.redocly.com/redoc/latest/bundles/redoc.standalone.js"></script>
+<!-- ReDoc pinned to v2.5.1 so the SRI hash below is stable. /latest/
+     would silently roll forward and break the integrity check; bump
+     this version and re-compute the sha384 deliberately when upgrading
+     (curl <url> | openssl dgst -sha384 -binary | openssl base64 -A). -->
+<script src="https://cdn.redocly.com/redoc/v2.5.1/bundles/redoc.standalone.js"
+        integrity="sha384-up2uPEo+8XzxuLXKGY4DOk79DbbRclvlcx22QZ60aPWQf8LW69XJ8BWzLFewC05H"
+        crossorigin="anonymous"></script>
 
 </body>
 </html>
