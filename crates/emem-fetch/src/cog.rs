@@ -19,9 +19,12 @@
 //!
 //! Supports the slice of TIFF that AWS-Open-Data Sentinel-2 L2A and Sentinel-1
 //! GRD ship: little-endian std TIFF, Compression 8 (Deflate), Predictor 1 or 2,
-//! BitsPerSample 16 (uint), and the GeoTIFF tags. Anything fancier (BigTIFF,
-//! JPEG2000, LZW, etc.) returns an error rather than silently doing the wrong
-//! thing — the protocol's no-fallback rule applies.
+//! BitsPerSample 16 (uint), and the GeoTIFF tags. Also supports **BigTIFF**
+//! (TIFF 6.0 extension with 16-byte header and 64-bit offsets, magic 0x002B)
+//! — used by the EU JRC's single-COG global rasters (e.g. GFC2020 V3, 41 GB).
+//! Anything fancier (BE byte order, JPEG2000, planar layouts, etc.) returns an
+//! error rather than silently doing the wrong thing — the protocol's
+//! no-fallback rule applies.
 
 use std::io::Read;
 
@@ -169,6 +172,181 @@ pub async fn open_profile(client: &Client, url: &str) -> Result<CogProfile, CogE
     parse_profile(&buf)
 }
 
+/// TIFF flavour discovered from the 16-byte header. BigTIFF widens
+/// every offset, count, and inline-value field from u32 to u64; the
+/// IFD entry stride goes from 12 to 20 bytes, the IFD entry count
+/// becomes u64, and the per-IFD "next IFD" pointer becomes u64.
+/// See TIFF 6.0 §2 and the BigTIFF spec (LibTIFF wiki, §"BigTIFF").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TiffFlavor {
+    /// Classic TIFF 6.0: magic 0x002A, 8-byte header, u32 offsets,
+    /// 12-byte IFD entries with u32 count + u32 inline value.
+    Standard,
+    /// BigTIFF: magic 0x002B, 16-byte header, u64 offsets, 20-byte
+    /// IFD entries with u64 count + u64 inline value. Required for
+    /// files > 4 GiB (e.g. JRC GFC2020 V3, 41 GB single-COG).
+    Big,
+}
+
+impl TiffFlavor {
+    /// Bytes per IFD entry on disk (12 for std, 20 for BigTIFF).
+    fn entry_stride(self) -> usize {
+        match self {
+            TiffFlavor::Standard => 12,
+            TiffFlavor::Big => 20,
+        }
+    }
+    /// Bytes for the IFD's entry-count prefix at the start of an IFD
+    /// (u16 in std → 2 bytes; u64 in BigTIFF → 8 bytes).
+    fn entry_count_size(self) -> usize {
+        match self {
+            TiffFlavor::Standard => 2,
+            TiffFlavor::Big => 8,
+        }
+    }
+    /// Width of the inline-value / external-offset slot inside one
+    /// IFD entry. Total payload size ≤ this width is stored inline;
+    /// anything bigger dereferences to an external offset.
+    fn value_slot_size(self) -> usize {
+        match self {
+            TiffFlavor::Standard => 4,
+            TiffFlavor::Big => 8,
+        }
+    }
+}
+
+/// Read the entry-count prefix at the start of an IFD. Returns the
+/// number of IFD entries that follow, branching on TIFF flavour
+/// (u16 in std, u64 in BigTIFF).
+fn read_entry_count(buf: &[u8], off: usize, flavor: TiffFlavor) -> Result<usize, CogError> {
+    let n = flavor.entry_count_size();
+    if buf.len() < off + n {
+        return Err(CogError::ShortRead {
+            needed: off + n,
+            offset: 0,
+        });
+    }
+    Ok(match flavor {
+        TiffFlavor::Standard => u16::from_le_bytes([buf[off], buf[off + 1]]) as usize,
+        TiffFlavor::Big => u64::from_le_bytes(buf[off..off + 8].try_into().unwrap()) as usize,
+    })
+}
+
+/// One decoded IFD entry, flavour-agnostic. `cnt` and inline value
+/// have already been widened to u64; downstream consumers cast as
+/// needed. `raw` is the inline-value byte slice (length matches
+/// `flavor.value_slot_size()`) so callers that need to peek at the
+/// low u16 (e.g. SHORT inline reads) can without re-deriving the
+/// entry layout.
+struct IfdEntry<'a> {
+    tag: u16,
+    typ: u16,
+    cnt: u64,
+    /// 8-byte LE encoding of the inline value or external offset.
+    /// For Standard TIFF the upper 4 bytes are zero; for BigTIFF
+    /// they carry the high 32 bits of a 64-bit offset.
+    val_u64: u64,
+    /// Raw inline-value slot (4 or 8 bytes depending on flavour).
+    /// Equal to the low N bytes of `val_u64.to_le_bytes()`. Kept
+    /// separately because some callers (BitsPerSample / SampleFormat)
+    /// want to read SHORTs out of it without re-encoding.
+    raw: &'a [u8],
+}
+
+/// Parse one IFD entry at byte offset `e` in `buf` under the given
+/// TIFF flavour. The caller is responsible for ensuring `buf` is
+/// long enough; that's checked once for the whole entries block in
+/// the parser before the entry loop.
+fn read_ifd_entry(buf: &[u8], e: usize, flavor: TiffFlavor) -> IfdEntry<'_> {
+    let tag = u16::from_le_bytes([buf[e], buf[e + 1]]);
+    let typ = u16::from_le_bytes([buf[e + 2], buf[e + 3]]);
+    match flavor {
+        TiffFlavor::Standard => {
+            let cnt = u32::from_le_bytes([buf[e + 4], buf[e + 5], buf[e + 6], buf[e + 7]]) as u64;
+            let raw = &buf[e + 8..e + 12];
+            // Sign-extend (well, zero-extend) the inline u32 slot into
+            // a u64 so the rest of the parser can treat both flavours
+            // uniformly. For SHORT/LONG inline values only the low
+            // bytes are meaningful; the unused upper bytes stay zero.
+            let val_u64 = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as u64;
+            IfdEntry {
+                tag,
+                typ,
+                cnt,
+                val_u64,
+                raw,
+            }
+        }
+        TiffFlavor::Big => {
+            let cnt = u64::from_le_bytes(buf[e + 4..e + 12].try_into().unwrap());
+            let raw = &buf[e + 12..e + 20];
+            let val_u64 = u64::from_le_bytes(raw.try_into().unwrap());
+            IfdEntry {
+                tag,
+                typ,
+                cnt,
+                val_u64,
+                raw,
+            }
+        }
+    }
+}
+
+/// Bytesize of a TIFF data type. Used for the "fits inline?" check
+/// — if `cnt * type_size ≤ value_slot_size`, the entry's value
+/// lives inside the IFD entry; otherwise the entry's value field
+/// is an offset to an external array.
+fn tiff_type_size(typ: u16) -> usize {
+    match typ {
+        1 | 2 | 6 | 7 => 1,              // BYTE / ASCII / SBYTE / UNDEFINED
+        3 | 8 => 2,                      // SHORT / SSHORT
+        4 | 9 | 11 | 13 => 4,            // LONG / SLONG / FLOAT / IFD
+        5 | 10 | 12 | 16 | 17 | 18 => 8, // RATIONAL / SRATIONAL / DOUBLE / LONG8 / SLONG8 / IFD8
+        _ => 0,
+    }
+}
+
+/// Read one element from a TileOffsets / TileByteCounts style array
+/// of integer offsets. Honours BigTIFF's LONG8 (type 16) on top of
+/// the classic SHORT (3) / LONG (4). All other types are an error.
+fn read_offset_array_elem(buf: &[u8], base: usize, idx: usize, typ: u16) -> Result<u64, CogError> {
+    match typ {
+        3 => {
+            let p = base + idx * 2;
+            if buf.len() < p + 2 {
+                return Err(CogError::ShortRead {
+                    needed: p + 2,
+                    offset: 0,
+                });
+            }
+            Ok(u16::from_le_bytes(buf[p..p + 2].try_into().unwrap()) as u64)
+        }
+        4 => {
+            let p = base + idx * 4;
+            if buf.len() < p + 4 {
+                return Err(CogError::ShortRead {
+                    needed: p + 4,
+                    offset: 0,
+                });
+            }
+            Ok(u32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as u64)
+        }
+        16 => {
+            let p = base + idx * 8;
+            if buf.len() < p + 8 {
+                return Err(CogError::ShortRead {
+                    needed: p + 8,
+                    offset: 0,
+                });
+            }
+            Ok(u64::from_le_bytes(buf[p..p + 8].try_into().unwrap()))
+        }
+        other => Err(CogError::Unsupported(format!(
+            "tile_offsets / tile_byte_counts type {other} (expected SHORT=3, LONG=4, or LONG8=16)"
+        ))),
+    }
+}
+
 fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     if buf.len() < 8 {
         return Err(CogError::ShortRead {
@@ -182,25 +360,52 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
         ));
     }
     let magic = u16::from_le_bytes([buf[2], buf[3]]) as u32;
-    if magic != 42 {
-        return Err(CogError::BadMagic(magic));
-    }
-    let ifd0_off = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
-    if buf.len() < ifd0_off + 2 {
+    let (flavor, ifd0_off) = match magic {
+        42 => {
+            // Classic TIFF 6.0: IFD0 offset is a u32 at bytes 4..8.
+            let off = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
+            (TiffFlavor::Standard, off)
+        }
+        43 => {
+            // BigTIFF: bytes 4..6 = offset bytesize (must be 8),
+            // bytes 6..8 = constant 0, bytes 8..16 = u64 IFD0 offset.
+            if buf.len() < 16 {
+                return Err(CogError::ShortRead {
+                    needed: 16,
+                    offset: 0,
+                });
+            }
+            let offset_bytesize = u16::from_le_bytes([buf[4], buf[5]]);
+            let zero = u16::from_le_bytes([buf[6], buf[7]]);
+            if offset_bytesize != 8 || zero != 0 {
+                return Err(CogError::Unsupported(format!(
+                    "BigTIFF header: expected offset_bytesize=8 zero=0, got bytesize={offset_bytesize} zero={zero}"
+                )));
+            }
+            let off = u64::from_le_bytes(buf[8..16].try_into().unwrap()) as usize;
+            (TiffFlavor::Big, off)
+        }
+        _ => return Err(CogError::BadMagic(magic)),
+    };
+
+    let entry_count_size = flavor.entry_count_size();
+    if buf.len() < ifd0_off + entry_count_size {
         return Err(CogError::ShortRead {
-            needed: ifd0_off + 2,
+            needed: ifd0_off + entry_count_size,
             offset: 0,
         });
     }
-    let n = u16::from_le_bytes([buf[ifd0_off], buf[ifd0_off + 1]]) as usize;
-    let entries_start = ifd0_off + 2;
-    if buf.len() < entries_start + n * 12 {
+    let n = read_entry_count(buf, ifd0_off, flavor)?;
+    let entries_start = ifd0_off + entry_count_size;
+    let stride = flavor.entry_stride();
+    if buf.len() < entries_start + n * stride {
         return Err(CogError::ShortRead {
-            needed: entries_start + n * 12,
+            needed: entries_start + n * stride,
             offset: 0,
         });
     }
 
+    let value_slot = flavor.value_slot_size();
     let mut width: Option<u32> = None;
     let mut height: Option<u32> = None;
     let mut bits_per_sample: u16 = 8;
@@ -211,48 +416,55 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     let mut planar_config: u16 = 1;
     let mut tile_w: Option<u32> = None;
     let mut tile_h: Option<u32> = None;
-    let mut tile_offsets_ref: Option<(usize, usize)> = None; // (cnt, off)
-    let mut tile_byte_counts_ref: Option<(usize, usize)> = None;
+    // (cnt, off, typ) — typ carries SHORT/LONG/LONG8 so the array
+    // read below knows the element width. LONG8 is the BigTIFF-only
+    // case; std files use LONG or SHORT.
+    let mut tile_offsets_ref: Option<(usize, u64, u16)> = None;
+    let mut tile_byte_counts_ref: Option<(usize, u64, u16)> = None;
     // TIFF strip tags. Hansen GFC, older USGS DEMs, and some MODIS subsets
     // ship as stripped TIFFs (no tile tags). Strips are essentially tiles
     // of width = image_width and height = rows_per_strip; synthesize the
     // tile_* fields from them so the downstream sampler stays uniform.
     let mut rows_per_strip: Option<u32> = None;
-    let mut strip_offsets_ref: Option<(usize, usize)> = None;
-    let mut strip_byte_counts_ref: Option<(usize, usize)> = None;
+    let mut strip_offsets_ref: Option<(usize, u64, u16)> = None;
+    let mut strip_byte_counts_ref: Option<(usize, u64, u16)> = None;
     let mut pixel_scale: Option<(f64, f64)> = None;
     let mut tiepoint: Option<(f64, f64, f64, f64)> = None;
-    let mut geokey_ref: Option<(usize, usize)> = None;
+    let mut geokey_ref: Option<(usize, u64)> = None;
     let mut nodata: Option<String> = None;
 
     for i in 0..n {
-        let e = entries_start + i * 12;
-        let tag = u16::from_le_bytes([buf[e], buf[e + 1]]);
-        let _typ = u16::from_le_bytes([buf[e + 2], buf[e + 3]]);
-        let cnt = u32::from_le_bytes([buf[e + 4], buf[e + 5], buf[e + 6], buf[e + 7]]) as usize;
-        let raw = &buf[e + 8..e + 12];
-        let val_u32 = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize;
+        let e = entries_start + i * stride;
+        let ent = read_ifd_entry(buf, e, flavor);
+        let tag = ent.tag;
+        let typ = ent.typ;
+        let cnt = ent.cnt as usize;
+        let val_u64 = ent.val_u64;
+        let val_usize = val_u64 as usize;
+        let val_u32 = val_u64 as u32;
+        let raw = ent.raw;
         let val_u16_first = u16::from_le_bytes([raw[0], raw[1]]);
 
         match tag {
-            256 => width = Some(val_u32 as u32),
-            257 => height = Some(val_u32 as u32),
+            256 => width = Some(val_u32),
+            257 => height = Some(val_u32),
             258 => {
                 // BitsPerSample is a SHORT array of length `samples_per_pixel`.
-                // TIFF packs values inline only when total size ≤ 4 bytes;
-                // beyond that, the entry's value field is an offset to an
-                // external array. Single-band files (cnt=1) fit inline;
-                // multi-band files like WRI GDM v1.2 (cnt=8, 16 bytes)
-                // dereference. We pick the first u16 either way and assume
-                // the bands share BitsPerSample — the existing per-sample
-                // decoders downstream all read at this resolution. If a
-                // future multi-band file mixes bit-widths the open_profile
-                // would need an array readback, but every multi-band raster
-                // we sample today uses a uniform width.
-                bits_per_sample = if cnt * 2 <= 4 {
+                // TIFF packs values inline only when total size ≤ the
+                // value-slot width (4 std / 8 BigTIFF); beyond that, the
+                // entry's value field is an offset to an external array.
+                // Single-band files (cnt=1) fit inline; multi-band files
+                // like WRI GDM v1.2 (cnt=8, 16 bytes) dereference. We pick
+                // the first u16 either way and assume the bands share
+                // BitsPerSample — the existing per-sample decoders
+                // downstream all read at this resolution. If a future
+                // multi-band file mixes bit-widths the open_profile would
+                // need an array readback, but every multi-band raster we
+                // sample today uses a uniform width.
+                bits_per_sample = if cnt * 2 <= value_slot {
                     val_u16_first
                 } else {
-                    let off = val_u32;
+                    let off = val_usize;
                     if buf.len() < off + 2 {
                         return Err(CogError::ShortRead {
                             needed: off + 2,
@@ -266,24 +478,24 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
             277 => samples_per_pixel = val_u16_first,
             284 => planar_config = val_u16_first,
             317 => predictor = val_u16_first,
-            322 => tile_w = Some(val_u32 as u32),
-            323 => tile_h = Some(val_u32 as u32),
-            324 => tile_offsets_ref = Some((cnt, val_u32)),
-            325 => tile_byte_counts_ref = Some((cnt, val_u32)),
+            322 => tile_w = Some(val_u32),
+            323 => tile_h = Some(val_u32),
+            324 => tile_offsets_ref = Some((cnt, val_u64, typ)),
+            325 => tile_byte_counts_ref = Some((cnt, val_u64, typ)),
             // Strip TIFF tags (273/278/279). When present without tile tags
             // (322..=325), strips are folded into the tile model below.
-            273 => strip_offsets_ref = Some((cnt, val_u32)),
-            278 => rows_per_strip = Some(val_u32 as u32),
-            279 => strip_byte_counts_ref = Some((cnt, val_u32)),
+            273 => strip_offsets_ref = Some((cnt, val_u64, typ)),
+            278 => rows_per_strip = Some(val_u32),
+            279 => strip_byte_counts_ref = Some((cnt, val_u64, typ)),
             339 => {
                 // SampleFormat is also a per-band SHORT array. Same
                 // inline-vs-offset rule as BitsPerSample (tag 258). Read
                 // the first entry; downstream decoders assume uniform
                 // sample format across bands.
-                sample_format = if cnt * 2 <= 4 {
+                sample_format = if cnt * 2 <= value_slot {
                     val_u16_first
                 } else {
-                    let off = val_u32;
+                    let off = val_usize;
                     if buf.len() < off + 2 {
                         return Err(CogError::ShortRead {
                             needed: off + 2,
@@ -294,11 +506,14 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
                 };
             }
             33550 => {
-                // ModelPixelScale: 3 doubles (sx, sy, sz)
+                // ModelPixelScale: 3 doubles (sx, sy, sz). Total 24 bytes
+                // — never inline in std (slot=4) or BigTIFF (slot=8), so
+                // always dereferenced. Kept as an offset read for safety
+                // even on a hypothetical inline encoder.
                 if cnt < 2 {
                     continue;
                 }
-                let off = val_u32;
+                let off = val_usize;
                 if buf.len() < off + 16 {
                     return Err(CogError::ShortRead {
                         needed: off + 16,
@@ -314,7 +529,7 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
                 if cnt < 6 {
                     continue;
                 }
-                let off = val_u32;
+                let off = val_usize;
                 if buf.len() < off + 48 {
                     return Err(CogError::ShortRead {
                         needed: off + 48,
@@ -330,18 +545,19 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
             }
             34735 => {
                 // GeoKeyDirectory: u16 array, 4 u16 per key
-                geokey_ref = Some((cnt, val_u32));
+                geokey_ref = Some((cnt, val_u64));
             }
             42113 => {
-                // GDAL_NODATA: ASCII
-                if cnt <= 4 {
-                    let s = std::str::from_utf8(&raw[..cnt.min(4)])
+                // GDAL_NODATA: ASCII. Inline if it fits in the value slot
+                // (4 bytes std, 8 bytes BigTIFF); else dereference.
+                if cnt <= value_slot {
+                    let s = std::str::from_utf8(&raw[..cnt.min(value_slot)])
                         .unwrap_or("")
                         .trim_end_matches('\0')
                         .to_string();
                     nodata = Some(s);
                 } else {
-                    let off = val_u32;
+                    let off = val_usize;
                     if buf.len() < off + cnt {
                         return Err(CogError::ShortRead {
                             needed: off + cnt,
@@ -384,39 +600,190 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
     let tile_h = tile_h.ok_or(CogError::MissingTag(323))?;
     let pixel_scale = pixel_scale.ok_or(CogError::MissingTag(33550))?;
     let tiepoint = tiepoint.ok_or(CogError::MissingTag(33922))?;
-    let (toff_cnt, toff_off) = tile_offsets_ref.ok_or(CogError::MissingTag(324))?;
-    let (tbc_cnt, tbc_off) = tile_byte_counts_ref.ok_or(CogError::MissingTag(325))?;
+    let (toff_cnt, toff_val, toff_typ) = tile_offsets_ref.ok_or(CogError::MissingTag(324))?;
+    let (tbc_cnt, tbc_val, tbc_typ) = tile_byte_counts_ref.ok_or(CogError::MissingTag(325))?;
     if toff_cnt != tbc_cnt {
         return Err(CogError::Unsupported(format!(
             "tile_offsets cnt {toff_cnt} != tile_byte_counts cnt {tbc_cnt}"
         )));
     }
 
-    if buf.len() < toff_off + toff_cnt * 4 {
-        return Err(CogError::ShortRead {
-            needed: toff_off + toff_cnt * 4,
-            offset: 0,
-        });
+    // Decode TileOffsets. SHORT/LONG/LONG8 are the only types we expect
+    // here; LONG8 is BigTIFF-only and is how the JRC GFC2020 V3 file
+    // (41 GB) encodes its 6.9 M tile offsets. The array can be inline
+    // (cnt * type_size ≤ value_slot) or external (cnt > 1 in practice
+    // is always external because both fields land past 4 bytes).
+    let toff_elem = tiff_type_size(toff_typ);
+    if toff_elem == 0 {
+        return Err(CogError::Unsupported(format!(
+            "tile_offsets type {toff_typ} unknown"
+        )));
     }
-    if buf.len() < tbc_off + tbc_cnt * 4 {
+    let toff_total = toff_cnt * toff_elem;
+    let toff_base = if toff_total <= value_slot {
+        // Inline — re-encode val_u64 as up to 8 raw bytes and read
+        // from there. This branch is dead for any real-world tile-grid
+        // (cnt ≥ 1, elem ≥ 2), but kept for protocol completeness.
+        // We can't directly point into `buf` for the inline case, so
+        // serialise to a stable byte buffer that we then index.
+        let bytes = toff_val.to_le_bytes();
+        let mut tile_offsets = Vec::with_capacity(toff_cnt);
+        for k in 0..toff_cnt {
+            tile_offsets.push(read_offset_array_elem(&bytes, 0, k, toff_typ)?);
+        }
+        let mut tile_byte_counts = Vec::with_capacity(tbc_cnt);
+        let tbc_elem = tiff_type_size(tbc_typ);
+        if tbc_elem == 0 {
+            return Err(CogError::Unsupported(format!(
+                "tile_byte_counts type {tbc_typ} unknown"
+            )));
+        }
+        let tbc_total = tbc_cnt * tbc_elem;
+        if tbc_total <= value_slot {
+            let bytes_b = tbc_val.to_le_bytes();
+            for k in 0..tbc_cnt {
+                tile_byte_counts.push(read_offset_array_elem(&bytes_b, 0, k, tbc_typ)?);
+            }
+        } else {
+            let off = tbc_val as usize;
+            if buf.len() < off + tbc_total {
+                return Err(CogError::ShortRead {
+                    needed: off + tbc_total,
+                    offset: 0,
+                });
+            }
+            for k in 0..tbc_cnt {
+                tile_byte_counts.push(read_offset_array_elem(buf, off, k, tbc_typ)?);
+            }
+        }
+        return finish_profile(
+            width,
+            height,
+            bits_per_sample,
+            sample_format,
+            compression,
+            predictor,
+            samples_per_pixel,
+            planar_config,
+            tile_w,
+            tile_h,
+            tile_offsets,
+            tile_byte_counts,
+            pixel_scale,
+            tiepoint,
+            geokey_ref,
+            nodata,
+            buf,
+        );
+    } else {
+        toff_val as usize
+    };
+    if buf.len() < toff_base + toff_total {
         return Err(CogError::ShortRead {
-            needed: tbc_off + tbc_cnt * 4,
+            needed: toff_base + toff_total,
             offset: 0,
         });
     }
     let mut tile_offsets = Vec::with_capacity(toff_cnt);
     for k in 0..toff_cnt {
-        let p = toff_off + k * 4;
-        tile_offsets.push(u32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as u64);
+        tile_offsets.push(read_offset_array_elem(buf, toff_base, k, toff_typ)?);
+    }
+
+    let tbc_elem = tiff_type_size(tbc_typ);
+    if tbc_elem == 0 {
+        return Err(CogError::Unsupported(format!(
+            "tile_byte_counts type {tbc_typ} unknown"
+        )));
+    }
+    let tbc_total = tbc_cnt * tbc_elem;
+    let tbc_base = if tbc_total <= value_slot {
+        let bytes = tbc_val.to_le_bytes();
+        let mut tile_byte_counts = Vec::with_capacity(tbc_cnt);
+        for k in 0..tbc_cnt {
+            tile_byte_counts.push(read_offset_array_elem(&bytes, 0, k, tbc_typ)?);
+        }
+        return finish_profile(
+            width,
+            height,
+            bits_per_sample,
+            sample_format,
+            compression,
+            predictor,
+            samples_per_pixel,
+            planar_config,
+            tile_w,
+            tile_h,
+            tile_offsets,
+            tile_byte_counts,
+            pixel_scale,
+            tiepoint,
+            geokey_ref,
+            nodata,
+            buf,
+        );
+    } else {
+        tbc_val as usize
+    };
+    if buf.len() < tbc_base + tbc_total {
+        return Err(CogError::ShortRead {
+            needed: tbc_base + tbc_total,
+            offset: 0,
+        });
     }
     let mut tile_byte_counts = Vec::with_capacity(tbc_cnt);
     for k in 0..tbc_cnt {
-        let p = tbc_off + k * 4;
-        tile_byte_counts.push(u32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as u64);
+        tile_byte_counts.push(read_offset_array_elem(buf, tbc_base, k, tbc_typ)?);
     }
 
+    finish_profile(
+        width,
+        height,
+        bits_per_sample,
+        sample_format,
+        compression,
+        predictor,
+        samples_per_pixel,
+        planar_config,
+        tile_w,
+        tile_h,
+        tile_offsets,
+        tile_byte_counts,
+        pixel_scale,
+        tiepoint,
+        geokey_ref,
+        nodata,
+        buf,
+    )
+}
+
+/// Final stage of `parse_profile`: assemble the [`CogProfile`] from
+/// decoded scalars + already-materialised tile arrays. Pulled out
+/// of the main parser because the inline-vs-external array decode
+/// has two early-return paths, and duplicating the GeoKey + tile-grid
+/// check + struct construction across them would invite drift.
+#[allow(clippy::too_many_arguments)]
+fn finish_profile(
+    width: u32,
+    height: u32,
+    bits_per_sample: u16,
+    sample_format: u16,
+    compression: u16,
+    predictor: u16,
+    samples_per_pixel: u16,
+    planar_config: u16,
+    tile_w: u32,
+    tile_h: u32,
+    tile_offsets: Vec<u64>,
+    tile_byte_counts: Vec<u64>,
+    pixel_scale: (f64, f64),
+    tiepoint: (f64, f64, f64, f64),
+    geokey_ref: Option<(usize, u64)>,
+    nodata: Option<String>,
+    buf: &[u8],
+) -> Result<CogProfile, CogError> {
     let tile_cols = width.div_ceil(tile_w);
     let tile_rows = height.div_ceil(tile_h);
+    let toff_cnt = tile_offsets.len();
     if (tile_cols as usize) * (tile_rows as usize) != toff_cnt {
         return Err(CogError::Unsupported(format!(
             "tile grid {}x{} != tile_offsets count {}",
@@ -426,7 +793,8 @@ fn parse_profile(buf: &[u8]) -> Result<CogProfile, CogError> {
 
     // Try to find EPSG via GeoKeyDirectory key 3072 (ProjectedCSTypeGeoKey).
     let mut epsg: Option<u32> = None;
-    if let Some((cnt, off)) = geokey_ref {
+    if let Some((cnt, off_u64)) = geokey_ref {
+        let off = off_u64 as usize;
         if buf.len() >= off + cnt * 2 {
             // Header: 4 u16 — version, key_revision, minor_revision, num_keys
             let num_keys = u16::from_le_bytes(buf[off + 6..off + 8].try_into().unwrap()) as usize;
@@ -1118,4 +1486,346 @@ async fn http_range(
     resp.bytes()
         .await
         .map_err(|e| CogError::Transport(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal valid BigTIFF byte buffer in memory with exactly
+    /// the IFD tags `parse_profile` needs to succeed. The layout is:
+    ///
+    /// ```text
+    ///   off  bytes  field
+    ///    0   16     header: II 2B 00 08 00 00 IFD0_OFFSET (u64)
+    ///   16   24     ModelPixelScale doubles (sx, sy, sz)
+    ///   40   48     ModelTiepoint doubles  (i, j, k, x, y, z)
+    ///   88    8     IFD entry count (u64)
+    ///   96   N*20   IFD entries
+    ///   ...   8     next-IFD offset (u64, 0)
+    ///   ...  rest   external arrays (TileOffsets / TileByteCounts)
+    /// ```
+    ///
+    /// 2×2 tiles of 16×16 pixels each → 32×32 image. Compression=1
+    /// (no codec — `parse_profile` never decompresses; that's
+    /// `sample_pixel`'s job). The tile arrays are tiny synthetic
+    /// LONG8 values that exercise the BigTIFF-only type-16 path.
+    fn build_synthetic_bigtiff() -> Vec<u8> {
+        let mut buf = Vec::new();
+        // Header.
+        buf.extend_from_slice(b"II");
+        buf.extend_from_slice(&0x002B_u16.to_le_bytes());
+        buf.extend_from_slice(&8_u16.to_le_bytes());
+        buf.extend_from_slice(&0_u16.to_le_bytes());
+        // IFD0 offset will be patched once we know the size of the
+        // pre-IFD blob (header + ModelPixelScale + ModelTiepoint).
+        let ifd0_off_pos = buf.len();
+        buf.extend_from_slice(&0_u64.to_le_bytes());
+
+        // ModelPixelScale doubles: sx=1.0, sy=1.0, sz=0.0
+        let pixel_scale_off = buf.len() as u64;
+        buf.extend_from_slice(&1.0_f64.to_le_bytes());
+        buf.extend_from_slice(&1.0_f64.to_le_bytes());
+        buf.extend_from_slice(&0.0_f64.to_le_bytes());
+
+        // ModelTiepoint doubles: (i=0, j=0, k=0, x=100, y=200, z=0)
+        let tiepoint_off = buf.len() as u64;
+        for v in [0.0_f64, 0.0, 0.0, 100.0, 200.0, 0.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+
+        // Patch IFD0 offset.
+        let ifd0_off = buf.len() as u64;
+        buf[ifd0_off_pos..ifd0_off_pos + 8].copy_from_slice(&ifd0_off.to_le_bytes());
+
+        // Tags we'll write (in ascending order per TIFF spec):
+        //  256 Width=32, 257 Height=32, 258 BitsPerSample=8,
+        //  259 Compression=1, 277 SamplesPerPixel=1,
+        //  284 PlanarConfig=1, 317 Predictor=1,
+        //  322 TileWidth=16, 323 TileLength=16,
+        //  324 TileOffsets (LONG8 array of 4), 325 TileByteCounts (LONG8 array of 4),
+        //  339 SampleFormat=1, 33550 ModelPixelScale, 33922 ModelTiepoint
+        let n_entries: u64 = 14;
+        buf.extend_from_slice(&n_entries.to_le_bytes());
+
+        // Helper closure to push a BigTIFF entry with inline 8-byte
+        // value slot. `val` already encodes whatever the tag's value
+        // field should hold (SHORT-in-slot, LONG-in-slot, or u64 offset).
+        let push_entry = |buf: &mut Vec<u8>, tag: u16, typ: u16, cnt: u64, val: u64| {
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&typ.to_le_bytes());
+            buf.extend_from_slice(&cnt.to_le_bytes());
+            buf.extend_from_slice(&val.to_le_bytes());
+        };
+        // For SHORT inline values, the low 2 bytes carry the value and
+        // the rest is zero — `to_le_bytes` of a u16-widened-to-u64 does
+        // exactly that.
+        push_entry(&mut buf, 256, 4, 1, 32); // Width LONG
+        push_entry(&mut buf, 257, 4, 1, 32); // Height LONG
+        push_entry(&mut buf, 258, 3, 1, 8); // BitsPerSample SHORT
+        push_entry(&mut buf, 259, 3, 1, 1); // Compression SHORT (none)
+        push_entry(&mut buf, 277, 3, 1, 1); // SamplesPerPixel SHORT
+        push_entry(&mut buf, 284, 3, 1, 1); // PlanarConfig SHORT
+        push_entry(&mut buf, 317, 3, 1, 1); // Predictor SHORT
+        push_entry(&mut buf, 322, 3, 1, 16); // TileWidth SHORT
+        push_entry(&mut buf, 323, 3, 1, 16); // TileLength SHORT
+                                             // We need to know where the external TileOffsets / TileByteCounts
+                                             // arrays will live; pre-allocate by remembering positions to patch.
+        let tile_offsets_entry_val_pos = buf.len() + 12;
+        push_entry(&mut buf, 324, 16, 4, 0); // TileOffsets LONG8 [4]
+        let tile_bc_entry_val_pos = buf.len() + 12;
+        push_entry(&mut buf, 325, 16, 4, 0); // TileByteCounts LONG8 [4]
+        push_entry(&mut buf, 339, 3, 1, 1); // SampleFormat SHORT
+        push_entry(&mut buf, 33550, 12, 3, pixel_scale_off);
+        push_entry(&mut buf, 33922, 12, 6, tiepoint_off);
+
+        // Next-IFD offset (BigTIFF: u64).
+        buf.extend_from_slice(&0_u64.to_le_bytes());
+
+        // External TileOffsets / TileByteCounts arrays (4 entries each, LONG8).
+        let toff_array_off = buf.len() as u64;
+        for off in [10_000_u64, 11_000, 12_000, 13_000] {
+            buf.extend_from_slice(&off.to_le_bytes());
+        }
+        let tbc_array_off = buf.len() as u64;
+        for n in [256_u64, 256, 256, 256] {
+            buf.extend_from_slice(&n.to_le_bytes());
+        }
+
+        // Patch the TileOffsets / TileByteCounts entry value slots.
+        buf[tile_offsets_entry_val_pos..tile_offsets_entry_val_pos + 8]
+            .copy_from_slice(&toff_array_off.to_le_bytes());
+        buf[tile_bc_entry_val_pos..tile_bc_entry_val_pos + 8]
+            .copy_from_slice(&tbc_array_off.to_le_bytes());
+
+        buf
+    }
+
+    /// `parse_profile` MUST recognise BigTIFF's `0x002B` magic word and
+    /// decode the 16-byte header into the same `CogProfile` shape it
+    /// produces for classic TIFF. The synthetic file exercises every
+    /// BigTIFF-only path: 8-byte IFD entry count, 20-byte entries, u64
+    /// value slot, and LONG8 (type 16) TileOffsets / TileByteCounts.
+    /// Any regression in flavour-routing surfaces as a missing tag or
+    /// wrong scalar here.
+    #[test]
+    fn parse_profile_decodes_bigtiff_header() {
+        let buf = build_synthetic_bigtiff();
+        let prof = parse_profile(&buf).expect("BigTIFF header must parse");
+        assert_eq!(prof.width, 32);
+        assert_eq!(prof.height, 32);
+        assert_eq!(prof.bits_per_sample, 8);
+        assert_eq!(prof.compression, 1);
+        assert_eq!(prof.predictor, 1);
+        assert_eq!(prof.samples_per_pixel, 1);
+        assert_eq!(prof.planar_config, 1);
+        assert_eq!(prof.tile_w, 16);
+        assert_eq!(prof.tile_h, 16);
+        assert_eq!(prof.tile_cols, 2);
+        assert_eq!(prof.tile_rows, 2);
+        assert_eq!(prof.tile_offsets, vec![10_000, 11_000, 12_000, 13_000]);
+        assert_eq!(prof.tile_byte_counts, vec![256, 256, 256, 256]);
+        assert_eq!(prof.pixel_scale, (1.0, 1.0));
+        assert_eq!(prof.tiepoint, (0.0, 0.0, 100.0, 200.0));
+        assert_eq!(prof.sample_format, 1);
+    }
+
+    /// The std-TIFF magic `0x002A` path must still parse correctly —
+    /// the BigTIFF additive support must not regress classic IFD
+    /// decoding. Builds a minimal 32×32 single-tile std TIFF in
+    /// memory and asserts the parsed profile matches the synthetic.
+    #[test]
+    fn parse_profile_decodes_standard_tiff_header() {
+        // Layout: 8-byte header, then ModelPixelScale (24 B) + ModelTiepoint
+        // (48 B), then IFD0 with 14 entries × 12 B + 2 B count + 4 B next.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"II");
+        buf.extend_from_slice(&0x002A_u16.to_le_bytes());
+        let ifd0_off_pos = buf.len();
+        buf.extend_from_slice(&0_u32.to_le_bytes());
+
+        let pixel_scale_off = buf.len() as u32;
+        for v in [1.0_f64, 1.0, 0.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        let tiepoint_off = buf.len() as u32;
+        for v in [0.0_f64, 0.0, 0.0, 100.0, 200.0, 0.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+
+        let ifd0_off = buf.len() as u32;
+        buf[ifd0_off_pos..ifd0_off_pos + 4].copy_from_slice(&ifd0_off.to_le_bytes());
+
+        let n_entries: u16 = 14;
+        buf.extend_from_slice(&n_entries.to_le_bytes());
+
+        // 12-byte std TIFF entries with a 4-byte inline value slot.
+        let push_entry = |buf: &mut Vec<u8>, tag: u16, typ: u16, cnt: u32, val: u32| {
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&typ.to_le_bytes());
+            buf.extend_from_slice(&cnt.to_le_bytes());
+            buf.extend_from_slice(&val.to_le_bytes());
+        };
+        push_entry(&mut buf, 256, 4, 1, 32);
+        push_entry(&mut buf, 257, 4, 1, 32);
+        push_entry(&mut buf, 258, 3, 1, 8);
+        push_entry(&mut buf, 259, 3, 1, 1);
+        push_entry(&mut buf, 277, 3, 1, 1);
+        push_entry(&mut buf, 284, 3, 1, 1);
+        push_entry(&mut buf, 317, 3, 1, 1);
+        push_entry(&mut buf, 322, 3, 1, 16);
+        push_entry(&mut buf, 323, 3, 1, 16);
+        let tile_offsets_entry_val_pos = buf.len() + 8;
+        push_entry(&mut buf, 324, 4, 4, 0); // TileOffsets LONG [4]
+        let tile_bc_entry_val_pos = buf.len() + 8;
+        push_entry(&mut buf, 325, 4, 4, 0);
+        push_entry(&mut buf, 339, 3, 1, 1);
+        push_entry(&mut buf, 33550, 12, 3, pixel_scale_off);
+        push_entry(&mut buf, 33922, 12, 6, tiepoint_off);
+        buf.extend_from_slice(&0_u32.to_le_bytes()); // next IFD
+
+        let toff_array_off = buf.len() as u32;
+        for off in [10_000_u32, 11_000, 12_000, 13_000] {
+            buf.extend_from_slice(&off.to_le_bytes());
+        }
+        let tbc_array_off = buf.len() as u32;
+        for n in [256_u32, 256, 256, 256] {
+            buf.extend_from_slice(&n.to_le_bytes());
+        }
+        buf[tile_offsets_entry_val_pos..tile_offsets_entry_val_pos + 4]
+            .copy_from_slice(&toff_array_off.to_le_bytes());
+        buf[tile_bc_entry_val_pos..tile_bc_entry_val_pos + 4]
+            .copy_from_slice(&tbc_array_off.to_le_bytes());
+
+        let prof = parse_profile(&buf).expect("standard TIFF must still parse");
+        assert_eq!(prof.width, 32);
+        assert_eq!(prof.height, 32);
+        assert_eq!(prof.bits_per_sample, 8);
+        assert_eq!(prof.tile_w, 16);
+        assert_eq!(prof.tile_h, 16);
+        assert_eq!(prof.tile_offsets, vec![10_000, 11_000, 12_000, 13_000]);
+        assert_eq!(prof.tile_byte_counts, vec![256, 256, 256, 256]);
+    }
+
+    /// Header smoke test against the live 41 GB JRC GFC2020 V3 BigTIFF.
+    /// Gated behind `#[ignore]` so CI doesn't hit the JRC's JEODPP
+    /// bucket. Run manually with
+    /// `cargo test --ignored -p emem-fetch jrc_gfc2020_header_parses`.
+    ///
+    /// The test fetches the first 64 KiB of the file, lets `open_profile`
+    /// run its retry loop (the TileByteCounts array lands ~55 MB into
+    /// the file and triggers a second range read), and prints the parsed
+    /// profile. The asserts pin the shape we expect for a global
+    /// 10 m EPSG:4326 uint8 forest mask.
+    #[tokio::test]
+    #[ignore = "live network test against jeodpp.jrc.ec.europa.eu — run with --ignored"]
+    async fn jrc_gfc2020_header_parses() {
+        let url = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V3_COG.tif";
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .expect("client");
+        let prof = match open_profile(&client, url).await {
+            Ok(p) => p,
+            Err(CogError::Transport(s)) => {
+                // Network failure → skip per the test spec; do not
+                // fail the run on JEODPP outage.
+                eprintln!("[skip] jrc_gfc2020_header_parses: transport: {s}");
+                return;
+            }
+            Err(e) => panic!("unexpected COG error: {e}"),
+        };
+        eprintln!(
+            "JRC GFC2020 V3 parsed profile: \
+             width={} height={} bits={} sample_format={} compression={} \
+             predictor={} tile_w={} tile_h={} tile_cols={} tile_rows={} \
+             samples_per_pixel={} planar={} pixel_scale={:?} tiepoint={:?} \
+             epsg={:?} nodata={:?} tile_offsets.len={} tile_byte_counts.len={}",
+            prof.width,
+            prof.height,
+            prof.bits_per_sample,
+            prof.sample_format,
+            prof.compression,
+            prof.predictor,
+            prof.tile_w,
+            prof.tile_h,
+            prof.tile_cols,
+            prof.tile_rows,
+            prof.samples_per_pixel,
+            prof.planar_config,
+            prof.pixel_scale,
+            prof.tiepoint,
+            prof.epsg,
+            prof.nodata,
+            prof.tile_offsets.len(),
+            prof.tile_byte_counts.len(),
+        );
+        // Global 10 m raster — must be very wide.
+        assert!(
+            prof.width > 1_000_000,
+            "width={} too small for a 10 m global product",
+            prof.width
+        );
+        assert!(
+            prof.height > 1_000_000,
+            "height={} too small for a 10 m global product",
+            prof.height
+        );
+        // Single-band uint8 forest mask.
+        assert_eq!(prof.bits_per_sample, 8, "GFC2020 V3 is 8-bit");
+        assert_eq!(prof.samples_per_pixel, 1, "GFC2020 V3 is single-band");
+        // 1024×1024 tiles are typical for global JRC COGs (we observed
+        // tile_w=1024 in the 1024-byte header probe). Allow any power
+        // of two ≥ 256 to avoid false failures if JRC bumps the tile size.
+        assert!(
+            prof.tile_w >= 256 && prof.tile_w.is_power_of_two(),
+            "tile_w={} unexpected",
+            prof.tile_w
+        );
+        assert!(
+            prof.tile_h >= 256 && prof.tile_h.is_power_of_two(),
+            "tile_h={} unexpected",
+            prof.tile_h
+        );
+        // Compression must be 1 (none), 5 (LZW), or 8 (Deflate) for
+        // the downstream sample path to succeed.
+        assert!(
+            matches!(prof.compression, 1 | 5 | 8),
+            "compression={} not supported",
+            prof.compression
+        );
+        // EPSG: the GeoKeyDirectory reader in this module only looks at
+        // key 3072 (ProjectedCSTypeGeoKey). GFC2020 V3 is a geographic
+        // (lat/lng) raster, so it stores its CRS under key 2048
+        // (GeographicTypeGeoKey) which we don't parse — `epsg` is
+        // therefore `None`, and the `jrc_gfc2020` connector knows the
+        // CRS out-of-band (EPSG:4326). If `epsg` is `Some(...)` we
+        // expect 4326; otherwise `None` is acceptable.
+        match prof.epsg {
+            None => {}
+            Some(4326) => {}
+            Some(other) => panic!("unexpected EPSG {other} (want None or 4326)"),
+        }
+        // Tiepoint should map pixel (0,0) to (-180°, +northern-edge°)
+        // — pin the (x, y) but allow drift in the latitude edge in
+        // case the JRC reshapes the bounding box.
+        let (i, j, x, y) = prof.tiepoint;
+        assert_eq!((i, j), (0.0, 0.0), "pixel origin must be (0,0)");
+        assert!(
+            (x - (-180.0)).abs() < 1e-6,
+            "world-origin x must be -180°, got {x}"
+        );
+        assert!(
+            (0.0..=90.0).contains(&y),
+            "world-origin y must be in [0°, 90°], got {y}"
+        );
+        // ~10 m at the equator → pixel scale is 1/12000 deg.
+        let expected_scale = 1.0_f64 / 12_000.0;
+        assert!(
+            (prof.pixel_scale.0 - expected_scale).abs() < 1e-9
+                && (prof.pixel_scale.1 - expected_scale).abs() < 1e-9,
+            "pixel_scale {:?} not ~ {expected_scale}",
+            prof.pixel_scale
+        );
+    }
 }

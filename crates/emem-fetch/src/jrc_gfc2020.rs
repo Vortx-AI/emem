@@ -275,6 +275,56 @@ mod tests {
         );
     }
 
+    /// End-to-end materializer round-trip against the live 41 GB
+    /// JRC GFC2020 V3 BigTIFF. Gated behind `#[ignore]` so CI doesn't
+    /// hit the JEODPP bucket. Verifies that the BigTIFF support in
+    /// [`crate::cog`] is sufficient for the connector to return a
+    /// real EUDR-baseline forest indicator at known sample points.
+    ///
+    /// Sample points:
+    /// - Yasuni rainforest, Ecuador (-1.15°N, -76.45°E) — expected `1`
+    ///   (forest under EUDR ≥10% canopy, ≥5 m height, ≥0.5 ha).
+    /// - Mid-Atlantic open ocean (0°N, -30°E) — expected `0`
+    ///   (non-forest by EUDR definition; the raster reports `0`
+    ///   beyond shore lines).
+    ///
+    /// On transport failure the test skips silently rather than
+    /// failing the suite — the test is a smoke check on the BigTIFF
+    /// path, not a JEODPP availability gate.
+    #[tokio::test]
+    #[ignore = "live network test against jeodpp.jrc.ec.europa.eu — run with --ignored"]
+    async fn fetch_forest_2020_yasuni_is_forest() {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .expect("client");
+        let v = match fetch_forest_2020(&client, -1.15, -76.45).await {
+            Ok(v) => v,
+            Err(JrcGfc2020Error::Transport(s)) => {
+                eprintln!("[skip] yasuni live test: transport: {s}");
+                return;
+            }
+            Err(other) => panic!("yasuni unexpectedly errored: {other:?}"),
+        };
+        assert_eq!(
+            v, 1,
+            "Yasuni rainforest (-1.15, -76.45) must read as forest=1"
+        );
+
+        let v = match fetch_forest_2020(&client, 0.0, -30.0).await {
+            Ok(v) => v,
+            Err(JrcGfc2020Error::Transport(s)) => {
+                eprintln!("[skip] open-ocean live test: transport: {s}");
+                return;
+            }
+            Err(other) => panic!("open-ocean unexpectedly errored: {other:?}"),
+        };
+        assert_eq!(
+            v, 0,
+            "Mid-Atlantic open ocean (0, -30) must read as non-forest=0"
+        );
+    }
+
     /// `JrcGfc2020Error::from_cog` translates a transport-shaped COG
     /// error into [`JrcGfc2020Error::Transport`] (so the dispatcher
     /// can retry); other COG errors become `Decode` (the no-fallback
