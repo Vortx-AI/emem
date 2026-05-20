@@ -1780,9 +1780,7 @@ fn has_src_attr(open_tag: &str) -> bool {
     // whitespace, anywhere in the opening tag.
     let bytes = open_tag.as_bytes();
     for i in 0..bytes.len().saturating_sub(4) {
-        if matches!(bytes[i], b' ' | b'\t' | b'\n' | b'\r')
-            && &bytes[i + 1..i + 5] == b"src="
-        {
+        if matches!(bytes[i], b' ' | b'\t' | b'\n' | b'\r') && &bytes[i + 1..i + 5] == b"src=" {
             return true;
         }
     }
@@ -1813,10 +1811,7 @@ fn collect_inline_hashes() -> (Vec<String>, Vec<String>) {
             styles.insert(sha256_b64(body));
         });
     }
-    (
-        scripts.into_iter().collect(),
-        styles.into_iter().collect(),
-    )
+    (scripts.into_iter().collect(), styles.into_iter().collect())
 }
 
 /// The full `Content-Security-Policy` header value, computed once at
