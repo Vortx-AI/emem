@@ -14,6 +14,10 @@
   </p>
 
   <p>
+    <a href="https://eudr.dev"><img src="https://img.shields.io/badge/built%20with%20emem-eudr.dev%20%C2%B7%20EUDR%20compliance%20agent-2ea043.svg" alt="eudr.dev — EU Deforestation Regulation compliance agent built on emem"></a>
+  </p>
+
+  <p>
     <a href="https://emem.dev"><strong>Hosted</strong></a> ·
     <a href="https://emem.dev/agents.md">Docs</a> ·
     <a href="https://emem.dev/spec.md">Spec</a> ·

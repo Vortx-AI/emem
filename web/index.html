@@ -436,6 +436,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <a href="#first-call" class="nav-sec">first call</a>
     <a href="#daily-two" class="nav-sec">daily two</a>
     <a href="#connect" class="nav-sec">connect</a>
+    <a href="#showcase" class="nav-sec">showcase</a>
     <a href="#substrate" class="nav-sec">substrate</a>
     <a href="#verify" class="nav-sec">verify</a>
     <a href="#for-agents" class="nav-sec">for agents</a>
@@ -850,6 +851,39 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     </table>
 
     <p>When the event has no registered algorithm (today, <span class="band">oil_slick</span>), the responder returns <span class="band">status: not_yet_implemented</span> and points at the closest available physics (Sentinel-1 surface roughness, red-band turbidity). No hotspots, no fabricated receipt.</p>
+  </div>
+</section>
+
+<section class="section page" id="showcase">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04b</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>agent</dt><dd><a href="https://eudr.dev">eudr.dev</a></dd>
+      <dt>regulation</dt><dd>EU 2023/1115</dd>
+      <dt>output</dt><dd>signed Annex II DDS</dd>
+      <dt>baseline</dt><dd>JRC GFC2020 V3</dd>
+      <dt>article 2(4)</dt><dd>&gt;10&nbsp;% canopy, &gt;0.5&nbsp;ha, &gt;5&nbsp;m</dd>
+      <dt>endpoint</dt><dd>POST&nbsp;/v1/eudr_dds</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">04b</span>Real agents already run on this</h2>
+    <p class="lede"><a href="https://eudr.dev">eudr.dev</a> is an independent EU Deforestation Regulation compliance agent. Every paragraph it quotes resolves to an ed25519-signed <span class="band">fact_cid</span> served from this responder.</p>
+
+    <p>The agent ingests a shipment plot, dispatches <span class="band">/v1/eudr_dds</span> against the cell64-tiled forest baseline, and returns a Due Diligence Statement shaped to Annex II of Regulation (EU) 2023/1115. The per-cell algorithm <span class="band">eudr_compliance@1</span> implements Article 2(4) as written &mdash; &gt;0.5&nbsp;ha, &gt;5&nbsp;m height, &gt;10&nbsp;% canopy cover, excluding land predominantly under agricultural or urban use. Forest baseline is JRC GFC2020 V3 (the Commission&rsquo;s expected non-binding baseline, live single-COG materialiser at JEODPP), corroborated against Hansen GFC v1.12 treecover2000. Article 2(28) dispatch picks POINT (&le;4&nbsp;ha non-cattle) vs POLYGON (&gt;4&nbsp;ha or any cattle plot under HS&nbsp;0102/0201/0202).</p>
+
+    <p>Driver attribution (Sims et&nbsp;al.&nbsp;2025) and RADD Sentinel-1 disturbance alerts layer on as refinement; both currently materialise typed Absence because the upstreams do not honour HTTP Range and the responder will not fabricate a value for a connector it cannot read. The Article 9(1)(b) legality disclaimer ships in the same envelope &mdash; land tenure, FPIC, country-of-origin laws are structurally out of EO scope and need a partner module before TRACES NT submission. Honest by construction.</p>
+
+    <p>The agent is operated independently and is <em>not affiliated with, endorsed by, or sponsored by</em> any EU institution. The cite-back surface is the same one you can drive from your own MCP client: every finding paste-resolves at <a href="/verify">/verify</a>, and the schema at <a href="/v1/schemas/eudr_dds.json">/v1/schemas/eudr_dds.json</a> cites the exact EUR-Lex paragraph each field maps to.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="https://eudr.dev">Open eudr.dev &rarr;</a>
+      <a class="btn ghost" href="/v1/eudr_dds">/v1/eudr_dds</a>
+      <a class="btn ghost" href="/v1/schemas/eudr_dds.json">Annex II JSON Schema</a>
+    </p>
+
+    <p style="margin-top:1.5rem;font-size:var(--t-xs);color:var(--mute)">Building an agent on emem? Open an issue at <a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">github.com/Vortx-AI/emem</a> and we&rsquo;ll list it here.</p>
   </div>
 </section>
 
