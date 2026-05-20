@@ -31,6 +31,12 @@ data-encoding   = { workspace = true }
 ciborium        = { workspace = true }
 ed25519-dalek   = { workspace = true }
 blake3          = { workspace = true }
+# sha2 is used only for hash-based CSP — sha256 of every inline
+# <script>/<style> body is computed once at startup and embedded in
+# the Content-Security-Policy header so we can drop 'unsafe-inline'.
+# Mozilla Observatory upgrades us from A to A+ once 'unsafe-inline'
+# is gone; security questionnaires also stop flagging it.
+sha2            = "0.10"
 tracing         = { workspace = true }
 sled            = { workspace = true }
 # PNG encoder for the multimodal RGB-scene tool

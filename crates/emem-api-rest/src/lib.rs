@@ -1297,26 +1297,26 @@ async fn security_headers_layer(
     // cdn.redocly.com. fonts: Google Fonts CSS is on fonts.googleapis.com;
     // the actual font binaries on fonts.gstatic.com need both font-src and
     // connect-src.
-    h.insert(
-        "content-security-policy",
-        HeaderValue::from_static(
-            "default-src 'self'; \
-         script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com 'unsafe-inline'; \
-         connect-src 'self' https://www.google-analytics.com https://esm.sh; \
-         img-src 'self' data: https:; \
-         style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
-         font-src 'self' data: https://fonts.gstatic.com; \
-         worker-src 'self' blob:; \
-         frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
-         base-uri 'self'; \
-         form-action 'self'",
-        ),
-    );
-    h.insert(
-        "x-emem-version",
-        HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
-    );
+    // Hash-based CSP: 'unsafe-inline' replaced with sha256 hashes of
+    // every inline <script>/<style> we serve. Computed once at first
+    // use; see `csp_header_value()` for the build. Drop new HTML
+    // pages into `served_html_pages()` or their inline blocks will be
+    // browser-blocked.
+    h.insert("content-security-policy", csp_header_value().clone());
+    // x-emem-version is *not* emitted globally — auditors flag it as
+    // server-version disclosure on every response. The version is
+    // intentionally re-emitted on /.well-known/emem.json (and only
+    // there), since that endpoint's whole purpose is responder
+    // disclosure: manifest CIDs, pubkey, version. See `well_known()`.
     response
+}
+
+/// `HeaderValue` for the responder version — `CARGO_PKG_VERSION` baked
+/// at compile time. Used only by handlers that intentionally disclose
+/// the version (currently `/.well-known/emem.json`).
+fn version_header_value() -> &'static HeaderValue {
+    static CACHE: std::sync::OnceLock<HeaderValue> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| HeaderValue::from_static(env!("CARGO_PKG_VERSION")))
 }
 
 // ── In-process token-bucket rate limit ───────────────────────────────────
@@ -1687,6 +1687,167 @@ fn rendered_index_html() -> &'static str {
             }
         })
         .as_str()
+}
+
+// ── Hash-based Content-Security-Policy ───────────────────────────────────
+//
+// CSP without `'unsafe-inline'` requires every inline <script>/<style>
+// body to be hashed and listed as `'sha256-<b64>'`. We compute these
+// once at first use over every HTML page the responder serves (after
+// GA placeholder substitution on /), dedupe via BTreeSet so the CSP
+// string is stable across restarts, and bake the result into a
+// HeaderValue cached in a OnceLock. The middleware then just clones
+// that HeaderValue (cheap, Bytes-backed) per response.
+//
+// Brittleness: edit an inline block in `web/*.html` and the binary
+// must be rebuilt or the new block will be CSP-blocked. That's the
+// trade for keeping `Cache-Control: public, max-age=3600` — the
+// alternative (per-request nonce) would force every response unique
+// and break edge caching.
+
+/// Every HTML string the responder serves with the standard CSP. New
+/// HTML routes must be added here or their inline blocks will be
+/// blocked by the browser.
+fn served_html_pages() -> Vec<&'static str> {
+    vec![
+        rendered_index_html(),
+        HUMANS_HTML,
+        VERIFY_HTML,
+        NOT_FOUND_HTML,
+        DEMOS_SIGNED_ANSWER_HTML,
+        DEMOS_INDEX_HTML,
+        DEMOS_STATE_CUBE_HTML,
+        DEMOS_ASK_THE_EARTH_HTML,
+        DEMOS_FIND_SIMILAR_HTML,
+        DEMOS_TRAJECTORY_HTML,
+        DEMOS_RECALL_POLYGON_HTML,
+        GALLERY_HTML,
+        API_REDOC_HTML,
+        DOCS_DIAGRAMS_INDEX_HTML,
+    ]
+}
+
+/// sha256(body) → base64 (standard alphabet, no padding stripped — CSP
+/// spec wants standard base64 with `=` padding intact).
+fn sha256_b64(body: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(body.as_bytes());
+    data_encoding::BASE64.encode(&h.finalize())
+}
+
+/// Walk `html` for elements of `tag_name`, invoking `f(open_tag, body)`
+/// for each. `body` is the verbatim text between `<tag ...>` and
+/// `</tag>` — CSP hashes that exact byte sequence.
+///
+/// Naive scanner: assumes no `>` inside attribute quotes and no nested
+/// same-name tags. Both hold for the HTML we serve (hand-authored,
+/// `cargo fmt`-style stable).
+fn extract_inline_blocks(html: &str, tag_name: &str, mut f: impl FnMut(&str, &str)) {
+    let open_prefix = format!("<{tag_name}");
+    let close = format!("</{tag_name}>");
+    let mut rest = html;
+    while let Some(start) = rest.find(&open_prefix) {
+        // Confirm this is `<tag` followed by `>` or whitespace, not
+        // `<scripture>` or similar collision.
+        let next = rest[start + open_prefix.len()..].chars().next();
+        if !matches!(next, Some('>') | Some(' ') | Some('\t') | Some('\n')) {
+            rest = &rest[start + open_prefix.len()..];
+            continue;
+        }
+        let after_lt = start + open_prefix.len();
+        let Some(gt_rel) = rest[after_lt..].find('>') else {
+            break;
+        };
+        let body_start = after_lt + gt_rel + 1;
+        let open_tag = &rest[start..body_start];
+        let Some(end_rel) = rest[body_start..].find(&close) else {
+            break;
+        };
+        let body_end = body_start + end_rel;
+        let body = &rest[body_start..body_end];
+        f(open_tag, body);
+        rest = &rest[body_end + close.len()..];
+    }
+}
+
+/// Detect a `src=` attribute on an opening `<script>` tag. External
+/// scripts have an empty body anyway, but we still skip them so the
+/// CSP doesn't grow a `'sha256-<empty-string-hash>'` entry that adds
+/// nothing.
+fn has_src_attr(open_tag: &str) -> bool {
+    // Match ` src=` or `\tsrc=` or `\nsrc=` — i.e. src preceded by
+    // whitespace, anywhere in the opening tag.
+    let bytes = open_tag.as_bytes();
+    for i in 0..bytes.len().saturating_sub(4) {
+        if matches!(bytes[i], b' ' | b'\t' | b'\n' | b'\r')
+            && &bytes[i + 1..i + 5] == b"src="
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Collect unique sha256-b64 hashes of every inline `<script>` and
+/// `<style>` body across every served HTML page. Results are sorted so
+/// the CSP header string is byte-identical across restarts (helpful
+/// for CDN cache keys and audit diffs).
+fn collect_inline_hashes() -> (Vec<String>, Vec<String>) {
+    let mut scripts = std::collections::BTreeSet::new();
+    let mut styles = std::collections::BTreeSet::new();
+    for page in served_html_pages() {
+        extract_inline_blocks(page, "script", |open_tag, body| {
+            if has_src_attr(open_tag) {
+                return;
+            }
+            if body.trim().is_empty() {
+                return;
+            }
+            scripts.insert(sha256_b64(body));
+        });
+        extract_inline_blocks(page, "style", |_open_tag, body| {
+            if body.trim().is_empty() {
+                return;
+            }
+            styles.insert(sha256_b64(body));
+        });
+    }
+    (
+        scripts.into_iter().collect(),
+        styles.into_iter().collect(),
+    )
+}
+
+/// The full `Content-Security-Policy` header value, computed once at
+/// first use. Drops `'unsafe-inline'` for both `script-src` and
+/// `style-src` by inlining sha256 hashes of every block we serve.
+fn csp_header_value() -> &'static HeaderValue {
+    static CACHE: std::sync::OnceLock<HeaderValue> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let (script_hashes, style_hashes) = collect_inline_hashes();
+        let script_src_extra: String = script_hashes
+            .iter()
+            .map(|h| format!(" 'sha256-{h}'"))
+            .collect();
+        let style_src_extra: String = style_hashes
+            .iter()
+            .map(|h| format!(" 'sha256-{h}'"))
+            .collect();
+        let csp = format!(
+            "default-src 'self'; \
+             script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com{script_src_extra}; \
+             connect-src 'self' https://www.google-analytics.com https://esm.sh; \
+             img-src 'self' data: https:; \
+             style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
+             font-src 'self' data: https://fonts.gstatic.com; \
+             worker-src 'self' blob:; \
+             frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
+             base-uri 'self'; \
+             form-action 'self'"
+        );
+        HeaderValue::from_str(&csp).expect("CSP header is ASCII")
+    })
 }
 
 // ── Static page routes ───────────────────────────────────────────────────
@@ -2747,7 +2908,7 @@ async fn health(State(s): State<AppState>) -> Json<JsonValue> {
     }))
 }
 
-async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
+async fn well_known(State(s): State<AppState>) -> Response {
     // Operator attestation: a signed liveness claim binding the running
     // binary's provenance (git commit, build timestamp, BLAKE3 hash of
     // the on-disk executable) plus the protocol state (version, key
@@ -2794,7 +2955,13 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
         .encode(&attest_sig)
         .to_lowercase();
 
-    Json(json!({
+    // /.well-known/emem.json is the *only* response that intentionally
+    // emits `x-emem-version` — the manifest's whole purpose is
+    // responder disclosure (pubkey, manifest CIDs, version). The header
+    // is now stripped from the global middleware (see headers fn) so
+    // auditors stop dinging us for server-version disclosure on every
+    // /v1/* response, but it stays here.
+    let body = Json(json!({
         "protocol": "emem",
         "version": version,
         "manifests": {
@@ -2866,7 +3033,11 @@ async fn well_known(State(s): State<AppState>) -> Json<JsonValue> {
             "support":          "/support",
             "security":         "https://github.com/Vortx-AI/emem/blob/main/SECURITY.md",
         },
-    }))
+    }));
+    let mut resp = body.into_response();
+    resp.headers_mut()
+        .insert("x-emem-version", version_header_value().clone());
+    resp
 }
 
 async fn manifests(State(s): State<AppState>) -> Json<JsonValue> {
