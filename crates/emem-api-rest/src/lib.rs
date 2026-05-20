@@ -9203,8 +9203,8 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                             "address": {"type": ["string", "null"], "$comment": "Annex II §1(c)"}
                         }
                     },
-                    "verdict": {"type": "string", "enum": ["pass", "fail", "fail_below_de_minimis", "not_in_scope", "indeterminate"], "$comment": "Overall DDS verdict aggregated across plots"},
-                    "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 5], "$comment": "Numeric verdict from eudr_compliance@1 output values + 5 = fail_below_de_minimis"},
+                    "verdict": {"type": "string", "enum": ["pass", "fail", "not_in_scope", "indeterminate", "below_mmu"], "$comment": "Overall DDS verdict aggregated across plots; below_mmu plots count as compliant in DDS aggregation"},
+                    "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 6], "$comment": "Numeric verdict from eudr_compliance@1 output values + 6 = below_mmu (Article 2(4) 0.5 ha MMU floor)"},
                     "n_plots":      {"type": "integer", "minimum": 1}
                 }
             },
@@ -9219,7 +9219,7 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                         "plot_id":         {"type": "string", "$comment": "Annex II §5 plot identifier"},
                         "verdict":         {"type": "string"},
                         "verdict_code":    {"type": "integer"},
-                        "fail_fraction":   {"type": "number", "minimum": 0, "maximum": 1, "$comment": "Fraction of sampled cells that fail; the 0.1 % de-minimis threshold distinguishes 'fail' from 'fail_below_de_minimis'"},
+                        "fail_fraction":   {"type": "number", "minimum": 0, "maximum": 1, "$comment": "Fraction of sampled cells that fail. Article 2(4) 0.5 ha MMU floor (failing_area_ha < 0.5) demotes the plot to verdict 'below_mmu' rather than 'fail'."},
                         "failing_cells":   {"type": "integer", "minimum": 0},
                         "total_cells":     {"type": "integer", "minimum": 0},
                         "area_ha_approx":  {"type": "number", "$comment": "Article 2(28) dispatch input: > 4 ha → POLYGON; ≤ 4 ha non-cattle → POINT"},
@@ -11753,7 +11753,7 @@ async fn openapi() -> Json<JsonValue> {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell, applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), aggregates with a 0.1 % de-minimis threshold, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (Hansen + JRC GFC2020 + JRC TMF v2025 multi-product loss-year consensus), applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope.", "properties":{
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
                         "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
@@ -27078,9 +27078,13 @@ struct EudrCellVerdict {
     jrc_forest_2020: Option<i64>,
     hansen_treecover_2000: Option<i64>,
     hansen_lossyear: Option<i64>,
+    jrc_tmf_deforestation_year: Option<i64>,
     wri_driver_class: Option<i64>,
     radd_alert_date: Option<i64>,
     refinement_applied: Option<&'static str>,
+    /// Hansen canopy within ±2 pp of the 10 % Article 2(4) threshold —
+    /// flagged for operator attention; does not change the verdict.
+    borderline_canopy: bool,
     fact_cids: Vec<String>,
 }
 
@@ -27091,7 +27095,93 @@ fn verdict_label(code: u8) -> &'static str {
         3 => "not_in_scope",
         4 => "indeterminate",
         5 => "fail_below_de_minimis",
+        6 => "below_mmu",
         _ => "unknown",
+    }
+}
+
+/// Article 2(4) MMU: 0.5 ha forest minimum mapping unit. Each emem
+/// cell is ~9.55 m on a side ≈ 91 m². 0.5 ha = 5000 m² ≈ 55 cells.
+const EUDR_MMU_THRESHOLD_HA: f64 = 0.5;
+const EUDR_CELL_AREA_M2: f64 = 9.55 * 9.55;
+
+/// Result of applying the 0.5 ha MMU floor to a plot's failing-cell
+/// count. If the failing area is below 0.5 ha, the verdict is demoted
+/// to `below_mmu` (code 6) and treated as compliant in DDS aggregation.
+#[derive(Debug, Clone)]
+struct MmuDemotion {
+    verdict_code: u8,
+    failing_area_ha: f64,
+    mmu_floor_applied: bool,
+}
+
+fn mmu_demote(failing_cells: usize, cell_area_m2: f64) -> MmuDemotion {
+    let failing_area_ha = (failing_cells as f64 * cell_area_m2) / 10_000.0;
+    if failing_cells > 0 && failing_area_ha < EUDR_MMU_THRESHOLD_HA {
+        MmuDemotion {
+            verdict_code: 6,
+            failing_area_ha,
+            mmu_floor_applied: true,
+        }
+    } else {
+        MmuDemotion {
+            verdict_code: 2,
+            failing_area_ha,
+            mmu_floor_applied: false,
+        }
+    }
+}
+
+/// Annex I HS-code prefix list per Regulation (EU) 2023/1115 Annex I.
+/// Stored as prefixes (4 or 6 digits) so a longer operator code can be
+/// tested by `starts_with`. Covers all seven controlled commodity
+/// groups (cattle, cocoa, coffee, oil palm, rubber, soya, wood).
+const EUDR_ANNEX_I_HS_PREFIXES: &[&str] = &[
+    // Cattle: live, fresh, frozen, offal, preserved, hides, leather.
+    "0102", "0201", "0202", "0206", "021010", "021020", "4101", "4102", "4103", "4104", "4105",
+    "4106", "4107", "4112", "4113", "4114", "4115", // Cocoa: beans through chocolate.
+    "1801", "1802", "1803", "1804", "1805", "1806", // Coffee.
+    "0901", // Oil palm.
+    "120710", "1511", "151321", "151329", "151620", "151710", "151790", "1518", "230660", "382311",
+    "382312", "382319", "3826", // Rubber.
+    "4001", "4005", "4006", "4007", "4008", "4010", "4011", "4012", "4013", "4015", "4016", "4017",
+    // Soya.
+    "1201", "120810", "1507", "2304", "2309",
+    // Wood: lumber, panels, pulp, paper, wood furniture, wallpaper.
+    "4401", "4402", "4403", "4404", "4405", "4406", "4407", "4408", "4409", "4410", "4411", "4412",
+    "4413", "4414", "4415", "4416", "4417", "4418", "4419", "4420", "4421", "4701", "4702", "4703",
+    "4704", "4705", "4706", "4707", "4801", "4802", "4803", "4804", "4805", "4806", "4807", "4808",
+    "4809", "4810", "4811", "4812", "4813", "4814", "4815", "4816", "4817", "4818", "4819", "4820",
+    "4821", "4822", "4823", "940161", "940169", "940191", "940199", "940330", "940340", "940350",
+    "940360", "940391", "940610",
+];
+
+/// Test if a Combined Nomenclature / HS code is in Annex I of
+/// Regulation (EU) 2023/1115. Tolerant of dots and whitespace.
+fn hs_in_annex_i(hs: &str) -> bool {
+    let cleaned: String = hs.chars().filter(|c| c.is_ascii_digit()).collect();
+    EUDR_ANNEX_I_HS_PREFIXES
+        .iter()
+        .any(|p| cleaned.starts_with(p))
+}
+
+/// Aggregate per-cell verdicts to a single "forest_baseline" provenance
+/// label that honestly reflects which baseline(s) contributed. The
+/// shipped value can differ from the operator-requested override when
+/// JRC fails: e.g. requesting `jrc_gfc2020_v3` but JRC errored and the
+/// algorithm ran on Hansen alone surfaces `hansen_only_jrc_unavailable`.
+fn aggregate_baseline_provenance(per_cell: &[EudrCellVerdict]) -> &'static str {
+    if per_cell.is_empty() {
+        return "neither_available";
+    }
+    let any_jrc = per_cell.iter().any(|v| v.jrc_forest_2020.is_some());
+    let any_hansen = per_cell.iter().any(|v| v.hansen_treecover_2000.is_some());
+    if any_jrc {
+        "jrc_gfc2020_v3"
+    } else if any_hansen {
+        "hansen_only_jrc_unavailable"
+    } else {
+        "neither_available"
     }
 }
 
@@ -27103,12 +27193,14 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
         "jrc_gfc2020.forest_2020".to_string(),
         "forest_change.treecover2000".to_string(),
         "forest_change.lossyear".to_string(),
+        "jrc_tmf.deforestation_year".to_string(),
         "wri_gdm.driver_class".to_string(),
         "radd.alert_date".to_string(),
     ];
     let mut jrc: Option<i64> = None;
     let mut hansen_tc: Option<i64> = None;
     let mut hansen_ly: Option<i64> = None;
+    let mut tmf_def_year: Option<i64> = None;
     let mut wri_class: Option<i64> = None;
     let mut radd_date: Option<i64> = None;
     let mut fact_cids: Vec<String> = Vec::new();
@@ -27131,6 +27223,7 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
                         "jrc_gfc2020.forest_2020" => jrc = Some(v),
                         "forest_change.treecover2000" => hansen_tc = Some(v),
                         "forest_change.lossyear" => hansen_ly = Some(v),
+                        "jrc_tmf.deforestation_year" => tmf_def_year = Some(v),
                         "wri_gdm.driver_class" => wri_class = Some(v),
                         "radd.alert_date" => radd_date = Some(v),
                         _ => {}
@@ -27140,100 +27233,73 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
         }
     }
 
+    // Borderline canopy: Hansen tc within ±2 pp of the Article 2(4) 10 % threshold.
+    let borderline_canopy = matches!(hansen_tc, Some(v) if (8..=12).contains(&v));
+    // When JRC errored but Hansen filled in, surface that on the
+    // refinement_applied so the operator sees Hansen-only fallback.
+    let jrc_absent = jrc.is_none();
+    let hansen_filled_for_jrc = jrc_absent && hansen_tc.is_some();
+
+    // Closure to avoid repeating the EudrCellVerdict literal at every return.
+    let make = |verdict: u8, refinement: Option<&'static str>| EudrCellVerdict {
+        cell: cell64.into(),
+        verdict,
+        label: verdict_label(verdict),
+        jrc_forest_2020: jrc,
+        hansen_treecover_2000: hansen_tc,
+        hansen_lossyear: hansen_ly,
+        jrc_tmf_deforestation_year: tmf_def_year,
+        wri_driver_class: wri_class,
+        radd_alert_date: radd_date,
+        refinement_applied: refinement,
+        borderline_canopy,
+        fact_cids: fact_cids.clone(),
+    };
+
     // Per-cell verdict per Article 2(4) + 2020-12-31 cut-off.
     // forest_at_cutoff = (JRC == 1) OR (Hansen treecover2000 >= 10).
     let forest_at_cutoff =
         matches!(jrc, Some(v) if v >= 1) || matches!(hansen_tc, Some(v) if v >= 10);
     if !forest_at_cutoff {
-        // Need at least one baseline reading to be confident.
         if jrc.is_none() && hansen_tc.is_none() {
-            return EudrCellVerdict {
-                cell: cell64.into(),
-                verdict: 4,
-                label: verdict_label(4),
-                jrc_forest_2020: jrc,
-                hansen_treecover_2000: hansen_tc,
-                hansen_lossyear: hansen_ly,
-                wri_driver_class: wri_class,
-                radd_alert_date: radd_date,
-                refinement_applied: Some("no_baseline_input"),
-                fact_cids,
-            };
+            return make(4, Some("no_baseline_input"));
         }
-        return EudrCellVerdict {
-            cell: cell64.into(),
-            verdict: 3,
-            label: verdict_label(3),
-            jrc_forest_2020: jrc,
-            hansen_treecover_2000: hansen_tc,
-            hansen_lossyear: hansen_ly,
-            wri_driver_class: wri_class,
-            radd_alert_date: radd_date,
-            refinement_applied: None,
-            fact_cids,
-        };
+        return make(3, None);
     }
     // forest_at_cutoff == true. Now check loss after cut-off.
-    // forest_change.lossyear is decoded by the Hansen materialiser to
-    // the calendar year (2001..=2024 in v1.12); 0 means "no loss
-    // observed". A value >= 2021 means loss after the 2020-12-31
-    // EUDR cut-off.
+    // Multi-product consensus: Hansen lossyear OR JRC TMF deforestation_year >= 2021.
     let hansen_loss = matches!(hansen_ly, Some(v) if v >= 2021);
+    let tmf_loss = matches!(tmf_def_year, Some(v) if v >= 2021);
     let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2_021_001);
-    let any_loss = hansen_loss || radd_post_cutoff;
+    let any_loss = hansen_loss || tmf_loss || radd_post_cutoff;
     if !any_loss {
-        return EudrCellVerdict {
-            cell: cell64.into(),
-            verdict: 1,
-            label: verdict_label(1),
-            jrc_forest_2020: jrc,
-            hansen_treecover_2000: hansen_tc,
-            hansen_lossyear: hansen_ly,
-            wri_driver_class: wri_class,
-            radd_alert_date: radd_date,
-            refinement_applied: if radd_date.is_some() {
-                Some("radd_confirmed_no_loss")
-            } else {
-                None
-            },
-            fact_cids,
+        let refinement = if hansen_filled_for_jrc {
+            Some("jrc_unavailable_hansen_only")
+        } else if radd_date.is_some() {
+            Some("radd_confirmed_no_loss")
+        } else {
+            None
         };
+        return make(1, refinement);
     }
     // Loss after cut-off — apply Sims driver refinement if available.
     // Classes 5 (wildfire) and 7 (other natural) are out of EUDR scope.
     if let Some(c) = wri_class {
         if c == 5 || c == 7 {
-            return EudrCellVerdict {
-                cell: cell64.into(),
-                verdict: 3,
-                label: verdict_label(3),
-                jrc_forest_2020: jrc,
-                hansen_treecover_2000: hansen_tc,
-                hansen_lossyear: hansen_ly,
-                wri_driver_class: wri_class,
-                radd_alert_date: radd_date,
-                refinement_applied: Some("sims_natural_cause"),
-                fact_cids,
-            };
+            return make(3, Some("sims_natural_cause"));
         }
     }
     // Commodity-driven (1, 2, 3) or unknown driver → fail.
-    EudrCellVerdict {
-        cell: cell64.into(),
-        verdict: 2,
-        label: verdict_label(2),
-        jrc_forest_2020: jrc,
-        hansen_treecover_2000: hansen_tc,
-        hansen_lossyear: hansen_ly,
-        wri_driver_class: wri_class,
-        radd_alert_date: radd_date,
-        refinement_applied: match wri_class {
+    let refinement = if hansen_filled_for_jrc {
+        Some("jrc_unavailable_hansen_only")
+    } else {
+        match wri_class {
             Some(c) if (1..=3).contains(&c) => Some("sims_commodity_driven"),
             Some(_) => Some("sims_other_anthropogenic"),
             None => Some("no_driver_refinement"),
-        },
-        fact_cids,
-    }
+        }
+    };
+    make(2, refinement)
 }
 
 /// Helper to materialize a single band at a cell and return its CID.
@@ -27262,14 +27328,24 @@ async fn try_materialize_one_band(
     if matches!(band, "radd.alert_date" | "radd.confidence") {
         return materialize_radd_band(cell64, s, band).await;
     }
+    // JRC TMF v2025 (tropical-belt loss-year consensus partner).
+    if matches!(
+        band,
+        "jrc_tmf.deforestation_year"
+            | "jrc_tmf.degradation_year"
+            | "jrc_tmf.annual_change"
+            | "jrc_tmf.transition_subtype"
+    ) {
+        return materialize_jrc_tmf_band(cell64, s, band).await;
+    }
     Err(format!("eudr_dds: band {band} not wired"))
 }
 
 /// Aggregate per-cell verdicts to a plot-level verdict per Annex II.
-/// Uses a 0.1 % de-minimis threshold: a single failing cell at 1 % of
-/// plot area cannot flip a 100-ha plot to FAIL on a 0.01-ha edge
-/// effect; surface as `fail_below_de_minimis` so the operator can
-/// quote the failing fraction.
+/// Strict-EUDR has no de-minimis tolerance — area-based protection
+/// against single-pixel edge effects is delivered by the 0.5 ha MMU
+/// floor (Article 2(4)) applied downstream of this call, not by a
+/// fail-fraction threshold here.
 fn aggregate_plot_verdict(per_cell: &[EudrCellVerdict]) -> (u8, f64, usize, usize) {
     if per_cell.is_empty() {
         return (4, 0.0, 0, 0);
@@ -27287,20 +27363,14 @@ fn aggregate_plot_verdict(per_cell: &[EudrCellVerdict]) -> (u8, f64, usize, usiz
         }
     }
     let fail_fraction = n_fail as f64 / n as f64;
-    // If every cell is not_in_scope, the plot is not_in_scope.
     if n_not_in_scope == n {
         return (3, fail_fraction, n_fail, n);
     }
-    // If majority are indeterminate, plot is indeterminate.
     if n_indeterminate as f64 / n as f64 > 0.5 {
         return (4, fail_fraction, n_fail, n);
     }
     if n_fail == 0 {
         return (1, fail_fraction, n_fail, n);
-    }
-    // De-minimis check: < 0.1 % of cells failing → flag.
-    if fail_fraction < 0.001 && n_fail > 0 {
-        return (5, fail_fraction, n_fail, n);
     }
     (2, fail_fraction, n_fail, n)
 }
@@ -27367,6 +27437,8 @@ async fn post_eudr_dds_inner(
 
     let mut per_plot_results: Vec<JsonValue> = Vec::with_capacity(req.plots.len());
     let mut overall_verdicts: Vec<u8> = Vec::with_capacity(req.plots.len());
+    let mut annex_i_warnings: Vec<JsonValue> = Vec::new();
+    let mut all_cells_for_provenance: Vec<EudrCellVerdict> = Vec::new();
 
     for plot in &req.plots {
         let (bbox, polygon_opt, area_ha) = match extract_plot_geometry(&plot.geometry_geojson) {
@@ -27383,6 +27455,22 @@ async fn post_eudr_dds_inner(
             }
         };
         let is_cattle = hs_code_is_cattle(&plot.commodity_hs);
+        // Annex I scope check (Article 3 + Annex I). Non-Annex-I codes
+        // get a soft warning — never reject — because operators often
+        // submit ancillary HS codes for context.
+        let in_annex_i = hs_in_annex_i(&plot.commodity_hs);
+        let annex_i_status = if in_annex_i {
+            "in_annex_i"
+        } else {
+            "outside_annex_i"
+        };
+        if !in_annex_i {
+            annex_i_warnings.push(json!({
+                "plot_id":     plot.plot_id,
+                "commodity_hs": plot.commodity_hs,
+                "warning":     "commodity_hs is not a prefix of any Annex I code; EUDR Article 3 only covers Annex I commodities. Verdict still computed for context.",
+            }));
+        }
         // Article 2(28): POLYGON for > 4 ha or cattle; POINT for the
         // rest. POINT still evaluates at the centroid cell.
         let geometry_kind = if area_ha > 4.0 || is_cattle {
@@ -27405,22 +27493,40 @@ async fn post_eudr_dds_inner(
         for c in &cells {
             per_cell.push(evaluate_eudr_cell(&s, c).await);
         }
-        let (plot_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
+        all_cells_for_provenance.extend(per_cell.iter().cloned());
+        let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
+
+        // Article 2(4) 0.5 ha MMU floor — demote raw fail to below_mmu when
+        // the failing area is below 0.5 ha (≈55 cells × ~91 m²).
+        let mmu = if raw_verdict == 2 {
+            mmu_demote(n_fail, EUDR_CELL_AREA_M2)
+        } else {
+            MmuDemotion {
+                verdict_code: raw_verdict,
+                failing_area_ha: (n_fail as f64 * EUDR_CELL_AREA_M2) / 10_000.0,
+                mmu_floor_applied: false,
+            }
+        };
+        let plot_verdict = mmu.verdict_code;
         overall_verdicts.push(plot_verdict);
 
         // Article 2(28) representation: POINT plots surface their
         // centroid; POLYGON plots surface the bbox + per-cell cids.
         let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
-        per_plot_results.push(json!({
+        let mut plot_obj = json!({
             "plot_id":         plot.plot_id,
             "verdict":         verdict_label(plot_verdict),
             "verdict_code":    plot_verdict,
             "fail_fraction":   fail_fraction,
             "failing_cells":   n_fail,
+            "failing_area_ha": mmu.failing_area_ha,
+            "mmu_threshold_ha": EUDR_MMU_THRESHOLD_HA,
+            "mmu_floor_applied": mmu.mmu_floor_applied,
             "total_cells":     n_total,
             "area_ha_approx":  area_ha,
             "geometry_kind":   geometry_kind,
             "is_cattle":       is_cattle,
+            "annex_i_status":  annex_i_status,
             "country_of_production": plot.country_of_production,
             "commodity_hs":    plot.commodity_hs,
             "commodity_name":  plot.commodity_name,
@@ -27432,13 +27538,33 @@ async fn post_eudr_dds_inner(
                 "decimal_digits_per_article_2_28": 6,
             },
             "per_cell_verdicts": per_cell,
-        }));
+        });
+        // Article 2(28) POINT sampling caveat: one cell ≈ 0.01 ha of an
+        // up-to-4 ha plot; surface so the operator sees the limitation.
+        if geometry_kind == "point" {
+            let sampled_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
+            if let Some(obj) = plot_obj.as_object_mut() {
+                obj.insert(
+                    "sampling_caveat".into(),
+                    JsonValue::String(
+                        "Article 2(28) POINT geometry: ~9.55 m sample of an up-to-4 ha plot; expand to POLYGON for plots > 4 ha or for higher-confidence verdict".into(),
+                    ),
+                );
+                obj.insert(
+                    "sampled_area_ha".into(),
+                    serde_json::Number::from_f64(sampled_area_ha)
+                        .map(JsonValue::Number)
+                        .unwrap_or(JsonValue::Null),
+                );
+            }
+        }
+        per_plot_results.push(plot_obj);
     }
+    // DDS-level aggregation: `below_mmu` (code 6) counts as compliant,
+    // not as fail.
     let overall = if overall_verdicts.contains(&2) {
         2
-    } else if overall_verdicts.contains(&5) {
-        5
-    } else if overall_verdicts.iter().all(|&v| v == 1) {
+    } else if overall_verdicts.iter().all(|&v| v == 1 || v == 6) {
         1
     } else if overall_verdicts.iter().all(|&v| v == 3) {
         3
@@ -27446,23 +27572,39 @@ async fn post_eudr_dds_inner(
         4
     };
 
-    let baseline = req
-        .forest_baseline_override
-        .clone()
-        .unwrap_or_else(|| "jrc_gfc2020_v3".into());
+    // Honest baseline provenance: surface what JRC and Hansen actually
+    // contributed at request time, not what the algorithm spec says.
+    let computed_baseline = aggregate_baseline_provenance(&all_cells_for_provenance);
+    let baseline = match req.forest_baseline_override.as_deref() {
+        Some(override_v) => override_v.to_string(),
+        None => computed_baseline.to_string(),
+    };
+
+    let algorithms_cid = ALGORITHMS_CID.clone();
+    let ast_present = emem_core::algorithms::DEFAULT
+        .lookup("eudr_compliance@1")
+        .is_some_and(|a| a.evaluation.is_some());
 
     let body = json!({
         "schema":          "emem.eudr_dds.v1",
         "regulation":      "EU 2023/1115",
-        "regulation_articles": ["2(4)","2(28)","8","9","Annex II"],
+        "regulation_articles": ["2(4)","2(28)","3","8","9","Annex I","Annex II"],
         "cut_off_date":    req.cut_off_date,
         "forest_baseline": baseline,
-        "baseline_note":   "JRC GFC2020 V3 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative.",
+        "forest_baseline_computed": computed_baseline,
+        "baseline_note":   "JRC GFC2020 V3 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored).",
+        "methodology_note": "Per-cell verdict from eudr_compliance@1 (Hansen GFC v1.12 + JRC GFC2020 V3 + JRC TMF v2025 consensus loss-year). Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR).",
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "schema_url":      "/v1/schemas/eudr_dds.json",
         "algorithm_key":   "eudr_dds@1",
         "underlying_per_cell_algorithm": "eudr_compliance@1",
+        "algorithms_cid":  algorithms_cid,
+        "registry_cid":    s.manifests.registry_cid.as_str(),
+        "schema_cid":      s.manifests.schema_cid.as_str(),
+        "bands_cid":       &s.manifests.bands_cid,
+        "algorithm_evaluation_ast_present": ast_present,
+        "annex_i_warnings": annex_i_warnings,
         "due_diligence_statement": {
             "operator":     req.operator,
             "verdict":      verdict_label(overall),
@@ -33047,6 +33189,109 @@ mod tests {
         assert!(
             dot.is_nan(),
             "expected NaN dot; got {dot} — confirms NaN-mask discipline"
+        );
+    }
+
+    #[test]
+    fn hs_in_annex_i_recognises_eudr_commodities() {
+        // Cattle (live).
+        assert!(hs_in_annex_i("010229"));
+        // Beef (frozen).
+        assert!(hs_in_annex_i("020230"));
+        // Cocoa beans.
+        assert!(hs_in_annex_i("180100"));
+        // Coffee.
+        assert!(hs_in_annex_i("090111"));
+        // Palm oil.
+        assert!(hs_in_annex_i("151110"));
+        // Rubber.
+        assert!(hs_in_annex_i("400110"));
+        // Soya beans.
+        assert!(hs_in_annex_i("120190"));
+        // Wood (paper).
+        assert!(hs_in_annex_i("480100"));
+        // Outside Annex I — textiles.
+        assert!(!hs_in_annex_i("500700"));
+        // Outside Annex I — steel.
+        assert!(!hs_in_annex_i("720449"));
+    }
+
+    #[test]
+    fn mmu_floor_demotes_sub_05ha_failures() {
+        // 10 failing cells × 91 m² ≈ 910 m² = 0.091 ha; below 0.5 ha → demote.
+        let v = mmu_demote(10, 91.0);
+        assert_eq!(v.verdict_code, 6); // below_mmu
+        assert!(v.failing_area_ha < 0.5);
+        assert!(v.mmu_floor_applied);
+
+        // 100 failing cells × 91 m² ≈ 9100 m² = 0.91 ha; above MMU → keep fail.
+        let v2 = mmu_demote(100, 91.0);
+        assert_eq!(v2.verdict_code, 2);
+        assert!(!v2.mmu_floor_applied);
+    }
+
+    #[test]
+    fn forest_baseline_honest_when_jrc_missing() {
+        // Every cell has Hansen tc = 100 but JRC = None — must surface
+        // hansen_only_jrc_unavailable, NOT "jrc_gfc2020_v3".
+        let cells = vec![
+            EudrCellVerdict {
+                cell: "c0".into(),
+                verdict: 1,
+                label: "pass",
+                jrc_forest_2020: None,
+                hansen_treecover_2000: Some(100),
+                hansen_lossyear: Some(0),
+                jrc_tmf_deforestation_year: None,
+                wri_driver_class: None,
+                radd_alert_date: None,
+                refinement_applied: Some("jrc_unavailable_hansen_only"),
+                borderline_canopy: false,
+                fact_cids: vec![],
+            },
+            EudrCellVerdict {
+                cell: "c1".into(),
+                verdict: 1,
+                label: "pass",
+                jrc_forest_2020: None,
+                hansen_treecover_2000: Some(95),
+                hansen_lossyear: Some(0),
+                jrc_tmf_deforestation_year: None,
+                wri_driver_class: None,
+                radd_alert_date: None,
+                refinement_applied: Some("jrc_unavailable_hansen_only"),
+                borderline_canopy: false,
+                fact_cids: vec![],
+            },
+        ];
+        assert_eq!(
+            aggregate_baseline_provenance(&cells),
+            "hansen_only_jrc_unavailable"
+        );
+
+        // JRC present at one cell → jrc_gfc2020_v3.
+        let mut cells2 = cells.clone();
+        cells2[0].jrc_forest_2020 = Some(1);
+        assert_eq!(aggregate_baseline_provenance(&cells2), "jrc_gfc2020_v3");
+
+        // Neither baseline anywhere → neither_available.
+        let none_cells = vec![EudrCellVerdict {
+            cell: "c0".into(),
+            verdict: 4,
+            label: "indeterminate",
+            jrc_forest_2020: None,
+            hansen_treecover_2000: None,
+            hansen_lossyear: None,
+            jrc_tmf_deforestation_year: None,
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: Some("no_baseline_input"),
+            borderline_canopy: false,
+            fact_cids: vec![],
+        }];
+        assert_eq!(
+            aggregate_baseline_provenance(&none_cells),
+            "neither_available"
         );
     }
 }

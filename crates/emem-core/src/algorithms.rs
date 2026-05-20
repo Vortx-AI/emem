@@ -1635,6 +1635,24 @@ mod tests {
     }
 
     #[test]
+    fn eudr_compliance_v1_uses_multi_product_loss_consensus() {
+        let alg = DEFAULT.lookup("eudr_compliance@1").unwrap();
+        let inputs: Vec<&str> = alg
+            .inputs
+            .iter()
+            .filter_map(|i| i.band.as_deref())
+            .collect();
+        assert!(
+            inputs.contains(&"forest_change.lossyear"),
+            "Hansen lossyear must remain on eudr_compliance@1 inputs"
+        );
+        assert!(
+            inputs.contains(&"jrc_tmf.deforestation_year"),
+            "JRC TMF deforestation_year (multi-product) missing"
+        );
+    }
+
+    #[test]
     fn water_likelihood_from_vv_saturates_below_minus_20_db() {
         let mut samples = std::collections::HashMap::new();
         let r = &*DEFAULT;
