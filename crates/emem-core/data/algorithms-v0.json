@@ -4644,8 +4644,8 @@
         },
         {
           "band": "forest_change.lossyear",
-          "role": "loss_year_after_cutoff",
-          "explanation": "Year of the FIRST Hansen-detected tree-cover loss event. The Hansen materialiser at this responder decodes the raw byte to the calendar year (2001..2024 in v1.12); 0 means 'no loss observed in coverage'. Value >= 2021 means loss after the EUDR cut-off date of 31 December 2020."
+          "role": "loss_year_baseline_and_post_cutoff",
+          "explanation": "Year of the FIRST Hansen-detected tree-cover loss event. The Hansen materialiser at this responder decodes the raw byte to the calendar year (2001..2024 in v1.12); 0 means 'no loss observed in coverage'. Used twice in this algorithm: (a) on the BASELINE side to confirm the cell was still alive at the 2020-12-31 cut-off — a cell that was forest in 2000 (treecover2000 >= 10) but cleared between 2001 and 2020 (lossyear in [1, 20]) is NOT forest at cut-off and must not pass the Hansen-only fallback baseline; (b) on the post-cut-off side, value >= 2021 means loss after the EUDR cut-off date of 31 December 2020."
         },
         {
           "band": "jrc_tmf.deforestation_year",
@@ -4653,7 +4653,7 @@
           "explanation": "JRC TMF v2025 deforestation_year band (Vancutsem et al. 2021). 30 m tropical-belt loss layer; ±30° latitude. ORs with Hansen lossyear for consensus loss-year detection."
         }
       ],
-      "formula": "let forest_at_cutoff = (jrc_gfc2020.forest_2020 >= 1) OR (forest_change.treecover2000 >= 10); if NOT forest_at_cutoff -> 'not_in_scope' [code 3]; else if (forest_change.lossyear >= 2021) OR (jrc_tmf.deforestation_year >= 2021) -> 'fail' [code 2]; else -> 'pass' [code 1]. (forest_change.lossyear is the calendar year as decoded by the Hansen v1.12 materialiser; 0 = no loss observed.) JRC TMF deforestation_year covers ±30° latitude; outside the tropical belt the input signs Absence and the max() folds it as 0, so the consensus degrades to Hansen-only. Optional refinement layer (handled at /v1/eudr_dds): if wri_gdm.driver_class is available and in {5=wildfire, 7=natural} -> reclassify 'fail' -> 'not_in_scope'; if radd.alert_date is available and post-2020-12-31 -> upgrade 'pass' -> 'fail' for cells where Hansen optical was cloud-blocked. Verdict 'indeterminate' [code 4] is emitted by the dispatcher when any required input is missing.",
+      "formula": "let forest_at_cutoff = (jrc_gfc2020.forest_2020 >= 1) OR ((forest_change.treecover2000 >= 10) AND (forest_change.lossyear == 0 OR forest_change.lossyear > 2020)); if NOT forest_at_cutoff -> 'not_in_scope' [code 3]; else if (forest_change.lossyear >= 2021) OR (jrc_tmf.deforestation_year >= 2021) -> 'fail' [code 2]; else -> 'pass' [code 1]. When the JRC GFC2020 V3 baseline is unavailable for a cell, the Hansen leg now additionally requires the cell to have been alive at the 2020-12-31 cut-off — `treecover2000 >= 10` alone is a year-2000 snapshot and lets cells cleared between 2001-2020 (lossyear in [1, 20]) leak through as 'forest at cutoff'. (forest_change.lossyear is the calendar year as decoded by the Hansen v1.12 materialiser; 0 = no loss observed.) JRC TMF deforestation_year covers ±30° latitude; outside the tropical belt the input signs Absence and the max() folds it as 0, so the consensus degrades to Hansen-only. Optional refinement layer (handled at /v1/eudr_dds): if wri_gdm.driver_class is available and in {5=wildfire, 7=natural} -> reclassify 'fail' -> 'not_in_scope'; if radd.alert_date is available and post-2020-12-31 -> upgrade 'pass' -> 'fail' for cells where Hansen optical was cloud-blocked. Verdict 'indeterminate' [code 4] is emitted by the dispatcher when any required input is missing.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -4667,11 +4667,39 @@
               "else_": {"op": "const", "value": 0.0}
             },
             {
-              "op": "where",
-              "cond": {"op": "band", "band": "forest_change.treecover2000"},
-              "gt": 9.999,
-              "then_": {"op": "const", "value": 1.0},
-              "else_": {"op": "const", "value": 0.0}
+              "op": "min",
+              "terms": [
+                {
+                  "op": "where",
+                  "cond": {"op": "band", "band": "forest_change.treecover2000"},
+                  "gt": 9.999,
+                  "then_": {"op": "const", "value": 1.0},
+                  "else_": {"op": "const", "value": 0.0}
+                },
+                {
+                  "op": "max",
+                  "terms": [
+                    {
+                      "op": "where",
+                      "cond": {
+                        "op": "sub",
+                        "a": {"op": "const", "value": 0.5},
+                        "b": {"op": "band", "band": "forest_change.lossyear"}
+                      },
+                      "gt": 0.0,
+                      "then_": {"op": "const", "value": 1.0},
+                      "else_": {"op": "const", "value": 0.0}
+                    },
+                    {
+                      "op": "where",
+                      "cond": {"op": "band", "band": "forest_change.lossyear"},
+                      "gt": 2020.0,
+                      "then_": {"op": "const", "value": 1.0},
+                      "else_": {"op": "const", "value": 0.0}
+                    }
+                  ]
+                }
+              ]
             }
           ]
         },

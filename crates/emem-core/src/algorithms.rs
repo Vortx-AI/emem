@@ -1653,6 +1653,59 @@ mod tests {
     }
 
     #[test]
+    fn eudr_compliance_hansen_leg_demands_alive_at_2020() {
+        // Synthetic input: cell was 100% canopy in 2000 but cleared in 2010
+        // (Hansen lossyear=2010, treecover2000=100). JRC GFC2020 signs
+        // Absence (0.0) and JRC TMF signs Absence (0.0). The Hansen-only
+        // fallback baseline must now reject this cell: it was NOT forest
+        // at the 2020-12-31 cut-off — it had already been cleared 10
+        // years earlier. Expected verdict 3 (not_in_scope).
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("jrc_gfc2020.forest_2020".to_string(), 0.0);
+        samples.insert("forest_change.treecover2000".to_string(), 100.0);
+        samples.insert("forest_change.lossyear".to_string(), 2010.0);
+        samples.insert("jrc_tmf.deforestation_year".to_string(), 0.0);
+        let r = DEFAULT.evaluate("eudr_compliance@1", &samples).unwrap();
+        assert_eq!(
+            r,
+            Some(3.0),
+            "pre-cutoff cleared cell with absent JRC must be not_in_scope, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn eudr_compliance_hansen_leg_passes_intact_at_2020() {
+        // Cell still alive at 2020 (lossyear=0, treecover2000=100). JRC
+        // GFC2020 signs Absence (0.0); JRC TMF signs Absence (0.0). The
+        // Hansen-only fallback baseline must accept this cell as forest
+        // at cut-off and, with no post-cut-off loss, the verdict is 1
+        // (pass).
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("jrc_gfc2020.forest_2020".to_string(), 0.0);
+        samples.insert("forest_change.treecover2000".to_string(), 100.0);
+        samples.insert("forest_change.lossyear".to_string(), 0.0);
+        samples.insert("jrc_tmf.deforestation_year".to_string(), 0.0);
+        let r = DEFAULT.evaluate("eudr_compliance@1", &samples).unwrap();
+        assert_eq!(r, Some(1.0));
+    }
+
+    #[test]
+    fn eudr_compliance_hansen_leg_fails_post_2020_loss() {
+        // Cell forest at 2020 then lost in 2022 (lossyear=2022,
+        // treecover2000=100). Hansen-only fallback baseline must accept
+        // this cell at cut-off (lossyear > 2020 means it was still
+        // forest at end-of-2020), and the post-cut-off loss check then
+        // emits verdict 2 (fail).
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("jrc_gfc2020.forest_2020".to_string(), 0.0);
+        samples.insert("forest_change.treecover2000".to_string(), 100.0);
+        samples.insert("forest_change.lossyear".to_string(), 2022.0);
+        samples.insert("jrc_tmf.deforestation_year".to_string(), 0.0);
+        let r = DEFAULT.evaluate("eudr_compliance@1", &samples).unwrap();
+        assert_eq!(r, Some(2.0), "post-cutoff loss must be fail, got {r:?}");
+    }
+
+    #[test]
     fn water_likelihood_from_vv_saturates_below_minus_20_db() {
         let mut samples = std::collections::HashMap::new();
         let r = &*DEFAULT;
