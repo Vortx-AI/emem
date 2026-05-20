@@ -951,6 +951,23 @@ URL state encoding (saved-query convention):
 
 ---
 
+## CORS policy
+
+Every `/v1/*`, `/mcp`, `/openapi.json`, and discovery endpoint responds
+with `Access-Control-Allow-Origin: *` and a permissive
+`Access-Control-Allow-Methods` / `Access-Control-Allow-Headers` set.
+This is intentional. emem is a public protocol: every read is a signed
+receipt the caller verifies offline, no endpoint requires an
+authenticated cookie or bearer, and there is no ambient credential a
+wildcard CORS could exfiltrate. Browser-resident agents on any origin
+are first-class clients of this surface, the same as server-side ones.
+
+Security questionnaires sometimes flag `Access-Control-Allow-Origin: *`
+as a finding by default; for emem the answer is "we are an open data
+API by design — the attack class that wide CORS normally enables
+(reading authenticated responses across origins) does not apply here
+because authentication is not part of the read path."
+
 ## Where to read more
 
 - `https://emem.dev/openapi.json`: every endpoint, every schema.
