@@ -51,7 +51,26 @@
       "when_to_use": "Single-cell answer to 'has it flooded historically?'. Agents should prefer this over inventing thresholds in their own reasoning so receipts are reproducible.",
       "primitive": "POST /v1/recall {bands:['surface_water.recurrence']} \u2192 apply formula in-process",
       "deterministic": true,
-      "citation": "Pekel, J.-F. et al. 2016. High-resolution mapping of global surface water and its long-term changes. Nature 540:418\u2013422."
+      "citation": "Pekel, J.-F. et al. 2016. High-resolution mapping of global surface water and its long-term changes. Nature 540:418\u2013422.",
+      "evaluation": {
+        "op": "where",
+        "cond": { "op": "band", "band": "surface_water.recurrence" },
+        "gt": 74.999,
+        "then_": { "op": "const", "value": 3.0 },
+        "else_": {
+          "op": "where",
+          "cond": { "op": "band", "band": "surface_water.recurrence" },
+          "gt": 24.999,
+          "then_": { "op": "const", "value": 2.0 },
+          "else_": {
+            "op": "where",
+            "cond": { "op": "band", "band": "surface_water.recurrence" },
+            "gt": 0.999,
+            "then_": { "op": "const", "value": 1.0 },
+            "else_": { "op": "const", "value": 0.0 }
+          }
+        }
+      }
     },
     {
       "key": "flood_risk@1",
@@ -372,7 +391,19 @@
       "when_to_use": "All-weather water detection at any single Sentinel-1 RTC observation. Pair with `flood_history_class@1` for the historical baseline.",
       "primitive": "POST /v1/recall {bands:['sentinel1_raw']}",
       "deterministic": true,
-      "citation": "Chini et al. 2017. A hierarchical split-based approach for parametric thresholding of SAR images. IEEE TGRS 55(12)."
+      "citation": "Chini et al. 2017. A hierarchical split-based approach for parametric thresholding of SAR images. IEEE TGRS 55(12).",
+      "evaluation": {
+        "op": "sigmoid",
+        "inner": {
+          "op": "div",
+          "a": {
+            "op": "sub",
+            "a": { "op": "const", "value": -15.0 },
+            "b": { "op": "band", "band": "sentinel1_raw" }
+          },
+          "b": { "op": "const", "value": 2.0 }
+        }
+      }
     },
     {
       "key": "vegetation_class_from_ndvi@1",
@@ -399,7 +430,32 @@
       "when_to_use": "Quick categorical from a single NDVI sample. Use for 'is this farmland / forest / desert?' style questions.",
       "primitive": "POST /v1/recall {bands:['indices.ndvi']}",
       "deterministic": true,
-      "citation": "Tucker 1979. Class thresholds agree with USGS NDVI cookbook ranges."
+      "citation": "Tucker 1979. Class thresholds agree with USGS NDVI cookbook ranges.",
+      "evaluation": {
+        "op": "where",
+        "cond": { "op": "band", "band": "indices.ndvi" },
+        "gt": 0.4999,
+        "then_": { "op": "const", "value": 4.0 },
+        "else_": {
+          "op": "where",
+          "cond": { "op": "band", "band": "indices.ndvi" },
+          "gt": 0.2999,
+          "then_": { "op": "const", "value": 3.0 },
+          "else_": {
+            "op": "where",
+            "cond": { "op": "band", "band": "indices.ndvi" },
+            "gt": 0.0999,
+            "then_": { "op": "const", "value": 2.0 },
+            "else_": {
+              "op": "where",
+              "cond": { "op": "band", "band": "indices.ndvi" },
+              "gt": -0.0001,
+              "then_": { "op": "const", "value": 1.0 },
+              "else_": { "op": "const", "value": 0.0 }
+            }
+          }
+        }
+      }
     },
     {
       "key": "crop_stress_score@1",
@@ -446,7 +502,92 @@
       "deterministic": true,
       "citation": "Tucker 1979 (NDVI); Gao 1996 (NDMI/NDII); Sandholt et al. 2002 (temp-vegetation triangle).",
       "accuracy_band": "Editorial-weighted composite (0.40 NDVI + 0.35 NDMI + 0.15 high-T sigmoid + 0.10 low-precip sigmoid); no published R² against measured yield loss or NDVI-derived stress index. Treat as a relative-ranking score (0–1) for triage; absolute values are not interpretable. For ground-truth-validated crop stress use NDRE temporal anomaly (Cao et al. 2017 Field Crops Res 154:133) or the IPCC 2019 Refinement Vol 4 Ch 5.6 cropland-residue burn signal.",
-      "pitfalls": "The 0.40 / 0.35 / 0.15 / 0.10 weights are an emem editorial choice — Tucker 1979, Gao 1996, and Sandholt et al. 2002 each validate their individual indices in isolation, but no published source justifies this specific four-term linear combination against ground-truth yield loss. Use as a relative ranking for triage (`is field A more stressed than field B?`); do not interpret the 0–1 magnitude as a calibrated stress percentage. For a defensible operational signal switch to NDRE temporal anomaly (Cao et al. 2017 Field Crops Res 154:133) or pair this composite with a soil-moisture product (SMAP L3 9 km, NASA-USDA 0.25°) for the moisture term."
+      "pitfalls": "The 0.40 / 0.35 / 0.15 / 0.10 weights are an emem editorial choice — Tucker 1979, Gao 1996, and Sandholt et al. 2002 each validate their individual indices in isolation, but no published source justifies this specific four-term linear combination against ground-truth yield loss. Use as a relative ranking for triage (`is field A more stressed than field B?`); do not interpret the 0–1 magnitude as a calibrated stress percentage. For a defensible operational signal switch to NDRE temporal anomaly (Cao et al. 2017 Field Crops Res 154:133) or pair this composite with a soil-moisture product (SMAP L3 9 km, NASA-USDA 0.25°) for the moisture term.",
+      "evaluation": {
+        "op": "add",
+        "terms": [
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.40 },
+              {
+                "op": "sub",
+                "a": { "op": "const", "value": 1.0 },
+                "b": {
+                  "op": "clamp",
+                  "lo": 0.0,
+                  "hi": 1.0,
+                  "inner": { "op": "band", "band": "indices.ndvi" }
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.35 },
+              {
+                "op": "sub",
+                "a": { "op": "const", "value": 1.0 },
+                "b": {
+                  "op": "clamp",
+                  "lo": 0.0,
+                  "hi": 1.0,
+                  "inner": {
+                    "op": "div",
+                    "a": {
+                      "op": "add",
+                      "terms": [
+                        { "op": "band", "band": "indices.ndmi" },
+                        { "op": "const", "value": 1.0 }
+                      ]
+                    },
+                    "b": { "op": "const", "value": 2.0 }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.15 },
+              {
+                "op": "sigmoid",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "sub",
+                    "a": { "op": "band", "band": "weather.temperature_2m" },
+                    "b": { "op": "const", "value": 30.0 }
+                  },
+                  "b": { "op": "const", "value": 5.0 }
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.10 },
+              {
+                "op": "sigmoid",
+                "inner": {
+                  "op": "mul",
+                  "terms": [
+                    {
+                      "op": "sub",
+                      "a": { "op": "const", "value": 1.0 },
+                      "b": { "op": "band", "band": "weather.precipitation_mm" }
+                    },
+                    { "op": "const", "value": 4.0 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "key": "agb_ndvi_powerlaw@1",
@@ -507,7 +648,20 @@
       "when_to_use": "'Is there snow on the ground?'. NDSI is more robust than NDVI<0 because it leverages SWIR's snow-vs-cloud separability.",
       "primitive": "POST /v1/recall {bands:['indices.ndsi']}",
       "deterministic": true,
-      "citation": "Salomonson, V.V. & Appel, I. 2004. Estimating fractional snow cover from MODIS using the normalized difference snow index. Remote Sensing of Environment 89(3):351\u2013360."
+      "citation": "Salomonson, V.V. & Appel, I. 2004. Estimating fractional snow cover from MODIS using the normalized difference snow index. Remote Sensing of Environment 89(3):351\u2013360.",
+      "evaluation": {
+        "op": "where",
+        "cond": { "op": "band", "band": "indices.ndsi" },
+        "gt": 0.3999,
+        "then_": { "op": "const", "value": 2.0 },
+        "else_": {
+          "op": "where",
+          "cond": { "op": "band", "band": "indices.ndsi" },
+          "gt": -0.0001,
+          "then_": { "op": "const", "value": 1.0 },
+          "else_": { "op": "const", "value": 0.0 }
+        }
+      }
     },
     {
       "key": "burn_severity_from_dnbr@1",
@@ -566,7 +720,21 @@
       "when_to_use": "Quick scan when only a current observation is available. For severity classes, prefer `burn_severity_from_dnbr@1`.",
       "primitive": "POST /v1/recall {bands:['indices.nbr']}",
       "deterministic": true,
-      "citation": "Key & Benson 2006; logistic shaping editorial."
+      "citation": "Key & Benson 2006; logistic shaping editorial.",
+      "evaluation": {
+        "op": "sigmoid",
+        "inner": {
+          "op": "mul",
+          "terms": [
+            {
+              "op": "sub",
+              "a": { "op": "const", "value": 0.0 },
+              "b": { "op": "band", "band": "indices.nbr" }
+            },
+            { "op": "const", "value": 4.0 }
+          ]
+        }
+      }
     },
     {
       "key": "bare_soil_class@1",
@@ -591,7 +759,20 @@
       "when_to_use": "Detect exposed bare soil, useful for tillage tracking, erosion hot-spot screens, or filtering crop_stress_score@1 down to fields not under cover.",
       "primitive": "POST /v1/recall {bands:['indices.bsi']}",
       "deterministic": true,
-      "citation": "Rikimaru, A., Roy, P.S. & Miyatake, S. 2002. Tropical forest cover density mapping. Tropical Ecology 43(1):39\u201347."
+      "citation": "Rikimaru, A., Roy, P.S. & Miyatake, S. 2002. Tropical forest cover density mapping. Tropical Ecology 43(1):39\u201347.",
+      "evaluation": {
+        "op": "where",
+        "cond": { "op": "band", "band": "indices.bsi" },
+        "gt": 0.05,
+        "then_": { "op": "const", "value": 2.0 },
+        "else_": {
+          "op": "where",
+          "cond": { "op": "band", "band": "indices.bsi" },
+          "gt": -0.05,
+          "then_": { "op": "const", "value": 1.0 },
+          "else_": { "op": "const", "value": 0.0 }
+        }
+      }
     },
     {
       "key": "built_up_from_ndbi@1",
@@ -616,7 +797,20 @@
       "when_to_use": "Built-up vs natural classification from a single NDBI sample. Cross-check with `overture.buildings.count` for vector truth.",
       "primitive": "POST /v1/recall {bands:['indices.ndbi']}",
       "deterministic": true,
-      "citation": "Zha, Y. et al. 2003. Use of normalized difference built-up index in automatically mapping urban areas from TM imagery. International Journal of Remote Sensing 24(3):583\u2013594."
+      "citation": "Zha, Y. et al. 2003. Use of normalized difference built-up index in automatically mapping urban areas from TM imagery. International Journal of Remote Sensing 24(3):583\u2013594.",
+      "evaluation": {
+        "op": "where",
+        "cond": { "op": "band", "band": "indices.ndbi" },
+        "gt": 0.0999,
+        "then_": { "op": "const", "value": 2.0 },
+        "else_": {
+          "op": "where",
+          "cond": { "op": "band", "band": "indices.ndbi" },
+          "gt": -0.05,
+          "then_": { "op": "const", "value": 1.0 },
+          "else_": { "op": "const", "value": 0.0 }
+        }
+      }
     },
     {
       "key": "urban_density_score@1",
@@ -655,7 +849,56 @@
       "when_to_use": "'Is this urban / suburban / rural?'. Spatial prior for any building-count question.",
       "primitive": "POST /v1/recall {bands:['overture.buildings.count','overture.transportation.road_length_m','indices.ndbi']}",
       "deterministic": true,
-      "citation": "Overture Maps Foundation 2026-04-15 release; Zha et al. 2003 (NDBI). Saturation constants editorial."
+      "citation": "Overture Maps Foundation 2026-04-15 release; Zha et al. 2003 (NDBI). Saturation constants editorial.",
+      "evaluation": {
+        "op": "add",
+        "terms": [
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.50 },
+              {
+                "op": "tanh",
+                "inner": {
+                  "op": "div",
+                  "a": { "op": "band", "band": "overture.buildings.count" },
+                  "b": { "op": "const", "value": 200.0 }
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.30 },
+              {
+                "op": "tanh",
+                "inner": {
+                  "op": "div",
+                  "a": { "op": "band", "band": "overture.transportation.road_length_m" },
+                  "b": { "op": "const", "value": 1000.0 }
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.20 },
+              {
+                "op": "sigmoid",
+                "inner": {
+                  "op": "mul",
+                  "terms": [
+                    { "op": "const", "value": 10.0 },
+                    { "op": "band", "band": "indices.ndbi" }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "key": "population_ghsl_dasymetric@1",
@@ -791,7 +1034,67 @@
       "when_to_use": "Cold-weather apparent temperature. Useful for outdoor-safety reports and frost-risk assessments below freezing.",
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.wind_speed_10m']}",
       "deterministic": true,
-      "citation": "Osczevski, R. & Bluestein, M. 2005. The new wind chill equivalent temperature chart. BAMS 86(10):1453\u20131458."
+      "citation": "Osczevski, R. & Bluestein, M. 2005. The new wind chill equivalent temperature chart. BAMS 86(10):1453\u20131458.",
+      "evaluation": {
+        "op": "add",
+        "terms": [
+          { "op": "const", "value": 13.12 },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.6215 },
+              { "op": "band", "band": "weather.temperature_2m" }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": -11.37 },
+              {
+                "op": "pow",
+                "base": {
+                  "op": "max",
+                  "terms": [
+                    {
+                      "op": "mul",
+                      "terms": [
+                        { "op": "band", "band": "weather.wind_speed_10m" },
+                        { "op": "const", "value": 3.6 }
+                      ]
+                    },
+                    { "op": "const", "value": 4.8 }
+                  ]
+                },
+                "exp": { "op": "const", "value": 0.16 }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 0.3965 },
+              { "op": "band", "band": "weather.temperature_2m" },
+              {
+                "op": "pow",
+                "base": {
+                  "op": "max",
+                  "terms": [
+                    {
+                      "op": "mul",
+                      "terms": [
+                        { "op": "band", "band": "weather.wind_speed_10m" },
+                        { "op": "const", "value": 3.6 }
+                      ]
+                    },
+                    { "op": "const", "value": 4.8 }
+                  ]
+                },
+                "exp": { "op": "const", "value": 0.16 }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "key": "fosberg_fire_weather_index@1",
@@ -828,7 +1131,499 @@
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.relative_humidity_2m','weather.wind_speed_10m']}",
       "deterministic": true,
       "citation": "Fosberg, M.A. 1978. Weather in wildland fire management: the fire weather index. In: Proceedings of the Conference on Sierra Nevada Meteorology, AMS, Lake Tahoe, pp. 1\u20134 (FFWI definition; \u03b7 damping; 0.3002\u00b7sqrt(1+U\u00b2) wind term). Simard, A.J. 1968. The moisture content of forest fuels \u2014 a review of the basic concepts. Information Report FF-X-14, Forest Fire Research Institute, Department of Forestry and Rural Development, Ottawa (source of the three-stage piecewise-linear equilibrium-moisture-content fit with coefficients 0.03229, 0.281073, 0.000578, 2.22749, 0.160107, 0.014784, 21.0606, 0.005565, 0.00035, 0.483199, as reproduced in Fosberg 1978).",
-      "pitfalls": "Coefficients reproduce the Simard 1968 piecewise-linear equilibrium-moisture-content equation as expressed in Fosberg 1978; do NOT re-derive \u2014 the curve was fit to laboratory measurements of fine-fuel-moisture response to ambient air temperature and RH. The formula is not valid for live-fuel moisture or for night-time / heavy-dew conditions where dew-deposition dominates over equilibrium with vapor pressure."
+      "pitfalls": "Coefficients reproduce the Simard 1968 piecewise-linear equilibrium-moisture-content equation as expressed in Fosberg 1978; do NOT re-derive \u2014 the curve was fit to laboratory measurements of fine-fuel-moisture response to ambient air temperature and RH. The formula is not valid for live-fuel moisture or for night-time / heavy-dew conditions where dew-deposition dominates over equilibrium with vapor pressure.",
+      "evaluation": {
+        "op": "clamp",
+        "lo": 0.0,
+        "hi": 100.0,
+        "inner": {
+          "op": "div",
+          "a": {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "where",
+                "cond": { "op": "band", "band": "weather.relative_humidity_2m" },
+                "gt": 50.0,
+                "then_": {
+                  "op": "add",
+                  "terms": [
+                    { "op": "const", "value": 1.0 },
+                    {
+                      "op": "mul",
+                      "terms": [
+                        { "op": "const", "value": -2.0 },
+                        {
+                          "op": "div",
+                          "a": {
+                            "op": "add",
+                            "terms": [
+                              { "op": "const", "value": 21.0606 },
+                              {
+                                "op": "mul",
+                                "terms": [
+                                  { "op": "const", "value": 0.005565 },
+                                  { "op": "band", "band": "weather.relative_humidity_2m" },
+                                  { "op": "band", "band": "weather.relative_humidity_2m" }
+                                ]
+                              },
+                              {
+                                "op": "mul",
+                                "terms": [
+                                  { "op": "const", "value": -0.00035 },
+                                  { "op": "band", "band": "weather.relative_humidity_2m" },
+                                  {
+                                    "op": "add",
+                                    "terms": [
+                                      {
+                                        "op": "mul",
+                                        "terms": [
+                                          { "op": "band", "band": "weather.temperature_2m" },
+                                          { "op": "const", "value": 1.8 }
+                                        ]
+                                      },
+                                      { "op": "const", "value": 32.0 }
+                                    ]
+                                  }
+                                ]
+                              },
+                              {
+                                "op": "mul",
+                                "terms": [
+                                  { "op": "const", "value": -0.483199 },
+                                  { "op": "band", "band": "weather.relative_humidity_2m" }
+                                ]
+                              }
+                            ]
+                          },
+                          "b": { "op": "const", "value": 30.0 }
+                        }
+                      ]
+                    },
+                    {
+                      "op": "mul",
+                      "terms": [
+                        { "op": "const", "value": 1.5 },
+                        {
+                          "op": "pow",
+                          "base": {
+                            "op": "div",
+                            "a": {
+                              "op": "add",
+                              "terms": [
+                                { "op": "const", "value": 21.0606 },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": 0.005565 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" }
+                                  ]
+                                },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": -0.00035 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" },
+                                    {
+                                      "op": "add",
+                                      "terms": [
+                                        {
+                                          "op": "mul",
+                                          "terms": [
+                                            { "op": "band", "band": "weather.temperature_2m" },
+                                            { "op": "const", "value": 1.8 }
+                                          ]
+                                        },
+                                        { "op": "const", "value": 32.0 }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": -0.483199 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" }
+                                  ]
+                                }
+                              ]
+                            },
+                            "b": { "op": "const", "value": 30.0 }
+                          },
+                          "exp": { "op": "const", "value": 2.0 }
+                        }
+                      ]
+                    },
+                    {
+                      "op": "mul",
+                      "terms": [
+                        { "op": "const", "value": -0.5 },
+                        {
+                          "op": "pow",
+                          "base": {
+                            "op": "div",
+                            "a": {
+                              "op": "add",
+                              "terms": [
+                                { "op": "const", "value": 21.0606 },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": 0.005565 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" }
+                                  ]
+                                },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": -0.00035 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" },
+                                    {
+                                      "op": "add",
+                                      "terms": [
+                                        {
+                                          "op": "mul",
+                                          "terms": [
+                                            { "op": "band", "band": "weather.temperature_2m" },
+                                            { "op": "const", "value": 1.8 }
+                                          ]
+                                        },
+                                        { "op": "const", "value": 32.0 }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": -0.483199 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" }
+                                  ]
+                                }
+                              ]
+                            },
+                            "b": { "op": "const", "value": 30.0 }
+                          },
+                          "exp": { "op": "const", "value": 3.0 }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "else_": {
+                  "op": "where",
+                  "cond": { "op": "band", "band": "weather.relative_humidity_2m" },
+                  "gt": 9.999,
+                  "then_": {
+                    "op": "add",
+                    "terms": [
+                      { "op": "const", "value": 1.0 },
+                      {
+                        "op": "mul",
+                        "terms": [
+                          { "op": "const", "value": -2.0 },
+                          {
+                            "op": "div",
+                            "a": {
+                              "op": "add",
+                              "terms": [
+                                { "op": "const", "value": 2.22749 },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": 0.160107 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" }
+                                  ]
+                                },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": -0.014784 },
+                                    {
+                                      "op": "add",
+                                      "terms": [
+                                        {
+                                          "op": "mul",
+                                          "terms": [
+                                            { "op": "band", "band": "weather.temperature_2m" },
+                                            { "op": "const", "value": 1.8 }
+                                          ]
+                                        },
+                                        { "op": "const", "value": 32.0 }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            "b": { "op": "const", "value": 30.0 }
+                          }
+                        ]
+                      },
+                      {
+                        "op": "mul",
+                        "terms": [
+                          { "op": "const", "value": 1.5 },
+                          {
+                            "op": "pow",
+                            "base": {
+                              "op": "div",
+                              "a": {
+                                "op": "add",
+                                "terms": [
+                                  { "op": "const", "value": 2.22749 },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": 0.160107 },
+                                      { "op": "band", "band": "weather.relative_humidity_2m" }
+                                    ]
+                                  },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": -0.014784 },
+                                      {
+                                        "op": "add",
+                                        "terms": [
+                                          {
+                                            "op": "mul",
+                                            "terms": [
+                                              { "op": "band", "band": "weather.temperature_2m" },
+                                              { "op": "const", "value": 1.8 }
+                                            ]
+                                          },
+                                          { "op": "const", "value": 32.0 }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              "b": { "op": "const", "value": 30.0 }
+                            },
+                            "exp": { "op": "const", "value": 2.0 }
+                          }
+                        ]
+                      },
+                      {
+                        "op": "mul",
+                        "terms": [
+                          { "op": "const", "value": -0.5 },
+                          {
+                            "op": "pow",
+                            "base": {
+                              "op": "div",
+                              "a": {
+                                "op": "add",
+                                "terms": [
+                                  { "op": "const", "value": 2.22749 },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": 0.160107 },
+                                      { "op": "band", "band": "weather.relative_humidity_2m" }
+                                    ]
+                                  },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": -0.014784 },
+                                      {
+                                        "op": "add",
+                                        "terms": [
+                                          {
+                                            "op": "mul",
+                                            "terms": [
+                                              { "op": "band", "band": "weather.temperature_2m" },
+                                              { "op": "const", "value": 1.8 }
+                                            ]
+                                          },
+                                          { "op": "const", "value": 32.0 }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              "b": { "op": "const", "value": 30.0 }
+                            },
+                            "exp": { "op": "const", "value": 3.0 }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "else_": {
+                    "op": "add",
+                    "terms": [
+                      { "op": "const", "value": 1.0 },
+                      {
+                        "op": "mul",
+                        "terms": [
+                          { "op": "const", "value": -2.0 },
+                          {
+                            "op": "div",
+                            "a": {
+                              "op": "add",
+                              "terms": [
+                                { "op": "const", "value": 0.03229 },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": 0.281073 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" }
+                                  ]
+                                },
+                                {
+                                  "op": "mul",
+                                  "terms": [
+                                    { "op": "const", "value": -0.000578 },
+                                    { "op": "band", "band": "weather.relative_humidity_2m" },
+                                    {
+                                      "op": "add",
+                                      "terms": [
+                                        {
+                                          "op": "mul",
+                                          "terms": [
+                                            { "op": "band", "band": "weather.temperature_2m" },
+                                            { "op": "const", "value": 1.8 }
+                                          ]
+                                        },
+                                        { "op": "const", "value": 32.0 }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            "b": { "op": "const", "value": 30.0 }
+                          }
+                        ]
+                      },
+                      {
+                        "op": "mul",
+                        "terms": [
+                          { "op": "const", "value": 1.5 },
+                          {
+                            "op": "pow",
+                            "base": {
+                              "op": "div",
+                              "a": {
+                                "op": "add",
+                                "terms": [
+                                  { "op": "const", "value": 0.03229 },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": 0.281073 },
+                                      { "op": "band", "band": "weather.relative_humidity_2m" }
+                                    ]
+                                  },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": -0.000578 },
+                                      { "op": "band", "band": "weather.relative_humidity_2m" },
+                                      {
+                                        "op": "add",
+                                        "terms": [
+                                          {
+                                            "op": "mul",
+                                            "terms": [
+                                              { "op": "band", "band": "weather.temperature_2m" },
+                                              { "op": "const", "value": 1.8 }
+                                            ]
+                                          },
+                                          { "op": "const", "value": 32.0 }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              "b": { "op": "const", "value": 30.0 }
+                            },
+                            "exp": { "op": "const", "value": 2.0 }
+                          }
+                        ]
+                      },
+                      {
+                        "op": "mul",
+                        "terms": [
+                          { "op": "const", "value": -0.5 },
+                          {
+                            "op": "pow",
+                            "base": {
+                              "op": "div",
+                              "a": {
+                                "op": "add",
+                                "terms": [
+                                  { "op": "const", "value": 0.03229 },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": 0.281073 },
+                                      { "op": "band", "band": "weather.relative_humidity_2m" }
+                                    ]
+                                  },
+                                  {
+                                    "op": "mul",
+                                    "terms": [
+                                      { "op": "const", "value": -0.000578 },
+                                      { "op": "band", "band": "weather.relative_humidity_2m" },
+                                      {
+                                        "op": "add",
+                                        "terms": [
+                                          {
+                                            "op": "mul",
+                                            "terms": [
+                                              { "op": "band", "band": "weather.temperature_2m" },
+                                              { "op": "const", "value": 1.8 }
+                                            ]
+                                          },
+                                          { "op": "const", "value": 32.0 }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              },
+                              "b": { "op": "const", "value": 30.0 }
+                            },
+                            "exp": { "op": "const", "value": 3.0 }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "op": "sqrt",
+                "inner": {
+                  "op": "add",
+                  "terms": [
+                    { "op": "const", "value": 1.0 },
+                    {
+                      "op": "mul",
+                      "terms": [
+                        { "op": "band", "band": "weather.wind_speed_10m" },
+                        { "op": "const", "value": 2.23694 },
+                        { "op": "band", "band": "weather.wind_speed_10m" },
+                        { "op": "const", "value": 2.23694 }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "b": { "op": "const", "value": 0.3002 }
+        }
+      }
     },
     {
       "key": "precip_intensity_class@1",
@@ -857,7 +1652,38 @@
       "when_to_use": "Translate a numeric precipitation rate into the user-facing words people actually use.",
       "primitive": "POST /v1/recall {bands:['weather.precipitation_mm']}",
       "deterministic": true,
-      "citation": "American Meteorological Society Glossary of Meteorology, 'rain' entry. WMO Manual on the Observation of Clouds and Other Meteors (WMO-No. 407)."
+      "citation": "American Meteorological Society Glossary of Meteorology, 'rain' entry. WMO Manual on the Observation of Clouds and Other Meteors (WMO-No. 407).",
+      "evaluation": {
+        "op": "where",
+        "cond": { "op": "band", "band": "weather.precipitation_mm" },
+        "gt": 49.999,
+        "then_": { "op": "const", "value": 5.0 },
+        "else_": {
+          "op": "where",
+          "cond": { "op": "band", "band": "weather.precipitation_mm" },
+          "gt": 7.5999,
+          "then_": { "op": "const", "value": 4.0 },
+          "else_": {
+            "op": "where",
+            "cond": { "op": "band", "band": "weather.precipitation_mm" },
+            "gt": 2.4999,
+            "then_": { "op": "const", "value": 3.0 },
+            "else_": {
+              "op": "where",
+              "cond": { "op": "band", "band": "weather.precipitation_mm" },
+              "gt": 0.4999,
+              "then_": { "op": "const", "value": 2.0 },
+              "else_": {
+                "op": "where",
+                "cond": { "op": "band", "band": "weather.precipitation_mm" },
+                "gt": 0.0,
+                "then_": { "op": "const", "value": 1.0 },
+                "else_": { "op": "const", "value": 0.0 }
+              }
+            }
+          }
+        }
+      }
     },
     {
       "key": "vapor_pressure_deficit@1",
@@ -888,7 +1714,42 @@
       "when_to_use": "Aridity / drought-stress / wildfire fuel-dryness assessments at sub-hour resolution. For multi-month standardised drought indices (SPI, SPEI, PDSI) wire the corresponding climatology; VPD is the snapshot atmospheric driver underneath.",
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.relative_humidity_2m']}",
       "deterministic": true,
-      "citation": "Allen, R.G., Pereira, L.S., Raes, D., Smith, M. 1998. Crop evapotranspiration, guidelines for computing crop water requirements. FAO Irrigation and Drainage Paper 56, Equation 11. Tetens, O. 1930. \u00dcber einige meteorologische Begriffe. Z. Geophys. 6:297\u2013309."
+      "citation": "Allen, R.G., Pereira, L.S., Raes, D., Smith, M. 1998. Crop evapotranspiration, guidelines for computing crop water requirements. FAO Irrigation and Drainage Paper 56, Equation 11. Tetens, O. 1930. \u00dcber einige meteorologische Begriffe. Z. Geophys. 6:297\u2013309.",
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          { "op": "const", "value": 0.6108 },
+          {
+            "op": "exp",
+            "inner": {
+              "op": "div",
+              "a": {
+                "op": "mul",
+                "terms": [
+                  { "op": "const", "value": 17.27 },
+                  { "op": "band", "band": "weather.temperature_2m" }
+                ]
+              },
+              "b": {
+                "op": "add",
+                "terms": [
+                  { "op": "band", "band": "weather.temperature_2m" },
+                  { "op": "const", "value": 237.3 }
+                ]
+              }
+            }
+          },
+          {
+            "op": "sub",
+            "a": { "op": "const", "value": 1.0 },
+            "b": {
+              "op": "div",
+              "a": { "op": "band", "band": "weather.relative_humidity_2m" },
+              "b": { "op": "const", "value": 100.0 }
+            }
+          }
+        ]
+      }
     },
     {
       "key": "slope_from_dem_neighborhood@1",

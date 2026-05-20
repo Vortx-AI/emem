@@ -683,6 +683,36 @@ pub enum Expr {
         /// Operands; result is `f64::INFINITY` over an empty vector.
         terms: Vec<Expr>,
     },
+    /// Hyperbolic tangent: `tanh(inner)`. Maps R → (-1, 1). The
+    /// algorithm registry uses `tanh(x/scale)` as a saturating
+    /// "density / count" transform (walkability, urban density, etc.).
+    Tanh {
+        /// Inner expression.
+        inner: Box<Expr>,
+    },
+    /// Natural exponential: `exp(inner)`. Used by Tetens / Magnus
+    /// saturation-vapour-pressure (VPD) and any Gaussian-shaped
+    /// comfort kernel.
+    Exp {
+        /// Inner expression.
+        inner: Box<Expr>,
+    },
+    /// Square root: `sqrt(inner)`. Returns `None` if `inner < 0`.
+    /// Used by Fosberg FFWI's wind-amplification term and by RMS
+    /// composites (e.g. Riley ruggedness index).
+    Sqrt {
+        /// Inner expression.
+        inner: Box<Expr>,
+    },
+    /// Power: `pow(base, exp)`. Returns `None` if the result is not
+    /// finite (e.g. `pow(-1, 0.5)`). Used by Osczevski-Bluestein
+    /// wind-chill (`V^0.16`) and any other non-integer power term.
+    Pow {
+        /// Base expression.
+        base: Box<Expr>,
+        /// Exponent expression.
+        exp: Box<Expr>,
+    },
 }
 
 impl Expr {
@@ -788,6 +818,37 @@ impl Expr {
                 }
                 Some(best)
             }
+            Expr::Tanh { inner } => {
+                let x = inner.evaluate(samples)?;
+                Some(x.tanh())
+            }
+            Expr::Exp { inner } => {
+                let x = inner.evaluate(samples)?;
+                let v = x.exp();
+                if v.is_finite() {
+                    Some(v)
+                } else {
+                    None
+                }
+            }
+            Expr::Sqrt { inner } => {
+                let x = inner.evaluate(samples)?;
+                if x < 0.0 {
+                    None
+                } else {
+                    Some(x.sqrt())
+                }
+            }
+            Expr::Pow { base, exp } => {
+                let b = base.evaluate(samples)?;
+                let e = exp.evaluate(samples)?;
+                let v = b.powf(e);
+                if v.is_finite() {
+                    Some(v)
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -826,7 +887,14 @@ impl Expr {
             Expr::Clamp { inner, .. }
             | Expr::Abs { inner }
             | Expr::Sigmoid { inner }
-            | Expr::Relu { inner } => inner.walk_bands(out),
+            | Expr::Relu { inner }
+            | Expr::Tanh { inner }
+            | Expr::Exp { inner }
+            | Expr::Sqrt { inner } => inner.walk_bands(out),
+            Expr::Pow { base, exp } => {
+                base.walk_bands(out);
+                exp.walk_bands(out);
+            }
             Expr::Where {
                 cond, then_, else_, ..
             } => {
@@ -1389,5 +1457,206 @@ mod tests {
         });
         let r: AlgorithmRegistry = serde_json::from_value(raw).unwrap();
         r.validate().expect("honest coarse declaration is valid");
+    }
+
+    #[test]
+    fn expr_tanh_matches_libm() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Tanh {
+            inner: Box::new(Expr::Const { value: 0.5 }),
+        };
+        let v = e.evaluate(&samples).expect("tanh evaluates");
+        assert!((v - 0.5_f64.tanh()).abs() < 1e-12);
+        // tanh is odd and bounded
+        let neg = Expr::Tanh {
+            inner: Box::new(Expr::Const { value: -10.0 }),
+        };
+        assert!(neg.evaluate(&samples).unwrap() < -0.999);
+    }
+
+    #[test]
+    fn expr_exp_matches_libm_and_rejects_overflow() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Exp {
+            inner: Box::new(Expr::Const { value: 1.0 }),
+        };
+        let v = e.evaluate(&samples).expect("exp(1) evaluates");
+        assert!((v - std::f64::consts::E).abs() < 1e-12);
+        // exp overflow → None
+        let big = Expr::Exp {
+            inner: Box::new(Expr::Const { value: 1e9 }),
+        };
+        assert_eq!(big.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn expr_sqrt_evaluates_and_rejects_negative() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Sqrt {
+            inner: Box::new(Expr::Const { value: 9.0 }),
+        };
+        assert_eq!(e.evaluate(&samples), Some(3.0));
+        let neg = Expr::Sqrt {
+            inner: Box::new(Expr::Const { value: -1.0 }),
+        };
+        assert_eq!(neg.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn expr_pow_handles_fractional_exponent() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Pow {
+            base: Box::new(Expr::Const { value: 16.0 }),
+            exp: Box::new(Expr::Const { value: 0.5 }),
+        };
+        assert_eq!(e.evaluate(&samples), Some(4.0));
+        // pow(-1, 0.5) is NaN -> None
+        let bad = Expr::Pow {
+            base: Box::new(Expr::Const { value: -1.0 }),
+            exp: Box::new(Expr::Const { value: 0.5 }),
+        };
+        assert_eq!(bad.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn newly_ast_algorithms_evaluate_against_synthetic_inputs() {
+        // Every algorithm we wired up in this batch must round-trip
+        // from samples → finite numeric value. One synthetic input map
+        // is reused across all of them, restricted to the bands each
+        // algorithm references via `referenced_bands()`. This is the
+        // registry-level smoke test that catches a typo in `op` keys
+        // or a missing-band reference before the dispatcher hits it.
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("indices.ndvi".to_string(), 0.45);
+        samples.insert("indices.ndmi".to_string(), 0.2);
+        samples.insert("indices.ndsi".to_string(), 0.5);
+        samples.insert("indices.nbr".to_string(), -0.1);
+        samples.insert("indices.bsi".to_string(), 0.10);
+        samples.insert("indices.ndbi".to_string(), 0.15);
+        samples.insert("surface_water.recurrence".to_string(), 30.0);
+        samples.insert("sentinel1_raw".to_string(), -17.0);
+        samples.insert("overture.buildings.count".to_string(), 250.0);
+        samples.insert("overture.transportation.road_length_m".to_string(), 1200.0);
+        samples.insert("weather.temperature_2m".to_string(), 28.0);
+        samples.insert("weather.relative_humidity_2m".to_string(), 55.0);
+        samples.insert("weather.wind_speed_10m".to_string(), 5.0);
+        samples.insert("weather.precipitation_mm".to_string(), 1.0);
+
+        let r = &*DEFAULT;
+        for key in [
+            "flood_history_class@1",
+            "water_likelihood_from_vv@1",
+            "vegetation_class_from_ndvi@1",
+            "crop_stress_score@1",
+            "snow_likelihood_from_ndsi@1",
+            "burn_likelihood_from_nbr@1",
+            "bare_soil_class@1",
+            "built_up_from_ndbi@1",
+            "urban_density_score@1",
+            "wind_chill@1",
+            "fosberg_fire_weather_index@1",
+            "precip_intensity_class@1",
+            "vapor_pressure_deficit@1",
+        ] {
+            let v = r
+                .evaluate(key, &samples)
+                .unwrap_or_else(|e| panic!("{key} evaluation failed: {e}"))
+                .unwrap_or_else(|| panic!("{key} has no evaluation AST"));
+            assert!(
+                v.is_finite(),
+                "{key} produced non-finite value {v} from synthetic inputs"
+            );
+        }
+    }
+
+    #[test]
+    fn vegetation_class_from_ndvi_returns_dense_class_above_threshold() {
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("indices.ndvi".to_string(), 0.75);
+        let r = &*DEFAULT;
+        let v = r
+            .evaluate("vegetation_class_from_ndvi@1", &samples)
+            .expect("class evaluation runs")
+            .expect("ast present");
+        // 0.75 > 0.5 → 'dense' = 4
+        assert_eq!(v, 4.0);
+        samples.insert("indices.ndvi".to_string(), -0.3);
+        let v_water = r
+            .evaluate("vegetation_class_from_ndvi@1", &samples)
+            .unwrap()
+            .unwrap();
+        // < 0 → 'water_or_snow' = 0
+        assert_eq!(v_water, 0.0);
+    }
+
+    #[test]
+    fn precip_intensity_class_uses_wmo_bins() {
+        let mut samples = std::collections::HashMap::new();
+        let r = &*DEFAULT;
+        for (precip, expected) in [
+            (0.0_f64, 0.0_f64), // none
+            (0.1, 1.0),         // trace
+            (1.0, 2.0),         // light
+            (5.0, 3.0),         // moderate
+            (10.0, 4.0),        // heavy
+            (60.0, 5.0),        // violent
+        ] {
+            samples.insert("weather.precipitation_mm".to_string(), precip);
+            let v = r
+                .evaluate("precip_intensity_class@1", &samples)
+                .unwrap()
+                .unwrap();
+            assert!(
+                (v - expected).abs() < 1e-9,
+                "precip={precip} expected class {expected} got {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn vapor_pressure_deficit_matches_tetens_at_20c() {
+        // At T=20°C, RH=50% the FAO-56 reference gives
+        // es = 0.6108 * exp(17.27 * 20 / 257.3) = 2.3385 kPa
+        // VPD = es * (1 - 0.5) = 1.1693 kPa
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("weather.temperature_2m".to_string(), 20.0);
+        samples.insert("weather.relative_humidity_2m".to_string(), 50.0);
+        let r = &*DEFAULT;
+        let v = r
+            .evaluate("vapor_pressure_deficit@1", &samples)
+            .unwrap()
+            .unwrap();
+        let es = 0.6108_f64 * (17.27_f64 * 20.0 / (20.0 + 237.3)).exp();
+        let expected = es * 0.5;
+        assert!(
+            (v - expected).abs() < 1e-6,
+            "VPD ≠ FAO-56 Tetens form: got {v} expected {expected}"
+        );
+    }
+
+    #[test]
+    fn water_likelihood_from_vv_saturates_below_minus_20_db() {
+        let mut samples = std::collections::HashMap::new();
+        let r = &*DEFAULT;
+        samples.insert("sentinel1_raw".to_string(), -20.0);
+        let v_wet = r
+            .evaluate("water_likelihood_from_vv@1", &samples)
+            .unwrap()
+            .unwrap();
+        // sigmoid((-15 - -20)/2) = sigmoid(2.5) ≈ 0.924
+        assert!(
+            v_wet > 0.9,
+            "expected high water prob at -20 dB, got {v_wet}"
+        );
+        samples.insert("sentinel1_raw".to_string(), -5.0);
+        let v_dry = r
+            .evaluate("water_likelihood_from_vv@1", &samples)
+            .unwrap()
+            .unwrap();
+        // sigmoid((-15 - -5)/2) = sigmoid(-5) ≈ 0.0067
+        assert!(
+            v_dry < 0.05,
+            "expected low water prob at -5 dB, got {v_dry}"
+        );
     }
 }
