@@ -31,18 +31,40 @@
 //!
 //! The JRC dispatcher serves tiles through a **CGI-style script** at
 //! `https://ies-ows.jrc.ec.europa.eu/iforce/tmf_v1/download.py?type=tile&dataset={DS}&lat={LAT}&lon={LON}`.
-//! Live probe on 2026-05-16:
+//! Live probe on 2026-05-20:
 //!
 //! ```text
-//! GET …?type=tile&dataset=AnnualChange_2023&lat=N0&lon=E20
-//! HTTP/2 200
-//! content-disposition: attachment; filename="JRC_TMF_AnnualChange_v1_2023_AFR_ID35_N0_E20.tif"
-//! content-length: 88,411,216
+//! GET …?type=tile&dataset=DeforestationYear&lat=N0&lon=W80
+//! HTTP/1.1 200 OK
+//! content-disposition: file; filename="JRC_TMF_DeforestationYear_INT_1982_2025_v1_SAM_ID28_N0_W80.tif"
+//! content-length: 77,431,558
+//! content-type: application/octet_stream
 //! ```
 //!
+//! Two contract details the materializer has to respect:
+//!
+//! 1. **`lat` / `lon` MUST be the N/S / E/W tag form** (e.g. `N0`,
+//!    `W80`), NOT signed decimals. Passing `lat=-1&lon=-76` returns
+//!    `HTTP 500` + an HTML error body — the dispatcher silently fails
+//!    the numeric form. The connector composes the URL through
+//!    [`tile_lat_tag`] / [`tile_lng_tag`] for exactly this reason.
+//!
+//! 2. **The response is BigTIFF**, not classic TIFF — the file magic
+//!    on every v2025 tile we've probed (DeforestationYear,
+//!    DegradationYear, AnnualChange_*, TransitionMap_Subtypes) is
+//!    `II+\0` (0x002B), not classic `II*\0` (0x002A). Tiles are
+//!    tile-organised (256×256), LZW-compressed, single-band uint8 /
+//!    uint16 depending on the dataset, with EPSG:4326 geo-tags and
+//!    Predictor 1 (no horizontal differencing). The shared
+//!    [`crate::cog`] sampler (BigTIFF-aware since 2026-05-06) handles
+//!    all of this — see [`sample_local_tiff_uint8`] /
+//!    [`sample_local_tiff_uint16`] which delegate to it through the
+//!    `file://` short-circuit in [`crate::cog::open_profile`] /
+//!    [`crate::cog::sample_pixel`].
+//!
 //! Critically, the response **does not include `Accept-Ranges`** and a
-//! follow-up `Range: bytes=0-1023` request returns the **full 88 MB body**
-//! with HTTP `200`, not `206 Partial Content`. The shared
+//! follow-up `Range: bytes=0-1023` request returns the **full ~80 MB
+//! body** with HTTP `200`, not `206 Partial Content`. The shared
 //! [`crate::cog`] sampler relies on `Range` for cheap COG window reads;
 //! it would download the entire tile on every per-cell request, which
 //! is wasteful and (more importantly) makes the materializer unusable
@@ -50,7 +72,8 @@
 //!
 //! **The fix is pull-and-cache.** On the first miss we download the
 //! whole tile to `<EMEM_DATA>/jrc_tmf_cache/<dataset>_<lat_tag>_<lng_tag>.tif`,
-//! then every subsequent per-cell read parses the local file directly.
+//! then every subsequent per-cell read parses the local file directly
+//! via `file://`-routed `cog::open_profile` + `cog::sample_pixel`.
 //! Subsequent recalls hit the disk only — no upstream traffic. The cache
 //! file is mtime-checked; tiles older than [`CACHE_STALENESS_DAYS`] are
 //! re-downloaded on next access (cheap insurance against a JRC
@@ -86,6 +109,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use reqwest::Client;
+
+use crate::cog;
 
 /// Earliest `AnnualChange_{year}` vintage published in v2025.
 pub const JRC_TMF_MIN_YEAR: u16 = 1990;
@@ -449,7 +474,7 @@ pub async fn fetch_annual_change(
     }
     let dataset = format!("{DATASET_ANNUAL_CHANGE_PREFIX}_{year}");
     let path = ensure_tile_cached(client, &dataset, lat, lng).await?;
-    sample_uint8_pixel(&path, lat, lng)
+    sample_uint8_pixel(&path, lat, lng).await
 }
 
 /// Read one pixel from the cached `DeforestationYear` raster at
@@ -467,7 +492,7 @@ pub async fn fetch_deforestation_year(
     lng: f64,
 ) -> Result<u16, JrcTmfError> {
     let path = ensure_tile_cached(client, DATASET_DEFORESTATION_YEAR, lat, lng).await?;
-    sample_uint16_pixel(&path, lat, lng)
+    sample_uint16_pixel(&path, lat, lng).await
 }
 
 /// Read one pixel from the cached `DegradationYear` raster at
@@ -480,7 +505,7 @@ pub async fn fetch_degradation_year(
     lng: f64,
 ) -> Result<u16, JrcTmfError> {
     let path = ensure_tile_cached(client, DATASET_DEGRADATION_YEAR, lat, lng).await?;
-    sample_uint16_pixel(&path, lat, lng)
+    sample_uint16_pixel(&path, lat, lng).await
 }
 
 /// Read one pixel from the cached `TransitionMap_Subtypes` raster at
@@ -493,365 +518,94 @@ pub async fn fetch_transition_subtype(
     lng: f64,
 ) -> Result<u8, JrcTmfError> {
     let path = ensure_tile_cached(client, DATASET_TRANSITION_SUBTYPES, lat, lng).await?;
-    sample_uint8_pixel(&path, lat, lng)
+    sample_uint8_pixel(&path, lat, lng).await
 }
 
-/// Sample a uint8 pixel from a locally-cached JRC TMF tile. Reads the
-/// whole TIFF into memory (84 MB ceiling per dataset/tile) and walks
-/// the IFD inline — the same minimal subset of TIFF that
-/// [`crate::cog::sample_pixel`] understands, restricted to the
-/// LZW + Predictor 1 / 2 + EPSG:4326 layout JRC ships.
-fn sample_uint8_pixel(path: &Path, lat: f64, lng: f64) -> Result<u8, JrcTmfError> {
-    let buf = std::fs::read(path).map_err(|e| JrcTmfError::CacheIo {
-        reason: format!("read {}: {e}", path.display()),
-    })?;
-    sample_local_tiff_uint8(&buf, lat, lng)
+/// Sample a uint8 pixel from a locally-cached JRC TMF tile. Routes
+/// the local file through the shared [`crate::cog`] sampler via its
+/// `file://` short-circuit. The sampler handles both classic TIFF
+/// (`II*\0`) and BigTIFF (`II+\0`); JRC TMF v2025 ships every tile we
+/// have probed as BigTIFF, so the BigTIFF path is the one exercised
+/// in practice.
+async fn sample_uint8_pixel(path: &Path, lat: f64, lng: f64) -> Result<u8, JrcTmfError> {
+    let value = sample_via_cog(path, lat, lng, 8).await?;
+    if !value.is_finite() || value < 0.0 || value > u8::MAX as f64 {
+        return Err(JrcTmfError::Decode(format!(
+            "uint8 pixel value {value} out of u8 range"
+        )));
+    }
+    Ok(value as u8)
 }
 
 /// Sample a uint16 pixel from a locally-cached JRC TMF tile. Same
 /// machinery as [`sample_uint8_pixel`] but for the 16-bit raster
 /// (DeforestationYear / DegradationYear ship year-of-event in uint16
 /// so we can carry the full 1990..=2025 range plus a `0` sentinel).
-fn sample_uint16_pixel(path: &Path, lat: f64, lng: f64) -> Result<u16, JrcTmfError> {
-    let buf = std::fs::read(path).map_err(|e| JrcTmfError::CacheIo {
-        reason: format!("read {}: {e}", path.display()),
-    })?;
-    sample_local_tiff_uint16(&buf, lat, lng)
-}
-
-/// Minimal in-process TIFF sampler for the JRC TMF tile layout. Reads
-/// IFD0, identifies tile vs strip layout, walks the appropriate offset
-/// array, decompresses the relevant chunk (LZW only — JRC has not
-/// published any non-LZW vintage), undoes Predictor 1/2 if requested,
-/// and returns the requested-channel byte.
-///
-/// This duplicates the strip + tile machinery in [`crate::cog`]
-/// because that module's `open_profile` only takes HTTP URLs. Pulling
-/// the local-file path inline keeps this connector standalone (no
-/// upstream changes to `cog.rs` required) and avoids a layer-violating
-/// `file://` shim.
-fn sample_local_tiff_uint8(buf: &[u8], lat: f64, lng: f64) -> Result<u8, JrcTmfError> {
-    let layout = parse_tiff_layout(buf)?;
-    if layout.bits_per_sample != 8 || layout.samples_per_pixel != 1 {
+async fn sample_uint16_pixel(path: &Path, lat: f64, lng: f64) -> Result<u16, JrcTmfError> {
+    let value = sample_via_cog(path, lat, lng, 16).await?;
+    if !value.is_finite() || value < 0.0 || value > u16::MAX as f64 {
         return Err(JrcTmfError::Decode(format!(
-            "expected uint8 single-band (got bps={}, spp={})",
-            layout.bits_per_sample, layout.samples_per_pixel
+            "uint16 pixel value {value} out of u16 range"
         )));
     }
-    let pixel_bytes = sample_pixel_bytes(buf, &layout, lat, lng, 1)?;
-    Ok(pixel_bytes[0])
+    Ok(value as u16)
 }
 
-fn sample_local_tiff_uint16(buf: &[u8], lat: f64, lng: f64) -> Result<u16, JrcTmfError> {
-    let layout = parse_tiff_layout(buf)?;
-    if layout.bits_per_sample != 16 || layout.samples_per_pixel != 1 {
-        return Err(JrcTmfError::Decode(format!(
-            "expected uint16 single-band (got bps={}, spp={})",
-            layout.bits_per_sample, layout.samples_per_pixel
-        )));
-    }
-    let pixel_bytes = sample_pixel_bytes(buf, &layout, lat, lng, 2)?;
-    Ok(u16::from_le_bytes([pixel_bytes[0], pixel_bytes[1]]))
-}
-
-/// Internal layout struct collected from the IFD walk. Mirrors the
-/// fields of [`crate::cog::CogProfile`] that the per-pixel sampler
-/// needs, with `chunk_*` fields holding either tile or strip data
-/// depending on which the TIFF uses.
-struct TiffLayout {
-    width: u32,
-    height: u32,
-    bits_per_sample: u16,
-    samples_per_pixel: u16,
-    compression: u16,
-    predictor: u16,
-    /// `true` if the TIFF is tiled (TileWidth/TileLength tags present);
-    /// `false` if it is stripped (StripOffsets/RowsPerStrip).
-    tiled: bool,
-    chunk_w: u32,
-    chunk_h: u32,
-    chunk_cols: u32,
-    chunk_offsets: Vec<u64>,
-    chunk_byte_counts: Vec<u64>,
-    pixel_scale: (f64, f64),
-    tiepoint: (f64, f64, f64, f64),
-}
-
-fn parse_tiff_layout(buf: &[u8]) -> Result<TiffLayout, JrcTmfError> {
-    if buf.len() < 16 {
-        return Err(JrcTmfError::Decode("tiff buffer too small".into()));
-    }
-    if &buf[..4] != b"II*\x00" {
-        return Err(JrcTmfError::Decode(
-            "not a little-endian TIFF (II*\\0)".into(),
-        ));
-    }
-    let ifd0_off = u32::from_le_bytes(buf[4..8].try_into().unwrap()) as usize;
-    if buf.len() < ifd0_off + 2 {
-        return Err(JrcTmfError::Decode("IFD0 offset past end".into()));
-    }
-    let n_entries = u16::from_le_bytes(buf[ifd0_off..ifd0_off + 2].try_into().unwrap()) as usize;
-    let entries_start = ifd0_off + 2;
-    if buf.len() < entries_start + n_entries * 12 {
-        return Err(JrcTmfError::Decode("IFD0 entries truncated".into()));
-    }
-    let mut width: Option<u32> = None;
-    let mut height: Option<u32> = None;
-    let mut bits_per_sample: u16 = 8;
-    let mut compression: u16 = 1;
-    let mut samples_per_pixel: u16 = 1;
-    let mut predictor: u16 = 1;
-    let mut tile_w: Option<u32> = None;
-    let mut tile_h: Option<u32> = None;
-    let mut tile_offsets_ref: Option<(usize, usize)> = None;
-    let mut tile_byte_counts_ref: Option<(usize, usize)> = None;
-    let mut strip_offsets_ref: Option<(usize, usize)> = None;
-    let mut strip_byte_counts_ref: Option<(usize, usize)> = None;
-    let mut rows_per_strip: Option<u32> = None;
-    let mut pixel_scale: Option<(f64, f64)> = None;
-    let mut tiepoint: Option<(f64, f64, f64, f64)> = None;
-    for i in 0..n_entries {
-        let e = entries_start + i * 12;
-        let tag = u16::from_le_bytes(buf[e..e + 2].try_into().unwrap());
-        let cnt = u32::from_le_bytes(buf[e + 4..e + 8].try_into().unwrap()) as usize;
-        let raw = &buf[e + 8..e + 12];
-        let val_u32 = u32::from_le_bytes(raw.try_into().unwrap()) as usize;
-        let val_u16_first = u16::from_le_bytes([raw[0], raw[1]]);
-        match tag {
-            256 => width = Some(val_u32 as u32),
-            257 => height = Some(val_u32 as u32),
-            258 => bits_per_sample = val_u16_first,
-            259 => compression = val_u16_first,
-            277 => samples_per_pixel = val_u16_first,
-            317 => predictor = val_u16_first,
-            322 => tile_w = Some(val_u32 as u32),
-            323 => tile_h = Some(val_u32 as u32),
-            324 => tile_offsets_ref = Some((cnt, val_u32)),
-            325 => tile_byte_counts_ref = Some((cnt, val_u32)),
-            273 => strip_offsets_ref = Some((cnt, val_u32)),
-            278 => rows_per_strip = Some(val_u32 as u32),
-            279 => strip_byte_counts_ref = Some((cnt, val_u32)),
-            33550 => {
-                if cnt < 2 || buf.len() < val_u32 + 16 {
-                    continue;
-                }
-                let sx = f64::from_le_bytes(buf[val_u32..val_u32 + 8].try_into().unwrap());
-                let sy = f64::from_le_bytes(buf[val_u32 + 8..val_u32 + 16].try_into().unwrap());
-                pixel_scale = Some((sx, sy));
-            }
-            33922 => {
-                if cnt < 6 || buf.len() < val_u32 + 48 {
-                    continue;
-                }
-                let i0 = f64::from_le_bytes(buf[val_u32..val_u32 + 8].try_into().unwrap());
-                let j0 = f64::from_le_bytes(buf[val_u32 + 8..val_u32 + 16].try_into().unwrap());
-                let x = f64::from_le_bytes(buf[val_u32 + 24..val_u32 + 32].try_into().unwrap());
-                let y = f64::from_le_bytes(buf[val_u32 + 32..val_u32 + 40].try_into().unwrap());
-                tiepoint = Some((i0, j0, x, y));
-            }
-            _ => {}
-        }
-    }
-    let width = width.ok_or_else(|| JrcTmfError::Decode("missing ImageWidth".into()))?;
-    let height = height.ok_or_else(|| JrcTmfError::Decode("missing ImageLength".into()))?;
-    let pixel_scale =
-        pixel_scale.ok_or_else(|| JrcTmfError::Decode("missing ModelPixelScale".into()))?;
-    let tiepoint = tiepoint.ok_or_else(|| JrcTmfError::Decode("missing ModelTiepoint".into()))?;
-    if compression != 5 {
-        return Err(JrcTmfError::Decode(format!(
-            "expected LZW compression (5), got {compression}"
-        )));
-    }
-    if !(predictor == 1 || predictor == 2) {
-        return Err(JrcTmfError::Decode(format!(
-            "expected Predictor 1 or 2, got {predictor}"
-        )));
-    }
-
-    // Decide tiled vs stripped. JRC TMF v2025 ships in either layout
-    // depending on the dataset; both are supported.
-    let (tiled, chunk_w, chunk_h, chunk_offsets_ref, chunk_byte_counts_ref) =
-        match (tile_w, tile_h, tile_offsets_ref) {
-            (Some(tw), Some(th), Some(to_ref)) => {
-                let tbc = tile_byte_counts_ref
-                    .ok_or_else(|| JrcTmfError::Decode("missing TileByteCounts (325)".into()))?;
-                (true, tw, th, to_ref, tbc)
-            }
-            _ => match (strip_offsets_ref, strip_byte_counts_ref) {
-                (Some(so_ref), Some(sbc_ref)) => {
-                    let rps = rows_per_strip.unwrap_or(height);
-                    (false, width, rps, so_ref, sbc_ref)
-                }
-                _ => {
-                    return Err(JrcTmfError::Decode(
-                        "TIFF has neither TileOffsets nor StripOffsets — cannot locate pixel data"
-                            .into(),
-                    ));
-                }
-            },
-        };
-
-    let (off_cnt, off_pos) = chunk_offsets_ref;
-    let (bc_cnt, bc_pos) = chunk_byte_counts_ref;
-    if off_cnt != bc_cnt {
-        return Err(JrcTmfError::Decode(format!(
-            "chunk offsets count {off_cnt} != byte counts count {bc_cnt}"
-        )));
-    }
-    if buf.len() < off_pos + off_cnt * 4 || buf.len() < bc_pos + bc_cnt * 4 {
-        return Err(JrcTmfError::Decode("chunk arrays past end".into()));
-    }
-    let mut chunk_offsets = Vec::with_capacity(off_cnt);
-    let mut chunk_byte_counts = Vec::with_capacity(bc_cnt);
-    // When the offsets array fits inline (cnt * 4 <= 4 bytes → cnt <= 1)
-    // the entry's value field IS the array. Both JRC TMF tiles we've
-    // probed have hundreds of chunks, so the external-array path is
-    // the only one exercised in practice — but handle the inline case
-    // defensively to avoid an out-of-bounds slice for synthetic test
-    // tiles.
-    if off_cnt == 1 {
-        chunk_offsets.push(off_pos as u64);
-        chunk_byte_counts.push(bc_pos as u64);
-    } else {
-        for k in 0..off_cnt {
-            let p = off_pos + k * 4;
-            chunk_offsets.push(u32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as u64);
-        }
-        for k in 0..bc_cnt {
-            let p = bc_pos + k * 4;
-            chunk_byte_counts.push(u32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as u64);
-        }
-    }
-    let chunk_cols = if tiled { width.div_ceil(chunk_w) } else { 1 };
-
-    Ok(TiffLayout {
-        width,
-        height,
-        bits_per_sample,
-        samples_per_pixel,
-        compression,
-        predictor,
-        tiled,
-        chunk_w,
-        chunk_h,
-        chunk_cols,
-        chunk_offsets,
-        chunk_byte_counts,
-        pixel_scale,
-        tiepoint,
-    })
-}
-
-/// Locate the chunk holding `(lat, lng)`, decompress it, undo the
-/// predictor, and return the requested pixel as `bytes_per_sample`
-/// little-endian bytes. Common code path for the uint8 and uint16
-/// rasters; the caller widens the byte slice into the appropriate
-/// integer type.
-fn sample_pixel_bytes(
-    buf: &[u8],
-    layout: &TiffLayout,
+/// Open the cached tile as a COG via the `file://` short-circuit in
+/// [`crate::cog::open_profile`], assert the expected bit-depth and
+/// single-band layout, and sample the pixel at `(lat, lng)` in
+/// EPSG:4326 world space. JRC TMF v2025 tiles are all BigTIFF,
+/// LZW-compressed, Predictor 1 (no horizontal differencing),
+/// `samples_per_pixel = 1`, and either uint8 (`AnnualChange_*`,
+/// `TransitionMap_*`) or uint16 (`DeforestationYear`,
+/// `DegradationYear`).
+async fn sample_via_cog(
+    path: &Path,
     lat: f64,
     lng: f64,
-    bytes_per_sample: usize,
-) -> Result<Vec<u8>, JrcTmfError> {
-    let (sx, sy) = layout.pixel_scale;
-    let (i0, j0, x0, y0) = layout.tiepoint;
-    let col_f = i0 + (lng - x0) / sx;
-    let row_f = j0 + (y0 - lat) / sy;
-    let col = col_f.round() as i64;
-    let row = row_f.round() as i64;
-    if col < 0 || row < 0 || col >= layout.width as i64 || row >= layout.height as i64 {
-        return Err(JrcTmfError::CoverageGap { lat, lng });
-    }
-    let col = col as u32;
-    let row = row as u32;
-
-    let chunk_idx = if layout.tiled {
-        let tile_col = col / layout.chunk_w;
-        let tile_row = row / layout.chunk_h;
-        (tile_row * layout.chunk_cols + tile_col) as usize
-    } else {
-        (row / layout.chunk_h) as usize
-    };
-    if chunk_idx >= layout.chunk_offsets.len() {
+    expected_bits: u16,
+) -> Result<f64, JrcTmfError> {
+    // The `file://` short-circuit in `cog::http_range` requires an
+    // absolute path on every platform we ship to (Linux container,
+    // macOS dev box) — canonicalize so a relative `EMEM_DATA=…`
+    // resolves identically across processes.
+    let canonical = std::fs::canonicalize(path).map_err(|e| JrcTmfError::CacheIo {
+        reason: format!("canonicalize {}: {e}", path.display()),
+    })?;
+    let url = format!("file://{}", canonical.display());
+    // `Client::new()` is unused on the `file://` branch (the short
+    // circuit never touches the network) but the signature requires
+    // it. Keep it dirt-cheap: `Client::new()` doesn't open any
+    // sockets.
+    let client = Client::new();
+    let profile = cog::open_profile(&client, &url)
+        .await
+        .map_err(|e| JrcTmfError::Decode(format!("cog::open_profile: {e}")))?;
+    if profile.bits_per_sample != expected_bits {
         return Err(JrcTmfError::Decode(format!(
-            "chunk_idx {chunk_idx} ≥ chunk count {}",
-            layout.chunk_offsets.len()
+            "expected bits_per_sample={expected_bits} (got {}); dataset layout drift?",
+            profile.bits_per_sample
         )));
     }
-    let chunk_off = layout.chunk_offsets[chunk_idx] as usize;
-    let chunk_len = layout.chunk_byte_counts[chunk_idx] as usize;
-    if chunk_len == 0 {
+    if profile.samples_per_pixel != 1 {
         return Err(JrcTmfError::Decode(format!(
-            "chunk {chunk_idx} byte_count=0 (sparse — empty)"
+            "expected single-band tile (samples_per_pixel=1), got {}",
+            profile.samples_per_pixel
         )));
     }
-    if chunk_off + chunk_len > buf.len() {
-        return Err(JrcTmfError::Decode(format!(
-            "chunk {chunk_idx} bytes past end of TIFF"
-        )));
-    }
-    // LZW decompress the chunk.
-    debug_assert_eq!(layout.compression, 5);
-    let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-    let mut decoded = dec
-        .decode(&buf[chunk_off..chunk_off + chunk_len])
-        .map_err(|e| JrcTmfError::Decode(format!("lzw: {e}")))?;
-    let chunk_w = layout.chunk_w as usize;
-    let chunk_h = layout.chunk_h as usize;
-    let row_bytes = chunk_w * bytes_per_sample;
-    // Apply Predictor 2 (horizontal differencing) row-by-row across the
-    // decoded chunk. JRC TMF predictors observed in the wild are 1 (no
-    // diff) for some classification rasters and 2 for others; the
-    // condition below is a no-op when predictor == 1.
-    if layout.predictor == 2 {
-        for r in 0..chunk_h {
-            let base = r * row_bytes;
-            if base + row_bytes > decoded.len() {
-                break;
+    // World-space sampling. JRC TMF is EPSG:4326 so x ≡ lng, y ≡ lat.
+    // `sample_pixel` returns CoverageGap-equivalent (`Unsupported`)
+    // for pixels outside the tile envelope; surface that as
+    // `JrcTmfError::CoverageGap` so the materializer can sign Absence
+    // honestly.
+    cog::sample_pixel(&client, &url, &profile, lng, lat)
+        .await
+        .map_err(|e| match e {
+            cog::CogError::Unsupported(msg) if msg.contains("outside image") => {
+                JrcTmfError::CoverageGap { lat, lng }
             }
-            match bytes_per_sample {
-                1 => {
-                    for c in 1..chunk_w {
-                        let prev = decoded[base + c - 1];
-                        decoded[base + c] = decoded[base + c].wrapping_add(prev);
-                    }
-                }
-                2 => {
-                    for c in 1..chunk_w {
-                        let p = base + c * 2;
-                        let prev = u16::from_le_bytes(decoded[p - 2..p].try_into().unwrap());
-                        let cur = u16::from_le_bytes(decoded[p..p + 2].try_into().unwrap());
-                        let v = prev.wrapping_add(cur);
-                        decoded[p..p + 2].copy_from_slice(&v.to_le_bytes());
-                    }
-                }
-                _ => {
-                    return Err(JrcTmfError::Decode(format!(
-                        "unsupported bytes_per_sample={bytes_per_sample} for predictor 2"
-                    )));
-                }
-            }
-        }
-    }
-    let intra_col = if layout.tiled {
-        col - (col / layout.chunk_w) * layout.chunk_w
-    } else {
-        col
-    } as usize;
-    // Intra-row index inside the chunk is `row % chunk_h` regardless
-    // of layout (for stripped TIFFs chunk_h == RowsPerStrip; for tiled
-    // it's the tile height). The arithmetic is identical in both
-    // branches.
-    let intra_row = (row - (row / layout.chunk_h) * layout.chunk_h) as usize;
-    let p = intra_row * row_bytes + intra_col * bytes_per_sample;
-    if p + bytes_per_sample > decoded.len() {
-        return Err(JrcTmfError::Decode(format!(
-            "pixel offset {p} past decoded chunk ({} bytes)",
-            decoded.len()
-        )));
-    }
-    Ok(decoded[p..p + bytes_per_sample].to_vec())
+            other => JrcTmfError::Decode(format!("cog::sample_pixel: {other}")),
+        })
 }
 
 #[cfg(test)]
@@ -1224,5 +978,97 @@ mod tests {
         assert!((30..=365).contains(&CACHE_STALENESS_DAYS));
         assert_eq!(JRC_TMF_MIN_YEAR, 1990);
         assert_eq!(JRC_TMF_MAX_YEAR, 2025);
+    }
+
+    /// Live integration test against the JRC TMF dispatcher.
+    /// Yasuni National Park (Ecuadorian Amazon) sits at
+    /// `(-1.15, -76.45)` — well inside the SAM_ID28 tile (`N0`/`W80`).
+    /// The dispatcher returns a ~77 MB BigTIFF (`II+\0` magic, magic
+    /// 0x002B); the shared `cog::open_profile` BigTIFF path must
+    /// decode it and yield a uint16 deforestation-year pixel. The
+    /// pixel is `0` (no event) for the vast majority of the tile and
+    /// a four-digit year (e.g. `2018`) where an event was logged —
+    /// either is a valid Primary fact.
+    ///
+    /// `#[ignore]`-gated so CI doesn't hit the JRC server on every
+    /// PR. Run with `cargo test --ignored -p emem-fetch
+    /// fetch_deforestation_year_yasuni` and inspect the printed
+    /// profile + sampled value.
+    #[tokio::test]
+    #[ignore = "live network: hits the JRC TMF dispatcher and downloads an ~80 MB tile"]
+    async fn fetch_deforestation_year_yasuni() {
+        // Use a per-test EMEM_DATA so the cache write goes somewhere
+        // we can clean up; falling back to /var/emem on a developer
+        // box is fine but requires write access.
+        let tmp = std::env::temp_dir().join("emem_jrc_tmf_live_test");
+        // Ignore mkdir errors — the connector creates the subdir itself.
+        let _ = std::fs::create_dir_all(&tmp);
+        std::env::set_var("EMEM_DATA", &tmp);
+
+        let client = Client::new();
+        let (lat, lng) = (-1.15_f64, -76.45_f64);
+        let year = fetch_deforestation_year(&client, lat, lng)
+            .await
+            .expect("Yasuni cell must materialize as a Primary fact");
+        // `year == 0` is the no-event sentinel (most pixels in any
+        // tropical tile); anything non-zero must be a calendar year
+        // inside the dataset window.
+        assert!(
+            year == 0 || (1982..=2025).contains(&year),
+            "DeforestationYear pixel {year} must be 0 or in 1982..=2025 (Vancutsem 2021 reanalysis)"
+        );
+
+        // Re-open the cached tile through cog::open_profile so we can
+        // print the parsed CogProfile for the report. Routing through
+        // the same `file://` path the production sampler uses keeps
+        // this honest — if the profile parses here it parses in the
+        // materializer too.
+        let tile_path = cached_tile_path(DATASET_DEFORESTATION_YEAR, "N0", "W80");
+        let canonical = std::fs::canonicalize(&tile_path).expect("cached tile must exist");
+        let url = format!("file://{}", canonical.display());
+        let profile = crate::cog::open_profile(&client, &url)
+            .await
+            .expect("cached tile must parse as a COG");
+        eprintln!(
+            "[jrc_tmf live] profile: width={} height={} bps={} sf={} compression={} predictor={} \
+             samples_per_pixel={} planar={} tile={}x{} ({} cols × {} rows = {} tiles) \
+             pixel_scale=({:.10e}, {:.10e}) tiepoint={:?} epsg={:?}",
+            profile.width,
+            profile.height,
+            profile.bits_per_sample,
+            profile.sample_format,
+            profile.compression,
+            profile.predictor,
+            profile.samples_per_pixel,
+            profile.planar_config,
+            profile.tile_w,
+            profile.tile_h,
+            profile.tile_cols,
+            profile.tile_rows,
+            profile.tile_offsets.len(),
+            profile.pixel_scale.0,
+            profile.pixel_scale.1,
+            profile.tiepoint,
+            profile.epsg,
+        );
+        eprintln!("[jrc_tmf live] Yasuni ({lat:.6}, {lng:.6}) DeforestationYear pixel = {year}");
+        assert_eq!(profile.bits_per_sample, 16, "must be uint16 raster");
+        assert_eq!(profile.compression, 5, "must be LZW-compressed");
+        assert_eq!(profile.samples_per_pixel, 1, "must be single-band");
+
+        // Second cell: Pará deforestation arc south of Belém,
+        // `(-3.5, -49.5)` — same SAM continent grouping, different
+        // SAM_ID tile (`N0`/`W50`). Cells in the arc carry a
+        // non-zero event year. This exercises the second-tile
+        // download path (different cached file) and confirms the
+        // year-of-event range matches the v2025 1982..=2025 window.
+        let para = fetch_deforestation_year(&client, -3.5, -49.5)
+            .await
+            .expect("Pará cell must materialize");
+        eprintln!("[jrc_tmf live] Pará (-3.500000, -49.500000) DeforestationYear pixel = {para}");
+        assert!(
+            para == 0 || (1982..=2025).contains(&para),
+            "Pará pixel {para} must be 0 or 1982..=2025"
+        );
     }
 }
