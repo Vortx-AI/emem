@@ -583,6 +583,10 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/agent.json", get(agent_manifest))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
         .route("/.well-known/mcp.json", get(well_known_mcp))
+        .route(
+            "/.well-known/openai-apps-challenge",
+            get(serve_openai_apps_challenge),
+        )
         // SEP-1649 server-card endpoint (MCP 2025-11-25 spec drafts;
         // adopted by Claude Desktop / Cursor / VS Code ahead of merge).
         // Same payload as /.well-known/mcp.json — clients that probe
@@ -2117,6 +2121,12 @@ async fn serve_privacy_md() -> Response {
 }
 async fn serve_terms_md() -> Response {
     text_response("text/markdown; charset=utf-8", TERMS_MD)
+}
+async fn serve_openai_apps_challenge() -> Response {
+    text_response(
+        "text/plain; charset=utf-8",
+        "1CzTwZZjREejEIIMo87BI4HTnV0g0SNaozHCwVfPPwM?",
+    )
 }
 async fn serve_support_md() -> Response {
     text_response("text/markdown; charset=utf-8", SUPPORT_MD)

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "emem",
+    "subtitle": "Signed Earth facts for places",
+    "description": "emem helps ChatGPT answer questions about real-world places using signed geospatial facts. It can check elevation, surface water, vegetation, built-up context, flood signals, and return cite-able receipts. No API key or signup required.",
+    "category": "DEVELOPER_TOOLS"
+  },
+  "tools": {
+    "emem_ask": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "This tool only queries geospatial data. It does not modify any external state.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "This tool resolves real-world place mentions and may fetch upstream Earth-observation data to answer the user's place-based question. It does not create public content or affect external systems.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "This tool is read-only. It does not delete or modify any data."
+    },
+    "emem_locate": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Resolves a place name to coordinates and available bands. No writes.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "This tool resolves free-text place names, addresses, or coordinates against real-world geocoding and emem inventory data.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only geocoding operation."
+    },
+    "emem_recall": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Retrieves signed geospatial facts for a given cell and bands. No external writes.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "This tool can auto-materialize facts from registered Earth-observation data sources when a requested band is missing.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only data retrieval."
+    },
+    "emem_verify_receipt": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Verifies a signed receipt envelope. No writes.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Checks receipt data supplied by the caller without contacting external systems.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only receipt verification."
+    }
+  },
+  "test_cases": [
+    {
+      "prompt": "What is the elevation at Helsinki-Vantaa Airport?",
+      "expected": "Returns elevation value with a signed fact CID"
+    },
+    {
+      "prompt": "Does downtown Miami have flood risk signals?",
+      "expected": "Returns elevation and surface water data with signed receipts"
+    },
+    {
+      "prompt": "What signed geospatial facts are available for Lake Erie, Ohio?",
+      "expected": "Returns available bands and signed facts for the location"
+    },
+    {
+      "prompt": "Is New Orleans at risk of flooding based on elevation?",
+      "expected": "Returns low elevation data and surface water recurrence with CIDs"
+    },
+    {
+      "prompt": "What evidence supports a flood risk assessment for Miami Beach?",
+      "expected": "Returns elevation, surface water, and vegetation data with verifiable receipts"
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "prompt": "What is the stock price of Apple?",
+      "expected": "emem tools should not be called. This is not a place-based question."
+    },
+    {
+      "prompt": "Write me a poem about the ocean.",
+      "expected": "emem tools should not be called. This is a creative writing request."
+    },
+    {
+      "prompt": "How do I install Python on Windows?",
+      "expected": "emem tools should not be called. This is a software question."
+    }
+  ]
+}

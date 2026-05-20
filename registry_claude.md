@@ -31,8 +31,6 @@ Do NOT use the same example everywhere. Each ecosystem gets a different demo tha
 | Agno | Helsinki Airport elevation + surface-water/flood | "Check Helsinki Airport for elevation and surface-water/flood signals" |
 | Pydantic AI | Structured Lake Erie algal bloom output | Typed output with fields: place, event, top_cell, primary_band, value, fact_cid, scene_url, caveats |
 | AutoGen | Multi-step South Mumbai locate > recall > verify | Chain: resolve South Mumbai, recall elevation, verify the receipt/fact CID |
-| CrewAI | Insurance/real-estate underwriting risk note | Crew checks site for elevation, flood/surface-water, built-up context, writes risk note with receipt IDs |
-| Mastra | Lake Erie algal bloom event hunt | Find algal bloom hotspots using emem hunt/event workflow |
 | browser-use | Web research + emem signed facts split | Browse web for context, use emem only for physical-world facts |
 
 ## What this agent does NOT do
@@ -41,3 +39,29 @@ Do NOT use the same example everywhere. Each ecosystem gets a different demo tha
 - Add emem as a dependency to any target repo's core
 - Commit on behalf of the user
 - Make decisions about which repos to target (user decides)
+
+## PR/Submission Status
+
+| Target | PR/Issue | Status |
+|--------|----------|--------|
+| sacridini/Awesome-Geospatial | #200 | MERGED |
+| sacridini/Awesome-Geospatial | #201 | OPEN (move emem to MCP Servers section) |
+| punkpeye/awesome-mcp-servers | #6532 | OPEN |
+| Shubhamsaboo/awesome-llm-apps | #819 | CLOSED (needs full runnable demo, not just link) |
+| Shubhamsaboo/awesome-llm-apps | #821 | OPEN (full Streamlit demo resubmission) |
+| steven2358/awesome-generative-ai | #762 | OPEN |
+| sshuair/awesome-gis | #212 | OPEN |
+| acgeospatial/awesome-earthobservation-code | #39 | OPEN |
+| browser-use/browser-use | #4852 | OPEN (code review passed) |
+| langchain-ai/langchain-mcp-adapters | #511 | OPEN (issue) |
+| run-llama/llama_index | #21699 | OPEN (discussion) |
+| elasticlabs/awesome-gis | #6 | OPEN |
+| elasticlabs/awesome-earthobservation | #1 | OPEN |
+| attibalazs/awesome-remote-sensing | #4 | OPEN |
+| iamtekson/awesome-geospatial-data-sources | #10 | OPEN |
+| edieraristizabal/Awesome-GDS | #3 | OPEN |
+| joewdavies/awesome-frontend-gis | #33 | OPEN |
+| chrieke/awesome-geospatial-companies | #92 | OPEN |
+| cline/mcp-marketplace | #1605 | OPEN (marketplace submission) |
+| crewAIInc/crewAI | — | CLOSED (maintainer declined) |
+| mastra-ai/mastra | — | CLOSED (maintainer declined) |
