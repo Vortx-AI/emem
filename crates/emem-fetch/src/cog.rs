@@ -26,11 +26,14 @@
 //! error rather than silently doing the wrong thing — the protocol's
 //! no-fallback rule applies.
 
+use std::collections::HashMap;
 use std::io::Read;
+use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
 use flate2::read::ZlibDecoder;
 use reqwest::Client;
+use tokio::sync::{Mutex, OnceCell};
 
 /// Errors specific to the COG sampler. Bubbled up through `FetchError::Transport`
 /// at the dispatcher boundary so callers don't have to thread two error types.
@@ -131,9 +134,61 @@ impl CogProfile {
     }
 }
 
+/// One slot in the profile cache: a shared `OnceCell` that holds the
+/// `Arc<CogProfile>` once the first caller finishes fetching+parsing.
+/// Concurrent callers for the same URL park on this cell.
+type ProfileCacheSlot = Arc<OnceCell<Arc<CogProfile>>>;
+
+/// Process-wide cache of parsed COG profiles, keyed by URL. A COG's IFD
+/// is immutable upstream — for JRC GFC2020 V3 the external TileOffsets +
+/// TileByteCounts arrays alone are ~110 MB (LONG8 over 6.9 M tiles), and
+/// the retry loop in `open_profile_uncached` re-fetches them from byte 0
+/// each iteration. Caching once per URL turns subsequent `open_profile`
+/// calls into a HashMap lookup, taking `/v1/eudr_dds` per-cell sampling
+/// from ~97 s back to interactive latency.
+///
+/// `OnceCell` per slot delivers the single-flight contract: concurrent
+/// callers for the same URL all park on the same `get_or_try_init`
+/// future, so exactly ONE upstream fetch happens; the rest receive the
+/// resulting `Arc` by clone. `tokio::sync::Mutex` because we hold the
+/// outer map lock only long enough to look up / insert the slot, while
+/// the `OnceCell` initialisation itself awaits the upstream fetch.
+static PROFILE_CACHE: LazyLock<Mutex<HashMap<String, ProfileCacheSlot>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Range-read the head of a COG and parse IFD0. Returns the metadata needed
 /// for `sample_pixel`.
 ///
+/// Results are cached per URL for the lifetime of the process and
+/// single-flighted across concurrent callers — for any given URL only
+/// ONE upstream fetch+parse happens; subsequent calls clone the cached
+/// `Arc<CogProfile>` without touching the network.
+pub async fn open_profile(client: &Client, url: &str) -> Result<Arc<CogProfile>, CogError> {
+    // Grab (or insert) the OnceCell slot for this URL. Outer lock is
+    // released before we await initialisation so concurrent open_profile
+    // calls for *other* URLs aren't blocked behind us.
+    let cell = {
+        let mut guard = PROFILE_CACHE.lock().await;
+        guard
+            .entry(url.to_string())
+            .or_insert_with(|| Arc::new(OnceCell::new()))
+            .clone()
+    };
+    // First caller drives the fetch+parse; everyone else parks on the
+    // same future and gets the same Arc when it lands.
+    let arc = cell
+        .get_or_try_init(|| async { open_profile_uncached(client, url).await.map(Arc::new) })
+        .await?;
+    Ok(arc.clone())
+}
+
+/// Pre-warm the profile cache for `url` so the first user-facing recall
+/// avoids the IFD + tile-array fetch. Wiring into server startup is a
+/// follow-up; this just exposes the helper so the caller can decide.
+pub async fn prewarm_profile(client: &Client, url: &str) -> Result<(), CogError> {
+    open_profile(client, url).await.map(drop)
+}
+
 /// The first read pulls 64 KiB which is enough for Sentinel-2 / -1 in
 /// practice. COGs that use the **end-of-file IFD layout** (IFD0 written
 /// after all the tile data, e.g. JRC Global Surface Water — 40000×40000
@@ -143,7 +198,7 @@ impl CogProfile {
 /// entries have different `needed` values — so we loop the retry,
 /// expanding the buffer to cover whatever offset parse_profile is stuck
 /// on, up to a hard cap of 8 iterations to avoid pathological cases.
-pub async fn open_profile(client: &Client, url: &str) -> Result<CogProfile, CogError> {
+async fn open_profile_uncached(client: &Client, url: &str) -> Result<CogProfile, CogError> {
     let mut buf = http_range(client, url, 0, 65535).await?;
     for _ in 0..8 {
         match parse_profile(&buf) {
@@ -1705,6 +1760,123 @@ mod tests {
         assert_eq!(prof.tile_h, 16);
         assert_eq!(prof.tile_offsets, vec![10_000, 11_000, 12_000, 13_000]);
         assert_eq!(prof.tile_byte_counts, vec![256, 256, 256, 256]);
+    }
+
+    /// Write a synthetic BigTIFF (the same buffer the parse tests above
+    /// use) to a unique temp file and return its `file://` URL. The
+    /// cog sampler short-circuits `file://` URLs through a direct
+    /// filesystem read in `http_range`, so we can exercise the full
+    /// `open_profile` pipeline (cache lookup → uncached fetch → parse)
+    /// without touching the network.
+    fn write_synthetic_bigtiff_to_tempfile() -> String {
+        let mut buf = build_synthetic_bigtiff();
+        // open_profile's first read is a 64 KiB range. The `file://`
+        // short-circuit uses `read_exact`, which fails on EOF — so we
+        // pad the synthetic file (it's only a few hundred bytes of
+        // real content) up past the 64 KiB initial window. The trailing
+        // zeros are never parsed; parse_profile stops after the IFD0
+        // chain ends with a 0 next-IFD pointer.
+        buf.resize(buf.len().max(128 * 1024), 0);
+        // Unique filename per call so two tests running in the same
+        // process never collide on a cached entry from a prior test.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let pid = std::process::id();
+        let path = std::env::temp_dir().join(format!("emem_cog_cache_test_{pid}_{nanos}.tif"));
+        std::fs::write(&path, &buf).expect("write temp tiff");
+        format!("file://{}", path.display())
+    }
+
+    /// Second `open_profile` call for the same URL must return the same
+    /// `Arc<CogProfile>` — i.e. the cache hit short-circuits past the
+    /// fetch+parse work. Without this, the JRC GFC2020 V3 path's
+    /// ~110 MB external-array re-fetch happens per sample.
+    #[tokio::test]
+    async fn open_profile_is_cached_after_first_call() {
+        let url = write_synthetic_bigtiff_to_tempfile();
+        let client = Client::new();
+        let p1 = open_profile(&client, &url).await.expect("first call");
+        let p2 = open_profile(&client, &url).await.expect("second call");
+        assert!(
+            Arc::ptr_eq(&p1, &p2),
+            "cache hit must return the same Arc (got fresh allocations)"
+        );
+    }
+
+    /// Concurrent open_profile calls for the same URL must single-flight
+    /// the underlying fetch+parse — every caller gets the same `Arc`
+    /// back. We can't directly count file opens (the `file://` branch
+    /// is sync inside an async function), so the contract is pinned by
+    /// pointer equality across 8 concurrent callers: if any caller
+    /// raced past the OnceCell and produced its own Arc, ptr_eq would
+    /// fail for at least one pair.
+    #[tokio::test]
+    async fn open_profile_single_flights_concurrent_callers() {
+        let url = write_synthetic_bigtiff_to_tempfile();
+        let client = Client::new();
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let cli = client.clone();
+            let u = url.clone();
+            handles.push(tokio::spawn(async move {
+                open_profile(&cli, &u)
+                    .await
+                    .expect("concurrent open_profile")
+            }));
+        }
+        let mut arcs: Vec<Arc<CogProfile>> = Vec::new();
+        for h in handles {
+            arcs.push(h.await.expect("join task"));
+        }
+        let first = arcs[0].clone();
+        for (i, a) in arcs.iter().enumerate().skip(1) {
+            assert!(
+                Arc::ptr_eq(&first, a),
+                "caller {i} got a different Arc — single-flight broken"
+            );
+        }
+    }
+
+    /// Live JRC GFC2020 V3 timing assertion. First call exercises the
+    /// full retry loop (~110 MB of TileOffsets + TileByteCounts at
+    /// LONG8 over 6.9 M tiles) and is slow; the second call must be a
+    /// pure HashMap + Arc::clone and finish in well under 100 ms. Gated
+    /// behind `#[ignore]` so CI doesn't hit JEODPP; run manually with
+    /// `cargo test --ignored -p emem-fetch open_profile_jrc_gfc2020_v3_second_call_is_fast --nocapture`.
+    #[tokio::test]
+    #[ignore = "live network test against jeodpp.jrc.ec.europa.eu — run with --ignored"]
+    async fn open_profile_jrc_gfc2020_v3_second_call_is_fast() {
+        let url = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V3_COG.tif";
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .expect("client");
+        let t1 = std::time::Instant::now();
+        let p1 = match open_profile(&client, url).await {
+            Ok(p) => p,
+            Err(CogError::Transport(s)) => {
+                eprintln!("[skip] open_profile_jrc_gfc2020_v3_second_call_is_fast: transport: {s}");
+                return;
+            }
+            Err(e) => panic!("unexpected COG error: {e}"),
+        };
+        let first = t1.elapsed();
+        let t2 = std::time::Instant::now();
+        let p2 = open_profile(&client, url).await.expect("second call");
+        let second = t2.elapsed();
+        eprintln!(
+            "JRC GFC2020 V3 open_profile timing: first={:?} second={:?}",
+            first, second
+        );
+        assert!(Arc::ptr_eq(&p1, &p2), "cache hit must return the same Arc");
+        assert!(
+            second.as_millis() < 100,
+            "second call must hit cache, got {:?} (first was {:?})",
+            second,
+            first
+        );
     }
 
     /// Header smoke test against the live 41 GB JRC GFC2020 V3 BigTIFF.
