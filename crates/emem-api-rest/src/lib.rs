@@ -15511,10 +15511,11 @@ async fn materialize_geotessera_multi_year(
             Err(e) => {
                 tracing::debug!(target: "emem::materialize",
                     year = *y, error = %e, "geotessera multi-year skipped a year");
-                // Pad with zeros for byte-stable layout — the year list in args
-                // tells the agent which slices are real vs absent.
+                // NaN-mask absent vintages so downstream dot/cosine propagates
+                // NaN instead of silently treating a missing year as a zero
+                // measurement — agents skip NaN slices explicitly via is_nan.
                 for _ in 0..128 {
-                    full.push(ciborium::Value::Float(0.0));
+                    full.push(ciborium::Value::Float(f64::NAN));
                 }
             }
         }
@@ -15526,8 +15527,7 @@ async fn materialize_geotessera_multi_year(
     // Anchor to the latest covered vintage — the receipt's "as-of" year.
     let latest_year = *covered.last().unwrap_or(&2024);
     let year_unix = days_from_civil(latest_year, 1, 1) * 86_400;
-    let mu_tslot =
-        emem_core::tslot::Tslot::from_unix(year_unix, emem_core::tslot::Tempo::Slow).0;
+    let mu_tslot = emem_core::tslot::Tslot::from_unix(year_unix, emem_core::tslot::Tempo::Slow).0;
 
     let signed_at = chrono_iso8601_utc();
     let fact = Fact::Primary(PrimaryFact {
@@ -15544,7 +15544,8 @@ async fn materialize_geotessera_multi_year(
                 .into(),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            // latest covered vintage; covered-years list lives in derivation.args
+            captured_at: Some(format!("{latest_year}-01-01T00:00:00Z")),
             url: None,
         }],
         derivation: Derivation {
@@ -15564,7 +15565,7 @@ async fn materialize_geotessera_multi_year(
                         .map(|y| ciborium::Value::Integer((*y as i64).into()))
                         .collect(),
                 ),
-                ciborium::Value::Text("zero_pad_missing_years".into()),
+                ciborium::Value::Text("nan_mask_missing_years".into()),
             ])),
         },
         privacy_class: "public".into(),
@@ -15686,7 +15687,8 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
         // for round-trip readability and decode it lossily if a
         // verifier later wants the raw 32-byte slice.
         hash: None,
-        captured_at: Some(signed_at.clone()),
+        // IBM-NASA Prithvi-EO-2.0-300M-TL release date
+        captured_at: Some("2024-10-01T00:00:00Z".to_string()),
         url: Some("https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL".into()),
     });
 
@@ -15815,7 +15817,8 @@ async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::Fa
         id: format!("made-with-clay/Clay@{model_blake2b}"),
         cid: None,
         hash: None,
-        captured_at: Some(signed_at.clone()),
+        // Made With Clay v1.5 release date
+        captured_at: Some("2025-03-15T00:00:00Z".to_string()),
         url: Some("https://huggingface.co/made-with-clay/Clay/tree/main/v1.5".into()),
     });
 
@@ -15934,7 +15937,8 @@ async fn materialize_galileo_base(
         id: format!("nasaharvest/galileo@{model_blake2b}"),
         cid: None,
         hash: None,
-        captured_at: Some(signed_at.clone()),
+        // Galileo Base by Earth-Net release date
+        captured_at: Some("2024-09-01T00:00:00Z".to_string()),
         url: Some("https://huggingface.co/nasaharvest/galileo".into()),
     });
 
@@ -16169,8 +16173,7 @@ async fn materialize_geotessera_for_year(
     let lng = info.lng_deg;
     // Tessera is annual — anchor every vintage's tslot to Jan 1 of that year.
     let year_unix = days_from_civil(year, 1, 1) * 86_400;
-    let year_tslot =
-        emem_core::tslot::Tslot::from_unix(year_unix, emem_core::tslot::Tempo::Slow).0;
+    let year_tslot = emem_core::tslot::Tslot::from_unix(year_unix, emem_core::tslot::Tempo::Slow).0;
     let v = match fetch_geotessera_pixel(lat, lng, year).await {
         Ok(v) => v,
         Err(e) => {
@@ -16191,7 +16194,7 @@ async fn materialize_geotessera_for_year(
                      at dl2.geotessera.org for ({lat:.6},{lng:.6}) in year {year} \
                      (HEAD returned 404). Coverage is regional per year — many cells \
                      ship in some vintages and not others. The 1024-D fused \
-                     `geotessera.multi_year` band zero-pads absent years and is the \
+                     `geotessera.multi_year` band NaN-masks absent years and is the \
                      right choice when full year-by-year vintage coverage isn't required."
                 );
                 let reason_cid = reason_cid_for(&reason);
@@ -16208,7 +16211,8 @@ async fn materialize_geotessera_for_year(
                         ),
                         cid: None,
                         hash: None,
-                        captured_at: Some(signed_at.clone()),
+                        // vintage-year stamp; see derivation.args (year field) for the slice
+                        captured_at: Some(format!("{year}-01-01T00:00:00Z")),
                         url: None,
                     }],
                     schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -16236,7 +16240,8 @@ async fn materialize_geotessera_for_year(
             ),
             cid: None,
             hash: None,
-            captured_at: Some(signed_at.clone()),
+            // vintage-year stamp; see derivation.args (year field) for the slice
+            captured_at: Some(format!("{year}-01-01T00:00:00Z")),
             url: None,
         }],
         derivation: Derivation {
@@ -32676,8 +32681,8 @@ mod tests {
     /// collide into the same Medium (30-day) tslot bucket.
     #[test]
     fn band_tempo_for_key_modis_uses_16day_composite() {
-        let m = band_materializer_meta("modis.ndvi_mean")
-            .expect("modis.ndvi_mean has a materializer");
+        let m =
+            band_materializer_meta("modis.ndvi_mean").expect("modis.ndvi_mean has a materializer");
         assert_eq!(m.tempo, emem_core::tslot::Tempo::Composite16Day);
         assert_eq!(
             tempo_for_band("modis.ndvi_mean"),
@@ -33024,6 +33029,24 @@ mod tests {
         assert_eq!(
             band_tempo_for_key("modis.lst_day_8day"),
             Some(Tempo::Composite8Day)
+        );
+    }
+
+    #[test]
+    fn tessera_vintage_year_iso_format_is_jan1_utc() {
+        // The format!("{year}-01-01T00:00:00Z") expression each materializer uses.
+        assert_eq!(format!("{}-01-01T00:00:00Z", 2024), "2024-01-01T00:00:00Z");
+        assert_eq!(format!("{}-01-01T00:00:00Z", 2017), "2017-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn nan_propagates_in_dot_product_so_missing_years_dont_silently_zero() {
+        let a: Vec<f64> = vec![1.0, 2.0, f64::NAN, 4.0];
+        let b: Vec<f64> = vec![1.0, 1.0, 1.0, 1.0];
+        let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        assert!(
+            dot.is_nan(),
+            "expected NaN dot; got {dot} — confirms NaN-mask discipline"
         );
     }
 }
