@@ -26943,6 +26943,16 @@ struct EudrDdsReq {
     /// (≤ 4 ha) get a 1-cell evaluation regardless of this value.
     #[serde(default)]
     max_cells_per_plot: Option<usize>,
+    /// Annex II §1 activity type: DOMESTIC | IMPORT | EXPORT | TRADE.
+    #[serde(default)]
+    activity_type: Option<String>,
+    /// Operator's internal reference number — echoed verbatim into the
+    /// TRACES NT envelope.
+    #[serde(default)]
+    internal_reference_number: Option<String>,
+    /// Annex II geolocation-confidentiality flag (default false).
+    #[serde(default)]
+    geolocation_confidential: Option<bool>,
 }
 
 fn default_eudr_cutoff_date() -> String {
@@ -26976,6 +26986,37 @@ struct EudrPlot {
     /// Optional supplier identifier.
     #[serde(default)]
     supplier: Option<String>,
+    // --- Annex II §3 descriptors (TRACES NT envelope) ---
+    /// Annex II §3 `descriptors.commonName` — e.g. `"Cocoa beans"`.
+    #[serde(default)]
+    common_name: Option<String>,
+    /// Annex II §3 `descriptors.scientificName` — e.g. `"Theobroma cacao"`.
+    #[serde(default)]
+    scientific_name: Option<String>,
+    /// Annex II §3 `descriptors.tradeName`.
+    #[serde(default)]
+    trade_name: Option<String>,
+    /// Annex II §3 `descriptors.descriptionOfGoods`.
+    #[serde(default)]
+    description_of_goods: Option<String>,
+    /// Annex II §3 `goodsMeasure.volume` (m³).
+    #[serde(default)]
+    quantity_volume_m3: Option<f64>,
+    /// Annex II §3 `goodsMeasure.supplementaryUnit`.
+    #[serde(default)]
+    quantity_supplementary_units: Option<f64>,
+    /// Annex II §3 `goodsMeasure.supplementaryUnitQualifier`.
+    #[serde(default)]
+    quantity_supplementary_unit_qualifier: Option<String>,
+    /// Annex II §3 `goodsMeasure.numberOfUnits`.
+    #[serde(default)]
+    number_of_units: Option<u64>,
+    /// Producer's name (per-plot, Annex II §3.producers).
+    #[serde(default)]
+    producer_name: Option<String>,
+    /// Producer's country ISO3 — may differ from `country_of_production`.
+    #[serde(default)]
+    producer_country: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -27394,6 +27435,149 @@ fn hs_code_is_cattle(hs: &str) -> bool {
     h.starts_with("0102") || h.starts_with("0201") || h.starts_with("0202")
 }
 
+/// First 4 digits of the commodity HS code = Annex II §3 `hsHeading`.
+fn hs_heading_4dig(hs: &str) -> String {
+    hs.chars().filter(|c| c.is_ascii_digit()).take(4).collect()
+}
+
+/// Round a polygon ring to ≥6 decimal degrees (Article 2(28) precision).
+/// Returns coordinates of shape `Vec<Vec<Vec<f64>>>` matching GeoJSON.
+fn coords_to_6_decimal(coords: &[Vec<Vec<f64>>]) -> Vec<Vec<Vec<f64>>> {
+    let q = 1_000_000.0_f64; // 6 dp
+    coords
+        .iter()
+        .map(|ring| {
+            ring.iter()
+                .map(|pt| pt.iter().map(|c| (c * q).round() / q).collect())
+                .collect()
+        })
+        .collect()
+}
+
+/// Count the maximum number of decimal digits in any vertex of a
+/// polygon — used to surface `precision_warning` when an operator
+/// supplies coordinates below the Article 2(28) minimum.
+fn max_decimal_digits(coords: &[Vec<Vec<f64>>]) -> usize {
+    let mut max = 0usize;
+    for ring in coords {
+        for pt in ring {
+            for c in pt {
+                // Render in fixed notation, count after the dot.
+                let s = format!("{c:.10}");
+                if let Some(dot) = s.find('.') {
+                    let tail: &str = s[dot + 1..].trim_end_matches('0');
+                    if tail.len() > max {
+                        max = tail.len();
+                    }
+                }
+            }
+        }
+    }
+    max
+}
+
+/// Statement-of-compliance text per Annex II §6. Affirmative shape for
+/// `"pass"`; "cannot be signed" shape for everything else.
+fn statement_of_compliance(verdict: &str) -> &'static str {
+    match verdict {
+        "pass" => "I, the operator named above, hereby confirm that, on the basis of due diligence carried out in accordance with Regulation (EU) 2023/1115: (a) the relevant products have been produced in accordance with the relevant legislation of the country of production; (b) no deforestation or forest degradation, as defined in Article 2(3) and Article 2(7), has occurred on the relevant production plots after 31 December 2020; (c) the relevant products are deforestation-free as defined in Article 2(13). I assume the regulatory responsibility set out in Article 4.",
+        _ => "Statement of compliance cannot be signed because the due diligence outcome is not 'pass'. Operator must address the underlying findings (see per_plot_results) before submitting a DDS to TRACES NT.",
+    }
+}
+
+/// emem-issued placeholder DDS reference number. TRACES NT issues the
+/// canonical one on submission; this only ties the response to its
+/// originating request_id for client-side joining.
+fn dds_reference_number(request_id: &str) -> String {
+    format!("EMEM-DDS-{}", &request_id[..16.min(request_id.len())])
+}
+
+/// Build the Annex II §3 `productionPlace` FeatureCollection for one plot
+/// plus an optional precision_warning when operator-supplied coordinates
+/// fall short of Article 2(28) (≥6 decimal degrees).
+fn build_producer_geojson(
+    plot: &EudrPlot,
+    bbox: (f64, f64, f64, f64),
+    area_ha: f64,
+    plot_id: &str,
+) -> (JsonValue, Option<String>) {
+    // Extract operator-supplied Polygon coordinates verbatim when present;
+    // otherwise synthesize a bbox polygon at 6 decimals.
+    let geometry_typ = plot
+        .geometry_geojson
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let mut precision_warning: Option<String> = None;
+    let geometry = if geometry_typ == "Polygon" {
+        // Parse the raw f64 coords, check precision, then round to ≥6 dp.
+        let raw: Vec<Vec<Vec<f64>>> = plot
+            .geometry_geojson
+            .get("coordinates")
+            .and_then(|v| v.as_array())
+            .map(|rings| {
+                rings
+                    .iter()
+                    .filter_map(|r| r.as_array())
+                    .map(|ring| {
+                        ring.iter()
+                            .filter_map(|pt| pt.as_array())
+                            .filter_map(|p| {
+                                if p.len() >= 2 {
+                                    Some(vec![p[0].as_f64()?, p[1].as_f64()?])
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if max_decimal_digits(&raw) < 6 {
+            precision_warning = Some(
+                "operator-supplied geometry is below Article 2(28) precision requirement (≥6 decimal degrees ≈ 11 cm)".into(),
+            );
+        }
+        let rounded = coords_to_6_decimal(&raw);
+        json!({"type": "Polygon", "coordinates": rounded})
+    } else {
+        // Synthesize a 4-vertex bbox polygon at 6 decimals.
+        let q = 1_000_000.0_f64;
+        let r = |x: f64| (x * q).round() / q;
+        let (mn_la, mx_la, mn_ln, mx_ln) = (r(bbox.0), r(bbox.1), r(bbox.2), r(bbox.3));
+        json!({
+            "type": "Polygon",
+            "coordinates": [[
+                [mn_ln, mn_la], [mx_ln, mn_la], [mx_ln, mx_la], [mn_ln, mx_la], [mn_ln, mn_la]
+            ]],
+        })
+    };
+    let producer_name = plot
+        .producer_name
+        .clone()
+        .or_else(|| plot.supplier.clone())
+        .unwrap_or_default();
+    let producer_country = plot
+        .producer_country
+        .clone()
+        .unwrap_or_else(|| plot.country_of_production.clone());
+    let fc = json!({
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": geometry,
+            "properties": {
+                "ProducerName":    producer_name,
+                "ProducerCountry": producer_country,
+                "ProductionPlace": plot_id,
+                "Area":            area_ha,
+            }
+        }]
+    });
+    (fc, precision_warning)
+}
+
 async fn post_eudr_dds(
     State(s): State<AppState>,
     Json(req): Json<EudrDdsReq>,
@@ -27445,131 +27629,231 @@ async fn post_eudr_dds_inner(
     }
     let max_cells_default = req.max_cells_per_plot.unwrap_or(16).clamp(1, 256);
 
-    let mut per_plot_results: Vec<JsonValue> = Vec::with_capacity(req.plots.len());
-    let mut overall_verdicts: Vec<u8> = Vec::with_capacity(req.plots.len());
+    // Bounded fan-out caps: env-tunable so upstream COG hosts stay polite.
+    let cell_cc: usize = std::env::var("EMEM_EUDR_CELL_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(8)
+        .clamp(1, 64);
+    let plot_cc: usize = std::env::var("EMEM_EUDR_PLOT_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(4)
+        .clamp(1, 32);
+
     let mut annex_i_warnings: Vec<JsonValue> = Vec::new();
+    // Carry per-plot context the TRACES envelope needs (set during the
+    // per-plot pass; producer_geojson is None for POINT plots).
+    struct PlotCtx {
+        verdict_code: u8,
+        producer_geojson: Option<JsonValue>,
+        precision_warning: Option<String>,
+    }
+    let mut plot_ctx: Vec<Option<PlotCtx>> = (0..req.plots.len()).map(|_| None).collect();
+    let mut per_plot_results: Vec<Option<JsonValue>> = (0..req.plots.len()).map(|_| None).collect();
     let mut all_cells_for_provenance: Vec<EudrCellVerdict> = Vec::new();
 
-    for plot in &req.plots {
-        let (bbox, polygon_opt, area_ha) = match extract_plot_geometry(&plot.geometry_geojson) {
-            Ok(t) => t,
-            Err(e) => {
-                per_plot_results.push(json!({
-                    "plot_id":  plot.plot_id,
-                    "verdict":  "indeterminate",
-                    "verdict_code": 4,
-                    "error":    format!("geometry parse: {e}"),
-                }));
-                overall_verdicts.push(4);
-                continue;
-            }
-        };
-        let is_cattle = hs_code_is_cattle(&plot.commodity_hs);
-        // Annex I scope check (Article 3 + Annex I). Non-Annex-I codes
-        // get a soft warning — never reject — because operators often
-        // submit ancillary HS codes for context.
-        let in_annex_i = hs_in_annex_i(&plot.commodity_hs);
-        let annex_i_status = if in_annex_i {
-            "in_annex_i"
-        } else {
-            "outside_annex_i"
-        };
-        if !in_annex_i {
+    // Pre-pass: short-circuit Annex-I warnings + geometry parse errors so
+    // the parallel pass only handles well-formed plots. Bad plots get
+    // their indeterminate result filled in here.
+    let mut valid_plot_indices: Vec<usize> = Vec::with_capacity(req.plots.len());
+    for (idx, plot) in req.plots.iter().enumerate() {
+        if !hs_in_annex_i(&plot.commodity_hs) {
             annex_i_warnings.push(json!({
                 "plot_id":     plot.plot_id,
                 "commodity_hs": plot.commodity_hs,
                 "warning":     "commodity_hs is not a prefix of any Annex I code; EUDR Article 3 only covers Annex I commodities. Verdict still computed for context.",
             }));
         }
-        // Article 2(28): POLYGON for > 4 ha or cattle; POINT for the
-        // rest. POINT still evaluates at the centroid cell.
-        let geometry_kind = if area_ha > 4.0 || is_cattle {
-            "polygon"
-        } else {
-            "point"
-        };
-        // Sample budget: small POINT plots only need 1 cell.
-        let n_cells = if geometry_kind == "point" {
-            1
-        } else {
-            max_cells_default
-        };
-        let cells = if let Some(poly) = polygon_opt {
-            sample_cells_in_polygon(bbox, n_cells, &[poly])
-        } else {
-            sample_cells_in_bbox(bbox, n_cells)
-        };
-        let mut per_cell = Vec::with_capacity(cells.len());
-        for c in &cells {
-            per_cell.push(evaluate_eudr_cell(&s, c).await);
+        if let Err(e) = extract_plot_geometry(&plot.geometry_geojson) {
+            per_plot_results[idx] = Some(json!({
+                "plot_id":  plot.plot_id,
+                "verdict":  "indeterminate",
+                "verdict_code": 4,
+                "error":    format!("geometry parse: {e}"),
+            }));
+            plot_ctx[idx] = Some(PlotCtx {
+                verdict_code: 4,
+                producer_geojson: None,
+                precision_warning: None,
+            });
+            continue;
         }
-        all_cells_for_provenance.extend(per_cell.iter().cloned());
-        let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
-
-        // Article 2(4) 0.5 ha MMU floor — demote raw fail to below_mmu when
-        // the failing area is below 0.5 ha (≈55 cells × ~91 m²).
-        let mmu = if raw_verdict == 2 {
-            mmu_demote(n_fail, EUDR_CELL_AREA_M2)
-        } else {
-            MmuDemotion {
-                verdict_code: raw_verdict,
-                failing_area_ha: (n_fail as f64 * EUDR_CELL_AREA_M2) / 10_000.0,
-                mmu_floor_applied: false,
-            }
-        };
-        let plot_verdict = mmu.verdict_code;
-        overall_verdicts.push(plot_verdict);
-
-        // Article 2(28) representation: POINT plots surface their
-        // centroid; POLYGON plots surface the bbox + per-cell cids.
-        let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
-        let mut plot_obj = json!({
-            "plot_id":         plot.plot_id,
-            "verdict":         verdict_label(plot_verdict),
-            "verdict_code":    plot_verdict,
-            "fail_fraction":   fail_fraction,
-            "failing_cells":   n_fail,
-            "failing_area_ha": mmu.failing_area_ha,
-            "mmu_threshold_ha": EUDR_MMU_THRESHOLD_HA,
-            "mmu_floor_applied": mmu.mmu_floor_applied,
-            "total_cells":     n_total,
-            "area_ha_approx":  area_ha,
-            "geometry_kind":   geometry_kind,
-            "is_cattle":       is_cattle,
-            "annex_i_status":  annex_i_status,
-            "country_of_production": plot.country_of_production,
-            "commodity_hs":    plot.commodity_hs,
-            "commodity_name":  plot.commodity_name,
-            "quantity_kg":     plot.quantity_kg,
-            "supplier":        plot.supplier,
-            "geolocation": {
-                "centroid":   {"lat": lat_c, "lng": lng_c, "precision_digits": 6},
-                "bbox":       {"min_lat": bbox.0, "max_lat": bbox.1, "min_lng": bbox.2, "max_lng": bbox.3},
-                "decimal_digits_per_article_2_28": 6,
-            },
-            "per_cell_verdicts": per_cell,
-        });
-        // Article 2(28) POINT sampling caveat: one cell ≈ 0.01 ha of an
-        // up-to-4 ha plot; surface so the operator sees the limitation.
-        if geometry_kind == "point" {
-            let sampled_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
-            if let Some(obj) = plot_obj.as_object_mut() {
-                obj.insert(
-                    "sampling_caveat".into(),
-                    JsonValue::String(
-                        "Article 2(28) POINT geometry: ~9.55 m sample of an up-to-4 ha plot; expand to POLYGON for plots > 4 ha or for higher-confidence verdict".into(),
-                    ),
-                );
-                obj.insert(
-                    "sampled_area_ha".into(),
-                    serde_json::Number::from_f64(sampled_area_ha)
-                        .map(JsonValue::Number)
-                        .unwrap_or(JsonValue::Null),
-                );
-            }
-        }
-        per_plot_results.push(plot_obj);
+        valid_plot_indices.push(idx);
     }
+
+    // Per-plot work returns (plot_obj, plot_ctx, per_cell_verdicts).
+    type PlotWork = (JsonValue, PlotCtx, Vec<EudrCellVerdict>);
+    let evaluate_plot = |idx: usize,
+                         s: AppState|
+     -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = (usize, PlotWork)> + Send>,
+    > {
+        let plot = req.plots[idx].clone();
+        let cap = cell_cc;
+        Box::pin(async move {
+            // Safe: pre-pass guarantees this plot parses.
+            let (bbox, polygon_opt, area_ha) =
+                extract_plot_geometry(&plot.geometry_geojson).expect("pre-validated");
+            let is_cattle = hs_code_is_cattle(&plot.commodity_hs);
+            let in_annex_i = hs_in_annex_i(&plot.commodity_hs);
+            let annex_i_status = if in_annex_i {
+                "in_annex_i"
+            } else {
+                "outside_annex_i"
+            };
+            // Article 2(28) point/polygon split.
+            let geometry_kind = if area_ha > 4.0 || is_cattle {
+                "polygon"
+            } else {
+                "point"
+            };
+            let n_cells = if geometry_kind == "point" {
+                1
+            } else {
+                max_cells_default
+            };
+            let cells: Vec<String> = if let Some(poly) = polygon_opt.clone() {
+                sample_cells_in_polygon(bbox, n_cells, &[poly])
+            } else {
+                sample_cells_in_bbox(bbox, n_cells)
+            };
+
+            // Bounded parallel fan-out over cells (index-preserving). The
+            // JoinSet itself bounds in-flight count — we prime up to cell_cc,
+            // then refill one-for-one as each finishes.
+            let mut set: tokio::task::JoinSet<(usize, EudrCellVerdict)> =
+                tokio::task::JoinSet::new();
+            let prime = cap.min(cells.len());
+            let mut next: usize = 0;
+            let mut results: Vec<Option<EudrCellVerdict>> =
+                (0..cells.len()).map(|_| None).collect();
+            while next < prime {
+                let s_c = s.clone();
+                let c = cells[next].clone();
+                let i = next;
+                set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c).await) });
+                next += 1;
+            }
+            while let Some(res) = set.join_next().await {
+                if let Ok((i, v)) = res {
+                    results[i] = Some(v);
+                }
+                if next < cells.len() {
+                    let s_c = s.clone();
+                    let c = cells[next].clone();
+                    let i = next;
+                    set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c).await) });
+                    next += 1;
+                }
+            }
+            let per_cell: Vec<EudrCellVerdict> = results.into_iter().flatten().collect();
+
+            let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
+            let mmu = if raw_verdict == 2 {
+                mmu_demote(n_fail, EUDR_CELL_AREA_M2)
+            } else {
+                MmuDemotion {
+                    verdict_code: raw_verdict,
+                    failing_area_ha: (n_fail as f64 * EUDR_CELL_AREA_M2) / 10_000.0,
+                    mmu_floor_applied: false,
+                }
+            };
+            let plot_verdict = mmu.verdict_code;
+            let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
+
+            // Article 2(28) precision: pull GeoJSON polygon coords (if any)
+            // for the TRACES envelope, and check operator-supplied decimal
+            // digits. If polygon coords are absent (POINT or bbox-shortcut)
+            // we synthesize a polygon from the bbox at exactly 6 decimals.
+            let (producer_geojson, precision_warning) =
+                build_producer_geojson(&plot, bbox, area_ha, &plot.plot_id);
+
+            let mut plot_obj = json!({
+                "plot_id":         plot.plot_id,
+                "verdict":         verdict_label(plot_verdict),
+                "verdict_code":    plot_verdict,
+                "fail_fraction":   fail_fraction,
+                "failing_cells":   n_fail,
+                "failing_area_ha": mmu.failing_area_ha,
+                "mmu_threshold_ha": EUDR_MMU_THRESHOLD_HA,
+                "mmu_floor_applied": mmu.mmu_floor_applied,
+                "total_cells":     n_total,
+                "area_ha_approx":  area_ha,
+                "geometry_kind":   geometry_kind,
+                "is_cattle":       is_cattle,
+                "annex_i_status":  annex_i_status,
+                "country_of_production": plot.country_of_production,
+                "commodity_hs":    plot.commodity_hs,
+                "commodity_name":  plot.commodity_name,
+                "quantity_kg":     plot.quantity_kg,
+                "supplier":        plot.supplier,
+                "geolocation": {
+                    "centroid":   {"lat": (lat_c * 1_000_000.0).round() / 1_000_000.0, "lng": (lng_c * 1_000_000.0).round() / 1_000_000.0, "precision_digits": 6},
+                    "bbox":       {"min_lat": bbox.0, "max_lat": bbox.1, "min_lng": bbox.2, "max_lng": bbox.3},
+                    "decimal_digits_per_article_2_28": 6,
+                },
+                "per_cell_verdicts": per_cell.clone(),
+            });
+            if let (Some(obj), Some(warning)) =
+                (plot_obj.as_object_mut(), precision_warning.clone())
+            {
+                obj.insert("precision_warning".into(), JsonValue::String(warning));
+            }
+            // POINT sampling caveat — same as before.
+            if geometry_kind == "point" {
+                let sampled_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
+                if let Some(obj) = plot_obj.as_object_mut() {
+                    obj.insert(
+                        "sampling_caveat".into(),
+                        JsonValue::String(
+                            "Article 2(28) POINT geometry: ~9.55 m sample of an up-to-4 ha plot; expand to POLYGON for plots > 4 ha or for higher-confidence verdict".into(),
+                        ),
+                    );
+                    obj.insert(
+                        "sampled_area_ha".into(),
+                        serde_json::Number::from_f64(sampled_area_ha)
+                            .map(JsonValue::Number)
+                            .unwrap_or(JsonValue::Null),
+                    );
+                }
+            }
+            let ctx = PlotCtx {
+                verdict_code: plot_verdict,
+                producer_geojson: Some(producer_geojson),
+                precision_warning,
+            };
+            (idx, (plot_obj, ctx, per_cell))
+        })
+    };
+
+    // Bounded parallel fan-out across plots (index-preserving). JoinSet
+    // bounds in-flight; prime + refill one-for-one.
+    let mut plot_set: tokio::task::JoinSet<(usize, PlotWork)> = tokio::task::JoinSet::new();
+    let prime_plots = plot_cc.min(valid_plot_indices.len());
+    let mut next_plot: usize = 0;
+    while next_plot < prime_plots {
+        let idx = valid_plot_indices[next_plot];
+        plot_set.spawn(evaluate_plot(idx, s.clone()));
+        next_plot += 1;
+    }
+    while let Some(res) = plot_set.join_next().await {
+        if let Ok((idx, (plot_obj, ctx, per_cell))) = res {
+            all_cells_for_provenance.extend(per_cell);
+            per_plot_results[idx] = Some(plot_obj);
+            plot_ctx[idx] = Some(ctx);
+        }
+        if next_plot < valid_plot_indices.len() {
+            let idx = valid_plot_indices[next_plot];
+            plot_set.spawn(evaluate_plot(idx, s.clone()));
+            next_plot += 1;
+        }
+    }
+    let per_plot_results: Vec<JsonValue> = per_plot_results.into_iter().flatten().collect();
+    let overall_verdicts: Vec<u8> = plot_ctx
+        .iter()
+        .filter_map(|c| c.as_ref().map(|c| c.verdict_code))
+        .collect();
     // DDS-level aggregation: `below_mmu` (code 6) counts as compliant,
     // not as fail.
     let overall = if overall_verdicts.contains(&2) {
@@ -27595,10 +27879,127 @@ async fn post_eudr_dds_inner(
         .lookup("eudr_compliance@1")
         .is_some_and(|a| a.evaluation.is_some());
 
-    let body = json!({
+    // Annex II envelope: group plots by HS-4 heading, attach a
+    // FeatureCollection of producers (Article 2(28) ≥6 dp geolocation).
+    let overall_label = verdict_label(overall);
+    // BLAKE3-derived request_id — no external ULID dep needed; mixes
+    // wall-clock nanos + a fresh nonce into base32 nopad.
+    let request_id = {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let mut nonce = [0u8; 16];
+        // Fold the address of a stack local into the nonce. Good enough
+        // for an opaque request_id; not used for crypto.
+        let addr = &nonce as *const _ as usize as u128;
+        nonce.copy_from_slice(&((now ^ addr).to_le_bytes()));
+        let h = blake3::hash(&nonce);
+        data_encoding::BASE32_NOPAD
+            .encode(&h.as_bytes()[..16])
+            .to_ascii_uppercase()
+    };
+    let dds_ref = dds_reference_number(&request_id);
+    let activity_type = req
+        .activity_type
+        .clone()
+        .unwrap_or_else(|| "DOMESTIC".into());
+    let confidential = req.geolocation_confidential.unwrap_or(false);
+
+    // Bucket valid plots by HS-4 heading.
+    use std::collections::BTreeMap;
+    let mut by_hs: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (idx, ctx) in plot_ctx.iter().enumerate() {
+        if ctx
+            .as_ref()
+            .and_then(|c| c.producer_geojson.as_ref())
+            .is_some()
+        {
+            let hs = hs_heading_4dig(&req.plots[idx].commodity_hs);
+            by_hs.entry(hs).or_default().push(idx);
+        }
+    }
+    let mut commodities: Vec<JsonValue> = Vec::with_capacity(by_hs.len());
+    let mut precision_warnings: Vec<JsonValue> = Vec::new();
+    for (hs_heading, indices) in &by_hs {
+        let head_plot = &req.plots[indices[0]];
+        // Aggregate goods measure across plots in this HS bucket.
+        let mut net_weight = 0.0_f64;
+        let mut volume_acc = 0.0_f64;
+        let mut volume_present = false;
+        let mut supp_acc = 0.0_f64;
+        let mut supp_present = false;
+        let mut units_acc: u64 = 0;
+        let mut units_present = false;
+        let mut producers: Vec<JsonValue> = Vec::with_capacity(indices.len());
+        for &idx in indices {
+            let plot = &req.plots[idx];
+            net_weight += plot.quantity_kg;
+            if let Some(v) = plot.quantity_volume_m3 {
+                volume_acc += v;
+                volume_present = true;
+            }
+            if let Some(v) = plot.quantity_supplementary_units {
+                supp_acc += v;
+                supp_present = true;
+            }
+            if let Some(v) = plot.number_of_units {
+                units_acc += v;
+                units_present = true;
+            }
+            if let Some(ctx) = &plot_ctx[idx] {
+                if let Some(warning) = &ctx.precision_warning {
+                    precision_warnings.push(json!({
+                        "plot_id": plot.plot_id,
+                        "warning": warning,
+                    }));
+                }
+                let production_place = ctx.producer_geojson.clone().unwrap_or(JsonValue::Null);
+                producers.push(json!({
+                    "country":          plot.producer_country.clone().unwrap_or_else(|| plot.country_of_production.clone()),
+                    "name":             plot.producer_name.clone().or_else(|| plot.supplier.clone()),
+                    "productionPlace":  production_place,
+                    "geolocationConfidential": confidential,
+                }));
+            }
+        }
+        commodities.push(json!({
+            "descriptors": {
+                "hsHeading":           hs_heading,
+                "descriptionOfGoods":  head_plot.description_of_goods.clone(),
+                "commonName":          head_plot.common_name.clone().or_else(|| head_plot.commodity_name.clone()),
+                "scientificName":      head_plot.scientific_name.clone(),
+                "tradeName":           head_plot.trade_name.clone(),
+            },
+            "goodsMeasure": {
+                "netWeight":                  net_weight,
+                "volume":                     if volume_present { JsonValue::from(volume_acc) } else { JsonValue::Null },
+                "supplementaryUnit":          if supp_present { JsonValue::from(supp_acc) } else { JsonValue::Null },
+                "supplementaryUnitQualifier": head_plot.quantity_supplementary_unit_qualifier.clone(),
+                "numberOfUnits":              if units_present { JsonValue::from(units_acc) } else { JsonValue::Null },
+            },
+            "producers": producers,
+        }));
+    }
+    let traces_nt_envelope = json!({
+        "referenceNumber":           JsonValue::Null,
+        "internalReferenceNumber":   req.internal_reference_number.clone(),
+        "ddsReferenceNumber":        dds_ref.clone(),
+        "ddsReferenceNumberNote":    "emem-issued placeholder; TRACES NT will issue the canonical number on submission",
+        "activityType":              activity_type,
+        "operator":                  req.operator.clone(),
+        "geolocationConfidentiality": confidential,
+        "commodities":               commodities,
+        "statementOfCompliance":     statement_of_compliance(overall_label),
+        "statementOfComplianceSignable": overall_label == "pass",
+    });
+
+    let mut body = json!({
         "schema":          "emem.eudr_dds.v1",
         "regulation":      "EU 2023/1115",
         "regulation_articles": ["2(4)","2(28)","3","8","9","Annex I","Annex II"],
+        "request_id":      request_id,
+        "dds_reference_number": dds_ref,
         "cut_off_date":    req.cut_off_date,
         "forest_baseline": baseline,
         "forest_baseline_computed": computed_baseline,
@@ -27617,14 +28018,25 @@ async fn post_eudr_dds_inner(
         "annex_i_warnings": annex_i_warnings,
         "due_diligence_statement": {
             "operator":     req.operator,
-            "verdict":      verdict_label(overall),
+            "verdict":      overall_label,
             "verdict_code": overall,
             "n_plots":      req.plots.len(),
         },
+        "statement_of_compliance":     statement_of_compliance(overall_label),
+        "statement_of_compliance_signable": overall_label == "pass",
+        "traces_nt_envelope": traces_nt_envelope,
         "per_plot_results": per_plot_results,
         "responder_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
         "served_at":     chrono_iso8601_utc(),
     });
+    if !precision_warnings.is_empty() {
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(
+                "precision_warnings".into(),
+                JsonValue::Array(precision_warnings),
+            );
+        }
+    }
     Ok(Json(body))
 }
 
@@ -33200,6 +33612,63 @@ mod tests {
             dot.is_nan(),
             "expected NaN dot; got {dot} — confirms NaN-mask discipline"
         );
+    }
+
+    #[test]
+    fn statement_of_compliance_pass_includes_three_sub_statements() {
+        let s = statement_of_compliance("pass");
+        assert!(s.contains("(a)") && s.contains("(b)") && s.contains("(c)"));
+        assert!(s.contains("after 31 December 2020"));
+        assert!(s.contains("Article 2(13)"));
+    }
+
+    #[test]
+    fn statement_of_compliance_non_pass_blocks_signing() {
+        for v in ["fail", "indeterminate", "below_mmu"] {
+            assert!(
+                statement_of_compliance(v).contains("cannot be signed"),
+                "verdict {v} should block signing",
+            );
+        }
+    }
+
+    #[test]
+    fn dds_reference_number_is_deterministic_from_request_id() {
+        assert_eq!(
+            dds_reference_number("01KS1JZY8SG3RN8B3N250BYMMW"),
+            "EMEM-DDS-01KS1JZY8SG3RN8B"
+        );
+        // Short request_id doesn't panic — truncates to whatever's there.
+        assert_eq!(dds_reference_number("ABC"), "EMEM-DDS-ABC");
+    }
+
+    #[test]
+    fn hs_heading_4dig_takes_first_four_digits() {
+        assert_eq!(hs_heading_4dig("180100"), "1801");
+        assert_eq!(hs_heading_4dig("12019001"), "1201");
+        // Dots / whitespace get stripped before truncation.
+        assert_eq!(hs_heading_4dig("18.01.00"), "1801");
+    }
+
+    #[test]
+    fn coords_to_6_decimal_rounds_to_six_dp() {
+        let raw = vec![vec![vec![-76.5123456789, -1.2034567891], vec![-76.4, -1.1]]];
+        let r = coords_to_6_decimal(&raw);
+        assert_eq!(r[0][0][0], -76.512346);
+        assert_eq!(r[0][0][1], -1.203457);
+        // Already-low-precision coordinates are preserved (no false padding).
+        assert_eq!(r[0][1][0], -76.4);
+    }
+
+    #[test]
+    fn max_decimal_digits_detects_low_precision() {
+        let low = vec![vec![vec![-76.5, -1.2], vec![-76.4, -1.1]]];
+        assert!(
+            max_decimal_digits(&low) < 6,
+            "1-dp coords should surface as below Article 2(28)"
+        );
+        let high = vec![vec![vec![-76.512346, -1.203457]]];
+        assert!(max_decimal_digits(&high) >= 6);
     }
 
     #[test]
