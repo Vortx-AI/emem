@@ -33009,12 +33009,21 @@ mod tests {
         assert_eq!(band_tempo_for_key("indices.ndvi"), Some(Tempo::Fast));
     }
 
-    /// Materializer-only bands keep their declared tempo (sanity that
-    /// the new materializer-meta consult doesn't perturb non-weather
-    /// keys).
+    /// Materializer-only bands report the cadence declared in
+    /// `band_materializer_meta`. MOD13Q1 NDVI is a 16-day composite, so
+    /// the materializer-meta consult must surface `Composite16Day` —
+    /// previously this returned the `modis` cube parent's `Medium`
+    /// (30-day) which collapsed two adjacent composites onto one tslot.
     #[test]
-    fn band_tempo_for_key_modis_unchanged() {
+    fn band_tempo_for_key_modis_uses_composite_16day() {
         use emem_core::tslot::Tempo;
-        assert_eq!(band_tempo_for_key("modis.ndvi_mean"), Some(Tempo::Medium));
+        assert_eq!(
+            band_tempo_for_key("modis.ndvi_mean"),
+            Some(Tempo::Composite16Day)
+        );
+        assert_eq!(
+            band_tempo_for_key("modis.lst_day_8day"),
+            Some(Tempo::Composite8Day)
+        );
     }
 }
