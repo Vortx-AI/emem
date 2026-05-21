@@ -9456,6 +9456,45 @@ fn attach_resolved(mut body: JsonValue, env: Option<JsonValue>) -> JsonValue {
     body
 }
 
+/// Copy `selected.is_high_confidence`, `selected.class_mismatch`, and
+/// `selected.confidence_reason` from a `/v1/locate` response body into
+/// a handler's `place_resolved` envelope. Used by `ask_inner`,
+/// `hunter_response`, and any handler that hand-builds its own place
+/// envelope outside the `ResolvedRef::Place` path so an agent sees the
+/// same confidence triple regardless of which endpoint resolved the
+/// place. Silent no-op when the locate body lacks `selected{}` (very
+/// old build) or the place_resolved is not an object.
+fn inject_confidence_from_locate(place_resolved: &mut JsonValue, locate_body: &JsonValue) {
+    let Some(map) = place_resolved.as_object_mut() else {
+        return;
+    };
+    let selected = locate_body.get("selected");
+    let is_high_confidence = selected
+        .and_then(|s| s.get("is_high_confidence"))
+        .cloned()
+        .unwrap_or(JsonValue::Bool(true));
+    let class_mismatch = selected
+        .and_then(|s| s.get("class_mismatch"))
+        .cloned()
+        .unwrap_or(JsonValue::Bool(false));
+    let confidence_reason = selected
+        .and_then(|s| s.get("confidence_reason"))
+        .cloned()
+        .unwrap_or(JsonValue::String("default".into()));
+    let alternatives_count = locate_body
+        .get("alternatives")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    map.insert("is_high_confidence".into(), is_high_confidence);
+    map.insert("class_mismatch".into(), class_mismatch);
+    map.insert("confidence_reason".into(), confidence_reason);
+    map.insert(
+        "alternatives_count".into(),
+        JsonValue::Number(alternatives_count.into()),
+    );
+}
+
 async fn post_compare(
     State(s): State<AppState>,
     Json(mut req): Json<CompareReq>,
@@ -14581,6 +14620,15 @@ async fn post_memory_token_resolve(
 /// locate to resolve it (`Place`). Carried into the per-handler
 /// response under `resolved_from` so the agent can see exactly which
 /// place name produced the cell64 it just queried.
+///
+/// `Place` carries the same `selected.is_high_confidence`,
+/// `class_mismatch`, `confidence_reason`, and `alternatives_count`
+/// fields `/v1/locate` exposes. Every endpoint that resolves a place
+/// internally now surfaces these so an agent can branch on whether
+/// the geocoder picked a plausible result — `is_high_confidence:
+/// false` means "ask the user to disambiguate before trusting the
+/// signed receipt" (the receipt only binds the cell64, not the
+/// resolution decision).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ResolvedRef {
@@ -14593,6 +14641,29 @@ pub enum ResolvedRef {
         lat: f64,
         lng: f64,
         via: String,
+        /// True when the geocoder picked a high-confidence match
+        /// (importance ≥ 0.5 from Photon/Nominatim, embedded
+        /// gazetteer hit, or direct lat/lng). False when the result
+        /// is class-mismatched, ambiguous between candidates, or the
+        /// Photon importance score was below the floor.
+        is_high_confidence: bool,
+        /// True when the query implied a feature class (peak, lake,
+        /// river, forest, …) but the chosen OSM hit (or cached
+        /// label) carries a different class (street, building,
+        /// school, …). The canonical "Mount Kilimanjaro → Mount
+        /// Kilimanjaro Street, Philippines" silent-wrong-place case.
+        class_mismatch: bool,
+        /// Enum identifying which heuristic produced the confidence
+        /// verdict. Stable values include `embedded_gazetteer_hit`,
+        /// `geocoder_high_importance`, `class_mismatch_with_query`,
+        /// `ambiguous_top_two_candidates`, `ttl_cache_hit`,
+        /// `direct_lat_lng`, `overture_division_match`.
+        confidence_reason: String,
+        /// How many candidate locations the geocoder returned for the
+        /// query. Always ≥ 1 on the Place path; > 1 indicates the
+        /// agent could pick a different candidate by passing its
+        /// `lat`/`lng` (see `/v1/locate` `alternatives[]`).
+        alternatives_count: usize,
     },
 }
 
@@ -14637,6 +14708,30 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
+    // Pull the new confidence triple out of the locate body's
+    // `selected{}` block (always populated since 2026-05-21). When
+    // the field is absent (very old build), default to
+    // is_high_confidence=true so we degrade to the pre-2026-05-21
+    // behaviour rather than spuriously flagging every call.
+    let selected = body.get("selected");
+    let is_high_confidence = selected
+        .and_then(|s| s.get("is_high_confidence"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let class_mismatch = selected
+        .and_then(|s| s.get("class_mismatch"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let confidence_reason = selected
+        .and_then(|s| s.get("confidence_reason"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .to_string();
+    let alternatives_count = body
+        .get("alternatives")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
     Ok((
         cell,
         ResolvedRef::Place {
@@ -14645,6 +14740,10 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
             lat,
             lng,
             via,
+            is_high_confidence,
+            class_mismatch,
+            confidence_reason,
+            alternatives_count,
         },
     ))
 }
@@ -27614,6 +27713,24 @@ async fn hunter_response(
             "polygon_bbox":  polygon_bbox,
             "polygon_fallback_to_bbox": polygon_fallback_to_bbox,
             "via":           lresp.0.get("via").cloned().unwrap_or(JsonValue::Null),
+            // Confidence triple propagated from /v1/locate so a
+            // hunter caller can detect a low-confidence region match
+            // before trusting the ranked hotspots. The same fields
+            // also live under `resolved_from` for handlers that take
+            // a place name in a non-region slot.
+            "selected":      lresp.0.get("selected").cloned().unwrap_or(JsonValue::Null),
+            "is_high_confidence": lresp.0
+                .pointer("/selected/is_high_confidence")
+                .cloned()
+                .unwrap_or(JsonValue::Bool(true)),
+            "class_mismatch": lresp.0
+                .pointer("/selected/class_mismatch")
+                .cloned()
+                .unwrap_or(JsonValue::Bool(false)),
+            "confidence_reason": lresp.0
+                .pointer("/selected/confidence_reason")
+                .cloned()
+                .unwrap_or(JsonValue::String("default".into())),
         },
         "ranking": {
             "primary_band":     spec.primary_band,
@@ -29393,16 +29510,15 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             .filter(|v| v.is_finite())
             .map(JsonValue::from)
             .unwrap_or(JsonValue::Null);
-        (
-            cell.clone(),
-            json!({
-                "cell64": cell,
-                "lat":    lat,
-                "lng":    lng,
-                "label":  label,
-                "via":    "cell_field_parsed_as_place",
-            }),
-        )
+        let mut pr = json!({
+            "cell64": cell,
+            "lat":    lat,
+            "lng":    lng,
+            "label":  label,
+            "via":    "cell_field_parsed_as_place",
+        });
+        inject_confidence_from_locate(&mut pr, &body);
+        (cell.clone(), pr)
     } else if let (Some(la), Some(lo)) = (req.lat, req.lng) {
         let body = locate_inner(LocateReq {
             lat: Some(la),
@@ -29455,13 +29571,12 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
             .unwrap_or(JsonValue::Null);
         let via = body.get("via").cloned().unwrap_or(json!("unknown"));
         let polygon_bbox = body.get("polygon_bbox").cloned().unwrap_or(JsonValue::Null);
-        (
-            cell.clone(),
-            json!({
-                "cell64": cell, "input": p, "label": label, "lat": lat, "lng": lng,
-                "via": via, "polygon_bbox": polygon_bbox,
-            }),
-        )
+        let mut pr = json!({
+            "cell64": cell, "input": p, "label": label, "lat": lat, "lng": lng,
+            "via": via, "polygon_bbox": polygon_bbox,
+        });
+        inject_confidence_from_locate(&mut pr, &body);
+        (cell.clone(), pr)
     } else {
         // No explicit location field. Before falling back to the soft
         // `needs_location` envelope, try to extract a place candidate
