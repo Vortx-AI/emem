@@ -8397,10 +8397,11 @@ async fn post_recall_many(
     // potentially hitting Photon/Nominatim), turning emem into an
     // amplifier against those public geocoders. 16 concurrent is
     // enough to make the call fast for legitimate batches while
-    // keeping fan-out predictable.
-    const RECALL_MANY_CONCURRENCY: usize = 16;
+    // keeping fan-out predictable. `EMEM_RECALL_MANY_CONCURRENCY`
+    // overrides for operators on faster upstream tiers.
+    let recall_many_concurrency = env_usize("EMEM_RECALL_MANY_CONCURRENCY", 16, 1, 256);
     type ResolveOut = (usize, String, Result<(String, ResolvedRef), ApiError>);
-    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(RECALL_MANY_CONCURRENCY));
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(recall_many_concurrency));
     let mut set: tokio::task::JoinSet<ResolveOut> = tokio::task::JoinSet::new();
     for (idx, raw) in req.cells.iter().enumerate() {
         let raw = raw.clone();
@@ -9005,9 +9006,9 @@ async fn post_recall_polygon(
     // materializer fetches against the same upstream COG, hammering
     // STAC/PC/EOG endpoints. 16 concurrent is fast enough for the
     // legitimate region-sweep workflow while keeping fan-out
-    // predictable.
-    const RECALL_POLYGON_CONCURRENCY: usize = 16;
-    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(RECALL_POLYGON_CONCURRENCY));
+    // predictable. `EMEM_RECALL_POLYGON_CONCURRENCY` overrides.
+    let recall_polygon_concurrency = env_usize("EMEM_RECALL_POLYGON_CONCURRENCY", 16, 1, 256);
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(recall_polygon_concurrency));
     metrics_inc(&RECALL_TOTAL);
     let mut merged_facts: Vec<JsonValue> = Vec::new();
     let mut materialize_notes_all: Vec<JsonValue> = Vec::new();
@@ -9447,6 +9448,26 @@ fn resolved_envelope(entries: Vec<(String, ResolvedRef)>) -> Option<JsonValue> {
     } else {
         Some(JsonValue::Object(out))
     }
+}
+
+/// Read a usize knob from the environment with a default and a clamp.
+/// Values outside the clamp range are silently snapped — operators
+/// would rather get a working server than a refused start-up.
+fn env_usize(name: &str, default: usize, min: usize, max: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(default)
+        .clamp(min, max)
+}
+
+/// Read an f64 knob from the environment with a default and a clamp.
+fn env_f64(name: &str, default: f64, min: f64, max: f64) -> f64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(default)
+        .clamp(min, max)
 }
 
 fn attach_resolved(mut body: JsonValue, env: Option<JsonValue>) -> JsonValue {
@@ -27180,9 +27201,10 @@ async fn fan_out_and_rank(s: &AppState, cells: &[String], spec: RankingSpec) -> 
     // STAC + COG fan-out is I/O-bound. 32 concurrent fetches keep all of
     // a typical 12-cell cold sweep in flight simultaneously so the wall
     // time approaches one upstream latency instead of two batches.
-    // Tracked: lib.rs:21663 / 23087 cap n_cells at 12 (cold-region safe).
-    const HUNTER_CONCURRENCY: usize = 32;
-    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(HUNTER_CONCURRENCY));
+    // Tracked: cold-region cap at 12 cells. `EMEM_HUNTER_CONCURRENCY`
+    // overrides for operators on faster upstream tiers.
+    let hunter_concurrency = env_usize("EMEM_HUNTER_CONCURRENCY", 32, 1, 128);
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(hunter_concurrency));
     type Out = (
         String,
         Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
@@ -27346,8 +27368,9 @@ async fn tessera_rerank(
     }
     let candidates = &ranked[..ranked.len().min(top_k)];
     // Recall geotessera per candidate cell, concurrently.
-    const RERANK_CONCURRENCY: usize = 16;
-    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(RERANK_CONCURRENCY));
+    // `EMEM_RERANK_CONCURRENCY` overrides.
+    let rerank_concurrency = env_usize("EMEM_RERANK_CONCURRENCY", 16, 1, 128);
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(rerank_concurrency));
     type Out = (usize, Option<Vec<f32>>);
     let mut set: tokio::task::JoinSet<Out> = tokio::task::JoinSet::new();
     for (idx, rc) in candidates.iter().enumerate() {
@@ -30240,12 +30263,21 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 if geo_cands.len() > 1 {
                     let top_pop = geo_cands[0].population.max(1) as f64;
                     let second_pop = geo_cands[1].population as f64;
-                    // Ratio < 3 means the runner-up is at least a third the
-                    // size of the leader — same order of magnitude, treat
-                    // as ambiguous. (Springfield IL ≈ 115 k / MA ≈ 155 k ⇒
-                    // ratio ≈ 0.7; Paris FR ≈ 2 165 k / TX ≈ 25 k ⇒ ratio
-                    // ≈ 86, unambiguous.)
-                    if top_pop / second_pop.max(1.0) < 3.0 {
+                    // Ratio < threshold means the runner-up is at least
+                    // (1/threshold)× the size of the leader — same
+                    // order of magnitude, treat as ambiguous.
+                    // (Springfield IL ≈ 115 k / MA ≈ 155 k ⇒ ratio ≈
+                    // 0.7; Paris FR ≈ 2 165 k / TX ≈ 25 k ⇒ ratio ≈
+                    // 86, unambiguous.) Default 3.0 catches the
+                    // Springfield case while letting Paris pass.
+                    // `EMEM_LOCATE_GAZETTEER_POP_RATIO` overrides.
+                    let pop_ratio = env_f64(
+                        "EMEM_LOCATE_GAZETTEER_POP_RATIO",
+                        3.0,
+                        1.0,
+                        100.0,
+                    );
+                    if top_pop / second_pop.max(1.0) < pop_ratio {
                         disambiguation_required = true;
                     }
                 }
@@ -30701,7 +30733,19 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 if hits.len() > 1 {
                     let top_imp = hits[0].importance;
                     let second_imp = hits[1].importance;
-                    if top_imp < 0.5 || (top_imp - second_imp).abs() < 0.1 {
+                    // Two ways the geocoder lacks confidence:
+                    //   (a) top importance below the "good name match"
+                    //       floor — Photon defaults to 0.5.
+                    //   (b) top-2 importances within `delta` — the
+                    //       runner-up is essentially tied (Moon → many
+                    //       global towns at importance=0.6).
+                    // Operators on regions where Photon importance
+                    // clusters differently can dial both thresholds.
+                    let imp_floor =
+                        env_f64("EMEM_LOCATE_PHOTON_IMP_FLOOR", 0.5, 0.0, 1.0);
+                    let imp_delta =
+                        env_f64("EMEM_LOCATE_PHOTON_IMP_DELTA", 0.1, 0.0, 1.0);
+                    if top_imp < imp_floor || (top_imp - second_imp).abs() < imp_delta {
                         disambiguation_required = true;
                     }
                 }
