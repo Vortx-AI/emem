@@ -642,6 +642,41 @@ Details that matter:
 The signature is `ed25519_dalek::SigningKey::sign(blake3_digest)`
 emitted as a 64-byte `Signature`.
 
+   **What the preimage does NOT cover.** The five fields above
+   (`request_id`, `served_at`, `primitive`, `cells`, `fact_cids`) are
+   the complete signed surface. Notably **NOT** in the preimage:
+
+   - The caller's free-text `place` / `q` string. A wrong-place
+     geocode produces a clean signature for the wrong cell64; the
+     trust chain attests *the responder claims these facts at these
+     cells*, never *these cells were the right resolution of the
+     question*. Agents bind the resolution decision themselves via
+     `selected.is_high_confidence` from `POST /v1/locate`.
+   - The caller's raw `lat` / `lng`. Quantisation collapses sub-cell
+     precision into `cell_from_latlng` *before* signing; the receipt
+     binds the cell, not the input coordinate.
+   - The requested `bands[]`, `tslot`, `intent`. The responder returned
+     what it returned; whether the returned facts answer the agent's
+     question is the agent's interpretive responsibility.
+
+   Echo the original query alongside the receipt if the downstream
+   needs *"the user asked X and the responder agreed"* — the receipt
+   alone does not testify to the resolution-of-intent step.
+
+   **Per-replica fact identity.** Each Primary / Negative /
+   Derivative fact body includes `signed_at` (ISO-8601 wall clock at
+   materialisation time), which is part of the canonical CBOR hashed
+   into `fact_cid`. Two responders materialising the same
+   `(cell, band, tslot)` from byte-identical upstream pixels therefore
+   produce **different `fact_cid`s** — this is intentional (each
+   responder signs independently under its own identity). The
+   cross-replica join key for "does any responder have this
+   observation" is the tuple `(cell, band, tslot)`, not `fact_cid`.
+   Aggregate fan-out endpoints — notably `POST /v1/recall_polygon` —
+   emit one independently signed receipt per cell under
+   `by_cell.<cell>.receipt`; the top-level `merged_facts[]` is
+   convenience-only and is **not** covered by an aggregate signature.
+
 ### 7.2 Worked example: preimage layout
 
 Given:

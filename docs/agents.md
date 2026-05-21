@@ -835,6 +835,54 @@ The responder pubkey is the only trust anchor; it is published at
 `/.well-known/emem.json`. The in-browser `/verify/<fact_cid>` page runs
 the same procedure with `@noble/curves` and `@noble/hashes`.
 
+   ### What the receipt does NOT bind
+
+The signed preimage above lists exactly five fields: `request_id`,
+`served_at`, `primitive`, `cells`, `fact_cids`. **No other field of the
+original request enters the signature.** Specifically:
+
+- **The user's `place` / `q` string is not signed.** A wrong-place
+  geocode (e.g. `q="Mount Kilimanjaro"` resolving to "Mount Kilimanjaro
+  Street, Philippines") produces a perfectly valid Ed25519 signature
+  for the wrong cell64. `POST /v1/verify_receipt` will say `valid:
+  true` — because the responder did sign those CIDs at those cells.
+  It cannot detect that the cells didn't match the user's intent.
+- **`lat` / `lng` are not signed** beyond what `cell_from_latlng`
+  quantises to. Two callers within the same ~10 m cell get the same
+  signed receipt even if they meant different sub-cell points.
+- **Requested `bands[]`, `tslot`, `intent` are not signed.** The
+  responder returned facts at the cells it claims; whether those facts
+  answered the *question* is the agent's job to assess.
+
+If your downstream relies on "the user asked X and the responder
+agreed", echo the original query alongside the receipt. The trust chain
+attests the responder's claim, not the resolution decision. Branch on
+[`selected.is_high_confidence`](#-v1-locate) from `/v1/locate` before
+trusting a place-anchored answer.
+
+   ### Per-replica fact identity
+
+Each Primary / Negative / Derivative fact body includes a `signed_at`
+ISO-8601 wall clock at materialisation time, and that field is hashed
+into `fact_cid`. Two responders materialising the same `(cell, band,
+tslot)` from byte-identical upstream pixels therefore produce **two
+different `fact_cid`s** — this is by design (each responder signs
+independently under its own identity), but agents that try to dedupe a
+fact across responders by CID will see false negatives. **The
+cross-replica join key is the tuple `(cell, band, tslot)`**, not
+`fact_cid`. Use `/v1/verify_receipt` to check that any given responder
+actually signed a particular CID; use `(cell, band, tslot)` to ask
+"does any responder have this observation".
+
+   ### Polygon receipts are per-cell, not aggregate
+
+`POST /v1/recall_polygon` returns an envelope with `merged_facts[]`
+(convenience flattening) and a `by_cell` map. **There is no aggregate
+receipt over `merged_facts`.** Each cell carries its own independently
+signed receipt under `by_cell.<cell>.receipt`. An agent that quotes
+`merged_facts[i]` and skips the per-cell receipt has lost the
+trust-chain anchor — always cite from the per-cell branch.
+
 ---
 
 ## Grids, time, and gotchas
