@@ -71,14 +71,103 @@ const GEO_PREFIX_MASK: u64 = 0xFFFF_F000_0000_0000;
 const GEO_PREFIX: u64 = (GEO_MODE << 60) | (GEO_RES << 52) | (GEO_BASE << 44);
 
 /// Encode a WGS-84 (lat_deg, lng_deg) point to a cell64.
-/// Lat clamped to [-90, 90]; lng wrapped to [-180, 180).
+///
+/// Lenient: lat is clamped to [-90, 90] and lng wrapped to [-180, 180).
+/// For strict validation (errors on |lat| > 90, |lng| > 180, NaN, Inf),
+/// use [`try_cell_from_latlng`] — the silent-clamp behaviour stays here
+/// because the bulk of the API surface routes through this entry point
+/// and existing callers depend on infallibility.
+///
+/// **Canonical buckets.** Two geometric corner cases would otherwise
+/// produce non-canonical cells:
+///
+/// - **Antimeridian (lng = ±180°).** The encoder's `rem_euclid` wrap
+///   collapses `+180.0` to `-180.0`, so the natural encoding is
+///   `lng_q = 0`. But values just shy of +180 round up to
+///   `lng_q = GEO_LNG_MAX`, decoding back to `+180.0` — a different
+///   cell64 for the same physical point. We collapse `lng_q ==
+///   GEO_LNG_MAX` to `lng_q = 0` here so the encoder always produces
+///   the same cell at the dateline regardless of which sign of 180
+///   the caller passed.
+///
+/// - **Poles (lat = ±90°).** The two pole rows (`lat_q ∈ {0,
+///   GEO_LAT_MAX}`) describe a single point each on the sphere; the
+///   `lng_q` axis is meaningless there. Without canonicalisation
+///   `cell_from_latlng(90, 10)` and `cell_from_latlng(90, 20)` sign
+///   to different cell64s for the *same* physical point. We force
+///   `lng_q = 0` at the pole rows so both queries land on the same
+///   cell.
+///
+/// Tests covering both invariants live below; they were missing from
+/// the original codec which is why earlier audits flagged the
+/// degeneracy.
 pub fn cell_from_latlng(lat_deg: f64, lng_deg: f64) -> Cell {
-    let lat = lat_deg.clamp(-90.0, 90.0);
-    let lng = ((lng_deg + 180.0).rem_euclid(360.0)) - 180.0;
+    // Non-finite inputs (NaN, ±Inf) silently land at (0, 0) under the
+    // legacy `as u64` cast. Clamp/wrap defends against that explicitly
+    // so a malformed upstream value can't sign a fact at Null Island.
+    let lat = if lat_deg.is_finite() {
+        lat_deg.clamp(-90.0, 90.0)
+    } else {
+        0.0
+    };
+    let lng = if lng_deg.is_finite() {
+        ((lng_deg + 180.0).rem_euclid(360.0)) - 180.0
+    } else {
+        0.0
+    };
     let lat_q = (((lat + 90.0) / 180.0) * GEO_LAT_MAX as f64).round() as u64 & GEO_LAT_MASK;
-    let lng_q = (((lng + 180.0) / 360.0) * GEO_LNG_MAX as f64).round() as u64 & GEO_LNG_MASK;
+    let mut lng_q = (((lng + 180.0) / 360.0) * GEO_LNG_MAX as f64).round() as u64 & GEO_LNG_MASK;
+    // Dateline canonicalisation: collapse `lng_q == GEO_LNG_MAX` into
+    // the `lng_q = 0` bucket. Both describe the antimeridian; emitting
+    // both lets two callers land in different cells for the same
+    // physical point and is the bug we're fixing here.
+    if lng_q == GEO_LNG_MAX {
+        lng_q = 0;
+    }
+    // Pole canonicalisation: at the pole rows the lng_q axis describes
+    // 4,194,304 distinct cell64s for what is geometrically a single
+    // point. Force lng_q = 0 so all pole-anchored facts collapse onto
+    // one canonical cell per pole. Receipts at the poles previously
+    // split across the lng_q range and never merged.
+    let lng_q = if lat_q == 0 || lat_q == GEO_LAT_MAX {
+        0
+    } else {
+        lng_q
+    };
     let path = (lat_q << GEO_LNG_BITS) | lng_q;
     Cell::from_raw(GEO_PREFIX | path)
+}
+
+/// Strict variant of [`cell_from_latlng`] that refuses to silently
+/// clamp out-of-range or non-finite inputs. Intended for handlers that
+/// would rather surface a typed `InvalidArgument` than sign a Primary
+/// fact at the pole for a typo'd lat=91. Tolerance is 1e-6° (~0.1 m)
+/// so genuine float-noise inputs still succeed.
+pub fn try_cell_from_latlng(lat_deg: f64, lng_deg: f64) -> Result<Cell, CoordError> {
+    if !lat_deg.is_finite() || !lng_deg.is_finite() {
+        return Err(CoordError::NonFinite);
+    }
+    if !(-90.0 - 1e-6..=90.0 + 1e-6).contains(&lat_deg) {
+        return Err(CoordError::LatOutOfRange(lat_deg));
+    }
+    if !(-180.0 - 1e-6..=180.0 + 1e-6).contains(&lng_deg) {
+        return Err(CoordError::LngOutOfRange(lng_deg));
+    }
+    Ok(cell_from_latlng(lat_deg, lng_deg))
+}
+
+/// Coordinate-shape errors surfaced by [`try_cell_from_latlng`].
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+pub enum CoordError {
+    /// One or both of lat, lng was NaN or ±Inf.
+    #[error("coordinate is NaN or ±Inf")]
+    NonFinite,
+    /// lat was outside [-90, 90] (±1e-6 tolerance).
+    #[error("lat = {0} out of range [-90, 90]")]
+    LatOutOfRange(f64),
+    /// lng was outside [-180, 180] (±1e-6 tolerance).
+    #[error("lng = {0} out of range [-180, 180]")]
+    LngOutOfRange(f64),
 }
 
 /// Convenience that emits the dot-bigram cell64 string.
@@ -238,5 +327,135 @@ mod tests {
             latlng_from_cell64(&s),
             Err(CodecError::NotGeoCell(_))
         ));
+    }
+
+    /// Antimeridian canonical: lng = +180.0 and lng = -180.0 are the
+    /// same physical point and MUST sign to the same cell64. Without
+    /// the dateline collapse in `cell_from_latlng`, values just below
+    /// +180 round into `lng_q = GEO_LNG_MAX` while -180 lands in
+    /// `lng_q = 0` — two cells for one place.
+    #[test]
+    fn dateline_collapses_to_single_cell() {
+        let a = cell_from_latlng(0.0, 180.0);
+        let b = cell_from_latlng(0.0, -180.0);
+        let c = cell_from_latlng(0.0, 179.999_999_99);
+        assert_eq!(a, b, "lng=+180 must equal lng=-180");
+        assert_eq!(a, c, "lng just under +180 must collapse to lng=+/-180");
+    }
+
+    /// Pole canonical: at the pole rows the lng axis is meaningless;
+    /// every (90, lng) and every (-90, lng) must map to a single cell.
+    /// Without the pole collapse, the north pole splits across
+    /// 4,194,304 cells indexed by the caller's chosen lng.
+    #[test]
+    fn poles_collapse_lng_to_zero() {
+        let np_a = cell_from_latlng(90.0, 0.0);
+        let np_b = cell_from_latlng(90.0, 137.5);
+        let np_c = cell_from_latlng(90.0, -42.7);
+        assert_eq!(np_a, np_b);
+        assert_eq!(np_a, np_c);
+        let sp_a = cell_from_latlng(-90.0, 0.0);
+        let sp_b = cell_from_latlng(-90.0, 137.5);
+        let sp_c = cell_from_latlng(-90.0, -42.7);
+        assert_eq!(sp_a, sp_b);
+        assert_eq!(sp_a, sp_c);
+        // North pole and south pole must be distinct cells.
+        assert_ne!(np_a, sp_a);
+    }
+
+    /// `try_cell_from_latlng` refuses out-of-range or non-finite
+    /// inputs that the lenient `cell_from_latlng` would silently
+    /// clamp. lat=91 must NOT collapse to the pole bucket; the
+    /// caller asked for an impossible coordinate.
+    #[test]
+    fn try_rejects_out_of_range() {
+        assert!(matches!(
+            try_cell_from_latlng(91.0, 0.0),
+            Err(CoordError::LatOutOfRange(_))
+        ));
+        assert!(matches!(
+            try_cell_from_latlng(0.0, 181.0),
+            Err(CoordError::LngOutOfRange(_))
+        ));
+        assert!(matches!(
+            try_cell_from_latlng(f64::NAN, 0.0),
+            Err(CoordError::NonFinite)
+        ));
+        assert!(matches!(
+            try_cell_from_latlng(0.0, f64::INFINITY),
+            Err(CoordError::NonFinite)
+        ));
+        // 1e-6 tolerance: a value 5e-7 over the boundary still
+        // succeeds — covers float-rounding noise.
+        assert!(try_cell_from_latlng(90.000_000_5, 0.0).is_ok());
+    }
+
+    /// Round-trip across 10 000 deterministic samples spanning the
+    /// globe. The recovered (lat, lng) must land within one
+    /// half-bucket of the input on each axis, except for the pole
+    /// and dateline rows where the canonicalisation collapses lng.
+    /// Uses a deterministic xorshift seed so failures are
+    /// reproducible.
+    #[test]
+    fn roundtrip_random_global() {
+        let mut state: u64 = 0xC0DE_DEAD_BEEF_F00Du64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let half_lat = 90.0 / GEO_LAT_MAX as f64;
+        let half_lng = 180.0 / GEO_LNG_MAX as f64;
+        for _ in 0..10_000 {
+            // Uniform over [-90, 90] x [-180, 180).
+            let lat = ((next() as f64) / (u64::MAX as f64)) * 180.0 - 90.0;
+            let lng = ((next() as f64) / (u64::MAX as f64)) * 360.0 - 180.0;
+            let s = cell64_from_latlng(lat, lng);
+            let back = latlng_from_cell64(&s).expect("decode");
+            let dlat = (back.lat_deg - lat).abs();
+            // At the pole rows the canonicalisation flattens lng to 0,
+            // so we expect dlng up to 180°. Test only off-pole points.
+            if lat.abs() < 89.99 {
+                let dlng = (back.lng_deg - lng).abs();
+                let dlng = dlng.min(360.0 - dlng);
+                assert!(
+                    dlat <= half_lat + 1e-9 && dlng <= half_lng + 1e-9,
+                    "lat={lat} lng={lng} dlat={dlat} dlng={dlng}"
+                );
+            }
+        }
+    }
+
+    /// ULP-near-boundary determinism: shifting a coordinate by one
+    /// ULP in any direction MUST NOT change the cell (except when the
+    /// original coordinate lies exactly on a bucket boundary, where
+    /// `round()`'s tie-breaking is ambiguous by design). Pick a point
+    /// at the bucket centre so the ULP shift can't cross a boundary.
+    #[test]
+    fn ulp_off_boundary_is_deterministic() {
+        let bucket_centre_lat = 30.0 + 0.5 * (180.0 / GEO_LAT_MAX as f64);
+        let bucket_centre_lng = 60.0 + 0.5 * (360.0 / GEO_LNG_MAX as f64);
+        let base = cell_from_latlng(bucket_centre_lat, bucket_centre_lng);
+        let plus_lat = cell_from_latlng(
+            f64::from_bits(bucket_centre_lat.to_bits() + 1),
+            bucket_centre_lng,
+        );
+        let minus_lat = cell_from_latlng(
+            f64::from_bits(bucket_centre_lat.to_bits() - 1),
+            bucket_centre_lng,
+        );
+        let plus_lng = cell_from_latlng(
+            bucket_centre_lat,
+            f64::from_bits(bucket_centre_lng.to_bits() + 1),
+        );
+        let minus_lng = cell_from_latlng(
+            bucket_centre_lat,
+            f64::from_bits(bucket_centre_lng.to_bits() - 1),
+        );
+        assert_eq!(base, plus_lat);
+        assert_eq!(base, minus_lat);
+        assert_eq!(base, plus_lng);
+        assert_eq!(base, minus_lng);
     }
 }
