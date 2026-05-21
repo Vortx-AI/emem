@@ -433,6 +433,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="#grounding" class="nav-sec">grounding</a>
     <a href="#first-call" class="nav-sec">first call</a>
     <a href="#daily-two" class="nav-sec">daily two</a>
     <a href="#connect" class="nav-sec">connect</a>
@@ -474,6 +475,74 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     </div>
 
     <p class="hero-trust">open &middot; no keys &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
+  </div>
+</section>
+
+<section class="section page" id="grounding">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">00</span><span class="idx-label">Grounding</span></div>
+    <dl>
+      <dt>tokens for text</dt><dd>"the brown fox" &rarr; [47891, 14127, 31206]</dd>
+      <dt>tokens for Earth</dt><dd>19.07&deg;N 72.87&deg;E &rarr; <span class="cell">defi.zb4d9.pefa.zf619</span></dd>
+      <dt>both</dt><dd>compact, content-addressed, model-agnostic</dd>
+      <dt>diff</dt><dd>text tokens are private to one model; Earth tokens are shared across every agent</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">00</span>An LLM token, but for places on Earth</h2>
+    <p class="lede">Agents hallucinate reality because they have no shared memory of the physical world. emem is that memory: every place on Earth gets one stable token, every fact at that token is signed, and any responder serves the same bytes for the same token forever.</p>
+
+    <p>A language model tokenises text so its layers can reason over symbols instead of raw characters. emem tokenises <em>Earth</em> for the same reason: agents need a finite alphabet for places before they can reason, remember, or cite. The cell64 grid is that alphabet &mdash; a 64-bit identifier per ~9.55 m square at the equator, content-addressed, deterministic, and the same on every responder.</p>
+
+    <div class="memt-block" aria-label="LLM tokens versus Earth tokens — the conceptual analogy">
+      <div class="memt-head">
+        <span class="label">tokenisation analogy</span>
+        <span class="gloss">an LLM tokenises text; emem tokenises Earth</span>
+        <span class="spacer"></span>
+        <a href="/spec.md">spec</a>
+        <a href="/whitepaper.md">whitepaper</a>
+      </div>
+      <div class="memt-body">
+<pre style="font-family:var(--mono);font-size:var(--t-sm);line-height:1.5;margin:0;color:var(--ink-2);overflow-x:auto;white-space:pre">  TEXT TOKENS                          EARTH TOKENS (cell64)
+  &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;                          &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;
+  &quot;the brown fox&quot;                      19.07&deg;N  72.87&deg;E
+        &darr;  tokeniser                          &darr;  cell_from_latlng
+  [47891, 14127, 31206]                defi.zb4d9.pefa.zf619
+        &darr;  embedding (private)                &darr;  recall (signed)
+  1024-D vector,                       { band, value, fact_cid,
+  model-specific,                        ed25519 signature,
+  forgotten next session               every responder, any year }
+</pre>
+      </div>
+    </div>
+
+    <p>The right-hand column is the unlock. A receipt-bearing fact survives the session, survives the model, survives the responder. Quote the <span class="band">fact_cid</span> in a chat and your colleague can pull byte-identical bytes from any replica and verify the signature in their browser at <a href="/verify">/verify</a> &mdash; no callback to the issuer.</p>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:1.8rem">Four things every agent currently lacks. emem provides each at the protocol layer.</p>
+
+    <table class="absent-table">
+      <tbody>
+        <tr>
+          <td><b>persistent world state</b></td>
+          <td>Each conversation starts from zero; the model forgets what was at this cell last week. <span class="band">cell &times; band &times; tslot &rarr; fact</span> is durable. An agent quotes <span class="band">fact_cid</span> across sessions; the next agent resolves the same bytes.</td>
+        </tr>
+        <tr>
+          <td><b>shared environmental memory</b></td>
+          <td>Two agents arguing about a place have no common reference and both guess. emem hands them one <span class="band">cell64</span> they both anchor on, plus signed receipts they both verify offline.</td>
+        </tr>
+        <tr>
+          <td><b>deterministic grounding</b></td>
+          <td>LLM outputs about places drift between calls. A receipt over <span class="band">blake3</span>-canonical CBOR reproduces byte-for-byte; ed25519 verification needs no server round-trip.</td>
+        </tr>
+        <tr>
+          <td><b>spatial continuity</b></td>
+          <td>"near Mount Fuji" means something different to every model. The cell64 grid is ~10 m square at the equator, with antimeridian and pole canonicalisation pinned in code; two queries 1 m apart land in the same cell, deterministically.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top:1.6rem">The grounding layer changes what an agent <em>can</em> be. Once places have stable tokens and facts at those tokens are signed, the loop is <em>locate &rarr; recall &rarr; reason &rarr; cite</em> &mdash; each step content-addressed, each fact verifiable from the receipt alone. <a href="/agents.md">agents.md</a> walks the loop; <a href="#first-call">&sect;03</a> shows the first call.</p>
   </div>
 </section>
 
