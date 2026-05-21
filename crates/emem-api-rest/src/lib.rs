@@ -30807,9 +30807,28 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 ),
             );
         } else {
-            // Direct lat/lng path (no place name resolved). Still emit
-            // a high-confidence selected block keyed off the input
-            // coordinates so the response shape is uniform.
+            // No alternatives populated by the photon/nominatim or
+            // embedded-gazetteer branches. Two distinct cases land
+            // here:
+            //   1. Caller passed lat/lng directly — high-confidence by
+            //      construction, no class info, no place label.
+            //   2. Place name resolved through the TTL cache (`via`
+            //      == "cache") — the cache historically stored only
+            //      (lat, lng, label, bbox) so class/type aren't
+            //      available. Without a class signal we degrade to a
+            //      label-text heuristic: when the query implies a
+            //      feature class (e.g. "Mount Kilimanjaro" → Peak) and
+            //      the cached label contains street / school / building
+            //      / highway / residential keywords, flag class_mismatch
+            //      true. This catches the silent-wrong-place class
+            //      ("Mount Kilimanjaro" → "Mount Kilimanjaro Street")
+            //      even on cache hits, until the cache schema grows
+            //      class/type fields in a follow-up commit.
+            let label_text = label.as_deref().unwrap_or("");
+            let mismatch_text = query_class != QueryFeatureClass::Unknown
+                && label_text_class_mismatch(query_class, label_text);
+            let (is_high_conf_else, reason_else) =
+                locate_confidence(via, 1.0, mismatch_text, false, 0);
             m.insert(
                 "selected".into(),
                 json!({
@@ -30817,17 +30836,32 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     "cell64":             cell_str,
                     "lat":                lat,
                     "lng":                lng,
-                    "label":              JsonValue::Null,
+                    "label":              label,
                     "class":              JsonValue::Null,
                     "type":               JsonValue::Null,
                     "importance":         1.0,
-                    "is_high_confidence": true,
-                    "confidence_reason":  "direct_lat_lng",
-                    "class_mismatch":     false,
+                    "is_high_confidence": is_high_conf_else,
+                    "confidence_reason":  reason_else,
+                    "class_mismatch":     mismatch_text,
                     "source":             via,
                 }),
             );
-            m.insert("disambiguation_required".into(), JsonValue::Bool(false));
+            m.insert(
+                "disambiguation_required".into(),
+                JsonValue::Bool(mismatch_text || !is_high_conf_else),
+            );
+            if mismatch_text {
+                m.insert(
+                    "disambiguation_hint".into(),
+                    json!(
+                        "The cached result looks class-mismatched with the query (e.g. \
+                         'Mount X' returned a street, school, or building). The TTL cache \
+                         does not carry OSM class/type; the warning is from a label-text \
+                         match. Refine the query with a country / region qualifier or pass \
+                         lat+lng directly."
+                    ),
+                );
+            }
         }
     }
     Ok(Json(body))
@@ -30961,6 +30995,66 @@ fn detect_query_feature_class(q: &str) -> QueryFeatureClass {
         return QueryFeatureClass::AdminBoundary;
     }
     QueryFeatureClass::Unknown
+}
+
+/// Label-text fallback for class-mismatch detection. Used when the
+/// chosen hit has no OSM class/type metadata (TTL cache path, direct
+/// lat/lng with reverse-geocoded label). Looks for telltale keywords
+/// in the label that conflict with the query's inferred feature class.
+/// Permissive on purpose — false positives only suppress confidence,
+/// false negatives let a wrong place through silently.
+fn label_text_class_mismatch(query_class: QueryFeatureClass, label: &str) -> bool {
+    if label.is_empty() {
+        return false;
+    }
+    let lower = label.to_ascii_lowercase();
+    // Keywords that strongly imply the hit is a street / building /
+    // school / office / generic POI — none of which match a peak,
+    // volcano, waterway, forest, park, glacier, river, or island.
+    let poi_indicators = [
+        " street",
+        " road",
+        " avenue",
+        " lane",
+        " boulevard",
+        " highway",
+        " drive",
+        " square",
+        " plaza",
+        " school",
+        "primary school",
+        "secondary school",
+        "kindergarten",
+        " college",
+        " university",
+        " building",
+        " office",
+        " church",
+        " temple",
+        " mosque",
+        " hotel",
+        " restaurant",
+        " museum",
+        " hospital",
+        " station",
+        " (residential)",
+        " (commercial)",
+        " (retail)",
+    ];
+    let looks_poi = poi_indicators.iter().any(|k| lower.contains(k));
+    match query_class {
+        QueryFeatureClass::Unknown => false,
+        QueryFeatureClass::AdminBoundary => false,
+        // For natural-feature queries, any POI keyword is a mismatch.
+        QueryFeatureClass::Peak
+        | QueryFeatureClass::Volcano
+        | QueryFeatureClass::WaterBody
+        | QueryFeatureClass::Forest
+        | QueryFeatureClass::Park
+        | QueryFeatureClass::Glacier
+        | QueryFeatureClass::River
+        | QueryFeatureClass::Island => looks_poi,
+    }
 }
 
 /// Build the (is_high_confidence, confidence_reason) pair surfaced on
