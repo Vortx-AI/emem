@@ -563,6 +563,13 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
         "scheme": "explicit forward-time central-space (FTCS) 5-point Laplacian",
         "algorithm_key": "heat_equation_2d@1",
         "algorithm_citation": "Crank, J. & Nicolson, P. 1947 / Oke, T.R. 2017 §2.3 (urban surface diffusivity ~1e-6 m²/s).",
+        // Pin the algorithms + bands manifests that govern this run.
+        // A peer with matching CIDs can re-execute the FTCS stepper
+        // against the same input_fact_cids and reproduce final_centre_k
+        // bit-for-bit. The receipt carries registry_cid and schema_cid;
+        // these two complete the four-CID chain.
+        "algorithms_cid": crate::ALGORITHMS_CID.clone(),
+        "bands_cid":      state.manifests.bands_cid.clone(),
         "input_fact_cids": cids.iter().filter(|c| !c.is_empty()).cloned().collect::<Vec<_>>(),
         "responder_pubkey_b32": pubkey,
         "receipt": receipt,
@@ -1113,6 +1120,8 @@ pub async fn wave_solve(mut req: WaveSolveReq, state: &AppState) -> Result<JsonV
         "scheme": "explicit central-time central-space (CTCS) on a sinusoidally-forced offshore boundary; hard wall (u=0) at the coast.",
         "algorithm_key": "wave_equation_1d@1",
         "algorithm_citation": "Lighthill, J. 1978 §3.1 (linear shallow-water wave); Holthuijsen 2007 §5.3 (refraction-free 1-D propagation).",
+        "algorithms_cid": crate::ALGORITHMS_CID.clone(),
+        "bands_cid":      state.manifests.bands_cid.clone(),
         "input_fact_cids": cids,
         "responder_pubkey_b32": pubkey,
         "receipt": receipt,
@@ -1328,6 +1337,8 @@ pub async fn jepa_predict(
         "algorithm_key": "jepa_temporal_predictor@1",
         "algorithm_citation": "Assran et al. 2023 (JEPA pattern); Pettorelli et al. 2005 (NDVI seasonal modelling); Tucker 1979 (NDVI's place in the agricultural-monitoring literature).",
         "honesty_note": "v1 ships closed-form coefficients (α=0.6, β=0.3, γ=0.1) calibrated from the agricultural-NDVI literature — NOT learned. Future versions (jepa_temporal_predictor@2) will train an actual encoder + predictor on the geotessera embedding pool.",
+        "algorithms_cid": crate::ALGORITHMS_CID.clone(),
+        "bands_cid":      state.manifests.bands_cid.clone(),
         "responder_pubkey_b32": pubkey,
         "receipt": receipt,
         "materialize_notes": materialize_notes,

@@ -57,7 +57,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use include_dir::{include_dir, Dir};
@@ -604,6 +604,53 @@ pub fn router(state: AppState) -> Router {
             get(well_known_oauth_protected_resource),
         )
         .route("/agent.json", get(agent_manifest))
+        // ── Agent-directory aliases ──────────────────────────────────
+        // Directory crawlers (AgenstryBot, MCP-Catalog-Bot,
+        // MCPScoringEngine) probe several conventions before landing on
+        // a canonical card. Each alias 308-redirects to the matching
+        // A2A or MCP card so a bot that lands on any of them sees the
+        // same payload — no duplicated shape that can drift. The
+        // probes that earned a permanent slot here are the ones we
+        // observed hitting 404 in production access logs; vendor-only
+        // names (e.g. /agent-directory.json) remain 404 because they
+        // have no published schema contract.
+        .route(
+            "/mcp.json",
+            get(|| async { Redirect::permanent("/.well-known/mcp.json") }),
+        )
+        .route(
+            "/agents.json",
+            get(|| async { Redirect::permanent("/.well-known/agent-card.json") }),
+        )
+        .route(
+            "/.well-known/agents.json",
+            get(|| async { Redirect::permanent("/.well-known/agent-card.json") }),
+        )
+        .route(
+            "/.well-known/mcp",
+            get(|| async { Redirect::permanent("/.well-known/mcp/server-card.json") }),
+        )
+        // /agents.txt — robots.txt-style plaintext discovery card. One
+        // line per canonical surface (agent-card, MCP, OpenAPI, llms.txt,
+        // operator attestation). Bots that model discovery after
+        // /robots.txt find emem here in one fetch.
+        .route("/agents.txt", get(serve_agents_txt))
+        // /v1/deprecations — ClaudeBot polls this to detect API churn.
+        // emem is pre-1.0 so the list is empty and stable; the policy
+        // line tells a crawler when to expect entries.
+        .route("/v1/deprecations", get(serve_deprecations))
+        // OpenAI-API-shaped probes. Agents fishing for /v1/models or
+        // /v1/chat/completions get a typed 404 pointing them at the
+        // closest emem equivalent (/v1/ask + /v1/algorithms) instead of
+        // the generic fallback.
+        .route("/v1/models", get(not_an_llm_provider))
+        .route(
+            "/v1/chat/completions",
+            get(not_an_llm_provider).post(not_an_llm_provider),
+        )
+        // /v1/algorithm_cids — list-form alias for the algorithms hash
+        // surfaced under /v1/manifests. Some agents look here first.
+        .route("/v1/algorithm_cids", get(serve_algorithm_cids))
         .route("/openapi.json", get(openapi))
         // Curated 28-op subset for OpenAI Custom GPT Actions (30-op cap).
         // Filtered live from the full spec — single source of truth.
@@ -634,6 +681,57 @@ pub fn router(state: AppState) -> Router {
         .route("/gemini-extension.json", get(serve_example_gemini))
         .route("/examples/langchain.py", get(serve_example_langchain))
         .route("/examples/llamaindex.py", get(serve_example_llamaindex))
+        // Per-framework MCP-agent example dirs. ClaudeBot and Claude
+        // Desktop probe these bare paths (no trailing slash, no file)
+        // from the README link table. 308-redirect each to the
+        // canonical GitHub tree URL — the README in each subdir is the
+        // entry point a human or LLM expects to read first.
+        .route(
+            "/examples/agno",
+            get(|| async {
+                Redirect::permanent("https://github.com/Vortx-AI/emem/tree/main/examples/agno")
+            }),
+        )
+        .route(
+            "/examples/autogen",
+            get(|| async {
+                Redirect::permanent("https://github.com/Vortx-AI/emem/tree/main/examples/autogen")
+            }),
+        )
+        .route(
+            "/examples/crewai",
+            get(|| async {
+                Redirect::permanent("https://github.com/Vortx-AI/emem/tree/main/examples/crewai")
+            }),
+        )
+        .route(
+            "/examples/langchain",
+            get(|| async {
+                Redirect::permanent("https://github.com/Vortx-AI/emem/tree/main/examples/langchain")
+            }),
+        )
+        .route(
+            "/examples/llamaindex",
+            get(|| async {
+                Redirect::permanent(
+                    "https://github.com/Vortx-AI/emem/tree/main/examples/llamaindex",
+                )
+            }),
+        )
+        .route(
+            "/examples/mastra",
+            get(|| async {
+                Redirect::permanent("https://github.com/Vortx-AI/emem/tree/main/examples/mastra")
+            }),
+        )
+        .route(
+            "/examples/pydantic-ai",
+            get(|| async {
+                Redirect::permanent(
+                    "https://github.com/Vortx-AI/emem/tree/main/examples/pydantic-ai",
+                )
+            }),
+        )
         .route(
             "/examples/agent-walkthroughs.md",
             get(serve_agent_walkthroughs),
@@ -1037,7 +1135,11 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/.well-known/mcp/server-card.json"
         | "/.well-known/oauth-protected-resource"
         | "/gemini-extension.json"
-        | "/v1/discover" => Some("public, max-age=3600, stale-while-revalidate=86400"),
+        | "/v1/discover"
+        | "/v1/algorithm_cids"
+        | "/v1/deprecations" => Some("public, max-age=3600, stale-while-revalidate=86400"),
+        // Static text discovery card; safe to cache long.
+        "/agents.txt" => Some("public, max-age=86400, stale-while-revalidate=604800"),
         // Active operational data — bounded staleness OK.
         "/v1/contributors"
         | "/v1/coverage"
@@ -1184,11 +1286,46 @@ async fn agent_access_log_layer(
 
     let dur_ms = started.elapsed().as_secs_f64() * 1000.0;
     let status = resp.status().as_u16();
-    let receipt_cid = resp
-        .headers()
-        .get("x-emem-receipt-cid")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+
+    // Receipt CID extraction. Order:
+    //   1. Trust the explicit `x-emem-receipt-cid` response header if a
+    //      handler set it (cheapest, no body read).
+    //   2. For successful, bounded-size application/json responses,
+    //      buffer the body and pull `receipt.fact_cids[0]` (the
+    //      canonical citation handle), falling back to top-level
+    //      `fact_cid` for /v1/facts/:cid and `cid` for /v1/fetch.
+    //
+    // Skip SSE (`text/event-stream` won't match application/json) and
+    // anything claiming > 64 KB — large JSONs (e.g. /openapi.json) won't
+    // carry a receipt anyway. Without the body re-emit step the response
+    // would be consumed; we re-wrap with the buffered bytes so the
+    // client still receives what the handler produced.
+    let (resp, receipt_cid) = {
+        let header_cid = resp
+            .headers()
+            .get("x-emem-receipt-cid")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(cid) = header_cid {
+            (resp, cid)
+        } else if (200..300).contains(&status) && body_is_small_json(&resp) {
+            let (parts, body) = resp.into_parts();
+            match axum::body::to_bytes(body, 64 * 1024).await {
+                Ok(bytes) => {
+                    let cid = sniff_receipt_cid(&bytes).unwrap_or_default();
+                    let resp = Response::from_parts(parts, axum::body::Body::from(bytes));
+                    (resp, cid)
+                }
+                Err(_) => (
+                    Response::from_parts(parts, axum::body::Body::empty()),
+                    String::new(),
+                ),
+            }
+        } else {
+            (resp, String::new())
+        }
+    };
 
     record_request(agent_family, status, dur_ms);
 
@@ -1211,6 +1348,54 @@ async fn agent_access_log_layer(
         "access"
     );
     resp
+}
+
+/// True when the response is a small enough JSON body that we can
+/// cheaply buffer it to extract the receipt CID for the access log.
+/// Streaming responses (SSE, large downloads) trip both gates and are
+/// passed through untouched.
+fn body_is_small_json(resp: &Response) -> bool {
+    let is_json = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.starts_with("application/json"))
+        .unwrap_or(false);
+    if !is_json {
+        return false;
+    }
+    let content_length: Option<usize> = resp
+        .headers()
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok());
+    match content_length {
+        Some(n) => n > 0 && n <= 64 * 1024,
+        // Chunked / unknown length: cap the read at the 64 KB to_bytes
+        // limit; receipt-bearing payloads always fit.
+        None => true,
+    }
+}
+
+/// Pull the canonical fact CID out of a JSON envelope. Order of
+/// precedence mirrors the OpenAPI / agent.md guidance: prefer
+/// `receipt.fact_cids[0]`, then a top-level `fact_cid` (`/v1/facts/:cid`,
+/// `/v1/fetch`), then a top-level `cid` (legacy).
+fn sniff_receipt_cid(body: &[u8]) -> Option<String> {
+    let v: JsonValue = serde_json::from_slice(body).ok()?;
+    if let Some(c) = v
+        .pointer("/receipt/fact_cids/0")
+        .and_then(|x| x.as_str())
+    {
+        return Some(c.to_string());
+    }
+    if let Some(c) = v.get("fact_cid").and_then(|x| x.as_str()) {
+        return Some(c.to_string());
+    }
+    if let Some(c) = v.get("cid").and_then(|x| x.as_str()) {
+        return Some(c.to_string());
+    }
+    None
 }
 
 // ── Security headers (always-on) ─────────────────────────────────────────
@@ -1383,8 +1568,15 @@ async fn rate_limit_layer(
             | "/.well-known/agent-card.json"
             | "/.well-known/mcp.json"
             | "/.well-known/mcp/server-card.json"
+            | "/.well-known/agents.json"
+            | "/.well-known/mcp"
             | "/.well-known/oauth-protected-resource"
             | "/gemini-extension.json"
+            | "/mcp.json"
+            | "/agents.json"
+            | "/agents.txt"
+            | "/v1/deprecations"
+            | "/v1/algorithm_cids"
             | "/openapi.json"
             | "/openapi.action.json"
             | "/v1/openapi.action.json"
@@ -2853,6 +3045,103 @@ async fn serve_example_llamaindex() -> Response {
     text_response("text/x-python", EXAMPLE_LLAMAINDEX)
 }
 
+/// `GET /agents.txt` — robots.txt-style plaintext discovery card.
+/// One line per canonical agent-facing surface. Directory crawlers
+/// (AgenstryBot, MCP-Catalog-Bot) model discovery after `/robots.txt`
+/// and find emem here in a single fetch. All URLs are agent-readable
+/// and self-describing; an LLM that lands here knows where to go next
+/// without rendering HTML.
+async fn serve_agents_txt() -> Response {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let body = format!(
+        "# {origin} — Earth memory protocol for AI agents.\n\
+         # Plaintext discovery card. One line per canonical agent surface.\n\
+         # Source: github.com/Vortx-AI/emem (Apache-2.0).\n\
+         \n\
+         Agent-Card: {origin}/.well-known/agent-card.json\n\
+         MCP: {origin}/mcp\n\
+         MCP-Card: {origin}/.well-known/mcp/server-card.json\n\
+         OpenAPI: {origin}/openapi.json\n\
+         LLMs-Txt: {origin}/llms.txt\n\
+         LLMs-Full-Txt: {origin}/llms-full.txt\n\
+         Agents-Md: {origin}/agents.md\n\
+         Spec: {origin}/spec.md\n\
+         Whitepaper: {origin}/whitepaper.md\n\
+         Discover: {origin}/v1/agent_card\n\
+         Tools: {origin}/v1/tools\n\
+         Algorithms: {origin}/v1/algorithms\n\
+         Manifests: {origin}/v1/manifests\n\
+         Stream: {origin}/v1/stream\n\
+         Coverage: {origin}/v1/coverage_map.svg\n\
+         Verify: {origin}/verify\n\
+         Operator-Attestation: {origin}/.well-known/emem.json\n\
+         Repository: https://github.com/Vortx-AI/emem\n\
+         License: Apache-2.0\n\
+         Contact: avijeet@vortx.ai\n\
+         Auth: none (reads); ed25519-signed responses; offline-verifiable\n\
+         Allow: *\n\
+         Disallow:\n"
+    );
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(CACHE_CONTROL, "public, max-age=86400")
+        .body(axum::body::Body::from(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// `GET /v1/deprecations` — empty list with the deprecation policy.
+/// ClaudeBot polls this; returning a typed stable list (instead of
+/// 404) tells a crawler the surface exists and is intentionally empty.
+async fn serve_deprecations() -> Json<JsonValue> {
+    Json(json!({
+        "schema":     "emem.deprecations.v1",
+        "deprecated": [],
+        "policy":     "Pre-1.0. A breaking change carries a deprecation entry here one minor release before removal. Entries name the path, the replacement, and the earliest version that removes the old surface.",
+        "spec":       "https://emem.dev/spec.md",
+        "served_at":  iso8601_utc(now_unix_s() as u64),
+    }))
+}
+
+/// `GET /v1/models` and `GET|POST /v1/chat/completions` — agents
+/// probing for the OpenAI-API shape land here. Return a typed 404
+/// pointing them at `/v1/ask` (the closest emem equivalent: a
+/// place-anchored Q&A with a signed receipt) and `/v1/algorithms`
+/// (the equivalent of a "model catalog" on this surface).
+async fn not_an_llm_provider() -> Response {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let body = json!({
+        "schema":  "emem.error.v1",
+        "code":    "not_found",
+        "message": "emem is not an LLM provider; there is no chat/completions or model-list endpoint. The closest emem equivalents are POST /v1/ask (a place-anchored question with a signed answer) and GET /v1/algorithms (the catalog of named composition recipes).",
+        "details": {
+            "ask":        format!("POST {origin}/v1/ask   body: {{q, place|cell|lat+lng}}"),
+            "algorithms": format!("GET  {origin}/v1/algorithms?summary=true"),
+            "tools":      format!("GET  {origin}/v1/tools"),
+            "agent_card": format!("GET  {origin}/.well-known/agent-card.json"),
+            "spec":       format!("GET  {origin}/spec.md"),
+        }
+    });
+    (StatusCode::NOT_FOUND, Json(body)).into_response()
+}
+
+/// `GET /v1/algorithm_cids` — list-form alias for the algorithms hash
+/// surfaced under `/v1/manifests`. Some agents reach here first when
+/// asked to "pin the algorithm registry"; mirror the relevant fields
+/// so they don't bounce through two URLs.
+async fn serve_algorithm_cids() -> Json<JsonValue> {
+    let algos = &emem_core::algorithms::DEFAULT;
+    Json(json!({
+        "schema":         "emem.algorithm_cids.v1",
+        "algorithms_cid": ALGORITHMS_CID.clone(),
+        "n_algorithms":   algos.algorithms.len(),
+        "manifests":      "/v1/manifests",
+        "algorithms":     "/v1/algorithms?summary=true",
+        "per_algorithm":  "/v1/algorithms/<key>",
+        "served_at":      iso8601_utc(now_unix_s() as u64),
+    }))
+}
+
 // ── Introspection routes ─────────────────────────────────────────────────
 
 async fn health(State(s): State<AppState>) -> Json<JsonValue> {
@@ -4246,7 +4535,7 @@ async fn sources() -> Json<JsonValue> {
 /// and immutable for the life of the process, so we hash it once and
 /// reuse the string everywhere it's surfaced (/health, /v1/manifests,
 /// /v1/discover, /v1/agent_card, /v1/algorithms, /v1/intent, /.well-known).
-static ALGORITHMS_CID: LazyLock<Option<String>> =
+pub(crate) static ALGORITHMS_CID: LazyLock<Option<String>> =
     LazyLock::new(|| emem_core::manifest::manifest_cid(&*emem_core::algorithms::DEFAULT).ok());
 
 /// Process-wide cached topics_cid — the topic registry (`topics-v0.json`)
@@ -5339,6 +5628,18 @@ async fn post_recall(
             if let Some(env) = resolved_env {
                 map.insert("resolved_from".into(), env);
             }
+            // Full chain-of-custody triple at the envelope level. The
+            // receipt already pins `registry_cid` (function registry)
+            // and `schema_cid`; `algorithms_cid` + `bands_cid` complete
+            // the four CIDs a peer needs to reproduce a recall byte
+            // for byte under matching registries.
+            if let Some(cid) = ALGORITHMS_CID.as_ref() {
+                map.insert("algorithms_cid".into(), JsonValue::String(cid.clone()));
+            }
+            map.insert(
+                "bands_cid".into(),
+                JsonValue::String(s.manifests.bands_cid.clone()),
+            );
         }
         serde_json::to_vec(&v).unwrap_or_else(|_| b"{}".to_vec())
     };
@@ -9701,8 +10002,47 @@ struct VerifyReceiptReq {
 }
 
 async fn post_verify_receipt(
-    Json(req): Json<VerifyReceiptReq>,
+    body: Result<Json<VerifyReceiptReq>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // Friendly typed 400 instead of raw axum/serde rejection. The
+    // common confusion is passing a fact CID directly (`{"fact_cid": "…"}`)
+    // or the response envelope (`{"receipt": …, "facts": …}`); both
+    // miss the required `receipt` outer shape. We surface the exact
+    // wire form expected and a curl example so an LLM can self-correct
+    // on the next turn.
+    let Json(req) = body.map_err(|rej| {
+        let detail = rej.body_text();
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "verify_receipt: request body did not match the expected shape. \
+                     Wire form is `{{\"receipt\": {{…full envelope…}}}}` — the receipt is the \
+                     object returned under `.receipt` from /v1/recall, /v1/eudr_dds, /v1/hunt, \
+                     etc. Required receipt fields: request_id, served_at, primitive, cells, \
+                     fact_cids, responder, signature_b32. Decoder error: {detail}"
+                ),
+                details: Some(json!({
+                    "expected": {
+                        "receipt": {
+                            "request_id":           "01J…",
+                            "served_at":            "2026-05-21T00:00:00Z",
+                            "primitive":            "emem.recall",
+                            "cells":                ["defi.zb4d9.pefa.zf619"],
+                            "fact_cids":            ["wbqyxljmeewr…"],
+                            "responder_pubkey_b32": "777er3y…",
+                            "signature_b32":        "…64-byte base32…"
+                        },
+                        "pubkey_b32_optional": "override; defaults to receipt.responder_pubkey_b32"
+                    },
+                    "hint":  "Send back exactly the `.receipt` object you got from /v1/recall, /v1/eudr_dds, /v1/hunt, /v1/ask, etc. Use `jq '.receipt'` to extract it, then POST it as `{receipt: <that>}`.",
+                    "example_curl": "curl -sX POST https://emem.dev/v1/verify_receipt -H 'content-type: application/json' -d \"$(curl -sX POST https://emem.dev/v1/recall -H 'content-type: application/json' -d '{\\\"cell\\\":\\\"defi.zb4d9.pefa.zf619\\\",\\\"bands\\\":[\\\"copdem30m.elevation_mean\\\"]}' | jq '{receipt: .receipt}')\"",
+                    "spec":  "https://emem.dev/spec.md#receipts"
+                })),
+            },
+        )
+    })?;
     let r = &req.receipt;
     let pk_bytes: [u8; 32] = if let Some(b32) = req.pubkey_b32 {
         let raw = data_encoding::BASE32_NOPAD
@@ -9775,11 +10115,46 @@ async fn post_verify_receipt(
     })))
 }
 
+/// CID shape gate. Real fact CIDs are 26-58 chars of base32-nopad-lowercase
+/// (a-z + digits 2-7). Anything containing `$`, `{`, `<`, `[`, `(`,
+/// space, or comma is an un-interpolated placeholder a misbehaving
+/// agent emitted as a literal URL — short-circuit to a typed 400.
+fn looks_like_cid(s: &str) -> bool {
+    let n = s.len();
+    if !(26..=64).contains(&n) {
+        return false;
+    }
+    s.bytes()
+        .all(|b| (b'a'..=b'z').contains(&b) || (b'2'..=b'7').contains(&b))
+}
+
 async fn get_fact(
     State(s): State<AppState>,
     Path(cid): Path<String>,
     headers: HeaderMap,
 ) -> Response {
+    // Reject obvious placeholder strings up front. Agents emitting
+    // JavaScript template-literal fragments as URLs (e.g.
+    // `/v1/facts/${esc(cid)}`, `/v1/facts/<cid>`, `/v1/facts/$`) showed
+    // up in production access logs from real browsers. A bare 404
+    // told them nothing. Return a typed 400 pointing at the recall
+    // path so the agent can self-correct.
+    if !looks_like_cid(&cid) {
+        let body = json!({
+            "schema":  "emem.error.v1",
+            "code":    "invalid_argument",
+            "message": format!(
+                "`{cid}` does not look like a fact CID. A CID is base32-nopad-lowercase \
+                 (a-z + 2-7), 26-58 characters. The path segment you sent looks like an \
+                 un-interpolated template placeholder. Re-emit the URL after substituting \
+                 the actual CID value, or call POST /v1/recall to obtain one."
+            ),
+            "field":   "cid",
+            "hint":    "Pull the value from `receipt.fact_cids[0]` returned by /v1/recall, /v1/recall_polygon, or /v1/eudr_dds.",
+            "example": "/v1/facts/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
+        });
+        return (StatusCode::BAD_REQUEST, Json(body)).into_response();
+    }
     // Immutable: the CID *is* the validator. Return 304 on If-None-Match match.
     let etag_value = format!("\"{}\"", &cid);
     if let Some(if_none) = headers.get(IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
@@ -11129,7 +11504,7 @@ async fn mcp_tool_call(
         "emem_verify_receipt" => {
             let req: VerifyReceiptReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_verify_receipt(Json(req)).await {
+            match post_verify_receipt(Ok(Json(req))).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -21636,6 +22011,238 @@ async fn materialize_temporal_diff(
     sign_and_persist(s, primary_fact, &signed_at).await
 }
 
+/// Coerce a ciborium scalar to an `f64` if it's numeric. Returns
+/// `None` for vector / text / null values — algorithm AST evaluation
+/// operates over scalar bands only, and vector-typed bands need a
+/// different surface (`/v1/state`, `/v1/find_similar`, …).
+fn ciborium_value_to_f64(v: &ciborium::Value) -> Option<f64> {
+    match v {
+        ciborium::Value::Float(f) if f.is_finite() => Some(*f),
+        ciborium::Value::Integer(i) => {
+            let i128_v: i128 = (*i).into();
+            Some(i128_v as f64)
+        }
+        _ => None,
+    }
+}
+
+/// Materialize an algorithm output band by recalling every referenced
+/// input band, dropping their scalar values into a samples map, and
+/// evaluating the algorithm's `Expr` AST. Output is a signed Primary
+/// fact whose `band` is the algorithm key (`aqi_class@1`,
+/// `heat_index@2`, …) so /v1/recall, /v1/find_similar, and the
+/// receipts surface composite results the same way they surface raw
+/// observations. Missing-input or non-finite cases sign a typed
+/// Absence with the names of the missing bands — never a silent zero.
+///
+/// Wired in `try_materialize_bands` against any band key that
+/// (1) contains `@` (algorithm-key shape) and (2) resolves to an
+/// algorithm with an `evaluation: Some(Expr)` in the live registry.
+/// 159 algorithms ship today; the ~half with an evaluation AST become
+/// reachable through `POST /v1/recall {"bands":["<algorithm_key>"]}`
+/// in one call. The ones whose answer lives at a dedicated endpoint
+/// (eudr_compliance@1 → /v1/eudr_dds, heat_equation_2d@1 → /v1/heat_solve)
+/// stay there; we honour their `executes_via` directive by skipping
+/// dispatch when the evaluation AST is absent.
+// Boxed return type breaks the async recursion cycle with
+// `recall_with_auto_materialize` → `try_materialize_bands` →
+// `materialize_algorithm_band`. Without the box, rustc errors with
+// E0733 because the future's size depends on itself.
+fn materialize_algorithm_band<'a>(
+    cell64: &'a str,
+    algorithm_key: &'a str,
+    s: &'a AppState,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<emem_fact::FactCid, String>> + Send + 'a>,
+> {
+    Box::pin(materialize_algorithm_band_impl(cell64, algorithm_key, s))
+}
+
+async fn materialize_algorithm_band_impl(
+    cell64: &str,
+    algorithm_key: &str,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    let algos = &emem_core::algorithms::DEFAULT;
+    let alg = algos
+        .lookup(algorithm_key)
+        .ok_or_else(|| format!("unknown algorithm key '{algorithm_key}'"))?;
+    let expr = alg.evaluation.as_ref().ok_or_else(|| {
+        format!(
+            "algorithm '{algorithm_key}' has no executable evaluation AST — formula is \
+             documentation-only at this responder. Check the algorithm descriptor at \
+             /v1/algorithms/{algorithm_key} for the dedicated endpoint that executes it \
+             (e.g. /v1/eudr_dds for eudr_compliance@1, /v1/heat_solve for heat_equation_2d@1)."
+        )
+    })?;
+
+    let inputs: Vec<String> = expr.referenced_bands();
+    if inputs.is_empty() {
+        return Err(format!(
+            "algorithm '{algorithm_key}': evaluation AST references no bands; nothing to recall."
+        ));
+    }
+
+    // Reject composite-of-composites at dispatch. A real algorithm
+    // registry could legitimately stack algorithms, but we want a
+    // clear typed surface before that work ships — silent recursion
+    // through the recall path here would multiply latency and make
+    // debugging painful. When a real use case lands, lift this gate.
+    let nested_algos: Vec<&String> = inputs.iter().filter(|b| b.contains('@')).collect();
+    if !nested_algos.is_empty() {
+        return Err(format!(
+            "algorithm '{algorithm_key}': composite-of-composites not supported via \
+             /v1/recall auto-materialize (references {nested_algos:?}). Recall each \
+             referenced algorithm separately, then call /v1/algorithms/{algorithm_key} \
+             with the values, or open a feature request to lift this gate."
+        ));
+    }
+
+    // Recursively recall the input bands. `recall_with_auto_materialize`
+    // dispatches each through `try_materialize_bands`, so a band that
+    // has a wired connector is fetched + signed before we land back
+    // here. Bands without a wired connector return a typed Absence;
+    // the missing-input branch below catches them.
+    let req = RecallReq {
+        cell: cell64.to_string(),
+        bands: Some(inputs.clone()),
+        tslot: None,
+    };
+    let (resp, _notes) = recall_with_auto_materialize(&req, s).await.map_err(|e| {
+        format!(
+            "algorithm '{algorithm_key}': failed to recall input bands {inputs:?}: {}",
+            e.1.message
+        )
+    })?;
+
+    // Build samples map. Vector-typed bands (foundation embeddings,
+    // multi-band stacks) are silently dropped here — they'd register
+    // as missing in the AST, producing the typed Absence below. That
+    // is honest behaviour: an algorithm declaring scalar inputs against
+    // a vector band has a registry bug, and we'd rather surface it as
+    // missing than coerce a vector to a meaningless mean.
+    let mut samples: std::collections::HashMap<String, f64> =
+        std::collections::HashMap::with_capacity(inputs.len());
+    let mut input_fact_cids: Vec<String> = Vec::new();
+    for fact in &resp.facts {
+        if let emem_fact::Fact::Primary(p) = fact {
+            if let Some(v) = ciborium_value_to_f64(&p.value) {
+                samples.insert(p.band.clone(), v);
+            }
+        }
+    }
+    for cid in &resp.receipt.fact_cids {
+        input_fact_cids.push(cid.0.clone());
+    }
+
+    let missing: Vec<String> = inputs
+        .iter()
+        .filter(|b| !samples.contains_key(*b))
+        .cloned()
+        .collect();
+    let signed_at = chrono_iso8601_utc();
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    if !missing.is_empty() {
+        // Honest Absence — never a silent zero. Reason text names
+        // every missing band so the agent can fetch the gap and retry,
+        // and `derivation.args` carries the algorithm key so the
+        // signed receipt remains reproducible.
+        let reason = format!(
+            "algorithm '{algorithm_key}': missing input bands at this cell: {missing:?}. Recall each band first (POST /v1/recall {{\"cell\":\"{cell64}\",\"bands\":{missing_json}}}), then re-issue. If recall returns Absence for any of those bands, the algorithm cannot evaluate at this cell.",
+            missing_json = serde_json::to_string(&missing).unwrap_or_default()
+        );
+        let reason_cid = reason_cid_for(&reason);
+        let tslot = emem_core::tslot::Tslot::from_unix(now_unix, emem_core::tslot::Tempo::Fast).0;
+        let fact = Fact::Absence(NegativeFact {
+            cell: cell64.to_string(),
+            band: algorithm_key.to_string(),
+            tslot,
+            reason_cid,
+            confidence: 1.0,
+            sources: input_fact_cids
+                .iter()
+                .map(|c| Source {
+                    scheme: "emem.fact".into(),
+                    id: c.clone(),
+                    cid: Some(c.clone()),
+                    hash: None,
+                    captured_at: None,
+                    url: None,
+                })
+                .collect(),
+            schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.clone(),
+        });
+        return sign_and_persist(s, fact, &signed_at).await;
+    }
+
+    match expr.evaluate(&samples) {
+        Some(v) if v.is_finite() => {
+            let tslot =
+                emem_core::tslot::Tslot::from_unix(now_unix, emem_core::tslot::Tempo::Fast).0;
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: algorithm_key.to_string(),
+                tslot,
+                value: ciborium::Value::Float(v),
+                unit: None,
+                // Algorithm `accuracy_band` ships as a free-text label
+                // (e.g. "±15 %", "qualitative"); we don't try to parse it
+                // back into a confidence prior. A flat 0.8 reflects the
+                // sound mathematical reduction over signed inputs while
+                // staying below the 1.0 of a directly observed primary.
+                confidence: 0.8,
+                uncertainty: None,
+                sources: input_fact_cids
+                    .iter()
+                    .map(|c| Source {
+                        scheme: "emem.fact".into(),
+                        id: c.clone(),
+                        cid: Some(c.clone()),
+                        hash: None,
+                        captured_at: None,
+                        url: None,
+                    })
+                    .collect(),
+                derivation: Derivation {
+                    fn_key: "algorithm_eval@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Text(algorithm_key.to_string()),
+                        ciborium::Value::Array(
+                            input_fact_cids
+                                .iter()
+                                .map(|c| ciborium::Value::Text(c.clone()))
+                                .collect(),
+                        ),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Some(_non_finite) => Err(format!(
+            "algorithm '{algorithm_key}': evaluation produced a non-finite value (NaN/Inf). \
+             Likely cause: division by zero or pow(-x, fractional). The expression and \
+             samples are reproducible from /v1/algorithms/{algorithm_key}; an agent can \
+             diagnose by hand."
+        )),
+        None => Err(format!(
+            "algorithm '{algorithm_key}': evaluation returned None. Most common cause is \
+             a divide-by-zero inside the AST (e.g. NDWI denominator zero). Inputs were \
+             present; the math collapsed."
+        )),
+    }
+}
+
 async fn sign_and_persist(
     s: &AppState,
     fact: Fact,
@@ -24228,6 +24835,55 @@ async fn try_materialize_bands(
                     });
                 }
             },
+            // Algorithm output bands. Any band key shaped `<name>@<ver>`
+            // that resolves to a registered algorithm with an
+            // `evaluation: Some(Expr)` AST is routed through the
+            // generic algorithm-materializer: it recursively recalls
+            // the AST's referenced bands (which themselves go through
+            // this dispatcher), evaluates the expression, and signs a
+            // Primary fact whose band is the algorithm key. Missing
+            // inputs sign a typed Absence — never a silent zero.
+            // Algorithms whose `evaluation` is `None` (formula-only,
+            // executed by a dedicated endpoint like /v1/eudr_dds or
+            // /v1/heat_solve) fall through to the registry-error path.
+            band_key
+                if band_key.contains('@')
+                    && emem_core::algorithms::DEFAULT
+                        .lookup(band_key)
+                        .map(|a| a.evaluation.is_some())
+                        .unwrap_or(false) =>
+            {
+                match materialize_algorithm_band(cell64, band_key, s).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "algorithm_eval",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            materialize_kind = "algorithm_eval",
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
             _ => {
                 // Distinguish topic-as-band confusion from a truly unknown
                 // band. Agents (esp. those reading /v1/topics) sometimes
@@ -28513,6 +29169,73 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
     out
 }
 
+/// Variants the `cell` field on /v1/ask (and a future `emem_ask`
+/// alias) recognises. Strict cell64 stays the canonical input but the
+/// classifier folds in the four shapes we routinely see from confused
+/// agents so they don't bounce off a 400.
+#[derive(Debug, Clone, PartialEq)]
+enum CellInputKind {
+    /// Caller passed nothing or only whitespace.
+    None,
+    /// Already a cell64 — `defi.zb4d9.pefa.zf619`.
+    Cell64(String),
+    /// Parsed `lat,lng` (or `latlng:lat,lng`, `lat lng`, `lat;lng`).
+    LatLng(f64, f64),
+    /// Looks like an Uber H3 cell ID — 15-16 hex chars. We don't
+    /// decode it; the gate returns a typed 400 with a fix-it hint.
+    H3(String),
+    /// Anything else — treat as a free-text place name and let the
+    /// geocoder cascade do its job.
+    Place(String),
+}
+
+/// Detect which shape the caller's `cell` string actually carries. The
+/// order matters: cell64 first (cheap exact gate), then numeric pair,
+/// then H3 hex, then fall through to place. The classifier never
+/// returns an error — it picks the best-effort interpretation; the
+/// caller decides what to do with each variant.
+fn interpret_cell_input(raw: &str) -> CellInputKind {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return CellInputKind::None;
+    }
+    // Strip the optional `latlng:` / `lat:` / `coords:` / `wgs84:`
+    // prefix so `latlng:37.55,-122.46` and `wgs84: 37.55, -122.46`
+    // share one path.
+    let stripped = trimmed
+        .strip_prefix("latlng:")
+        .or_else(|| trimmed.strip_prefix("lat:"))
+        .or_else(|| trimmed.strip_prefix("coords:"))
+        .or_else(|| trimmed.strip_prefix("wgs84:"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    if emem_codec::is_cell64_shape(trimmed) {
+        return CellInputKind::Cell64(trimmed.to_string());
+    }
+    // Try numeric pair separated by `,`, `;`, `|`, or whitespace.
+    let mut parts = stripped
+        .split(|c: char| matches!(c, ',' | ';' | '|') || c.is_whitespace())
+        .filter(|s| !s.is_empty());
+    if let (Some(a), Some(b), None) = (parts.next(), parts.next(), parts.next()) {
+        if let (Ok(la), Ok(lo)) = (a.parse::<f64>(), b.parse::<f64>()) {
+            if la.is_finite()
+                && lo.is_finite()
+                && (-90.0..=90.0).contains(&la)
+                && (-180.0..=180.0).contains(&lo)
+            {
+                return CellInputKind::LatLng(la, lo);
+            }
+        }
+    }
+    // H3 cells are 15 or 16 lowercase hex chars; the most common form
+    // surfaced in confused agent traffic is the 15-char R15 cell.
+    let len = trimmed.len();
+    if (14..=16).contains(&len) && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return CellInputKind::H3(trimmed.to_string());
+    }
+    CellInputKind::Place(trimmed.to_string())
+}
+
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
@@ -28566,17 +29289,47 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // prefer explicit cell64 → lat/lng → place name, in that order, so
     // an LLM that has the cell from a previous /v1/locate doesn't pay a
     // second geocoder round-trip.
-    let (cell, place_resolved): (String, JsonValue) = if let Some(c) = req.cell.as_ref() {
-        if !emem_codec::is_cell64_shape(c) {
+    //
+    // The `cell` field is intentionally permissive on input: agents
+    // routinely paste `latlng:37.55,-122.46`, `37.55,-122.46`, H3 cell
+    // IDs (`87c0b5fffffffff`), or a free-text place name. Each shape is
+    // detected and normalised. Strict cell64 stays the canonical wire
+    // form, but rejection at the gate is the worst-of-class for an
+    // open MCP surface — agents see one of 91 isError outcomes (44 %
+    // of all MCP tool calls in 48 h come back here as a cell-format
+    // mismatch). Recognising the shape and routing to the right
+    // resolver flips those into 200s without changing the protocol.
+    let cell_input = req
+        .cell
+        .as_deref()
+        .map(interpret_cell_input)
+        .unwrap_or(CellInputKind::None);
+
+    if matches!(cell_input, CellInputKind::H3(_)) {
+        if let CellInputKind::H3(h) = &cell_input {
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
                     code: ErrorCode::InvalidCell,
-                    message: format!("ask: `cell` must be a cell64 string, got '{c}'"),
-                    details: None,
+                    message: format!(
+                        "ask: `{h}` looks like an Uber H3 cell, not an emem cell64. emem's grid \
+                         is 21+22 bits (cell64), incompatible with H3. Pass `lat`+`lng` (WGS-84) \
+                         and let /v1/locate snap to the nearest cell64, or call /v1/locate first \
+                         with the cell64 you want, then pass that here."
+                    ),
+                    details: Some(json!({
+                        "received":      h,
+                        "expected":      "cell64 (e.g. defi.zb4d9.pefa.zf619)",
+                        "alternatives":  ["pass lat+lng directly", "POST /v1/locate first"],
+                        "grid_info_url": "/v1/grid_info"
+                    })),
                 },
             ));
         }
+    }
+
+    let (cell, place_resolved): (String, JsonValue) = if let CellInputKind::Cell64(c) = &cell_input
+    {
         let centre = emem_codec::latlng_from_cell64(c).ok();
         (
             c.clone(),
@@ -28585,6 +29338,72 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
                 "lat":    centre.as_ref().map(|p| p.lat_deg),
                 "lng":    centre.as_ref().map(|p| p.lng_deg),
                 "via":    "direct_cell",
+            }),
+        )
+    } else if let CellInputKind::LatLng(la, lo) = cell_input {
+        // Caller pasted "lat,lng" or "latlng:lat,lng" into the cell
+        // field — common when the agent's prompt template concatenates
+        // coordinates without separating them. Route to the lat/lng
+        // resolver; the response `place_resolved.via` records that we
+        // normalised the input.
+        let body = locate_inner(LocateReq {
+            lat: Some(la),
+            lng: Some(lo),
+            place: None,
+        })
+        .await?
+        .0;
+        let cell = body
+            .get("cell64")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        (
+            cell.clone(),
+            json!({
+                "cell64": cell,
+                "lat":    la,
+                "lng":    lo,
+                "via":    "cell_field_parsed_as_latlng",
+            }),
+        )
+    } else if let CellInputKind::Place(p) = &cell_input {
+        // Free-text place name in the `cell` field. Same path as
+        // `place`. Note the resolved `via` so an LLM can detect the
+        // normalisation in a follow-up turn.
+        let body = locate_inner(LocateReq {
+            lat: None,
+            lng: None,
+            place: Some(p.clone()),
+        })
+        .await?
+        .0;
+        let cell = body
+            .get("cell64")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let label = body.get("place_label").cloned().unwrap_or(JsonValue::Null);
+        let lat = body
+            .get("lat_input")
+            .and_then(|v| v.as_f64())
+            .filter(|v| v.is_finite())
+            .map(JsonValue::from)
+            .unwrap_or(JsonValue::Null);
+        let lng = body
+            .get("lng_input")
+            .and_then(|v| v.as_f64())
+            .filter(|v| v.is_finite())
+            .map(JsonValue::from)
+            .unwrap_or(JsonValue::Null);
+        (
+            cell.clone(),
+            json!({
+                "cell64": cell,
+                "lat":    lat,
+                "lng":    lng,
+                "label":  label,
+                "via":    "cell_field_parsed_as_place",
             }),
         )
     } else if let (Some(la), Some(lo)) = (req.lat, req.lng) {
@@ -29905,37 +30724,277 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             "GET  /v1/grid_info  — actual vs spec-target resolution",
         ],
     });
-    // Surface the FULL ranked candidate list (including the chosen
-    // rank-0 hit, marked `is_selected: true`). Previous behaviour
-    // skipped index 0, leaving an LLM unable to verify which
-    // candidate the responder picked. Keep the response minimal on the
-    // unambiguous single-result path by emitting only when >1 alternative.
-    if alternatives.len() > 1 {
-        if let Some(m) = body.as_object_mut() {
+    // Confidence + class-mismatch detection. An LLM that doesn't see a
+    // confidence flag will quote a low-quality match as authoritative —
+    // the worst-case agent-trust bug. We always emit a structured
+    // `selected` block with:
+    //   - `is_high_confidence` boolean an agent can branch on
+    //   - `confidence_reason` enum explaining the verdict
+    //   - `class_mismatch_warning` flag when the query implies a class
+    //     (peak, volcano, lake, …) but the chosen hit is a different
+    //     class (street, building, primary school, …)
+    // The flag is computed cheaply from the query string + the chosen
+    // OSM class/type and is enabled by surfacing whatever class/type
+    // already lives on the rank-0 alternative.
+    let (sel_class, sel_type, sel_imp) = alternatives
+        .first()
+        .map(|a| {
+            (
+                a.get("class").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                a.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                a.get("importance").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            )
+        })
+        .unwrap_or_default();
+    let query_class = req
+        .place
+        .as_deref()
+        .map(detect_query_feature_class)
+        .unwrap_or(QueryFeatureClass::Unknown);
+    let class_mismatch =
+        query_class != QueryFeatureClass::Unknown && !query_class.matches_osm(&sel_class, &sel_type);
+    let (is_high_conf, confidence_reason) = locate_confidence(
+        via,
+        sel_imp,
+        class_mismatch,
+        disambiguation_required,
+        alternatives.len(),
+    );
+    // Always emit the `alternatives[]` array — even when length is 1 —
+    // so a downstream agent can read a stable shape. Previously the
+    // single-hit path emitted nothing, hiding the OSM class/type that
+    // tells the LLM whether the chosen feature actually matches the
+    // intent ("Mount Kilimanjaro" → highway/residential = wrong).
+    if let Some(m) = body.as_object_mut() {
+        if !alternatives.is_empty() {
+            m.insert(
+                "selected".into(),
+                json!({
+                    "rank":               0,
+                    "cell64":             alternatives[0].get("cell64").cloned().unwrap_or(JsonValue::Null),
+                    "lat":                alternatives[0].get("lat").cloned().unwrap_or(JsonValue::Null),
+                    "lng":                alternatives[0].get("lng").cloned().unwrap_or(JsonValue::Null),
+                    "label":              alternatives[0].get("label").cloned().unwrap_or(JsonValue::Null),
+                    "class":              if sel_class.is_empty() { JsonValue::Null } else { JsonValue::String(sel_class.clone()) },
+                    "type":               if sel_type.is_empty()  { JsonValue::Null } else { JsonValue::String(sel_type.clone()) },
+                    "importance":         sel_imp,
+                    "is_high_confidence": is_high_conf,
+                    "confidence_reason":  confidence_reason,
+                    "class_mismatch":     class_mismatch,
+                    "source":             via,
+                }),
+            );
             m.insert("alternatives".into(), JsonValue::Array(alternatives));
-            // Structured agent flag — branch on this in tool-use loops
-            // without parsing the prose. `disambiguation_hint` (below) is
-            // the matching human-readable text.
             m.insert(
                 "disambiguation_required".into(),
-                JsonValue::Bool(disambiguation_required),
+                JsonValue::Bool(disambiguation_required || class_mismatch || !is_high_conf),
             );
             m.insert(
                 "disambiguation_hint".into(),
                 json!(
-                "Multiple matches for this name. The chosen result is rank 0 in `alternatives` \
-                 (also surfaced at the top level under `cell64`/`place_label`/`centre`). \
-                 Each alternative carries `osm_id` + `osm_type` for direct OSM lookup, \
-                 plus `bbox_deg` so an agent can re-query a specific candidate without a \
-                 second round-trip. To pick a different alternative, call /v1/locate again \
-                 with its `lat`/`lng` (or pass a more specific name like 'Springfield, IL'). \
-                 When `disambiguation_required: true`, ask the user which one rather than \
-                 silently using rank 0."
+                "The chosen result is rank 0 in `alternatives` and mirrored in `selected`. \
+                 Branch on `selected.is_high_confidence`: when false, ask the user to \
+                 disambiguate rather than silently citing rank 0. `class_mismatch` is true \
+                 when the query implies a feature class (peak, volcano, lake, river, …) \
+                 but the chosen OSM hit is a different class (street, building, school, …). \
+                 Each alternative carries `osm_id` + `osm_type` for direct OSM lookup and \
+                 `bbox_deg` so the agent can re-query a specific candidate without a second \
+                 round-trip. To pick another, call /v1/locate again with its `lat`/`lng` or \
+                 a more specific name (e.g. add the country / region)."
             ),
+            );
+        } else {
+            // Direct lat/lng path (no place name resolved). Still emit
+            // a high-confidence selected block keyed off the input
+            // coordinates so the response shape is uniform.
+            m.insert(
+                "selected".into(),
+                json!({
+                    "rank":               0,
+                    "cell64":             cell_str,
+                    "lat":                lat,
+                    "lng":                lng,
+                    "label":              JsonValue::Null,
+                    "class":              JsonValue::Null,
+                    "type":               JsonValue::Null,
+                    "importance":         1.0,
+                    "is_high_confidence": true,
+                    "confidence_reason":  "direct_lat_lng",
+                    "class_mismatch":     false,
+                    "source":             via,
+                }),
+            );
+            m.insert(
+                "disambiguation_required".into(),
+                JsonValue::Bool(false),
             );
         }
     }
     Ok(Json(body))
+}
+
+/// Categories the locate handler recognises in the query string for
+/// class-mismatch detection. Each variant lists the OSM `class`/`type`
+/// values that count as a match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueryFeatureClass {
+    Unknown,
+    Peak,
+    Volcano,
+    WaterBody,
+    Forest,
+    Park,
+    Glacier,
+    River,
+    Island,
+    AdminBoundary,
+}
+
+impl QueryFeatureClass {
+    /// Whether an OSM (class, type) pair counts as matching this
+    /// inferred feature class. The match is intentionally permissive —
+    /// false positives here only suppress the class-mismatch warning,
+    /// they don't degrade the cell. The cost of missing a true mismatch
+    /// is higher than the cost of a noisy warning.
+    fn matches_osm(self, class_: &str, type_: &str) -> bool {
+        let c = class_.to_ascii_lowercase();
+        let t = type_.to_ascii_lowercase();
+        match self {
+            Self::Unknown => true,
+            Self::Peak => c == "natural" && matches!(t.as_str(), "peak" | "ridge" | "saddle"),
+            Self::Volcano => c == "natural" && t == "volcano",
+            Self::WaterBody => {
+                c == "natural" && matches!(t.as_str(), "water" | "bay" | "strait" | "coastline")
+                    || c == "place" && matches!(t.as_str(), "sea" | "ocean")
+                    || c == "waterway" && matches!(t.as_str(), "river" | "stream" | "canal")
+            }
+            Self::Forest => {
+                c == "natural" && matches!(t.as_str(), "wood" | "forest")
+                    || c == "landuse" && matches!(t.as_str(), "forest")
+                    || c == "boundary" && t == "national_park"
+            }
+            Self::Park => {
+                c == "leisure" && matches!(t.as_str(), "park" | "nature_reserve")
+                    || c == "boundary" && matches!(t.as_str(), "national_park" | "protected_area")
+            }
+            Self::Glacier => c == "natural" && t == "glacier",
+            Self::River => c == "waterway" && matches!(t.as_str(), "river" | "stream" | "canal"),
+            Self::Island => c == "place" && matches!(t.as_str(), "island" | "islet" | "archipelago"),
+            Self::AdminBoundary => {
+                c == "boundary" && matches!(t.as_str(), "administrative" | "land_area")
+                    || c == "place"
+                        && matches!(
+                            t.as_str(),
+                            "city"
+                                | "town"
+                                | "village"
+                                | "hamlet"
+                                | "country"
+                                | "state"
+                                | "province"
+                                | "region"
+                                | "county"
+                                | "municipality"
+                                | "suburb"
+                        )
+            }
+        }
+    }
+}
+
+/// Sniff the query string for a feature-class hint. The keyword set is
+/// intentionally short — only words an agent can be expected to know
+/// imply a specific OSM class. Multi-word queries are split on
+/// whitespace and punctuation, then each token is checked.
+fn detect_query_feature_class(q: &str) -> QueryFeatureClass {
+    let lower = q.to_ascii_lowercase();
+    // Order matters: volcano subsumes peak; glacier subsumes ice.
+    if lower.contains("volcano") || lower.contains("volcán") {
+        return QueryFeatureClass::Volcano;
+    }
+    if lower.contains("glacier") || lower.contains("ice cap") || lower.contains("icefield") {
+        return QueryFeatureClass::Glacier;
+    }
+    if lower.contains("mount ")
+        || lower.starts_with("mount ")
+        || lower.contains("mt ")
+        || lower.contains("mt.")
+        || lower.ends_with(" peak")
+        || lower.contains(" peak ")
+        || lower.contains("summit")
+    {
+        return QueryFeatureClass::Peak;
+    }
+    if lower.contains("river")
+        || lower.contains("creek")
+        || lower.contains("stream")
+        || lower.contains("brook")
+    {
+        return QueryFeatureClass::River;
+    }
+    if lower.contains("lake")
+        || lower.contains("ocean")
+        || lower.contains(" sea")
+        || lower.contains("strait")
+        || lower.contains("bay ")
+        || lower.contains("gulf ")
+    {
+        return QueryFeatureClass::WaterBody;
+    }
+    if lower.contains("forest") || lower.contains("rainforest") {
+        return QueryFeatureClass::Forest;
+    }
+    if lower.contains("national park") || lower.contains("nature reserve") {
+        return QueryFeatureClass::Park;
+    }
+    if lower.contains("island") || lower.contains("archipelago") {
+        return QueryFeatureClass::Island;
+    }
+    if lower.contains("district")
+        || lower.contains("province")
+        || lower.contains("county")
+        || lower.contains("municipality")
+        || lower.contains("region")
+    {
+        return QueryFeatureClass::AdminBoundary;
+    }
+    QueryFeatureClass::Unknown
+}
+
+/// Build the (is_high_confidence, confidence_reason) pair surfaced on
+/// `selected`. Thresholds match the existing `disambiguation_required`
+/// heuristics so the two flags stay consistent.
+fn locate_confidence(
+    via: &str,
+    importance: f64,
+    class_mismatch: bool,
+    disambiguation_required: bool,
+    n_alternatives: usize,
+) -> (bool, &'static str) {
+    if class_mismatch {
+        return (false, "class_mismatch_with_query");
+    }
+    if disambiguation_required {
+        return (false, "ambiguous_top_two_candidates");
+    }
+    match via {
+        "embedded" | "wide_bbox_table" => (true, "embedded_gazetteer_hit"),
+        "direct" => (true, "direct_lat_lng"),
+        "cache" => (true, "ttl_cache_hit"),
+        "overture_admin_fallback" => (true, "overture_division_match"),
+        "photon" | "nominatim" => {
+            if importance >= 0.5 {
+                (true, "geocoder_high_importance")
+            } else if importance >= 0.3 {
+                (true, "geocoder_moderate_importance")
+            } else if n_alternatives <= 1 {
+                (false, "single_low_importance_result")
+            } else {
+                (false, "low_importance_with_alternatives")
+            }
+        }
+        _ => (true, "default"),
+    }
 }
 
 // ── Geocoder: layered ────────────────────────────────────────────────────
