@@ -30271,12 +30271,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     // 86, unambiguous.) Default 3.0 catches the
                     // Springfield case while letting Paris pass.
                     // `EMEM_LOCATE_GAZETTEER_POP_RATIO` overrides.
-                    let pop_ratio = env_f64(
-                        "EMEM_LOCATE_GAZETTEER_POP_RATIO",
-                        3.0,
-                        1.0,
-                        100.0,
-                    );
+                    let pop_ratio = env_f64("EMEM_LOCATE_GAZETTEER_POP_RATIO", 3.0, 1.0, 100.0);
                     if top_pop / second_pop.max(1.0) < pop_ratio {
                         disambiguation_required = true;
                     }
@@ -30741,10 +30736,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     //       global towns at importance=0.6).
                     // Operators on regions where Photon importance
                     // clusters differently can dial both thresholds.
-                    let imp_floor =
-                        env_f64("EMEM_LOCATE_PHOTON_IMP_FLOOR", 0.5, 0.0, 1.0);
-                    let imp_delta =
-                        env_f64("EMEM_LOCATE_PHOTON_IMP_DELTA", 0.1, 0.0, 1.0);
+                    let imp_floor = env_f64("EMEM_LOCATE_PHOTON_IMP_FLOOR", 0.5, 0.0, 1.0);
+                    let imp_delta = env_f64("EMEM_LOCATE_PHOTON_IMP_DELTA", 0.1, 0.0, 1.0);
                     if top_imp < imp_floor || (top_imp - second_imp).abs() < imp_delta {
                         disambiguation_required = true;
                     }
