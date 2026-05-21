@@ -1383,10 +1383,7 @@ fn body_is_small_json(resp: &Response) -> bool {
 /// `/v1/fetch`), then a top-level `cid` (legacy).
 fn sniff_receipt_cid(body: &[u8]) -> Option<String> {
     let v: JsonValue = serde_json::from_slice(body).ok()?;
-    if let Some(c) = v
-        .pointer("/receipt/fact_cids/0")
-        .and_then(|x| x.as_str())
-    {
+    if let Some(c) = v.pointer("/receipt/fact_cids/0").and_then(|x| x.as_str()) {
         return Some(c.to_string());
     }
     if let Some(c) = v.get("fact_cid").and_then(|x| x.as_str()) {
@@ -10125,7 +10122,7 @@ fn looks_like_cid(s: &str) -> bool {
         return false;
     }
     s.bytes()
-        .all(|b| (b'a'..=b'z').contains(&b) || (b'2'..=b'7').contains(&b))
+        .all(|b: u8| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
 }
 
 async fn get_fact(
@@ -30740,8 +30737,14 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         .first()
         .map(|a| {
             (
-                a.get("class").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                a.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                a.get("class")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                a.get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 a.get("importance").and_then(|v| v.as_f64()).unwrap_or(0.0),
             )
         })
@@ -30751,8 +30754,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         .as_deref()
         .map(detect_query_feature_class)
         .unwrap_or(QueryFeatureClass::Unknown);
-    let class_mismatch =
-        query_class != QueryFeatureClass::Unknown && !query_class.matches_osm(&sel_class, &sel_type);
+    let class_mismatch = query_class != QueryFeatureClass::Unknown
+        && !query_class.matches_osm(&sel_class, &sel_type);
     let (is_high_conf, confidence_reason) = locate_confidence(
         via,
         sel_imp,
@@ -30792,7 +30795,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             m.insert(
                 "disambiguation_hint".into(),
                 json!(
-                "The chosen result is rank 0 in `alternatives` and mirrored in `selected`. \
+                    "The chosen result is rank 0 in `alternatives` and mirrored in `selected`. \
                  Branch on `selected.is_high_confidence`: when false, ask the user to \
                  disambiguate rather than silently citing rank 0. `class_mismatch` is true \
                  when the query implies a feature class (peak, volcano, lake, river, …) \
@@ -30801,7 +30804,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                  `bbox_deg` so the agent can re-query a specific candidate without a second \
                  round-trip. To pick another, call /v1/locate again with its `lat`/`lng` or \
                  a more specific name (e.g. add the country / region)."
-            ),
+                ),
             );
         } else {
             // Direct lat/lng path (no place name resolved). Still emit
@@ -30824,10 +30827,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     "source":             via,
                 }),
             );
-            m.insert(
-                "disambiguation_required".into(),
-                JsonValue::Bool(false),
-            );
+            m.insert("disambiguation_required".into(), JsonValue::Bool(false));
         }
     }
     Ok(Json(body))
@@ -30879,7 +30879,9 @@ impl QueryFeatureClass {
             }
             Self::Glacier => c == "natural" && t == "glacier",
             Self::River => c == "waterway" && matches!(t.as_str(), "river" | "stream" | "canal"),
-            Self::Island => c == "place" && matches!(t.as_str(), "island" | "islet" | "archipelago"),
+            Self::Island => {
+                c == "place" && matches!(t.as_str(), "island" | "islet" | "archipelago")
+            }
             Self::AdminBoundary => {
                 c == "boundary" && matches!(t.as_str(), "administrative" | "land_area")
                     || c == "place"
