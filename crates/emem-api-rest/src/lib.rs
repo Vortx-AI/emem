@@ -30450,6 +30450,17 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     let mut via = "direct";
     let mut polygon_bbox: Option<(f64, f64, f64, f64)> = None;
     let mut polygon_source: Option<&'static str> = None;
+    // Overture-divisions provenance, captured when one of the
+    // admin branches successfully resolves a polygon from
+    // `OvertureClient::division_polygon_near`. Each field is
+    // surfaced in the `/v1/locate` response so an agent can quote
+    // the GERS ID in a receipt and pick the localised name that
+    // matches the user's language without a second lookup.
+    let mut overture_division_id: Option<String> = None;
+    let mut overture_subtype: Option<String> = None;
+    let mut overture_country: Option<String> = None;
+    let mut localized_names: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
     // True OSM boundary — `Polygon` or `MultiPolygon` GeoJSON. Surfaced
     // in the locate response and reused by recall_polygon to mask the
     // cell grid via point-in-polygon. Falls back to the bbox envelope
@@ -30560,21 +30571,28 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     polygon_bbox = Some(c.bbox());
                     polygon_source = Some("country_table");
                 }
-                // Try Overture for a real polygon. Falls back to the
-                // cities-aggregated bbox if Overture has nothing for
-                // this country in its snapshot.
-                if polygon_geojson.is_none() {
-                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(c.centroid_lat, c.centroid_lng, &c.name)
-                        .await
-                    {
-                        polygon_geojson = Some(div.geometry.clone());
-                        if polygon_bbox.is_none() {
-                            polygon_bbox = Some(div.bbox);
-                            polygon_source = Some("overture_division_area");
-                        }
-                    }
-                }
+                // Upgrade to Overture's authoritative polygon + bbox
+                // when available. The Overture polygon is derived
+                // from the actual political boundary (conflated from
+                // OSM + Esri + Meta + TomTom), so its bbox is
+                // strictly more accurate than our cities-aggregated
+                // approximation (which understates coastlines and
+                // misses overseas dependencies). When Overture is
+                // unreachable or has no match, the cities-derived
+                // bbox stays as the honest fallback.
+                apply_overture_division_upgrade(
+                    c.centroid_lat,
+                    c.centroid_lng,
+                    &c.name,
+                    &mut polygon_geojson,
+                    &mut polygon_bbox,
+                    &mut polygon_source,
+                    &mut overture_division_id,
+                    &mut overture_subtype,
+                    &mut overture_country,
+                    &mut localized_names,
+                )
+                .await;
                 (c.centroid_lat, c.centroid_lng, Some(lab))
             } else if let Some(a) = admin1_hit {
                 via = "admin1";
@@ -30583,18 +30601,19 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     polygon_bbox = Some(a.bbox());
                     polygon_source = Some("admin1_table");
                 }
-                if polygon_geojson.is_none() {
-                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(a.centroid_lat, a.centroid_lng, &a.name)
-                        .await
-                    {
-                        polygon_geojson = Some(div.geometry.clone());
-                        if polygon_bbox.is_none() {
-                            polygon_bbox = Some(div.bbox);
-                            polygon_source = Some("overture_division_area");
-                        }
-                    }
-                }
+                apply_overture_division_upgrade(
+                    a.centroid_lat,
+                    a.centroid_lng,
+                    &a.name,
+                    &mut polygon_geojson,
+                    &mut polygon_bbox,
+                    &mut polygon_source,
+                    &mut overture_division_id,
+                    &mut overture_subtype,
+                    &mut overture_country,
+                    &mut localized_names,
+                )
+                .await;
                 (a.centroid_lat, a.centroid_lng, Some(lab))
             } else if let Some(a) = admin2_hit {
                 via = "admin2";
@@ -30603,18 +30622,19 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     polygon_bbox = Some(a.bbox());
                     polygon_source = Some("admin2_table");
                 }
-                if polygon_geojson.is_none() {
-                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(a.centroid_lat, a.centroid_lng, &a.name)
-                        .await
-                    {
-                        polygon_geojson = Some(div.geometry.clone());
-                        if polygon_bbox.is_none() {
-                            polygon_bbox = Some(div.bbox);
-                            polygon_source = Some("overture_division_area");
-                        }
-                    }
-                }
+                apply_overture_division_upgrade(
+                    a.centroid_lat,
+                    a.centroid_lng,
+                    &a.name,
+                    &mut polygon_geojson,
+                    &mut polygon_bbox,
+                    &mut polygon_source,
+                    &mut overture_division_id,
+                    &mut overture_subtype,
+                    &mut overture_country,
+                    &mut localized_names,
+                )
+                .await;
                 (a.centroid_lat, a.centroid_lng, Some(lab))
             } else if let Some(a) = admin3_hit {
                 via = "admin3";
@@ -30623,18 +30643,19 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     polygon_bbox = Some(a.bbox());
                     polygon_source = Some("admin3_table");
                 }
-                if polygon_geojson.is_none() {
-                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(a.centroid_lat, a.centroid_lng, &a.name)
-                        .await
-                    {
-                        polygon_geojson = Some(div.geometry.clone());
-                        if polygon_bbox.is_none() {
-                            polygon_bbox = Some(div.bbox);
-                            polygon_source = Some("overture_division_area");
-                        }
-                    }
-                }
+                apply_overture_division_upgrade(
+                    a.centroid_lat,
+                    a.centroid_lng,
+                    &a.name,
+                    &mut polygon_geojson,
+                    &mut polygon_bbox,
+                    &mut polygon_source,
+                    &mut overture_division_id,
+                    &mut overture_subtype,
+                    &mut overture_country,
+                    &mut localized_names,
+                )
+                .await;
                 (a.centroid_lat, a.centroid_lng, Some(lab))
             } else if let Some((la, lo, lab)) = embedded_gazetteer_lookup(p) {
                 via = "embedded";
@@ -31265,6 +31286,42 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         // upstream geometry was Point/LineString.
         "polygon_geojson": polygon_geojson,
         "polygon_sample_cells": sample_cells,
+        // Overture-divisions provenance, present when the locate
+        // cascade pulled an authoritative admin boundary from
+        // Overture's `divisions/division_area` table.
+        // `division_id` is the **GERS ID** — a globally stable
+        // identifier citable in receipts and cross-referenceable
+        // against other GERS-aware datasets (Overture Places,
+        // Foursquare). `subtype` declares the admin level
+        // (country / region / county / locality / borough /
+        // neighborhood / microhood / macrohood / dependency /
+        // localadmin) so an agent can decide whether the resolved
+        // polygon is the right scale for the question. `country`
+        // is the ISO 3166-1 alpha-2 owner of the division when
+        // Overture publishes one.
+        "overture_division": (overture_division_id.is_some()
+            || overture_subtype.is_some()
+            || overture_country.is_some()).then(|| json!({
+            "division_id": overture_division_id,
+            "subtype":     overture_subtype,
+            "country":     overture_country,
+            "schema_url":  "https://docs.overturemaps.org/schema/reference/divisions/division/",
+        })),
+        // `names.common` from the Overture row, when present —
+        // map of ISO 639 language code (e.g. `en`, `bn`, `zh-Hans`,
+        // `ar`) to localized name string. Lets an agent surface
+        // "Bangladesh" / "বাংলাদেশ" / "孟加拉国" / "بنغلاديش" without a
+        // second geocoder round-trip. Empty when no Overture row
+        // owned the query — embedded gazetteer / Photon results
+        // don't carry localized names here.
+        "localized_names": (!localized_names.is_empty()).then(|| {
+            JsonValue::Object(
+                localized_names
+                    .iter()
+                    .map(|(k, v)| (k.clone(), JsonValue::String(v.clone())))
+                    .collect()
+            )
+        }),
         "advice": "Place names map to a single cell at ~10 m × ~10 m square resolution at the equator (matching S1/S2 native pitch). For point features (peaks, towers), use `neighborhood_cells` to fan out across the immediate ~9 cells. For wide features (canyons, basins, regions, countries), `polygon_bbox` carries the actual extent and `polygon_sample_cells` is a 64-cell grid sample inside it — query those to find the data. **`data_at_this_cell` lists every band you can recall here, grouped by topic — read it BEFORE concluding emem can't answer.**",
         // Topic-grouped roster of every band the responder can answer at
         // this cell, plus the cube placeholders that have no materializer
@@ -31835,6 +31892,70 @@ fn wide_bbox_lookup(query: &str) -> Option<(f64, f64, f64, f64)> {
 fn embedded_gazetteer_lookup(query: &str) -> Option<(f64, f64, String)> {
     let rec = emem_fetch::geonames::lookup(query)?;
     Some((rec.lat, rec.lng, rec.label()))
+}
+
+/// Hit Overture's `divisions/division_area` table for the place
+/// anchored at `(lat, lng)` with the given `name_hint`. When a
+/// polygon is returned, upgrade the three polygon outputs
+/// (`polygon_geojson`, `polygon_bbox`, `polygon_source`) to that
+/// authoritative geometry, and capture the GERS ID, subtype, ISO
+/// country, and any multilingual names the row carries.
+///
+/// Behaviour when Overture returns nothing (rural area outside any
+/// admin polygon, transport blip): leave every input mutable
+/// unchanged. The caller's pre-set cities-aggregated bbox stays as
+/// the honest fallback. Overture transport errors are swallowed
+/// here on purpose — they're already logged by the
+/// `OvertureClient`, and a wedged S3 endpoint must not turn every
+/// locate query into a 5xx.
+///
+/// Why we accept &mut references instead of returning a struct: the
+/// caller path threads four optional outputs and two BTreeMaps; a
+/// struct return would force every caller to splat-merge, which
+/// would itself be longer than the call site. Side-effect helpers
+/// also keep the four admin-tier arms shape-identical to the
+/// previous in-line body.
+#[allow(clippy::too_many_arguments)]
+async fn apply_overture_division_upgrade(
+    lat: f64,
+    lng: f64,
+    name_hint: &str,
+    polygon_geojson: &mut Option<JsonValue>,
+    polygon_bbox: &mut Option<(f64, f64, f64, f64)>,
+    polygon_source: &mut Option<&'static str>,
+    overture_division_id: &mut Option<String>,
+    overture_subtype: &mut Option<String>,
+    overture_country: &mut Option<String>,
+    localized_names: &mut std::collections::BTreeMap<String, String>,
+) {
+    let div = match emem_fetch::overture::OvertureClient::shared()
+        .division_polygon_near(lat, lng, name_hint)
+        .await
+    {
+        Ok(Some(d)) => d,
+        Ok(None) | Err(_) => return,
+    };
+    // Polygon is authoritative — overwrite cities-derived bbox too.
+    *polygon_geojson = Some(div.geometry.clone());
+    *polygon_bbox = Some(div.bbox);
+    *polygon_source = Some("overture_division_area");
+    if !div.id.is_empty() {
+        *overture_division_id = Some(div.id);
+    }
+    if !div.subtype.is_empty() {
+        *overture_subtype = Some(div.subtype);
+    }
+    if !div.country.is_empty() {
+        *overture_country = Some(div.country);
+    }
+    // Merge multilingual names; the Overture row's `names.common`
+    // is the authoritative source. Duplicate language keys (rare
+    // when an upstream conflater wrote both `en` and `eng`) get
+    // the Overture value because that's the snapshot the GERS ID
+    // is bound to.
+    for (k, v) in div.names_common {
+        localized_names.insert(k, v);
+    }
 }
 
 fn embedded_gazetteer_reverse_lookup(lat: f64, lng: f64) -> Option<String> {

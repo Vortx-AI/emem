@@ -36,7 +36,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use arrow::array::{
-    Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, StringArray, StructArray,
+    Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, MapArray, StringArray,
+    StructArray,
 };
 use arrow::datatypes::DataType;
 use futures_util::{StreamExt, TryStreamExt};
@@ -745,7 +746,7 @@ impl OvertureClient {
             return Ok(Vec::new());
         }
         let mut stream = self
-            .open_stream(key, rgs, &["id", "names", "subtype"])
+            .open_stream(key, rgs, &["id", "names", "subtype", "country"])
             .await?;
         let mut out: Vec<DivisionMatch> = Vec::new();
         while let Some(batch) = stream
@@ -784,6 +785,9 @@ impl OvertureClient {
             let ids = batch
                 .column_by_name("id")
                 .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let countries = batch
+                .column_by_name("country")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
 
             for i in 0..batch.num_rows() {
                 if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
@@ -800,6 +804,7 @@ impl OvertureClient {
                     continue;
                 };
                 let primary_name = names.primary(i).unwrap_or_default();
+                let names_common = names.common(i);
                 let normalized_primary = normalize_division_name(&primary_name);
                 let name_matched_hint = !normalized_hint.is_empty()
                     && !normalized_primary.is_empty()
@@ -812,6 +817,9 @@ impl OvertureClient {
                 let id = ids
                     .and_then(|s| (!s.is_null(i)).then(|| s.value(i).to_string()))
                     .unwrap_or_default();
+                let country = countries
+                    .and_then(|s| (!s.is_null(i)).then(|| s.value(i).to_string()))
+                    .unwrap_or_default();
                 let x0 = bb.xmin.val(i);
                 let x1 = bb.xmax.val(i);
                 let y0 = bb.ymin.val(i);
@@ -820,7 +828,9 @@ impl OvertureClient {
                 out.push(DivisionMatch {
                     id,
                     name: primary_name,
+                    names_common,
                     subtype,
+                    country,
                     geometry,
                     bbox: (y0, y1, x0, x1),
                     bbox_area_deg_sq,
@@ -1274,10 +1284,21 @@ pub struct DivisionMatch {
     pub id: String,
     /// `names.primary` — the canonical localized label.
     pub name: String,
+    /// `names.common` — map of ISO 639 language code (or
+    /// language-script tag like `zh-Hans`) → localized name. Pulled
+    /// directly from Overture's divisions schema so an agent can
+    /// surface the Japanese, Bengali, or Arabic name of a place
+    /// without a second lookup. Empty when the row had no `common`
+    /// entries.
+    pub names_common: std::collections::BTreeMap<String, String>,
     /// Subtype: `country` / `region` / `county` / `localadmin` /
     /// `locality` / `borough` / `microhood` / `neighborhood` /
     /// `dependency` / `macrohood`.
     pub subtype: String,
+    /// ISO 3166-1 alpha-2 country code that owns this division
+    /// (parsed from Overture's `country` column). Empty for the
+    /// rare disputed-territory rows that ship without one.
+    pub country: String,
     /// WGS84 GeoJSON geometry (`type: "Polygon"` or `"MultiPolygon"`).
     pub geometry: serde_json::Value,
     /// Tuple `(min_lat, max_lat, min_lng, max_lng)` derived from the
@@ -1356,19 +1377,106 @@ fn normalize_division_name(s: &str) -> String {
 /// Accessor for the `names` struct column on the divisions parquet.
 /// Overture's schema stores names as a struct with `primary` (Utf8),
 /// `common` (Map<Utf8, Utf8>), and `rules` (List<Struct<...>>). We
-/// only read `primary`; the rest is available for callers that want
-/// to surface localized names later.
+/// read both `primary` and `common` so the locate response can
+/// surface every localized name an agent might quote back ("東京",
+/// "ঢাকা", "القاهرة").
+///
+/// `rules` carries variant-specific name disambiguation (e.g. "this
+/// name applies only when the language is X and the country is Y").
+/// We don't read it here — the few cases it disambiguates are
+/// already covered by `common`'s straight lang→name map, and the
+/// `rules` parser would double the parquet-read cost for marginal
+/// recall gain.
 struct DivisionNames<'a> {
     primary: Option<&'a StringArray>,
+    /// `Map<Utf8, Utf8>` column. Arrow exposes Map as a List of
+    /// Struct<key, value>; we hold the inner StructArray plus the
+    /// list offsets buffer for per-row slicing.
+    common: Option<MapStringAccess<'a>>,
+}
+
+/// Lightweight accessor for an Arrow `Map<Utf8, Utf8>` column. Wraps
+/// the offsets buffer (one i32 per row+1) and the inner Struct<key,
+/// value> StringArrays so per-row maps are a constant-time slice.
+struct MapStringAccess<'a> {
+    offsets: &'a [i32],
+    keys: &'a StringArray,
+    values: &'a StringArray,
+}
+
+impl<'a> MapStringAccess<'a> {
+    /// Build the accessor from a generic Arrow column. Returns
+    /// `None` when the column is missing or the inner type isn't
+    /// `Map<Utf8, Utf8>` (schema drift). Used only for `names.common`
+    /// so failure here is silent and degrades to "no localized
+    /// names" rather than aborting the whole scan.
+    fn try_new(col: &'a dyn Array) -> Option<Self> {
+        let m = col.as_any().downcast_ref::<MapArray>()?;
+        let entries = m.entries();
+        // Overture publishes `names.common` as
+        // `Map<key: Utf8, value: Utf8>` but Arrow lets producers
+        // name the inner struct fields freely; some emitters use
+        // ("key", "value"), others use ("keys", "values"). Probe by
+        // name first, then fall back to position 0/1 — Arrow Map
+        // spec mandates ordered (key, value) physical layout.
+        let keys = entries
+            .column_by_name("key")
+            .or_else(|| entries.column_by_name("keys"))
+            .unwrap_or_else(|| entries.column(0))
+            .as_any()
+            .downcast_ref::<StringArray>()?;
+        let values = entries
+            .column_by_name("value")
+            .or_else(|| entries.column_by_name("values"))
+            .unwrap_or_else(|| entries.column(1))
+            .as_any()
+            .downcast_ref::<StringArray>()?;
+        Some(MapStringAccess {
+            offsets: m.value_offsets(),
+            keys,
+            values,
+        })
+    }
+
+    /// Return the (key, value) pairs for row `i` as owned strings.
+    fn row(&self, i: usize) -> Vec<(String, String)> {
+        if i + 1 >= self.offsets.len() {
+            return Vec::new();
+        }
+        let start = self.offsets[i] as usize;
+        let end = self.offsets[i + 1] as usize;
+        let mut out = Vec::with_capacity(end.saturating_sub(start));
+        for j in start..end {
+            if j >= self.keys.len() || j >= self.values.len() {
+                break;
+            }
+            if self.keys.is_null(j) {
+                continue;
+            }
+            let k = self.keys.value(j).to_string();
+            let v = if self.values.is_null(j) {
+                String::new()
+            } else {
+                self.values.value(j).to_string()
+            };
+            if !k.is_empty() && !v.is_empty() {
+                out.push((k, v));
+            }
+        }
+        out
+    }
 }
 
 impl<'a> DivisionNames<'a> {
     fn new(col: Option<&'a dyn Array>) -> Self {
-        let primary = col
-            .and_then(|c| c.as_any().downcast_ref::<StructArray>())
+        let struct_arr = col.and_then(|c| c.as_any().downcast_ref::<StructArray>());
+        let primary = struct_arr
             .and_then(|s| s.column_by_name("primary"))
             .and_then(|c| c.as_any().downcast_ref::<StringArray>());
-        DivisionNames { primary }
+        let common = struct_arr
+            .and_then(|s| s.column_by_name("common"))
+            .and_then(|c| MapStringAccess::try_new(c.as_ref()));
+        DivisionNames { primary, common }
     }
     fn primary(&self, i: usize) -> Option<String> {
         let p = self.primary?;
@@ -1377,6 +1485,18 @@ impl<'a> DivisionNames<'a> {
         } else {
             Some(p.value(i).to_string())
         }
+    }
+    /// Per-row `names.common` entries, collected into a sorted
+    /// BTreeMap so the wire shape is deterministic regardless of
+    /// arrow's internal key order.
+    fn common(&self, i: usize) -> std::collections::BTreeMap<String, String> {
+        let mut out = std::collections::BTreeMap::new();
+        if let Some(c) = &self.common {
+            for (k, v) in c.row(i) {
+                out.insert(k, v);
+            }
+        }
+        out
     }
 }
 
