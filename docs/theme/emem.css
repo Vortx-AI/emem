@@ -28,8 +28,29 @@
   --accent-bg:    oklch(0.26 0.05  145);
 }
 
-/* mdbook variable mapping */
-html {
+/* mdbook variable mapping.
+ *
+ * Why the long selector list: mdbook's variables.css declares its light-
+ * theme defaults under `.light, html:not(.js) { ... }`. The `html:not(.js)`
+ * half has specificity (0,0,1,1) and intentionally fires when the
+ * bootstrap script hasn't added the `.js` class yet — a "no-JS fallback"
+ * meant to be invisible after page-load. Our build of mdbook never adds
+ * `.js` in the static HTML (the toggle runs from book.js but doesn't
+ * persist into the rendered DOM), so the `html:not(.js)` selector keeps
+ * matching even after page-load and *outranks* the theme classes
+ * (`.navy`, `.ayu`, `.coal` are only specificity (0,0,1,0)). Net effect:
+ * the page sets `<html class="navy">` but mdbook serves the LIGHT theme's
+ * `--fg` (`hsl(0,0%,0%)`) and `--inline-code-color` (`#301900`) inside
+ * navy-coloured chrome — and because our `:not(pre) > code { background:
+ * var(--paper-2) }` correctly pulls the navy --paper-2 (dark), inline
+ * code renders as near-black text on near-black background, invisible.
+ *
+ * Fix by bumping our mapping rule's specificity to match mdbook's
+ * (0,0,1,1) via the explicit theme-class list plus the same `html:not
+ * (.js)` fallback that mdbook's rule uses. Equal specificity + later
+ * source order = our values win in every state (theme class set, JS
+ * loaded, JS not loaded, prefers-color-scheme dark/light). */
+html.navy, html.ayu, html.coal, html.light, html.rust, html:not(.js) {
   --bg:                    var(--paper);
   --fg:                    var(--ink);
   --sidebar-bg:            var(--paper-2);
