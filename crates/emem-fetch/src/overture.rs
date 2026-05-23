@@ -586,28 +586,61 @@ impl OvertureClient {
     }
 
     /// Resolve a place's true administrative boundary from Overture's
-    /// `divisions/division_area` theme.
-    ///
-    /// `lat` / `lng` should be a coarse anchor (e.g. the GeoNames
-    /// centroid for the place name). The method opens a small search
-    /// bbox around the anchor, scans every row group whose bbox
-    /// stats overlap it, decodes WKB polygons that actually contain
-    /// the anchor point, and returns the *smallest* containing
-    /// boundary whose `names.primary` matches `name_hint` (ASCII-
-    /// folded, case-insensitive). When no name match is found, the
-    /// method returns the smallest containing polygon regardless of
-    /// name — useful when the GeoNames record was a sub-locality and
-    /// the parent neighborhood/locality is what we actually want.
-    ///
-    /// Returns `Ok(None)` when no polygon contains the anchor (e.g.
-    /// rural area outside any locality boundary) — the caller falls
-    /// back to centre-cell-bbox honestly. Returns `Err` only on
-    /// transport / parquet decode failure.
+    /// `divisions/division_area` theme, optionally biased toward a
+    /// specific admin subtype. Convenience wrapper over
+    /// [`Self::division_polygon_with_subtype`] with `preferred_subtype = None`.
     pub async fn division_polygon_near(
         &self,
         lat: f64,
         lng: f64,
         name_hint: &str,
+    ) -> Result<Option<DivisionMatch>, OvertureError> {
+        self.division_polygon_with_subtype(lat, lng, name_hint, None)
+            .await
+    }
+
+    /// Resolve a place's true administrative boundary from Overture's
+    /// `divisions/division_area` theme, with optional admin-level
+    /// preference.
+    ///
+    /// `lat` / `lng` should be a coarse anchor (e.g. the GeoNames
+    /// centroid for the place name). The method scans every row group
+    /// whose bbox stats overlap a wide search box around the anchor —
+    /// wide enough to catch country-scale polygons whose individual
+    /// row bbox encloses the anchor — decodes WKB polygons that
+    /// actually contain the anchor point, and ranks the candidates.
+    ///
+    /// Ranking order (first non-empty tier wins):
+    ///   1. **Subtype-pinned exact name match** — when
+    ///      `preferred_subtype` is `Some("country")` and a candidate's
+    ///      subtype matches AND its primary name matches the hint,
+    ///      that wins. Lets the country tier of the locate cascade
+    ///      pull the country polygon even though Dhaka District,
+    ///      Dhaka Division, and Bangladesh country all contain the
+    ///      Dhaka anchor.
+    ///   2. **Subtype-pinned containment** — when no exact name
+    ///      matches, prefer the candidate whose subtype matches
+    ///      `preferred_subtype` over any other subtype.
+    ///   3. **Exact name match without subtype pin** — among all
+    ///      name-matching candidates, prefer the highest admin
+    ///      level (`division_subtype_rank`). "Manhattan" should
+    ///      resolve to the borough / county / region row, not a
+    ///      Community-Board sub-locality.
+    ///   4. **Partial name match** — substring either way; prefer
+    ///      the smallest containing polygon (narrowest scope).
+    ///   5. **No name match** — smallest containing polygon
+    ///      regardless of name.
+    ///
+    /// Returns `Ok(None)` when no polygon contains the anchor (e.g.
+    /// rural area outside any locality boundary) — the caller falls
+    /// back to centre-cell-bbox honestly. Returns `Err` only on
+    /// transport / parquet decode failure.
+    pub async fn division_polygon_with_subtype(
+        &self,
+        lat: f64,
+        lng: f64,
+        name_hint: &str,
+        preferred_subtype: Option<&str>,
     ) -> Result<Option<DivisionMatch>, OvertureError> {
         // In-process result cache: round the anchor coord to 0.01° so
         // tiny GeoNames-record jitter doesn't bypass the cache. Stores
@@ -616,30 +649,48 @@ impl OvertureClient {
         // call doesn't re-pay the full shard scan. Static-tempo data;
         // no TTL.
         let normalized_hint = normalize_division_name(name_hint);
+        let normalized_pref = preferred_subtype.unwrap_or("").to_string();
+        // Cache key includes the subtype preference so country-tier
+        // and locality-tier calls at the same anchor don't collide.
         let cache_key: DivisionCacheKey = (
             (lat * 100.0).round() as i32,
             (lng * 100.0).round() as i32,
-            normalized_hint.clone(),
+            format!("{}|{}", normalized_pref, normalized_hint),
         );
         if let Some(hit) = self.division_cache.lock().await.get(&cache_key) {
             return Ok(hit.clone());
         }
-        // Half-degree search window around the anchor catches every
-        // locality and most regions; countries (which can span ~180°)
-        // require the full-shard scan, but row-group bbox pruning on
-        // the parquet keeps the I/O small even then. The half-degree
-        // pick is empirical: NYC's locality polygon is ~0.3° tall,
-        // Greater Tokyo ~0.5°, Berlin ~0.4° — half a degree is the
-        // tightest window that contains every locality boundary
-        // we'd want to substitute for a Nominatim polygon call.
-        let pad = 0.5_f64;
+        // Search window: scales with `preferred_subtype` so country-
+        // tier scans don't miss the country polygon entirely. A
+        // ½° pad around the anchor catches every locality (NYC ~0.3°,
+        // Greater Tokyo ~0.5°), but a "country" preference requires
+        // a much wider sweep — anchors fall well inside a country's
+        // bbox but the country row's parquet row-group may be
+        // hundreds of km wide and only intersects the search window
+        // if the window itself is wide enough. The pad-by-subtype
+        // table below is keyed to Overture's admin levels:
+        //
+        //   country → 30°  (covers any country up to ~6600 km wide)
+        //   region  → 6°   (US states, Indian states, Brazil states)
+        //   county / localadmin → 1.5°
+        //   locality / borough / smaller → 0.5° (legacy default)
+        //   no preference → 0.5° (legacy default)
+        //
+        // The wider sweep is still O(footer_count) parquet head IO;
+        // the row-group bbox prune inside each file keeps the
+        // per-file scan cheap regardless of the search window's size.
+        let pad: f64 = match preferred_subtype {
+            Some("country") => 30.0,
+            Some("region") => 6.0,
+            Some("county") | Some("localadmin") => 1.5,
+            _ => 0.5,
+        };
         let s_lat = (lat - pad).max(-90.0);
         let n_lat = (lat + pad).min(90.0);
         let w_lng = (lng - pad).max(-180.0);
         let e_lng = (lng + pad).min(180.0);
 
         let files = self.list_files(DIVISIONS_AREA).await?;
-        let normalized_hint = normalize_division_name(name_hint);
         let parallel = scan_parallelism();
         let candidates: Vec<DivisionMatch> = futures_util::stream::iter(files)
             .map(|key| {
@@ -661,34 +712,48 @@ impl OvertureClient {
             return Ok(None);
         }
 
-        // Pick the polygon that best matches the caller's intent.
-        // Ranking, in order of preference (the first non-empty tier wins):
-        //
-        //   1. EXACT name match (normalized primary == normalized hint) →
-        //      take the *highest* admin level. "Manhattan" → borough /
-        //      county / region, not "Manhattan Community Board 7".
-        //   2. Partial name match (substring either way) → take the
-        //      smallest containing polygon. Narrow queries like
-        //      "Manhattan Heights, Buffalo" land here.
-        //   3. No name match → take the smallest containing polygon
-        //      regardless of name. Best-effort behaviour when the
-        //      GeoNames record's preferred string doesn't appear in
-        //      Overture's primary name (locale / spelling drift).
-        //
-        // "Highest admin level" follows the Overture-divisions subtype
-        // ladder. Bigger number = broader scope. Falling back to the
-        // smallest *area* on ties because country boundaries are
-        // sometimes split across multiple rows in Overture.
+        // Ranking (first non-empty tier wins):
+        //   1. Subtype-pinned + exact name match.
+        //   2. Exact name match (no subtype pin) — highest admin
+        //      level wins, with smallest-bbox tie-break.
+        //   3. Subtype-pinned containment (no name match).
+        //   4. Partial name match — smallest containing polygon.
+        //   5. No constraint — smallest containing polygon.
+        let pref = preferred_subtype.unwrap_or("");
         let exact: Vec<&DivisionMatch> = candidates
             .iter()
             .filter(|m| {
                 !normalized_hint.is_empty() && normalize_division_name(&m.name) == normalized_hint
             })
             .collect();
+        let exact_subtype_pinned: Vec<&DivisionMatch> = exact
+            .iter()
+            .copied()
+            .filter(|m| !pref.is_empty() && m.subtype.eq_ignore_ascii_case(pref))
+            .collect();
+        let subtype_pinned: Vec<&DivisionMatch> = candidates
+            .iter()
+            .filter(|m| !pref.is_empty() && m.subtype.eq_ignore_ascii_case(pref))
+            .collect();
         let partial: Vec<&DivisionMatch> =
             candidates.iter().filter(|m| m.name_matched_hint).collect();
 
-        let chosen = if !exact.is_empty() {
+        let chosen = if !exact_subtype_pinned.is_empty() {
+            // The "I know exactly what I want" path: locate cascade
+            // told us this is e.g. a country-tier query and we
+            // found a country-subtype row whose primary name matches.
+            // Take the largest bbox among them (a country split
+            // across multiple rows uses the row that covers most of
+            // the territory).
+            *exact_subtype_pinned
+                .iter()
+                .max_by(|a, b| {
+                    a.bbox_area_deg_sq
+                        .partial_cmp(&b.bbox_area_deg_sq)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .expect("non-empty exact_subtype_pinned")
+        } else if !exact.is_empty() {
             *exact
                 .iter()
                 .max_by(|a, b| {
@@ -701,6 +766,15 @@ impl OvertureClient {
                         })
                 })
                 .expect("non-empty exact")
+        } else if !subtype_pinned.is_empty() {
+            *subtype_pinned
+                .iter()
+                .min_by(|a, b| {
+                    a.bbox_area_deg_sq
+                        .partial_cmp(&b.bbox_area_deg_sq)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .expect("non-empty subtype_pinned")
         } else if !partial.is_empty() {
             *partial
                 .iter()
@@ -2014,6 +2088,48 @@ mod tests {
     /// that the GERS id is non-empty so the receipt has a citable
     /// content-address. Skipped by default; run with
     /// `cargo test -p emem-fetch -- --ignored overture_divisions_live`.
+    /// Country-tier preference must return a country-subtype
+    /// polygon, not a sub-locality district that happens to contain
+    /// the same anchor. Verified live against Overture's anonymous
+    /// S3 mirror — toggled `#[ignore]` so CI doesn't depend on
+    /// transient S3 weather, but always run before shipping a
+    /// release that touches the resolver.
+    #[tokio::test]
+    #[ignore]
+    async fn overture_country_tier_returns_country_polygon() {
+        let c = OvertureClient::new().unwrap();
+        // Dhaka anchor — Bangladesh, BD.
+        let m = c
+            .division_polygon_with_subtype(23.71, 90.41, "Bangladesh", Some("country"))
+            .await
+            .expect("S3 live")
+            .expect("country polygon must exist for Bangladesh");
+        assert_eq!(
+            m.subtype, "country",
+            "expected country subtype, got {:?}",
+            m
+        );
+        assert_eq!(m.country, "BD");
+        // Polygon bbox must cover the whole country (~20.5..26.7 lat,
+        // 88..93 lng) — much wider than any internal district.
+        assert!(
+            m.bbox.0 < 21.5 && m.bbox.1 > 26.0,
+            "country bbox lat range too tight: {:?}",
+            m.bbox
+        );
+        assert!(
+            m.bbox.2 < 89.0 && m.bbox.3 > 92.0,
+            "country bbox lng range too tight: {:?}",
+            m.bbox
+        );
+        // Localized names should include at least the canonical
+        // English form plus the Bengali script.
+        assert!(
+            !m.names_common.is_empty(),
+            "Overture row must carry common-names for Bangladesh"
+        );
+    }
+
     #[tokio::test]
     #[ignore]
     async fn overture_divisions_live_resolves_manhattan_polygon() {

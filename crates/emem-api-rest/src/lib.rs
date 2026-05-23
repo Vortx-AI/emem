@@ -30584,6 +30584,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     c.centroid_lat,
                     c.centroid_lng,
                     &c.name,
+                    Some("country"),
                     &mut polygon_geojson,
                     &mut polygon_bbox,
                     &mut polygon_source,
@@ -30605,6 +30606,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     a.centroid_lat,
                     a.centroid_lng,
                     &a.name,
+                    Some("region"),
                     &mut polygon_geojson,
                     &mut polygon_bbox,
                     &mut polygon_source,
@@ -30626,6 +30628,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     a.centroid_lat,
                     a.centroid_lng,
                     &a.name,
+                    Some("county"),
                     &mut polygon_geojson,
                     &mut polygon_bbox,
                     &mut polygon_source,
@@ -30647,6 +30650,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     a.centroid_lat,
                     a.centroid_lng,
                     &a.name,
+                    Some("locality"),
                     &mut polygon_geojson,
                     &mut polygon_bbox,
                     &mut polygon_source,
@@ -31920,6 +31924,7 @@ async fn apply_overture_division_upgrade(
     lat: f64,
     lng: f64,
     name_hint: &str,
+    preferred_subtype: Option<&str>,
     polygon_geojson: &mut Option<JsonValue>,
     polygon_bbox: &mut Option<(f64, f64, f64, f64)>,
     polygon_source: &mut Option<&'static str>,
@@ -31929,7 +31934,7 @@ async fn apply_overture_division_upgrade(
     localized_names: &mut std::collections::BTreeMap<String, String>,
 ) {
     let div = match emem_fetch::overture::OvertureClient::shared()
-        .division_polygon_near(lat, lng, name_hint)
+        .division_polygon_with_subtype(lat, lng, name_hint, preferred_subtype)
         .await
     {
         Ok(Some(d)) => d,
