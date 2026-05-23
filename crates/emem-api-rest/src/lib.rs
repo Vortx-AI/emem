@@ -21933,7 +21933,7 @@ async fn materialize_chirps_monthly_precip(
     // Snap to first-of-month instant in days.
     let first_of_month_days = days_from_civil(year, month, 1);
     let tslot = emem_core::tslot::Tslot::from_unix(
-        (first_of_month_days as i64) * 86_400,
+        first_of_month_days * 86_400,
         emem_core::tslot::Tempo::Medium,
     )
     .0;

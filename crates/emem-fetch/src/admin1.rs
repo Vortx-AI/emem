@@ -17,7 +17,7 @@
 //!
 //! `CC.code \t name \t asciiname \t geonameid`
 //!
-//! Example: `IN.WB	West Bengal	West Bengal	1252881`.
+//! Example: `IN.WB <TAB> West Bengal <TAB> West Bengal <TAB> 1252881`.
 //!
 //! ## Bounding box derivation
 //!
