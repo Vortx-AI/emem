@@ -40,6 +40,14 @@ use crate::cog::{self, CogError};
 /// scheme since the file naming + temporal coverage will differ.
 const CHIRPS_BASE_URL: &str = "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_daily/cogs/p05";
 
+/// Monthly CHIRPS COG mirror. Same nginx host, different product. Each
+/// COG aggregates one calendar month's worth of daily rasters into a
+/// single per-pixel sum (mm/month) at 0.05° native. Verified live
+/// 2026-05-23 via `chirps-v2.0.{year}.{month:02}.cog` HEAD →
+/// `200 application/octet-stream, Content-Length ≈ 25 MB`.
+const CHIRPS_MONTHLY_BASE_URL: &str =
+    "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_monthly/cogs";
+
 /// Latitude bound — CHIRPS is clipped to ±50°. Pulled out as constants so
 /// callers can reuse the bound for their own coverage tables.
 pub const CHIRPS_NORTH_LAT: f64 = 50.0;
@@ -162,6 +170,14 @@ pub fn url_for(year: i32, month: u32, day: u32) -> String {
     format!("{CHIRPS_BASE_URL}/{year}/chirps-v2.0.{year}.{month:02}.{day:02}.cog")
 }
 
+/// Compute the canonical CHIRPS monthly-COG URL for `(year, month)`.
+/// Pure helper, same deterministic re-derivation property as
+/// [`url_for`]. Monthly cogs live flat under `global_monthly/cogs/`
+/// (no per-year subdirectory) and are named `chirps-v2.0.YYYY.MM.cog`.
+pub fn url_for_monthly(year: i32, month: u32) -> String {
+    format!("{CHIRPS_MONTHLY_BASE_URL}/chirps-v2.0.{year}.{month:02}.cog")
+}
+
 /// Validate calendar (year, month, day). Returns `Some(date)` for a
 /// real Gregorian date in CHIRPS' record window, `None` otherwise.
 /// Overflow-safe: handles leap years via Hinnant civil-day arithmetic
@@ -276,6 +292,81 @@ pub async fn fetch_chirps_daily(
         year,
         month,
         day,
+        upstream_url: url,
+    })
+}
+
+/// One CHIRPS monthly sample plus the metadata an attestation needs to
+/// cite it. The same precipitation product as the daily series, but
+/// each pixel is the calendar-month sum in mm (not a daily rate).
+#[derive(Debug, Clone)]
+pub struct ChirpsMonthlySample {
+    /// Calendar-month precipitation in millimetres. Always `>= 0.0`
+    /// for a valid fetch; NoData pixels surface as
+    /// [`ChirpsError::NoData`] not as a zero.
+    pub mm_per_month: f64,
+    /// Calendar year the COG covers.
+    pub year: i32,
+    /// Calendar month (1..=12).
+    pub month: u32,
+    /// Fully-resolved upstream URL the responder hit. Surfaced on
+    /// the signed Fact so a verifier can re-issue the same Range
+    /// request.
+    pub upstream_url: String,
+}
+
+/// Read one pixel from the CHIRPS monthly COG at `(lat, lng)` for the
+/// given calendar month. Returns mm/month plus the upstream URL hit.
+/// Coverage rules and error semantics mirror [`fetch_chirps_daily`]
+/// modulo the daily-vs-monthly date validation (no `day` field).
+pub async fn fetch_chirps_monthly(
+    lat: f64,
+    lng: f64,
+    year: i32,
+    month: u32,
+    timeout: Duration,
+) -> Result<ChirpsMonthlySample, ChirpsError> {
+    if !lat.is_finite() || !lng.is_finite() {
+        return Err(ChirpsError::OutOfBounds { lat, lng });
+    }
+    if !(CHIRPS_SOUTH_LAT..=CHIRPS_NORTH_LAT).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+        return Err(ChirpsError::OutOfBounds { lat, lng });
+    }
+    if year < CHIRPS_RECORD_START_YEAR {
+        return Err(ChirpsError::BeforeRecord { year, month, day: 1 });
+    }
+    if !(1..=12).contains(&month) {
+        return Err(ChirpsError::BeforeRecord { year, month, day: 1 });
+    }
+    let url = url_for_monthly(year, month);
+    let cli = Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| ChirpsError::Transport(format!("client build: {e}")))?;
+    let profile = cog::open_profile(&cli, &url)
+        .await
+        .map_err(|e| ChirpsError::from_cog(e, &url))?;
+    let raw = cog::sample_pixel(&cli, &url, &profile, lng, lat)
+        .await
+        .map_err(|e| ChirpsError::from_cog(e, &url))?;
+    if (raw as f32) == CHIRPS_NODATA {
+        return Err(ChirpsError::NoData {
+            lat,
+            lng,
+            year,
+            month,
+            day: 1,
+        });
+    }
+    if !raw.is_finite() || raw < 0.0 {
+        return Err(ChirpsError::Decode(format!(
+            "implausible CHIRPS monthly value {raw} at ({lat:.6},{lng:.6}) {year}-{month:02} (expected mm/month >= 0 or -9999 sentinel)"
+        )));
+    }
+    Ok(ChirpsMonthlySample {
+        mm_per_month: raw,
+        year,
+        month,
         upstream_url: url,
     })
 }

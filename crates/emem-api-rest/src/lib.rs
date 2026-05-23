@@ -1309,7 +1309,13 @@ async fn agent_access_log_layer(
             .filter(|s| !s.is_empty());
         if let Some(cid) = header_cid {
             (resp, cid)
-        } else if (200..300).contains(&status) && body_is_small_json(&resp) {
+        } else if (200..300).contains(&status) && body_known_to_fit_json(&resp, 64 * 1024) {
+            // Body is JSON AND its exact size is known to fit under the cap.
+            // The size_hint gate is the load-bearing safety net: without it,
+            // any axum-Json response > 64 KB (e.g. /mcp tools/list,
+            // /openapi.json) would be consumed by to_bytes, error on the
+            // limit, and the original stream would be lost — leaving the
+            // wire response a 200 with content-length: 0.
             let (parts, body) = resp.into_parts();
             match axum::body::to_bytes(body, 64 * 1024).await {
                 Ok(bytes) => {
@@ -1350,11 +1356,26 @@ async fn agent_access_log_layer(
     resp
 }
 
-/// True when the response is a small enough JSON body that we can
-/// cheaply buffer it to extract the receipt CID for the access log.
-/// Streaming responses (SSE, large downloads) trip both gates and are
-/// passed through untouched.
-fn body_is_small_json(resp: &Response) -> bool {
+/// True when the response is JSON AND the exact body size is known to fit
+/// under `max_bytes`. Used to gate the buffer-and-sniff path in
+/// `agent_access_log_layer`: once a body is consumed by `to_bytes` we
+/// cannot put it back, so we MUST be sure it fits before consuming.
+///
+/// Why size_hint and not Content-Length: axum 0.7's `Json::into_response()`
+/// returns the response WITHOUT a Content-Length header (hyper computes
+/// and appends it downstream of middleware). A header-based check
+/// therefore mis-classifies every axum-Json response as "unknown size"
+/// and a `None => true` fallback would silently truncate any payload
+/// larger than 64 KB to an empty body. `Body::size_hint().upper()`
+/// reads through to the underlying `Full<Bytes>` and returns the exact
+/// length, so we only buffer when we're certain the body fits.
+///
+/// Unknown size (chunked / streaming) returns false here on purpose —
+/// the receipt CID still surfaces via the explicit
+/// `x-emem-receipt-cid` response header path, which handlers set
+/// directly.
+fn body_known_to_fit_json(resp: &Response, max_bytes: u64) -> bool {
+    use axum::body::HttpBody as _;
     let is_json = resp
         .headers()
         .get(CONTENT_TYPE)
@@ -1364,17 +1385,11 @@ fn body_is_small_json(resp: &Response) -> bool {
     if !is_json {
         return false;
     }
-    let content_length: Option<usize> = resp
-        .headers()
-        .get(axum::http::header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse().ok());
-    match content_length {
-        Some(n) => n > 0 && n <= 64 * 1024,
-        // Chunked / unknown length: cap the read at the 64 KB to_bytes
-        // limit; receipt-bearing payloads always fit.
-        None => true,
-    }
+    resp.body()
+        .size_hint()
+        .upper()
+        .map(|n| n > 0 && n <= max_bytes)
+        .unwrap_or(false)
 }
 
 /// Pull the canonical fact CID out of a JSON envelope. Order of
@@ -18182,13 +18197,39 @@ async fn materialize_ornl_modis_band(
     // 12·half_window lookback in "current" mode. The wider lookback covers
     // the publication-latency tail of slow MODIS products (MOD16A2 ET and
     // MOD17A2H GPP routinely lag 30+ days; MOD15A2H LAI similar).
+    // ORNL DAAC enforces a hard "maximum subset tiles support of 10"
+    // cap on every /subset call (verified live 2026-05-23 — a 96-day
+    // 8-day window returns
+    // `HTTP 400: "Subset time period A2026047 to A2026143 exceeds
+    // maximum subset tiles support of 10."`). The lookback window
+    // must fit inside that cap: 10 tiles × tile cadence days. The
+    // tile cadence equals 2 × half_window_days for 8-day composites
+    // (half_window=8 → 8-day tile) and equals the half_window itself
+    // for monthly (half_window=32 → ~32-day tile). The native
+    // cadence per product is captured in `tile_days` below, kept in
+    // sync with the dispatcher's `band_tempo` arm above.
+    let tile_days: i64 = match band {
+        "modis.lst_day_8day"
+        | "modis.lst_night_8day"
+        | "modis.et_8day"
+        | "modis.gpp_8day"
+        | "modis.lai_8day" => 8,
+        "modis.burned_area_monthly" => 31,
+        _ => half_window_days,
+    };
+    // Leave one tile of headroom so leap-day / publication-window
+    // slippage doesn't push the request over the 10-tile limit on the
+    // edge. Verified empirically: 9 × tile_days lookback is the
+    // safest setting that still lands the latest valid composite for
+    // both 8-day and monthly products.
+    let max_lookback_secs: i64 = 9 * tile_days * 86_400;
     let (start_unix, end_unix) = match target_unix {
         Some(t) => {
             let lo = (t - half_window_days * 86_400).max(0);
             let hi = (t + half_window_days * 86_400).min(now);
             (lo, hi.max(lo + 86_400))
         }
-        None => (now - 12 * half_window_days * 86_400, now),
+        None => (now - max_lookback_secs, now),
     };
     let start_str = unix_to_modis_date(start_unix);
     let end_str = unix_to_modis_date(end_unix);
@@ -21868,6 +21909,142 @@ async fn materialize_chirps_daily_precip(
     }
 }
 
+/// Materialize one monthly CHIRPS pixel at the cell centroid. Same
+/// connector + Absence semantics as [`materialize_chirps_daily_precip`]
+/// — the only difference is the upstream COG (monthly aggregate
+/// instead of one calendar day) and the tslot quantization (one slot
+/// per calendar month, snapped to its first-day-UTC instant).
+async fn materialize_chirps_monthly_precip(
+    cell64: &str,
+    s: &AppState,
+    target_unix: i64,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::chirps;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    // Decompose the target instant to (year, month). Snap tslot to the
+    // first-day-UTC of that month so consecutive recalls in the same
+    // calendar month collapse to one fact. We tslot at Tempo::Medium
+    // (one month bucket) — Tempo::Fast would split into days which is
+    // wrong for the monthly product.
+    let target_days = target_unix.div_euclid(86_400);
+    let (year, month, _day) = civil_from_days(target_days);
+    // Snap to first-of-month instant in days.
+    let first_of_month_days = days_from_civil(year, month, 1);
+    let tslot = emem_core::tslot::Tslot::from_unix(
+        (first_of_month_days as i64) * 86_400,
+        emem_core::tslot::Tempo::Medium,
+    )
+    .0;
+    let signed_at = chrono_iso8601_utc();
+    // Monthly COGs are ~25 MB; one IFD + one tile range read fits in
+    // 30 s comfortably.
+    let timeout = std::time::Duration::from_secs(30);
+    match chirps::fetch_chirps_monthly(lat, lng, year, month, timeout).await {
+        Ok(sample) => {
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: "chirps.precip_monthly".into(),
+                tslot,
+                value: ciborium::Value::Float(sample.mm_per_month),
+                unit: Some("mm/month".into()),
+                // Same band-level confidence as the daily product —
+                // CHIRPS uses the same retrieval; the monthly is a
+                // pixel-wise sum, no new uncertainty source.
+                confidence: 0.85,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "chirps.monthly.v2".into(),
+                    id: sample.upstream_url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(sample.upstream_url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "chirps.precip_monthly@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((year as i64).into()),
+                        ciborium::Value::Integer((month as i64).into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Err(chirps::ChirpsError::OutOfBounds { .. }) => {
+            let url = chirps::url_for_monthly(year, month);
+            let reason = format!(
+                "out_of_bounds: cell ({lat:.6},{lng:.6}) is outside CHIRPS' \
+                 ±50° latitude / ±180° longitude clip. For polar regions \
+                 use ERA5 (era5.precip_total_mm) instead."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                "chirps.precip_monthly",
+                tslot,
+                "chirps.monthly.v2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(chirps::ChirpsError::BeforeRecord { year: y, month: m, .. }) => {
+            let url = chirps::url_for_monthly(y, m);
+            let reason = format!(
+                "before_record: {y:04}-{m:02} predates CHIRPS v2.0 \
+                 monthly start of record (1981-01). For pre-1981 \
+                 precipitation use the ERA5 archive."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                "chirps.precip_monthly",
+                tslot,
+                "chirps.monthly.v2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(chirps::ChirpsError::NoData {
+            lat, lng, year: y, month: m, ..
+        }) => {
+            let url = chirps::url_for_monthly(y, m);
+            let reason = format!(
+                "nodata: CHIRPS monthly pixel at ({lat:.6},{lng:.6}) on \
+                 {y:04}-{m:02} carried the -9999.0 sentinel (unmeasured \
+                 pixel, distinct from a real 0 mm/month reading)."
+            );
+            sign_band_absence(
+                cell64,
+                s,
+                "chirps.precip_monthly",
+                tslot,
+                "chirps.monthly.v2",
+                &url,
+                &signed_at,
+                &reason,
+            )
+            .await
+        }
+        Err(e @ chirps::ChirpsError::NotPublished { .. }) => {
+            Err(format!("chirps monthly fetch transient: {e}"))
+        }
+        Err(e) => Err(format!("chirps.precip_monthly fetch failed: {e}")),
+    }
+}
+
 /// Build the merkle-rooted Attestation around one fact, sign it under the
 /// responder's identity, persist it, and return the fact CID. Centralises
 /// the boilerplate that all materializers share.
@@ -24885,6 +25062,53 @@ async fn try_materialize_bands(
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
                 match materialize_chirps_daily_precip(cell64, s, now_unix).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary_or_absence",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // CHIRPS 2.0 monthly-sum precipitation product. Same connector
+            // family as the daily band, different upstream COG. Used as
+            // the drought-hunter primary band (see RankingSpec for
+            // HunterKind::Drought) — without this arm the drought sweep
+            // returns 0 hotspots because every cell falls into the
+            // catch-all "no_auto_materializer_registered" branch.
+            "chirps.precip_monthly" => {
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                // Monthly publication latency: the current calendar month's
+                // COG hasn't been written until ~30 days into the *next*
+                // month. To avoid materializing a 404 (which we map to
+                // NotPublished → transient error), shift the target one
+                // month back so the last fully-published month is hit.
+                let target_unix = now_unix - 35 * 86_400;
+                match materialize_chirps_monthly_precip(cell64, s, target_unix).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
@@ -30220,10 +30444,66 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             // First check our wide-bbox table — if the name is a known wide
             // feature, the bbox here is *better* than any centroid because
             // it tells the agent to fan out instead of trusting one point.
-            if let Some(bbox) = wide_bbox_lookup(p) {
+            // The bbox is captured here regardless of which resolver
+            // ultimately wins; for queries that ONLY match wide_bbox
+            // (no country/admin/city/POI by the same name), the
+            // dedicated wide_bbox arm of the resolver chain below
+            // returns the bbox centre so the caller gets a usable
+            // (lat, lng, label) tuple. Without that arm, a query like
+            // "Sahara" would get hijacked by an Indian admin3 also
+            // named Sahara, and "Amazon" would fall all the way to
+            // Photon — both regressions caught in the 2026-05-23
+            // probe sweep.
+            let wide_bbox_hit = wide_bbox_lookup(p);
+            if let Some(bbox) = wide_bbox_hit {
                 polygon_bbox = Some(bbox);
                 polygon_source = Some("wide_bbox_table");
             }
+            // Country-name tier — fires before geonames so a bare country
+            // query ("Bangladesh", "Türkiye", "USA") never gets poached by
+            // a city carrying that string as an alternate name. The
+            // canonical regression: GeoNames' Malatia-Sebastia district in
+            // Yerevan lists "Bangladesh" as a colloquial alternate, with
+            // a 150 k population that outranks every Bangladeshi city's
+            // alternate-name hit. Resolving via the country layer first
+            // returns the Bangladesh country bbox (aggregated from
+            // cities1000) and skips that entire failure mode.
+            // wide_bbox owns priority over every other resolver when it
+            // matches — that's the contract of the table (a curated
+            // override for queries that have alternate-name collisions
+            // in the admin or city corpus, like "Sahara" matching an
+            // Indian admin3 row or "Amazon" failing every structured
+            // tier and falling through to Photon). The `wide_bbox_hit
+            // .is_none()` guard on each tier below makes wide_bbox win
+            // without re-shuffling the arm order.
+            let country_hit = emem_fetch::countries::lookup(p)
+                .filter(|_| wide_bbox_hit.is_none());
+            // Admin1 tier — wins over a primary-name city match because
+            // the agent typing "California" or "West Bengal" or "Dhaka
+            // Division" almost always means the larger administrative
+            // entity. Country wins over admin1 when both hit ("Georgia"
+            // the country vs. "Georgia" the US state — bare query at the
+            // protocol level resolves to the country).
+            let admin1_hit = emem_fetch::admin1::lookup(p).filter(|a| {
+                a.source_city_count > 0 && country_hit.is_none() && wide_bbox_hit.is_none()
+            });
+            // Admin2 / admin3 tiers — sub-national administrative units
+            // (districts, counties, upazilas). Each only fires when its
+            // own bbox is well-defined (source_city_count > 0) AND no
+            // higher tier already claimed the query.
+            let admin2_hit = emem_fetch::admin2::lookup(p).filter(|a| {
+                a.source_city_count > 0
+                    && country_hit.is_none()
+                    && admin1_hit.is_none()
+                    && wide_bbox_hit.is_none()
+            });
+            let admin3_hit = emem_fetch::admin3::lookup(p).filter(|a| {
+                a.source_city_count > 0
+                    && country_hit.is_none()
+                    && admin1_hit.is_none()
+                    && admin2_hit.is_none()
+                    && wide_bbox_hit.is_none()
+            });
             // Layer 1: embedded gazetteer (no network).
             // Multi-result lookup first — if the same name maps to several
             // populated places (Springfield, Cambridge, San José), we want
@@ -30234,7 +30514,102 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             // exists, and a downstream signed recall is silently anchored
             // to the wrong city.
             let geo_cands = emem_fetch::geonames::lookup_candidates(p, 5);
-            if let Some((la, lo, lab)) = embedded_gazetteer_lookup(p) {
+            if let Some(bbox) = wide_bbox_hit {
+                via = "wide_bbox_table";
+                // Centroid of the captured bbox. For curated wide
+                // regions (Sahara, Amazon, Antarctica) the centroid
+                // is meaningful as an anchor — `polygon_sample_cells`
+                // downstream fans out across the polygon for the
+                // actual recall.
+                let lat = (bbox.0 + bbox.1) * 0.5;
+                let lng = (bbox.2 + bbox.3) * 0.5;
+                let lab = format!("{p} (wide-feature)");
+                (lat, lng, Some(lab))
+            } else if let Some(c) = country_hit {
+                via = "country";
+                let lab = c.label();
+                let have_extent = c.min_lat != c.max_lat || c.min_lng != c.max_lng;
+                if have_extent && polygon_bbox.is_none() {
+                    polygon_bbox = Some(c.bbox());
+                    polygon_source = Some("country_table");
+                }
+                // Try Overture for a real polygon. Falls back to the
+                // cities-aggregated bbox if Overture has nothing for
+                // this country in its snapshot.
+                if polygon_geojson.is_none() {
+                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(c.centroid_lat, c.centroid_lng, &c.name)
+                        .await
+                    {
+                        polygon_geojson = Some(div.geometry.clone());
+                        if polygon_bbox.is_none() {
+                            polygon_bbox = Some(div.bbox);
+                            polygon_source = Some("overture_division_area");
+                        }
+                    }
+                }
+                (c.centroid_lat, c.centroid_lng, Some(lab))
+            } else if let Some(a) = admin1_hit {
+                via = "admin1";
+                let lab = a.label();
+                if polygon_bbox.is_none() {
+                    polygon_bbox = Some(a.bbox());
+                    polygon_source = Some("admin1_table");
+                }
+                if polygon_geojson.is_none() {
+                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(a.centroid_lat, a.centroid_lng, &a.name)
+                        .await
+                    {
+                        polygon_geojson = Some(div.geometry.clone());
+                        if polygon_bbox.is_none() {
+                            polygon_bbox = Some(div.bbox);
+                            polygon_source = Some("overture_division_area");
+                        }
+                    }
+                }
+                (a.centroid_lat, a.centroid_lng, Some(lab))
+            } else if let Some(a) = admin2_hit {
+                via = "admin2";
+                let lab = a.label();
+                if polygon_bbox.is_none() {
+                    polygon_bbox = Some(a.bbox());
+                    polygon_source = Some("admin2_table");
+                }
+                if polygon_geojson.is_none() {
+                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(a.centroid_lat, a.centroid_lng, &a.name)
+                        .await
+                    {
+                        polygon_geojson = Some(div.geometry.clone());
+                        if polygon_bbox.is_none() {
+                            polygon_bbox = Some(div.bbox);
+                            polygon_source = Some("overture_division_area");
+                        }
+                    }
+                }
+                (a.centroid_lat, a.centroid_lng, Some(lab))
+            } else if let Some(a) = admin3_hit {
+                via = "admin3";
+                let lab = a.label();
+                if polygon_bbox.is_none() {
+                    polygon_bbox = Some(a.bbox());
+                    polygon_source = Some("admin3_table");
+                }
+                if polygon_geojson.is_none() {
+                    if let Ok(Some(div)) = emem_fetch::overture::OvertureClient::shared()
+                        .division_polygon_near(a.centroid_lat, a.centroid_lng, &a.name)
+                        .await
+                    {
+                        polygon_geojson = Some(div.geometry.clone());
+                        if polygon_bbox.is_none() {
+                            polygon_bbox = Some(div.bbox);
+                            polygon_source = Some("overture_division_area");
+                        }
+                    }
+                }
+                (a.centroid_lat, a.centroid_lng, Some(lab))
+            } else if let Some((la, lo, lab)) = embedded_gazetteer_lookup(p) {
                 via = "embedded";
                 // Surface every populated-place hit at this name. Rank by
                 // population (highest first — matches how `lookup` chose
@@ -30388,6 +30763,20 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     }
                 }
                 (g.lat, g.lng, Some(lab))
+            } else if let Some(poi) = emem_fetch::pois::lookup_primary(p) {
+                // POI tier — well-known landmarks (mountains, lakes,
+                // parks, airports, monuments) that aren't populated
+                // places. Uses `lookup_primary` (not `lookup`) so a POI's
+                // alternate name doesn't poach a query better answered
+                // by the network cascade: famous landmarks pass through
+                // their primary names ("Mount Everest", "Lake Victoria",
+                // "Yellowstone National Park") and any alt-name-only
+                // hit falls through to Photon / Nominatim. Sits after
+                // cities so a query for a city name first resolves to
+                // the city (e.g. "Bangalore" → city, not some POI).
+                via = "pois";
+                let lab = poi.label();
+                (poi.lat, poi.lng, Some(lab))
             } else if let Some((la, lo, lab, bb_cached)) = nominatim_cache_get(p) {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
                 // from cache if we stored one, so recall_polygon at a
@@ -31227,6 +31616,11 @@ fn locate_confidence(
     }
     match via {
         "embedded" | "wide_bbox_table" => (true, "embedded_gazetteer_hit"),
+        "country" => (true, "iso3166_country_match"),
+        "admin1" => (true, "admin1_region_match"),
+        "admin2" => (true, "admin2_region_match"),
+        "admin3" => (true, "admin3_region_match"),
+        "pois" => (true, "well_known_poi_match"),
         "direct" => (true, "direct_lat_lng"),
         "cache" => (true, "ttl_cache_hit"),
         "overture_admin_fallback" => (true, "overture_division_match"),
