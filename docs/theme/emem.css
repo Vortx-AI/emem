@@ -68,6 +68,24 @@ body, .content {
   -webkit-font-smoothing: antialiased;
 }
 
+/* mdbook's chrome.css styles <mark> with `background-color:
+ * var(--search-mark-bg)` (the search-hit highlight on /docs/?search=)
+ * but DOESN'T override `color`, so it inherits the user-agent default
+ * `mark { color: black }`. Under our dark theme that pairs black text
+ * on a dark-green highlight — unreadable. Force the mark's text color
+ * to follow the surrounding theme so the contrast tracks the palette
+ * in either light or dark mode. Spec-wise this is a fix to a mdbook
+ * default that predates dark-mode support; keeping the override in
+ * our theme so future mdbook upgrades don't reintroduce the
+ * regression. */
+mark, .content mark {
+  color: var(--ink);
+}
+::selection {
+  background: var(--accent-bg);
+  color: var(--ink);
+}
+
 .content h1, .content h2, .content h3, .content h4 {
   font-family: var(--mono);
   font-weight: 700;
