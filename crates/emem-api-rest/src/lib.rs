@@ -25108,41 +25108,63 @@ async fn try_materialize_bands(
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                // Monthly publication latency: the current calendar month's
-                // COG hasn't been written until ~30 days into the *next*
-                // month. To avoid materializing a 404 (which we map to
-                // NotPublished → transient error), shift the target one
-                // month back so the last fully-published month is hit.
-                let target_unix = now_unix - 35 * 86_400;
-                match materialize_chirps_monthly_precip(cell64, s, target_unix).await {
-                    Ok(cid) => {
-                        tracing::info!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_fact_cid = %cid.as_str(),
-                            materialize_kind = "primary_or_absence",
-                            "materialize_ok"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: Some(cid.as_str().to_string()),
-                            skip_reason: None,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            target: "emem::materialize",
-                            materialize_cell = %cell64, materialize_band = %b,
-                            materialize_error = %e,
-                            "materialize_failed"
-                        );
-                        out.push(MaterializeOutcome {
-                            band: b.clone(),
-                            fact_cid: None,
-                            skip_reason: Some(e),
-                        });
+                // Publication-latency ladder. CHIRPS final-quality monthly
+                // COGs land 30-60 days after the calendar month closes;
+                // observed 2026-05-23 with the April-2026 COG still
+                // returning 404. Walk back month-by-month until one
+                // materializes successfully, capped at 6 months so a
+                // wedged upstream doesn't burn the request budget. Only
+                // NotPublished errors trigger the walk-back — any other
+                // failure stops immediately, because looking at an older
+                // month won't fix it.
+                let mut chosen: Option<MaterializeOutcome> = None;
+                for months_back in 1..=6 {
+                    let target_unix = now_unix - (months_back as i64) * 31 * 86_400;
+                    match materialize_chirps_monthly_precip(cell64, s, target_unix).await {
+                        Ok(cid) => {
+                            tracing::info!(
+                                target: "emem::materialize",
+                                materialize_cell = %cell64, materialize_band = %b,
+                                materialize_fact_cid = %cid.as_str(),
+                                materialize_kind = "primary_or_absence",
+                                materialize_months_back = months_back,
+                                "materialize_ok"
+                            );
+                            chosen = Some(MaterializeOutcome {
+                                band: b.clone(),
+                                fact_cid: Some(cid.as_str().to_string()),
+                                skip_reason: None,
+                            });
+                            break;
+                        }
+                        Err(e) => {
+                            if e.contains("not_published") || e.contains("NotPublished") {
+                                continue;
+                            }
+                            tracing::warn!(
+                                target: "emem::materialize",
+                                materialize_cell = %cell64, materialize_band = %b,
+                                materialize_error = %e,
+                                materialize_months_back = months_back,
+                                "materialize_failed"
+                            );
+                            chosen = Some(MaterializeOutcome {
+                                band: b.clone(),
+                                fact_cid: None,
+                                skip_reason: Some(e),
+                            });
+                            break;
+                        }
                     }
                 }
+                out.push(chosen.unwrap_or_else(|| MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: Some(
+                        "chirps.precip_monthly: no published monthly COG in last 6 months (upstream lag exceeded budget)"
+                            .into(),
+                    ),
+                }));
             }
             // SoilGrids 2.0 (ISRIC) static topsoil 0–30 cm scalars.
             // Six properties (soc, phh2o, clay, sand, bdod, nitrogen),
