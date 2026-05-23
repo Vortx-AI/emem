@@ -17,3 +17,6 @@ ciborium        = { workspace = true }
 tokio           = { workspace = true }
 thiserror       = { workspace = true }
 # rmcp = { workspace = true }   # enable once primitives land
+
+[dev-dependencies]
+regex = "1"

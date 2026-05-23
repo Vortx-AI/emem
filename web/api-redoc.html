@@ -4,13 +4,12 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>emem.dev — REST API reference (interactive)</title>
-<meta name=description content="Browseable, in-page reference for the emem.dev REST surface. Powered by ReDoc against the live /openapi.json.">
+<meta name=description content="Interactive console for /v1/locate, /v1/recall, /v1/hunt — execute against the live emem.dev surface, see the ed25519 receipt verified in your browser, then read the full ReDoc reference below.">
 <link rel=canonical href="https://emem.dev/docs/api/">
 <meta name=robots content="index,follow">
 
-<!-- OG / Twitter -->
 <meta property=og:title content="emem.dev — REST API reference">
-<meta property=og:description content="Browseable, in-page reference for the emem.dev REST surface.">
+<meta property=og:description content="Interactive console + full reference. Verify every receipt in your browser.">
 <meta property=og:url content="https://emem.dev/docs/api/">
 <meta property=og:type content=website>
 <meta property=og:image content="https://emem.dev/og-image.svg">
@@ -21,35 +20,37 @@
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
 
 <style>
-  /* Match the rest of web/ — oklch palette, JetBrains Mono. ReDoc inherits
-   * via the theme.colors / theme.typography options below. */
   :root {
     --paper:   oklch(0.975 0.005 85);
     --paper-2: oklch(0.955 0.005 85);
+    --paper-3: oklch(0.93 0.006 85);
     --ink:     oklch(0.20 0.005 85);
     --ink-2:   oklch(0.32 0.005 85);
     --mute:    oklch(0.50 0.005 85);
     --rule:    oklch(0.86 0.008 85);
     --accent:  oklch(0.45 0.09 145);
+    --warn:    oklch(0.55 0.16 25);
+    --info:    oklch(0.55 0.12 230);
     --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --paper:   oklch(0.16 0.005 85);
       --paper-2: oklch(0.19 0.005 85);
+      --paper-3: oklch(0.23 0.006 85);
       --ink:     oklch(0.93 0.005 85);
       --ink-2:   oklch(0.80 0.005 85);
       --mute:    oklch(0.60 0.005 85);
       --rule:    oklch(0.28 0.008 85);
       --accent:  oklch(0.78 0.13 145);
+      --warn:    oklch(0.74 0.15 25);
+      --info:    oklch(0.78 0.10 230);
     }
   }
 
   html, body { margin: 0; background: var(--paper); color: var(--ink); }
   body { font-family: var(--mono); }
 
-  /* Thin top bar so a visitor lands here from any other emem.dev surface
-   * with the same chrome instead of dropping into bare ReDoc. */
   .topbar {
     border-bottom: 1px solid var(--rule);
     background: var(--paper-2);
@@ -57,40 +58,160 @@
     backdrop-filter: blur(6px);
   }
   .topbar-inner {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 0 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    height: 40px;
-    font-size: 11px;
+    max-width: 1400px; margin: 0 auto; padding: 0 1.5rem;
+    display: flex; align-items: center; gap: 1rem;
+    height: 40px; font-size: 11px;
   }
   .topbar .brand {
-    font-weight: 700;
-    font-size: 12px;
-    color: var(--ink);
-    padding-right: 1rem;
-    border-right: 1px solid var(--rule);
-    display: flex;
-    align-items: center;
-    gap: .45rem;
+    font-weight: 700; font-size: 12px; color: var(--ink);
+    padding-right: 1rem; border-right: 1px solid var(--rule);
+    display: flex; align-items: center; gap: .45rem;
   }
-  .topbar .brand img {
-    width: 20px; height: 20px;
-    object-fit: contain; display: block;
-  }
+  .topbar .brand img { width: 20px; height: 20px; object-fit: contain; display: block; }
   .topbar a {
-    color: var(--ink-2);
-    text-decoration: none;
-    padding: 0 .5rem;
-    height: 100%;
-    display: flex;
-    align-items: center;
+    color: var(--ink-2); text-decoration: none;
+    padding: 0 .5rem; height: 100%;
+    display: flex; align-items: center;
     border-right: 1px solid var(--rule);
   }
   .topbar a:hover { color: var(--ink); background: rgba(0,0,0,.04); }
   .topbar .spacer { flex: 1; }
+
+  /* ── Playground ─────────────────────────────────────────────────────── */
+  .playground {
+    max-width: 1400px; margin: 0 auto; padding: 1.5rem 1.5rem 0.5rem;
+  }
+  .pg-head {
+    display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+  }
+  .pg-head h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+  .pg-head .sub { font-size: 12px; color: var(--mute); }
+  .pg-head a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--rule); }
+  .pg-head a:hover { border-bottom-color: var(--accent); }
+
+  .pg-tabs {
+    display: flex; gap: 0; flex-wrap: wrap;
+    border-bottom: 1px solid var(--rule); margin-bottom: 1rem;
+  }
+  .pg-tabs button {
+    font: inherit; font-family: var(--mono);
+    background: transparent; border: none; cursor: pointer;
+    padding: .55em 1em; font-size: 12px; color: var(--ink-2);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .pg-tabs button:hover { color: var(--ink); }
+  .pg-tabs button.active {
+    color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+  }
+  .pg-tabs .method-chip {
+    display: inline-block; font-size: 9.5px;
+    padding: 1px 5px; border-radius: 2px;
+    background: var(--accent); color: var(--paper);
+    margin-right: .4em; font-weight: 700; vertical-align: 1px;
+  }
+
+  .pg-body {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (max-width: 900px) { .pg-body { grid-template-columns: 1fr; } }
+  .pg-panel {
+    border: 1px solid var(--rule); background: var(--paper-2);
+    border-radius: 4px; padding: 0.9rem 1rem; overflow: hidden;
+  }
+  .pg-panel h2 {
+    margin: 0 0 .55em; font-size: 11px; font-weight: 600;
+    color: var(--mute); text-transform: uppercase; letter-spacing: .05em;
+    display: flex; align-items: center; gap: .5em;
+  }
+  .pg-panel h2 .url {
+    color: var(--ink-2); font-weight: 400; text-transform: none;
+    letter-spacing: 0; font-size: 12px;
+  }
+  .pg-panel textarea {
+    width: 100%; min-height: 180px; resize: vertical;
+    font: inherit; font-family: var(--mono); font-size: 12px;
+    background: var(--paper); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 3px;
+    padding: .55em .7em; outline: none;
+    font-variant-ligatures: none; line-height: 1.55;
+  }
+  .pg-panel textarea:focus { border-color: var(--accent); }
+
+  .pg-actions { display: flex; gap: .5em; margin-top: .7em; flex-wrap: wrap; }
+  .pg-actions button {
+    font: inherit; font-family: var(--mono); font-size: 11.5px;
+    background: transparent; color: var(--ink); cursor: pointer;
+    border: 1px solid var(--rule); border-radius: 3px;
+    padding: .45em .9em; letter-spacing: .02em;
+  }
+  .pg-actions button:hover { border-color: var(--accent); color: var(--accent); }
+  .pg-actions button.primary {
+    border-color: var(--accent); color: var(--accent);
+    background: color-mix(in oklch, var(--accent) 8%, transparent);
+  }
+  .pg-actions button.primary:hover { background: color-mix(in oklch, var(--accent) 18%, transparent); }
+  .pg-actions button[disabled] { opacity: .4; cursor: not-allowed; }
+
+  pre.pg-out {
+    margin: 0; font-family: var(--mono); font-size: 11.5px;
+    background: var(--paper); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 3px;
+    padding: .7em .9em; max-height: 480px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word; line-height: 1.55;
+  }
+  .pg-meta {
+    display: flex; flex-wrap: wrap; gap: .9em;
+    font-size: 11px; color: var(--mute); margin-top: .5em;
+  }
+  .pg-meta b { color: var(--ink-2); font-weight: 600; }
+  .pg-chip {
+    display: inline-flex; align-items: center; gap: .35em;
+    padding: 2px 7px; border-radius: 99px;
+    font-size: 10.5px; border: 1px solid var(--rule);
+    font-weight: 600; letter-spacing: .02em;
+  }
+  .pg-chip.ok   { color: var(--accent); border-color: var(--accent); background: color-mix(in oklch, var(--accent) 8%, transparent); }
+  .pg-chip.fail { color: var(--warn);   border-color: var(--warn);   background: color-mix(in oklch, var(--warn)   8%, transparent); }
+  .pg-chip.info { color: var(--info);   border-color: var(--info);   background: color-mix(in oklch, var(--info)   8%, transparent); }
+  .pg-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .pg-receipt {
+    margin-top: .9em; padding-top: .8em; border-top: 1px dashed var(--rule);
+  }
+  .pg-receipt-grid {
+    display: grid; grid-template-columns: max-content 1fr; gap: .35em .9em;
+    font-size: 11px; line-height: 1.55; margin-top: .5em;
+  }
+  .pg-receipt-grid dt { color: var(--mute); }
+  .pg-receipt-grid dd {
+    margin: 0; color: var(--ink-2); word-break: break-all;
+    font-variant-ligatures: none;
+  }
+
+  .pg-svg {
+    width: 100%; height: 220px;
+    border: 1px solid var(--rule); border-radius: 3px;
+    background: var(--paper); margin-top: .8em;
+    display: block;
+  }
+  .pg-svg path { fill: color-mix(in oklch, var(--accent) 18%, transparent); stroke: var(--accent); stroke-width: 1.2; }
+  .pg-svg .bbox { fill: none; stroke: var(--rule); stroke-dasharray: 3 3; stroke-width: 1; }
+
+  .pg-note {
+    font-size: 11px; color: var(--mute); margin-top: .5em; line-height: 1.55;
+  }
+
+  /* Separator between playground and reference */
+  .pg-divider {
+    max-width: 1400px; margin: 0.5rem auto 0;
+    padding: 0 1.5rem; color: var(--mute); font-size: 11px;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem; margin-top: 0.6rem;
+    display: flex; align-items: center; gap: .9em;
+  }
+  .pg-divider .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
   redoc { display: block; }
 </style>
@@ -98,24 +219,76 @@
 <body>
 
 <header class=topbar>
-  <span class=brand><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem · API</span>
-  <a href="/">home</a>
-  <a href="/docs/">docs</a>
-  <a href="/docs/quickstart.html">quickstart</a>
-  <a href="/openapi.json">openapi.json (raw)</a>
-  <a href="/mcp">/mcp</a>
-  <span class=spacer></span>
-  <a href="/humans">/humans</a>
-  <a href="/verify">/verify</a>
-  <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  <div class=topbar-inner>
+    <span class=brand><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem · API</span>
+    <a href="/">home</a>
+    <a href="/docs/">docs</a>
+    <a href="/docs/quickstart.html">quickstart</a>
+    <a href="/openapi.json">openapi.json (raw)</a>
+    <a href="/mcp">/mcp</a>
+    <span class=spacer></span>
+    <a href="/humans">/humans</a>
+    <a href="/verify">/verify</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  </div>
 </header>
 
 <!--
-  ReDoc renders the spec at /openapi.json into a sidebar-and-detail
-  reference page. Every endpoint is deep-linkable; "Try it" is intentionally
-  not enabled (reads are open and idempotent, so we point devs at the
-  curl examples on /docs/quickstart.html for runnable calls).
+  Interactive playground. Lives above the ReDoc reference so a first-
+  time visitor can run a real call before reading the full schema.
+  All requests go against this same emem.dev origin via POST. Read-only
+  endpoints — there are no destructive paths in the live API surface
+  unless the agent supplies an attestation, which the playground
+  doesn't construct.
+
+  The receipt-verifier reuses the same noble-ed25519 + noble-blake3
+  imports as /verify, so a visitor sees in-browser verification of the
+  exact signature the server returned, no server round-trip required.
 -->
+<section class=playground>
+  <div class=pg-head>
+    <h1>interactive console</h1>
+    <span class=sub>live calls against <code>https://emem.dev</code> · receipts verified in your browser via <a href="https://www.npmjs.com/package/@noble/curves" target=_blank rel=noopener>@noble/curves</a> · also available at <a href="/verify">/verify</a></span>
+  </div>
+
+  <div class=pg-tabs id=tabs></div>
+
+  <div class=pg-body>
+    <div class=pg-panel>
+      <h2>request <span class=url id=reqUrl></span></h2>
+      <textarea id=reqBody spellcheck=false></textarea>
+      <div class=pg-actions>
+        <button class=primary id=btnExec>Execute ▶</button>
+        <button id=btnReset>Reset to example</button>
+        <button id=btnCurl title="Copy a curl command that reproduces this call">Copy as curl</button>
+      </div>
+      <div class=pg-note id=reqNote></div>
+    </div>
+
+    <div class=pg-panel>
+      <h2>
+        response
+        <span id=respStatusChip class="pg-chip info" style="margin-left:auto"><span class=dot></span>idle</span>
+      </h2>
+      <pre class=pg-out id=respBody>// Pick an endpoint, click Execute. Response lands here.</pre>
+      <div class=pg-meta id=respMeta></div>
+      <svg id=respMap class=pg-svg style="display:none" viewBox="0 0 360 220" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class=pg-receipt id=receiptBlock style="display:none">
+        <h2>receipt
+          <span id=verifyChip class="pg-chip info" style="margin-left:auto"><span class=dot></span>pending</span>
+        </h2>
+        <dl class=pg-receipt-grid id=receiptGrid></dl>
+        <div class=pg-actions>
+          <button id=btnVerify>Re-verify ed25519 in browser</button>
+          <a id=lnkVerify href="/verify" target=_blank rel=noopener style="text-decoration:none;color:inherit"><button>Open on /verify ↗</button></a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class=pg-divider><span class=dot></span> Full reference for every endpoint follows. Powered by ReDoc against the live <code>/openapi.json</code>.</div>
+</section>
+
 <redoc spec-url="/openapi.json"
        theme='{"colors":{"primary":{"main":"oklch(0.45 0.09 145)"}},"typography":{"fontFamily":"JetBrains Mono, ui-monospace, SF Mono, Menlo, Consolas, monospace","headings":{"fontFamily":"JetBrains Mono, ui-monospace, monospace","fontWeight":"700"},"code":{"fontFamily":"JetBrains Mono, ui-monospace, monospace"}},"sidebar":{"backgroundColor":"transparent"}}'
        hide-loading
@@ -132,6 +305,367 @@
 <script src="https://cdn.redocly.com/redoc/v2.5.1/bundles/redoc.standalone.js"
         integrity="sha384-up2uPEo+8XzxuLXKGY4DOk79DbbRclvlcx22QZ60aPWQf8LW69XJ8BWzLFewC05H"
         crossorigin="anonymous"></script>
+
+<script type="module">
+//==============================================================================
+// emem.dev interactive playground — vanilla JS, no framework.
+//
+// Each EXAMPLE pre-fills the request body for one endpoint. Every body is
+// a real, tested call against the live API; "Reset to example" snaps the
+// editor back to that body. Execute POSTs to {origin}{path}, displays the
+// response, decodes the receipt block, and runs an in-browser ed25519
+// verification against the canonical preimage.
+//==============================================================================
+
+const ORIGIN = (location.origin === 'null' || location.origin.startsWith('file:'))
+  ? 'https://emem.dev'
+  : location.origin;
+
+const EXAMPLES = [
+  { key: 'locate',        method: 'POST', path: '/v1/locate',
+    label: 'locate',
+    note: 'Resolve a place name to a cell64 + bbox + polygon. Try a country, a region, a city, or a landmark — the cascade routes through countries → admin1/2/3 → cities → POIs → cache → Photon → Nominatim, and Overture divisions adds an authoritative polygon + multilingual names.',
+    body: { place: 'Bangladesh' } },
+  { key: 'locate-poi',    method: 'POST', path: '/v1/locate',
+    label: 'locate · POI',
+    note: 'Same endpoint, well-known landmark example. POIs (peaks, lakes, parks, airports, monuments) come from the curated GeoNames extract bundled inside the binary — no network for ~99 % of named places.',
+    body: { place: 'Mount Everest' } },
+  { key: 'locate-latlng', method: 'POST', path: '/v1/locate',
+    label: 'locate · lat/lng',
+    note: 'Pass coordinates directly to skip geocoding — useful when the agent already has a GPS fix or has just unpacked a cell64.',
+    body: { lat: 23.7104, lng: 90.4074 } },
+  { key: 'recall',        method: 'POST', path: '/v1/recall',
+    label: 'recall',
+    note: 'Read attested facts at a cell. Pass `bands` to filter; with auto-materialize enabled (default), missing bands are fetched, signed, and persisted within the same response.',
+    body: { cell: 'defi.zb509.meze.ze7b5', bands: ['indices.ndvi', 'copdem30m.elevation_mean'] } },
+  { key: 'hunt',          method: 'POST', path: '/v1/hunt',
+    label: 'hunt',
+    note: 'Event discovery over a region. Pass `polygon_bbox` directly or `region` (free text resolved through the same geocoder cascade as /v1/locate). Events: algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick.',
+    body: { event: 'deforestation', polygon_bbox: { min_lat: 20.74, max_lat: 26.63, min_lng: 88.01, max_lng: 92.67 } } },
+  { key: 'find_similar',  method: 'POST', path: '/v1/find_similar',
+    label: 'find_similar',
+    note: 'Nearest-neighbour search in Tessera embedding space. Pass a cell64 to find cells that look spectrally similar — useful for transfer-learning where you have one example and want more.',
+    body: { cell: 'defi.zb509.meze.ze7b5', k: 5 } },
+];
+
+let activeKey = EXAMPLES[0].key;
+const $ = id => document.getElementById(id);
+
+function active() { return EXAMPLES.find(e => e.key === activeKey) || EXAMPLES[0]; }
+function fmt(body) { return JSON.stringify(body, null, 2); }
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+
+function buildTabs() {
+  const t = $('tabs');
+  t.innerHTML = '';
+  for (const e of EXAMPLES) {
+    const b = document.createElement('button');
+    b.className = e.key === activeKey ? 'active' : '';
+    b.innerHTML = `<span class=method-chip>${e.method}</span>${e.label}`;
+    b.onclick = () => { activeKey = e.key; refreshUi(true); };
+    t.appendChild(b);
+  }
+}
+
+function refreshUi(resetBody) {
+  const e = active();
+  buildTabs();
+  $('reqUrl').textContent = `${e.method} ${e.path}`;
+  $('reqNote').textContent = e.note;
+  if (resetBody) $('reqBody').value = fmt(e.body);
+  $('respBody').textContent = '// Pick an endpoint, click Execute. Response lands here.';
+  $('respMeta').innerHTML = '';
+  $('respMap').style.display = 'none';
+  $('respMap').innerHTML = '';
+  $('receiptBlock').style.display = 'none';
+  $('respStatusChip').className = 'pg-chip info';
+  $('respStatusChip').innerHTML = '<span class=dot></span>idle';
+}
+
+// ── Crypto libs (pinned — same versions /verify uses) ───────────────────
+let nobleEd = null, nobleBlake3 = null;
+const cryptoReady = (async () => {
+  try {
+    const [ed, blake3] = await Promise.all([
+      import('https://esm.sh/@noble/curves@1.6.0/ed25519'),
+      import('https://esm.sh/@noble/hashes@1.5.0/blake3'),
+    ]);
+    nobleEd = ed.ed25519;
+    nobleBlake3 = blake3.blake3;
+  } catch (e) { console.warn('crypto libs unavailable:', e); }
+})();
+
+const B32A = 'abcdefghijklmnopqrstuvwxyz234567';
+function b32decode(s){
+  s = String(s||'').toLowerCase().replace(/=+$/, '');
+  const out = new Uint8Array(Math.floor(s.length * 5 / 8));
+  let bits = 0, value = 0, idx = 0;
+  for (const c of s) {
+    const i = B32A.indexOf(c);
+    if (i < 0) throw new Error('bad base32 char: ' + c);
+    value = (value << 5) | i;
+    bits += 5;
+    if (bits >= 8) {
+      out[idx++] = (value >>> (bits - 8)) & 0xff;
+      bits -= 8;
+    }
+  }
+  return out.slice(0, idx);
+}
+
+// Canonical preimage matches /verify and the server-side emem-storage
+// signer byte-for-byte:
+//   request_id | served_at | primitive | cell0,cell1,…| cid0,cid1,…|
+function buildPreimageBytes(r){
+  const enc = new TextEncoder();
+  const parts = [];
+  parts.push(enc.encode(r.request_id || '')); parts.push(enc.encode('|'));
+  parts.push(enc.encode(r.served_at  || '')); parts.push(enc.encode('|'));
+  parts.push(enc.encode(r.primitive  || '')); parts.push(enc.encode('|'));
+  for (const c of (r.cells     || [])) { parts.push(enc.encode(c)); parts.push(enc.encode(',')); }
+  parts.push(enc.encode('|'));
+  for (const c of (r.fact_cids || [])) { parts.push(enc.encode(c)); parts.push(enc.encode(',')); }
+  let len = 0; for (const p of parts) len += p.length;
+  const out = new Uint8Array(len); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// Server emits `responder` as either a 32-byte JSON array or a base32
+// string in `responder_pubkey_b32`. Accept either.
+function decodePubkey(receipt){
+  if (Array.isArray(receipt.responder) && receipt.responder.length === 32) {
+    return new Uint8Array(receipt.responder);
+  }
+  const b32 = receipt.responder_pubkey_b32 || receipt.responder_b32;
+  if (b32) return b32decode(b32);
+  throw new Error('no responder pubkey in receipt');
+}
+function decodeSignature(receipt){
+  if (Array.isArray(receipt.signature) && receipt.signature.length === 64) {
+    return new Uint8Array(receipt.signature);
+  }
+  const b32 = receipt.signature_b32;
+  if (b32) return b32decode(b32);
+  throw new Error('no signature in receipt');
+}
+
+async function verifyReceipt(receipt){
+  await cryptoReady;
+  if (!nobleEd || !nobleBlake3) {
+    return { ok: false, reason: 'crypto libs blocked by CSP / network' };
+  }
+  let preimage, digest, pubkey, sig;
+  try {
+    preimage = buildPreimageBytes(receipt);
+    digest   = nobleBlake3(preimage);
+    pubkey   = decodePubkey(receipt);
+    sig      = decodeSignature(receipt);
+  } catch (e) { return { ok: false, reason: 'malformed receipt: ' + e.message }; }
+  try {
+    const ok = nobleEd.verify(sig, digest, pubkey);
+    return { ok, reason: ok ? 'verified' : 'signature mismatch' };
+  } catch (e) { return { ok: false, reason: 'verify failed: ' + e.message }; }
+}
+
+function renderReceipt(receipt){
+  const grid = $('receiptGrid');
+  grid.innerHTML = '';
+  const rows = [
+    ['request_id',  receipt.request_id],
+    ['primitive',   receipt.primitive],
+    ['served_at',   receipt.served_at],
+    ['responder',   receipt.responder_pubkey_b32 || (Array.isArray(receipt.responder) ? `[${receipt.responder.length}-byte raw key]` : '(unknown)')],
+    ['fact_cids',   (receipt.fact_cids || []).join(', ') || '(none)'],
+    ['cells',       (receipt.cells || []).join(', ') || '(none)'],
+    ['signature',   receipt.signature_b32 || (Array.isArray(receipt.signature) ? `[${receipt.signature.length}-byte raw sig]` : '(unknown)')],
+  ];
+  for (const [k, v] of rows) {
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v || '(absent)';
+    grid.appendChild(dt); grid.appendChild(dd);
+  }
+  // Wire the /verify deep-link so the user can re-verify the SAME
+  // receipt on the dedicated /verify surface.
+  $('lnkVerify').href = '/verify#receipt=' + encodeURIComponent(JSON.stringify(receipt));
+}
+
+// SVG polygon sketch — projects a Polygon/MultiPolygon GeoJSON
+// geometry into the viewBox using an equirectangular projection
+// scoped to its own bbox. Not a map; just a "shape preview".
+function drawPolygon(geom, bbox){
+  const svg = $('respMap');
+  svg.innerHTML = '';
+  svg.style.display = 'block';
+  const W = 360, H = 220, pad = 6;
+  let mn_la = bbox ? bbox.min_lat : 90, mx_la = bbox ? bbox.max_lat : -90;
+  let mn_ln = bbox ? bbox.min_lng : 180, mx_ln = bbox ? bbox.max_lng : -180;
+  if (!bbox) {
+    const ringsToBox = rings => {
+      for (const ring of rings) for (const [x, y] of ring) {
+        if (y < mn_la) mn_la = y; if (y > mx_la) mx_la = y;
+        if (x < mn_ln) mn_ln = x; if (x > mx_ln) mx_ln = x;
+      }
+    };
+    if (geom.type === 'Polygon') ringsToBox(geom.coordinates);
+    else if (geom.type === 'MultiPolygon') for (const p of geom.coordinates) ringsToBox(p);
+  }
+  const dx = Math.max(mx_ln - mn_ln, 1e-6);
+  const dy = Math.max(mx_la - mn_la, 1e-6);
+  const sx = (W - 2*pad) / dx;
+  const sy = (H - 2*pad) / dy;
+  const s = Math.min(sx, sy);
+  const ox = (W - s*dx) / 2;
+  const oy = (H - s*dy) / 2;
+  const proj = (x, y) => [ox + (x - mn_ln) * s, oy + (mx_la - y) * s];
+
+  // bbox rect
+  const ns = 'http://www.w3.org/2000/svg';
+  const r = document.createElementNS(ns, 'rect');
+  const [px0, py0] = proj(mn_ln, mx_la);
+  const [px1, py1] = proj(mx_ln, mn_la);
+  r.setAttribute('class', 'bbox');
+  r.setAttribute('x', px0); r.setAttribute('y', py0);
+  r.setAttribute('width',  px1 - px0); r.setAttribute('height', py1 - py0);
+  svg.appendChild(r);
+
+  const ringPath = ring => {
+    let d = '';
+    for (let i = 0; i < ring.length; i++) {
+      const [x, y] = proj(ring[i][0], ring[i][1]);
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+    }
+    return d + 'Z';
+  };
+  const polys = geom.type === 'Polygon' ? [geom.coordinates]
+              : geom.type === 'MultiPolygon' ? geom.coordinates
+              : [];
+  for (const p of polys) {
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', p.map(ringPath).join(' '));
+    svg.appendChild(path);
+  }
+}
+
+async function execute(){
+  const e = active();
+  const btn = $('btnExec');
+  btn.disabled = true;
+  $('respStatusChip').className = 'pg-chip info';
+  $('respStatusChip').innerHTML = '<span class=dot></span>requesting…';
+  let parsed;
+  try { parsed = JSON.parse($('reqBody').value); }
+  catch (err) {
+    $('respStatusChip').className = 'pg-chip fail';
+    $('respStatusChip').innerHTML = '<span class=dot></span>bad JSON';
+    $('respBody').textContent = String(err);
+    btn.disabled = false;
+    return;
+  }
+  const t0 = performance.now();
+  let resp, text;
+  try {
+    resp = await fetch(ORIGIN + e.path, {
+      method: e.method,
+      headers: { 'content-type': 'application/json', 'accept': 'application/json' },
+      body: JSON.stringify(parsed),
+    });
+    text = await resp.text();
+  } catch (err) {
+    $('respStatusChip').className = 'pg-chip fail';
+    $('respStatusChip').innerHTML = '<span class=dot></span>network error';
+    $('respBody').textContent = String(err);
+    btn.disabled = false;
+    return;
+  }
+  const ms = (performance.now() - t0).toFixed(0);
+  let body;
+  try { body = JSON.parse(text); } catch { body = null; }
+  $('respBody').textContent = body ? JSON.stringify(body, null, 2) : text;
+
+  // Status chip
+  const chip = $('respStatusChip');
+  if (resp.ok) {
+    chip.className = 'pg-chip ok';
+    chip.innerHTML = `<span class=dot></span>${resp.status} OK · ${ms} ms`;
+  } else {
+    chip.className = 'pg-chip fail';
+    chip.innerHTML = `<span class=dot></span>${resp.status} ${resp.statusText} · ${ms} ms`;
+  }
+
+  // Meta line
+  const meta = [];
+  if (body) {
+    if (body.cell64)          meta.push(`<b>cell64</b> <code>${escapeHtml(body.cell64)}</code>`);
+    if (body.via)             meta.push(`<b>via</b> ${escapeHtml(body.via)}`);
+    if (body.overture_division?.subtype)
+                              meta.push(`<b>overture subtype</b> ${escapeHtml(body.overture_division.subtype)}`);
+    if (body.overture_division?.country)
+                              meta.push(`<b>iso country</b> ${escapeHtml(body.overture_division.country)}`);
+    if (body.localized_names) meta.push(`<b>localized names</b> ${Object.keys(body.localized_names).length}`);
+    if (body.ranking?.cells_with_facts != null)
+                              meta.push(`<b>cells_with_facts</b> ${body.ranking.cells_with_facts}/${body.ranking.cells_sampled}`);
+    if (Array.isArray(body.hotspots))
+                              meta.push(`<b>hotspots</b> ${body.hotspots.length}`);
+  }
+  meta.push(`<b>bytes</b> ${text.length.toLocaleString()}`);
+  $('respMeta').innerHTML = meta.join(' · ');
+
+  // Polygon preview when present
+  if (body && body.polygon_geojson) {
+    try {
+      const bb = body.polygon_bbox || null;
+      drawPolygon(body.polygon_geojson, bb);
+    } catch { $('respMap').style.display = 'none'; }
+  } else {
+    $('respMap').style.display = 'none';
+  }
+
+  // Receipt block
+  const receipt = body && body.receipt;
+  if (receipt && receipt.request_id) {
+    $('receiptBlock').style.display = 'block';
+    renderReceipt(receipt);
+    $('verifyChip').className = 'pg-chip info';
+    $('verifyChip').innerHTML = '<span class=dot></span>verifying…';
+    const v = await verifyReceipt(receipt);
+    $('verifyChip').className = 'pg-chip ' + (v.ok ? 'ok' : 'fail');
+    $('verifyChip').innerHTML = `<span class=dot></span>${v.ok ? 'verified offline · in browser' : 'failed: ' + v.reason}`;
+  } else {
+    $('receiptBlock').style.display = 'none';
+  }
+  btn.disabled = false;
+}
+
+$('btnExec').onclick = execute;
+$('btnReset').onclick = () => refreshUi(true);
+$('btnVerify').onclick = async () => {
+  let parsed;
+  try { parsed = JSON.parse($('respBody').textContent); }
+  catch { return; }
+  const receipt = parsed && parsed.receipt;
+  if (!receipt) return;
+  $('verifyChip').className = 'pg-chip info';
+  $('verifyChip').innerHTML = '<span class=dot></span>verifying…';
+  const v = await verifyReceipt(receipt);
+  $('verifyChip').className = 'pg-chip ' + (v.ok ? 'ok' : 'fail');
+  $('verifyChip').innerHTML = `<span class=dot></span>${v.ok ? 'verified offline · in browser' : 'failed: ' + v.reason}`;
+};
+$('btnCurl').onclick = () => {
+  const e = active();
+  let parsed;
+  try { parsed = JSON.parse($('reqBody').value); }
+  catch { parsed = {}; }
+  const cmd = `curl -fsS -X ${e.method} ${ORIGIN}${e.path} \\\n  -H 'content-type: application/json' \\\n  -d '${JSON.stringify(parsed).replace(/'/g, "'\\''")}'`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    const old = $('btnCurl').textContent;
+    $('btnCurl').textContent = 'Copied ✓';
+    setTimeout(() => { $('btnCurl').textContent = old; }, 1100);
+  });
+};
+
+refreshUi(true);
+</script>
 
 </body>
 </html>

@@ -98,8 +98,18 @@ impl ToolCategory {
     }
 }
 
+// Cell64 wire format is four base-1024 bigrams joined by dots; each
+// bigram is either a CVCV quad (consonant from `bcdfghjklmnpqrstvwxyz`
+// + vowel from `aeiouAEIOU`, repeated twice) or the synthetic 5-char
+// `z[0-9a-f]{4}` pad slot. The regex pattern below is inlined into
+// every strict-cell schema in this module so agents (especially LLMs)
+// get contract-level format enforcement at the tool boundary, not
+// only as a post-rejection 400 error message. Pattern is
+// duplicated verbatim into Cell64.pattern on the OpenAPI side so the
+// two surfaces never drift.
+
 const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 string, e.g. 'damO.zb000.xUti.zde78'"},
+"cell":{"type":"string","description":"cell64 string, e.g. 'damO.zb000.xUti.zde78'","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "band":{"type":"string","description":"optional single band key — convenience alias for bands:[band]. Use when you want exactly one band (e.g. 'geotessera.2020', 'modis.ndvi_mean') and would otherwise have to wrap it in an array. Both `band` and `bands` are accepted; if both are given they are merged."},
 "bands":{"type":"array","items":{"type":"string"},"description":"optional band keys to filter, e.g. ['indices.ndvi','geotessera']"},
 "tslot":{"type":"integer","description":"optional time slot (band-tempo-relative integer offset from emem epoch)"}
@@ -118,7 +128,7 @@ const SCHEMA_COMPARE: &str = r#"{"type":"object","required":["a","b"],"propertie
 }}"#;
 
 const SCHEMA_COMPARE_BANDS: &str = r#"{"type":"object","required":["cell","a","b"],"properties":{
-"cell":{"type":"string","description":"cell64 (`cell64` accepted as alias)"},
+"cell":{"type":"string","description":"cell64 (`cell64` accepted as alias)","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "a":{"type":"string","description":"band A key (e.g. 'copdem30m.elevation_mean')"},
 "b":{"type":"string","description":"band B key (e.g. 'gmrt.topobathy_mean')"},
 "tslot_a":{"type":"integer","minimum":0,"description":"tslot for band A. Omit to auto-pick the latest attested tslot for this band at this cell — required for medium/fast-tempo bands (NDVI 30-day, MODIS 8-day, weather, CAMS) which have NO fact at tslot=0. The response carries `tslot_resolution.per_band.tslot_used_a` so you see which slot was chosen."},
@@ -196,7 +206,7 @@ const SCHEMA_STATE_DIFF: &str = r#"{"type":"object","required":["cell","tslot_a"
 }}"#;
 
 const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_cid"],"properties":{
-"cell":{"type":"string","description":"cell64 — neither component may contain `:`."},
+"cell":{"type":"string","description":"cell64 — neither component may contain `:`.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "fact_cid":{"type":"string","description":"26-char base32-nopad-lowercase content-id of the fact."}
 }}"#;
 
@@ -230,7 +240,7 @@ const SCHEMA_LOCATE: &str = r#"{"type":"object","properties":{
 const SCHEMA_ASK: &str = r#"{"type":"object","required":["q"],"properties":{
 "q":{"type":"string","description":"User's natural-language question about the place (e.g. \"is this neighbourhood flood-prone\")."},
 "place":{"type":"string","description":"Free-text place name (e.g. \"Mount Fuji\", \"Ashok Nagar, Ranchi\"). REQUIRED unless `cell` or `lat`+`lng` is provided. Extract the noun phrase from the user's turn; the responder geocodes via OSM Nominatim."},
-"cell":{"type":"string","description":"cell64 string (alternative to `place` — use when you have one from a prior emem_locate / emem_recall response). Provide this OR `place` OR `lat`+`lng`."},
+"cell":{"type":"string","description":"cell64 string (alternative to `place` — use when you have one from a prior emem_locate / emem_recall response). Provide this OR `place` OR `lat`+`lng`.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "lat":{"type":"number","description":"WGS-84 latitude (paired with `lng`; alternative to `place` / `cell`)."},
 "lng":{"type":"number","description":"WGS-84 longitude (paired with `lat`)."},
 "include_image":{"type":"boolean","default":false,"description":"Bundle a Sentinel-2 RGB scene URL for the resolved cell. Adds ~1-2 s on first call."},
@@ -300,7 +310,7 @@ const SCHEMA_BACKFILL: &str = r#"{"type":"object","required":["cell","band"],"pr
 }}"#;
 
 const SCHEMA_HEAT_SOLVE: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 string. Forecast LST evolution at this cell."},
+"cell":{"type":"string","description":"cell64 string. Forecast LST evolution at this cell.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours; capped at 168 (one week)."},
 "diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default urban surface (Oke 2017 §2.3); use ~5e-7 for vegetation, ~1.4e-7 for water."}
 }}"#;
@@ -313,7 +323,7 @@ const SCHEMA_WAVE_SOLVE: &str = r#"{"type":"object","required":["coastal_cell","
 }}"#;
 
 const SCHEMA_JEPA_PREDICT: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 to forecast at."},
+"cell":{"type":"string","description":"cell64 to forecast at.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},
 "lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},
 "forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1 only."}
@@ -349,11 +359,11 @@ const SCHEMA_ELEVATION: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name. Resolved through the standard locate cascade. Provide this OR `lat`+`lng` OR `cell`."},
 "lat":{"type":"number","description":"WGS-84 latitude."},
 "lng":{"type":"number","description":"WGS-84 longitude."},
-"cell":{"type":"string","description":"cell64 string — skip geocoding entirely."}
+"cell":{"type":"string","description":"cell64 string — skip geocoding entirely.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23}
 }}"#;
 
 const SCHEMA_TEMPORAL_ROUTE: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 to plan a temporal recall over."},
+"cell":{"type":"string","description":"cell64 to plan a temporal recall over.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "query_time":{"type":"integer","description":"Optional anchor time (Unix epoch seconds). Defaults to now."},
 "intent":{"type":"string","description":"Optional intent hint — drives recipe selection (e.g. 'flood_window', 'crop_season', 'change_year')."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter to scope the planner."},
@@ -1064,6 +1074,71 @@ mod tests {
             lookup("emem_backfill").is_some(),
             "emem_backfill must be registered"
         );
+    }
+
+    /// Every strict-cell schema must carry a cell64 `pattern` so MCP
+    /// clients (LLM tool-callers in particular) get format
+    /// enforcement at the contract boundary. Schemas described as
+    /// "cell64 or place name" deliberately omit the pattern because
+    /// they accept either form — those are excluded here.
+    #[test]
+    fn strict_cell_schemas_carry_cell64_pattern() {
+        // List of schemas whose `cell` field is strictly cell64.
+        let strict = [
+            ("SCHEMA_RECALL", SCHEMA_RECALL),
+            ("SCHEMA_COMPARE_BANDS", SCHEMA_COMPARE_BANDS),
+        ];
+        for (name, schema) in strict.iter() {
+            // The cell64 pattern is uniquely identified by the CVCV
+            // bigram fragment — that string only appears inside the
+            // regex.
+            assert!(
+                schema.contains("[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]"),
+                "{name}: missing cell64 pattern on `cell` field"
+            );
+            assert!(
+                schema.contains("\"minLength\":19"),
+                "{name}: missing minLength bound"
+            );
+        }
+    }
+
+    /// Hand-verify a few cell64 strings against the regex shape we
+    /// claim on the wire, to catch a future "pattern accidentally
+    /// rejects real cells" regression.
+    #[test]
+    fn cell64_pattern_matches_real_examples() {
+        // Pattern unescaped (JSON `\\.` → regex `\.`).
+        let pattern = r#"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$"#;
+        let re = regex::Regex::new(pattern).expect("regex compiles");
+        // Valid examples from the codec's own tests + the schema's
+        // documented example.
+        for ok in &[
+            "defi.zb4d9.pefa.zf619",
+            "defi.zb509.meze.ze7b5",
+            "defi.zb52a.zcd2f.zcd32",
+            "damO.zb000.xUti.zde78",
+        ] {
+            assert!(re.is_match(ok), "regex must accept real cell64: {ok}");
+        }
+        // Malformed shapes an LLM might hallucinate.
+        for bad in &[
+            "",
+            "defi",
+            "defi.zb4d9.pefa",             // 3 bigrams instead of 4
+            "defi.zb4d9.pefa.zf619.extra", // 5 bigrams
+            "DEFI.ZB4D9.PEFA.ZF619",       // wrong case on consonant
+            "defi-zb4d9-pefa-zf619",       // dashes instead of dots
+            "defi/zb4d9/pefa/zf619",       // slashes
+            "defi.zb4d9.pefa.zf61",        // 4-char z-slot (must be 5: z + 4 hex)
+            "defi.zZZZZ.pefa.zf619",       // bad hex in z-slot
+            "defi.zb4d9.pefa.zg619",       // 'g' not in hex
+        ] {
+            assert!(
+                !re.is_match(bad),
+                "regex must reject malformed cell64: {bad:?}"
+            );
+        }
     }
 
     #[test]
