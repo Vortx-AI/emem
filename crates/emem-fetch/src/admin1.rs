@@ -148,8 +148,7 @@ fn index() -> &'static Index {
         // Build a (country, admin1_code) → raw-index map so we can
         // do a single linear scan over cities1000 instead of an
         // O(rows × ADM1s) double loop.
-        let mut by_admin_key: HashMap<(String, String), usize> =
-            HashMap::with_capacity(raws.len());
+        let mut by_admin_key: HashMap<(String, String), usize> = HashMap::with_capacity(raws.len());
         for (i, r) in raws.iter().enumerate() {
             by_admin_key.insert((r.country.clone(), r.admin1_code.clone()), i);
         }
@@ -286,9 +285,12 @@ mod tests {
         assert_eq!(wb.country, "IN");
         // BBox must contain Kolkata (~22.57°N, 88.36°E).
         assert!(
-            wb.min_lat <= 22.57 && wb.max_lat >= 22.57
-                && wb.min_lng <= 88.36 && wb.max_lng >= 88.36,
-            "Kolkata must lie inside West Bengal bbox {:?}", wb.bbox(),
+            wb.min_lat <= 22.57
+                && wb.max_lat >= 22.57
+                && wb.min_lng <= 88.36
+                && wb.max_lng >= 88.36,
+            "Kolkata must lie inside West Bengal bbox {:?}",
+            wb.bbox(),
         );
     }
 

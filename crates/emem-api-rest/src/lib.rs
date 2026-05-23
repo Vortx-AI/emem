@@ -21998,7 +21998,9 @@ async fn materialize_chirps_monthly_precip(
             )
             .await
         }
-        Err(chirps::ChirpsError::BeforeRecord { year: y, month: m, .. }) => {
+        Err(chirps::ChirpsError::BeforeRecord {
+            year: y, month: m, ..
+        }) => {
             let url = chirps::url_for_monthly(y, m);
             let reason = format!(
                 "before_record: {y:04}-{m:02} predates CHIRPS v2.0 \
@@ -22018,7 +22020,11 @@ async fn materialize_chirps_monthly_precip(
             .await
         }
         Err(chirps::ChirpsError::NoData {
-            lat, lng, year: y, month: m, ..
+            lat,
+            lng,
+            year: y,
+            month: m,
+            ..
         }) => {
             let url = chirps::url_for_monthly(y, m);
             let reason = format!(
@@ -30476,8 +30482,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             // tier and falling through to Photon). The `wide_bbox_hit
             // .is_none()` guard on each tier below makes wide_bbox win
             // without re-shuffling the arm order.
-            let country_hit = emem_fetch::countries::lookup(p)
-                .filter(|_| wide_bbox_hit.is_none());
+            let country_hit = emem_fetch::countries::lookup(p).filter(|_| wide_bbox_hit.is_none());
             // Admin1 tier — wins over a primary-name city match because
             // the agent typing "California" or "West Bengal" or "Dhaka
             // Division" almost always means the larger administrative

@@ -114,8 +114,7 @@ fn index() -> &'static Index {
             .read_to_string(&mut buf)
             .expect("bundled pois.txt.gz must decompress");
         let mut records: Vec<PoiRecord> = Vec::with_capacity(200_000);
-        let mut by_name: HashMap<String, Vec<(usize, KeyKind)>> =
-            HashMap::with_capacity(800_000);
+        let mut by_name: HashMap<String, Vec<(usize, KeyKind)>> = HashMap::with_capacity(800_000);
         for line in buf.lines() {
             // 19-column GeoNames TSV (same as cities). Columns we use:
             // 0=geonameid 1=name 2=asciiname 3=alternates 4=lat 5=lng
@@ -201,7 +200,10 @@ pub fn lookup(query: &str) -> Option<&'static PoiRecord> {
     }
     let hits = idx.by_name.get(&key)?;
     let best = hits.iter().min_by_key(|(rec_idx, kind)| {
-        (*kind as u8, std::cmp::Reverse(idx.records[*rec_idx].population))
+        (
+            *kind as u8,
+            std::cmp::Reverse(idx.records[*rec_idx].population),
+        )
     })?;
     Some(&idx.records[best.0])
 }
@@ -243,7 +245,8 @@ mod tests {
         assert!(
             r.lat > 27.0 && r.lat < 28.5 && r.lng > 86.0 && r.lng < 87.5,
             "Everest at ({}, {}) outside Himalayan envelope",
-            r.lat, r.lng
+            r.lat,
+            r.lng
         );
         assert!(matches!(r.fcode.as_str(), "MT" | "PK"));
     }

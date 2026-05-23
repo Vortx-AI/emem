@@ -180,8 +180,7 @@ fn index() -> &'static Index {
             .read_to_string(&mut buf)
             .expect("bundled cities1000.txt.gz must decompress");
         let mut records: Vec<GeonameRecord> = Vec::with_capacity(170_000);
-        let mut by_name: HashMap<String, Vec<(usize, KeyKind)>> =
-            HashMap::with_capacity(450_000);
+        let mut by_name: HashMap<String, Vec<(usize, KeyKind)>> = HashMap::with_capacity(450_000);
         for line in buf.lines() {
             let mut cols = line.split('\t');
             // GeoNames cities-1000 has 19 columns; we read 0..15.
@@ -332,7 +331,10 @@ pub fn lookup(query: &str) -> Option<&'static GeonameRecord> {
     }
     let hits = idx.by_name.get(&key)?;
     let best = hits.iter().min_by_key(|(rec_idx, kind)| {
-        (*kind as u8, std::cmp::Reverse(idx.records[*rec_idx].population))
+        (
+            *kind as u8,
+            std::cmp::Reverse(idx.records[*rec_idx].population),
+        )
     })?;
     Some(&idx.records[best.0])
 }

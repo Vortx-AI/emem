@@ -192,43 +192,41 @@ fn index() -> &'static Index {
             // bbox carries the same point twice. Caller can see the
             // degenerate bbox and decide to fall through to Photon.
             let have_extent = min_lat.is_finite() && max_lat.is_finite();
-            let (centroid_lat, centroid_lng, mn_la, mx_la, mn_ln, mx_ln) = match (
-                capital_pt,
-                have_extent,
-            ) {
-                (Some((clat, clng)), true) => {
-                    // Snap centroid to the capital. Bbox is the
-                    // cities-derived extent.
-                    (clat, clng, min_lat, max_lat, min_lng, max_lng)
-                }
-                (Some((clat, clng)), false) => {
-                    // Capital known but no cities-derived extent.
-                    // Synthesize a ±0.25° square (~ ±28 km) around
-                    // the capital so the bbox is non-degenerate.
-                    (
-                        clat,
-                        clng,
-                        clat - 0.25,
-                        clat + 0.25,
-                        clng - 0.25,
-                        clng + 0.25,
-                    )
-                }
-                (None, true) => {
-                    // No capital match in cities1000 (rare; data
-                    // glitch or capital below pop-1000 floor). Use
-                    // bbox centre as the centroid.
-                    let clat = (min_lat + max_lat) * 0.5;
-                    let clng = (min_lng + max_lng) * 0.5;
-                    (clat, clng, min_lat, max_lat, min_lng, max_lng)
-                }
-                (None, false) => {
-                    // Pinhole microstate with no cities1000 rows and
-                    // capital not in the corpus. Mark with NaN-free
-                    // zero so callers can detect "no real bbox here".
-                    (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-                }
-            };
+            let (centroid_lat, centroid_lng, mn_la, mx_la, mn_ln, mx_ln) =
+                match (capital_pt, have_extent) {
+                    (Some((clat, clng)), true) => {
+                        // Snap centroid to the capital. Bbox is the
+                        // cities-derived extent.
+                        (clat, clng, min_lat, max_lat, min_lng, max_lng)
+                    }
+                    (Some((clat, clng)), false) => {
+                        // Capital known but no cities-derived extent.
+                        // Synthesize a ±0.25° square (~ ±28 km) around
+                        // the capital so the bbox is non-degenerate.
+                        (
+                            clat,
+                            clng,
+                            clat - 0.25,
+                            clat + 0.25,
+                            clng - 0.25,
+                            clng + 0.25,
+                        )
+                    }
+                    (None, true) => {
+                        // No capital match in cities1000 (rare; data
+                        // glitch or capital below pop-1000 floor). Use
+                        // bbox centre as the centroid.
+                        let clat = (min_lat + max_lat) * 0.5;
+                        let clng = (min_lng + max_lng) * 0.5;
+                        (clat, clng, min_lat, max_lat, min_lng, max_lng)
+                    }
+                    (None, false) => {
+                        // Pinhole microstate with no cities1000 rows and
+                        // capital not in the corpus. Mark with NaN-free
+                        // zero so callers can detect "no real bbox here".
+                        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                    }
+                };
             let rec = CountryRecord {
                 iso2: iso2.into(),
                 iso3: iso3.into(),
@@ -300,15 +298,15 @@ mod tests {
         // (lat 20..27, lng 88..93). Loose bound — exact value depends
         // on which Dhaka record snapped first.
         assert!(
-            (20.0..27.0).contains(&bd.centroid_lat)
-                && (88.0..93.0).contains(&bd.centroid_lng),
-            "centroid {:?} outside Bangladesh", (bd.centroid_lat, bd.centroid_lng),
+            (20.0..27.0).contains(&bd.centroid_lat) && (88.0..93.0).contains(&bd.centroid_lng),
+            "centroid {:?} outside Bangladesh",
+            (bd.centroid_lat, bd.centroid_lng),
         );
         // BBox must cover Dhaka (~23.7°N, 90.4°E).
         assert!(
-            bd.min_lat <= 23.7 && bd.max_lat >= 23.7
-                && bd.min_lng <= 90.4 && bd.max_lng >= 90.4,
-            "Dhaka must lie inside Bangladesh bbox {:?}", bd.bbox(),
+            bd.min_lat <= 23.7 && bd.max_lat >= 23.7 && bd.min_lng <= 90.4 && bd.max_lng >= 90.4,
+            "Dhaka must lie inside Bangladesh bbox {:?}",
+            bd.bbox(),
         );
     }
 

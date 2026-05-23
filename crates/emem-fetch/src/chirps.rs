@@ -333,10 +333,18 @@ pub async fn fetch_chirps_monthly(
         return Err(ChirpsError::OutOfBounds { lat, lng });
     }
     if year < CHIRPS_RECORD_START_YEAR {
-        return Err(ChirpsError::BeforeRecord { year, month, day: 1 });
+        return Err(ChirpsError::BeforeRecord {
+            year,
+            month,
+            day: 1,
+        });
     }
     if !(1..=12).contains(&month) {
-        return Err(ChirpsError::BeforeRecord { year, month, day: 1 });
+        return Err(ChirpsError::BeforeRecord {
+            year,
+            month,
+            day: 1,
+        });
     }
     let url = url_for_monthly(year, month);
     let cli = Client::builder()

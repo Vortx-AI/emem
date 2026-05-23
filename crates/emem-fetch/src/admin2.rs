@@ -123,7 +123,11 @@ fn index() -> &'static Index {
             HashMap::with_capacity(raws.len());
         for (i, r) in raws.iter().enumerate() {
             by_admin_key.insert(
-                (r.country.clone(), r.admin1_code.clone(), r.admin2_code.clone()),
+                (
+                    r.country.clone(),
+                    r.admin1_code.clone(),
+                    r.admin2_code.clone(),
+                ),
                 i,
             );
         }
@@ -137,7 +141,15 @@ fn index() -> &'static Index {
         // modern CPU) paid once at first lookup. Caching it inside
         // OnceLock means subsequent admin2 lookups are O(1).
         let mut acc: Vec<(f64, f64, u32, f64, f64, f64, f64)> = vec![
-            (0.0, 0.0, 0, f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+            (
+                0.0,
+                0.0,
+                0,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY
+            );
             raws.len()
         ];
         // Re-decompress cities1000 here so we can read column 11
@@ -170,10 +182,18 @@ fn index() -> &'static Index {
                 a.0 += lat;
                 a.1 += lng;
                 a.2 += 1;
-                if lat < a.3 { a.3 = lat; }
-                if lat > a.4 { a.4 = lat; }
-                if lng < a.5 { a.5 = lng; }
-                if lng > a.6 { a.6 = lng; }
+                if lat < a.3 {
+                    a.3 = lat;
+                }
+                if lat > a.4 {
+                    a.4 = lat;
+                }
+                if lng < a.5 {
+                    a.5 = lng;
+                }
+                if lng > a.6 {
+                    a.6 = lng;
+                }
             }
         }
         let mut records: Vec<Admin2Record> = Vec::with_capacity(raws.len());
