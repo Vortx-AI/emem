@@ -2162,6 +2162,63 @@ async fn serve_docs_book_path(axum::extract::Path(path): axum::extract::Path<Str
     serve_docs_book_path_impl(&path)
 }
 
+/// Top-level documentation pages we can ship in a 404 hint. Iterates
+/// `DOCS_BOOK` once and returns the `.html` files at the book root
+/// plus their first-level subdirectories — same shape the SUMMARY.md
+/// table of contents groups them in. Sorted for stable output across
+/// rebuilds. Excludes mdbook chrome files (`index.html`, `toc.html`,
+/// `print.html`, `404.html`) which would clutter the hint.
+fn list_docs_top_level_pages() -> Vec<String> {
+    fn collect(dir: &include_dir::Dir<'_>, prefix: &str, out: &mut Vec<String>, depth: u8) {
+        // depth 0 = book root, depth 1 = one level deep — anything
+        // beyond that lives behind a chapter expansion and isn't
+        // useful in a 404 hint.
+        if depth > 1 {
+            return;
+        }
+        for f in dir.files() {
+            let Some(name) = f.path().file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if !name.ends_with(".html") {
+                continue;
+            }
+            if matches!(name, "index.html" | "toc.html" | "print.html" | "404.html") {
+                continue;
+            }
+            if prefix.is_empty() {
+                out.push(name.to_string());
+            } else {
+                out.push(format!("{prefix}/{name}"));
+            }
+        }
+        for sub in dir.dirs() {
+            let Some(sub_name) = sub.path().file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            // Skip mdbook asset directories — these are CSS/JS/fonts
+            // bundled by mdbook, not authored pages, and listing them
+            // would be useless to a reader looking for documentation.
+            if matches!(
+                sub_name,
+                "css" | "fonts" | "FontAwesome" | "theme" | "diagrams"
+            ) {
+                continue;
+            }
+            let next_prefix = if prefix.is_empty() {
+                sub_name.to_string()
+            } else {
+                format!("{prefix}/{sub_name}")
+            };
+            collect(sub, &next_prefix, out, depth + 1);
+        }
+    }
+    let mut out = Vec::new();
+    collect(&DOCS_BOOK, "", &mut out, 0);
+    out.sort();
+    out
+}
+
 fn serve_docs_book_path_impl(rel: &str) -> Response {
     // Defence in depth: include_dir already rejects parent-traversal at
     // build time (paths are static), but reject runtime `..` segments
@@ -2171,9 +2228,25 @@ fn serve_docs_book_path_impl(rel: &str) -> Response {
         return StatusCode::BAD_REQUEST.into_response();
     }
     let Some(file) = DOCS_BOOK.get_file(rel) else {
-        let body = format!(
-            "docs page not found: {rel}\nsee /docs/ for the table of contents, /docs/searchindex.json for the full index\n"
+        // List the actual pages that exist so the 404 is actionable
+        // instead of pointing at a /docs/searchindex.json that we don't
+        // ship (the real search index ships under hashed filenames like
+        // `searchindex-<hash>.js`, embedded by mdbook's own search.js).
+        let pages = list_docs_top_level_pages();
+        let mut body = format!(
+            "docs page not found: {rel}\n\
+             \n\
+             see /docs/ for the table of contents.\n\
+             every page also lives at GET /openapi.json (REST surface)\n\
+             and GET /llms.txt (model-readable index).\n\
+             \n\
+             top-level pages that exist:\n"
         );
+        for p in &pages {
+            body.push_str("  /docs/");
+            body.push_str(p);
+            body.push('\n');
+        }
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(CONTENT_TYPE, "text/plain; charset=utf-8")
