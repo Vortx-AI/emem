@@ -29130,36 +29130,63 @@ async fn try_materialize_one_band(
     band: &str,
     s: &AppState,
 ) -> Result<emem_fact::FactCid, String> {
-    // JRC GFC2020 V3.
-    if band == "jrc_gfc2020.forest_2020" {
-        return materialize_jrc_gfc2020_band(cell64, s, band).await;
+    // Per-band timeout: a single stuck upstream fetch (Hansen tile
+    // hanging on Google Storage's connection pool, JRC global COG
+    // range-read stalled mid-stream, MPC SAS still in retry loop)
+    // would otherwise hold its `futures::join_all` slot until the
+    // EUDR-level 120 s budget fires — and worse, the future's reqwest
+    // handle keeps a connection pinned, accumulating across calls
+    // until the connection pool exhausts and unrelated `/v1/recall`
+    // requests start hanging too. Wrapping every band fetch in
+    // `materializer_timeout_secs()` (default 30 s, env-tunable via
+    // EMEM_MATERIALIZER_TIMEOUT_SECS) means a single bad upstream
+    // only burns 30 s + the band's `Err`, never the whole EUDR
+    // budget, and the runtime gets to reclaim the resources.
+    //
+    // 2026-05-25: observed in production — `cell_cc=16` thundering
+    // herd accumulated stuck futures, took the live server into a
+    // wedged state where even cached `/v1/recall` hung at 10 s+.
+    // Restart cleared it; this wrapper prevents the accumulation.
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let inner = async {
+        // JRC GFC2020 V3.
+        if band == "jrc_gfc2020.forest_2020" {
+            return materialize_jrc_gfc2020_band(cell64, s, band).await;
+        }
+        // Hansen GFC v1.12.
+        if matches!(
+            band,
+            "forest_change.lossyear" | "forest_change.treecover2000" | "forest_change.gain"
+        ) {
+            return materialize_hansen_band(cell64, s, band).await;
+        }
+        // WRI GDM Sims 2025.
+        if band == "wri_gdm.driver_class" {
+            return materialize_wri_gdm_band(cell64, s, band).await;
+        }
+        // RADD SAR.
+        if matches!(band, "radd.alert_date" | "radd.confidence") {
+            return materialize_radd_band(cell64, s, band).await;
+        }
+        // JRC TMF v2025 (tropical-belt loss-year consensus partner).
+        if matches!(
+            band,
+            "jrc_tmf.deforestation_year"
+                | "jrc_tmf.degradation_year"
+                | "jrc_tmf.annual_change"
+                | "jrc_tmf.transition_subtype"
+        ) {
+            return materialize_jrc_tmf_band(cell64, s, band).await;
+        }
+        Err(format!("eudr_dds: band {band} not wired"))
+    };
+    match tokio::time::timeout(timeout, inner).await {
+        Ok(r) => r,
+        Err(_) => Err(format!(
+            "eudr_dds: band {band} timed out after {}s at cell {cell64}",
+            timeout.as_secs()
+        )),
     }
-    // Hansen GFC v1.12.
-    if matches!(
-        band,
-        "forest_change.lossyear" | "forest_change.treecover2000" | "forest_change.gain"
-    ) {
-        return materialize_hansen_band(cell64, s, band).await;
-    }
-    // WRI GDM Sims 2025.
-    if band == "wri_gdm.driver_class" {
-        return materialize_wri_gdm_band(cell64, s, band).await;
-    }
-    // RADD SAR.
-    if matches!(band, "radd.alert_date" | "radd.confidence") {
-        return materialize_radd_band(cell64, s, band).await;
-    }
-    // JRC TMF v2025 (tropical-belt loss-year consensus partner).
-    if matches!(
-        band,
-        "jrc_tmf.deforestation_year"
-            | "jrc_tmf.degradation_year"
-            | "jrc_tmf.annual_change"
-            | "jrc_tmf.transition_subtype"
-    ) {
-        return materialize_jrc_tmf_band(cell64, s, band).await;
-    }
-    Err(format!("eudr_dds: band {band} not wired"))
 }
 
 /// Aggregate per-cell verdicts to a plot-level verdict per Annex II.
@@ -29429,6 +29456,17 @@ async fn post_eudr_dds_inner(
     let max_cells_default = req.max_cells_per_plot.unwrap_or(16).clamp(1, 256);
 
     // Bounded fan-out caps: env-tunable so upstream COG hosts stay polite.
+    //
+    // 2026-05-25 history: briefly bumped 8 → 16 to halve wall-clock on
+    // 16-cell polygons. Reverted same day after observing a wedge on
+    // live emem.dev: fresh-server `/v1/recall` for ANY cell started
+    // hanging at 10s and EUDR 504'd at 120s. The 16-way cell concurrency
+    // × 6-way band concurrency = 96 in-flight tasks per plot saturated
+    // either the reqwest connection pool, the sled write path, or both;
+    // even non-EUDR `/v1/recall` requests for cached facts hung once
+    // contention accumulated. 8 is the safe default; raise via
+    // EMEM_EUDR_CELL_CONCURRENCY only after measuring that upstream
+    // pools (sled, reqwest, COG tile-cache mutex) tolerate the load.
     let cell_cc: usize = std::env::var("EMEM_EUDR_CELL_CONCURRENCY")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
