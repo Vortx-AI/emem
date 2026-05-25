@@ -21078,16 +21078,18 @@ async fn materialize_soilgrids_band(
 // the GFC-2023-v1.11 wiring; the canonical keys agents should use are
 // the `forest_change.*` ones surfaced under `forest_change.scalar_keys`
 // in `bands-v0.json`.
-async fn materialize_hansen_band(
-    cell64: &str,
+/// Build a Hansen GFC v1.12 Fact for one (cell, band) — Primary on
+/// hit, Absence on the TileNotFound coverage gap (Antarctica /
+/// oceanic / polar tiles), hard error on other transport / decode
+/// failure. Pure construction; pair with [`sign_and_persist`] or
+/// [`sign_and_persist_many`].
+async fn build_fact_hansen(
     s: &AppState,
+    cell64: &str,
     band: &str,
-) -> Result<emem_fact::FactCid, String> {
+    signed_at: &str,
+) -> Result<Fact, String> {
     use emem_fetch::hansen_gfc;
-
-    // Map band → layer kind. Legacy `hansen.*` keys round-trip to the
-    // same layer as their canonical `forest_change.*` siblings so that
-    // already-cached attestations keep resolving.
     enum Layer {
         LossYear,
         TreeCover2000,
@@ -21102,46 +21104,34 @@ async fn materialize_hansen_band(
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
-
     let cli = s2_http_client();
-    let signed_at = chrono_iso8601_utc();
 
-    // Common absence-reason builder: structured text describing why
-    // the cell sits outside Hansen GFC coverage, attributed to the
-    // upstream tile we attempted. Bucket layout drops both polar
-    // tiles and certain all-zero oceanic tiles.
-    let absence_reason = |layer_str: &str, tile: &str| -> String {
-        format!(
+    // Closure for the documented Absence path. Captures (lat, lng) for
+    // the structured reason text; the `tile` and `url` come from the
+    // upstream error so the audit trail points at the exact missing
+    // upstream artifact.
+    let absent = |layer_str: String, tile: String, url: String| -> Fact {
+        let reason = format!(
             "Hansen GFC v1.12 tile {tile} not present for layer {layer_str}: cell at ({lat:.6},{lng:.6}) is outside the dataset's 60°S–80°N land coverage or in an all-zero oceanic tile that the bucket omits."
+        );
+        build_absence_fact(
+            s,
+            cell64,
+            band,
+            0,
+            "hansen.gfc.v1_12.2024",
+            &url,
+            signed_at,
+            &reason,
         )
     };
 
-    // Fetch the layer-specific value via the dedicated connector.
-    // Each fetcher returns a structured value-or-error; we translate
-    // TileNotFound into an Absence (Antarctica / oceanic tile gap)
-    // and propagate everything else as a hard error.
     let (value_int, unit, layer_str): (i64, &'static str, &'static str) = match layer {
         Layer::LossYear => match hansen_gfc::fetch_forest_loss_year(&cli, lat, lng).await {
-            // Real loss event in 2001..=2024 — sign the calendar year.
             Ok(Some(year)) => (year as i64, "year_of_loss", hansen_gfc::LAYER_LOSSYEAR),
-            // Pixel is on land in coverage but had no loss observed —
-            // a meaningful Primary fact carrying value 0 with the same
-            // unit string. Distinguishes "no deforestation here" from
-            // "this cell is not in the dataset" (the Absence path).
             Ok(None) => (0i64, "year_of_loss", hansen_gfc::LAYER_LOSSYEAR),
             Err(hansen_gfc::HansenGfcError::TileNotFound { tile, layer, url }) => {
-                let reason = absence_reason(&layer, &tile);
-                return sign_band_absence(
-                    cell64,
-                    s,
-                    band,
-                    0,
-                    "hansen.gfc.v1_12.2024",
-                    &url,
-                    &signed_at,
-                    &reason,
-                )
-                .await;
+                return Ok(absent(layer, tile, url));
             }
             Err(e) => return Err(format!("forest_change.lossyear fetch failed: {e}")),
         },
@@ -21152,47 +21142,23 @@ async fn materialize_hansen_band(
                 hansen_gfc::LAYER_TREECOVER_2000,
             ),
             Err(hansen_gfc::HansenGfcError::TileNotFound { tile, layer, url }) => {
-                let reason = absence_reason(&layer, &tile);
-                return sign_band_absence(
-                    cell64,
-                    s,
-                    band,
-                    0,
-                    "hansen.gfc.v1_12.2024",
-                    &url,
-                    &signed_at,
-                    &reason,
-                )
-                .await;
+                return Ok(absent(layer, tile, url));
             }
             Err(e) => return Err(format!("forest_change.treecover2000 fetch failed: {e}")),
         },
         Layer::Gain => match hansen_gfc::fetch_forest_gain(&cli, lat, lng).await {
             Ok(bit) => (bit as i64, "binary", hansen_gfc::LAYER_GAIN),
             Err(hansen_gfc::HansenGfcError::TileNotFound { tile, layer, url }) => {
-                let reason = absence_reason(&layer, &tile);
-                return sign_band_absence(
-                    cell64,
-                    s,
-                    band,
-                    0,
-                    "hansen.gfc.v1_12.2024",
-                    &url,
-                    &signed_at,
-                    &reason,
-                )
-                .await;
+                return Ok(absent(layer, tile, url));
             }
             Err(e) => return Err(format!("forest_change.gain fetch failed: {e}")),
         },
     };
 
-    // Reconstruct the upstream URL + tile tag for the Source.id and
-    // derivation pointer. tile_url_for is pure — no extra round trip.
     let url = hansen_gfc::tile_url_for(lat, lng, layer_str);
     let (lat_tag, lng_tag) = hansen_gfc::tile_corner_tags(lat, lng);
 
-    let fact = Fact::Primary(PrimaryFact {
+    Ok(Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
         tslot: 0,
@@ -21220,9 +21186,18 @@ async fn materialize_hansen_band(
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
-        signed_at: signed_at.clone(),
+        signed_at: signed_at.to_string(),
         served_via: None,
-    });
+    }))
+}
+
+async fn materialize_hansen_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let signed_at = chrono_iso8601_utc();
+    let fact = build_fact_hansen(s, cell64, band, &signed_at).await?;
     sign_and_persist(s, fact, &signed_at).await
 }
 
@@ -21233,11 +21208,18 @@ async fn materialize_hansen_band(
 // Article 2(4). Band `jrc_gfc2020.forest_2020` returns 1 = EUDR-definition
 // forest at 2020-12-31 cut-off, 0 = non-forest. Cells outside ±82°
 // latitude sign Absence; the connector enforces the bound before any I/O.
-async fn materialize_jrc_gfc2020_band(
-    cell64: &str,
+/// Build the `jrc_gfc2020.forest_2020` Fact at one cell — Primary on
+/// hit, Absence on the documented ±82° latitude coverage gap, hard
+/// error on transport / decode failure. Returns the unsigned,
+/// unpersisted Fact; callers can pair it with [`sign_and_persist`]
+/// (single-shot) or [`sign_and_persist_many`] (batched — used by
+/// [`batch_build_eudr_band_facts`] for the EUDR plot path).
+async fn build_fact_jrc_gfc2020(
     s: &AppState,
+    cell64: &str,
     band: &str,
-) -> Result<emem_fact::FactCid, String> {
+    signed_at: &str,
+) -> Result<Fact, String> {
     use emem_fetch::jrc_gfc2020;
     if band != "jrc_gfc2020.forest_2020" {
         return Err(format!("jrc_gfc2020 band {band} not registered"));
@@ -21245,63 +21227,66 @@ async fn materialize_jrc_gfc2020_band(
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
-
     let cli = s2_http_client();
-    let signed_at = chrono_iso8601_utc();
     let url = jrc_gfc2020::cog_url().to_string();
-
     match jrc_gfc2020::fetch_forest_2020(&cli, lat, lng).await {
-        Ok(value) => {
-            let fact = Fact::Primary(PrimaryFact {
-                cell: cell64.to_string(),
-                band: band.to_string(),
-                tslot: 0,
-                value: ciborium::Value::Integer((value as i64).into()),
-                unit: Some("boolean_eudr_forest_2020".into()),
-                confidence: 0.88,
-                uncertainty: None,
-                sources: vec![Source {
-                    scheme: "jrc.gfc2020.v3".into(),
-                    id: url.clone(),
-                    cid: None,
-                    hash: None,
-                    captured_at: static_release_date(band).map(str::to_string),
-                    url: Some(url.clone()),
-                }],
-                derivation: Derivation {
-                    fn_key: "jrc_gfc2020_v3_pixel@1".into(),
-                    args: Some(ciborium::Value::Array(vec![
-                        ciborium::Value::Float(lat),
-                        ciborium::Value::Float(lng),
-                        ciborium::Value::Text(jrc_gfc2020::JRC_GFC2020_VERSION_TAG.into()),
-                    ])),
-                },
-                privacy_class: "public".into(),
-                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-                signer: s.identity.pubkey,
-                signed_at: signed_at.clone(),
-                served_via: None,
-            });
-            sign_and_persist(s, fact, &signed_at).await
-        }
+        Ok(value) => Ok(Fact::Primary(PrimaryFact {
+            cell: cell64.to_string(),
+            band: band.to_string(),
+            tslot: 0,
+            value: ciborium::Value::Integer((value as i64).into()),
+            unit: Some("boolean_eudr_forest_2020".into()),
+            confidence: 0.88,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "jrc.gfc2020.v3".into(),
+                id: url.clone(),
+                cid: None,
+                hash: None,
+                captured_at: static_release_date(band).map(str::to_string),
+                url: Some(url.clone()),
+            }],
+            derivation: Derivation {
+                fn_key: "jrc_gfc2020_v3_pixel@1".into(),
+                args: Some(ciborium::Value::Array(vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Text(jrc_gfc2020::JRC_GFC2020_VERSION_TAG.into()),
+                ])),
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.to_string(),
+            served_via: None,
+        })),
         Err(jrc_gfc2020::JrcGfc2020Error::CoverageGap { lat: la, lng: ln }) => {
             let reason = format!(
                 "jrc_gfc2020_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the JRC GFC2020 V3 ±82° latitude envelope."
             );
-            sign_band_absence(
-                cell64,
+            Ok(build_absence_fact(
                 s,
+                cell64,
                 band,
                 0,
                 "jrc.gfc2020.v3",
                 &url,
-                &signed_at,
+                signed_at,
                 &reason,
-            )
-            .await
+            ))
         }
         Err(e) => Err(format!("jrc_gfc2020.forest_2020 fetch failed: {e}")),
     }
+}
+
+async fn materialize_jrc_gfc2020_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let signed_at = chrono_iso8601_utc();
+    let fact = build_fact_jrc_gfc2020(s, cell64, band, &signed_at).await?;
+    sign_and_persist(s, fact, &signed_at).await
 }
 
 // ---------------- JRC TMF v2025 materializer (pull-and-cache) ----------------
@@ -21312,26 +21297,38 @@ async fn materialize_jrc_gfc2020_band(
 // connector pulls full ~80 MB tiles on first miss and serves
 // subsequent per-cell reads from a local COG cache at
 // `$EMEM_DATA/jrc_tmf_cache/` (see crates/emem-fetch/src/jrc_tmf.rs).
-async fn materialize_jrc_tmf_band(
-    cell64: &str,
+/// Build a JRC TMF v2025 Fact for one (cell, band) — Primary on hit,
+/// Absence on the documented ±30° coverage gap, hard error on other
+/// transport / decode failure. Pure construction.
+async fn build_fact_jrc_tmf(
     s: &AppState,
+    cell64: &str,
     band: &str,
-) -> Result<emem_fact::FactCid, String> {
+    signed_at: &str,
+) -> Result<Fact, String> {
     use emem_fetch::jrc_tmf;
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let cli = s2_http_client();
-    let signed_at = chrono_iso8601_utc();
 
-    let coverage_gap = |la: f64, ln: f64, dataset: &str| {
+    let absent = |la: f64, ln: f64, dataset: &str| -> Fact {
         let reason = format!(
             "jrc_tmf_coverage_gap: cell ({la:.6},{ln:.6}) outside ±30° tropical-belt envelope (dataset {dataset})."
         );
         let url = format!(
             "https://ies-ows.jrc.ec.europa.eu/iforce/tmf_v1/download.py?type=tile&dataset={dataset}&lat=oob&lon=oob"
         );
-        (url, reason)
+        build_absence_fact(
+            s,
+            cell64,
+            band,
+            0,
+            "jrc.tmf.v2025",
+            &url,
+            signed_at,
+            &reason,
+        )
     };
 
     let (value_int, unit, dataset_tag): (i64, &'static str, String) = match band {
@@ -21342,18 +21339,7 @@ async fn materialize_jrc_tmf_band(
                 "AnnualChange_2025".to_string(),
             ),
             Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                let (url, reason) = coverage_gap(la, ln, "AnnualChange_2025");
-                return sign_band_absence(
-                    cell64,
-                    s,
-                    band,
-                    0,
-                    "jrc.tmf.v2025",
-                    &url,
-                    &signed_at,
-                    &reason,
-                )
-                .await;
+                return Ok(absent(la, ln, "AnnualChange_2025"));
             }
             Err(e) => return Err(format!("jrc_tmf.annual_change fetch failed: {e}")),
         },
@@ -21365,18 +21351,7 @@ async fn materialize_jrc_tmf_band(
                     "DeforestationYear".to_string(),
                 ),
                 Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                    let (url, reason) = coverage_gap(la, ln, "DeforestationYear");
-                    return sign_band_absence(
-                        cell64,
-                        s,
-                        band,
-                        0,
-                        "jrc.tmf.v2025",
-                        &url,
-                        &signed_at,
-                        &reason,
-                    )
-                    .await;
+                    return Ok(absent(la, ln, "DeforestationYear"));
                 }
                 Err(e) => return Err(format!("jrc_tmf.deforestation_year fetch failed: {e}")),
             }
@@ -21388,18 +21363,7 @@ async fn materialize_jrc_tmf_band(
                 "DegradationYear".to_string(),
             ),
             Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                let (url, reason) = coverage_gap(la, ln, "DegradationYear");
-                return sign_band_absence(
-                    cell64,
-                    s,
-                    band,
-                    0,
-                    "jrc.tmf.v2025",
-                    &url,
-                    &signed_at,
-                    &reason,
-                )
-                .await;
+                return Ok(absent(la, ln, "DegradationYear"));
             }
             Err(e) => return Err(format!("jrc_tmf.degradation_year fetch failed: {e}")),
         },
@@ -21411,18 +21375,7 @@ async fn materialize_jrc_tmf_band(
                     "TransitionMap_Subtypes".to_string(),
                 ),
                 Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                    let (url, reason) = coverage_gap(la, ln, "TransitionMap_Subtypes");
-                    return sign_band_absence(
-                        cell64,
-                        s,
-                        band,
-                        0,
-                        "jrc.tmf.v2025",
-                        &url,
-                        &signed_at,
-                        &reason,
-                    )
-                    .await;
+                    return Ok(absent(la, ln, "TransitionMap_Subtypes"));
                 }
                 Err(e) => return Err(format!("jrc_tmf.transition_subtype fetch failed: {e}")),
             }
@@ -21433,7 +21386,7 @@ async fn materialize_jrc_tmf_band(
     let url = format!(
         "https://ies-ows.jrc.ec.europa.eu/iforce/tmf_v1/download.py?type=tile&dataset={dataset_tag}&lat={lat:.6}&lon={lng:.6}"
     );
-    let fact = Fact::Primary(PrimaryFact {
+    Ok(Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
         tslot: 0,
@@ -21460,9 +21413,18 @@ async fn materialize_jrc_tmf_band(
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
-        signed_at: signed_at.clone(),
+        signed_at: signed_at.to_string(),
         served_via: None,
-    });
+    }))
+}
+
+async fn materialize_jrc_tmf_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let signed_at = chrono_iso8601_utc();
+    let fact = build_fact_jrc_tmf(s, cell64, band, &signed_at).await?;
     sign_and_persist(s, fact, &signed_at).await
 }
 
@@ -22761,12 +22723,48 @@ async fn sign_and_persist(
     fact: Fact,
     signed_at: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
-    let leaf_hash = blake3::hash(&buf);
-    let mut leaf = [0u8; 32];
-    leaf.copy_from_slice(leaf_hash.as_bytes());
-    let batch_root = emem_attest::merkle_root(&[leaf]);
+    let cids = sign_and_persist_many(s, vec![fact], signed_at).await?;
+    cids.into_iter()
+        .next()
+        .ok_or_else(|| "put_attestation returned no fact_cid".to_string())
+}
+
+/// Batched variant: sign and persist N facts as ONE Attestation, in ONE
+/// sled transaction. Returns the per-fact `FactCid`s in input order.
+///
+/// **Why this exists**: per-cell materialisers each call
+/// [`sign_and_persist`] which writes one attestation per fact. Under a
+/// large polygon fan-out (16 cells × 6 bands = 96 sequential sled
+/// writes per plot) the sled tree mutex serialises those writes — and
+/// observed under the 2026-05-25 cell_cc=16 thundering herd, the
+/// contention spreads back to `/v1/recall` reads on the same tree.
+/// Coalescing into one attestation per (plot, band) drops the write
+/// storm from N writes to 1 without changing the per-fact wire shape
+/// or receipt verifiability (each fact still has a stable per-fact
+/// CID; the attestation's merkle root covers all N leaves so a
+/// verifier can prove any single fact's inclusion via its merkle
+/// path — same shape as the existing single-fact attestation, just
+/// with a non-trivial siblings vector).
+///
+/// Empty input returns an empty Vec, not an error.
+async fn sign_and_persist_many(
+    s: &AppState,
+    facts: Vec<Fact>,
+    signed_at: &str,
+) -> Result<Vec<emem_fact::FactCid>, String> {
+    if facts.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Compute per-fact merkle leaves over their canonical CBOR.
+    let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(facts.len());
+    for fact in &facts {
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
+        let mut leaf = [0u8; 32];
+        leaf.copy_from_slice(blake3::hash(&buf).as_bytes());
+        leaves.push(leaf);
+    }
+    let batch_root = emem_attest::merkle_root(&leaves);
     let mut h = blake3::Hasher::new();
     h.update(&batch_root);
     h.update(s.manifests.registry_cid.as_str().as_bytes());
@@ -22776,7 +22774,7 @@ async fn sign_and_persist(
     let mut sig_bytes = [0u8; 64];
     sig_bytes.copy_from_slice(&sig.to_bytes());
     let att = Attestation {
-        facts: vec![fact],
+        facts,
         batch_root,
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
@@ -22785,14 +22783,10 @@ async fn sign_and_persist(
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
     };
-    let cids = s
-        .storage
+    s.storage
         .put_attestation(&att)
         .await
-        .map_err(|e| format!("put_attestation: {e}"))?;
-    cids.into_iter()
-        .next()
-        .ok_or_else(|| "put_attestation returned no fact_cid".to_string())
+        .map_err(|e| format!("put_attestation: {e}"))
 }
 
 /// Long-timeout HTTP client for STAC + COG range reads. The default
@@ -22942,18 +22936,22 @@ async fn sign_elevation_absence(
 /// tried and got nothing here") that can be cited and cached, rather
 /// than an opaque transport-level failure that gets retried forever.
 #[allow(clippy::too_many_arguments)]
-async fn sign_band_absence(
-    cell64: &str,
+/// Build an Absence (NegativeFact) for the given (cell, band, scheme,
+/// upstream_url, reason_text). Pure construction — no sled write,
+/// no signature. Pair with [`sign_and_persist`] or
+/// [`sign_and_persist_many`] to commit.
+fn build_absence_fact(
     s: &AppState,
+    cell64: &str,
     band: &str,
     tslot: u64,
     scheme: &str,
     upstream_url: &str,
     signed_at: &str,
     reason_text: &str,
-) -> Result<emem_fact::FactCid, String> {
+) -> Fact {
     let reason_cid = reason_cid_for(reason_text);
-    let fact = Fact::Absence(NegativeFact {
+    Fact::Absence(NegativeFact {
         cell: cell64.to_string(),
         band: band.to_string(),
         tslot,
@@ -22970,7 +22968,30 @@ async fn sign_band_absence(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signer: s.identity.pubkey,
         signed_at: signed_at.to_string(),
-    });
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn sign_band_absence(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    tslot: u64,
+    scheme: &str,
+    upstream_url: &str,
+    signed_at: &str,
+    reason_text: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let fact = build_absence_fact(
+        s,
+        cell64,
+        band,
+        tslot,
+        scheme,
+        upstream_url,
+        signed_at,
+        reason_text,
+    );
 
     let mut buf = Vec::new();
     ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
@@ -28772,6 +28793,12 @@ fn percentile_f64(values: &[f64], p: f64) -> Option<f64> {
 /// When EITHER signal exceeds its threshold the verdict downgrades to
 /// `visual_deforestation_suspected`; when both stay within bounds
 /// the verdict is `no_visual_deforestation`.
+// Index loops `for i in 0..vec.len()` are deliberate here — iterating
+// `for x in &vec` holds a slice iter borrow across `.await` and
+// breaks higher-rank Send inference at the outer Box::pin'd per-plot
+// future. The lint suggests the more idiomatic form; we tested it
+// and it doesn't compile under the current call graph.
+#[allow(clippy::needless_range_loop)]
 async fn build_plot_visual_evidence(
     s: &AppState,
     sample_cells: &[String],
@@ -28821,19 +28848,43 @@ async fn build_plot_visual_evidence(
     let mut prev_ndvi_median: Option<f64> = None;
     let mut max_drop_vs_baseline: Option<f64> = None;
 
-    for (year, anchor, ndvi_cids, s1_cids) in years_per.iter() {
-        // Convert successful CIDs to floats; track signed-Absence /
-        // error counts so the agent sees what coverage we got.
+    // Index-based outer loop so we don't hold a slice iterator into
+    // `years_per` across the per-cell `fact_cid_to_f64.await`. The
+    // borrowed-iter-across-await pattern broke higher-rank Send
+    // inference at the outer per-plot Box::pin (2026-05-25).
+    for yi in 0..years_per.len() {
+        let year: i32 = years_per[yi].0;
+        let anchor: i64 = years_per[yi].1;
+        // Clone the CID arrays out of the borrow before any await so
+        // the slice iterator is fully released by the time we await.
+        let ndvi_cids_owned: Vec<Result<emem_fact::FactCid, String>> = years_per[yi]
+            .2
+            .iter()
+            .map(|r| match r {
+                Ok(c) => Ok(c.clone()),
+                Err(e) => Err(e.clone()),
+            })
+            .collect();
+        let s1_cids_owned: Vec<Result<emem_fact::FactCid, String>> = years_per[yi]
+            .3
+            .iter()
+            .map(|r| match r {
+                Ok(c) => Ok(c.clone()),
+                Err(e) => Err(e.clone()),
+            })
+            .collect();
+
         let mut ndvi_vals: Vec<f64> = Vec::new();
         let mut ndvi_fact_cids: Vec<String> = Vec::new();
         let mut ndvi_errors = 0usize;
-        for cid in ndvi_cids {
-            match cid {
+        for ci in 0..ndvi_cids_owned.len() {
+            match &ndvi_cids_owned[ci] {
                 Ok(c) => {
-                    if let Some(v) = fact_cid_to_f64(s, c).await {
+                    let c_owned = c.clone();
+                    if let Some(v) = fact_cid_to_f64(s, &c_owned).await {
                         ndvi_vals.push(v);
                     }
-                    ndvi_fact_cids.push(c.as_str().to_string());
+                    ndvi_fact_cids.push(c_owned.as_str().to_string());
                 }
                 Err(_) => ndvi_errors += 1,
             }
@@ -28841,13 +28892,14 @@ async fn build_plot_visual_evidence(
         let mut s1_vals: Vec<f64> = Vec::new();
         let mut s1_fact_cids: Vec<String> = Vec::new();
         let mut s1_errors = 0usize;
-        for cid in s1_cids {
-            match cid {
+        for ci in 0..s1_cids_owned.len() {
+            match &s1_cids_owned[ci] {
                 Ok(c) => {
-                    if let Some(v) = fact_cid_to_f64(s, c).await {
+                    let c_owned = c.clone();
+                    if let Some(v) = fact_cid_to_f64(s, &c_owned).await {
                         s1_vals.push(v);
                     }
-                    s1_fact_cids.push(c.as_str().to_string());
+                    s1_fact_cids.push(c_owned.as_str().to_string());
                 }
                 Err(_) => s1_errors += 1,
             }
@@ -28857,7 +28909,7 @@ async fn build_plot_visual_evidence(
         let ndvi_p90 = percentile_f64(&ndvi_vals, 90.0);
         let s1_med = median_f64(&s1_vals);
         // Capture 2020 baseline for deltas.
-        if *year == 2020 {
+        if year == 2020 {
             ndvi_2020_median = ndvi_med;
             s1_2020_median = s1_med;
         }
@@ -28871,7 +28923,7 @@ async fn build_plot_visual_evidence(
                     .map(|(_, d)| drop > d)
                     .unwrap_or(true)
             {
-                worst_ndvi_drop_year_over_year = Some((*year, drop));
+                worst_ndvi_drop_year_over_year = Some((year, drop));
             }
         }
         prev_ndvi_median = ndvi_med;
@@ -28982,6 +29034,384 @@ async fn build_plot_visual_evidence(
         },
         "agent_hint": "Render the scene_png_urls side-by-side as a 6-up timeline (one per year) for an EUDR audit packet. The ndvi_median series is the quantitative companion; quote the receipt fact_cids in the DDS provenance.",
     })
+}
+
+/// Result of [`batch_materialize_eudr_band`] per (cell, band): the
+/// signed FactCid plus the extracted integer value (Primary facts
+/// only; Absence carries None). The int_value is captured from the
+/// in-memory Fact BEFORE persistence so the EUDR verdict path
+/// doesn't need a follow-up `get_facts_many(cid)` round-trip.
+struct EudrBandResult {
+    cid: emem_fact::FactCid,
+    int_value: Option<i64>,
+}
+
+/// Dispatch the EUDR build-fact path for a single (cell, band). Used
+/// only by [`batch_materialize_eudr_band`] — the per-cell entry
+/// point [`try_materialize_one_band`] keeps using the existing
+/// materialize_*_band functions for backward compatibility.
+async fn build_eudr_band_fact(
+    s: &AppState,
+    cell64: &str,
+    band: &str,
+    signed_at: &str,
+) -> Result<Fact, String> {
+    if band == "jrc_gfc2020.forest_2020" {
+        return build_fact_jrc_gfc2020(s, cell64, band, signed_at).await;
+    }
+    if matches!(
+        band,
+        "forest_change.lossyear"
+            | "forest_change.treecover2000"
+            | "forest_change.gain"
+            | "hansen.loss_year"
+            | "hansen.tree_cover_2000"
+            | "hansen.gain"
+    ) {
+        return build_fact_hansen(s, cell64, band, signed_at).await;
+    }
+    if matches!(
+        band,
+        "jrc_tmf.deforestation_year"
+            | "jrc_tmf.degradation_year"
+            | "jrc_tmf.annual_change"
+            | "jrc_tmf.transition_subtype"
+    ) {
+        return build_fact_jrc_tmf(s, cell64, band, signed_at).await;
+    }
+    Err(format!(
+        "eudr_dds batch: band {band} not supported in batch path (only jrc_gfc2020.*, forest_change.*, jrc_tmf.*)"
+    ))
+}
+
+/// Geospatial-batched materializer for one EUDR band across N cells.
+///
+/// Builds the per-cell Fact (Primary or Absence) in parallel up to
+/// `cell_cc`, then persists ALL successful facts in ONE attestation
+/// via [`sign_and_persist_many`]. The COG byte-range fetches that
+/// back the per-cell build are already deduplicated by `cog::TILE_CACHE`
+/// AND `cog::PROFILE_CACHE` single-flight (commit d0b9c1d), so N cells
+/// that fall in the same physical tile share one upstream HTTP read.
+/// The new win here is collapsing N sled writes to 1: a 16-cell
+/// plot's writes for one band drop from 16 to 1, eliminating the
+/// write-mutex contention that wedged the live server under the
+/// 2026-05-25 cell_cc=16 thundering herd.
+///
+/// Returns per-cell [`EudrBandResult`] in input order. Cell-level
+/// errors (geometry decode, upstream fetch failure) ride through
+/// the `Result`'s `Err` variant; the successful facts in the same
+/// batch are unaffected. If the batched persist itself fails, every
+/// cell that would have been persisted returns the batch error.
+async fn batch_materialize_eudr_band(
+    s: AppState,
+    cells: Vec<String>,
+    band: &str,
+    signed_at: &str,
+    cell_cc: usize,
+) -> Vec<Result<EudrBandResult, String>> {
+    use futures_util::StreamExt;
+    if cells.is_empty() {
+        return Vec::new();
+    }
+    // Per-cell build phase — bounded fan-out so we don't accumulate
+    // unbounded reqwest handles even when cells.len() is large.
+    // AppState is Arc<Server>; cloning per closure is a refcount bump.
+    let n_cells = cells.len();
+    let facts_res: Vec<(usize, Result<Fact, String>)> =
+        futures_util::stream::iter(cells.into_iter().enumerate().map(|(i, cell)| {
+            let band = band.to_string();
+            let signed_at = signed_at.to_string();
+            let s_c = s.clone();
+            async move {
+                (
+                    i,
+                    build_eudr_band_fact(&s_c, &cell, &band, &signed_at).await,
+                )
+            }
+        }))
+        .buffer_unordered(cell_cc.max(1))
+        .collect()
+        .await;
+
+    // Separate successful facts (with their original cell index) from
+    // per-cell errors. Order matters: the final output Vec must be in
+    // input-cell order so callers can zip-align against `cells`.
+    let mut facts_to_persist: Vec<Fact> = Vec::with_capacity(n_cells);
+    let mut idx_of_persisted: Vec<usize> = Vec::with_capacity(n_cells);
+    let mut per_cell_errs: Vec<Option<String>> = vec![None; n_cells];
+    for (i, r) in facts_res {
+        match r {
+            Ok(f) => {
+                idx_of_persisted.push(i);
+                facts_to_persist.push(f);
+            }
+            Err(e) => per_cell_errs[i] = Some(e),
+        }
+    }
+    // Extract int values BEFORE moving facts into the attestation. We
+    // need the values for the verdict computation downstream; without
+    // this in-memory extraction the caller would have to round-trip
+    // through `get_facts_many(cid)` per cell, which serialises
+    // against the very sled mutex we're trying to avoid.
+    let int_values: Vec<Option<i64>> = facts_to_persist
+        .iter()
+        .map(|f| match f {
+            Fact::Primary(p) => match &p.value {
+                ciborium::Value::Integer(i) => i64::try_from(*i).ok(),
+                _ => None,
+            },
+            // Absence + Derivative carry no integer value at this
+            // band layer. Derivative is never produced by the
+            // build_fact_* helpers (they emit Primary or Absence
+            // only) — we cover it defensively so future EUDR-band
+            // additions can't break this match silently.
+            _ => None,
+        })
+        .collect();
+
+    // Batched persist. On a batch-level failure (sled error, encode
+    // error), every cell that contributed to the batch shares the
+    // failure verdict; per-cell errors discovered in the build phase
+    // are kept distinct.
+    let cids = match sign_and_persist_many(&s, facts_to_persist, signed_at).await {
+        Ok(c) => c,
+        Err(e) => {
+            // Mark all successful-build cells as failed-to-persist.
+            for &orig in &idx_of_persisted {
+                per_cell_errs[orig] = Some(format!("eudr batch persist failed: {e}"));
+            }
+            return per_cell_errs
+                .into_iter()
+                .map(|eo| Err(eo.unwrap_or_else(|| "unknown".into())))
+                .collect();
+        }
+    };
+
+    // Compose the per-cell result vector in input order. Cells that
+    // failed the build phase get their captured error; cells that
+    // persisted successfully get their CID + extracted int value.
+    let mut out: Vec<Result<EudrBandResult, String>> = (0..n_cells)
+        .map(|i| {
+            Err(per_cell_errs[i]
+                .clone()
+                .unwrap_or_else(|| "unfilled".into()))
+        })
+        .collect();
+    for ((fact_idx, &orig_idx), cid) in idx_of_persisted.iter().enumerate().zip(cids) {
+        out[orig_idx] = Ok(EudrBandResult {
+            cid,
+            int_value: int_values[fact_idx],
+        });
+    }
+    out
+}
+
+/// Geospatial-batched per-plot evaluator: replaces the per-cell
+/// JoinSet over [`evaluate_eudr_cell`] with a per-band batched fan-out.
+/// Returns the same `Vec<EudrCellVerdict>` shape so callers don't see
+/// a contract change. Gated behind `EMEM_EUDR_BATCH_PATH=1` during
+/// rollout; default off keeps the historical per-cell path live.
+///
+/// Wins vs the per-cell path:
+///   - 4 batched-band sled writes per plot (jrc_gfc2020 + 2× Hansen +
+///     jrc_tmf) instead of 4 × N (16 cells = 64 writes).
+///   - Per-band fan-out is bounded by `cell_cc` so the in-flight cell
+///     count is the same as the per-cell path — no thundering-herd
+///     risk; the win comes from collapsing sled writes, not from
+///     adding parallelism.
+///   - WRI GDM + RADD stay on the per-cell `try_materialize_one_band`
+///     path (their materialiser is signed Absence today, sub-ms
+///     latency, batching them adds no measurable win and would
+///     duplicate code).
+// Index loops `for i in 0..vec.len()` are deliberate: see the matching
+// note above [`build_plot_visual_evidence`] — iterating `for x in &vec`
+// holds a slice iter borrow across `.await`, which breaks the outer
+// Box::pin per-plot future's `+ Send` bound under HRTB inference.
+#[allow(clippy::needless_range_loop)]
+async fn evaluate_eudr_plot_batched(
+    s: AppState,
+    cells: Vec<String>,
+    cell_cc: usize,
+) -> Vec<EudrCellVerdict> {
+    if cells.is_empty() {
+        return Vec::new();
+    }
+    let signed_at = chrono_iso8601_utc();
+
+    // 4 batchable EUDR bands run in parallel. Each band closure
+    // clones its own AppState (Arc, cheap) and cells Vec — borrows
+    // across this many awaits tripped a higher-rank Send-inference
+    // at the outer Box::pin'd per-plot future.
+    let batchable: [&str; 4] = [
+        "jrc_gfc2020.forest_2020",
+        "forest_change.treecover2000",
+        "forest_change.lossyear",
+        "jrc_tmf.deforestation_year",
+    ];
+    let batched: Vec<Vec<Result<EudrBandResult, String>>> =
+        futures_util::future::join_all(
+            batchable.iter().map(|b| {
+                let band = b.to_string();
+                let signed_at = signed_at.clone();
+                let s_c = s.clone();
+                let cells_c = cells.clone();
+                async move {
+                    batch_materialize_eudr_band(s_c, cells_c, &band, &signed_at, cell_cc).await
+                }
+            }),
+        )
+        .await;
+
+    // 2 unbatched bands (signed-Absence-only today) run per-cell in
+    // parallel for each band. Captures the CID; the int value comes
+    // from get_facts_many in the assembly phase below.
+    let per_cell_bands: [&str; 2] = ["wri_gdm.driver_class", "radd.alert_date"];
+    let per_cell_cids: Vec<Vec<Result<emem_fact::FactCid, String>>> =
+        futures_util::future::join_all(per_cell_bands.iter().map(|b| {
+            let band = b.to_string();
+            let s_c = s.clone();
+            let cells_c = cells.clone();
+            async move {
+                futures_util::future::join_all(cells_c.into_iter().map(|cell| {
+                    let band = band.clone();
+                    let s_cc = s_c.clone();
+                    async move { try_materialize_one_band(&cell, &band, &s_cc).await }
+                }))
+                .await
+            }
+        }))
+        .await;
+
+    // For the 2 per-cell-only bands, resolve int values from sled
+    // (Absence has no int_value; Primary integers come back as i64).
+    // Done per-cell sequentially because get_facts_many already
+    // batches under the hood and the N here is small (2 bands × N
+    // cells = <512 lookups).
+    // Index-based loops (NOT `for x in &vec`) so we don't hold slice
+    // iterator borrows across the `get_facts_many.await` — that pattern
+    // tripped a higher-rank Send-not-general-enough at the outer
+    // Box::pin per-plot closure.
+    let mut per_cell_int_values: Vec<Vec<Option<i64>>> = Vec::with_capacity(per_cell_bands.len());
+    for band_idx in 0..per_cell_cids.len() {
+        let mut row: Vec<Option<i64>> = Vec::with_capacity(cells.len());
+        for cell_idx in 0..per_cell_cids[band_idx].len() {
+            // Clone the CID out of the borrow so the await holds no
+            // reference into per_cell_cids.
+            let maybe_cid: Option<emem_fact::FactCid> =
+                per_cell_cids[band_idx][cell_idx].as_ref().ok().cloned();
+            let v = match maybe_cid {
+                Some(cid) => match s
+                    .storage
+                    .get_facts_many(std::slice::from_ref(&cid))
+                    .await
+                    .ok()
+                    .and_then(|v| v.into_iter().next().flatten())
+                {
+                    Some(emem_fact::Fact::Primary(p)) => match p.value {
+                        ciborium::Value::Integer(i) => i64::try_from(i).ok(),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                None => None,
+            };
+            row.push(v);
+        }
+        per_cell_int_values.push(row);
+    }
+
+    // Assemble per-cell verdict in input order.
+    let mut verdicts: Vec<EudrCellVerdict> = Vec::with_capacity(cells.len());
+    for (cell_idx, cell64) in cells.iter().enumerate() {
+        let mut fact_cids: Vec<String> = Vec::new();
+        let mut jrc: Option<i64> = None;
+        let mut hansen_tc: Option<i64> = None;
+        let mut hansen_ly: Option<i64> = None;
+        let mut tmf_def_year: Option<i64> = None;
+        let mut wri_class: Option<i64> = None;
+        let mut radd_date: Option<i64> = None;
+
+        for (band_idx, band) in batchable.iter().enumerate() {
+            if let Ok(r) = &batched[band_idx][cell_idx] {
+                fact_cids.push(r.cid.as_str().to_string());
+                match *band {
+                    "jrc_gfc2020.forest_2020" => jrc = r.int_value,
+                    "forest_change.treecover2000" => hansen_tc = r.int_value,
+                    "forest_change.lossyear" => hansen_ly = r.int_value,
+                    "jrc_tmf.deforestation_year" => tmf_def_year = r.int_value,
+                    _ => {}
+                }
+            }
+        }
+        for (band_idx, band) in per_cell_bands.iter().enumerate() {
+            if let Ok(cid) = &per_cell_cids[band_idx][cell_idx] {
+                fact_cids.push(cid.as_str().to_string());
+                let v = per_cell_int_values[band_idx][cell_idx];
+                match *band {
+                    "wri_gdm.driver_class" => wri_class = v,
+                    "radd.alert_date" => radd_date = v,
+                    _ => {}
+                }
+            }
+        }
+
+        // Reuse the same verdict logic as evaluate_eudr_cell to keep
+        // the wire shape and codes identical between the two paths.
+        let borderline_canopy = matches!(hansen_tc, Some(v) if (8..=12).contains(&v));
+        let jrc_absent = jrc.is_none();
+        let hansen_filled_for_jrc = jrc_absent && hansen_tc.is_some();
+        let make = |verdict: u8, refinement: Option<&'static str>| EudrCellVerdict {
+            cell: cell64.into(),
+            verdict,
+            label: verdict_label(verdict),
+            jrc_forest_2020: jrc,
+            hansen_treecover_2000: hansen_tc,
+            hansen_lossyear: hansen_ly,
+            jrc_tmf_deforestation_year: tmf_def_year,
+            wri_driver_class: wri_class,
+            radd_alert_date: radd_date,
+            refinement_applied: refinement,
+            borderline_canopy,
+            fact_cids: fact_cids.clone(),
+        };
+        let forest_at_cutoff =
+            matches!(jrc, Some(v) if v >= 1) || matches!(hansen_tc, Some(v) if v >= 10);
+        if !forest_at_cutoff {
+            verdicts.push(if jrc.is_none() && hansen_tc.is_none() {
+                make(4, Some("no_baseline_input"))
+            } else {
+                make(3, None)
+            });
+            continue;
+        }
+        let hansen_loss = matches!(hansen_ly, Some(v) if v >= 2021);
+        let tmf_loss = matches!(tmf_def_year, Some(v) if v >= 2021);
+        let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2_021_001);
+        let any_loss = hansen_loss || tmf_loss || radd_post_cutoff;
+        let refinement = if hansen_filled_for_jrc {
+            Some("jrc_absent_hansen_baseline")
+        } else {
+            None
+        };
+        verdicts.push(if !any_loss {
+            make(1, refinement)
+        } else {
+            make(2, refinement)
+        });
+    }
+    verdicts
+}
+
+/// Returns true when the operator has opted into the batched EUDR
+/// per-plot path via `EMEM_EUDR_BATCH_PATH=1`. Default is false so
+/// the rollout stays gated; once we've watched a few thousand
+/// production batched calls, the default flips and the per-cell
+/// path becomes the fallback.
+fn eudr_batch_path_enabled() -> bool {
+    matches!(
+        std::env::var("EMEM_EUDR_BATCH_PATH").ok().as_deref(),
+        Some("1") | Some("true") | Some("yes")
+    )
 }
 
 async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
@@ -29556,35 +29986,51 @@ async fn post_eudr_dds_inner(
                 sample_cells_in_bbox(bbox, n_cells)
             };
 
-            // Bounded parallel fan-out over cells (index-preserving). The
-            // JoinSet itself bounds in-flight count — we prime up to cell_cc,
-            // then refill one-for-one as each finishes.
-            let mut set: tokio::task::JoinSet<(usize, EudrCellVerdict)> =
-                tokio::task::JoinSet::new();
-            let prime = cap.min(cells.len());
-            let mut next: usize = 0;
-            let mut results: Vec<Option<EudrCellVerdict>> =
-                (0..cells.len()).map(|_| None).collect();
-            while next < prime {
-                let s_c = s.clone();
-                let c = cells[next].clone();
-                let i = next;
-                set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c).await) });
-                next += 1;
-            }
-            while let Some(res) = set.join_next().await {
-                if let Ok((i, v)) = res {
-                    results[i] = Some(v);
-                }
-                if next < cells.len() {
+            // Per-plot evaluation: pick the batched path when
+            // `EMEM_EUDR_BATCH_PATH=1`, else fall back to the
+            // historical per-cell JoinSet. The batched path
+            // ([`evaluate_eudr_plot_batched`]) collapses the
+            // per-(cell, band) sled writes from N×4 to 4 per plot;
+            // the per-cell path is preserved so a regression can
+            // be flipped back with one env var.
+            let per_cell: Vec<EudrCellVerdict> = if eudr_batch_path_enabled() {
+                // Clone cells before await: the Box::pin'd outer
+                // future needs `+ Send`, and passing `&cells`
+                // straight to a sub-future across the await
+                // tripped a higher-rank lifetime inference
+                // ("Send is not general enough") at compile time.
+                evaluate_eudr_plot_batched(s.clone(), cells.clone(), cap).await
+            } else {
+                // Bounded parallel fan-out over cells (index-preserving). The
+                // JoinSet itself bounds in-flight count — we prime up to cell_cc,
+                // then refill one-for-one as each finishes.
+                let mut set: tokio::task::JoinSet<(usize, EudrCellVerdict)> =
+                    tokio::task::JoinSet::new();
+                let prime = cap.min(cells.len());
+                let mut next: usize = 0;
+                let mut results: Vec<Option<EudrCellVerdict>> =
+                    (0..cells.len()).map(|_| None).collect();
+                while next < prime {
                     let s_c = s.clone();
                     let c = cells[next].clone();
                     let i = next;
                     set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c).await) });
                     next += 1;
                 }
-            }
-            let per_cell: Vec<EudrCellVerdict> = results.into_iter().flatten().collect();
+                while let Some(res) = set.join_next().await {
+                    if let Ok((i, v)) = res {
+                        results[i] = Some(v);
+                    }
+                    if next < cells.len() {
+                        let s_c = s.clone();
+                        let c = cells[next].clone();
+                        let i = next;
+                        set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c).await) });
+                        next += 1;
+                    }
+                }
+                results.into_iter().flatten().collect()
+            };
 
             let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
             let mmu = if raw_verdict == 2 {
