@@ -9946,6 +9946,59 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                                 "refinement_applied":    {"type": ["string", "null"]},
                                 "fact_cids":             {"type": "array", "items": {"type": "string"}, "$comment": "Annex II §7: signed fact CIDs cited as evidence"}
                             }}
+                        },
+                        "visual_evidence": {
+                            "type": ["object", "null"],
+                            "$comment": "Present only when the plot's input carried `request_visual_evidence: true`. Self-contained block under schema `emem.visual_evidence.v1`.",
+                            "properties": {
+                                "schema": {"const": "emem.visual_evidence.v1"},
+                                "method": {"type": "string", "$comment": "Always 'annual_s2_l2a_least_cloudy + annual_s1_rtc_vv_cloud_independent'"},
+                                "anchor_policy": {"type": "string", "$comment": "Per-year anchor date + the cloud-fallback ladder applied"},
+                                "verdict": {"type": "string", "enum": ["no_visual_deforestation", "visual_deforestation_suspected", "indeterminate_no_baseline"]},
+                                "thresholds": {
+                                    "type": "object",
+                                    "properties": {
+                                        "ndvi_drop_vs_2020":    {"type": "number", "$comment": "EMEM_VISUAL_NDVI_DROP_THRESHOLD; default 0.15 (Pelletier 2024)"},
+                                        "s1_vv_drop_db_vs_2020":{"type": "number", "$comment": "EMEM_VISUAL_S1_DROP_DB_THRESHOLD; default 3 dB (Reiche 2018)"},
+                                        "rationale":            {"type": "string"}
+                                    }
+                                },
+                                "metrics": {
+                                    "type": "object",
+                                    "properties": {
+                                        "ndvi_2020_baseline_median": {"type": ["number", "null"]},
+                                        "ndvi_max_drop_vs_baseline": {"type": ["number", "null"]},
+                                        "ndvi_worst_year_over_year_drop": {"type": ["object", "null"]},
+                                        "s1_vv_2020_baseline_db":   {"type": ["number", "null"]}
+                                    }
+                                },
+                                "years": {
+                                    "type": "array",
+                                    "$comment": "One entry per calendar year 2020..current_year",
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["year"],
+                                        "properties": {
+                                            "year": {"type": "integer", "minimum": 2020},
+                                            "anchor_unix": {"type": "integer"},
+                                            "ndvi_median": {"type": ["number", "null"]},
+                                            "ndvi_p10":    {"type": ["number", "null"]},
+                                            "ndvi_p90":    {"type": ["number", "null"]},
+                                            "ndvi_delta_vs_2020": {"type": ["number", "null"]},
+                                            "n_cells_ndvi_ok":     {"type": "integer", "minimum": 0},
+                                            "n_cells_ndvi_errors": {"type": "integer", "minimum": 0},
+                                            "s1_vv_db_median":     {"type": ["number", "null"]},
+                                            "s1_vv_delta_db_vs_2020": {"type": ["number", "null"]},
+                                            "n_cells_s1_ok":     {"type": "integer", "minimum": 0},
+                                            "n_cells_s1_errors": {"type": "integer", "minimum": 0},
+                                            "scene_png_urls": {"type": "array", "items": {"type": "string", "format": "uri-reference"}, "$comment": "Up to 6 representative cells per plot; fetch each URL for the per-year RGB chip the agent renders into the audit packet."},
+                                            "ndvi_fact_cids": {"type": "array", "items": {"type": "string"}, "$comment": "Signed Primary-fact CIDs auditors cite for the NDVI evidence."},
+                                            "s1_fact_cids":   {"type": "array", "items": {"type": "string"}, "$comment": "Signed Primary-fact CIDs auditors cite for the S1 backscatter evidence."}
+                                        }
+                                    }
+                                },
+                                "agent_hint": {"type": "string"}
+                            }
                         }
                     }
                 }
@@ -12400,7 +12453,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (32-byte BLAKE3 of the per-fact merkle root, hex), `attester_pubkey_b32`, `signature_b32` (ed25519 over batch_root), and `facts[]` (each carries cell, band, tslot, value, and any per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester_pubkey_b32","signature_b32","facts"],"properties":{"batch_root":{"type":"string","description":"hex BLAKE3 root of the per-fact merkle tree"},"attester_pubkey_b32":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature_b32":{"type":"string","description":"base32-nopad-lc ed25519 signature over batch_root"},"facts":{"type":"array","items":{"type":"object","required":["cell","band","value"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
             "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
@@ -12526,7 +12579,8 @@ async fn openapi() -> Json<JsonValue> {
                         "commodity_hs":{"type":"string","description":"Combined Nomenclature code (HS-6+). First 4 digits detect cattle (0102/0201/0202) for the Article 2(28) cattle exemption."},
                         "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
                         "quantity_kg":{"type":"number","description":"Net mass in kilograms (Annex II §3)."},
-                        "supplier":{"type":"string","description":"Optional supplier identifier."}
+                        "supplier":{"type":"string","description":"Optional supplier identifier."},
+                        "request_visual_evidence":{"type":"boolean","default":false,"description":"Opt-in: build a per-year visual deforestation-evidence block for this plot. Adds a `visual_evidence` field to the per-plot result containing a Sentinel-2 NDVI annual timeline from 2020..current_year + Sentinel-1 RTC VV-backscatter cloud-independent confirmation + per-cell scene.png URLs the agent can render as a 6-up year-by-year grid. Adds ~90s of upstream fan-out per plot; the EUDR budget auto-bumps to 60s + 90s × n_visual_plots (capped at 600s) when this flag is set on any plot. The block carries its own `verdict` (`no_visual_deforestation` / `visual_deforestation_suspected` / `indeterminate_no_baseline`) computed from NDVI drop ≥ EMEM_VISUAL_NDVI_DROP_THRESHOLD (default 0.15 vs 2020 — Pelletier 2024) and S1 VV drop ≥ EMEM_VISUAL_S1_DROP_DB_THRESHOLD (default 3 dB — Reiche 2018). All underlying facts are signed Primary records under the responder's identity; auditors cite ndvi_fact_cids + s1_fact_cids."}
                     }}},
                     "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date (ISO 8601). The regulation's value is 2020-12-31."},
                     "forest_baseline_override":{"type":"string","description":"Optional baseline override: 'jrc_gfc2020_v3' (default), 'hansen_only', or 'both' (consensus)."},
@@ -29302,12 +29356,36 @@ async fn post_eudr_dds(
     // plot (default 16 cells/plot, max 256/plot). With JRC GFC2020 +
     // Hansen + RADD + WRI/Sims, cold materialise per cell can take a
     // few seconds; 4 plots × 16 cells × 5 s ≈ 320 s without a fan-out
-    // ceiling. Tunable via EMEM_EUDR_TIMEOUT_SECS (clamped 15..=240).
-    let budget = std::env::var("EMEM_EUDR_TIMEOUT_SECS")
+    // ceiling. Tunable via EMEM_EUDR_TIMEOUT_SECS (clamped 15..=600).
+    //
+    // Auto-bump when any plot requested visual_evidence: the per-plot
+    // visual block adds ~90 s of S2/S1 fan-out (7 years × N cells × 2
+    // bands), so a plot with visual_evidence enabled needs ~150 s of
+    // headroom on top of the base verdict's ~5–20 s. Operators can
+    // still cap via EMEM_EUDR_TIMEOUT_SECS — if they explicitly set
+    // a value lower than the auto-bumped minimum we honour their
+    // ceiling and let the request 504 with the truthful error.
+    let n_visual_plots = req
+        .plots
+        .iter()
+        .filter(|p| p.request_visual_evidence == Some(true))
+        .count();
+    let env_budget = std::env::var("EMEM_EUDR_TIMEOUT_SECS")
         .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(120u64)
-        .clamp(15, 240);
+        .and_then(|s| s.parse::<u64>().ok());
+    let auto_budget = if n_visual_plots > 0 {
+        // 90 s base + 150 s per visual-evidence plot, capped at the
+        // clamp ceiling so a thousand visual plots can't unbound this.
+        // Empirically: a cold 8-cell × 7-year × 2-band visual plot in
+        // a fresh region takes ~140 s end-to-end (measured 2026-05-25
+        // on CIV cocoa). 150 s/plot gives headroom for TLS jitter +
+        // upstream slow tails; 90 s base covers the standard verdict
+        // for the non-visual plots in the same request.
+        (90u64 + (n_visual_plots as u64) * 150u64).min(600)
+    } else {
+        120u64
+    };
+    let budget = env_budget.unwrap_or(auto_budget).clamp(15, 600);
     let n_plots = req.plots.len();
     match tokio::time::timeout(
         std::time::Duration::from_secs(budget),

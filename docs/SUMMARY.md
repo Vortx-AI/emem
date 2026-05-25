@@ -15,6 +15,7 @@
 # Surfaces
 
 - [Agents](./agents.md)
+- [EUDR DDS + visual evidence](./eudr.md)
 - [Integrations](./integrations.md)
 - [MCP Directory](./mcp-directory.md)
 
