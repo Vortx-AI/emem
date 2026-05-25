@@ -166,6 +166,22 @@ static SAS_CACHE: Mutex<Option<(String, CachedSas)>> = Mutex::new(None);
 /// Fetch (or return cached) anonymous SAS token for an MPC collection.
 /// Sign Azure asset URLs as `<href>?<token>` — token is the entire query
 /// string starting with `sv=...`.
+///
+/// Retry policy: MPC's SAS endpoint is a small free service that returns
+/// 429 Too Many Requests when many cells in a polygon recall race to
+/// refresh the same collection's token. The cache (`SAS_CACHE`) is the
+/// first line of defence — once one caller wins and stores a fresh
+/// token, every other caller hits the cache. But on a cold cache or at
+/// the 50-minute expiry boundary, the lock is process-wide non-async
+/// so concurrent tasks can all bypass the cache and stampede the
+/// upstream. This retry loop absorbs the resulting 429 burst with an
+/// exponential backoff (200 ms → 400 ms → 800 ms → 1.6 s, capped at 5
+/// attempts) and honours the server-supplied `Retry-After` header when
+/// present (delegating both seconds-form and HTTP-date-form parsing to
+/// the upstream's hint). 5xx responses follow the same backoff. The
+/// 07:40 UTC outage on 2026-05-25 was a textbook fan-out 429 burst —
+/// 11 simultaneous failures, no retry, all dropped — which this loop
+/// is designed to prevent.
 pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, String> {
     if let Ok(guard) = SAS_CACHE.lock() {
         if let Some((cached_collection, cached)) = guard.as_ref() {
@@ -177,39 +193,94 @@ pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, 
         }
     }
     let url = format!("https://planetarycomputer.microsoft.com/api/sas/v1/token/{collection}");
-    let resp = client
-        .get(&url)
-        .header(
-            "user-agent",
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
-        )
-        .send()
-        .await
-        .map_err(|e| format!("mpc sas http: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("mpc sas status {}", resp.status()));
+    const MAX_ATTEMPTS: u32 = 5;
+    const BASE_BACKOFF_MS: u64 = 200;
+    let mut last_err = String::from("mpc sas: unreached");
+    for attempt in 1..=MAX_ATTEMPTS {
+        let resp = match client
+            .get(&url)
+            .header(
+                "user-agent",
+                concat!(
+                    "emem.dev/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (avijeet@vortx.ai)"
+                ),
+            )
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("mpc sas http (attempt {attempt}/{MAX_ATTEMPTS}): {e}");
+                if attempt < MAX_ATTEMPTS {
+                    let wait = Duration::from_millis(BASE_BACKOFF_MS * (1u64 << (attempt - 1)));
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+                return Err(last_err);
+            }
+        };
+        let status = resp.status();
+        if status.is_success() {
+            let v: Value = resp
+                .json()
+                .await
+                .map_err(|e| format!("mpc sas json: {e}"))?;
+            let token = v
+                .get("token")
+                .and_then(|t| t.as_str())
+                .ok_or_else(|| "mpc sas response missing `token` field".to_string())?
+                .to_string();
+            if let Ok(mut guard) = SAS_CACHE.lock() {
+                *guard = Some((
+                    collection.to_string(),
+                    CachedSas {
+                        token: token.clone(),
+                        fetched_at: Instant::now(),
+                    },
+                ));
+            }
+            return Ok(token);
+        }
+        // Retryable on 429 / 5xx; 4xx other than 429 is a permanent
+        // error (bad collection, deprecated endpoint) and must not
+        // burn the budget.
+        let retryable = status.as_u16() == 429 || status.is_server_error();
+        let retry_after_secs = if status.as_u16() == 429 {
+            parse_retry_after_header(&resp)
+        } else {
+            None
+        };
+        last_err = format!(
+            "mpc sas status {} (attempt {attempt}/{MAX_ATTEMPTS})",
+            status
+        );
+        if !retryable || attempt == MAX_ATTEMPTS {
+            return Err(last_err);
+        }
+        // Prefer the server's Retry-After value when present; otherwise
+        // exponential backoff. Cap at 30 s so a maliciously-large
+        // Retry-After doesn't wedge the request beyond the materializer
+        // timeout budget.
+        let backoff_ms = BASE_BACKOFF_MS * (1u64 << (attempt - 1));
+        let wait_ms = retry_after_secs
+            .map(|s| s.saturating_mul(1000).min(30_000))
+            .unwrap_or(backoff_ms);
+        tokio::time::sleep(Duration::from_millis(wait_ms)).await;
     }
-    let v: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("mpc sas json: {e}"))?;
-    let token = v
-        .get("token")
-        .and_then(|t| t.as_str())
-        .ok_or_else(|| "mpc sas response missing `token` field".to_string())?
-        .to_string();
-    if let Ok(mut guard) = SAS_CACHE.lock() {
-        *guard = Some((
-            collection.to_string(),
-            CachedSas {
-                token: token.clone(),
-                fetched_at: Instant::now(),
-            },
-        ));
-    }
-    Ok(token)
+    Err(last_err)
+}
+
+/// Parse an HTTP `Retry-After` header value. Supports the integer-seconds
+/// form (RFC 9110 §10.2.3 delta-seconds); the HTTP-date form is silently
+/// ignored (returns `None`) so the caller falls back to exponential
+/// backoff. We deliberately don't pull `httpdate` for the parse — the
+/// MPC endpoint always emits seconds in observed traffic, and an unparsed
+/// HTTP-date just degrades to the same backoff we'd use without a hint.
+fn parse_retry_after_header(resp: &reqwest::Response) -> Option<u64> {
+    resp.headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
 }

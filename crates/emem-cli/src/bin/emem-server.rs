@@ -132,6 +132,54 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Wire the sled-backed persistent cache for Overture division-
+    // polygon lookups before kicking off warm-up. Once installed the
+    // lookup path consults sled before scanning parquet and writes
+    // back on miss, so a process restart doesn't re-pay the 6–15 s
+    // cold-cache cost per previously-seen place. Idempotent; safe to
+    // skip on sled failure (the in-memory cache still works).
+    emem_api_rest::wire_overture_persistent_cache();
+
+    // Pre-warm the Overture divisions cache so the first /v1/locate
+    // (and every place-based boring endpoint behind it) doesn't pay
+    // the 6–15 s cold-cache penalty for S3 list + per-shard parquet
+    // footer fetch. Runs in the background so server start isn't
+    // blocked on a slow S3 round-trip; locate requests that race the
+    // warm-up just take the cold path themselves once. Disable with
+    // `EMEM_OVERTURE_SKIP_WARMUP=1` for offline / air-gapped runs.
+    if std::env::var("EMEM_OVERTURE_SKIP_WARMUP").ok().as_deref() != Some("1") {
+        tokio::spawn(async {
+            let t0 = std::time::Instant::now();
+            match emem_fetch::overture::OvertureClient::shared()
+                .warm_start()
+                .await
+            {
+                Ok(stats) => {
+                    tracing::info!(
+                        target: "emem::overture::warm",
+                        overture_warm_files = stats.file_count,
+                        overture_warm_footer_errors = stats.footer_errors,
+                        overture_warm_elapsed_ms = stats.elapsed_ms,
+                        "overture warm-up complete"
+                    );
+                    eprintln!(
+                        "overture warm-up: {} shards, {} footer errors, {} ms",
+                        stats.file_count, stats.footer_errors, stats.elapsed_ms
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::overture::warm",
+                        overture_warm_elapsed_ms = t0.elapsed().as_millis() as u64,
+                        error = %e,
+                        "overture warm-up failed; first locate call will pay cold cost"
+                    );
+                    eprintln!("warning: overture warm-up failed ({e}); first locate will be slow");
+                }
+            }
+        });
+    }
+
     eprintln!("  GET  /health");
     eprintln!("  GET  /openapi.json");
     eprintln!("  GET  /.well-known/emem.json");

@@ -966,6 +966,22 @@ fn materializer_retries() -> u32 {
         .clamp(1, 5)
 }
 
+/// Upper bound on the boring-endpoint `n_cells` fan-out (default 512).
+/// Tunable via `EMEM_BORING_MAX_CELLS`; clamped to `1..=4096` so a
+/// misconfigured env var can't accidentally allow an unbounded fan-out.
+/// 512 was chosen because tile-cache single-flight (commit 3) makes
+/// 64+ cells in the same Sentinel-2 tile near-free, but per-cell fact
+/// signing + storage writes still scale linearly, and 512 keeps a
+/// single boring request comfortably under the 60 s wall-clock budget
+/// even on cold caches.
+fn boring_max_cells() -> usize {
+    std::env::var("EMEM_BORING_MAX_CELLS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(512)
+        .clamp(1, 4096)
+}
+
 // ── CORS layer (open for agents, Origin-allowlist when configured) ─────
 //
 // Default behavior is `Access-Control-Allow-Origin: *` so unauthenticated
@@ -5812,18 +5828,29 @@ impl LatLngQ {
     }
 
     /// Validate `n_cells` against the boring-endpoint contract: must be
-    /// `1..=64` when supplied. The hard cap distinguishes the boring
-    /// surface (snappy default-of-16, cap 64) from POST /v1/recall_polygon
-    /// (raw per-cell, cap 1024). Returns 400 on out-of-range so an agent
-    /// learns its own bug instead of silently getting a wrong answer.
+    /// in `1..=boring_max_cells()`. The historical 1..=64 limit was
+    /// set when each cell did its own STAC search + COG range read;
+    /// with the COG tile-cache + profile single-flight live (commit 3),
+    /// many cells in the same Sentinel-2 tile cost roughly the same as
+    /// one cell because the per-cell marginal work collapses to pixel
+    /// extraction. We raised the cap to 512 (env-tunable via
+    /// `EMEM_BORING_MAX_CELLS`) to surface that capacity to agents.
+    /// The 60 s `EMEM_BORING_TIMEOUT_SECS` budget is the second
+    /// natural backstop. For per-cell-raw output beyond 512 cells,
+    /// callers should use `POST /v1/recall_polygon` directly.
     fn validate_n_cells(&self) -> Result<(), ApiError> {
         if let Some(n) = self.n_cells {
-            if !(1..=64).contains(&n) {
+            let cap = boring_max_cells();
+            if !(1..=cap).contains(&n) {
                 return Err(ApiError(
                     StatusCode::BAD_REQUEST,
                     ErrorBody {
                         code: ErrorCode::InvalidArgument,
-                        message: format!("n_cells must be in 1..=64 (got {n}). For larger fan-outs use POST /v1/recall_polygon."),
+                        message: format!(
+                            "n_cells must be in 1..={cap} (got {n}). \
+                             For larger fan-outs use POST /v1/recall_polygon. \
+                             Cap is tunable via EMEM_BORING_MAX_CELLS."
+                        ),
                         details: None,
                     },
                 ));
@@ -7444,7 +7471,12 @@ async fn boring_recall_aggregated(
 
     // Sanity-bound the cell list. `resolve_target` already capped, but
     // double-check to keep the upstream-fetch budget defensible.
-    let cells: Vec<String> = polygon.sample_cells.iter().take(64).cloned().collect();
+    let cells: Vec<String> = polygon
+        .sample_cells
+        .iter()
+        .take(boring_max_cells())
+        .cloned()
+        .collect();
     if cells.is_empty() {
         // No cells — fall back to the centroid so we always serve
         // something (matches /v1/recall_polygon's degenerate-bbox path).
@@ -8068,9 +8100,13 @@ async fn get_v1_at(
             bands.push((*b).to_string());
         }
     }
-    Ok(Json(
-        boring_recall_aggregated(&s, target, &bands, q.tslot).await?,
-    ))
+    let tag = format!("at bands {bands:?}");
+    let v = with_boring_budget(
+        &tag,
+        boring_recall_aggregated(&s, target, &bands, q.tslot),
+    )
+    .await?;
+    Ok(Json(v))
 }
 
 /// Default multi-band bundle for `/v1/at` when the caller omits both
@@ -8082,6 +8118,47 @@ const DEFAULT_AT_BANDS: &[&str] = &[
     "esa_worldcover.lc_2021",
     "weather.temperature_2m",
 ];
+
+/// Overall boring-endpoint wall-clock budget, in seconds, from
+/// `EMEM_BORING_TIMEOUT_SECS` (default 60, clamped 5..=120). Single
+/// source of truth so every boring handler picks the same value.
+fn boring_budget_secs() -> u64 {
+    std::env::var("EMEM_BORING_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(60u64)
+        .clamp(5, 120)
+}
+
+/// Wrap an async boring-endpoint body in the EMEM_BORING_TIMEOUT_SECS
+/// budget so any handler — `boring_named`, `elevation_coherent`,
+/// any future per-endpoint specialisation — gets the same wall-clock
+/// ceiling. Without this wrapper a polygon fan-out that exceeds the
+/// budget can stall indefinitely (regression observed on
+/// `/v1/elevation` after the n_cells cap was raised to 512). The
+/// `tag` is surfaced verbatim in the 504 message so the caller knows
+/// which endpoint timed out.
+async fn with_boring_budget<F, T>(tag: &str, fut: F) -> Result<T, ApiError>
+where
+    F: std::future::Future<Output = Result<T, ApiError>>,
+{
+    let budget = boring_budget_secs();
+    match tokio::time::timeout(std::time::Duration::from_secs(budget), fut).await {
+        Ok(inner) => inner,
+        Err(_) => Err(ApiError(
+            StatusCode::GATEWAY_TIMEOUT,
+            ErrorBody {
+                code: emem_core::error::ErrorCode::SourceFetchFailed,
+                message: format!(
+                    "boring-endpoint fan-out over {tag} exceeded {budget}s. \
+                     Tune EMEM_BORING_TIMEOUT_SECS, lower n_cells, \
+                     or call /v1/recall with a single band to bypass the fan-out."
+                ),
+                details: None,
+            },
+        )),
+    }
+}
 
 /// Build a fixed-bands boring response. Used by every named shorthand
 /// (/v1/ndvi, /v1/elevation, …). Single-band endpoints default to a
@@ -8101,32 +8178,14 @@ async fn boring_named(
     // single slow connector (weather/CAMS/MODIS) doesn't drag the
     // request past the gateway timeout. Per-materializer timeout still
     // caps individual upstream calls at EMEM_MATERIALIZER_TIMEOUT_SECS;
-    // this is the fan-out ceiling on top of that. Tunable via
-    // EMEM_BORING_TIMEOUT_SECS (clamped 5..=120).
-    let budget = std::env::var("EMEM_BORING_TIMEOUT_SECS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(60u64)
-        .clamp(5, 120);
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(budget),
+    // this is the fan-out ceiling on top of that.
+    let tag = format!("bands {bands:?}");
+    let v = with_boring_budget(
+        &tag,
         boring_recall_aggregated(s, target, &bands_owned, q.tslot),
     )
-    .await
-    {
-        Ok(Ok(v)) => Ok(Json(v)),
-        Ok(Err(e)) => Err(e),
-        Err(_) => Err(ApiError(
-            StatusCode::GATEWAY_TIMEOUT,
-            ErrorBody {
-                code: emem_core::error::ErrorCode::SourceFetchFailed,
-                message: format!(
-                    "boring-endpoint fan-out over bands {bands:?} exceeded {budget}s. Tune EMEM_BORING_TIMEOUT_SECS, or call /v1/recall with a single band to bypass the fan-out."
-                ),
-                details: None,
-            },
-        )),
-    }
+    .await?;
+    Ok(Json(v))
 }
 
 /// `GET /v1/ndvi?lat=&lon=` → indices.ndvi
@@ -8149,7 +8208,13 @@ async fn get_v1_elevation(
     Query(q): Query<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let target = q.resolve_target(16).await?;
-    Ok(Json(elevation_coherent(&s, target).await?))
+    // Wrap in the boring-endpoint budget so a wide polygon fan-out
+    // (n_cells up to 512 since commit 4) can't run past the wall-clock
+    // budget. Without this, elevation_coherent_polygon spawns one
+    // JoinSet task per cell with no ceiling, and a long-tail materializer
+    // can keep the request live well past the boring 60 s contract.
+    let v = with_boring_budget("elevation_coherence", elevation_coherent(&s, target)).await?;
+    Ok(Json(v))
 }
 
 /// `GET /v1/air?lat=&lon=` → cams.pm25 + cams.no2 + cams.o3
@@ -8266,9 +8331,13 @@ async fn post_v1_at(
             bands.push((*b).to_string());
         }
     }
-    Ok(Json(
-        boring_recall_aggregated(&s, target, &bands, q.tslot).await?,
-    ))
+    let tag = format!("at bands {bands:?}");
+    let v = with_boring_budget(
+        &tag,
+        boring_recall_aggregated(&s, target, &bands, q.tslot),
+    )
+    .await?;
+    Ok(Json(v))
 }
 
 async fn post_v1_ndvi(
@@ -15022,7 +15091,8 @@ async fn post_elevation_coherent(
             },
         ));
     };
-    Ok(Json(elevation_coherent(&s, target).await?))
+    let v = with_boring_budget("elevation_coherence", elevation_coherent(&s, target)).await?;
+    Ok(Json(v))
 }
 
 const ELEVATION_COHERENCE_BANDS: &[&str] = &[
@@ -15220,7 +15290,12 @@ async fn elevation_coherent_polygon(
     target: &ResolvedTarget,
     polygon: &ResolvedPolygon,
 ) -> Result<JsonValue, ApiError> {
-    let cells: Vec<String> = polygon.sample_cells.iter().take(64).cloned().collect();
+    let cells: Vec<String> = polygon
+        .sample_cells
+        .iter()
+        .take(boring_max_cells())
+        .cloned()
+        .collect();
     if cells.is_empty() {
         let point = ResolvedTarget {
             lat: target.lat,
@@ -17213,23 +17288,36 @@ async fn materialize_weather_current(
     let url = format!(
         "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={lat:.4}&lon={lng:.4}",
     );
-    let resp = reqwest_client()
-        .get(&url)
-        .header(
-            "user-agent",
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
-        )
-        .send()
-        .await
-        .map_err(|e| format!("met.no https: {e}"))?;
+    // Wrap the whole upstream call in EMEM_MATERIALIZER_TIMEOUT_SECS so a
+    // slow MET Norway response (rare but observed under storms when
+    // their cache misses) can't wedge a /v1/weather boring-endpoint
+    // request past its 60 s budget. Matches the CAMS / ERA5 / POWER /
+    // marine wrappers — met.no was the lone exception.
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let resp = tokio::time::timeout(
+        timeout,
+        reqwest_client()
+            .get(&url)
+            .header(
+                "user-agent",
+                concat!(
+                    "emem.dev/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (avijeet@vortx.ai)"
+                ),
+            )
+            .send(),
+    )
+    .await
+    .map_err(|_| format!("met.no timeout after {}s for {band}", timeout.as_secs()))?
+    .map_err(|e| format!("met.no https: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("met.no status {} for {band}", resp.status()));
     }
-    let body: JsonValue = resp.json().await.map_err(|e| format!("met.no json: {e}"))?;
+    let body: JsonValue = tokio::time::timeout(timeout, resp.json())
+        .await
+        .map_err(|_| format!("met.no body timeout after {}s for {band}", timeout.as_secs()))?
+        .map_err(|e| format!("met.no json: {e}"))?;
     // MET Norway returns the *current* observation as `properties.timeseries[0]`.
     // `instant.details` carries point-in-time fields; `next_1_hours.details`
     // carries accumulated values like precipitation_amount.
@@ -28525,14 +28613,36 @@ fn aggregate_baseline_provenance(per_cell: &[EudrCellVerdict]) -> &'static str {
 /// logic. Graceful: missing required inputs → indeterminate; missing
 /// optional refinement inputs → use whatever's available.
 async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
-    let bands = vec![
-        "jrc_gfc2020.forest_2020".to_string(),
-        "forest_change.treecover2000".to_string(),
-        "forest_change.lossyear".to_string(),
-        "jrc_tmf.deforestation_year".to_string(),
-        "wri_gdm.driver_class".to_string(),
-        "radd.alert_date".to_string(),
+    let bands: [&str; 6] = [
+        "jrc_gfc2020.forest_2020",
+        "forest_change.treecover2000",
+        "forest_change.lossyear",
+        "jrc_tmf.deforestation_year",
+        "wri_gdm.driver_class",
+        "radd.alert_date",
     ];
+
+    // Parallel per-band fetch within this cell. Pre-fix this was a
+    // bare `for b in &bands { try_materialize_one_band(...).await }`
+    // — six bands × cold-fetch on the slowest (Hansen, JRC TMF) ran
+    // 30–90 s per cell. With 8-cell concurrency × 16 cells, that
+    // pushed a typical 4 ha plot past the 120 s EUDR budget. The
+    // band materializers are independent (no cross-band dependencies
+    // here — the algorithm AST only consumes their values after they
+    // all resolve), so a single `join_all` collapses the per-cell
+    // wall-clock to max(band_latency) ≈ Hansen's ~15 s cold-cache.
+    // Each call still hits the per-materializer single-flight caches
+    // (PROFILE_CACHE + TILE_CACHE in cog.rs from commit 3), so
+    // parallel callers across cells in the same Sentinel tile share
+    // the upstream byte-range reads.
+    let band_results: Vec<(usize, Result<emem_fact::FactCid, String>)> =
+        futures_util::future::join_all(bands.iter().enumerate().map(|(i, b)| {
+            let cell = cell64.to_string();
+            let band = (*b).to_string();
+            async move { (i, try_materialize_one_band(&cell, &band, s).await) }
+        }))
+        .await;
+
     let mut jrc: Option<i64> = None;
     let mut hansen_tc: Option<i64> = None;
     let mut hansen_ly: Option<i64> = None;
@@ -28541,8 +28651,11 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
     let mut radd_date: Option<i64> = None;
     let mut fact_cids: Vec<String> = Vec::new();
 
-    for b in &bands {
-        let cid = match try_materialize_one_band(cell64, b, s).await {
+    // Resolve each successful CID to the Primary fact's integer value.
+    // Done sequentially because get_facts_many already batches under
+    // the hood; the storage hit is microseconds when warm.
+    for (i, res) in band_results {
+        let cid = match res {
             Ok(c) => c,
             Err(_) => continue,
         };
@@ -28553,9 +28666,9 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
             .await
             .map(|v| v.into_iter().next().flatten())
         {
-            if let ciborium::Value::Integer(i) = p.value {
-                if let Ok(v) = i64::try_from(i) {
-                    match b.as_str() {
+            if let ciborium::Value::Integer(int_v) = p.value {
+                if let Ok(v) = i64::try_from(int_v) {
+                    match bands[i] {
                         "jrc_gfc2020.forest_2020" => jrc = Some(v),
                         "forest_change.treecover2000" => hansen_tc = Some(v),
                         "forest_change.lossyear" => hansen_ly = Some(v),
@@ -28890,7 +29003,12 @@ async fn post_eudr_dds(
             ErrorBody {
                 code: emem_core::error::ErrorCode::SourceFetchFailed,
                 message: format!(
-                    "/v1/eudr_dds: per-plot per-cell fan-out for {n_plots} plot(s) exceeded {budget}s. Likely a cold JRC GFC2020 / Hansen GFC tile read; warm by calling /v1/recall on a sample cell with bands:[\"jrc_gfc2020_v3.forest_2020\",\"hansen_gfc.lossyear_v1_12\"] first, or raise EMEM_EUDR_TIMEOUT_SECS."
+                    "/v1/eudr_dds: per-plot per-cell fan-out for {n_plots} plot(s) exceeded {budget}s. \
+                     Likely a cold JRC GFC2020 / Hansen GFC tile read; warm by calling /v1/recall on a \
+                     sample cell with bands:[\"jrc_gfc2020.forest_2020\",\"forest_change.lossyear\",\
+                     \"forest_change.treecover2000\",\"jrc_tmf.deforestation_year\"] first, or raise \
+                     EMEM_EUDR_TIMEOUT_SECS. Band keys here match eudr_compliance@1's primary_bands \
+                     (see GET /v1/algorithms/eudr_compliance@1)."
                 ),
                 details: None,
             },
@@ -29530,6 +29648,121 @@ fn candidate_is_conceptual(cand: &str) -> Option<Vec<String>> {
 /// Returns at most 4 distinct candidates in priority order.  No
 /// hardcoded place names; the verification step is the geocoder, so
 /// this stays correct as new places get added or aliased.
+/// Extract a (lat, lng) pair from free-form question text. Recognises
+/// the patterns agents most commonly emit:
+///   - `lat=12.97 lng=77.59`  (or `lat=12.97, lon=77.59`)
+///   - `latitude=12.97 longitude=77.59`
+///   - `(12.97, 77.59)` or `12.97, 77.59` when both numbers are in
+///     WGS-84 range (lat ∈ [-90, 90], lng ∈ [-180, 180]) and are the
+///     ONLY decimal pair in the question — otherwise too risky
+///     (e.g. "between 12 and 77 degrees" would false-positive).
+///
+/// Returns `None` when nothing matches. Designed for use in
+/// [`ask_inner`] before the place-cascade so a question with
+/// embedded coordinates short-circuits straight into the recall
+/// path without round-tripping through the geocoder.
+fn extract_latlng_from_text(q: &str) -> Option<(f64, f64)> {
+    // Pattern 1 (key/value): scan for `lat=<num>` and the nearest
+    // `lng=<num>` / `lon=<num>` / `long=<num>` / `longitude=<num>`.
+    // Case-insensitive, tolerates `=`, `:` or `space` separators and
+    // optional commas between the two clauses.
+    let lower = q.to_ascii_lowercase();
+    let find_kv = |k: &str| -> Option<(usize, f64)> {
+        let needle = format!("{k}");
+        let mut start = 0usize;
+        while let Some(idx) = lower[start..].find(&needle) {
+            let abs = start + idx;
+            // Must be preceded by start-of-string or non-word char so
+            // "lat" doesn't match the middle of "delat" / "latitude…"
+            // (handled separately for longer keys).
+            let ok_prefix = abs == 0
+                || !lower
+                    .as_bytes()
+                    .get(abs - 1)
+                    .map(|b| b.is_ascii_alphanumeric())
+                    .unwrap_or(false);
+            let after = abs + needle.len();
+            // Skip the key, then any of `=`, `:`, `space`, `,`, `(`.
+            let rest = &lower[after..];
+            let val_start = rest
+                .char_indices()
+                .find(|(_, c)| c.is_ascii_digit() || *c == '-' || *c == '+' || *c == '.')
+                .map(|(i, _)| i);
+            if let (true, Some(vs)) = (ok_prefix, val_start) {
+                let tail = &lower[after + vs..];
+                let n_end = tail
+                    .char_indices()
+                    .find(|(_, c)| !(c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '+'))
+                    .map(|(i, _)| i)
+                    .unwrap_or(tail.len());
+                if let Ok(v) = tail[..n_end].parse::<f64>() {
+                    return Some((abs, v));
+                }
+            }
+            start = abs + needle.len();
+        }
+        None
+    };
+    let lat_kv = find_kv("latitude").or_else(|| find_kv("lat"));
+    let lng_kv = find_kv("longitude")
+        .or_else(|| find_kv("long"))
+        .or_else(|| find_kv("lng"))
+        .or_else(|| find_kv("lon"));
+    if let (Some((_, la)), Some((_, lo))) = (lat_kv, lng_kv) {
+        if (-90.0..=90.0).contains(&la) && (-180.0..=180.0).contains(&lo) {
+            return Some((la, lo));
+        }
+    }
+
+    // Pattern 2 (bare pair): match exactly one occurrence of
+    // `<num>, <num>` (with optional parens / spaces). Only fires when
+    // both numbers parse as valid WGS-84 and there is exactly one
+    // candidate pair — avoids "between 12 and 77" / "13 hours, 41 min"
+    // false positives.
+    let mut bare_pairs: Vec<(f64, f64)> = Vec::new();
+    let bytes = q.as_bytes();
+    let is_num_char = |c: u8| c.is_ascii_digit() || c == b'.' || c == b'-' || c == b'+';
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if is_num_char(bytes[i])
+            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric())
+        {
+            let s = i;
+            while i < bytes.len() && is_num_char(bytes[i]) {
+                i += 1;
+            }
+            let first = std::str::from_utf8(&bytes[s..i]).ok().and_then(|t| t.parse::<f64>().ok());
+            // Skip separator: comma, whitespace, semicolon
+            let mut j = i;
+            while j < bytes.len() && (bytes[j] == b',' || bytes[j].is_ascii_whitespace() || bytes[j] == b';') {
+                j += 1;
+            }
+            if let Some(la) = first {
+                if j < bytes.len() && is_num_char(bytes[j]) {
+                    let s2 = j;
+                    while j < bytes.len() && is_num_char(bytes[j]) {
+                        j += 1;
+                    }
+                    let second =
+                        std::str::from_utf8(&bytes[s2..j]).ok().and_then(|t| t.parse::<f64>().ok());
+                    if let Some(lo) = second {
+                        if (-90.0..=90.0).contains(&la) && (-180.0..=180.0).contains(&lo) {
+                            bare_pairs.push((la, lo));
+                            i = j;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    if bare_pairs.len() == 1 {
+        return Some(bare_pairs[0]);
+    }
+    None
+}
+
 fn extract_place_candidates(q: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let push_unique = |s: String, out: &mut Vec<String>| {
@@ -29699,7 +29932,7 @@ fn interpret_cell_input(raw: &str) -> CellInputKind {
     CellInputKind::Place(trimmed.to_string())
 }
 
-async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
+async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -29723,6 +29956,22 @@ async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     // every `fact_cid` / signer field — stays intact: receipt signing is
     // protocol-critical and must never be touched by a verbosity toggle.
     let verbose = req.verbose.unwrap_or(false);
+
+    // Inline lat/lng extraction from the question text. Common ChatGPT /
+    // Claude pattern: the user types "ndvi at lat=12.97 lng=77.59" or
+    // "what's the temperature at 37.55, -122.46" instead of populating
+    // the structured `lat` / `lng` fields. Without this step the
+    // question was bouncing back as `needs_location` even though the
+    // coordinates were sitting right there in `q`. We promote the
+    // extracted pair into `req.lat` / `req.lng` only when neither was
+    // already explicit, so a caller that passed both q AND structured
+    // fields keeps the explicit values.
+    if req.cell.is_none() && req.lat.is_none() && req.lng.is_none() {
+        if let Some((la, lo)) = extract_latlng_from_text(&req.q) {
+            req.lat = Some(la);
+            req.lng = Some(lo);
+        }
+    }
 
     // Corpus-meta intents (no place anchor) — answer before the locate
     // cascade so we don't return the misleading `needs_location`
@@ -31826,6 +32075,18 @@ fn locate_confidence(
 /// (key, min_lat, max_lat, min_lng, max_lng). Agents asking about these
 /// names should fan out a /v1/recall over cells inside the box, not
 /// trust the centroid.
+// Curated wide-feature bboxes for landform / biome / sub-continent
+// queries that don't have an admin polygon and aren't carried by the
+// POI tier as anything more than a centroid. Resolved before the
+// GeoNames cascade so a hunt or polygon recall can fan out over the
+// whole feature rather than degenerating to a single point.
+// Coordinates are conservative envelopes — overshoot on the side of
+// inclusion (the polygon-PIP step in recall_polygon trims to actual
+// data extent anyway). Added 2026-05-25: Borneo, Congo Basin,
+// Mekong Delta, Sundaland, Patagonia, Tibetan Plateau, Gobi,
+// Atacama, Kalahari, Pampas — all came back as `via=pois` (centroid
+// only) after the 2026-05-23 geocoder cascade rewrite, breaking
+// /v1/hunt for any of these as region anchors.
 const WIDE_BBOXES: &[(&str, f64, f64, f64, f64)] = &[
     ("grand canyon", 35.95, 36.30, -113.00, -111.60),
     ("amazon", -10.00, 5.00, -75.00, -50.00),
@@ -31841,6 +32102,28 @@ const WIDE_BBOXES: &[(&str, f64, f64, f64, f64)] = &[
     ("andes", -55.00, 12.00, -82.00, -62.00),
     ("greenland", 59.00, 84.00, -73.00, -11.00),
     ("siberia", 50.00, 78.00, 60.00, 180.00),
+    // Forest / land-cover regions used heavily by /v1/hunt and EUDR-
+    // style monitoring; centroids alone are useless for fan-out.
+    ("borneo", -4.20, 7.40, 108.70, 119.30),
+    ("kalimantan", -4.20, 4.20, 108.70, 119.30),
+    ("sumatra", -6.00, 6.00, 95.00, 106.00),
+    ("new guinea", -10.80, -0.50, 130.50, 151.00),
+    ("papua new guinea", -10.80, -0.50, 141.00, 156.00),
+    ("congo basin", -5.00, 5.00, 11.00, 31.00),
+    ("congo rainforest", -5.00, 5.00, 11.00, 31.00),
+    ("mekong delta", 8.50, 11.00, 104.50, 107.20),
+    ("sundaland", -8.00, 8.00, 95.00, 122.00),
+    ("patagonia", -55.00, -36.00, -76.00, -62.00),
+    ("tibetan plateau", 28.00, 38.00, 73.00, 105.00),
+    ("gobi", 39.00, 49.00, 89.00, 116.00),
+    ("atacama", -27.00, -18.00, -71.00, -67.00),
+    ("kalahari", -28.00, -17.00, 19.00, 27.00),
+    ("pampas", -39.00, -29.00, -65.00, -52.00),
+    ("cerrado", -22.00, -3.00, -60.00, -42.00),
+    ("pantanal", -22.00, -16.00, -59.00, -55.00),
+    ("chaco", -32.00, -19.00, -65.00, -56.00),
+    ("taiga", 50.00, 70.00, 20.00, 180.00),
+    ("savanna", -20.00, 15.00, -20.00, 50.00),
 ];
 
 /// Return up to `target_n` distinct cell64 strings sampled inside a
@@ -32007,6 +32290,20 @@ async fn apply_overture_division_upgrade(
     overture_country: &mut Option<String>,
     localized_names: &mut std::collections::BTreeMap<String, String>,
 ) {
+    // Opt-in fast path for operators who want to skip the Overture
+    // upgrade entirely when the GeoNames tier table already produced
+    // a bbox. Trades polygon precision (the cities-aggregated bbox
+    // underestimates coastlines / overseas dependencies and never
+    // carries a GERS id) for a 3–15 s latency win per cold-cache
+    // place lookup. The bbox we keep is the tier-table aggregate
+    // (`country_table` / `admin1_table` / `admin2_table` /
+    // `admin3_table`), so the source field still tells downstream
+    // consumers exactly where the polygon came from.
+    if std::env::var("EMEM_LOCATE_SKIP_OVERTURE_UPGRADE").ok().as_deref() == Some("1")
+        && polygon_bbox.is_some()
+    {
+        return;
+    }
     let div = match emem_fetch::overture::OvertureClient::shared()
         .division_polygon_with_subtype(lat, lng, name_hint, preferred_subtype)
         .await
@@ -32076,40 +32373,140 @@ fn geocoder_db_path() -> std::path::PathBuf {
     std::path::Path::new(&dir).join("geocoder.sled")
 }
 
-/// Sled-backed geocoder cache. Replaces the previous JSON-file
-/// implementation: O(1) per-key writes (no full-file rewrite on every
-/// put), zero-copy lookups, durable across restart, and the same
-/// process-exclusive lock semantics as our main cache. Stored in its
-/// own sled DB at `$EMEM_DATA/geocoder.sled` so it doesn't share a
-/// lock with the fact cache (the two have different access patterns —
-/// the geocoder is read-heavy, the fact cache is write-heavy).
-fn geocoder_db() -> &'static sled::Tree {
-    static T: std::sync::OnceLock<sled::Tree> = std::sync::OnceLock::new();
+/// Sled tree name for the persistent Overture division-polygon cache.
+/// Lives inside the same `geocoder.sled` DB as the GeoNames cache so
+/// the responder doesn't have to manage a second lock; the tree
+/// namespace keeps the two key spaces disjoint (geocoder keys are
+/// `<lowercased query>` bytes, division keys are `div:{lat}:{lng}:…`).
+const OVERTURE_DIVISIONS_TREE: &str = "emem.overture.divisions";
+
+/// Sled-backed implementation of
+/// [`emem_fetch::overture::DivisionPersistentCache`]. Wraps the tree
+/// returned by [`overture_divisions_tree`] so the trait stays in
+/// `emem-fetch` (where the lookup path consumes it) and the sled
+/// dependency stays here (where the rest of the durable state lives).
+struct SledDivisionCache {
+    tree: &'static sled::Tree,
+}
+
+impl emem_fetch::overture::DivisionPersistentCache for SledDivisionCache {
+    fn get(&self, key: &str) -> Option<Vec<u8>> {
+        match self.tree.get(key.as_bytes()) {
+            Ok(Some(v)) => Some(v.to_vec()),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    target: "emem::overture::cache",
+                    error = %e,
+                    cache_key = %key,
+                    "sled get failed; falling through to parquet scan"
+                );
+                None
+            }
+        }
+    }
+
+    fn put(&self, key: &str, value: &[u8]) {
+        if let Err(e) = self.tree.insert(key.as_bytes(), value) {
+            tracing::warn!(
+                target: "emem::overture::cache",
+                error = %e,
+                cache_key = %key,
+                "sled put failed; next lookup will recompute"
+            );
+        }
+    }
+}
+
+/// Tree handle for the Overture divisions cache, derived from the
+/// shared [`geocoder_sled_db`]. Returns `None` only when the tree
+/// open itself fails (an extremely unlikely degraded-sled state) —
+/// caller treats `None` as "no persistent cache wired" and skips
+/// the `set_persistent_cache` call so the in-memory fallback still
+/// works.
+fn overture_divisions_tree() -> Option<&'static sled::Tree> {
+    static T: std::sync::OnceLock<Option<&'static sled::Tree>> = std::sync::OnceLock::new();
     T.get_or_init(|| {
-        // Open lazily on first cache access. Sled is forgiving: missing
-        // dir is created, missing tree is created, corrupt segments are
-        // recovered — we just propagate any unrecoverable error to a
-        // panic on first call rather than silently swallowing data loss.
+        let tree = match geocoder_sled_db().open_tree(OVERTURE_DIVISIONS_TREE) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    target: "emem::overture::cache",
+                    error = %e,
+                    "failed to open overture divisions tree; cache disabled"
+                );
+                return None;
+            }
+        };
+        let warm_count = tree.len();
+        let tree: &'static sled::Tree = Box::leak(Box::new(tree));
+        if warm_count > 0 {
+            tracing::info!(
+                target: "emem::overture::cache",
+                overture_cache_warm_start = warm_count,
+                "overture divisions cache warm-start"
+            );
+        }
+        Some(tree)
+    })
+    .as_ref()
+    .copied()
+}
+
+/// Public entry point used by the server boot path to install the
+/// sled-backed division cache into the process-wide
+/// [`emem_fetch::overture::OvertureClient`]. Idempotent — safe to
+/// call once at start; subsequent calls are no-ops because
+/// `OvertureClient::set_persistent_cache` uses `OnceLock::set`.
+pub fn wire_overture_persistent_cache() {
+    let Some(tree) = overture_divisions_tree() else {
+        return;
+    };
+    emem_fetch::overture::OvertureClient::shared()
+        .set_persistent_cache(Box::new(SledDivisionCache { tree }));
+}
+
+/// Process-wide handle to the sled DB at `$EMEM_DATA/geocoder.sled`.
+/// **Open exactly once per process** — sled enforces a file-lock on
+/// the DB directory and a second `sled::open` against the same path
+/// returns `WouldBlock`. All trees (the GeoNames geocoder cache, the
+/// Overture divisions cache, any future cache) must derive their
+/// `sled::Tree` from this shared `Db`. The `Db` is `Box::leak`ed
+/// (~few-KB amortised over process lifetime) so the lock survives
+/// for as long as any tree handle does.
+fn geocoder_sled_db() -> &'static sled::Db {
+    static DB: std::sync::OnceLock<&'static sled::Db> = std::sync::OnceLock::new();
+    DB.get_or_init(|| {
         let path = geocoder_db_path();
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        // Sled is forgiving: missing dir is created, missing tree is
+        // created, corrupt segments are recovered — we propagate any
+        // unrecoverable error as a panic on first call rather than
+        // silently swallowing data loss.
         let db = sled::open(&path).expect("open geocoder sled DB");
-        let tree = db
+        Box::leak(Box::new(db))
+    })
+}
+
+/// Sled-backed geocoder cache. Replaces the previous JSON-file
+/// implementation: O(1) per-key writes (no full-file rewrite on every
+/// put), zero-copy lookups, durable across restart, and the same
+/// process-exclusive lock semantics as our main cache. Lives inside
+/// the shared [`geocoder_sled_db`] handle so the Overture-divisions
+/// cache (and any future tree) can coexist on the same lock.
+fn geocoder_db() -> &'static sled::Tree {
+    static T: std::sync::OnceLock<sled::Tree> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let tree = geocoder_sled_db()
             .open_tree("emem.geocoder")
             .expect("open geocoder sled tree");
-        // Leak the Db so the Tree handle stays alive for process lifetime.
-        // Sled's Db drops close all trees; OnceLock retains only the Tree.
-        // We intentionally Box::leak the Db to keep it open as long as the
-        // process runs — this is a one-shot 8 KB leak amortised over the
-        // process lifetime.
-        let _: &'static sled::Db = Box::leak(Box::new(db));
         let n = tree.len();
         if n > 0 {
             tracing::info!(
                 target: "emem::geocoder",
                 geocoder_cache_warm_start = n,
-                geocoder_cache_path = %path.display(),
                 "geocoder_cache_warm_start"
             );
         }

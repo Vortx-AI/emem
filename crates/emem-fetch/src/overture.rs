@@ -35,6 +35,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use arrow::array::{
     Array, BinaryArray, Float32Array, Float64Array, LargeBinaryArray, MapArray, StringArray,
     StructArray,
@@ -102,6 +104,44 @@ type FileListCache = std::collections::HashMap<FileListKey, Vec<String>>;
 type DivisionCacheKey = (i32, i32, String);
 type DivisionCache = std::collections::HashMap<DivisionCacheKey, Option<DivisionMatch>>;
 
+/// Render a [`DivisionCacheKey`] into a flat string suitable as a
+/// persistent-store key. Format is `"div:{lat100}:{lng100}:{subtype}|{hint}"`
+/// where `subtype|hint` is the third tuple element verbatim (already
+/// produced as `"{normalized_pref}|{normalized_hint}"` by the lookup
+/// path, so byte-identical keys come back to the in-memory cache
+/// after a sled round-trip). The `div:` prefix scopes the namespace
+/// so a single shared sled tree can carry other Overture-themed
+/// caches in future without collisions.
+pub fn division_cache_key_string(key: &(i32, i32, String)) -> String {
+    format!("div:{}:{}:{}", key.0, key.1, key.2)
+}
+
+/// Persistent backing store for the `division_polygon_*` cache.
+/// Implementations live in the crate that owns the durable storage
+/// (the API-rest crate wraps the existing `geocoder.sled` tree). The
+/// trait is intentionally bytes-in / bytes-out so this crate doesn't
+/// take a sled dependency and the implementation can swap to any
+/// kv store without touching this file.
+///
+/// Stored payload is the serde_json-encoded `Option<DivisionMatch>`.
+/// JSON instead of CBOR keeps the cache human-inspectable from the
+/// CLI (`sled-cli get`) and avoids adding `serde_cbor`/`ciborium` to
+/// the dep graph; the per-entry cost (~1–2 KiB) is irrelevant against
+/// the wall-clock savings (~10 s per cold lookup).
+pub trait DivisionPersistentCache: Send + Sync {
+    /// Returns the stored payload for `key`, or `None` on miss / error.
+    /// Errors must be swallowed and logged inside the implementation —
+    /// the lookup path treats a `None` as "fall through to the
+    /// parquet scan" and a transient sled failure must never cascade
+    /// into a 5xx on `/v1/locate`.
+    fn get(&self, key: &str) -> Option<Vec<u8>>;
+    /// Writes `value` under `key`. Errors must be logged but not
+    /// surfaced — losing a single cache put is recoverable (the next
+    /// lookup will recompute and re-put), wedging the locate path is
+    /// not.
+    fn put(&self, key: &str, value: &[u8]);
+}
+
 /// Theme + type pair Overture organises files under.
 #[derive(Debug, Clone, Copy)]
 struct ThemeType {
@@ -142,6 +182,22 @@ struct ReleaseCache {
     fetched_at: Instant,
 }
 
+/// Result of [`OvertureClient::warm_start`]. Surfaced so the boot path
+/// can log shard count + per-file footer failure count + wallclock,
+/// without having to thread metric-emission down into the fetch crate.
+#[derive(Clone, Debug)]
+pub struct WarmStartStats {
+    /// Number of `division_area` parquet shards discovered in the
+    /// active Overture release. ~30–150 for current releases.
+    pub file_count: usize,
+    /// Shards whose parquet footer fetch failed. Lookup path tolerates
+    /// this — it will re-fetch the footer on demand — so a non-zero
+    /// value is degraded, not fatal.
+    pub footer_errors: usize,
+    /// Wall-clock duration of the warm-up call, milliseconds.
+    pub elapsed_ms: u64,
+}
+
 /// Anonymous S3 reader for the latest Overture release. The release tag
 /// is auto-discovered on first use and re-checked every `RELEASE_TTL`.
 /// On a refresh failure we log + reuse the cached value (the only
@@ -161,7 +217,21 @@ pub struct OvertureClient {
     file_lists: Mutex<FileListCache>,
     /// Decoded parquet footers per S3 key.
     footers: Mutex<FooterCache>,
+    /// Durable cache for `division_polygon_*` results, set once at
+    /// boot via [`Self::set_persistent_cache`]. When present, lookups
+    /// consult it before scanning parquet and write back on miss so a
+    /// process restart doesn't re-pay the 6–15 s cold-cache cost for
+    /// places the responder has already resolved. `OnceLock` rather
+    /// than `Mutex<Option<…>>` because the cache is wired once and
+    /// then read-only thereafter — no need for write locks on every
+    /// lookup.
+    persistent_cache: OnceLock<Box<dyn DivisionPersistentCache>>,
     /// In-process memoization of `division_polygon_near` lookups.
+    //
+    // NB: see [`WarmStartStats`] above for the boot-time pre-warm
+    // entrypoint that fills `release_cache`, `file_lists`, and
+    // `footers` in one pass.
+    //
     /// Keyed by the anchor coord rounded to 0.01° (~1.1 km grid) plus
     /// the normalized name hint, so a downstream agent calling
     /// `/v1/locate("Mumbai")` twice in a row pays the ~4 s cold Overture
@@ -197,8 +267,18 @@ impl OvertureClient {
             release_cache: Mutex::new(None),
             file_lists: Mutex::new(Default::default()),
             footers: Mutex::new(Default::default()),
+            persistent_cache: OnceLock::new(),
             division_cache: Mutex::new(Default::default()),
         })
+    }
+
+    /// Wire a durable cache for `division_polygon_*` results. Call once
+    /// at server boot — subsequent calls are no-ops (`OnceLock::set`
+    /// returns `Err` on re-set, which we drop). When unset (default),
+    /// the lookup path is unchanged: in-memory cache only, full cold
+    /// cost on process restart.
+    pub fn set_persistent_cache(&self, cache: Box<dyn DivisionPersistentCache>) {
+        let _ = self.persistent_cache.set(cache);
     }
 
     /// Process-global instance. Initialised on first use; the inner
@@ -209,6 +289,57 @@ impl OvertureClient {
         static C: OnceLock<OvertureClient> = OnceLock::new();
         C.get_or_init(|| {
             OvertureClient::new().expect("OvertureClient::new (anonymous S3) must not fail")
+        })
+    }
+
+    /// Pre-populate the release tag, file list, and parquet footers for
+    /// the `divisions/division_area` theme. Idempotent — safe to call
+    /// once at server boot, additional calls hit the existing caches
+    /// and return immediately.
+    ///
+    /// Without this, the first `division_polygon_*` call after process
+    /// start pays the full S3 list + per-file footer fetch — measured
+    /// at 6–15 s for a typical place anchor with `EMEM_OVERTURE_PARALLEL=32`.
+    /// That latency directly translates into a `/v1/ndvi` or
+    /// `/v1/eudr_dds` 504 because the boring-endpoint budget is 60 s
+    /// and the geocoder consumes most of it. After `warm_start` the
+    /// first locate call only pays the bbox-pruned row-group reads
+    /// (typically ~200–500 ms).
+    pub async fn warm_start(&self) -> Result<WarmStartStats, OvertureError> {
+        let t0 = Instant::now();
+        // 1. Cache the release tag (one S3 list on `release/`).
+        let _release = self.release().await?;
+        // 2. Cache the divisions/division_area file list (one S3 list).
+        let files = self.list_files(DIVISIONS_AREA).await?;
+        let file_count = files.len();
+        // 3. Cache each parquet footer (one HEAD + metadata range read
+        //    per file, fanned out at `scan_parallelism()`). Failures are
+        //    logged and counted; we never fail the whole warm-up on a
+        //    single flaky shard — the lookup path also tolerates the
+        //    cold path.
+        let parallel = scan_parallelism();
+        let footer_errors = futures_util::stream::iter(files)
+            .map(|key| async move {
+                match self.footer(&key).await {
+                    Ok(_) => 0usize,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::overture::warm",
+                            key = %key,
+                            error = %e,
+                            "footer warm-up failed; lookup path will retry on demand"
+                        );
+                        1usize
+                    }
+                }
+            })
+            .buffer_unordered(parallel)
+            .fold(0usize, |acc, n| async move { acc + n })
+            .await;
+        Ok(WarmStartStats {
+            file_count,
+            footer_errors,
+            elapsed_ms: t0.elapsed().as_millis() as u64,
         })
     }
 
@@ -660,6 +791,35 @@ impl OvertureClient {
         if let Some(hit) = self.division_cache.lock().await.get(&cache_key) {
             return Ok(hit.clone());
         }
+        // Persistent cache check — sled-backed, populated on prior
+        // process lifetimes. A hit promotes the entry back into the
+        // in-memory cache so the second call within this process pays
+        // only the HashMap lookup, not a sled read + JSON decode.
+        if let Some(pc) = self.persistent_cache.get() {
+            let key_str = division_cache_key_string(&cache_key);
+            if let Some(raw) = pc.get(&key_str) {
+                match serde_json::from_slice::<Option<DivisionMatch>>(&raw) {
+                    Ok(decoded) => {
+                        self.division_cache
+                            .lock()
+                            .await
+                            .insert(cache_key.clone(), decoded.clone());
+                        return Ok(decoded);
+                    }
+                    Err(e) => {
+                        // Corrupt entry — log and fall through to a
+                        // fresh scan. The fresh result will overwrite
+                        // the bad row on the put below, self-healing.
+                        tracing::warn!(
+                            target: "emem::overture::cache",
+                            cache_key = %key_str,
+                            error = %e,
+                            "persistent division_cache entry failed to decode; recomputing"
+                        );
+                    }
+                }
+            }
+        }
         // Search window: scales with `preferred_subtype` so country-
         // tier scans don't miss the country polygon entirely. A
         // ½° pad around the anchor catches every locality (NYC ~0.3°,
@@ -708,6 +868,7 @@ impl OvertureClient {
             .await?;
 
         if candidates.is_empty() {
+            self.persist_division_lookup(&cache_key, &None);
             self.division_cache.lock().await.insert(cache_key, None);
             return Ok(None);
         }
@@ -748,8 +909,8 @@ impl OvertureClient {
             *exact_subtype_pinned
                 .iter()
                 .max_by(|a, b| {
-                    a.bbox_area_deg_sq
-                        .partial_cmp(&b.bbox_area_deg_sq)
+                    a.bbox_area_km_sq
+                        .partial_cmp(&b.bbox_area_km_sq)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .expect("non-empty exact_subtype_pinned")
@@ -760,8 +921,8 @@ impl OvertureClient {
                     division_subtype_rank(&a.subtype)
                         .cmp(&division_subtype_rank(&b.subtype))
                         .then_with(|| {
-                            a.bbox_area_deg_sq
-                                .partial_cmp(&b.bbox_area_deg_sq)
+                            a.bbox_area_km_sq
+                                .partial_cmp(&b.bbox_area_km_sq)
                                 .unwrap_or(std::cmp::Ordering::Equal)
                         })
                 })
@@ -770,8 +931,8 @@ impl OvertureClient {
             *subtype_pinned
                 .iter()
                 .min_by(|a, b| {
-                    a.bbox_area_deg_sq
-                        .partial_cmp(&b.bbox_area_deg_sq)
+                    a.bbox_area_km_sq
+                        .partial_cmp(&b.bbox_area_km_sq)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .expect("non-empty subtype_pinned")
@@ -779,8 +940,8 @@ impl OvertureClient {
             *partial
                 .iter()
                 .min_by(|a, b| {
-                    a.bbox_area_deg_sq
-                        .partial_cmp(&b.bbox_area_deg_sq)
+                    a.bbox_area_km_sq
+                        .partial_cmp(&b.bbox_area_km_sq)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .expect("non-empty partial")
@@ -788,18 +949,47 @@ impl OvertureClient {
             candidates
                 .iter()
                 .min_by(|a, b| {
-                    a.bbox_area_deg_sq
-                        .partial_cmp(&b.bbox_area_deg_sq)
+                    a.bbox_area_km_sq
+                        .partial_cmp(&b.bbox_area_km_sq)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .expect("non-empty candidates")
         };
         let result = chosen.clone();
+        self.persist_division_lookup(&cache_key, &Some(result.clone()));
         self.division_cache
             .lock()
             .await
             .insert(cache_key, Some(result.clone()));
         Ok(Some(result))
+    }
+
+    /// Write a `division_polygon_*` lookup result to the persistent
+    /// cache if one is wired. Sync (no `.await`) because sled writes
+    /// are non-blocking from the caller's perspective — the
+    /// implementation pushes into its background flusher. Serialise
+    /// failures are logged and dropped: a missing persistent put just
+    /// means the next process will re-pay the parquet scan once.
+    fn persist_division_lookup(
+        &self,
+        cache_key: &DivisionCacheKey,
+        value: &Option<DivisionMatch>,
+    ) {
+        let Some(pc) = self.persistent_cache.get() else {
+            return;
+        };
+        let key_str = division_cache_key_string(cache_key);
+        match serde_json::to_vec(value) {
+            Ok(bytes) => pc.put(&key_str, &bytes),
+            Err(e) => {
+                tracing::warn!(
+                    target: "emem::overture::cache",
+                    cache_key = %key_str,
+                    error = %e,
+                    "failed to serialize division lookup for persistent cache"
+                );
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -898,7 +1088,24 @@ impl OvertureClient {
                 let x1 = bb.xmax.val(i);
                 let y0 = bb.ymin.val(i);
                 let y1 = bb.ymax.val(i);
-                let bbox_area_deg_sq = (x1 - x0).abs() * (y1 - y0).abs();
+                // Cosine-corrected km² so the smallest-bbox tie-break
+                // doesn't systematically prefer high-latitude polygons
+                // over equally-sized tropical ones. 1° latitude is a
+                // near-constant 111.32 km on WGS-84; 1° longitude is
+                // 111.32 × cos(lat) km, shrinking to zero at the poles.
+                // Centroid latitude is a good enough approximation for
+                // a ranking key — admin bboxes rarely span enough
+                // latitude for the cosine to change much within a
+                // single row. Anti-meridian wrap is not handled here;
+                // the lng extent is computed from the parquet bbox
+                // column verbatim, which Overture pre-splits at ±180°
+                // for IDL-crossing polygons.
+                let bbox_area_km_sq = {
+                    let lat_center = (y0 + y1) * 0.5;
+                    let km_per_deg_lat = 111.32_f64;
+                    let km_per_deg_lng = 111.32_f64 * lat_center.to_radians().cos().max(0.0);
+                    (x1 - x0).abs() * km_per_deg_lng * (y1 - y0).abs() * km_per_deg_lat
+                };
                 out.push(DivisionMatch {
                     id,
                     name: primary_name,
@@ -907,7 +1114,7 @@ impl OvertureClient {
                     country,
                     geometry,
                     bbox: (y0, y1, x0, x1),
-                    bbox_area_deg_sq,
+                    bbox_area_km_sq,
                     name_matched_hint,
                 });
             }
@@ -1351,7 +1558,13 @@ pub fn wkb_point_inside(buf: &[u8], s_lat: f64, n_lat: f64, w_lng: f64, e_lng: f
 /// [`OvertureClient::division_polygon_near`]. The geometry is a
 /// GeoJSON Polygon (or MultiPolygon) ready to drop into a
 /// `/v1/recall_polygon` response's `polygon_geojson` field.
-#[derive(Debug, Clone)]
+///
+/// Serializable so the per-(anchor, name) lookup result can survive
+/// across process restarts via a [`DivisionPersistentCache`]
+/// (typically the responder's sled geocoder tree). All fields are
+/// plain owned data — no borrowed slices, no lifetimes — so a JSON
+/// round-trip is lossless.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DivisionMatch {
     /// GERS ID — globally stable Overture identifier, citable as
     /// the source CID in receipts.
@@ -1379,10 +1592,17 @@ pub struct DivisionMatch {
     /// row's bbox struct column — surfaced so recall_polygon doesn't
     /// have to re-derive it from the GeoJSON ring.
     pub bbox: (f64, f64, f64, f64),
-    /// Approx polygon size (degrees², from the bbox column). Used as
-    /// a tie-break to favor the *smallest* containing boundary —
-    /// i.e. the locality, not its enclosing region/country.
-    pub bbox_area_deg_sq: f64,
+    /// Approx polygon footprint (km²) derived from the row's bbox
+    /// with a cosine-of-centroid-latitude correction on the lng
+    /// extent. Used as a tie-break to favor the *smallest* containing
+    /// boundary — i.e. the locality, not its enclosing region or
+    /// country. Was naive degrees² in 0.0.6 and earlier, but that
+    /// systematically over-counted high-latitude polygons (Greenland,
+    /// Russia, Canada) because 1° lng shrinks toward the poles, so
+    /// the smallest-bbox ranker could prefer a tropical region of the
+    /// same true area over a polar one of equal degree²; km² is the
+    /// honest comparator.
+    pub bbox_area_km_sq: f64,
     /// True when the polygon's `names.primary` matched the caller's
     /// `name_hint` (ASCII-folded, case-insensitive). The resolver
     /// prefers name-matched polygons; the area tie-break only fires
@@ -1610,6 +1830,17 @@ pub fn wkb_polygon_contains_point(buf: &[u8], lng: f64, lat: f64) -> bool {
 /// ray-cast. Inner rings are read past for cursor correctness but
 /// not used in the test — see the rationale on
 /// [`wkb_polygon_contains_point`].
+///
+/// Anti-meridian (IDL) handling: polygons that cross ±180° (Russia
+/// Chukotka, Fiji, Aleutians, NZ Chathams, Antarctica) have adjacent
+/// vertices whose longitude jumps from near +180 to near -180. A
+/// naive ray-cast treats that jump as a real edge spanning ~360° and
+/// reports wrong inside/outside. We detect the crossing by scanning
+/// the buffered exterior ring for any |Δx| > 180 between adjacent
+/// vertices; if found, all longitudes (vertices + query point) are
+/// shifted into [0, 360) before the ray-cast, moving the
+/// discontinuity from ±180° to 0°/360° where no edge of a
+/// non-pathological polygon sits.
 fn polygon_contains_pt(cur: &mut WkbCursor<'_>, px: f64, py: f64) -> bool {
     let nrings = match cur.read_u32() {
         Some(n) => n,
@@ -1630,12 +1861,12 @@ fn polygon_contains_pt(cur: &mut WkbCursor<'_>, px: f64, py: f64) -> bool {
             continue;
         }
         if r == 0 {
-            // Exterior ring: do the ray-cast.
-            let mut prev_x = f64::NAN;
-            let mut prev_y = f64::NAN;
-            let mut first_x = 0.0;
-            let mut first_y = 0.0;
-            for j in 0..np {
+            // Exterior ring: buffer all vertices so we can scan for
+            // IDL crossings before ray-casting. WKB spec promises the
+            // ring is closed (first == last), but we close defensively
+            // in [`ring_contains_point`] regardless.
+            let mut ring: Vec<(f64, f64)> = Vec::with_capacity(np as usize);
+            for _ in 0..np {
                 let x = match cur.read_f64() {
                     Some(v) => v,
                     None => return false,
@@ -1644,29 +1875,9 @@ fn polygon_contains_pt(cur: &mut WkbCursor<'_>, px: f64, py: f64) -> bool {
                     Some(v) => v,
                     None => return false,
                 };
-                if j == 0 {
-                    first_x = x;
-                    first_y = y;
-                } else {
-                    let (x0, y0, x1, y1) = (prev_x, prev_y, x, y);
-                    if ((y0 > py) != (y1 > py))
-                        && (px < (x1 - x0) * (py - y0) / (y1 - y0 + f64::EPSILON) + x0)
-                    {
-                        inside = !inside;
-                    }
-                }
-                prev_x = x;
-                prev_y = y;
+                ring.push((x, y));
             }
-            // Close the ring against the first vertex.
-            if !prev_x.is_nan() {
-                let (x0, y0, x1, y1) = (prev_x, prev_y, first_x, first_y);
-                if ((y0 > py) != (y1 > py))
-                    && (px < (x1 - x0) * (py - y0) / (y1 - y0 + f64::EPSILON) + x0)
-                {
-                    inside = !inside;
-                }
-            }
+            inside = ring_contains_point(&ring, px, py);
         } else {
             // Inner ring: walk past without testing.
             for _ in 0..np {
@@ -1678,30 +1889,248 @@ fn polygon_contains_pt(cur: &mut WkbCursor<'_>, px: f64, py: f64) -> bool {
     inside
 }
 
+/// Even-odd ray-cast on a (possibly open) ring. Handles anti-meridian
+/// crossings by shifting longitudes into [0, 360) when any adjacent
+/// edge spans more than 180° of longitude (the unambiguous signature
+/// of an IDL crossing — no admin boundary spans more than half the
+/// globe in a single edge). The closing edge (last → first) is
+/// included implicitly via `(i + 1) % n`, so callers may pass either
+/// WKB-closed rings or open rings.
+fn ring_contains_point(ring: &[(f64, f64)], mut px: f64, py: f64) -> bool {
+    if ring.len() < 3 {
+        return false;
+    }
+    // IDL detection: any edge (including the close) with |Δx| > 180.
+    let n = ring.len();
+    let mut crosses_idl = false;
+    for i in 0..n {
+        let dx = ring[(i + 1) % n].0 - ring[i].0;
+        if dx.abs() > 180.0 {
+            crosses_idl = true;
+            break;
+        }
+    }
+    // Only allocate the shifted ring when IDL crossing forces us to.
+    // The common case (~99 % of admin boundaries — none of the 250
+    // countries except 5–10 cross the IDL) ray-casts against the
+    // original slice with no allocation.
+    let shifted: Vec<(f64, f64)>;
+    let pts: &[(f64, f64)] = if crosses_idl {
+        if px < 0.0 {
+            px += 360.0;
+        }
+        shifted = ring
+            .iter()
+            .map(|&(x, y)| (if x < 0.0 { x + 360.0 } else { x }, y))
+            .collect();
+        &shifted
+    } else {
+        ring
+    };
+    let mut inside = false;
+    for i in 0..n {
+        let (x0, y0) = pts[i];
+        let (x1, y1) = pts[(i + 1) % n];
+        // (y0>py)!=(y1>py) skips horizontal edges (y0==y1) — both
+        // comparisons evaluate the same way, so y1-y0 in the
+        // intersection formula below can never be zero when we reach
+        // the divide.
+        if ((y0 > py) != (y1 > py)) && (px < (x1 - x0) * (py - y0) / (y1 - y0) + x0) {
+            inside = !inside;
+        }
+    }
+    inside
+}
+
 /// Decode a WKB Polygon or MultiPolygon to a GeoJSON geometry value
 /// in `[lon, lat]` order with closed rings. Returns `None` for any
 /// non-polygon variant or malformed buffer.
+///
+/// RFC 7946 §3.1.9 forbids polygons that cross the antimeridian — a
+/// client rendering an IDL-spanning polygon as a single ring will
+/// draw a giant stripe across the entire map. When the exterior ring
+/// crosses ±180°, we split it at the antimeridian into east and
+/// west pieces and emit the result as a `MultiPolygon`. The split
+/// uses linear interpolation on the (shifted-to-[0,360)) longitude
+/// to find the y at the IDL crossing, then closes each piece against
+/// `(±180, y_cross)`. Inner rings (holes) are not split because
+/// admin boundaries effectively never carry IDL-crossing interior
+/// rings; if one ever appears, it is kept attached to whichever
+/// half-polygon contains its first vertex.
 pub fn wkb_polygon_to_geojson(buf: &[u8]) -> Option<serde_json::Value> {
     let (mut cur, t) = wkb_type(buf)?;
     match t {
         WKB_POLYGON => {
             let rings = read_polygon_rings(&mut cur)?;
-            Some(serde_json::json!({"type": "Polygon", "coordinates": rings}))
+            Some(rings_to_geojson_geometry(&rings))
         }
         WKB_MULTI_POLYGON => {
             let np = cur.read_u32()?;
-            let mut polys = Vec::with_capacity(np as usize);
+            let mut polys: Vec<Vec<Vec<[f64; 2]>>> = Vec::with_capacity(np as usize);
             for _ in 0..np {
                 if cur.read_sub_header() != Some(WKB_POLYGON) {
                     return None;
                 }
                 let rings = read_polygon_rings(&mut cur)?;
+                // Per-sub-polygon IDL split: each sub-polygon that
+                // crosses gets replaced by its split halves; the
+                // outer MultiPolygon coordinate array then carries
+                // them as separate polygons.
+                if let Some(exterior) = rings.first() {
+                    if ring_crosses_idl_xy(exterior) {
+                        let halves = split_polygon_rings_at_antimeridian(&rings);
+                        polys.extend(halves);
+                        continue;
+                    }
+                }
                 polys.push(rings);
             }
             Some(serde_json::json!({"type": "MultiPolygon", "coordinates": polys}))
         }
         _ => None,
     }
+}
+
+/// Wrap a list of rings as a GeoJSON Polygon, or, if the exterior
+/// ring crosses the antimeridian, split into a MultiPolygon. Single
+/// shared helper so the WKB_POLYGON and WKB_MULTI_POLYGON arms in
+/// [`wkb_polygon_to_geojson`] don't drift apart on the split logic.
+fn rings_to_geojson_geometry(rings: &[Vec<[f64; 2]>]) -> serde_json::Value {
+    if let Some(exterior) = rings.first() {
+        if ring_crosses_idl_xy(exterior) {
+            let halves = split_polygon_rings_at_antimeridian(rings);
+            return serde_json::json!({
+                "type": "MultiPolygon",
+                "coordinates": halves,
+            });
+        }
+    }
+    serde_json::json!({"type": "Polygon", "coordinates": rings})
+}
+
+/// IDL-crossing detector for a ring stored as `[[x, y], …]` (GeoJSON
+/// coordinate order). Returns true if any edge — including the
+/// closing edge — has |Δx| > 180°. Matches the detection used by
+/// [`ring_contains_point`].
+fn ring_crosses_idl_xy(ring: &[[f64; 2]]) -> bool {
+    let n = ring.len();
+    if n < 2 {
+        return false;
+    }
+    for i in 0..n {
+        let dx = ring[(i + 1) % n][0] - ring[i][0];
+        if dx.abs() > 180.0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Split a single polygon (exterior + optional holes) at the
+/// antimeridian, returning one or more polygons each represented as
+/// `[exterior, hole1, hole2, …]`. The exterior ring is cut into two
+/// halves at ±180; each cut introduces a vertex at (sign·180, y_cross)
+/// where y_cross is the linear-interpolated latitude of the IDL
+/// crossing in shifted-longitude space. Inner rings are bucketed by
+/// the sign of their first vertex; rings that themselves cross the
+/// IDL are kept attached to that bucket (rare in practice).
+fn split_polygon_rings_at_antimeridian(rings: &[Vec<[f64; 2]>]) -> Vec<Vec<Vec<[f64; 2]>>> {
+    let exterior = match rings.first() {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    let (east, west) = split_ring_at_antimeridian(exterior);
+    let mut east_poly: Vec<Vec<[f64; 2]>> = if east.len() >= 4 { vec![east] } else { Vec::new() };
+    let mut west_poly: Vec<Vec<[f64; 2]>> = if west.len() >= 4 { vec![west] } else { Vec::new() };
+    // Distribute inner rings by the sign of their first vertex. A
+    // hole that itself crosses the IDL stays whole and lands in
+    // whichever bucket its first vertex lives — splitting a hole
+    // requires a containment test (which side of the cut is "inside"
+    // the host polygon) that admin geometry never warrants.
+    for hole in rings.iter().skip(1) {
+        if hole.is_empty() {
+            continue;
+        }
+        let first_x = hole[0][0];
+        if first_x >= 0.0 {
+            if !east_poly.is_empty() {
+                east_poly.push(hole.clone());
+            }
+        } else if !west_poly.is_empty() {
+            west_poly.push(hole.clone());
+        }
+    }
+    let mut out = Vec::new();
+    if !east_poly.is_empty() {
+        out.push(east_poly);
+    }
+    if !west_poly.is_empty() {
+        out.push(west_poly);
+    }
+    out
+}
+
+/// Cut a single ring at the antimeridian and return the two closed
+/// halves (east at ≥0° longitude, west at <0° longitude). Either
+/// half can be empty when the input is entirely on one side; in that
+/// case the function returns a single populated half and an empty
+/// counterpart (callers filter empty halves out).
+fn split_ring_at_antimeridian(ring: &[[f64; 2]]) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
+    let mut east: Vec<[f64; 2]> = Vec::new();
+    let mut west: Vec<[f64; 2]> = Vec::new();
+    let n = ring.len();
+    if n == 0 {
+        return (east, west);
+    }
+    for i in 0..n {
+        let [x0, y0] = ring[i];
+        let [x1, y1] = ring[(i + 1) % n];
+        // Append current vertex to its native side.
+        if x0 >= 0.0 {
+            east.push([x0, y0]);
+        } else {
+            west.push([x0, y0]);
+        }
+        let dx = x1 - x0;
+        if dx.abs() > 180.0 {
+            // Crossing — compute y at the IDL using shifted-to-[0,360°)
+            // linear interpolation so the formula doesn't care which
+            // direction the wrap goes.
+            let x0s = if x0 < 0.0 { x0 + 360.0 } else { x0 };
+            let x1s = if x1 < 0.0 { x1 + 360.0 } else { x1 };
+            let denom = x1s - x0s;
+            // denom can be zero only if both ends are identical, in
+            // which case dx is also zero and we wouldn't be in this
+            // branch. Guard defensively anyway.
+            let t = if denom.abs() < f64::EPSILON {
+                0.5
+            } else {
+                (180.0 - x0s) / denom
+            };
+            let y_cross = y0 + t * (y1 - y0);
+            // Emit (+180, y_cross) on the east side and (-180, y_cross)
+            // on the west side. Order matters: the side we were just
+            // on closes first, then the other side opens at the IDL.
+            if x0 >= 0.0 {
+                east.push([180.0, y_cross]);
+                west.push([-180.0, y_cross]);
+            } else {
+                west.push([-180.0, y_cross]);
+                east.push([180.0, y_cross]);
+            }
+        }
+    }
+    // Close each non-empty ring.
+    for ring in [&mut east, &mut west] {
+        if !ring.is_empty() {
+            let first = ring[0];
+            let last = *ring.last().unwrap();
+            if first != last {
+                ring.push(first);
+            }
+        }
+    }
+    (east, west)
 }
 
 fn read_polygon_rings(cur: &mut WkbCursor<'_>) -> Option<Vec<Vec<[f64; 2]>>> {
@@ -2140,8 +2569,8 @@ mod tests {
             .expect("divisions fetch must succeed")
             .expect("divisions must return a containing polygon at Manhattan anchor");
         eprintln!(
-            "Manhattan division: id={}, name={:?}, subtype={}, bbox={:?}, area_deg_sq={:.5}, name_match={}",
-            m.id, m.name, m.subtype, m.bbox, m.bbox_area_deg_sq, m.name_matched_hint
+            "Manhattan division: id={}, name={:?}, subtype={}, bbox={:?}, area_km_sq={:.3}, name_match={}",
+            m.id, m.name, m.subtype, m.bbox, m.bbox_area_km_sq, m.name_matched_hint
         );
         assert!(!m.id.is_empty(), "GERS id must be present");
         // Manhattan-the-borough lands as `subtype=locality` in

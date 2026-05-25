@@ -156,6 +156,89 @@ type ProfileCacheSlot = Arc<OnceCell<Arc<CogProfile>>>;
 static PROFILE_CACHE: LazyLock<Mutex<HashMap<String, ProfileCacheSlot>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// One slot in the tile cache: a shared `OnceCell` that holds the
+/// compressed-tile `Bytes` once the first caller finishes fetching.
+/// `Bytes` is already `Arc`-backed so clones are cheap; no extra
+/// indirection needed. Concurrent callers for the same (url,
+/// tile_idx) park on this cell.
+type TileCacheSlot = Arc<OnceCell<Bytes>>;
+
+/// Process-wide cache of compressed COG tile bytes, keyed by
+/// `(url, tile_idx)`. Polygon recalls fan out across many cells that
+/// share the same scene and frequently fall in the same physical
+/// COG tile (Sentinel-2 tiles are 1024×1024 pixels = ~10 km², our
+/// cell64 footprint is ~10 m, so a 16-cell polygon covering a few
+/// km² lives entirely in 1–4 tiles). Without this cache, 16 cells in
+/// the same tile do 16 identical `http_range` reads for the same
+/// 30–500 KB chunk.
+///
+/// `OnceCell` per slot delivers the single-flight contract just like
+/// [`PROFILE_CACHE`]: concurrent samplers for the same tile share
+/// the http_range round-trip, and the post-fetch lookup is a hash
+/// hit + Arc clone. Cache size is bounded by
+/// `EMEM_COG_TILE_CACHE_CAP` (default 512); when the cap is exceeded
+/// the cache is cleared wholesale rather than per-entry-LRU evicted
+/// because (a) the access pattern is bursty (a polygon recall fills
+/// then drains), (b) wholesale clear is one mutex round-trip vs
+/// per-insert LRU bookkeeping, and (c) at the default cap of 512
+/// × ~64 KiB worst-case tile size the memory ceiling is ~32 MiB,
+/// well inside the responder's budget. The cap is configurable for
+/// memory-constrained deployments.
+type TileKey = (String, usize);
+static TILE_CACHE: LazyLock<Mutex<HashMap<TileKey, TileCacheSlot>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn tile_cache_cap() -> usize {
+    std::env::var("EMEM_COG_TILE_CACHE_CAP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(512)
+        .max(1)
+}
+
+/// Fetch (or share an in-flight fetch of) the compressed bytes for
+/// tile `tile_idx` at `(off, len)` in COG `url`. Cached for process
+/// lifetime up to `tile_cache_cap()` entries; on overflow the cache
+/// is cleared wholesale (one-shot eviction — see [`TILE_CACHE`] for
+/// the rationale). Single-flighted via per-slot `OnceCell` so N
+/// concurrent samplers for the same tile share one `http_range`.
+async fn get_or_fetch_tile(
+    client: &Client,
+    url: &str,
+    tile_idx: usize,
+    off: u64,
+    len: u64,
+) -> Result<Bytes, CogError> {
+    let key: TileKey = (url.to_string(), tile_idx);
+    let cell = {
+        let mut guard = TILE_CACHE.lock().await;
+        if guard.len() >= tile_cache_cap() && !guard.contains_key(&key) {
+            // Wholesale clear when over cap — see TILE_CACHE rationale.
+            // Logged at INFO so an operator who suddenly sees cache
+            // thrashing in a query knows to bump EMEM_COG_TILE_CACHE_CAP
+            // rather than chase a phantom regression.
+            tracing::info!(
+                target: "emem::cog::cache",
+                tile_cache_capacity_hit = guard.len(),
+                "tile cache full; wholesale evict"
+            );
+            guard.clear();
+        }
+        guard
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceCell::new()))
+            .clone()
+    };
+    let bytes_ref = cell
+        .get_or_try_init(|| async {
+            let bytes = http_range(client, url, off, off + len - 1).await?;
+            Ok::<_, CogError>(bytes)
+        })
+        .await?;
+    // Bytes is an Arc<[u8]> under the hood — clone is a refcount bump.
+    Ok(bytes_ref.clone())
+}
+
 /// Range-read the head of a COG and parse IFD0. Returns the metadata needed
 /// for `sample_pixel`.
 ///
@@ -947,7 +1030,10 @@ pub async fn sample_pixel(
             "tile {tile_idx} byte_count=0 (sparse — empty)"
         )));
     }
-    let tile_compressed = http_range(client, url, off, off + len - 1).await?;
+    // Tile-level single-flight: concurrent samplers for the same
+    // (url, tile_idx) share one http_range. Hits the common path of a
+    // polygon recall where N cells fall in the same physical COG tile.
+    let tile_compressed: Bytes = get_or_fetch_tile(client, url, tile_idx, off, len).await?;
 
     // Decompress per the profile's `compression` tag.
     //   8 — Deflate / Adler32-framed zlib (Sentinel-2 / -1).
@@ -1389,7 +1475,10 @@ pub async fn sample_pixel_multi(
             "tile {tile_idx} byte_count=0 (sparse — empty)"
         )));
     }
-    let tile_compressed = http_range(client, url, off, off + len - 1).await?;
+    // Tile-level single-flight: concurrent samplers for the same
+    // (url, tile_idx) share one http_range. Hits the common path of a
+    // polygon recall where N cells fall in the same physical COG tile.
+    let tile_compressed: Bytes = get_or_fetch_tile(client, url, tile_idx, off, len).await?;
 
     let mut tile_bytes =
         Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * stride);
