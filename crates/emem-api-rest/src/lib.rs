@@ -28390,6 +28390,14 @@ struct EudrPlot {
     /// Producer's country ISO3 — may differ from `country_of_production`.
     #[serde(default)]
     producer_country: Option<String>,
+    /// Opt-in: build a per-year visual deforestation evidence block
+    /// (Sentinel-2 NDVI timeline 2020..current_year, plus Sentinel-1
+    /// VV-backscatter cloud-independent confirmation, plus per-cell
+    /// scene.png URLs the agent can render). Adds a few seconds of
+    /// upstream fan-out per plot — gated to keep the default DDS path
+    /// fast. Defaults to false.
+    #[serde(default)]
+    request_visual_evidence: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -28612,6 +28620,316 @@ fn aggregate_baseline_provenance(per_cell: &[EudrCellVerdict]) -> &'static str {
 /// Recall the EUDR inputs at one cell and apply the per-cell verdict
 /// logic. Graceful: missing required inputs → indeterminate; missing
 /// optional refinement inputs → use whatever's available.
+/// Unix epoch seconds for `YYYY-07-01T00:00:00Z`. Used as the
+/// mid-year anchor for annual S2/S1 visual-evidence snapshots:
+/// July 1 sits inside the growing season for the Northern Hemisphere
+/// and just before the cocoa / palm dry-season for most equatorial
+/// producer countries, so the surrounding ±30..90 day cloud-fallback
+/// window almost always finds a clear scene.
+fn jul1_unix(year: i32) -> i64 {
+    days_from_civil(year, 7, 1) * 86_400
+}
+
+/// Best-effort extraction of a Primary fact's scalar value as f64.
+/// Returns `None` for Absence facts, fetch errors, or non-numeric
+/// value variants. Used by visual-evidence aggregation to compute
+/// per-year medians across the plot's sample cells.
+async fn fact_cid_to_f64(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> {
+    let row = s
+        .storage
+        .get_facts_many(std::slice::from_ref(cid))
+        .await
+        .ok()?
+        .into_iter()
+        .next()
+        .flatten()?;
+    if let emem_fact::Fact::Primary(p) = row {
+        match p.value {
+            ciborium::Value::Float(f) if f.is_finite() => Some(f),
+            ciborium::Value::Integer(i) => i64::try_from(i).ok().map(|v| v as f64),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+/// Median of a non-empty f64 slice. Returns `None` on empty input —
+/// callers surface that as `null` in the JSON so downstream agents
+/// can distinguish "no scenes had clear data for that year" from
+/// "we forgot to compute it".
+fn median_f64(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut sorted: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    if sorted.is_empty() {
+        return None;
+    }
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = sorted.len();
+    if n % 2 == 1 {
+        Some(sorted[n / 2])
+    } else {
+        Some((sorted[n / 2 - 1] + sorted[n / 2]) / 2.0)
+    }
+}
+
+/// p-percentile of a non-empty f64 slice using linear interpolation
+/// between the two nearest ranks. Returns `None` when the input is
+/// empty / all NaN.
+fn percentile_f64(values: &[f64], p: f64) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut sorted: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    if sorted.is_empty() {
+        return None;
+    }
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = sorted.len();
+    let p = p.clamp(0.0, 100.0) / 100.0;
+    let rank = p * (n as f64 - 1.0);
+    let lo = rank.floor() as usize;
+    let hi = rank.ceil() as usize;
+    if lo == hi {
+        Some(sorted[lo])
+    } else {
+        let frac = rank - lo as f64;
+        Some(sorted[lo] * (1.0 - frac) + sorted[hi] * frac)
+    }
+}
+
+/// Build the per-plot annual visual-evidence block. Materialises
+/// Sentinel-2 `indices.ndvi` at a July-1 anchor for each year from
+/// 2020 through the current calendar year, plus Sentinel-1 RTC VV
+/// backscatter (cloud-independent confirmation) at the same anchors.
+/// Returns a JSON envelope with per-year medians, deltas vs the 2020
+/// baseline, scene.png URLs the agent can render, and a
+/// `no_visual_deforestation` verdict.
+///
+/// Thresholds chosen with conservative defaults per the deforestation-
+/// detection literature:
+///   - NDVI drop ≥ 0.15 vs 2020 baseline → suspicious
+///     (Pelletier et al. 2024 — typical mature-forest NDVI sits at
+///     0.7–0.85; a drop of 0.15 corresponds to ~20 % canopy loss).
+///   - S1 VV backscatter drop ≥ 3 dB vs 2020 baseline → suspicious
+///     (Reiche et al. 2018; consistent with C-band forest-clearance
+///     detection in tropical regions).
+/// When EITHER signal exceeds its threshold the verdict downgrades to
+/// `visual_deforestation_suspected`; when both stay within bounds
+/// the verdict is `no_visual_deforestation`.
+async fn build_plot_visual_evidence(
+    s: &AppState,
+    sample_cells: &[String],
+    now_unix: i64,
+) -> JsonValue {
+    // Year span: 2020 (EUDR cut-off year) through the current calendar
+    // year inclusive. Current year is derived from `now_unix` so the
+    // span is honest about how recent our latest snapshot can be.
+    let (cur_y, _, _) = civil_from_days(now_unix / 86_400);
+    let years: Vec<i32> = (2020..=cur_y).collect();
+    // Cap scene_png URLs per year to keep response size sane. The
+    // user can always call /v1/cells/{cell64}/scene.png?datetime=
+    // directly for any sample cell, this just gives them a curated
+    // representative subset.
+    let url_cell_cap = sample_cells.len().min(6);
+    let url_cells: Vec<&String> = sample_cells.iter().take(url_cell_cap).collect();
+
+    // Per-year parallel fan-out: NDVI across all cells || S1 VV across
+    // all cells, joined inside the year and across years. With 16
+    // cells × 7 years × 2 bands = 224 materializations; the COG tile-
+    // cache + profile-cache + sled-persisted division cache collapse
+    // most of these to ms-cost hits once any one year is warm.
+    let years_per = futures_util::future::join_all(years.iter().map(|&year| {
+        let anchor = jul1_unix(year);
+        let cells: Vec<String> = sample_cells.to_vec();
+        async move {
+            let ndvi_fut = futures_util::future::join_all(
+                cells
+                    .iter()
+                    .map(|c| materialize_sentinel2_band(c, s, "indices.ndvi", Some(anchor))),
+            );
+            let s1_fut = futures_util::future::join_all(
+                cells
+                    .iter()
+                    .map(|c| materialize_sentinel1_vv(c, s, Some(anchor))),
+            );
+            let (ndvi_cids, s1_cids) = futures_util::future::join(ndvi_fut, s1_fut).await;
+            (year, anchor, ndvi_cids, s1_cids)
+        }
+    }))
+    .await;
+
+    let mut per_year: Vec<JsonValue> = Vec::with_capacity(years.len());
+    let mut ndvi_2020_median: Option<f64> = None;
+    let mut s1_2020_median: Option<f64> = None;
+    let mut worst_ndvi_drop_year_over_year: Option<(i32, f64)> = None;
+    let mut prev_ndvi_median: Option<f64> = None;
+    let mut max_drop_vs_baseline: Option<f64> = None;
+
+    for (year, anchor, ndvi_cids, s1_cids) in years_per.iter() {
+        // Convert successful CIDs to floats; track signed-Absence /
+        // error counts so the agent sees what coverage we got.
+        let mut ndvi_vals: Vec<f64> = Vec::new();
+        let mut ndvi_fact_cids: Vec<String> = Vec::new();
+        let mut ndvi_errors = 0usize;
+        for cid in ndvi_cids {
+            match cid {
+                Ok(c) => {
+                    if let Some(v) = fact_cid_to_f64(s, c).await {
+                        ndvi_vals.push(v);
+                    }
+                    ndvi_fact_cids.push(c.as_str().to_string());
+                }
+                Err(_) => ndvi_errors += 1,
+            }
+        }
+        let mut s1_vals: Vec<f64> = Vec::new();
+        let mut s1_fact_cids: Vec<String> = Vec::new();
+        let mut s1_errors = 0usize;
+        for cid in s1_cids {
+            match cid {
+                Ok(c) => {
+                    if let Some(v) = fact_cid_to_f64(s, c).await {
+                        s1_vals.push(v);
+                    }
+                    s1_fact_cids.push(c.as_str().to_string());
+                }
+                Err(_) => s1_errors += 1,
+            }
+        }
+        let ndvi_med = median_f64(&ndvi_vals);
+        let ndvi_p10 = percentile_f64(&ndvi_vals, 10.0);
+        let ndvi_p90 = percentile_f64(&ndvi_vals, 90.0);
+        let s1_med = median_f64(&s1_vals);
+        // Capture 2020 baseline for deltas.
+        if *year == 2020 {
+            ndvi_2020_median = ndvi_med;
+            s1_2020_median = s1_med;
+        }
+        // Year-over-year NDVI drop (a sudden single-year drop is the
+        // EO signature of clearance; a slow multi-year decline could
+        // be senescence / drought).
+        if let (Some(now), Some(prev)) = (ndvi_med, prev_ndvi_median) {
+            let drop = prev - now;
+            if drop > 0.0 {
+                if worst_ndvi_drop_year_over_year
+                    .map(|(_, d)| drop > d)
+                    .unwrap_or(true)
+                {
+                    worst_ndvi_drop_year_over_year = Some((*year, drop));
+                }
+            }
+        }
+        prev_ndvi_median = ndvi_med;
+        // Drop vs 2020 baseline (mostly informational; suspicious >0.15).
+        if let (Some(now), Some(base)) = (ndvi_med, ndvi_2020_median) {
+            let drop = base - now;
+            if drop > 0.0
+                && max_drop_vs_baseline
+                    .map(|d| drop > d)
+                    .unwrap_or(true)
+            {
+                max_drop_vs_baseline = Some(drop);
+            }
+        }
+        // Per-cell scene.png URLs spanning the full year — the
+        // /v1/cells/{cell64}/scene.png handler picks the latest scene
+        // with cloud_cover < max_cloud across the window we pass, so
+        // a full-year window gives the cleanest representative pixel
+        // for that year.
+        let datetime_window = format!("{}-01-01T00:00:00Z/{}-12-31T23:59:59Z", year, year);
+        let scene_urls: Vec<String> = url_cells
+            .iter()
+            .map(|c| {
+                format!(
+                    "/v1/cells/{c}/scene.png?datetime={enc}&max_cloud=20",
+                    c = c,
+                    enc = datetime_window.replace(':', "%3A")
+                )
+            })
+            .collect();
+        per_year.push(json!({
+            "year": year,
+            "anchor_unix": anchor,
+            "ndvi_median":   ndvi_med,
+            "ndvi_p10":      ndvi_p10,
+            "ndvi_p90":      ndvi_p90,
+            "ndvi_delta_vs_2020": ndvi_med.and_then(|n| ndvi_2020_median.map(|b| n - b)),
+            "n_cells_ndvi_ok":     ndvi_vals.len(),
+            "n_cells_ndvi_errors": ndvi_errors,
+            "s1_vv_db_median":     s1_med,
+            "s1_vv_delta_db_vs_2020": s1_med.and_then(|s| s1_2020_median.map(|b| s - b)),
+            "n_cells_s1_ok":     s1_vals.len(),
+            "n_cells_s1_errors": s1_errors,
+            "scene_png_urls": scene_urls,
+            "ndvi_fact_cids": ndvi_fact_cids,
+            "s1_fact_cids":   s1_fact_cids,
+        }));
+    }
+
+    // Verdict thresholds (overridable via env so an operator can
+    // tighten for high-stakes audits or loosen for noisy regions).
+    let ndvi_drop_thr = std::env::var("EMEM_VISUAL_NDVI_DROP_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.15)
+        .clamp(0.05, 0.50);
+    let s1_drop_db_thr = std::env::var("EMEM_VISUAL_S1_DROP_DB_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(3.0)
+        .clamp(1.0, 10.0);
+
+    // S1 latest vs 2020 baseline.
+    let latest = per_year.last().and_then(|y| y.get("s1_vv_delta_db_vs_2020").cloned());
+    let s1_drop_latest = latest
+        .as_ref()
+        .and_then(|v| v.as_f64())
+        .map(|d| -d) // positive value = drop (latest < baseline)
+        .filter(|d| *d > 0.0);
+    let ndvi_drop_latest = per_year
+        .last()
+        .and_then(|y| y.get("ndvi_delta_vs_2020").cloned())
+        .as_ref()
+        .and_then(|v| v.as_f64())
+        .map(|d| -d)
+        .filter(|d| *d > 0.0);
+
+    let ndvi_breach = max_drop_vs_baseline.map(|d| d >= ndvi_drop_thr).unwrap_or(false)
+        || ndvi_drop_latest.map(|d| d >= ndvi_drop_thr).unwrap_or(false);
+    let s1_breach = s1_drop_latest.map(|d| d >= s1_drop_db_thr).unwrap_or(false);
+    let verdict = if ndvi_breach || s1_breach {
+        "visual_deforestation_suspected"
+    } else if ndvi_2020_median.is_none() && s1_2020_median.is_none() {
+        // No baseline at all — be honest rather than falsely passing.
+        "indeterminate_no_baseline"
+    } else {
+        "no_visual_deforestation"
+    };
+
+    json!({
+        "schema": "emem.visual_evidence.v1",
+        "method": "annual_s2_l2a_least_cloudy + annual_s1_rtc_vv_cloud_independent",
+        "anchor_policy": "jul-01 of each year, ±30/60/90d cloud-fallback ladder (matches s2_search_with_fallback)",
+        "years": per_year,
+        "verdict": verdict,
+        "thresholds": {
+            "ndvi_drop_vs_2020": ndvi_drop_thr,
+            "s1_vv_drop_db_vs_2020": s1_drop_db_thr,
+            "rationale": "NDVI drop ≥ 0.15 vs 2020 (Pelletier 2024); S1 VV drop ≥ 3 dB vs 2020 (Reiche 2018). Either signal breaching marks the plot as visual_deforestation_suspected.",
+        },
+        "metrics": {
+            "ndvi_2020_baseline_median": ndvi_2020_median,
+            "ndvi_max_drop_vs_baseline": max_drop_vs_baseline,
+            "ndvi_worst_year_over_year_drop": worst_ndvi_drop_year_over_year.map(|(y, d)| json!({"year": y, "drop": d})),
+            "s1_vv_2020_baseline_db": s1_2020_median,
+        },
+        "agent_hint": "Render the scene_png_urls side-by-side as a 6-up timeline (one per year) for an EUDR audit packet. The ndvi_median series is the quantitative companion; quote the receipt fact_cids in the DDS provenance.",
+    })
+}
+
 async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
     let bands: [&str; 6] = [
         "jrc_gfc2020.forest_2020",
@@ -29172,6 +29490,22 @@ async fn post_eudr_dds_inner(
             let (producer_geojson, precision_warning) =
                 build_producer_geojson(&plot, bbox, area_ha, &plot.plot_id);
 
+            // Opt-in visual evidence (S2 NDVI + S1 SAR annual timeline
+            // 2020..now). Only built when the operator passed
+            // `request_visual_evidence: true` on this plot — adds a
+            // few seconds of upstream fan-out per plot, gated off by
+            // default so the standard DDS path stays fast.
+            let visual_evidence_json: Option<JsonValue> =
+                if plot.request_visual_evidence == Some(true) {
+                    let now_unix = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    Some(build_plot_visual_evidence(&s, &cells, now_unix).await)
+                } else {
+                    None
+                };
+
             let mut plot_obj = json!({
                 "plot_id":         plot.plot_id,
                 "verdict":         verdict_label(plot_verdict),
@@ -29198,6 +29532,11 @@ async fn post_eudr_dds_inner(
                 },
                 "per_cell_verdicts": per_cell.clone(),
             });
+            if let (Some(obj), Some(ve)) =
+                (plot_obj.as_object_mut(), visual_evidence_json)
+            {
+                obj.insert("visual_evidence".into(), ve);
+            }
             if let (Some(obj), Some(warning)) =
                 (plot_obj.as_object_mut(), precision_warning.clone())
             {
