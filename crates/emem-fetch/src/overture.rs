@@ -970,11 +970,7 @@ impl OvertureClient {
     /// implementation pushes into its background flusher. Serialise
     /// failures are logged and dropped: a missing persistent put just
     /// means the next process will re-pay the parquet scan once.
-    fn persist_division_lookup(
-        &self,
-        cache_key: &DivisionCacheKey,
-        value: &Option<DivisionMatch>,
-    ) {
+    fn persist_division_lookup(&self, cache_key: &DivisionCacheKey, value: &Option<DivisionMatch>) {
         let Some(pc) = self.persistent_cache.get() else {
             return;
         };
@@ -2040,8 +2036,16 @@ fn split_polygon_rings_at_antimeridian(rings: &[Vec<[f64; 2]>]) -> Vec<Vec<Vec<[
         None => return Vec::new(),
     };
     let (east, west) = split_ring_at_antimeridian(exterior);
-    let mut east_poly: Vec<Vec<[f64; 2]>> = if east.len() >= 4 { vec![east] } else { Vec::new() };
-    let mut west_poly: Vec<Vec<[f64; 2]>> = if west.len() >= 4 { vec![west] } else { Vec::new() };
+    let mut east_poly: Vec<Vec<[f64; 2]>> = if east.len() >= 4 {
+        vec![east]
+    } else {
+        Vec::new()
+    };
+    let mut west_poly: Vec<Vec<[f64; 2]>> = if west.len() >= 4 {
+        vec![west]
+    } else {
+        Vec::new()
+    };
     // Distribute inner rings by the sign of their first vertex. A
     // hole that itself crosses the IDL stays whole and lands in
     // whichever bucket its first vertex lives — splitting a hole

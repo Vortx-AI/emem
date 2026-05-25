@@ -8101,11 +8101,7 @@ async fn get_v1_at(
         }
     }
     let tag = format!("at bands {bands:?}");
-    let v = with_boring_budget(
-        &tag,
-        boring_recall_aggregated(&s, target, &bands, q.tslot),
-    )
-    .await?;
+    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot)).await?;
     Ok(Json(v))
 }
 
@@ -8332,11 +8328,7 @@ async fn post_v1_at(
         }
     }
     let tag = format!("at bands {bands:?}");
-    let v = with_boring_budget(
-        &tag,
-        boring_recall_aggregated(&s, target, &bands, q.tslot),
-    )
-    .await?;
+    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot)).await?;
     Ok(Json(v))
 }
 
@@ -17370,7 +17362,12 @@ async fn materialize_weather_current(
     }
     let body: JsonValue = tokio::time::timeout(timeout, resp.json())
         .await
-        .map_err(|_| format!("met.no body timeout after {}s for {band}", timeout.as_secs()))?
+        .map_err(|_| {
+            format!(
+                "met.no body timeout after {}s for {band}",
+                timeout.as_secs()
+            )
+        })?
         .map_err(|e| format!("met.no json: {e}"))?;
     // MET Norway returns the *current* observation as `properties.timeseries[0]`.
     // `instant.details` carries point-in-time fields; `next_1_hours.details`
@@ -28764,12 +28761,14 @@ fn percentile_f64(values: &[f64], p: f64) -> Option<f64> {
 ///
 /// Thresholds chosen with conservative defaults per the deforestation-
 /// detection literature:
+///
 ///   - NDVI drop ≥ 0.15 vs 2020 baseline → suspicious
 ///     (Pelletier et al. 2024 — typical mature-forest NDVI sits at
 ///     0.7–0.85; a drop of 0.15 corresponds to ~20 % canopy loss).
 ///   - S1 VV backscatter drop ≥ 3 dB vs 2020 baseline → suspicious
 ///     (Reiche et al. 2018; consistent with C-band forest-clearance
 ///     detection in tropical regions).
+///
 /// When EITHER signal exceeds its threshold the verdict downgrades to
 /// `visual_deforestation_suspected`; when both stay within bounds
 /// the verdict is `no_visual_deforestation`.
@@ -28867,24 +28866,19 @@ async fn build_plot_visual_evidence(
         // be senescence / drought).
         if let (Some(now), Some(prev)) = (ndvi_med, prev_ndvi_median) {
             let drop = prev - now;
-            if drop > 0.0 {
-                if worst_ndvi_drop_year_over_year
+            if drop > 0.0
+                && worst_ndvi_drop_year_over_year
                     .map(|(_, d)| drop > d)
                     .unwrap_or(true)
-                {
-                    worst_ndvi_drop_year_over_year = Some((*year, drop));
-                }
+            {
+                worst_ndvi_drop_year_over_year = Some((*year, drop));
             }
         }
         prev_ndvi_median = ndvi_med;
         // Drop vs 2020 baseline (mostly informational; suspicious >0.15).
         if let (Some(now), Some(base)) = (ndvi_med, ndvi_2020_median) {
             let drop = base - now;
-            if drop > 0.0
-                && max_drop_vs_baseline
-                    .map(|d| drop > d)
-                    .unwrap_or(true)
-            {
+            if drop > 0.0 && max_drop_vs_baseline.map(|d| drop > d).unwrap_or(true) {
                 max_drop_vs_baseline = Some(drop);
             }
         }
@@ -28937,7 +28931,9 @@ async fn build_plot_visual_evidence(
         .clamp(1.0, 10.0);
 
     // S1 latest vs 2020 baseline.
-    let latest = per_year.last().and_then(|y| y.get("s1_vv_delta_db_vs_2020").cloned());
+    let latest = per_year
+        .last()
+        .and_then(|y| y.get("s1_vv_delta_db_vs_2020").cloned());
     let s1_drop_latest = latest
         .as_ref()
         .and_then(|v| v.as_f64())
@@ -28951,8 +28947,12 @@ async fn build_plot_visual_evidence(
         .map(|d| -d)
         .filter(|d| *d > 0.0);
 
-    let ndvi_breach = max_drop_vs_baseline.map(|d| d >= ndvi_drop_thr).unwrap_or(false)
-        || ndvi_drop_latest.map(|d| d >= ndvi_drop_thr).unwrap_or(false);
+    let ndvi_breach = max_drop_vs_baseline
+        .map(|d| d >= ndvi_drop_thr)
+        .unwrap_or(false)
+        || ndvi_drop_latest
+            .map(|d| d >= ndvi_drop_thr)
+            .unwrap_or(false);
     let s1_breach = s1_drop_latest.map(|d| d >= s1_drop_db_thr).unwrap_or(false);
     let verdict = if ndvi_breach || s1_breach {
         "visual_deforestation_suspected"
@@ -29610,9 +29610,7 @@ async fn post_eudr_dds_inner(
                 },
                 "per_cell_verdicts": per_cell.clone(),
             });
-            if let (Some(obj), Some(ve)) =
-                (plot_obj.as_object_mut(), visual_evidence_json)
-            {
+            if let (Some(obj), Some(ve)) = (plot_obj.as_object_mut(), visual_evidence_json) {
                 obj.insert("visual_evidence".into(), ve);
             }
             if let (Some(obj), Some(warning)) =
@@ -30085,9 +30083,9 @@ fn extract_latlng_from_text(q: &str) -> Option<(f64, f64)> {
     // optional commas between the two clauses.
     let lower = q.to_ascii_lowercase();
     let find_kv = |k: &str| -> Option<(usize, f64)> {
-        let needle = format!("{k}");
+        let needle = k;
         let mut start = 0usize;
-        while let Some(idx) = lower[start..].find(&needle) {
+        while let Some(idx) = lower[start..].find(needle) {
             let abs = start + idx;
             // Must be preceded by start-of-string or non-word char so
             // "lat" doesn't match the middle of "delat" / "latitude…"
@@ -30141,17 +30139,19 @@ fn extract_latlng_from_text(q: &str) -> Option<(f64, f64)> {
     let is_num_char = |c: u8| c.is_ascii_digit() || c == b'.' || c == b'-' || c == b'+';
     let mut i = 0usize;
     while i < bytes.len() {
-        if is_num_char(bytes[i])
-            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric())
-        {
+        if is_num_char(bytes[i]) && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric()) {
             let s = i;
             while i < bytes.len() && is_num_char(bytes[i]) {
                 i += 1;
             }
-            let first = std::str::from_utf8(&bytes[s..i]).ok().and_then(|t| t.parse::<f64>().ok());
+            let first = std::str::from_utf8(&bytes[s..i])
+                .ok()
+                .and_then(|t| t.parse::<f64>().ok());
             // Skip separator: comma, whitespace, semicolon
             let mut j = i;
-            while j < bytes.len() && (bytes[j] == b',' || bytes[j].is_ascii_whitespace() || bytes[j] == b';') {
+            while j < bytes.len()
+                && (bytes[j] == b',' || bytes[j].is_ascii_whitespace() || bytes[j] == b';')
+            {
                 j += 1;
             }
             if let Some(la) = first {
@@ -30160,8 +30160,9 @@ fn extract_latlng_from_text(q: &str) -> Option<(f64, f64)> {
                     while j < bytes.len() && is_num_char(bytes[j]) {
                         j += 1;
                     }
-                    let second =
-                        std::str::from_utf8(&bytes[s2..j]).ok().and_then(|t| t.parse::<f64>().ok());
+                    let second = std::str::from_utf8(&bytes[s2..j])
+                        .ok()
+                        .and_then(|t| t.parse::<f64>().ok());
                     if let Some(lo) = second {
                         if (-90.0..=90.0).contains(&la) && (-180.0..=180.0).contains(&lo) {
                             bare_pairs.push((la, lo));
@@ -32716,7 +32717,10 @@ async fn apply_overture_division_upgrade(
     // (`country_table` / `admin1_table` / `admin2_table` /
     // `admin3_table`), so the source field still tells downstream
     // consumers exactly where the polygon came from.
-    if std::env::var("EMEM_LOCATE_SKIP_OVERTURE_UPGRADE").ok().as_deref() == Some("1")
+    if std::env::var("EMEM_LOCATE_SKIP_OVERTURE_UPGRADE")
+        .ok()
+        .as_deref()
+        == Some("1")
         && polygon_bbox.is_some()
     {
         return;
