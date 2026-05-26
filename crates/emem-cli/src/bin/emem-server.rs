@@ -140,6 +140,42 @@ async fn main() -> anyhow::Result<()> {
     // skip on sled failure (the in-memory cache still works).
     emem_api_rest::wire_overture_persistent_cache();
 
+    // Pre-warm critical COG profiles: the JRC GFC2020 global COG has a
+    // ~110 MB IFD header that dominates the cold-start cost of
+    // /v1/eudr_dds. Without this pre-warm, the FIRST EUDR request after
+    // restart pays the full 110 MB download inside the user-facing budget
+    // — often >120 s on moderate bandwidth. Hansen GFC tiles are smaller
+    // (~2 MB per tile) so we warm those on-demand via TILE_CACHE. Disable
+    // with `EMEM_OVERTURE_SKIP_WARMUP=1` (gates all warm-up including
+    // Overture).
+    if std::env::var("EMEM_OVERTURE_SKIP_WARMUP").ok().as_deref() != Some("1") {
+        tokio::spawn(async {
+            let t0 = std::time::Instant::now();
+            let cli = emem_fetch::cog::prewarm_client();
+            match emem_fetch::cog::prewarm_profile(&cli, emem_fetch::jrc_gfc2020::cog_url()).await {
+                Ok(()) => {
+                    tracing::info!(
+                        target: "emem::cog::warm",
+                        jrc_gfc2020_warm_elapsed_ms = t0.elapsed().as_millis() as u64,
+                        "jrc_gfc2020 profile pre-warmed"
+                    );
+                    eprintln!(
+                        "jrc_gfc2020 warm-up: {} ms",
+                        t0.elapsed().as_millis()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::cog::warm",
+                        error = %e,
+                        "jrc_gfc2020 profile warm-up failed; first EUDR call will pay cold cost"
+                    );
+                    eprintln!("warning: jrc_gfc2020 warm-up failed ({e})");
+                }
+            }
+        });
+    }
+
     // Pre-warm the Overture divisions cache so the first /v1/locate
     // (and every place-based boring endpoint behind it) doesn't pay
     // the 6–15 s cold-cache penalty for S3 list + per-shard parquet
