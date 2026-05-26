@@ -29312,7 +29312,16 @@ async fn evaluate_eudr_plot_batched(
     // 2 unbatched bands (signed-Absence-only today) run per-cell in
     // parallel for each band. Captures the CID; the int value comes
     // from get_facts_many in the assembly phase below.
-    let per_cell_bands: [&str; 2] = ["wri_gdm.driver_class", "radd.alert_date"];
+    // WRI GDM only — RADD removed because its Requester-Pays S3
+    // connector always returns NotImplemented but the /v1/recall
+    // auto-materialize path still spends ~30 s on the cold COG
+    // probe before timing out. RADD is supplementary to the EUDR
+    // verdict (OR'd with Hansen + JRC TMF for loss-year consensus);
+    // removing it from the hot path shaves 30 s per cell without
+    // changing the verdict for any cell that doesn't have a RADD
+    // alert (which is every cell today). If a public HTTPS COG
+    // endpoint appears from WUR/GFW, add "radd.alert_date" back.
+    let per_cell_bands: [&str; 1] = ["wri_gdm.driver_class"];
     let per_cell_cids: Vec<Vec<Result<emem_fact::FactCid, String>>> =
         futures_util::future::join_all(per_cell_bands.iter().map(|b| {
             let band = b.to_string();
@@ -29462,13 +29471,15 @@ fn eudr_batch_path_enabled() -> bool {
 }
 
 async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
-    let bands: [&str; 6] = [
+    // RADD removed: Requester-Pays S3 → always NotImplemented → 30 s
+    // wasted per cell on the auto-materialize probe. See the matching
+    // note in evaluate_eudr_plot_batched for rationale.
+    let bands: [&str; 5] = [
         "jrc_gfc2020.forest_2020",
         "forest_change.treecover2000",
         "forest_change.lossyear",
         "jrc_tmf.deforestation_year",
         "wri_gdm.driver_class",
-        "radd.alert_date",
     ];
 
     // Parallel per-band fetch within this cell. Pre-fix this was a
