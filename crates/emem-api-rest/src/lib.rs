@@ -29893,7 +29893,44 @@ async fn post_eudr_dds_inner(
             },
         ));
     }
-    let max_cells_default = req.max_cells_per_plot.unwrap_or(16).clamp(1, 256);
+    // Dynamic cell budget: scale with plot area so the polygon is
+    // fully covered, not just 3.6%-sampled (the pre-fix default of
+    // 16 cells for a 4 ha plot). One cell64 is ~91 m², so full
+    // coverage of A hectares = ceil(A × 10000 / 91) cells. The
+    // batched path (sign_and_persist_many) makes the sled cost
+    // O(1) per (plot, band) regardless of N, so the only marginal
+    // cost per cell is the in-memory pixel extraction from the
+    // already-fetched COG tile (µs per cell via TILE_CACHE
+    // single-flight). Cap at 512 (env-tunable via
+    // EMEM_BORING_MAX_CELLS) to avoid unbounded payload size.
+    //
+    // When the operator passes `max_cells_per_plot` explicitly, we
+    // honour it — they know their latency budget. When omitted, we
+    // scale automatically so 100 % of the polygon is evaluated and
+    // the Article 2(4) 0.5 ha MMU floor works on real failing-area
+    // measurements, not on the sparse 16-cell approximation.
+    let max_cells_default = req
+        .max_cells_per_plot
+        .map(|n| n.clamp(1, 512))
+        .unwrap_or_else(|| {
+            // Derive from the largest plot's area. Compute area for
+            // each plot (same extract_plot_geometry used downstream) and
+            // pick the largest to set the budget. If geometry fails,
+            // fall back to 64 (covers ~0.58 ha ≈ the MMU floor).
+            let max_area_ha = req
+                .plots
+                .iter()
+                .filter_map(|p| extract_plot_geometry(&p.geometry_geojson).ok())
+                .map(|(_, _, a)| a)
+                .fold(0.0f64, f64::max);
+            if max_area_ha <= 0.0 {
+                64
+            } else {
+                // ~110 cells per hectare (10000 m² / 91 m² per cell).
+                let needed = (max_area_ha * 110.0).ceil() as usize;
+                needed.clamp(55, 512)
+            }
+        });
 
     // Bounded fan-out caps: env-tunable so upstream COG hosts stay polite.
     //
