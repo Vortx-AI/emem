@@ -28826,26 +28826,46 @@ async fn build_plot_visual_evidence(
     let url_cell_cap = sample_cells.len().min(6);
     let url_cells: Vec<&String> = sample_cells.iter().take(url_cell_cap).collect();
 
-    // Per-year parallel fan-out: NDVI across all cells || S1 VV across
-    // all cells, joined inside the year and across years. With 16
-    // cells × 7 years × 2 bands = 224 materializations; the COG tile-
-    // cache + profile-cache + sled-persisted division cache collapse
-    // most of these to ms-cost hits once any one year is warm.
+    // Per-year geospatial-batched fan-out: for each year, materialize
+    // the FIRST cell (which triggers the cold STAC search + COG
+    // profile + tile fetch), then loop the remaining cells which hit
+    // PROFILE_CACHE + TILE_CACHE (µs each). This collapses 16 × 7 × 2
+    // = 224 independent STAC searches to 7 × 2 = 14 (one per year ×
+    // band). Years run in parallel; cells within a year are sequential
+    // so the single-flight caches are warm for cells 2..N. Per-band
+    // timeout protects against a single slow upstream.
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
     let years_per = futures_util::future::join_all(years.iter().map(|&year| {
         let anchor = jul1_unix(year);
         let cells: Vec<String> = sample_cells.to_vec();
+        let s_c = s.clone();
         async move {
-            let ndvi_fut = futures_util::future::join_all(
-                cells
-                    .iter()
-                    .map(|c| materialize_sentinel2_band(c, s, "indices.ndvi", Some(anchor))),
-            );
-            let s1_fut = futures_util::future::join_all(
-                cells
-                    .iter()
-                    .map(|c| materialize_sentinel1_vv(c, s, Some(anchor))),
-            );
-            let (ndvi_cids, s1_cids) = futures_util::future::join(ndvi_fut, s1_fut).await;
+            // S2 NDVI: first cell warms the scene search + COG; rest hit cache.
+            let mut ndvi_cids: Vec<Result<emem_fact::FactCid, String>> =
+                Vec::with_capacity(cells.len());
+            for c in &cells {
+                let r = tokio::time::timeout(
+                    timeout,
+                    materialize_sentinel2_band(c, &s_c, "indices.ndvi", Some(anchor)),
+                )
+                .await;
+                ndvi_cids.push(match r {
+                    Ok(inner) => inner,
+                    Err(_) => Err(format!("ndvi timeout {year}")),
+                });
+            }
+            // S1 VV: same pattern — first cell warms, rest hit cache.
+            let mut s1_cids: Vec<Result<emem_fact::FactCid, String>> =
+                Vec::with_capacity(cells.len());
+            for c in &cells {
+                let r =
+                    tokio::time::timeout(timeout, materialize_sentinel1_vv(c, &s_c, Some(anchor)))
+                        .await;
+                s1_cids.push(match r {
+                    Ok(inner) => inner,
+                    Err(_) => Err(format!("s1_vv timeout {year}")),
+                });
+            }
             (year, anchor, ndvi_cids, s1_cids)
         }
     }))
