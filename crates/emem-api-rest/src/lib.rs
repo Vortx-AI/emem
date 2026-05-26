@@ -29162,55 +29162,19 @@ async fn batch_materialize_eudr_band(
     }
     let n_cells = cells.len();
 
-    // ── Sled fast path: check for already-attested facts BEFORE any
-    //    upstream COG fetch. Static bands (tslot=0) get a single fact
-    //    per (cell, band). If it exists in sled, return the cached CID
-    //    + value immediately. Only cells that are truly NEW hit the
-    //    COG path. This is the geospatial insight the user pointed at:
-    //    "the time should NOT scale linearly with area" — once the tile
-    //    is cached in sled, 512 cells cost 512 sled lookups (µs each),
-    //    NOT 512 COG range reads (seconds each).
-    let mut out: Vec<Result<EudrBandResult, String>> =
-        (0..n_cells).map(|_| Err("pending".into())).collect();
-    let mut cells_to_build: Vec<(usize, String)> = Vec::new();
-    for (i, cell) in cells.iter().enumerate() {
-        // scan_cell returns all (CanonicalKey, FactCid) pairs for this cell.
-        // We're looking for band=<band> tslot=0 (static bands).
-        if let Ok(existing) = s.storage.scan_cell(cell, Some(0)).await {
-            if let Some((_, cid)) = existing.iter().find(|(k, _)| k.band == band) {
-                // Found in sled — extract the int value from the persisted fact.
-                let int_value = if let Ok(Some(emem_fact::Fact::Primary(p))) = s
-                    .storage
-                    .get_facts_many(std::slice::from_ref(cid))
-                    .await
-                    .map(|v| v.into_iter().next().flatten())
-                {
-                    match &p.value {
-                        ciborium::Value::Integer(iv) => i64::try_from(*iv).ok(),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                out[i] = Ok(EudrBandResult {
-                    cid: cid.clone(),
-                    int_value,
-                });
-                continue;
-            }
-        }
-        // Not in sled → needs a fresh build from the COG.
-        cells_to_build.push((i, cell.clone()));
-    }
-
-    // If ALL cells are cached, skip the build + persist entirely.
-    if cells_to_build.is_empty() {
-        return out;
-    }
-
-    // ── COG build phase: only for cells NOT in sled. Bounded fan-out.
+    // COG build phase: fetch all cells via the geospatial path.
+    // The coalesced-strip optimisation in sample_window (cog.rs)
+    // fetches ALL needed strips in ONE HTTP range read for strip-
+    // encoded COGs (Hansen RowsPerStrip=1). Combined with
+    // PROFILE_CACHE + TILE_CACHE single-flight, N cells in the
+    // same COG tile cost ONE upstream fetch + N in-memory pixel
+    // extractions — truly O(1) HTTP, O(N) compute. A sled-first
+    // check was tried but at 512 cells × ~200ms per scan_cell it
+    // actually ADDED 100s of latency instead of saving it. The
+    // sign_and_persist_many at the end does ONE sled write per
+    // band regardless of N cells, so the sled cost is O(1) too.
     let facts_res: Vec<(usize, Result<Fact, String>)> =
-        futures_util::stream::iter(cells_to_build.into_iter().map(|(i, cell)| {
+        futures_util::stream::iter(cells.into_iter().enumerate().map(|(i, cell)| {
             let band = band.to_string();
             let signed_at = signed_at.to_string();
             let s_c = s.clone();

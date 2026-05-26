@@ -1264,6 +1264,47 @@ pub async fn sample_window(
     let tile_row_a = row0 / profile.tile_h;
     let tile_row_b = (row1 - 1) / profile.tile_h;
 
+    // ── vsicurl-style coalescing for strip-encoded COGs ──────────
+    //
+    // Hansen GFC v1.12 (RowsPerStrip=1, tile_h=1) has 40000 strips
+    // per tile. Fetching each strip via its own http_range takes
+    // ~500 ms × N_strips. For a 220 m polygon at 30 m resolution
+    // that's ~7 strips = ~3.5 s per band. Coalescing into ONE
+    // http_range for the contiguous byte span covering strips
+    // [row_a..row_b] drops it to ~500 ms regardless of N_strips.
+    //
+    // For tiled COGs (tile_h > 1) the loop falls through to the
+    // existing per-tile fetch below.
+    let strip_coalesced =
+        profile.tile_h == 1 && tile_col_a == tile_col_b && tile_row_a < tile_row_b;
+    let coalesced_buf: Option<Bytes> = if strip_coalesced {
+        let first_idx = (tile_row_a * profile.tile_cols + tile_col_a) as usize;
+        let last_idx = (tile_row_b * profile.tile_cols + tile_col_b) as usize;
+        if first_idx < profile.tile_offsets.len() && last_idx < profile.tile_offsets.len() {
+            let range_start = profile.tile_offsets[first_idx];
+            let range_end = profile.tile_offsets[last_idx] + profile.tile_byte_counts[last_idx];
+            if range_end > range_start {
+                Some(http_range(client, url, range_start, range_end - 1).await?)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let coalesced_base_offset: u64 = if strip_coalesced {
+        let first_idx = (tile_row_a * profile.tile_cols + tile_col_a) as usize;
+        if first_idx < profile.tile_offsets.len() {
+            profile.tile_offsets[first_idx]
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
     for tr in tile_row_a..=tile_row_b {
         for tc in tile_col_a..=tile_col_b {
             let tile_idx = (tr * profile.tile_cols + tc) as usize;
@@ -1275,7 +1316,19 @@ pub async fn sample_window(
             if len == 0 {
                 continue;
             }
-            let tile_compressed = http_range(client, url, off, off + len - 1).await?;
+            // Use coalesced buffer when available (strip-encoded),
+            // else fall back to per-tile http_range (tiled COGs).
+            let tile_compressed: Bytes = if let Some(ref buf) = coalesced_buf {
+                let start = (off - coalesced_base_offset) as usize;
+                let end = start + len as usize;
+                if end <= buf.len() {
+                    buf.slice(start..end)
+                } else {
+                    http_range(client, url, off, off + len - 1).await?
+                }
+            } else {
+                http_range(client, url, off, off + len - 1).await?
+            };
             let mut tile_bytes =
                 Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * bps);
             match profile.compression {
