@@ -29066,9 +29066,18 @@ async fn build_eudr_band_fact(
     band: &str,
     signed_at: &str,
 ) -> Result<Fact, String> {
-    if band == "jrc_gfc2020.forest_2020" {
-        return build_fact_jrc_gfc2020(s, cell64, band, signed_at).await;
-    }
+    // Same per-band timeout as try_materialize_one_band (commit 85a2746).
+    // Without this the batched path has no ceiling on individual band
+    // fetches — JRC TMF downloads full ~80-130 MB tiles on first miss
+    // and can hang the EUDR budget for minutes. With the timeout, a
+    // slow tile download gets killed at 30 s and the band returns Err
+    // for cells in that region; the EUDR verdict degrades to
+    // indeterminate rather than timing out the whole request.
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let inner = async {
+        if band == "jrc_gfc2020.forest_2020" {
+            return build_fact_jrc_gfc2020(s, cell64, band, signed_at).await;
+        }
     if matches!(
         band,
         "forest_change.lossyear"
@@ -29089,9 +29098,17 @@ async fn build_eudr_band_fact(
     ) {
         return build_fact_jrc_tmf(s, cell64, band, signed_at).await;
     }
-    Err(format!(
-        "eudr_dds batch: band {band} not supported in batch path (only jrc_gfc2020.*, forest_change.*, jrc_tmf.*)"
-    ))
+        Err(format!(
+            "eudr_dds batch: band {band} not supported in batch path (only jrc_gfc2020.*, forest_change.*, jrc_tmf.*)"
+        ))
+    };
+    match tokio::time::timeout(timeout, inner).await {
+        Ok(r) => r,
+        Err(_) => Err(format!(
+            "eudr_dds batch: band {band} timed out after {}s at cell {cell64}",
+            timeout.as_secs()
+        )),
+    }
 }
 
 /// Geospatial-batched materializer for one EUDR band across N cells.
