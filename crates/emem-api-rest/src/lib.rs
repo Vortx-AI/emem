@@ -22756,6 +22756,15 @@ async fn sign_and_persist_many(
         return Ok(Vec::new());
     }
     // Compute per-fact merkle leaves over their canonical CBOR.
+    // CRITICAL: sort the leaves before computing the root — the
+    // verifier in `verify_attestation` (emem-storage/src/lib.rs:418)
+    // sorts before root computation. Without this sort, multi-fact
+    // attestations produce a different root on sign vs verify and
+    // `put_attestation` rejects with "merkle root mismatch". Single-
+    // fact attestations were unaffected (one element is trivially
+    // sorted), which is why sign_and_persist worked but
+    // sign_and_persist_many broke for N>1 — the bug that caused the
+    // batched EUDR path's `verdict=indeterminate` on 2026-05-25.
     let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(facts.len());
     for fact in &facts {
         let mut buf = Vec::new();
@@ -22764,6 +22773,7 @@ async fn sign_and_persist_many(
         leaf.copy_from_slice(blake3::hash(&buf).as_bytes());
         leaves.push(leaf);
     }
+    leaves.sort();
     let batch_root = emem_attest::merkle_root(&leaves);
     let mut h = blake3::Hasher::new();
     h.update(&batch_root);
