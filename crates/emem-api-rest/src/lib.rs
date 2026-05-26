@@ -29173,20 +29173,18 @@ async fn batch_build_facts_via_window(
     let mut max_lat = f64::MIN;
     let mut min_lng = f64::MAX;
     let mut max_lng = f64::MIN;
-    for c in &coords {
-        if let Some((lat, lng)) = c {
-            min_lat = min_lat.min(*lat);
-            max_lat = max_lat.max(*lat);
-            min_lng = min_lng.min(*lng);
-            max_lng = max_lng.max(*lng);
-        }
+    for (lat, lng) in coords.iter().flatten() {
+        min_lat = min_lat.min(*lat);
+        max_lat = max_lat.max(*lat);
+        min_lng = min_lng.min(*lng);
+        max_lng = max_lng.max(*lng);
     }
     let centre_lat = (min_lat + max_lat) * 0.5;
     let centre_lng = (min_lng + max_lng) * 0.5;
 
     // Resolve the COG URL for this band + region.
     let cli = s2_http_client();
-    let (url, scheme, fn_key, layer_str) = match band {
+    let (url, scheme, fn_key, _layer_str) = match band {
         "jrc_gfc2020.forest_2020" => (
             emem_fetch::jrc_gfc2020::cog_url().to_string(),
             "jrc.gfc2020.v3",
