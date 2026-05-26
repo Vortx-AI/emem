@@ -29149,6 +29149,245 @@ async fn build_eudr_band_fact(
 /// the `Result`'s `Err` variant; the successful facts in the same
 /// batch are unaffected. If the batched persist itself fails, every
 /// cell that would have been persisted returns the batch error.
+/// TRUE geospatial path: ONE `cog::sample_window` per band covering
+/// the polygon bbox, then N in-memory pixel lookups. O(1) HTTP, O(N)
+/// compute. Returns `(cell_index, Result<Fact, String>)` per cell.
+async fn batch_build_facts_via_window(
+    s: &AppState,
+    cells: &[String],
+    band: &str,
+    signed_at: &str,
+) -> Vec<(usize, Result<Fact, String>)> {
+    // Decode all cells to lat/lng first.
+    let coords: Vec<Option<(f64, f64)>> = cells
+        .iter()
+        .map(|c| {
+            emem_codec::latlng_from_cell64(c)
+                .ok()
+                .map(|i| (i.lat_deg, i.lng_deg))
+        })
+        .collect();
+
+    // Compute the bounding box of all cells.
+    let mut min_lat = f64::MAX;
+    let mut max_lat = f64::MIN;
+    let mut min_lng = f64::MAX;
+    let mut max_lng = f64::MIN;
+    for c in &coords {
+        if let Some((lat, lng)) = c {
+            min_lat = min_lat.min(*lat);
+            max_lat = max_lat.max(*lat);
+            min_lng = min_lng.min(*lng);
+            max_lng = max_lng.max(*lng);
+        }
+    }
+    let centre_lat = (min_lat + max_lat) * 0.5;
+    let centre_lng = (min_lng + max_lng) * 0.5;
+
+    // Resolve the COG URL for this band + region.
+    let cli = s2_http_client();
+    let (url, scheme, fn_key, layer_str) = match band {
+        "jrc_gfc2020.forest_2020" => (
+            emem_fetch::jrc_gfc2020::cog_url().to_string(),
+            "jrc.gfc2020.v3",
+            "jrc_gfc2020_v3_pixel@1",
+            "forest_2020",
+        ),
+        "forest_change.treecover2000" => (
+            emem_fetch::hansen_gfc::tile_url_for(
+                centre_lat,
+                centre_lng,
+                emem_fetch::hansen_gfc::LAYER_TREECOVER_2000,
+            ),
+            "hansen.gfc.v1_12.2024",
+            "hansen_gfc_v1_12_pixel@1",
+            emem_fetch::hansen_gfc::LAYER_TREECOVER_2000,
+        ),
+        "forest_change.lossyear" => (
+            emem_fetch::hansen_gfc::tile_url_for(
+                centre_lat,
+                centre_lng,
+                emem_fetch::hansen_gfc::LAYER_LOSSYEAR,
+            ),
+            "hansen.gfc.v1_12.2024",
+            "hansen_gfc_v1_12_pixel@1",
+            emem_fetch::hansen_gfc::LAYER_LOSSYEAR,
+        ),
+        "jrc_tmf.deforestation_year" => {
+            // TMF uses disk-cached tiles. Ensure the tile is on disk
+            // (one download if cold), then use the local file:// path
+            // for sample_window — same O(1) fetch + O(N) pixel pattern.
+            let tmf_cli = s2_http_client();
+            match emem_fetch::jrc_tmf::ensure_tile_cached(
+                &tmf_cli,
+                emem_fetch::jrc_tmf::DATASET_DEFORESTATION_YEAR,
+                centre_lat,
+                centre_lng,
+            )
+            .await
+            {
+                Ok(path) => {
+                    let file_url = format!("file://{}", path.display());
+                    (
+                        file_url,
+                        "jrc.tmf.v2025",
+                        "jrc_tmf_v2025_pixel@1",
+                        "DeforestationYear",
+                    )
+                }
+                Err(emem_fetch::jrc_tmf::JrcTmfError::CoverageGap { .. }) => {
+                    return cells
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| (i, Err("jrc_tmf coverage gap (outside ±30°)".into())))
+                        .collect();
+                }
+                Err(e) => {
+                    return cells
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| (i, Err(format!("jrc_tmf tile cache: {e}"))))
+                        .collect();
+                }
+            }
+        }
+        _ => {
+            return cells
+                .iter()
+                .enumerate()
+                .map(|(i, _)| (i, Err(format!("window: band {band} not supported"))))
+                .collect();
+        }
+    };
+
+    // Open the profile ONCE (PROFILE_CACHE hit after first call).
+    let profile = match emem_fetch::cog::open_profile(&cli, &url).await {
+        Ok(p) => p,
+        Err(e) => {
+            return cells
+                .iter()
+                .enumerate()
+                .map(|(i, _)| (i, Err(format!("open profile: {e}"))))
+                .collect();
+        }
+    };
+
+    // Compute the pixel bbox — how many pixels does the polygon span?
+    // For Hansen/JRC in EPSG:4326: world_x = lng, world_y = lat.
+    let (pix_min_col, pix_min_row) = profile.world_to_pixel(min_lng, max_lat);
+    let (pix_max_col, pix_max_row) = profile.world_to_pixel(max_lng, min_lat);
+    // Add 1-pixel margin to avoid off-by-one at polygon edges.
+    let win_w = ((pix_max_col - pix_min_col).abs() + 3).max(3) as u32;
+    let win_h = ((pix_max_row - pix_min_row).abs() + 3).max(3) as u32;
+
+    // ONE fetch: sample_window reads ALL needed strips/tiles in one
+    // coalesced HTTP range read (for strip-encoded COGs like Hansen).
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let pixels = match tokio::time::timeout(
+        timeout,
+        emem_fetch::cog::sample_window(&cli, &url, &profile, centre_lng, centre_lat, win_w, win_h),
+    )
+    .await
+    {
+        Ok(Ok(p)) => p,
+        Ok(Err(e)) => {
+            return cells
+                .iter()
+                .enumerate()
+                .map(|(i, _)| (i, Err(format!("sample_window: {e}"))))
+                .collect();
+        }
+        Err(_) => {
+            return cells
+                .iter()
+                .enumerate()
+                .map(|(i, _)| {
+                    (
+                        i,
+                        Err(format!("window timeout after {}s", timeout.as_secs())),
+                    )
+                })
+                .collect();
+        }
+    };
+
+    // Centre pixel of the window in image coordinates.
+    let (centre_col, centre_row) = profile.world_to_pixel(centre_lng, centre_lat);
+    let half_w = (win_w as i64) / 2;
+    let half_h = (win_h as i64) / 2;
+    let win_col0 = centre_col - half_w;
+    let win_row0 = centre_row - half_h;
+
+    // For each cell: index into the in-memory pixel buffer → build Fact.
+    let mut out: Vec<(usize, Result<Fact, String>)> = Vec::with_capacity(cells.len());
+    for (i, cell) in cells.iter().enumerate() {
+        let (lat, lng) = match coords[i] {
+            Some(c) => c,
+            None => {
+                out.push((i, Err("cell decode failed".into())));
+                continue;
+            }
+        };
+        let (col, row) = profile.world_to_pixel(lng, lat);
+        let px = (col - win_col0) as usize;
+        let py = (row - win_row0) as usize;
+        let idx = py * (win_w as usize) + px;
+        if idx >= pixels.len() {
+            out.push((
+                i,
+                Err(format!("pixel ({px},{py}) outside window {win_w}×{win_h}")),
+            ));
+            continue;
+        }
+        let raw_value = pixels[idx];
+        let value_int = raw_value as i64;
+
+        let fact = Fact::Primary(emem_fact::PrimaryFact {
+            cell: cell.clone(),
+            band: band.to_string(),
+            tslot: 0,
+            value: ciborium::Value::Integer(value_int.into()),
+            unit: Some(
+                match band {
+                    "jrc_gfc2020.forest_2020" => "boolean_eudr_forest_2020",
+                    "forest_change.treecover2000" => "percent_canopy_cover",
+                    "forest_change.lossyear" => "year_of_loss",
+                    _ => "raw",
+                }
+                .into(),
+            ),
+            confidence: if band == "jrc_gfc2020.forest_2020" {
+                0.88
+            } else {
+                0.93
+            },
+            uncertainty: None,
+            sources: vec![emem_fact::Source {
+                scheme: scheme.into(),
+                id: url.clone(),
+                cid: None,
+                hash: None,
+                captured_at: static_release_date(band).map(str::to_string),
+                url: Some(url.clone()),
+            }],
+            derivation: emem_fact::Derivation {
+                fn_key: fn_key.into(),
+                args: Some(ciborium::Value::Array(vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                ])),
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.to_string(),
+            served_via: None,
+        });
+        out.push((i, Ok(fact)));
+    }
+    out
+}
+
 async fn batch_materialize_eudr_band(
     s: AppState,
     cells: Vec<String>,
@@ -29162,18 +29401,29 @@ async fn batch_materialize_eudr_band(
     }
     let n_cells = cells.len();
 
-    // COG build phase: fetch all cells via the geospatial path.
-    // The coalesced-strip optimisation in sample_window (cog.rs)
-    // fetches ALL needed strips in ONE HTTP range read for strip-
-    // encoded COGs (Hansen RowsPerStrip=1). Combined with
-    // PROFILE_CACHE + TILE_CACHE single-flight, N cells in the
-    // same COG tile cost ONE upstream fetch + N in-memory pixel
-    // extractions — truly O(1) HTTP, O(N) compute. A sled-first
-    // check was tried but at 512 cells × ~200ms per scan_cell it
-    // actually ADDED 100s of latency instead of saving it. The
-    // sign_and_persist_many at the end does ONE sled write per
-    // band regardless of N cells, so the sled cost is O(1) too.
-    let facts_res: Vec<(usize, Result<Fact, String>)> =
+    // ── TRUE GEOSPATIAL PATH ────────────────────────────────────
+    //
+    // For the 4 EUDR bands backed by static COGs (Hansen, JRC), we
+    // call `cog::sample_window` ONCE per band covering the polygon
+    // bbox, then index N cell pixels from the returned in-memory
+    // buffer. This is O(1) HTTP + O(N) array lookups — not O(N) HTTP
+    // like the per-cell sample_pixel path. The coalesced-strip
+    // optimisation in sample_window (cog.rs) further collapses
+    // strip-encoded COGs (Hansen RowsPerStrip=1) into ONE range read.
+    //
+    // After all facts are built in memory, ONE sign_and_persist_many
+    // per band writes them to sled in a single transaction.
+    let geospatial_window = matches!(
+        band,
+        "jrc_gfc2020.forest_2020"
+            | "forest_change.treecover2000"
+            | "forest_change.lossyear"
+            | "jrc_tmf.deforestation_year"
+    );
+
+    let facts_res: Vec<(usize, Result<Fact, String>)> = if geospatial_window {
+        batch_build_facts_via_window(&s, &cells, band, signed_at).await
+    } else {
         futures_util::stream::iter(cells.into_iter().enumerate().map(|(i, cell)| {
             let band = band.to_string();
             let signed_at = signed_at.to_string();
@@ -29187,7 +29437,8 @@ async fn batch_materialize_eudr_band(
         }))
         .buffer_unordered(cell_cc.max(1))
         .collect()
-        .await;
+        .await
+    };
 
     // Separate successful facts (with their original cell index) from
     // per-cell errors. Order matters: the final output Vec must be in
