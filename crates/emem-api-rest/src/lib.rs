@@ -29078,26 +29078,26 @@ async fn build_eudr_band_fact(
         if band == "jrc_gfc2020.forest_2020" {
             return build_fact_jrc_gfc2020(s, cell64, band, signed_at).await;
         }
-    if matches!(
-        band,
-        "forest_change.lossyear"
-            | "forest_change.treecover2000"
-            | "forest_change.gain"
-            | "hansen.loss_year"
-            | "hansen.tree_cover_2000"
-            | "hansen.gain"
-    ) {
-        return build_fact_hansen(s, cell64, band, signed_at).await;
-    }
-    if matches!(
-        band,
-        "jrc_tmf.deforestation_year"
-            | "jrc_tmf.degradation_year"
-            | "jrc_tmf.annual_change"
-            | "jrc_tmf.transition_subtype"
-    ) {
-        return build_fact_jrc_tmf(s, cell64, band, signed_at).await;
-    }
+        if matches!(
+            band,
+            "forest_change.lossyear"
+                | "forest_change.treecover2000"
+                | "forest_change.gain"
+                | "hansen.loss_year"
+                | "hansen.tree_cover_2000"
+                | "hansen.gain"
+        ) {
+            return build_fact_hansen(s, cell64, band, signed_at).await;
+        }
+        if matches!(
+            band,
+            "jrc_tmf.deforestation_year"
+                | "jrc_tmf.degradation_year"
+                | "jrc_tmf.annual_change"
+                | "jrc_tmf.transition_subtype"
+        ) {
+            return build_fact_jrc_tmf(s, cell64, band, signed_at).await;
+        }
         Err(format!(
             "eudr_dds batch: band {band} not supported in batch path (only jrc_gfc2020.*, forest_change.*, jrc_tmf.*)"
         ))

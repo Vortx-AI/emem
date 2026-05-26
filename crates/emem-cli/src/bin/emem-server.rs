@@ -159,10 +159,7 @@ async fn main() -> anyhow::Result<()> {
                         jrc_gfc2020_warm_elapsed_ms = t0.elapsed().as_millis() as u64,
                         "jrc_gfc2020 profile pre-warmed"
                     );
-                    eprintln!(
-                        "jrc_gfc2020 warm-up: {} ms",
-                        t0.elapsed().as_millis()
-                    );
+                    eprintln!("jrc_gfc2020 warm-up: {} ms", t0.elapsed().as_millis());
                 }
                 Err(e) => {
                     tracing::warn!(
