@@ -5091,8 +5091,10 @@ async fn errors() -> Json<JsonValue> {
     Json(errors_payload())
 }
 
-async fn tools() -> Json<JsonValue> {
-    let descriptors: Vec<JsonValue> = emem_mcp::TOOLS.iter().map(|t| json!({
+async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) -> Json<JsonValue> {
+    let tier = params.get("tier").map(|s| s.as_str()).unwrap_or("all");
+    let filtered = emem_mcp::tools_at_tier(tier);
+    let descriptors: Vec<JsonValue> = filtered.iter().map(|t| json!({
         "name": t.name,
         "title": t.title,
         "description": t.description,
@@ -5101,6 +5103,7 @@ async fn tools() -> Json<JsonValue> {
         "example_args": serde_json::from_str::<JsonValue>(t.example_args).unwrap_or(json!({})),
         "level": t.level,
         "category": t.category,
+        "tier": t.tier,
         "annotations": {
             "title":           t.title,
             "readOnlyHint":    t.read_only_hint,
@@ -5109,7 +5112,7 @@ async fn tools() -> Json<JsonValue> {
             "openWorldHint":   t.open_world_hint,
         },
     })).collect();
-    Json(json!({ "tools": descriptors }))
+    Json(json!({ "tools": descriptors, "total": emem_mcp::TOOLS.len(), "showing_tier": tier }))
 }
 
 async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
@@ -5120,6 +5123,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "when_to_use": t.when_to_use,
         "level": t.level,
         "category": t.category,
+        "tier": t.tier,
         "input_schema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
         "example_args": serde_json::from_str::<JsonValue>(t.example_args).unwrap_or(json!({})),
         "annotations": {
@@ -5811,6 +5815,11 @@ struct LatLngQ {
     /// belong on POST /v1/recall_polygon.
     #[serde(default)]
     n_cells: Option<usize>,
+    /// Opt-in heavy response sections. Tokens: `"value_per_cell"`,
+    /// `"geojson"`, `"scene_thumbs"`. Default omits these to stay
+    /// under MCP's 25 KB cap.
+    #[serde(default)]
+    include: Option<Vec<String>>,
 }
 
 impl LatLngQ {
@@ -5884,6 +5893,10 @@ impl LatLngQ {
                 lng: lo,
                 via: "input_latlng".to_string(),
                 polygon: None,
+                is_high_confidence: true,
+                confidence_reason: "direct_latlng".to_string(),
+                area_km2: None,
+                input_place_query: None,
             });
         }
         let p = self.place.as_deref().ok_or_else(|| {
@@ -5936,6 +5949,19 @@ impl LatLngQ {
             .to_string();
         let via = format!("locate:{via}");
 
+        // Extract confidence from the locate response's `selected` block.
+        let selected = body.get("selected");
+        let is_high_confidence = selected
+            .and_then(|s| s.get("is_high_confidence"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let confidence_reason = selected
+            .and_then(|s| s.get("confidence_reason"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string();
+        let input_place_query = Some(p.to_string());
+
         // n_cells == 1 forces point mode even if a polygon is available.
         // Same envelope as a direct-lat/lng call (no polygon block).
         let want_n = self.n_cells.unwrap_or(default_n);
@@ -5945,6 +5971,10 @@ impl LatLngQ {
                 lng: lo,
                 via,
                 polygon: None,
+                is_high_confidence,
+                confidence_reason,
+                area_km2: None,
+                input_place_query,
             });
         }
 
@@ -5980,11 +6010,22 @@ impl LatLngQ {
         } else {
             None
         };
+        let area_km2 = polygon.as_ref().map(|p| {
+            let mid_lat = (p.bbox.0 + p.bbox.1) / 2.0;
+            let lat_km = (p.bbox.1 - p.bbox.0) * 111.0;
+            let lng_km =
+                (p.bbox.3 - p.bbox.2) * 111.0 * mid_lat.to_radians().cos().abs();
+            (lat_km * lng_km).max(0.0)
+        });
         Ok(ResolvedTarget {
             lat: la,
             lng: lo,
             via,
             polygon,
+            is_high_confidence,
+            confidence_reason,
+            area_km2,
+            input_place_query,
         })
     }
 }
@@ -5999,6 +6040,10 @@ struct ResolvedTarget {
     lng: f64,
     via: String,
     polygon: Option<ResolvedPolygon>,
+    is_high_confidence: bool,
+    confidence_reason: String,
+    area_km2: Option<f64>,
+    input_place_query: Option<String>,
 }
 
 #[derive(Clone)]
@@ -6759,6 +6804,7 @@ async fn get_places_scene_overlay_svg(
         bands: None,
         tslot: q.tslot,
         n_cells: Some(n_cells),
+        include: None,
     };
     let target = lq.resolve_target(n_cells).await?;
     let polygon = match target.polygon.as_ref() {
@@ -7460,6 +7506,7 @@ async fn boring_recall_aggregated(
     target: ResolvedTarget,
     bands: &[String],
     tslot: Option<u64>,
+    include: &std::collections::HashSet<&str>,
 ) -> Result<JsonValue, ApiError> {
     // Point query: zero behaviour change vs the legacy code path.
     let polygon = match target.polygon.as_ref() {
@@ -7680,9 +7727,23 @@ async fn boring_recall_aggregated(
             "source":                sample_source,
             "captured_at_range":     captured_at_range,
             "responder_pubkey_b32":  pubkey_b32,
-            "value_per_cell":        JsonValue::Array(value_per_cell.clone()),
-            "geojson":               cells_geojson_with_values(&value_per_cell, band),
         });
+        if let Some(map) = block.as_object_mut() {
+            if include.contains("value_per_cell") {
+                map.insert(
+                    "value_per_cell".into(),
+                    JsonValue::Array(value_per_cell.clone()),
+                );
+            } else {
+                map.insert("value_per_cell_count".into(), json!(value_per_cell.len()));
+            }
+            if include.contains("geojson") {
+                map.insert(
+                    "geojson".into(),
+                    cells_geojson_with_values(&value_per_cell, band),
+                );
+            }
+        }
         if let Some(map) = block.as_object_mut() {
             for (k, v) in extra {
                 // For categorical bands, transform `class_distribution`
@@ -7774,7 +7835,8 @@ async fn boring_recall_aggregated(
     } else {
         json!(null)
     };
-    let polygon_block = json!({
+    let place_label = polygon.place_label.clone();
+    let mut polygon_block = json!({
         "bbox": {
             "min_lat": polygon.bbox.0, "max_lat": polygon.bbox.1,
             "min_lng": polygon.bbox.2, "max_lng": polygon.bbox.3,
@@ -7783,10 +7845,21 @@ async fn boring_recall_aggregated(
         "sample_cells":     cells.clone(),
         "n_sample_cells":   cells.len(),
         "source":           polygon.source,
-        "geojson":          polygon_outline_geojson(&polygon.bbox, polygon.place_label.as_deref(), area_km2, cells.len()),
-        "scene_thumbs":     JsonValue::Array(scene_thumbs),
         "scene_overlay_url": overlay_url,
     });
+    if let Some(map) = polygon_block.as_object_mut() {
+        if include.contains("scene_thumbs") {
+            map.insert("scene_thumbs".into(), JsonValue::Array(scene_thumbs));
+        } else {
+            map.insert("scene_thumbs_count".into(), json!(scene_thumbs.len()));
+        }
+        if include.contains("geojson") {
+            map.insert(
+                "geojson".into(),
+                polygon_outline_geojson(&polygon.bbox, place_label.as_deref(), area_km2, cells.len()),
+            );
+        }
+    }
 
     let single = bands.len() == 1;
     let mut envelope = if single {
@@ -7816,7 +7889,7 @@ async fn boring_recall_aggregated(
         map.insert("lon".into(), json!(target.lng));
         map.insert("via".into(), json!(target.via));
         map.insert("polygon".into(), polygon_block);
-        if let Some(label) = polygon.place_label {
+        if let Some(ref label) = place_label {
             map.insert("place_label".into(), json!(label));
         }
         map.insert("n_cells_queried".into(), json!(cells.len()));
@@ -7855,6 +7928,45 @@ async fn boring_recall_aggregated(
                 "verify_offline":   "POST /v1/verify_receipt {receipt}",
             }),
         );
+        map.insert("place_resolution".into(), json!({
+            "is_high_confidence": target.is_high_confidence,
+            "confidence_reason":  target.confidence_reason,
+            "area_km2":           area_km2,
+            "input_query":        target.input_place_query,
+            "resolved_label":     place_label,
+            "via":                target.via,
+        }));
+        if !target.is_high_confidence {
+            map.insert("warning".into(), json!(format!(
+                "Low-confidence geocode: '{}' resolved to '{}' ({:.0} km²). \
+                 The result may cover a much larger area than intended. \
+                 Re-query with a more specific place name or pass explicit lat/lng.",
+                target.input_place_query.as_deref().unwrap_or("?"),
+                place_label.as_deref().unwrap_or("unknown"),
+                area_km2,
+            )));
+        }
+        // Area-vs-intent guard: flag when a query implies a small feature
+        // but the geocoder resolved to a region-scale polygon.
+        const SMALL_FEATURE_HINTS: &[&str] = &[
+            "village", "town", "neighbourhood", "neighborhood", "nagar",
+            "colony", "mohalla", "ward", "street", "lane", "gali",
+            "chowk", "para", "tola", "bastee", "basti", "hamlet",
+        ];
+        if let Some(ref q) = target.input_place_query {
+            let q_lower = q.to_lowercase();
+            let expects_small = SMALL_FEATURE_HINTS.iter().any(|h| q_lower.contains(h));
+            if expects_small && area_km2 > 10_000.0 {
+                map.insert("warning".into(), json!(format!(
+                    "Query '{}' mentions a small feature but resolved to {:.0} km² \
+                     ('{}'). The geocoder likely expanded to a parent region. \
+                     Pass a more specific name or explicit coordinates.",
+                    q,
+                    area_km2,
+                    place_label.as_deref().unwrap_or("unknown"),
+                )));
+            }
+        }
         map.insert(
             "agent_hint".into(),
             json!("Polygon aggregation: when a place name resolves to a feature with extent (airport, park, lake, region), the boring endpoint fans out to `polygon.sample_cells` and returns mean/median/min/max/std per band (mode + class distribution for categorical bands like esa_worldcover.lc_2021). Pass `n_cells:1` to force a single-cell read at the centroid; use POST /v1/recall_polygon for raw per-cell facts."),
@@ -8100,8 +8212,13 @@ async fn get_v1_at(
             bands.push((*b).to_string());
         }
     }
+    let inc_set: std::collections::HashSet<&str> = q
+        .include
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
     let tag = format!("at bands {bands:?}");
-    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot)).await?;
+    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set)).await?;
     Ok(Json(v))
 }
 
@@ -8165,20 +8282,17 @@ async fn boring_named(
     q: LatLngQ,
     bands: &[&str],
 ) -> Result<Json<JsonValue>, ApiError> {
-    // Single-band endpoints default to 16 sample cells when polygon
-    // detected (one upstream fetch × 16 cells fits comfortably under
-    // the boring-endpoint latency budget once parallelised).
+    let inc_set: std::collections::HashSet<&str> = q
+        .include
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
     let target = q.resolve_target(16).await?;
     let bands_owned: Vec<String> = bands.iter().map(|s| (*s).to_string()).collect();
-    // Overall request budget — bounds the boring-endpoint family so a
-    // single slow connector (weather/CAMS/MODIS) doesn't drag the
-    // request past the gateway timeout. Per-materializer timeout still
-    // caps individual upstream calls at EMEM_MATERIALIZER_TIMEOUT_SECS;
-    // this is the fan-out ceiling on top of that.
     let tag = format!("bands {bands:?}");
     let v = with_boring_budget(
         &tag,
-        boring_recall_aggregated(s, target, &bands_owned, q.tslot),
+        boring_recall_aggregated(s, target, &bands_owned, q.tslot, &inc_set),
     )
     .await?;
     Ok(Json(v))
@@ -8327,8 +8441,13 @@ async fn post_v1_at(
             bands.push((*b).to_string());
         }
     }
+    let inc_set: std::collections::HashSet<&str> = q
+        .include
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
     let tag = format!("at bands {bands:?}");
-    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot)).await?;
+    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set)).await?;
     Ok(Json(v))
 }
 
@@ -10831,29 +10950,32 @@ async fn mcp_jsonrpc(
                 },
             }))
         }
-        "tools/list" => Ok(json!({
-            // MCP `description` is the only natural-language field the host
-            // LLM sees when picking a tool, so we fold `when_to_use` into it.
-            // Without this, agents miss strong guidance like "ALWAYS call
-            // emem_locate first" and end up guessing cell64 strings.
-            //
-            // `annotations` carries the five behavioural hints the Anthropic
-            // Software Directory expects (`title`, `readOnlyHint`,
-            // `destructiveHint`, `idempotentHint`, `openWorldHint`). Hosts
-            // (Claude Desktop, Claude.ai connector picker) use these to
-            // group tools, gate auto-execution, and label them. Per-tool
-            // hints are explicit fields on `ToolDescriptor`; the per-category
-            // helpers on `ToolCategory` are kept as a fallback derivation
-            // for clients that read the descriptor crate directly.
-            "tools": emem_mcp::TOOLS.iter().map(|t| json!({
+        "tools/list" => {
+            // Tier-based progressive disclosure. Default returns core
+            // tools (~8); pass tier:"all" or tier:"extended" in params,
+            // or follow nextCursor to page through. tools/call dispatches
+            // by name against ALL tools regardless of tier.
+            let requested_tier = req.params.as_ref()
+                .and_then(|p| p.get("tier"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let cursor_tier = req.params.as_ref()
+                .and_then(|p| p.get("cursor"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let effective_tier = if !requested_tier.is_empty() {
+                requested_tier
+            } else if cursor_tier == "tier:extended" {
+                "extended"
+            } else if cursor_tier == "tier:all" {
+                "all"
+            } else {
+                "core"
+            };
+            let tools = emem_mcp::tools_at_tier(effective_tier);
+            let tool_json: Vec<JsonValue> = tools.iter().map(|t| json!({
                 "name": t.name,
                 "title": t.title,
-                // We still fold `when_to_use` into `description` because
-                // the MCP spec's `description` is the only natural-language
-                // field every host renders today. But we also lift it into
-                // `annotations.when_to_use` as a structured field so a
-                // router that wants to compare two tools by trigger
-                // guidance can do it without LLM-parsing the prose.
                 "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
                 "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
                 "annotations": {
@@ -10865,9 +10987,31 @@ async fn mcp_jsonrpc(
                     "when_to_use":     t.when_to_use,
                     "category":        t.category,
                     "level":           t.level,
+                    "tier":            t.tier,
                 },
-            })).collect::<Vec<_>>(),
-        })),
+            })).collect();
+            let total = emem_mcp::TOOLS.len();
+            let mut result = json!({
+                "tools": tool_json,
+                "_discovery": {
+                    "total_tools":  total,
+                    "showing":      effective_tier,
+                    "showing_count": tool_json.len(),
+                    "hint": format!(
+                        "Showing {} of {} tools (tier: {}). \
+                         All {} tools are callable via tools/call regardless of tier. \
+                         Pass {{\"tier\":\"all\"}} to see the full catalog.",
+                        tool_json.len(), total, effective_tier, total
+                    ),
+                },
+            });
+            if effective_tier == "core" {
+                if let Some(map) = result.as_object_mut() {
+                    map.insert("nextCursor".into(), json!("tier:extended"));
+                }
+            }
+            Ok(result)
+        }
         "tools/call" => {
             // The MCP spec (2025-03-26 and later) requires `tools/call`
             // results to be a `CallToolResult` envelope:
@@ -15105,6 +15249,7 @@ async fn post_elevation_coherent(
         bands: None,
         tslot: None,
         n_cells: None,
+        include: None,
     };
     let target = if req.lat.is_some() && req.lng.is_some() {
         q.resolve_target(1).await?
@@ -15124,6 +15269,10 @@ async fn post_elevation_coherent(
             lng: info.lng_deg,
             via: "cell64_centre".into(),
             polygon: None,
+            is_high_confidence: true,
+            confidence_reason: "direct_cell".into(),
+            area_km2: None,
+            input_place_query: None,
         }
     } else if req.place.is_some() {
         q.resolve_target(16).await?
@@ -15348,6 +15497,10 @@ async fn elevation_coherent_polygon(
             lng: target.lng,
             via: target.via.clone(),
             polygon: None,
+            is_high_confidence: target.is_high_confidence,
+            confidence_reason: target.confidence_reason.clone(),
+            area_km2: target.area_km2,
+            input_place_query: target.input_place_query.clone(),
         };
         return Box::pin(elevation_coherent(s, point)).await;
     }
@@ -26390,6 +26543,14 @@ struct AskReq {
     ///   `/v1/algorithms/<key>` and per-band metadata at `/v1/bands`.
     #[serde(default)]
     verbose: Option<bool>,
+    /// Opt-in heavy response sections. When absent, the response is
+    /// slim (~5 KB): answer + algorithm key + fact_cids + caveats.
+    /// Pass one or more tokens to include specific sections:
+    /// `"band_observations"`, `"algorithm_outcomes"`, `"facts_full"`,
+    /// `"temporal_composition"`, `"foundation_embeddings"`, `"scene"`,
+    /// `"inventory"`. Ignored when `verbose: true`.
+    #[serde(default)]
+    include: Option<Vec<String>>,
 }
 
 async fn post_ask(
@@ -31898,66 +32059,153 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
     // response keeps its previous shape byte-for-byte.
     let foundation_embeddings = ask_foundation::foundation_fanout(&req.q, &cell, &s).await;
 
+    // Build the include set. verbose=true is a blanket "include everything";
+    // otherwise the caller opts in to specific heavy sections via `include`.
+    // Default (no include, no verbose) → slim ~5 KB envelope.
+    let include_all = verbose;
+    let include_set: std::collections::HashSet<&str> = if include_all {
+        [
+            "band_observations",
+            "algorithm_outcomes",
+            "facts_full",
+            "temporal_composition",
+            "foundation_embeddings",
+            "scene",
+            "inventory",
+        ]
+        .into_iter()
+        .collect()
+    } else {
+        req.include
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default()
+    };
+    let has = |k: &str| include_set.contains(k);
+
+    // facts_summary: always present — the signed receipt (fact_cids,
+    // signature, served_at) plus a count and the bands present.
+    let facts_summary = {
+        let fact_count = facts_json
+            .get("facts")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let bands_present: Vec<&str> = facts_json
+            .get("facts")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|f| f.get("band").and_then(|b| b.as_str()))
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect()
+            })
+            .unwrap_or_default();
+        json!({
+            "fact_count": fact_count,
+            "bands_present": bands_present,
+            "receipt": facts_json.get("receipt"),
+        })
+    };
+
+    // algorithm_outcomes_summary: key + value per outcome, no provenance.
+    let algorithm_outcomes_summary: Vec<JsonValue> = algorithm_outcomes
+        .iter()
+        .map(|o| {
+            json!({
+                "algorithm_key": o.get("algorithm_key"),
+                "value": o.get("value"),
+                "skip_reason": o.get("skip_reason"),
+            })
+        })
+        .collect();
+
+    // band_observations_summary: count + band list.
+    let band_observations_summary = {
+        let count = band_observations.len();
+        let bands: Vec<&str> = band_observations
+            .iter()
+            .filter_map(|o| o.get("band_key").and_then(|b| b.as_str()))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        json!({ "count": count, "bands": bands })
+    };
+
+    // Scene URL always surfaced (lightweight string). Full scene
+    // metadata block only with include=["scene"] or verbose.
+    let scene_url_only = scene
+        .get("url")
+        .cloned()
+        .unwrap_or(JsonValue::Null);
+
     let mut body = json!({
         "schema":         "emem.ask.v1",
         "question":       req.q,
         "place_resolved": place_resolved,
         "verbose":        verbose,
-        "tip":            if verbose {
-            "passing verbose=false (the default) trims algorithm formulas + per-band metadata; the signed receipt stays intact"
-        } else {
-            "pass verbose=true to get full algorithm formulas + per-band metadata"
-        },
-        "bands_metadata_url":      "/v1/bands",
-        "algorithms_metadata_url": "/v1/algorithms",
         "topic_routing":  topic_routing,
-        "facts":                   facts_json,
         "algorithms_for_question": algorithms_for_question,
         "algorithms_cid":          alg_cid,
-        // Per-algorithm temporal composition. Empty array when no
-        // matched algorithm declares a `temporal_recipe`. Each entry
-        // carries the algorithm key, the recipe label/note, and per-
-        // window per-sample fact CIDs + scalar values + an aggregator
-        // summary. Additive to .facts[] (which stays the snapshot) so
-        // an existing reader doesn't break.
-        "temporal_composition":    temporal_composition,
-        // 0.0.3 — composite values produced by evaluating each
-        // matched algorithm's `evaluation: Expr` AST against the
-        // snapshot recall. Empty array when no matched algorithm
-        // ships an `evaluation` field. Each entry carries
-        // `algorithm_key`, `value` (or `null` + `skip_reason`),
-        // `input_fact_cids[]`, `inputs_with_provenance{}`, and
-        // `evaluation_via: "ast"`. Additive sibling — readers
-        // that ignore this field continue to work.
-        "algorithm_outcomes":      algorithm_outcomes,
-        // 2026-05-04 transparency push — per-band raw signed
-        // observations for every band one of the matched topics
-        // claims. Always emitted (per the max-data rule) so an
-        // agent has a quantitative answer even when no algorithm
-        // has an `evaluation` AST. One entry per (topic, band)
-        // pairing carrying value + unit + fact_cid + signed_at +
-        // sources + derivation_fn_key, plus a `data_url` so the
-        // agent can re-fetch via /v1/recall.
-        "band_observations":       band_observations,
-        "scene":                   scene,
         "caveats":                 caveats,
     });
-    // Merge in the foundation-embedding fan-out envelope, if it fired.
-    // Lives under its own top-level key so existing readers ignore it
-    // cleanly; agents that care look for `foundation_embeddings.intent`
-    // to decide whether the response carries similarity/change signal.
-    if let Some(fe) = foundation_embeddings {
-        if let Some(map) = body.as_object_mut() {
-            map.insert("foundation_embeddings".into(), fe);
+
+    if let Some(map) = body.as_object_mut() {
+        if has("facts_full") {
+            map.insert("facts".into(), facts_json.clone());
+        }
+        map.insert("facts_summary".into(), facts_summary);
+
+        if has("algorithm_outcomes") {
+            map.insert(
+                "algorithm_outcomes".into(),
+                JsonValue::Array(algorithm_outcomes.clone()),
+            );
+        }
+        map.insert(
+            "algorithm_outcomes_summary".into(),
+            JsonValue::Array(algorithm_outcomes_summary),
+        );
+
+        if has("band_observations") {
+            map.insert(
+                "band_observations".into(),
+                JsonValue::Array(band_observations.clone()),
+            );
+        }
+        map.insert("band_observations_summary".into(), band_observations_summary);
+
+        if has("temporal_composition") {
+            map.insert(
+                "temporal_composition".into(),
+                JsonValue::Array(temporal_composition.clone()),
+            );
+        }
+
+        if has("scene") {
+            map.insert("scene".into(), scene.clone());
+        }
+        map.insert("scene_url".into(), scene_url_only);
+
+        if include_all {
+            map.insert("tip".into(), json!(
+                "passing verbose=false (the default) trims the response to ~5 KB; pass include:[...] to opt in to specific heavy sections"
+            ));
+            map.insert("bands_metadata_url".into(), json!("/v1/bands"));
+            map.insert("algorithms_metadata_url".into(), json!("/v1/algorithms"));
         }
     }
-    // Promote scene_url into a top-level `imagery_hint` block when the
-    // matched topics indicate the user wants imagery. Cheaper for an
-    // agent to pick up than digging through `scene` (which carries
-    // STAC metadata + the full URL but is structured as fetched-or-not
-    // and can be confused for a nullable optional). The hint block is
-    // additive so existing readers ignore it cleanly.
-    if imagery_intent {
+
+    // Merge in the foundation-embedding fan-out envelope, if it fired.
+    if let Some(fe) = foundation_embeddings {
+        if has("foundation_embeddings") {
+            if let Some(map) = body.as_object_mut() {
+                map.insert("foundation_embeddings".into(), fe);
+            }
+        }
+    }
+    if imagery_intent && (include_all || has("scene")) {
         if let Some(map) = body.as_object_mut() {
             map.insert(
                 "imagery_hint".into(),
@@ -31981,11 +32229,7 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 JsonValue::Array(materialize_notes),
             );
         }
-        if topics_empty {
-            // Pull the topic→bands and topic→algorithms maps from
-            // the registry rather than the old hardcoded tables.
-            // Same shape, but new topics added in topics-v0.json
-            // appear here automatically.
+        if topics_empty && (include_all || has("inventory")) {
             let topic_reg = topic_router::TopicRouter::global().registry();
             let bands_by_topic: std::collections::BTreeMap<String, Vec<String>> = topic_reg
                 .topics
@@ -36427,6 +36671,7 @@ mod tests {
             bands: None,
             tslot: None,
             n_cells: None,
+            include: None,
         };
         let q2 = LatLngQ {
             lat: Some(30.5),
@@ -36437,6 +36682,7 @@ mod tests {
             bands: None,
             tslot: None,
             n_cells: None,
+            include: None,
         };
         assert!(q1.longitude().ok() == Some(75.85));
         assert!(q2.longitude().ok() == Some(75.85));
@@ -36449,6 +36695,7 @@ mod tests {
             bands: None,
             tslot: None,
             n_cells: None,
+            include: None,
         };
         assert!(q_missing.longitude().is_err());
     }

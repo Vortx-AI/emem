@@ -956,6 +956,89 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
+<section class="section page" id="showcase-carbon">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04c</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>use case</dt><dd>Carbon MRV verification</dd>
+      <dt>standard</dt><dd>VM0042 / VCS / Gold Standard</dd>
+      <dt>output</dt><dd>signed biomass + SOC receipts</dd>
+      <dt>bands</dt><dd>indices.ndvi, hansen.*, soilgrids.soc_0_30cm, esa_worldcover.lc_2021</dd>
+      <dt>endpoints</dt><dd>POST&nbsp;/v1/forest, /v1/soil, /v1/ndvi</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">04c</span>Carbon-credit verifier</h2>
+    <p class="lede">An agent that cross-checks carbon offset claims against signed satellite evidence: forest cover baselines, deforestation trajectories, soil organic carbon, and vegetation condition.</p>
+
+    <p>Ingest a project polygon and a claimed baseline year. The agent calls <span class="band">/v1/forest</span> for Hansen tree cover 2000 baseline + year-of-loss, <span class="band">/v1/soil</span> for SoilGrids organic carbon at 0&ndash;30&nbsp;cm, and <span class="band">/v1/ndvi</span> for Sentinel-2 NDVI. Each fact is ed25519-signed and content-addressed &mdash; the receipt&rsquo;s <span class="band">fact_cid</span> is citable in VM0042 monitoring reports.</p>
+
+    <p>The <span class="band">deforestation_alert_ndvi_drop@1</span> algorithm detects NDVI drops exceeding the alert threshold between consecutive tslots; <span class="band">hansen.loss_year</span> confirms loss timing against the Global Forest Change baseline. Together they answer whether a claimed &ldquo;avoided deforestation&rdquo; credit is backed by an actual standing-forest baseline. Soil carbon (<span class="band">soilgrids.soc_0_30cm</span>) adds below-ground verification for projects claiming soil sequestration. Every number traces back to a signed receipt.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="/v1/forest?place=Mato+Grosso">/v1/forest &rarr;</a>
+      <a class="btn ghost" href="/v1/soil?place=Mato+Grosso">/v1/soil</a>
+      <a class="btn ghost" href="/v1/ndvi?place=Mato+Grosso">/v1/ndvi</a>
+    </p>
+  </div>
+</section>
+
+<section class="section page" id="showcase-insurance">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04d</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>use case</dt><dd>Flood risk pre-screening</dd>
+      <dt>output</dt><dd>signed elevation + water + weather profile</dd>
+      <dt>bands</dt><dd>copdem30m.elevation_mean, surface_water.recurrence, weather.precipitation_mm, sentinel1_raw</dd>
+      <dt>algorithm</dt><dd>flood_risk@2</dd>
+      <dt>endpoints</dt><dd>POST&nbsp;/v1/elevation, /v1/water, /v1/weather</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">04d</span>Insurance flood pre-screen</h2>
+    <p class="lede">A property-risk agent that pre-screens addresses for flood exposure using signed elevation, 37-year surface-water history, precipitation nowcast, and SAR-derived water extent &mdash; before an underwriter opens the file.</p>
+
+    <p>The agent takes an address or lat/lng, calls <span class="band">/v1/elevation</span> for Copernicus DEM 30&nbsp;m (land) plus GMRT (bathymetry), <span class="band">/v1/water</span> for JRC Global Surface Water recurrence (1984&ndash;2021) plus Sentinel-1 backscatter, and <span class="band">/v1/weather</span> for MET Norway precipitation nowcast. The <span class="band">flood_risk@2</span> algorithm fuses these into a single 0&ndash;1 risk score.</p>
+
+    <p>Every input band is a signed fact &mdash; the insurer cites <span class="band">fact_cid</span> values in the policy file and any auditor re-verifies offline via <span class="band">/v1/verify_receipt</span>. Precipitation updates every six hours; surface-water recurrence is a 37-year JRC baseline; Sentinel-1 SAR cuts through cloud cover for real-time flood-extent detection. The agent surfaces what the data says and what it does not &mdash; <span class="band">caveats[]</span> notes grid resolution and revisit cadence.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="/v1/elevation?place=Ashok+Nagar+Ranchi">/v1/elevation &rarr;</a>
+      <a class="btn ghost" href="/v1/water?place=Ashok+Nagar+Ranchi">/v1/water</a>
+      <a class="btn ghost" href="/v1/weather?place=Ashok+Nagar+Ranchi">/v1/weather</a>
+    </p>
+  </div>
+</section>
+
+<section class="section page" id="showcase-supplychain">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04e</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>use case</dt><dd>Supply-chain provenance</dd>
+      <dt>output</dt><dd>signed location + land-cover attestation</dd>
+      <dt>bands</dt><dd>esa_worldcover.lc_2021, indices.ndvi, overture.buildings.count</dd>
+      <dt>endpoints</dt><dd>POST&nbsp;/v1/locate, /v1/recall, /v1/verify_receipt</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">04e</span>Supply-chain location verifier</h2>
+    <p class="lede">A provenance agent that verifies supply-chain origin claims &mdash; &ldquo;this coffee was grown at these coordinates&rdquo; &mdash; against signed satellite evidence of what actually exists at that place.</p>
+
+    <p>The agent takes a claimed origin (coordinates or place name from a supplier declaration), calls <span class="band">/v1/locate</span> to resolve to a cell64, then <span class="band">/v1/recall</span> to fetch signed land-cover (ESA WorldCover), vegetation (NDVI), and built-environment (Overture building count) facts. A coffee-farm claim at coordinates that show <span class="band">esa_worldcover.lc_2021&nbsp;=&nbsp;50</span> (Built-up) rather than <span class="band">40</span> (Cropland) is flagged immediately.</p>
+
+    <p>The temporal dimension matters: <span class="band">/v1/diff</span> compares the cell&rsquo;s state across tslots so the agent detects land-use change between the claimed origin date and the current observation. Every fact is signed and content-addressed; the supply-chain auditor cites <span class="band">fact_cid</span> values in the chain-of-custody record, and any counterparty re-verifies without trusting the auditor via <span class="band">/v1/verify_receipt</span>.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="/v1/locate?place=Chikmagalur+Karnataka">/v1/locate &rarr;</a>
+      <a class="btn ghost" href="/v1/recall">/v1/recall</a>
+      <a class="btn ghost" href="/verify">/verify</a>
+    </p>
+  </div>
+</section>
+
 <section class="section page" id="substrate">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">05</span><span class="idx-label">Substrate</span></div>
@@ -965,7 +1048,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <dt>resolve</dt><dd>POST&nbsp;/v1/memory_token/resolve</dd>
       <dt>fan-out</dt><dd>POST&nbsp;/v1/state_multi</dd>
       <dt>delta</dt><dd>POST&nbsp;/v1/state_diff</dd>
-      <dt>mcp tools</dt><dd>5 of 56</dd>
+      <dt>mcp tools</dt><dd>5 of 59</dd>
     </dl>
   </aside>
 
