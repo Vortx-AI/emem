@@ -186,6 +186,100 @@ impl Server {
                 was_cached,
             },
             as_of: None,
+            scope: None,
+        }
+    }
+
+    /// Scope-aware sibling of [`Server::sign_receipt`]. When `scope` is
+    /// `None` or every field is `None`, the signed bytes are byte-identical
+    /// to `sign_receipt` and the receipt body omits the scope — keeps
+    /// every pre-v0.0.8 receipt verifiable under unchanged rules.
+    ///
+    /// When at least one scope field is `Some`, the preimage becomes
+    ///
+    /// ```text
+    /// <request_id>|<served_at>|<scope_blake3_hex>|<primitive>|<cells>,|<fact_cids>,
+    /// ```
+    ///
+    /// (the `<scope_blake3_hex>|` segment is inserted between
+    /// `served_at` and `primitive`) and the receipt body carries the
+    /// `Scope` struct so an offline verifier rebuilds the same digest
+    /// and re-checks the signature.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sign_receipt_with_scope(
+        &self,
+        primitive: &'static str,
+        cells: Vec<String>,
+        fact_cids: Vec<FactCid>,
+        was_cached: bool,
+        started: Instant,
+        intent: Option<String>,
+        scope: Option<emem_fact::Scope>,
+    ) -> Receipt {
+        // Empty / absent scope must produce the legacy preimage so
+        // existing offline verifiers continue to round-trip byte-for-byte.
+        let scope_present = scope.as_ref().is_some_and(|s| !s.is_empty());
+        if !scope_present {
+            return self.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent);
+        }
+        let scope_inner = scope.expect("checked just above");
+
+        let request_id = ulid::Ulid::new().to_string();
+        let served_at = iso8601_now();
+        let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+
+        let scope_hex = scope_inner.blake3_hex();
+        let mut h = Hasher::new();
+        h.update(request_id.as_bytes());
+        h.update(b"|");
+        h.update(served_at.as_bytes());
+        h.update(b"|");
+        h.update(scope_hex.as_bytes());
+        h.update(b"|");
+        h.update(primitive.as_bytes());
+        h.update(b"|");
+        for c in &cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        let msg = h.finalize();
+
+        let dalek_sig = self.identity.signing.sign(msg.as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
+
+        let merkle_proof = fact_cids
+            .first()
+            .and_then(|c| self.storage.proof_for_cid(c));
+
+        Receipt {
+            request_id,
+            served_at,
+            primitive: primitive.into(),
+            intent,
+            cells,
+            fact_cids,
+            schema_cid: self.manifests.schema_cid.clone(),
+            merkle_proof,
+            responder: self.identity.pubkey,
+            responder_key_epoch: self.identity.epoch,
+            signature: Signature(sig_bytes),
+            source_versions: BTreeMap::new(),
+            registry_cid: self.manifests.registry_cid.clone(),
+            cost: Cost {
+                credits: 0,
+                latency_p50_ms: elapsed_ms,
+                latency_p99_ms: elapsed_ms,
+                source_freshness_s: 0,
+                was_cached,
+            },
+            as_of: None,
+            scope: Some(scope_inner),
         }
     }
 

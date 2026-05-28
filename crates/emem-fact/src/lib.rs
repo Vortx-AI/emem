@@ -10,6 +10,7 @@ pub mod cbor;
 pub mod cid;
 pub mod fact;
 pub mod receipt;
+pub mod scope;
 
 pub use attest::Attestation;
 pub use cid::{FactCid, ReasonCid, RegistryCid, SchemaCid};
@@ -18,3 +19,4 @@ pub use fact::{
     Uncertainty,
 };
 pub use receipt::{AsOfReceipt, Cost, MerkleProof, Receipt};
+pub use scope::Scope;

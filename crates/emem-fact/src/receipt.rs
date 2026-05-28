@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::cid::{FactCid, RegistryCid, SchemaCid};
+use crate::scope::Scope;
 use emem_core::{AttesterKey, KeyEpoch, Signature};
 
 /// Returned with every read response. Cryptographically rebindable evidence
@@ -48,6 +49,15 @@ pub struct Receipt {
     /// carried this field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub as_of: Option<AsOfReceipt>,
+    /// Multi-tenant scope (`{user_id, agent_id, run_id, org_id}`) the
+    /// responder honoured when serving this response. Recorded so an
+    /// offline verifier reconstructs the same `blake3(canonical_cbor(
+    /// Scope))` segment used in the signature preimage. Omitted from
+    /// JSON when the caller supplied no scope — back-compat for
+    /// pre-v0.0.8 receipts that never carried this field; their
+    /// preimage rule did not include a scope segment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Scope>,
 }
 
 /// Replay-able bi-temporal filter recorded in a [`Receipt`] when the

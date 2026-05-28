@@ -10688,11 +10688,23 @@ async fn post_verify_receipt(
         r.responder.0
     };
 
+    // v0.0.8 — receipts that carry a non-empty `scope` block use an
+    // extended preimage rule with the scope_blake3_hex segment inserted
+    // between `served_at` and `primitive`. Receipts without a scope
+    // field (every pre-v0.0.8 receipt + every v0.0.8 receipt where the
+    // caller passed no scope) use the legacy rule byte-for-byte.
+    let scope_present = r.scope.as_ref().is_some_and(|s| !s.is_empty());
+
     let mut h = blake3::Hasher::new();
     h.update(r.request_id.as_bytes());
     h.update(b"|");
     h.update(r.served_at.as_bytes());
     h.update(b"|");
+    if scope_present {
+        let scope_hex = r.scope.as_ref().expect("scope_present").blake3_hex();
+        h.update(scope_hex.as_bytes());
+        h.update(b"|");
+    }
     h.update(r.primitive.as_bytes());
     h.update(b"|");
     for c in &r.cells {
@@ -10726,6 +10738,7 @@ async fn post_verify_receipt(
         "primitive": r.primitive,
         "served_at": r.served_at,
         "fact_cids_count": r.fact_cids.len(),
+        "scope_bound": scope_present,
     })))
 }
 
