@@ -393,11 +393,24 @@
     }
   }
 
-  // post() — raw JSON-RPC POST. cachedPost(kind, key, path, body)
-  // routes through the cache; on miss it fetches and stores.
-  const post = (path, body) =>
-    fetch(API + path, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
-      .then(r => r.ok ? r.json() : Promise.reject(r));
+  // post() — raw JSON-RPC POST with a hard timeout so a single slow
+  // upstream connector can't leave a tile shimmering forever. The
+  // boring-endpoint family on emem.dev is bounded server-side by
+  // EMEM_BORING_BUDGET_SECS (default 60), but the client should not
+  // wait that long for a non-essential tile to land.
+  function postWith(path, body, timeoutMs) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+    return fetch(API + path, {
+      method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify(body), signal: ac.signal,
+    }).then(r => {
+      clearTimeout(t);
+      return r.ok ? r.json() : Promise.reject(r);
+    }, e => { clearTimeout(t); return Promise.reject(e); });
+  }
+  const POST_TIMEOUT_MS = 9000;
+  const post = (path, body) => postWith(path, body, POST_TIMEOUT_MS);
   function cachedPost(kind, key, path, body) {
     const hit = cacheGet(kind, key);
     if (hit) return Promise.resolve(hit);
@@ -444,6 +457,23 @@
     const cx = w/2, cy = h/2;
     const midLng = (minLng + maxLng)/2, midLat = (minLat + maxLat)/2;
     return coords.map(([lng,lat]) => [cx + (lng-midLng)*s, cy - (lat-midLat)*s]);
+  }
+
+  // Real-world polygon outer rings from Overture can carry 3000-8000
+  // vertices (Bengaluru is ~5k). Animating 5k segments every frame
+  // tanks fps and pegs the CPU. Decimate to ≤256 points using a
+  // simple every-Nth stride — accurate enough for an ink outline at
+  // 800-px scale; the eye can't see the dropped vertices.
+  function decimatePolygon(coords, maxPts) {
+    if (!coords || coords.length <= maxPts) return coords;
+    const stride = Math.ceil(coords.length / maxPts);
+    const out = [];
+    for (let i = 0; i < coords.length; i += stride) out.push(coords[i]);
+    // Ensure ring closure
+    if (out.length && (out[0][0] !== out[out.length-1][0] || out[0][1] !== out[out.length-1][1])) {
+      out.push(out[0]);
+    }
+    return out;
   }
 
   function drawPolygon() {
@@ -546,15 +576,24 @@
     footstepAnim = requestAnimationFrame(tick);
   }
 
+  let _sceneBgSeq = 0;
   function setSceneBg(place, band) {
     const bg = $('#scene-bg');
     if (!place) { bg.classList.add('empty'); bg.innerHTML=''; return; }
     bg.classList.add('empty');  // fade out, then fade in once loaded
-    const url = `${API}/v1/places/scene_overlay.svg?place=${encodeURIComponent(place)}&band=${encodeURIComponent(band)}&n_cells=36`;
+    // n_cells=12 keeps server-side fan-out under the boring budget;
+    // larger values (n=36 default in prior build) timed out for wide
+    // OSM polygons like Bengaluru because the SVG renderer waited on
+    // 36 per-cell recalls before stamping a single byte to the wire.
+    const url = `${API}/v1/places/scene_overlay.svg?place=${encodeURIComponent(place)}&band=${encodeURIComponent(band)}&n_cells=12`;
+    const mySeq = ++_sceneBgSeq;
     const img = new Image();
     img.alt = '';
-    img.onload = () => { bg.innerHTML=''; bg.appendChild(img); bg.classList.remove('empty'); };
-    img.onerror = () => { bg.classList.add('empty'); };
+    // hard 10s timeout — if the SVG hasn't landed by then, drop the
+    // background paint entirely rather than leave the parchment half-painted.
+    const giveUp = setTimeout(() => { if (mySeq === _sceneBgSeq) bg.classList.add('empty'); }, 10000);
+    img.onload  = () => { clearTimeout(giveUp); if (mySeq !== _sceneBgSeq) return; bg.innerHTML=''; bg.appendChild(img); bg.classList.remove('empty'); };
+    img.onerror = () => { clearTimeout(giveUp); if (mySeq === _sceneBgSeq) bg.classList.add('empty'); };
     img.src = url;
   }
 
@@ -689,13 +728,17 @@
       setTile('t-elev', Math.abs(el).toFixed(0), 'm ' + (below ? 'below sea' : 'above sea'), (r.via || 'Cop-DEM').toString().slice(0,28));
     } catch (e) { errTile('t-elev'); }
   }
+  let _photoSeq = 0;
   async function loadPhoto(cell) {
     if (!cell) return;
+    const mySeq = ++_photoSeq;
     const url = `${API}/v1/cells/${encodeURIComponent(cell)}/scene.png?max_cloud=40`;
     const photo = $('#photo');
     const img = $('#photo-img');
-    img.onload = () => { photo.classList.remove('empty'); };
-    img.onerror = () => { photo.classList.add('empty'); };
+    photo.classList.add('empty');  // start hidden, reveal on load
+    const giveUp = setTimeout(() => { if (mySeq === _photoSeq) photo.classList.add('empty'); }, 12000);
+    img.onload  = () => { clearTimeout(giveUp); if (mySeq === _photoSeq) photo.classList.remove('empty'); };
+    img.onerror = () => { clearTimeout(giveUp); if (mySeq === _photoSeq) photo.classList.add('empty'); };
     img.src = url;
     img.alt = `Sentinel-2 at ${cell}`;
   }
@@ -794,11 +837,13 @@
 
     currentPolygon = null;
     const pg = loc.polygon_geojson;
+    let raw = null;
     if (pg && pg.type === 'Polygon' && pg.coordinates && pg.coordinates[0]) {
-      currentPolygon = pg.coordinates[0];
+      raw = pg.coordinates[0];
     } else if (pg && pg.type === 'MultiPolygon' && pg.coordinates && pg.coordinates[0] && pg.coordinates[0][0]) {
-      currentPolygon = pg.coordinates[0][0];
+      raw = pg.coordinates[0][0];
     }
+    currentPolygon = decimatePolygon(raw, 256);
 
     const label = loc.place_label || place;
     $('#place-name').textContent = label.split(',')[0].trim();
