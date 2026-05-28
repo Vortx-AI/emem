@@ -492,7 +492,8 @@ mod tests {
             "training": {"trained": false},
             "validation": {},
             "artifact": {"filename": "dynamics_v2.onnx", "size_bytes": 8070, "blake2b_hex": "abc"},
-        })).expect("parse")
+        }))
+        .expect("parse")
     }
 
     fn trained_meta() -> ModelMetadata {
@@ -523,7 +524,8 @@ mod tests {
             "artifact": {
                 "filename": "dynamics_v2.onnx", "size_bytes": 171443, "blake2b_hex": "deadbeef"
             },
-        })).expect("parse")
+        }))
+        .expect("parse")
     }
 
     /// `is_trained` defaults to FALSE when the `training.trained` field
@@ -572,10 +574,9 @@ mod tests {
             .get("honesty_warnings")
             .and_then(|v| v.as_array())
             .expect("honesty_warnings is an array");
-        assert!(warnings.iter().any(|w| w
-            .as_str()
-            .unwrap_or("")
-            .contains("untrained_baseline")));
+        assert!(warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or("").contains("untrained_baseline")));
         // The new shape is Tessera-independent so the geotessera caveat
         // MUST NOT appear here.
         assert!(!warnings.iter().any(|w| w
@@ -598,10 +599,9 @@ mod tests {
             .and_then(|v| v.as_array())
             .expect("honesty_warnings");
         // No untrained warning (since trained=true) but synthetic-fraction warning present.
-        assert!(!warnings.iter().any(|w| w
-            .as_str()
-            .unwrap_or("")
-            .contains("untrained_baseline")));
+        assert!(!warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or("").contains("untrained_baseline")));
         assert!(warnings.iter().any(|w| w
             .as_str()
             .unwrap_or("")
@@ -721,10 +721,10 @@ mod tests {
         let mut lags_phys: Vec<Vec<f32>> = Vec::with_capacity(K_LAGS);
         for i in 0..K_LAGS {
             lags_phys.push(vec![
-                0.4 + 0.05 * i as f32,    // NDVI
-                285.0 + 2.0 * i as f32,   // LST day
-                275.0 + 1.5 * i as f32,   // LST night
-                12.0 + 0.5 * i as f32,    // PM25
+                0.4 + 0.05 * i as f32,  // NDVI
+                285.0 + 2.0 * i as f32, // LST day
+                275.0 + 1.5 * i as f32, // LST night
+                12.0 + 0.5 * i as f32,  // PM25
             ]);
         }
         // Normalise.

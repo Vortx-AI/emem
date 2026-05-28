@@ -172,10 +172,7 @@ pub fn parse_bundle_token(token: &str) -> Result<String, String> {
     if cid.is_empty() {
         return Err("memory bundle token has empty bundle_cid component".into());
     }
-    if !(cid.len() >= 16
-        && cid.len() <= 96
-        && cid.bytes().all(|c| c.is_ascii_alphanumeric()))
-    {
+    if !(cid.len() >= 16 && cid.len() <= 96 && cid.bytes().all(|c| c.is_ascii_alphanumeric())) {
         return Err(format!(
             "memory bundle bundle_cid segment `{cid}` is not a recognisable CID shape"
         ));

@@ -330,8 +330,7 @@ impl LanceIndex {
             .count_rows(None)
             .await
             .map_err(|e| LanceError::Lance(e.to_string()))?;
-        let num_partitions =
-            (rows as f64).sqrt().round().clamp(16.0, 256.0) as usize;
+        let num_partitions = (rows as f64).sqrt().round().clamp(16.0, 256.0) as usize;
         // PQ requires dim % num_sub_vectors == 0. Find the largest k ≤
         // dim/16 that divides dim cleanly, clamped to ≥1.
         let target = (dim / 16).max(1);
@@ -339,13 +338,8 @@ impl LanceIndex {
             .rev()
             .find(|k| dim.is_multiple_of(*k))
             .unwrap_or(1);
-        let params = VectorIndexParams::ivf_pq(
-            num_partitions,
-            8,
-            num_sub_vectors,
-            DistanceType::Cosine,
-            50,
-        );
+        let params =
+            VectorIndexParams::ivf_pq(num_partitions, 8, num_sub_vectors, DistanceType::Cosine, 50);
         ds.create_index(&["vector"], IndexType::Vector, None, &params, true)
             .await
             .map_err(|e| LanceError::Lance(e.to_string()))?;
@@ -355,7 +349,10 @@ impl LanceIndex {
     /// Read the existing set of `fact_cid` values from the per-dim
     /// partition. Used by the hydration path to skip rows already in
     /// the index. Returns an empty set when the partition doesn't exist.
-    async fn existing_cids(&self, dim: usize) -> Result<std::collections::HashSet<String>, LanceError> {
+    async fn existing_cids(
+        &self,
+        dim: usize,
+    ) -> Result<std::collections::HashSet<String>, LanceError> {
         let part = self.partition(dim).await;
         let guard = part.inner.lock().await;
         let ds = match guard.as_ref() {
@@ -584,11 +581,7 @@ impl LanceIndex {
                 // historical [-1, 1] cosine score so callers see the
                 // same number they got from the brute-force path.
                 let score = 1.0 - dist;
-                out.push((
-                    cells.value(i).to_string(),
-                    score,
-                    cids.value(i).to_string(),
-                ));
+                out.push((cells.value(i).to_string(), score, cids.value(i).to_string()));
             }
         }
         // Lance scanners may emit results in any order when a project
@@ -746,7 +739,9 @@ mod tests {
             fact_cid: "cid-1".into(),
             vector: vec![0.5; dim],
         };
-        idx.write_rows(dim, std::slice::from_ref(&row)).await.unwrap();
+        idx.write_rows(dim, std::slice::from_ref(&row))
+            .await
+            .unwrap();
         let initial = idx.total_rows().await;
         assert_eq!(initial, 1);
         // Re-hydrate the same row through the existing-cid filter the

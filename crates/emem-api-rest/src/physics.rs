@@ -1423,9 +1423,8 @@ async fn predict_via_sidecar_or_local(
                 ?reason,
                 "jepa_v2 sidecar unavailable; falling back to in-process CPU"
             );
-            let (out, metadata) =
-                crate::jepa_v2::predict_next_step(lags_normalised, context)
-                    .map_err(crate::jepa_v2::into_api_error)?;
+            let (out, metadata) = crate::jepa_v2::predict_next_step(lags_normalised, context)
+                .map_err(crate::jepa_v2::into_api_error)?;
             let mut block = crate::jepa_v2::receipt_block(&metadata, Some(&out));
             if let Some(obj) = block.as_object_mut() {
                 obj.insert("via".into(), JsonValue::String("in_process_cpu".into()));
@@ -1570,7 +1569,8 @@ pub async fn jepa_predict_v2(
 
     // Normalise lags into row-major (lag, band) layout.
     let mut lags_normalised: Vec<f32> = Vec::with_capacity(K_LAGS * N_BANDS);
-    #[allow(clippy::needless_range_loop)] // lag_idx is used as inner index into all_lags_phys[band_idx]
+    #[allow(clippy::needless_range_loop)]
+    // lag_idx is used as inner index into all_lags_phys[band_idx]
     for lag_idx in 0..K_LAGS {
         for (band_idx, band) in BAND_KEYS.iter().enumerate() {
             let (mean, std) = metadata.band_norm(band);
@@ -1601,7 +1601,7 @@ pub async fn jepa_predict_v2(
         let mp = (5 * doy + 2) / 153;
         let m = if mp < 10 { mp + 3 } else { mp - 9 };
         // Next-month-of-year (1..12).
-        
+
         ((m as u32) % 12) + 1
     });
     let target_month = target_month.clamp(1, 12);

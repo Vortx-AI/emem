@@ -30,9 +30,7 @@ use tempfile::TempDir;
 
 use emem_cache::CanonicalKey;
 use emem_core::AttesterKey;
-use emem_fact::{
-    Derivation, Fact, FactCid, PrimaryFact, RegistryCid, SchemaCid, Source,
-};
+use emem_fact::{Derivation, Fact, FactCid, PrimaryFact, RegistryCid, SchemaCid, Source};
 use emem_primitives::find_similar::{
     find_similar, set_lance_index, FindSimilarMode, FindSimilarReq,
 };
@@ -115,10 +113,7 @@ impl Storage for MemStorage {
         unimplemented!("not used")
     }
 
-    async fn get_facts_many(
-        &self,
-        cids: &[FactCid],
-    ) -> Result<Vec<Option<Fact>>, StorageError> {
+    async fn get_facts_many(&self, cids: &[FactCid]) -> Result<Vec<Option<Fact>>, StorageError> {
         let map = self.facts.lock().unwrap();
         Ok(cids.iter().map(|c| map.get(c.as_str()).cloned()).collect())
     }
@@ -130,10 +125,7 @@ impl Storage for MemStorage {
         unimplemented!("not used")
     }
 
-    async fn materialize_many(
-        &self,
-        _keys: &[CanonicalKey],
-    ) -> Result<Vec<FactCid>, StorageError> {
+    async fn materialize_many(&self, _keys: &[CanonicalKey]) -> Result<Vec<FactCid>, StorageError> {
         unimplemented!("not used")
     }
 
@@ -197,9 +189,7 @@ async fn lance_ann_finds_seeded_vector_and_brute_force_agrees() {
     let mut rng = StdRng::seed_from_u64(20_260_528);
 
     // Seed a known "query" cell first, then `n` random neighbours.
-    let mut query_vec: Vec<f32> = (0..dim)
-        .map(|i| ((i as f32) / dim as f32) - 0.5)
-        .collect();
+    let mut query_vec: Vec<f32> = (0..dim).map(|i| ((i as f32) / dim as f32) - 0.5).collect();
     unit_norm(&mut query_vec);
     let query_cell = "cell-query";
     let query_cid = storage.insert_vector(query_cell, "geotessera", 0, query_vec.clone());
@@ -229,8 +219,10 @@ async fn lance_ann_finds_seeded_vector_and_brute_force_agrees() {
     let idx = Arc::new(LanceIndex::open(tmp.path()).unwrap());
     let storage_dyn: Arc<dyn Storage + Send + Sync> = storage.clone();
     let started = std::time::Instant::now();
-    let (written, seen, elapsed) =
-        idx.hydrate_from_storage(storage_dyn.as_ref()).await.unwrap();
+    let (written, seen, elapsed) = idx
+        .hydrate_from_storage(storage_dyn.as_ref())
+        .await
+        .unwrap();
     assert!(
         written >= n,
         "expected ≥{n} rows written (got {written}, vector facts seen: {seen})"
@@ -245,8 +237,10 @@ async fn lance_ann_finds_seeded_vector_and_brute_force_agrees() {
 
     // Idempotency: re-running hydration must add zero rows.
     let total_before = idx.total_rows().await;
-    let (written2, _, _) =
-        idx.hydrate_from_storage(storage_dyn.as_ref()).await.unwrap();
+    let (written2, _, _) = idx
+        .hydrate_from_storage(storage_dyn.as_ref())
+        .await
+        .unwrap();
     let total_after = idx.total_rows().await;
     assert_eq!(
         written2, 0,
@@ -309,7 +303,9 @@ async fn lance_ann_finds_seeded_vector_and_brute_force_agrees() {
     // None when the kill switch is on, so find_similar falls through
     // to the historical scan.
     std::env::set_var("EMEM_DISABLE_LANCE", "1");
-    let resp_brute = find_similar(&req, &srv).await.expect("brute-force fallback");
+    let resp_brute = find_similar(&req, &srv)
+        .await
+        .expect("brute-force fallback");
     std::env::remove_var("EMEM_DISABLE_LANCE");
 
     assert!(

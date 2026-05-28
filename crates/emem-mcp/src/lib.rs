@@ -1558,9 +1558,15 @@ mod tests {
     fn core_must_include_essentials() {
         let core = tools_at_tier("core");
         let names: Vec<&str> = core.iter().map(|t| t.name).collect();
-        assert!(names.contains(&"emem_locate"), "core must include emem_locate");
+        assert!(
+            names.contains(&"emem_locate"),
+            "core must include emem_locate"
+        );
         assert!(names.contains(&"emem_ask"), "core must include emem_ask");
-        assert!(names.contains(&"emem_recall"), "core must include emem_recall");
+        assert!(
+            names.contains(&"emem_recall"),
+            "core must include emem_recall"
+        );
         assert!(
             names.contains(&"emem_verify_receipt"),
             "core must include emem_verify_receipt"

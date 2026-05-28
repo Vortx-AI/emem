@@ -455,7 +455,11 @@ mod tests {
             context: vec![0.0_f32; 5],
         };
         let resp = predict_dynamics_v2(&req).await.expect("sidecar reachable");
-        assert_eq!(resp.predictions.len(), 4, "v2 emits one prediction per band");
+        assert_eq!(
+            resp.predictions.len(),
+            4,
+            "v2 emits one prediction per band"
+        );
         assert_eq!(resp.confidence.len(), 4, "v2 emits one confidence per band");
         assert_eq!(resp.band_keys.len(), 4);
         // Receipt-shape model block carries the via tag.

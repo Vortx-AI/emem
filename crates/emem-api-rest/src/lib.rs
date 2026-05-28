@@ -6066,8 +6066,7 @@ impl LatLngQ {
         let area_km2 = polygon.as_ref().map(|p| {
             let mid_lat = (p.bbox.0 + p.bbox.1) / 2.0;
             let lat_km = (p.bbox.1 - p.bbox.0) * 111.0;
-            let lng_km =
-                (p.bbox.3 - p.bbox.2) * 111.0 * mid_lat.to_radians().cos().abs();
+            let lng_km = (p.bbox.3 - p.bbox.2) * 111.0 * mid_lat.to_radians().cos().abs();
             (lat_km * lng_km).max(0.0)
         });
         Ok(ResolvedTarget {
@@ -7909,7 +7908,12 @@ async fn boring_recall_aggregated(
         if include.contains("geojson") {
             map.insert(
                 "geojson".into(),
-                polygon_outline_geojson(&polygon.bbox, place_label.as_deref(), area_km2, cells.len()),
+                polygon_outline_geojson(
+                    &polygon.bbox,
+                    place_label.as_deref(),
+                    area_km2,
+                    cells.len(),
+                ),
             );
         }
     }
@@ -7981,43 +7985,66 @@ async fn boring_recall_aggregated(
                 "verify_offline":   "POST /v1/verify_receipt {receipt}",
             }),
         );
-        map.insert("place_resolution".into(), json!({
-            "is_high_confidence": target.is_high_confidence,
-            "confidence_reason":  target.confidence_reason,
-            "area_km2":           area_km2,
-            "input_query":        target.input_place_query,
-            "resolved_label":     place_label,
-            "via":                target.via,
-        }));
+        map.insert(
+            "place_resolution".into(),
+            json!({
+                "is_high_confidence": target.is_high_confidence,
+                "confidence_reason":  target.confidence_reason,
+                "area_km2":           area_km2,
+                "input_query":        target.input_place_query,
+                "resolved_label":     place_label,
+                "via":                target.via,
+            }),
+        );
         if !target.is_high_confidence {
-            map.insert("warning".into(), json!(format!(
-                "Low-confidence geocode: '{}' resolved to '{}' ({:.0} km²). \
+            map.insert(
+                "warning".into(),
+                json!(format!(
+                    "Low-confidence geocode: '{}' resolved to '{}' ({:.0} km²). \
                  The result may cover a much larger area than intended. \
                  Re-query with a more specific place name or pass explicit lat/lng.",
-                target.input_place_query.as_deref().unwrap_or("?"),
-                place_label.as_deref().unwrap_or("unknown"),
-                area_km2,
-            )));
+                    target.input_place_query.as_deref().unwrap_or("?"),
+                    place_label.as_deref().unwrap_or("unknown"),
+                    area_km2,
+                )),
+            );
         }
         // Area-vs-intent guard: flag when a query implies a small feature
         // but the geocoder resolved to a region-scale polygon.
         const SMALL_FEATURE_HINTS: &[&str] = &[
-            "village", "town", "neighbourhood", "neighborhood", "nagar",
-            "colony", "mohalla", "ward", "street", "lane", "gali",
-            "chowk", "para", "tola", "bastee", "basti", "hamlet",
+            "village",
+            "town",
+            "neighbourhood",
+            "neighborhood",
+            "nagar",
+            "colony",
+            "mohalla",
+            "ward",
+            "street",
+            "lane",
+            "gali",
+            "chowk",
+            "para",
+            "tola",
+            "bastee",
+            "basti",
+            "hamlet",
         ];
         if let Some(ref q) = target.input_place_query {
             let q_lower = q.to_lowercase();
             let expects_small = SMALL_FEATURE_HINTS.iter().any(|h| q_lower.contains(h));
             if expects_small && area_km2 > 10_000.0 {
-                map.insert("warning".into(), json!(format!(
-                    "Query '{}' mentions a small feature but resolved to {:.0} km² \
+                map.insert(
+                    "warning".into(),
+                    json!(format!(
+                        "Query '{}' mentions a small feature but resolved to {:.0} km² \
                      ('{}'). The geocoder likely expanded to a parent region. \
                      Pass a more specific name or explicit coordinates.",
-                    q,
-                    area_km2,
-                    place_label.as_deref().unwrap_or("unknown"),
-                )));
+                        q,
+                        area_km2,
+                        place_label.as_deref().unwrap_or("unknown"),
+                    )),
+                );
             }
         }
         map.insert(
@@ -8271,7 +8298,11 @@ async fn get_v1_at(
         .map(|v| v.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
     let tag = format!("at bands {bands:?}");
-    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set)).await?;
+    let v = with_boring_budget(
+        &tag,
+        boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set),
+    )
+    .await?;
     Ok(Json(v))
 }
 
@@ -8500,7 +8531,11 @@ async fn post_v1_at(
         .map(|v| v.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
     let tag = format!("at bands {bands:?}");
-    let v = with_boring_budget(&tag, boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set)).await?;
+    let v = with_boring_budget(
+        &tag,
+        boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set),
+    )
+    .await?;
     Ok(Json(v))
 }
 
@@ -11008,11 +11043,15 @@ async fn mcp_jsonrpc(
             // tools (~8); pass tier:"all" or tier:"extended" in params,
             // or follow nextCursor to page through. tools/call dispatches
             // by name against ALL tools regardless of tier.
-            let requested_tier = req.params.as_ref()
+            let requested_tier = req
+                .params
+                .as_ref()
                 .and_then(|p| p.get("tier"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let cursor_tier = req.params.as_ref()
+            let cursor_tier = req
+                .params
+                .as_ref()
                 .and_then(|p| p.get("cursor"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
@@ -11507,10 +11546,7 @@ fn mcp_full_resource_templates() -> Vec<JsonValue> {
 /// - `memory://emem/cell/<cell64>`     → full state cube
 /// - `memory://emem/fact/<cid>`        → signed fact body
 /// - `memory://emem/bundle/<token>`    → signed memory-bundle envelope
-async fn mcp_read_resource_dynamic(
-    uri: &str,
-    s: &AppState,
-) -> Result<JsonValue, (i64, String)> {
+async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue, (i64, String)> {
     // Legacy / static `emem://...` URIs first (preserved verbatim).
     if uri.starts_with("emem://") {
         return mcp_read_resource(uri);
@@ -11603,12 +11639,11 @@ async fn mcp_read_resource_dynamic(
                 .get_facts_many(&[cid_obj])
                 .await
                 .map_err(|e| (-(e.wire_code() as i64), e.to_string()))?;
-            let fact = facts.into_iter().next().flatten().ok_or_else(|| {
-                (
-                    -32602,
-                    format!("no fact for cid={cid} on this responder"),
-                )
-            })?;
+            let fact = facts
+                .into_iter()
+                .next()
+                .flatten()
+                .ok_or_else(|| (-32602, format!("no fact for cid={cid} on this responder")))?;
             let body = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
             let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
             return Ok(json!({
@@ -15433,8 +15468,7 @@ async fn post_memory_bundle(
     // Deduplicate cells & fact_cids preserving first-seen order; the
     // receipt cites the union of both lists.
     let cells: Vec<String> = dedupe_first(citations.iter().map(|c| c.cell.clone()));
-    let fact_cids: Vec<String> =
-        dedupe_first(citations.iter().filter_map(|c| c.fact_cid.clone()));
+    let fact_cids: Vec<String> = dedupe_first(citations.iter().filter_map(|c| c.fact_cid.clone()));
 
     let bundle_cid = compute_bundle_cid(&citations, req.purpose.as_deref());
 
@@ -15707,7 +15741,10 @@ fn memory_db(s: &AppState) -> Result<&sled::Db, ApiError> {
 }
 
 /// Read a memory file's current content + meta. None when missing.
-fn read_memory_file(s: &AppState, path: &str) -> Result<Option<(Vec<u8>, MemoryFileMeta)>, ApiError> {
+fn read_memory_file(
+    s: &AppState,
+    path: &str,
+) -> Result<Option<(Vec<u8>, MemoryFileMeta)>, ApiError> {
     let db = memory_db(s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
         ApiError(
@@ -15742,16 +15779,18 @@ fn read_memory_file(s: &AppState, path: &str) -> Result<Option<(Vec<u8>, MemoryF
             },
         )
     })?;
-    let blobs = db.open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS).map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorBody {
-                code: ErrorCode::CacheError,
-                message: format!("open memory_file_blobs: {e}"),
-                details: None,
-            },
-        )
-    })?;
+    let blobs = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_blobs: {e}"),
+                    details: None,
+                },
+            )
+        })?;
     let Some(bytes) = blobs.get(cid.as_bytes()).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -15770,16 +15809,18 @@ fn read_memory_file(s: &AppState, path: &str) -> Result<Option<(Vec<u8>, MemoryF
         return Ok(None);
     };
 
-    let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorBody {
-                code: ErrorCode::CacheError,
-                message: format!("open memory_file_meta: {e}"),
-                details: None,
-            },
-        )
-    })?;
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
     let meta = metas
         .get(cid.as_bytes())
         .ok()
@@ -15848,16 +15889,18 @@ fn persist_memory_write(
         receipt,
     };
 
-    let blobs = db.open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS).map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorBody {
-                code: ErrorCode::CacheError,
-                message: format!("open memory_file_blobs: {e}"),
-                details: None,
-            },
-        )
-    })?;
+    let blobs = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_blobs: {e}"),
+                    details: None,
+                },
+            )
+        })?;
     blobs.insert(file_cid.as_bytes(), bytes).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -15892,16 +15935,18 @@ fn persist_memory_write(
         })?;
 
     // Append-only history.
-    let history = db.open_tree(emem_storage::TREE_MEMORY_FILE_HISTORY).map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorBody {
-                code: ErrorCode::CacheError,
-                message: format!("open memory_file_history: {e}"),
-                details: None,
-            },
-        )
-    })?;
+    let history = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_HISTORY)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_history: {e}"),
+                    details: None,
+                },
+            )
+        })?;
     let mut hist: Vec<String> = match history.get(path.as_bytes()) {
         Ok(Some(v)) => ciborium::de::from_reader(&v[..]).unwrap_or_default(),
         _ => Vec::new(),
@@ -15914,16 +15959,18 @@ fn persist_memory_write(
     let _ = history.insert(path.as_bytes(), buf);
 
     // Per-cid meta.
-    let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorBody {
-                code: ErrorCode::CacheError,
-                message: format!("open memory_file_meta: {e}"),
-                details: None,
-            },
-        )
-    })?;
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
     let mut mbuf = Vec::new();
     let _ = ciborium::ser::into_writer(&meta, &mut mbuf);
     let _ = metas.insert(file_cid.as_bytes(), mbuf);
@@ -16306,14 +16353,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     // path(s) to the responder identity.
     let started = std::time::Instant::now();
     let cells = removed.clone();
-    let receipt = s.sign_receipt(
-        "emem.memory_file",
-        cells,
-        vec![],
-        false,
-        started,
-        None,
-    );
+    let receipt = s.sign_receipt("emem.memory_file", cells, vec![], false, started, None);
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -33640,10 +33680,7 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
 
     // Scene URL always surfaced (lightweight string). Full scene
     // metadata block only with include=["scene"] or verbose.
-    let scene_url_only = scene
-        .get("url")
-        .cloned()
-        .unwrap_or(JsonValue::Null);
+    let scene_url_only = scene.get("url").cloned().unwrap_or(JsonValue::Null);
 
     let mut body = json!({
         "schema":         "emem.ask.v1",
@@ -33679,7 +33716,10 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 JsonValue::Array(band_observations.clone()),
             );
         }
-        map.insert("band_observations_summary".into(), band_observations_summary);
+        map.insert(
+            "band_observations_summary".into(),
+            band_observations_summary,
+        );
 
         if has("temporal_composition") {
             map.insert(
@@ -39370,8 +39410,8 @@ mod tests {
         let bands = std::sync::Arc::new((*emem_core::bands::DEFAULT).clone());
         let functions = std::sync::Arc::new((*emem_core::functions::DEFAULT).clone());
         let sources = std::sync::Arc::new((*emem_core::sources::DEFAULT).clone());
-        let storage = MaterializingStorage::ephemeral(bands, functions, sources)
-            .expect("ephemeral storage");
+        let storage =
+            MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage");
         let identity = ResponderIdentity::fresh();
         let manifests = ManifestCids {
             registry_cid: emem_fact::RegistryCid::new("reg".to_string()),
@@ -39398,8 +39438,8 @@ mod tests {
             "/memories/../etc/passwd",
             "/memories/sub/../../etc",
             "/memories/./hidden",
-            "memories/foo",     // no leading slash
-            "/memories",        // no trailing slash AND no name
+            "memories/foo", // no leading slash
+            "/memories",    // no trailing slash AND no name
             "/memories/foo\0bar",
             "/memories//double",
         ] {
@@ -39470,7 +39510,8 @@ mod tests {
             },
         )
         .await
-        .map_err(|e| format!("str_replace: {} {}", e.0, e.1.message)).unwrap();
+        .map_err(|e| format!("str_replace: {} {}", e.0, e.1.message))
+        .unwrap();
         let cid2 = rep
             .get("file_cid")
             .and_then(|v| v.as_str())
@@ -39486,7 +39527,8 @@ mod tests {
             },
         )
         .await
-        .map_err(|e| format!("view2: {} {}", e.0, e.1.message)).unwrap();
+        .map_err(|e| format!("view2: {} {}", e.0, e.1.message))
+        .unwrap();
         assert_eq!(
             view2.get("content").and_then(|v| v.as_str()),
             Some("hi world")
@@ -39502,7 +39544,8 @@ mod tests {
             },
         )
         .await
-        .map_err(|e| format!("insert: {} {}", e.0, e.1.message)).unwrap();
+        .map_err(|e| format!("insert: {} {}", e.0, e.1.message))
+        .unwrap();
         let view3 = memory_view_inner(
             &s,
             MemoryViewReq {
@@ -39511,7 +39554,8 @@ mod tests {
             },
         )
         .await
-        .map_err(|e| format!("view3: {} {}", e.0, e.1.message)).unwrap();
+        .map_err(|e| format!("view3: {} {}", e.0, e.1.message))
+        .unwrap();
         let text3 = view3
             .get("content")
             .and_then(|v| v.as_str())
@@ -39529,7 +39573,8 @@ mod tests {
             },
         )
         .await
-        .map_err(|e| format!("delete: {} {}", e.0, e.1.message)).unwrap();
+        .map_err(|e| format!("delete: {} {}", e.0, e.1.message))
+        .unwrap();
         assert_eq!(del.get("ok").and_then(|v| v.as_bool()), Some(true));
         let viewmiss = memory_view_inner(
             &s,
@@ -39566,7 +39611,8 @@ mod tests {
         };
         let v = post_verify_receipt(Ok(Json(req)))
             .await
-            .map_err(|e| format!("verify ok: {} {}", e.0, e.1.message)).unwrap();
+            .map_err(|e| format!("verify ok: {} {}", e.0, e.1.message))
+            .unwrap();
         assert_eq!(
             v.get("valid").and_then(|x| x.as_bool()),
             Some(true),
@@ -39626,7 +39672,8 @@ mod tests {
         };
         let resp = post_memory_bundle(State(s.clone()), Json(req))
             .await
-            .map_err(|e| format!("bundle: {} {}", e.0, e.1.message)).unwrap();
+            .map_err(|e| format!("bundle: {} {}", e.0, e.1.message))
+            .unwrap();
         let bundle = resp.0;
         assert!(bundle.bundle_token.starts_with("memb:"));
         assert_eq!(bundle.cells, vec![cell.to_string()]);
@@ -39636,7 +39683,8 @@ mod tests {
         // sled byte-identically.
         let resolved = get_memory_bundle(State(s.clone()), Path(bundle.bundle_token.clone()))
             .await
-            .map_err(|e| format!("resolve: {} {}", e.0, e.1.message)).unwrap()
+            .map_err(|e| format!("resolve: {} {}", e.0, e.1.message))
+            .unwrap()
             .0;
         assert_eq!(resolved.bundle_cid, bundle.bundle_cid);
         assert_eq!(resolved.cells, bundle.cells);
@@ -39657,12 +39705,9 @@ mod tests {
         );
 
         // Unknown token is 404.
-        let bad = get_memory_bundle(
-            State(s.clone()),
-            Path("memb:zzzzzzzzzzzzzzzz".to_string()),
-        )
-        .await
-        .expect_err("unknown token");
+        let bad = get_memory_bundle(State(s.clone()), Path("memb:zzzzzzzzzzzzzzzz".to_string()))
+            .await
+            .expect_err("unknown token");
         assert_eq!(bad.0, StatusCode::NOT_FOUND);
     }
 
@@ -39674,7 +39719,11 @@ mod tests {
         let res = mcp_full_resources();
         let template_uris: std::collections::HashSet<_> = mcp_full_resource_templates()
             .iter()
-            .filter_map(|t| t.get("uriTemplate").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .filter_map(|t| {
+                t.get("uriTemplate")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         let uris: std::collections::HashSet<_> = res
             .iter()
@@ -39696,7 +39745,10 @@ mod tests {
             .map_err(|(c, m)| format!("registry/bands: {c} {m}"))
             .unwrap();
         let text = r.get("text").and_then(|v| v.as_str()).unwrap_or("");
-        assert!(text.starts_with('{'), "registry body must be JSON: {text:.40}");
+        assert!(
+            text.starts_with('{'),
+            "registry body must be JSON: {text:.40}"
+        );
         // The bands manifest carries `bands` as the top-level array.
         let parsed: serde_json::Value =
             serde_json::from_str(text).expect("registry payload parses");

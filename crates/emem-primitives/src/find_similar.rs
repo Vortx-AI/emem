@@ -376,9 +376,7 @@ pub async fn find_similar(
     // accelerator: any failure or empty result falls through to the
     // brute-force scan below.
     if !query_vec.is_empty() && req.filter.is_none() {
-        if let Some(resp) =
-            try_lance_with_query(&query_vec, req, srv, started, k, &band).await?
-        {
+        if let Some(resp) = try_lance_with_query(&query_vec, req, srv, started, k, &band).await? {
             return Ok(resp);
         }
     }
@@ -509,7 +507,9 @@ async fn try_lance_cosine(
             Err(_) => return Ok(None),
         }
     } else {
-        load_cell_vec(storage, &req.key, band).await.unwrap_or_default()
+        load_cell_vec(storage, &req.key, band)
+            .await
+            .unwrap_or_default()
     };
     if query_vec.is_empty() {
         return Ok(None);
