@@ -9,6 +9,21 @@ to verify.
 
 ### v0.0.8 — in progress
 
+**Change 1a — Scope foundation** (commit `ab1fa85`):
+- New `crates/emem-fact/src/scope.rs`: `Scope { user_id,
+  agent_id, run_id, org_id }` with canonical CBOR + blake3
+  digest + 8 unit tests.
+- `Receipt` gains `Option<Scope> scope`; serde skip-if-none
+  keeps v0.0.6/v0.0.7 receipts byte-identical.
+- New `Server::sign_receipt_with_scope` extends the preimage
+  with `scope_blake3_hex` between `served_at` and `primitive`
+  only when the scope is non-empty. Short-circuits to the
+  legacy `sign_receipt` on empty scope so the byte stream
+  matches v0.0.7 exactly.
+- `/v1/verify_receipt` branches on receipt scope presence and
+  reports `scope_bound: bool` in the response.
+- Backward-compat verified end-to-end on prod.
+
 **Change 3 (partial) — A2A v1.2 Agent Card** (commit `3d9d58c`):
 - `/.well-known/agent-card.json` `protocolVersion` bumped `0.2` -> `1.2.0`.
 - description rewritten with memory-substrate framing.
