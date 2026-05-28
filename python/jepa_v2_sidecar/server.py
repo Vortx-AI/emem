@@ -216,49 +216,85 @@ CLAY_CHIP_PIXELS = 256          # 256x256 at 10 m → 2.56 km extent
 CLAY_CHIP_GSD_M = 10.0
 CLAY_EMBED_DIM = 1024
 
-# ── Phase 1 dynamics model (mirror of the Rust path) ──────────────────────
-INPUT_LAGS = 3
-TESSERA_DIM = 128
-HIDDEN = 256
-N_BLOCKS = 4
+# ── Dynamics v2 model (multi-band scalar predictor) ───────────────────────
+#
+# Replaces the pre-2026-05-28 K=3 Tessera-vintage residual MLP. That
+# surface was retired because the upstream dl2.geotessera.org bucket
+# only serves 2024 reliably (other years return null), so all K lags
+# collapsed to the same vector and the residual was the identity.
+#
+# The new surface predicts the next monthly value for four scalar
+# bands {indices.ndvi, modis.lst_day_8day, modis.lst_night_8day,
+# cams.pm25} from K=6 prior (already-normalised) lags + a 5-D
+# spatial-temporal context vector. The model is a small Transformer
+# encoder trained by python/jepa_v2_sidecar/train_dynamics_v2.py;
+# see that file for the architecture and training rationale.
 
-
-class ResidualBlock(nn.Module):
-    """Pre-LN residual block — must match python/jepa_v2/train.py byte-for-byte
-    so the same .onnx artifact loads in both places."""
-
-    def __init__(self, dim: int, hidden: int, dropout: float = 0.10):
-        super().__init__()
-        self.norm = nn.LayerNorm(dim)
-        self.fc1 = nn.Linear(dim, hidden)
-        self.fc2 = nn.Linear(hidden, dim)
-        self.drop = nn.Dropout(dropout)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.fc2(self.drop(F.gelu(self.fc1(self.norm(x)))))
+# Architecture constants — must match train_dynamics_v2.py.
+K_LAGS = 6
+N_BANDS = 4
+N_CONTEXT = 5
+INPUT_DIM = K_LAGS * N_BANDS + N_CONTEXT       # 29
+OUTPUT_DIM = 2 * N_BANDS                       # 8 (mean[4] || log_var[4])
+D_MODEL = 32
+N_HEADS = 4
+N_LAYERS = 2
+DROPOUT = 0.10
+BAND_KEYS_SIDECAR = (
+    "indices.ndvi",
+    "modis.lst_day_8day",
+    "modis.lst_night_8day",
+    "cams.pm25",
+)
+LOW_CONFIDENCE_THRESHOLD = 0.30
 
 
 class DynamicsModel(nn.Module):
-    def __init__(
-        self,
-        dim: int = TESSERA_DIM,
-        lags: int = INPUT_LAGS,
-        hidden: int = HIDDEN,
-        n_blocks: int = N_BLOCKS,
-    ):
+    """Multi-band scalar dynamics head. MUST stay byte-identical to
+    `DynamicsV2` in `train_dynamics_v2.py` so the same .onnx loads
+    here for a PyTorch parity-check on warm-up if needed.
+
+    Input: flat tensor `[B, INPUT_DIM]` =
+        lags_normalised (K_LAGS * N_BANDS) || context (N_CONTEXT).
+    Output: `[B, OUTPUT_DIM]` = mean[N_BANDS] || log_var[N_BANDS].
+    """
+
+    def __init__(self) -> None:
         super().__init__()
-        self.proj_in = nn.Linear(dim * lags, dim)
-        self.blocks = nn.ModuleList(
-            [ResidualBlock(dim, hidden) for _ in range(n_blocks)]
+        self.band_proj = nn.Linear(N_BANDS, D_MODEL)
+        self.lag_pos = nn.Parameter(torch.zeros(K_LAGS, D_MODEL))
+        self.cls = nn.Parameter(torch.zeros(1, D_MODEL))
+        nn.init.normal_(self.lag_pos, std=0.02)
+        nn.init.normal_(self.cls, std=0.02)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=D_MODEL,
+            nhead=N_HEADS,
+            dim_feedforward=4 * D_MODEL,
+            dropout=DROPOUT,
+            batch_first=True,
+            norm_first=True,
+            activation="gelu",
         )
-        self.head = nn.Linear(dim, dim)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=N_LAYERS)
+        self.ctx_proj = nn.Linear(N_CONTEXT, D_MODEL)
+        self.head = nn.Sequential(
+            nn.Linear(2 * D_MODEL, D_MODEL),
+            nn.GELU(),
+            nn.Linear(D_MODEL, 2 * N_BANDS),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        last = x[:, -1, :]
-        h = self.proj_in(x.flatten(1))
-        for blk in self.blocks:
-            h = blk(h)
-        return last + self.head(h)
+        B = x.shape[0]
+        lags = x[:, : K_LAGS * N_BANDS].reshape(B, K_LAGS, N_BANDS)
+        ctx = x[:, K_LAGS * N_BANDS :]
+        h = self.band_proj(lags) + self.lag_pos.unsqueeze(0)
+        cls = self.cls.expand(B, -1).unsqueeze(1)
+        h = torch.cat([cls, h], dim=1)
+        h = self.encoder(h)
+        cls_out = h[:, 0, :]
+        ctx_h = F.gelu(self.ctx_proj(ctx))
+        combined = torch.cat([cls_out, ctx_h], dim=-1)
+        return self.head(combined)
 
 
 # ── Lazy model registry ───────────────────────────────────────────────────
@@ -318,37 +354,33 @@ class _Registry:
         }
 
     def load_dynamics(self) -> tuple[DynamicsModel, dict[str, Any]]:
+        """Load the trained multi-band scalar dynamics head.
+
+        When `training.trained == true` the loader pulls the
+        `dynamics_v2.state_dict.pt` checkpoint alongside the metadata
+        and verifies its blake2b against the pinned value (failing
+        closed on any mismatch).
+
+        When `training.trained == false` we keep the historical
+        residual-zero fallback path so the FastAPI surface is still
+        reachable on a half-bootstrapped responder — but the model is
+        intentionally a structural no-op for the NEW input shape: the
+        head is zero-init and the body forwards anything. The
+        Rust-side handler short-circuits to identity before reaching
+        the sidecar in that case, so this path effectively only fires
+        in tests that explicitly hit the sidecar with an untrained
+        artifact.
+        """
         if self.dynamics is not None:
             return self.dynamics
-        # No per-load set_per_process_memory_fraction — the global cap
-        # is set once in __init__. Calling it again here would REPLACE
-        # the global cap with one scaled to a single model's slice and
-        # break the budget for any subsequent loads.
         meta_path = DYNAMICS_DIR / "dynamics_v2.metadata.json"
         if not meta_path.exists():
             raise FileNotFoundError(
                 f"dynamics_v2 metadata not found at {meta_path}; "
-                "run python/jepa_v2/export_baseline.py to seed the sentinel"
+                "run python/jepa_v2_sidecar/train_dynamics_v2.py to seed "
+                "the trained artifact + metadata."
             )
         meta = json.loads(meta_path.read_text())
-        # CORRECTNESS GUARD: this branch supports the zero-init
-        # baseline ONLY. We rebuild the PyTorch architecture and
-        # zero out the head so output == last_input_vintage by
-        # construction — byte-identical to the Rust ort path on
-        # the sentinel.
-        #
-        # When metadata claims `training.trained == true` we MUST
-        # load actual learned weights (state_dict.pt) before serving —
-        # otherwise we'd emit randomly-initialised PyTorch outputs
-        # under a "trained" receipt, which would corrupt every
-        # downstream comparison + inflate verifier trust. The
-        # checkpoint must:
-        #   1. exist on disk next to the metadata file,
-        #   2. match the architecture currently compiled in (we let
-        #      load_state_dict's strict=True surface any layer-name
-        #      drift loudly), and
-        #   3. carry the blake2b that metadata pinned (so a swapped
-        #      .pt file under a stale metadata.json fails closed).
         trained = bool(meta.get("training", {}).get("trained", False))
         model = DynamicsModel().to(self.device)
         if trained:
@@ -357,15 +389,14 @@ class _Registry:
                 raise FileNotFoundError(
                     f"dynamics_v2 metadata claims trained=true but no checkpoint "
                     f"found at {ckpt_path}. Either drop training.trained back to "
-                    "false (residual-zero sentinel) or place the trained state_dict "
-                    "alongside the metadata."
+                    "false or re-run train_dynamics_v2.py to ship the matching "
+                    ".pt alongside the metadata."
                 )
             expected_b2b = (
                 meta.get("training", {}).get("checkpoint_blake2b_hex")
                 or meta.get("model", {}).get("blake2b_hex")
             )
             if expected_b2b:
-                import hashlib
                 got_b2b = hashlib.blake2b(ckpt_path.read_bytes()).hexdigest()
                 if got_b2b != expected_b2b:
                     raise RuntimeError(
@@ -373,26 +404,27 @@ class _Registry:
                         f"(got {got_b2b[:16]}..., metadata pinned "
                         f"{expected_b2b[:16]}...). Refusing to serve a swapped "
                         "checkpoint under a stale receipt — re-run "
-                        "python/jepa_v2/export_baseline.py to refresh the metadata "
-                        "or restore the matching .pt file."
+                        "python/jepa_v2_sidecar/train_dynamics_v2.py to refresh "
+                        "metadata or restore the matching .pt file."
                     )
-            # weights_only=True so a malicious .pt cannot side-effect
-            # via torch's pickle (defense in depth — the checkpoint
-            # comes from our own training pipeline, but the sidecar
-            # treats any on-disk artifact as untrusted input).
+            # weights_only=True so a malicious .pt cannot side-effect via
+            # torch's pickle (defense in depth).
             state_dict = torch.load(
                 ckpt_path, map_location=self.device, weights_only=True
             )
-            # strict=True: any architecture drift between the trained
-            # checkpoint and the model class compiled into the sidecar
-            # is exactly the kind of silent corruption the original
-            # guard was protecting against. Surface it as a load-time
-            # error, not a runtime garbage-prediction.
             model.load_state_dict(state_dict, strict=True)
         else:
             with torch.no_grad():
-                model.head.weight.zero_()
-                model.head.bias.zero_()
+                # Zero-init head so the untrained fallback emits a
+                # deterministic all-zeros mean (which the wrapping
+                # endpoint will denormalise to each band's
+                # climatological mean — a sane garbage answer that the
+                # receipt clearly marks `untrained_baseline`).
+                for layer in model.head:
+                    if hasattr(layer, "weight"):
+                        layer.weight.zero_()
+                    if hasattr(layer, "bias") and layer.bias is not None:
+                        layer.bias.zero_()
         model.eval()
         self.dynamics = (model, meta)
         self.dynamics_load_at = time.time()
@@ -654,27 +686,60 @@ _REG = _Registry()
 
 # ── Schemas ──────────────────────────────────────────────────────────────
 class DynamicsRequest(BaseModel):
-    """K=3 prior 128-D Tessera vintages, oldest first."""
+    """Multi-band scalar dynamics request (v0.0.1, 2026-05-28).
 
-    lags: list[list[float]] = Field(..., description=f"shape [{INPUT_LAGS}, {TESSERA_DIM}]")
+    Wire shape:
+      lags_normalised : [K_LAGS * N_BANDS] = [24] f32, row-major
+                        layout (lag0_band0, lag0_band1, ..., lag5_band3).
+                        Each scalar is already z-scored on the
+                        caller's side with the band's (mean, std).
+      context         : [N_CONTEXT] = [5] f32
+                        (lat_norm, lng_sin, lng_cos, month_sin,
+                        month_cos).
 
-    @field_validator("lags")
+    The endpoint deliberately accepts pre-normalised inputs so the
+    Rust caller can sign the receipt with the exact normalisation
+    parameters it used. The sidecar denormalises outputs and clamps
+    to physical ranges before returning."""
+
+    lags_normalised: list[float] = Field(
+        ..., description=f"shape [{K_LAGS * N_BANDS}], lags in row-major order"
+    )
+    context: list[float] = Field(
+        ..., description=f"shape [{N_CONTEXT}]: lat_norm, lng_sin, lng_cos, month_sin, month_cos"
+    )
+
+    @field_validator("lags_normalised")
     @classmethod
-    def check_shape(cls, v: list[list[float]]) -> list[list[float]]:
-        if len(v) != INPUT_LAGS:
+    def check_lags(cls, v: list[float]) -> list[float]:
+        if len(v) != K_LAGS * N_BANDS:
             raise ValueError(
-                f"`lags` must have exactly {INPUT_LAGS} entries (got {len(v)})"
+                f"`lags_normalised` must be {K_LAGS * N_BANDS} floats "
+                f"(K_LAGS={K_LAGS} * N_BANDS={N_BANDS}); got {len(v)}"
             )
-        for i, row in enumerate(v):
-            if len(row) != TESSERA_DIM:
-                raise ValueError(
-                    f"`lags[{i}]` must have {TESSERA_DIM} dims (got {len(row)})"
-                )
+        return v
+
+    @field_validator("context")
+    @classmethod
+    def check_context(cls, v: list[float]) -> list[float]:
+        if len(v) != N_CONTEXT:
+            raise ValueError(
+                f"`context` must be {N_CONTEXT} floats; got {len(v)}"
+            )
         return v
 
 
 class DynamicsResponse(BaseModel):
-    prediction: list[float]
+    """Multi-band scalar prediction. `predictions` are in physical
+    units after denormalisation + per-band clamp; `confidence` is the
+    per-band `exp(-log_var/2)` from the model's Gaussian head.
+    `band_keys` is the canonical order so callers don't have to
+    rely on positional indices."""
+
+    predictions: list[float]
+    confidence: list[float]
+    band_keys: list[str]
+    low_confidence_bands: list[str]
     model: dict[str, Any]
     inference_us: int
     device: str
@@ -911,6 +976,14 @@ def health() -> dict[str, Any]:
 
 @app.post("/predict/dynamics_v2")
 def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
+    """Multi-band scalar next-step prediction.
+
+    Input is K_LAGS*N_BANDS pre-normalised scalars + N_CONTEXT spatial-
+    temporal context floats. Output is per-band physical-unit
+    predictions + per-band confidence + the canonical band-key list +
+    a `low_confidence_bands` slice listing keys below
+    `LOW_CONFIDENCE_THRESHOLD`.
+    """
     try:
         model, meta = _REG.load_dynamics()
     except FileNotFoundError as e:
@@ -919,22 +992,47 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
         # Trained-checkpoint validation failure (architecture drift,
         # blake2b mismatch). 503 so the Rust client surfaces as
         # Upstream (502) — emem-server then refuses to silently fall
-        # back to the residual-zero baseline because the user
-        # explicitly attested a trained checkpoint.
+        # back to identity because the operator explicitly attested
+        # a trained checkpoint and we caught the swap.
         raise HTTPException(status_code=503, detail=str(e)) from e
 
-    arr = np.asarray(req.lags, dtype=np.float32)            # [3, 128]
-    x = torch.from_numpy(arr).unsqueeze(0).to(_REG.device)  # [1, 3, 128]
+    # Flatten lags + context into a single [1, INPUT_DIM] tensor.
+    flat = np.concatenate(
+        [
+            np.asarray(req.lags_normalised, dtype=np.float32),
+            np.asarray(req.context, dtype=np.float32),
+        ]
+    )
+    x = torch.from_numpy(flat).unsqueeze(0).to(_REG.device)   # [1, INPUT_DIM]
     t0 = time.perf_counter_ns()
     with torch.inference_mode():
-        pred = model(x)                                     # [1, 128]
+        raw = model(x)                                         # [1, OUTPUT_DIM]
     dt_us = max(1, (time.perf_counter_ns() - t0) // 1000)
-    pred_list = pred.squeeze(0).cpu().tolist()
+    raw_row = raw.squeeze(0).cpu().tolist()                    # length OUTPUT_DIM
+    mean_norm = raw_row[:N_BANDS]
+    log_var = raw_row[N_BANDS:]
 
-    # Receipt-shape model block — mirrors what the Rust runtime
-    # surfaces. The sidecar is the single source of truth when it's
-    # answering; the Rust caller forwards this verbatim into the
-    # signed receipt.
+    # Denormalise + clamp per-band using the metadata pinned at
+    # training time. Keeps the sidecar's response in physical units so
+    # the Rust caller doesn't have to duplicate the normalisation table.
+    band_norm = meta.get("normalisation", {}).get("band_norm", {})
+    phys_range = meta.get("normalisation", {}).get("physical_ranges", {})
+    predictions: list[float] = []
+    confidence: list[float] = []
+    low_confidence: list[str] = []
+    for j, band in enumerate(BAND_KEYS_SIDECAR):
+        m, s = band_norm.get(band, (0.0, 1.0))
+        lo, hi = phys_range.get(band, (-1e30, 1e30))
+        phys = mean_norm[j] * float(s) + float(m)
+        phys = float(np.clip(phys, lo, hi))
+        predictions.append(phys)
+        lv = float(np.clip(log_var[j], -6.0, 4.0))
+        conf = float(np.exp(-lv / 2.0))
+        confidence.append(conf)
+        if conf < LOW_CONFIDENCE_THRESHOLD:
+            low_confidence.append(band)
+
+    trained = bool(meta.get("training", {}).get("trained", False))
     onnx_path = DYNAMICS_DIR / "dynamics_v2.onnx"
     artifact_blake2b = (
         meta.get("artifact", {}).get("blake2b_hex")
@@ -942,24 +1040,44 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
             onnx_path.read_bytes() if onnx_path.exists() else b"", digest_size=32
         ).hexdigest()
     )
+
+    honesty_warnings: list[str] = []
+    if not trained:
+        honesty_warnings.append(
+            "untrained_baseline: dynamics_v2 metadata flags training.trained=false; "
+            "the sidecar is serving a zero-init head whose mean is the climatological "
+            "default for each band. Run python/jepa_v2_sidecar/train_dynamics_v2.py "
+            "to ship a real trained model."
+        )
+    synthetic_fraction = float(
+        meta.get("training", {}).get("synthetic_fraction_train", 1.0 if trained else 0.0)
+    )
+    if trained and synthetic_fraction > 0.5:
+        honesty_warnings.append(
+            f"training_synthetic_fraction={synthetic_fraction:.2f}: the trained model "
+            "was fit predominantly on synthesised seasonal data; the held-out "
+            "real-NDVI MSE is reported in metadata.training.real_ndvi_mse_model"
+        )
+    for band in low_confidence:
+        honesty_warnings.append(
+            f"low_confidence_band:{band}: predictive std-dev exceeded the "
+            f"LOW_CONFIDENCE_THRESHOLD ({LOW_CONFIDENCE_THRESHOLD:.2f}); downstream "
+            "agents should fall back to other signals or wait for more lags."
+        )
+
     return DynamicsResponse(
-        prediction=pred_list,
+        predictions=predictions,
+        confidence=confidence,
+        band_keys=list(BAND_KEYS_SIDECAR),
+        low_confidence_bands=low_confidence,
         model={
-            "model_id": meta.get("model_id", "jepa_temporal_predictor@2"),
-            "version": meta.get("version", "0.0.0-untrained-baseline"),
+            "model_id": meta.get("model_id", "jepa_temporal_predictor@2.scalar"),
+            "version": meta.get("version", "0.0.1-trained-multi-band-scalar"),
             "blake2b_hex": artifact_blake2b,
-            "trained": meta.get("training", {}).get("trained", False),
+            "trained": trained,
+            "synthetic_fraction_train": synthetic_fraction,
             "via": "python_sidecar",
-            "honesty_warnings": (
-                []
-                if meta.get("training", {}).get("trained", False)
-                else [
-                    "untrained_baseline: this jepa_v2 model is the residual-zero-init "
-                    "sentinel that returns last_input_vintage by construction. "
-                    "Quality is the 'predict last vintage' baseline, NOT a learned "
-                    "forecast. Run python/jepa_v2/train.py to ship a real model."
-                ]
-            ),
+            "honesty_warnings": honesty_warnings,
         },
         inference_us=dt_us,
         device=str(_REG.device),

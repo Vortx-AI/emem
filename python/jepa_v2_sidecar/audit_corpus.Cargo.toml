@@ -1,0 +1,14 @@
+[package]
+name = "emem-audit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sled = { version = "0.34", features = ["compression"] }
+ciborium = "0.2"
+serde = { version = "1", features = ["derive"] }
+csv = "1"
+
+[[bin]]
+name = "audit"
+path = "src/audit.rs"

@@ -66,27 +66,38 @@ pub enum SidecarError {
     Protocol(String),
 }
 
-/// Request body for the dynamics_v2 endpoint. Mirrors the FastAPI
-/// `DynamicsRequest` schema.
+/// Request body for the dynamics_v2 endpoint (v0.0.1, 2026-05-28).
+///
+/// Mirrors the FastAPI `DynamicsRequest` schema in
+/// `python/jepa_v2_sidecar/server.py`. Two flat vectors so the
+/// transport JSON is small and the caller controls the normalisation
+/// it commits to in the receipt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DynamicsRequest {
-    /// Three 128-D Tessera vintages, oldest first. Same shape contract
-    /// as the in-process `jepa_v2::predict_next_vintage`.
-    pub lags: Vec<Vec<f32>>,
+    /// K_LAGS * N_BANDS = 24 z-scored scalars in row-major order
+    /// (lag0_band0, lag0_band1, ..., lag5_band3). Each scalar is
+    /// `(physical_value - band_mean) / band_std` with (mean, std)
+    /// from metadata.normalisation.band_norm[band].
+    pub lags_normalised: Vec<f32>,
+    /// N_CONTEXT = 5 floats: lat_norm, lng_sin, lng_cos, month_sin, month_cos.
+    pub context: Vec<f32>,
 }
 
-/// Response body. Carries the prediction + the receipt-shape model
-/// block the Rust caller forwards verbatim into the signed receipt.
+/// Response body. Carries per-band physical-unit predictions, per-band
+/// confidence, the canonical band-key order, the low-confidence slice
+/// the model surfaced, and the receipt-shape model block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DynamicsResponse {
-    pub prediction: Vec<f32>,
+    pub predictions: Vec<f32>,
+    pub confidence: Vec<f32>,
+    pub band_keys: Vec<String>,
+    pub low_confidence_bands: Vec<String>,
     pub model: JsonValue,
     pub inference_us: u64,
     pub device: String,
 }
 
-/// Call the sidecar's `/predict/dynamics_v2` endpoint. Returns the
-/// 128-D prediction + the model block.
+/// Call the sidecar's `/predict/dynamics_v2` endpoint.
 pub async fn predict_dynamics_v2(req: &DynamicsRequest) -> Result<DynamicsResponse, SidecarError> {
     let body =
         serde_json::to_vec(req).map_err(|e| SidecarError::Protocol(format!("encode req: {e}")))?;
@@ -437,18 +448,16 @@ mod tests {
     /// Run explicitly: `cargo test -p emem-api-rest gpu_sidecar -- --ignored`
     #[tokio::test]
     #[ignore]
-    async fn live_predict_dynamics_v2_returns_128d() {
+    async fn live_predict_dynamics_v2_returns_n_bands() {
+        // K=6 lags x N_BANDS=4 = 24 normalised scalars, then 5 ctx values.
         let req = DynamicsRequest {
-            lags: vec![vec![0.0_f32; 128]; 3],
+            lags_normalised: vec![0.0_f32; 24],
+            context: vec![0.0_f32; 5],
         };
         let resp = predict_dynamics_v2(&req).await.expect("sidecar reachable");
-        assert_eq!(resp.prediction.len(), 128, "v2 output is 128-D");
-        // Sentinel returns last_input_vintage by construction; with
-        // all-zeros input that is all-zeros output.
-        assert!(
-            resp.prediction.iter().all(|x| x.abs() < 1e-6),
-            "zero-init sentinel must return zeros for zero input; got non-zero"
-        );
+        assert_eq!(resp.predictions.len(), 4, "v2 emits one prediction per band");
+        assert_eq!(resp.confidence.len(), 4, "v2 emits one confidence per band");
+        assert_eq!(resp.band_keys.len(), 4);
         // Receipt-shape model block carries the via tag.
         assert_eq!(
             resp.model.get("via").and_then(|v| v.as_str()),
