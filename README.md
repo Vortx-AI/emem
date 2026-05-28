@@ -243,7 +243,7 @@ The active grid is ~9.54 m × ~9.55 m at the equator (lat 21 bits × lng 22 bits
 
 ```
 emem/
-├── crates/                       # 14 workspace crates, MSRV 1.91, version 0.0.7
+├── crates/                       # 14 workspace crates, MSRV 1.91, version 0.0.8
 │   ├── emem-core/                # bands, algorithms, functions, sources, topics, schema
 │   ├── emem-codec/               # cell64, cid64, vec64, hilbert, geo, alphabet
 │   ├── emem-fact/                # canonical CBOR; fact, receipt, attestation

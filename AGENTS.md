@@ -9,7 +9,7 @@ instead — those describe how to *use* emem from an agent.
 
 ## Repo shape
 
-Rust workspace, 14 crates, version 0.0.7, MSRV 1.91. The bulk of the code
+Rust workspace, 14 crates, version 0.0.8, MSRV 1.91. The bulk of the code
 lives in `crates/emem-api-rest/src/lib.rs` (~29 k lines: HTTP/MCP router
 plus every inline materializer plus the foundation-embedding fan-out for
 `/v1/ask`) and `crates/emem-fetch/src/*.rs` (18 data connectors + 5
@@ -85,7 +85,7 @@ will reject it and the next agent will have to figure out why.
 
 Commit messages are sentence-case, ≤72 chars on the subject line. Body
 explains the *why* and any non-obvious wire/protocol implications. Tag
-with the version prefix when relevant — `0.0.7: …`.
+with the version prefix when relevant — `0.0.8: …`.
 
 **Never** add a `Co-Authored-By: Claude` trailer or any AI attribution
 trailer. The user has stated this preference in

@@ -95,7 +95,7 @@ port 5051. The live surface ships 80+ paths under
 resources + 8 URI templates, 159 algorithms in the content-addressed
 registry, 42 bands in the manifest, 46 source schemes, and 16 data
 connectors + 13 utility modules.
-Version 0.0.7, MSRV Rust 1.91. No API keys; the MCP surface is read-only
+Version 0.0.8, MSRV Rust 1.91. No API keys; the MCP surface is read-only
 because writes need an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
@@ -128,7 +128,7 @@ log. See "Watching humans use the API" below.
 | Source schemes | 46 |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
-| Version | 0.0.7 |
+| Version | 0.0.8 |
 
 ---
 

@@ -7,7 +7,11 @@ to verify.
 
 ## [Unreleased]
 
-### v0.0.8 — in progress
+_Nothing pending; next planned cut is v0.0.9 — see
+`docs/plans/v0.0.8-and-v0.0.9.md`._
+
+## [0.0.8] — 2026-05-28
+
 
 **Change 1a — Scope foundation** (commit `ab1fa85`):
 - New `crates/emem-fact/src/scope.rs`: `Scope { user_id,
@@ -52,13 +56,15 @@ to verify.
   because the ChaCha20-Poly1305 + sled tree + ed25519 cap-binding
   work is substantial; no half-implementation lands.
 
-**Pending for v0.0.8 tag**:
-- Change 1: scope tags (`{user_id, agent_id, run_id, org_id}` +
-  receipt preimage extension).
-- Change 2 follow-up: `Vault` kind with AEAD + cap-binding.
-- Change 3 follow-up: `POST /a2a/tasks` adapter.
-- Side lane: `example_args` for all 69 MCP tools.
-- Workspace version bump 0.0.7 -> 0.0.8 + tag + auto-publish.
+**Carried forward to v0.0.9**:
+- Change 1 fan-out — scope wired through the other 8 read
+  primitives (find_similar, trajectory, query_region,
+  recall_polygon, state, state_multi, memory_bundle, memory_search).
+  /v1/recall proves the pattern; the other 8 are mechanical.
+- Change 2b — Vault memory kind (AEAD + cap-binding). Substantial
+  ChaCha20-Poly1305 + HKDF-from-attester-ed25519 + sled tree + cap
+  preimage work; deserves its own commit cycle rather than
+  risking a rushed crypto implementation in the v0.0.8 cut.
 
 
 ## [0.0.7] — 2026-05-28
