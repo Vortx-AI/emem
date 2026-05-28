@@ -89,7 +89,7 @@ pub struct ServedVia {
     /// as snake_case.
     pub tier: String,
     /// Stable model identifier (e.g. `"clay_v1_5"`,
-    /// `"prithvi_eo_v2_300m_tl"`, `"galileo_base_v1"`,
+    /// `"prithvi_eo_v2_300m_tl"`, `"galileo_v1"`,
     /// `"jepa_v2_mlp_4block"`). Empty string is reserved for
     /// scalar/derivative paths that don't run a learned model.
     pub model: String,

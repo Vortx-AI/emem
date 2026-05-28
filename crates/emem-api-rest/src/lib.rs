@@ -4967,7 +4967,7 @@ fn topics_payload() -> JsonValue {
             "_meaning": "Bands reserved in the cube manifest but with no live connector at this responder. Recall returns empty (existing attestations only, no upstream fetch).",
             "_authoritative_list": "GET /v1/bands — every band entry now carries a `materializer:{kind:'live'|'declared_no_connector', ...}` field. Filter on kind=='declared_no_connector' for the canonical, code-derived set.",
             "_note_on_cube_family_roots": "Most unwired keys are cube FAMILY-ROOT slots whose SCALAR children are wired (e.g. `koppen` root unwired but `koppen.major_class` live; `surface_water` cube key reserved but `surface_water.recurrence` answers the flood-history question). Use /v1/materializers for the per-scalar wired list.",
-            "_note_on_foundation_models_at_this_responder": "Three foundation embeddings are wired at this responder. `geotessera` (Tessera v1, 128-D, 10 m grid, annual) is the default similarity surface. `prithvi_eo2` (IBM-NASA Prithvi-EO-2.0-300M-TL, 1024-D fact value carried in the 384-D cube slot at offset 894, 30 m chip / 6.7 km receptive field, scene-aware) anchors algorithms that need a learned ViT representation rather than a contrastive embedding. `galileo_base` (off-cube; surfaced via the sidecar's /predict/galileo_embed) is the Galileo Base 768-D foundation embedding for S2-only chips. Clay Foundation Model is on the roadmap and not yet wired — when it lands, the cube will reshape to add a `clay_v1` slot.",
+            "_note_on_foundation_models_at_this_responder": "Four foundation embeddings are wired at this responder. `geotessera` (Tessera v1, 128-D, 10 m grid, annual) is the default similarity surface. `prithvi_eo2` (IBM-NASA Prithvi-EO-2.0-300M-TL, 1024-D fact value carried in the 384-D cube slot at offset 894, 30 m chip / 6.7 km receptive field, scene-aware) anchors algorithms that need a learned ViT representation rather than a contrastive embedding. `clay_v1` (Made With Clay v1.5, 1024-D fact value in the 384-D cube slot at offset 199, 10 m chip / 2.56 km receptive field, wavelength-conditioned) is the finer-resolution sibling. `galileo` (NASA Harvest Galileo Base / Tiny, 768-D or 192-D pooled embedding, 30 m × 8×8 chip / 240 m receptive field; variant set by EMEM_GALILEO_VARIANT) is the small-footprint multi-modal foundation surfaced via the sidecar's /predict/galileo_embed. All three GPU-only foundation bands sign honest Absence with reason=gpu_unavailable when the sidecar is unreachable — no CPU fallback because the embedding's kernel-order accumulation would differ.",
         },
         "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands — they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe — apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data — be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
         "for_temporal_questions": "For 'last N years' questions, materializers return one fact at the latest available tslot. To get a series, call `emem_recall` repeatedly for past tslots only if the band's tempo is `slow`/`static` (which means one fact covers the period). For `fast`/`medium` tempo bands, history requires the responder to have already seeded past tslots — call `emem_trajectory` to enumerate what's there, do NOT assume historical lookback materializes on demand.",
@@ -8579,7 +8579,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
             { "intent": "knn_similar",         "method": "POST", "path": "/v1/find_similar",   "use_when": "'find places like X' — k-NN over geotessera or any vector band" },
             { "intent": "place_to_cell64",     "method": "POST", "path": "/v1/locate",         "use_when": "you only have a place name or lat/lng and need cell64" },
             { "intent": "state_vector",        "method": "POST", "path": "/v1/state",          "use_when": "want a single dense per-place embedding to drop into LLM context or feed to find_similar — view=encoder (128-D default) or view=cube (1792-D)" },
-            { "intent": "state_fan_out",       "method": "POST", "path": "/v1/state_multi",    "use_when": "want geotessera + clay_v1 + prithvi_eo2 in one call to check cross-encoder agreement" },
+            { "intent": "state_fan_out",       "method": "POST", "path": "/v1/state_multi",    "use_when": "want geotessera + clay_v1 + prithvi_eo2 + galileo in one call to check cross-encoder agreement" },
             { "intent": "state_delta",         "method": "POST", "path": "/v1/state_diff",     "use_when": "compare the same cell across two vintages (residual + L2 + cosine)" },
             { "intent": "compose_citation",    "method": "POST", "path": "/v1/memory_token",   "use_when": "wrap a (cell, fact_cid) pair as a single memt: handle to paste across agents" },
             { "intent": "resolve_citation",    "method": "POST", "path": "/v1/memory_token/resolve", "use_when": "receive a memt: handle from another agent and want the signed fact body in one trip" },
@@ -12681,8 +12681,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/contributors/{pubkey_b32}": {"get":{"summary":"contributor profile by pubkey","operationId":"emem_contributor_one","parameters":[{"name":"pubkey_b32","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/agent_stats":       {"get":{"summary":"per-tool MCP latency + error counts","operationId":"emem_agent_stats","responses":{"200":json_ok}}},
             "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","operationId":"emem_demos","responses":{"200":json_ok}}},
-            "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2, galileo)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2, galileo). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token":      {"post":{"summary":"compose a memt:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token plus a docs link.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a memory token. Parses memt:<cell>:<fact_cid>, fetches the signed fact body by CID, returns the canonical body plus the offline-verify URL. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"memt:<cell64>:<fact_cid>"}}}}}},"responses":{"200":json_ok,"404":json_not_found}}},
@@ -13622,7 +13622,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         ErrorBody {
             code: ErrorCode::InvalidArgument,
             message: format!(
-                "/v1/state view=encoder: band `{}` does not return a vector value. Pass an encoder band whose value is an array of floats (e.g. geotessera, clay_v1, prithvi_eo2).",
+                "/v1/state view=encoder: band `{}` does not return a vector value. Pass an encoder band whose value is an array of floats (e.g. geotessera, clay_v1, prithvi_eo2, galileo).",
                 encoder
             ),
             details: None,
@@ -13691,13 +13691,14 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
 // (which encoder's state is freshest at this cell?), and concatenated
 // state for downstream linear probes.
 
-const FOUNDATION_ENCODERS: &[&str] = &["geotessera", "clay_v1", "prithvi_eo2"];
+const FOUNDATION_ENCODERS: &[&str] = &["geotessera", "clay_v1", "prithvi_eo2", "galileo"];
 
 #[derive(Debug, Deserialize)]
 struct StateMultiReq {
     cell: String,
     /// Optional explicit encoder list; defaults to every wired
-    /// foundation-embedding band (`geotessera`, `clay_v1`, `prithvi_eo2`).
+    /// foundation-embedding band (`geotessera`, `clay_v1`, `prithvi_eo2`,
+    /// `galileo`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     encoders: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -16892,13 +16893,16 @@ async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::Fa
     sign_and_persist(s, fact, &signed_at).await
 }
 
-/// Phase 4 — Galileo Base per-cell foundation embedding.
+/// Phase 4 — Galileo per-cell foundation embedding.
 ///
 /// Pulls a 10-band S2 L2A chip (8×8 at 30 m equiv) via
 /// `galileo_chip::fetch_galileo_chip`, sends it to the GPU sidecar at
 /// `/predict/galileo_embed` (variant-agnostic; sidecar's
 /// `EMEM_GALILEO_VARIANT` selects Base = 768-D, Tiny = 192-D, …),
-/// signs the returned embedding under the `galileo_base_v1` band.
+/// signs the returned embedding under the `galileo` band.
+/// Embedding dim is read from the sidecar response — the band key is
+/// variant-agnostic so a deployment switching `EMEM_GALILEO_VARIANT`
+/// from Base to Tiny doesn't need to rewrite agent recall calls.
 /// S2-only mode — Galileo accepts the other modalities zero-masked.
 async fn materialize_galileo_base(
     cell64: &str,
@@ -16964,11 +16968,11 @@ async fn materialize_galileo_base(
         .unwrap_or("")
         .to_string();
     sources.push(Source {
-        scheme: "model.galileo_base_v1".into(),
+        scheme: "model.galileo_v1".into(),
         id: format!("nasaharvest/galileo@{model_blake2b}"),
         cid: None,
         hash: None,
-        // Galileo Base by Earth-Net release date
+        // Galileo by Earth-Net release date
         captured_at: Some("2024-09-01T00:00:00Z".to_string()),
         url: Some("https://huggingface.co/nasaharvest/galileo".into()),
     });
@@ -16977,19 +16981,22 @@ async fn materialize_galileo_base(
         .model
         .get("model_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("galileo_base_v1")
+        .unwrap_or("galileo_v1")
         .to_string();
+    // Tslot at scene-acquisition tempo so successive vintages of the
+    // same cell don't collide at tslot=0 — mirror the prithvi_eo2
+    // / clay_v1 pattern (Tempo::Slow keys to annual cadence).
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
-        band: "galileo_base_v1".into(),
-        tslot: 0,
+        band: "galileo".into(),
+        tslot: emem_core::tslot::Tslot::from_unix(scene_unix, emem_core::tslot::Tempo::Slow).0,
         value,
         unit: None,
         confidence: 0.85,
         uncertainty: None,
         sources,
         derivation: Derivation {
-            fn_key: "galileo_base_v1_s2_embed@1".into(),
+            fn_key: "galileo_v1_s2_embed@1".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -23706,16 +23713,18 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "Element84/MPC Sentinel-2 L2A 10-band chip (B02/B03/B04/B05/B06/B07/B08/B8A/B11/B12, 256×256 @ 10m equiv) → emem-jepa-sidecar /predict/clay_embed (CUDA, ViT-L/8 1024-D CLS)",
         },
-        "galileo_base_v1" => MaterializerMeta {
+        "galileo" => MaterializerMeta {
             // Galileo (NASA Harvest, MIT) — Base variant by default
-            // (86.5 M params, 768-D embedding). Per-cell embedding from a
-            // 10-band S2 chip 8×8 at 30 m equiv. Tempo + history mirror S2.
+            // (86.5 M params, 768-D embedding) / Tiny (~22 MB, 192-D)
+            // selected by the sidecar's `EMEM_GALILEO_VARIANT`. Per-cell
+            // embedding from a 10-band S2 chip 8×8 at 30 m equiv. Tempo +
+            // history mirror S2.
             tempo: Tempo::Medium,
             kind: BandKind::TimeSeries,
             history_from_unix: Some(s2_l2a_start),
             history_to_unix: None,
             wire_path:
-                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/03/04/05/06/07/08/8A/11/12, 8×8 @ 30m equiv) → emem-jepa-sidecar /predict/galileo_embed (CUDA, Base = 768-D avg-pooled tokens; variant set by EMEM_GALILEO_VARIANT)",
+                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/03/04/05/06/07/08/8A/11/12, 8×8 @ 30m equiv) → emem-jepa-sidecar /predict/galileo_embed (CUDA, variant-agnostic — Base = 768-D / Tiny = 192-D avg-pooled tokens; variant set by EMEM_GALILEO_VARIANT)",
         },
         _ => return None,
     };
@@ -23808,6 +23817,16 @@ fn all_materializable_bands() -> Vec<String> {
         // via TurboQuant rotation + sign-bit packing. Feeds find_similar
         // mode=hamming/hamming_then_rerank.
         "geotessera.bin128".into(),
+        // Foundation-model embeddings served from the GPU sidecar.
+        // recall(band=X) on a cold cell fetches a Sentinel-2 L2A chip,
+        // hands it to the sidecar, signs the returned embedding as a
+        // Primary fact. When the sidecar is unreachable the recall
+        // path signs an honest Absence with reason=gpu_unavailable.
+        // Listed here so /v1/materializers + /v1/data_availability +
+        // /v1/coverage_matrix all surface them as live-wired bands.
+        "prithvi_eo2".into(),
+        "clay_v1".into(),
+        "galileo".into(),
     ];
     for y in TESSERA_YEARS_RANGE_PUBLIC.clone() {
         out.push(format!("geotessera.{y}"));
@@ -23978,11 +23997,12 @@ async fn materialize_band_at(
         // Returns SidecarError::Unavailable when the GPU is missing;
         // the recall path catches that and signs an honest Absence.
         "clay_v1" => return materialize_clay_v1(cell64, s).await,
-        // Phase 4 — Galileo Base S2-only embedding. Pulls a 10-band
+        // Phase 4 — Galileo S2-only embedding. Pulls a 10-band
         // 8×8 chip at 30 m equiv, sends to the GPU sidecar, signs the
-        // returned 768-D average-pooled embedding under
-        // `galileo_base_v1`.
-        "galileo_base_v1" => return materialize_galileo_base(cell64, s).await,
+        // returned average-pooled embedding (768-D Base / 192-D Tiny,
+        // dim chosen by sidecar's EMEM_GALILEO_VARIANT) under
+        // `galileo`.
+        "galileo" => return materialize_galileo_base(cell64, s).await,
         // Beck Köppen-Geiger 1-km — static, one signed class per cell.
         "koppen" => return materialize_koppen(cell64, s).await,
         // WorldPop wpgppop — slow-tempo annual people/km² via Stats REST.
@@ -24889,12 +24909,12 @@ async fn try_materialize_bands(
                     }
                 }
             }
-            // Galileo Base S2-only embedding. Fetches a 10-band 8×8
+            // Galileo S2-only embedding. Fetches a 10-band 8×8
             // chip at 30 m equiv, sends to GPU sidecar, signs the
-            // returned 768-D embedding. Galileo Base is mid-size
-            // (86.5M params vs Prithvi's 330M) — cold start ~5 s,
-            // warm ~25 ms.
-            "galileo_base_v1" => match materialize_galileo_base(cell64, s).await {
+            // returned embedding (768-D Base / 192-D Tiny). Mid-size
+            // (Base = 86.5M params vs Prithvi's 330M) — cold start ~5 s,
+            // warm ~25 ms. Variant chosen via EMEM_GALILEO_VARIANT.
+            "galileo" => match materialize_galileo_base(cell64, s).await {
                 Ok(cid) => {
                     tracing::info!(
                         target: "emem::materialize",
@@ -27825,7 +27845,13 @@ fn ranking_spec_for(kind: ask_foundation::HunterKind) -> Option<RankingSpec> {
 /// 16-permit concurrency. Operators can override with the env var
 /// `EMEM_HUNTER_SLOW_BAND_CAP` at startup.
 fn slow_band_cells_cap(primary_band: &str) -> Option<usize> {
-    const SLOW_BANDS: &[&str] = &["modis.lst_day_8day", "modis.lst_night_8day", "prithvi_eo2"];
+    const SLOW_BANDS: &[&str] = &[
+        "modis.lst_day_8day",
+        "modis.lst_night_8day",
+        "prithvi_eo2",
+        "clay_v1",
+        "galileo",
+    ];
     if !SLOW_BANDS.contains(&primary_band) {
         return None;
     }
@@ -28495,14 +28521,22 @@ fn materializer_status_for(input_bands: &[&'static str]) -> JsonValue {
                 true,
                 "MODIS land-surface temperature 8-day via NASA/ORNL REST API. SLOW: rate-limited and ~30 s per cell — hunter mode caps fan-out to 8 cells for this band.",
             ),
-            // Seed-only foundation encoders — no live materializer.
+            // Foundation-model embeddings — all live via GPU sidecar.
+            // When the sidecar is unreachable the materializer surfaces
+            // SidecarError::Unavailable and the recall path signs an
+            // honest Absence with reason=gpu_unavailable. No CPU
+            // fallback (would change the embedding's distribution).
             "clay_v1" => (
-                false,
-                "Clay v1 foundation embedding — seed facts only. No live materializer at this responder; recall returns whatever was pre-attested.",
+                true,
+                "Clay v1.5 Foundation Model — 1024-D CLS embedding from a 10-band 256×256 S2 L2A chip at 10 m. Auto-materialises on miss via the GPU sidecar; honest Absence on GPU unavailable.",
             ),
             "prithvi_eo2" => (
-                false,
-                "Prithvi-EO-2.0 foundation embedding — seed facts only. No live materializer at this responder; recall returns whatever was pre-attested.",
+                true,
+                "Prithvi-EO-2.0-300M-TL — 1024-D CLS embedding from a 6-band 224×224 S2 L2A chip at 30 m equiv. Auto-materialises on miss via the GPU sidecar; honest Absence on GPU unavailable.",
+            ),
+            "galileo" => (
+                true,
+                "Galileo (NASA Harvest) — 768-D Base / 192-D Tiny avg-pooled embedding from a 10-band 8×8 S2 L2A chip at 30 m equiv. Variant set by EMEM_GALILEO_VARIANT. Auto-materialises on miss via the GPU sidecar; honest Absence on GPU unavailable.",
             ),
             // Fallback for bands not enumerated above.
             _ => (
@@ -37765,5 +37799,82 @@ mod tests {
             aggregate_baseline_provenance(&none_cells),
             "neither_available"
         );
+    }
+
+    /// The three GPU-sidecar foundation embeddings (`prithvi_eo2`,
+    /// `clay_v1`, `galileo`) must all be reachable through the same
+    /// materializer registry path that `recall_with_auto_materialize`
+    /// uses to fan out: `band_materializer_meta(band).is_some()` AND
+    /// the band is enumerated in `all_materializable_bands()`. If
+    /// either side regresses, agents calling
+    /// `recall(band=clay_v1)` on a fresh cell silently get empty
+    /// instead of an embedding (the materializer dispatch never fires)
+    /// — exactly the bug this PR is fixing.
+    #[test]
+    fn foundation_bands_appear_in_materializer_registry() {
+        let listed: std::collections::HashSet<String> =
+            all_materializable_bands().into_iter().collect();
+        for band in ["prithvi_eo2", "clay_v1", "galileo"] {
+            assert!(
+                listed.contains(band),
+                "all_materializable_bands() is missing `{band}` — recall_with_auto_materialize \
+                 won't surface it under /v1/materializers"
+            );
+            assert!(
+                band_materializer_meta(band).is_some(),
+                "band_materializer_meta(\"{band}\") returned None — the materializer is \
+                 not wired into the dispatch table; recall on a fresh cell will silently \
+                 return empty instead of auto-materialising"
+            );
+            // Every foundation embedding must declare its upstream wire
+            // path so /v1/materializers + /v1/coverage_matrix surface
+            // the chip-fetcher + sidecar route a verifier can reproduce.
+            let meta = band_materializer_meta(band).unwrap();
+            assert!(
+                meta.wire_path.contains("emem-jepa-sidecar"),
+                "{band}.wire_path = {:?} must mention emem-jepa-sidecar so agents know which \
+                 compute tier produced the embedding",
+                meta.wire_path
+            );
+        }
+    }
+
+    /// `FOUNDATION_ENCODERS` is the default fan-out list for
+    /// `/v1/state_multi`. It MUST stay aligned with the live
+    /// materialiser-bearing foundation embeddings so the multi-encoder
+    /// state vector covers every wired model — never one less, never
+    /// one more (so agents don't get a never-materialising encoder
+    /// like `clay_v1` was historically reported as).
+    #[test]
+    fn foundation_encoders_includes_every_live_foundation_band() {
+        for band in ["geotessera", "clay_v1", "prithvi_eo2", "galileo"] {
+            assert!(
+                FOUNDATION_ENCODERS.contains(&band),
+                "FOUNDATION_ENCODERS missing `{band}` — /v1/state_multi default fan-out \
+                 would skip it"
+            );
+        }
+    }
+
+    /// The bands manifest must carry a `galileo` entry under the
+    /// `foundation` family — without it `/v1/bands` doesn't surface
+    /// Galileo as a discoverable encoder and agents can't see the
+    /// cube-slot offset for layout introspection.
+    #[test]
+    fn galileo_band_present_in_bands_registry() {
+        let reg = &*emem_core::bands::DEFAULT;
+        let galileo = reg
+            .lookup("galileo")
+            .expect("galileo band not in bands-v0.json manifest");
+        assert!(
+            matches!(galileo.family, emem_core::bands::BandFamily::Foundation),
+            "galileo band must be family=foundation (got {:?})",
+            galileo.family
+        );
+        // 48 dims at offset 1701 — carved from the historic 91-dim
+        // reserved tail. If a future PR expands the slot, this is the
+        // canary that catches a misaligned offset.
+        assert_eq!(galileo.dims, 48, "galileo cube slot allocates 48 dims");
+        assert_eq!(galileo.offset, 1701, "galileo cube slot at offset 1701");
     }
 }
