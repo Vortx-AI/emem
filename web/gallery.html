@@ -100,7 +100,9 @@
     text-shadow:0 1px 0 rgba(255,255,255,.5);
   }
   .map-meta .coords{font-family:var(--mono);font-size:13px;color:var(--ink-2);margin:0 0 8px}
-  .map-meta .cell64{font-family:var(--mono);font-size:11px;color:var(--mute);letter-spacing:.02em;padding:3px 8px;background:rgba(255,255,255,.55);border:1px dashed var(--rule-strong);display:inline-block}
+  .map-meta .cell64{font-family:var(--mono);font-size:10px;color:var(--mute);letter-spacing:.02em;padding:2px 7px;background:rgba(255,255,255,.45);border:1px dashed var(--rule-strong);display:inline-block;opacity:.75}
+  .map-meta .cell64:empty{display:none}
+  .map-meta .cell64:hover{opacity:1;color:var(--ink-2)}
   .headline{
     position:absolute;left:36px;right:200px;bottom:34px;z-index:3;
     font-family:var(--serif);font-size:20px;font-style:italic;color:var(--ink);
@@ -141,8 +143,8 @@
     font-family:var(--mono);color:var(--ink);text-align:center;line-height:1.1;
     text-shadow:0 1px 0 rgba(255,255,255,.5);
   }
-  .fp-dims{font-family:var(--serif);font-style:italic;font-size:14px;color:var(--ember)}
-  .fp-cid{font-size:8px;color:var(--ink-2);letter-spacing:.04em;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fp-dims{font-family:var(--serif);font-style:italic;font-size:12px;color:var(--ember);max-width:96px;text-align:center;line-height:1.15}
+  .fp-cid{font-size:8px;color:var(--ink-2);letter-spacing:.04em;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
   @media (max-width: 820px){
     .fingerprint{bottom:auto;top:160px;right:14px;width:108px;height:108px}
     .fp-dims{font-size:11px}
@@ -214,16 +216,23 @@
   .preset:hover,.preset.active{background:var(--ink);color:var(--paper)}
   .toggles{display:flex;gap:4px}
   .toggle{
-    width:30px;height:26px;border:1px solid var(--rule-strong);background:transparent;
+    min-width:30px;height:26px;border:1px solid var(--rule-strong);background:transparent;
     display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;
+    gap:5px;padding:0 8px;
   }
+  .toggle .t-label{font-family:var(--mono);font-size:11px;color:var(--ink-2);letter-spacing:.02em}
+  .toggle .t-emoji{font-size:12px;line-height:1}
   .toggle:hover,.toggle.on{border-color:var(--ink);background:var(--paper)}
+  .toggle:hover .t-label,.toggle.on .t-label{color:var(--ink)}
+  @media (max-width:560px){.toggle .t-label{display:none}}
   .stamp{
-    font-family:var(--mono);font-size:10px;color:var(--ink-2);letter-spacing:.03em;
+    font-family:var(--mono);font-size:11px;color:var(--ink-2);letter-spacing:.02em;
     display:flex;align-items:center;gap:8px;justify-self:end;
   }
   .stamp a{color:var(--forest);text-decoration:none;border-bottom:1px dashed var(--forest)}
-  .stamp .cid{color:var(--mute);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stamp a:hover{border-bottom-style:solid}
+  .stamp .dot-sep{color:var(--mute)}
+  .stamp #signer{color:var(--mute);border-bottom:0;font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   @media (max-width: 820px){
     html,body{overflow:auto}
@@ -251,10 +260,10 @@
   <a href="/" class="brand">emem<span class="dot">·</span><span class="sub">atlas</span></a>
   <div class="search-wrap">
     <input id="search" class="search" type="text" autocomplete="off" spellcheck="false"
-           placeholder="show me … (try Bengaluru, Amazon, Mount Fuji, your hometown)">
+           placeholder="see how a place feels right now — try a city, a mountain, your hometown">
     <span class="search-hint">↵</span>
   </div>
-  <a href="/verify" class="verify-pill"><span class="live"></span>ed25519 · /verify</a>
+  <a href="/verify" class="verify-pill" title="every number on this page is cryptographically signed; click to verify in your browser"><span class="live"></span>live · verifiable</a>
 </header>
 
 <main class="atlas">
@@ -264,9 +273,9 @@
     <canvas class="polygon-canvas" id="polygon-canvas" aria-hidden="true"></canvas>
 
     <div class="map-meta">
-      <h1 id="place-name">an atlas of signed places</h1>
-      <p class="coords" id="place-coords">type a place above, or pick a chip below</p>
-      <code class="cell64" id="place-cell">cell64 will appear here</code>
+      <h1 id="place-name">a living atlas</h1>
+      <p class="coords" id="place-coords">type a place, or pick one below</p>
+      <code class="cell64" id="place-cell" title="content-addressed identifier for this exact patch of ground (~9.55 m square)"></code>
     </div>
 
     <div class="photo empty" id="photo">
@@ -274,53 +283,53 @@
       <div class="caption" id="photo-caption">Sentinel-2 true colour</div>
     </div>
 
-    <div class="fingerprint" id="fingerprint" aria-hidden="true" title="1792-D AI fingerprint at the centroid cell — click to view as memory_token">
+    <div class="fingerprint" id="fingerprint" aria-hidden="false" title="every place on Earth has its own AI fingerprint, computed from satellite, radar and foundation models. Same place anywhere → same stamp.">
       <svg id="fp-svg" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet"></svg>
       <div class="fp-caption">
-        <span class="fp-dims" id="fp-dims">1792-D</span>
-        <span class="fp-cid" id="fp-cid">—</span>
+        <span class="fp-dims" id="fp-dims">place fingerprint</span>
+        <span class="fp-cid" id="fp-cid"></span>
       </div>
     </div>
 
-    <p class="headline" id="headline"><span class="strap">every number on this page is ed25519-signed and resolves at /verify — no accounts, no keys, no chatbot.</span></p>
+    <p class="headline" id="headline"><span class="strap">every number you see here came back cryptographically signed. tap any of the chips below to swap places, or type your own.</span></p>
   </section>
 
   <aside class="tiles" aria-label="live readings">
     <div class="tile loading appear" id="t-weather">
-      <div class="label"><span class="swatch sk"></span>sky right now</div>
+      <div class="label"><span class="swatch sk"></span>weather</div>
       <div class="value">—</div>
-      <div class="ctx">weather.* · met.no</div>
+      <div class="ctx">temperature now</div>
     </div>
     <div class="tile loading appear" id="t-air">
-      <div class="label"><span class="swatch em"></span>breathing</div>
+      <div class="label"><span class="swatch em"></span>air</div>
       <div class="value">—</div>
-      <div class="ctx">cams.pm25 · Copernicus</div>
+      <div class="ctx">fine-particle pollution</div>
     </div>
     <div class="tile loading appear" id="t-ndvi">
-      <div class="label"><span class="swatch fo"></span>green</div>
+      <div class="label"><span class="swatch fo"></span>vegetation</div>
       <div class="value">—</div>
-      <div class="ctx">indices.ndvi · Sentinel-2</div>
+      <div class="ctx">how green is the ground</div>
       <canvas class="spark" id="spark-ndvi" width="160" height="44"></canvas>
     </div>
     <div class="tile loading appear" id="t-lst">
-      <div class="label"><span class="swatch em"></span>hot ground</div>
+      <div class="label"><span class="swatch em"></span>ground heat</div>
       <div class="value">—</div>
-      <div class="ctx">modis.lst_day · 1 km</div>
+      <div class="ctx">surface temperature, day</div>
     </div>
     <div class="tile loading appear" id="t-water">
-      <div class="label"><span class="swatch sk"></span>water history</div>
+      <div class="label"><span class="swatch sk"></span>water nearby</div>
       <div class="value">—</div>
-      <div class="ctx">JRC GSW 1984-2021</div>
+      <div class="ctx">how often water sits here</div>
     </div>
     <div class="tile loading appear" id="t-forest">
-      <div class="label"><span class="swatch fo"></span>forest</div>
+      <div class="label"><span class="swatch fo"></span>trees</div>
       <div class="value">—</div>
-      <div class="ctx">Hansen tree-cover 2000</div>
+      <div class="ctx">tree cover</div>
     </div>
     <div class="tile loading appear" id="t-elev">
       <div class="label"><span class="swatch mu"></span>elevation</div>
       <div class="value">—</div>
-      <div class="ctx">Cop-DEM · GMRT</div>
+      <div class="ctx">height above sea level</div>
     </div>
     <div class="tile loading appear similar" id="t-similar">
       <div class="label"><span class="swatch fo"></span>looks like</div>
@@ -344,16 +353,16 @@
     <button class="preset" data-place="Tokyo">Tokyo</button>
     <button class="preset" data-place="Phoenix, AZ">Phoenix</button>
   </div>
-  <div class="toggles" title="parchment band — pick what paints the background">
-    <button class="toggle on" data-band="indices.ndvi" title="vegetation (NDVI)">🌿</button>
-    <button class="toggle" data-band="modis.lst_day_8day" title="surface temperature">🔥</button>
-    <button class="toggle" data-band="copdem30m.elevation_mean" title="elevation">⛰️</button>
-    <button class="toggle" data-band="surface_water.recurrence" title="water">💧</button>
+  <div class="toggles" title="paint the parchment by:">
+    <button class="toggle on" data-band="indices.ndvi" title="paint by how green it is"><span class="t-emoji">🌿</span><span class="t-label">green</span></button>
+    <button class="toggle" data-band="modis.lst_day_8day" title="paint by surface heat"><span class="t-emoji">🔥</span><span class="t-label">heat</span></button>
+    <button class="toggle" data-band="copdem30m.elevation_mean" title="paint by elevation"><span class="t-emoji">⛰️</span><span class="t-label">height</span></button>
+    <button class="toggle" data-band="surface_water.recurrence" title="paint by water history"><span class="t-emoji">💧</span><span class="t-label">water</span></button>
   </div>
-  <div class="stamp">
-    <span>signed by</span>
-    <a href="/.well-known/emem.json" id="signer">…</a>
-    <span class="cid" id="last-cid"></span>
+  <div class="stamp" title="every number you see came back signed; click to verify it yourself, no account needed">
+    <a href="/verify" id="verify-link">verifiable</a>
+    <span class="dot-sep">·</span>
+    <a href="/.well-known/emem.json" id="signer" title="public key of the responder that signed these numbers">…</a>
   </div>
 </footer>
 
@@ -697,31 +706,31 @@
       const px = bandVal(r, 'weather.precipitation_mm');
       if (tC == null) throw 'no temp';
       const parts = [
-        rh != null ? `RH ${Math.round(rh)}%` : null,
+        rh != null ? `${Math.round(rh)}% humidity` : null,
         ws != null ? `wind ${ws.toFixed(1)} m/s` : null,
-        px != null && px > 0.01 ? `rain ${px.toFixed(1)} mm` : null,
+        px != null && px > 0.01 ? `${px.toFixed(1)} mm rain` : null,
       ].filter(Boolean);
-      setTile('t-weather', tC.toFixed(1), '°C', parts.join(' · ') || 'now-cast · met.no');
+      setTile('t-weather', tC.toFixed(1), '°C', parts.join(' · ') || 'right now');
       setCid(bandCid(r, 'weather.temperature_2m') || pluckCid(r));
-    } catch (e) { errTile('t-weather', 'upstream unreachable'); }
+    } catch (e) { errTile('t-weather', 'weather unavailable here'); }
   }
   async function loadAir(place) {
     try {
       const r = await cachedPost('air', place, '/v1/air', {place, n_cells:1});
       const pm25 = bandVal(r, 'cams.pm25');
       if (pm25 == null) throw 'no pm';
-      const cat = pm25 < 12 ? 'good' : pm25 < 35 ? 'moderate' : pm25 < 55 ? 'unhealthy (sensitive)' : pm25 < 150 ? 'unhealthy' : 'hazardous';
+      const cat = pm25 < 12 ? 'good' : pm25 < 35 ? 'moderate' : pm25 < 55 ? 'unhealthy for sensitive groups' : pm25 < 150 ? 'unhealthy' : 'hazardous';
       const col = pm25 < 12 ? 'var(--forest)' : pm25 < 35 ? 'var(--ink)' : 'var(--ember)';
-      setTile('t-air', pm25.toFixed(0), 'µg/m³', cat + ' · cams', {color: col});
-    } catch (e) { errTile('t-air', 'cams unreachable here'); }
+      setTile('t-air', pm25.toFixed(0), 'µg/m³', cat, {color: col});
+    } catch (e) { errTile('t-air', 'air data unavailable here'); }
   }
   async function loadNdvi(place) {
     try {
       const r = await cachedPost('ndvi', place, '/v1/ndvi', {place, n_cells:8});
       const ndvi = r.value ?? bandVal(r, 'indices.ndvi');
       if (ndvi == null) throw 'no ndvi';
-      const cat = ndvi < 0.1 ? 'bare ground' : ndvi < 0.3 ? 'sparse' : ndvi < 0.5 ? 'mixed' : ndvi < 0.7 ? 'dense' : 'very dense';
-      setTile('t-ndvi', ndvi.toFixed(2), '', cat + ' veg · Sentinel-2');
+      const cat = ndvi < 0.1 ? 'bare ground' : ndvi < 0.3 ? 'sparse plants' : ndvi < 0.5 ? 'mixed cover' : ndvi < 0.7 ? 'dense plants' : 'very dense plants';
+      setTile('t-ndvi', ndvi.toFixed(2), '', cat);
       drawSparkline('spark-ndvi', [Math.max(-0.2, ndvi-0.10), ndvi-0.05, ndvi-0.02, ndvi+0.01, ndvi]);
     } catch (e) { errTile('t-ndvi'); }
   }
@@ -733,7 +742,7 @@
       if (dK == null) throw 'no lst';
       const dC = dK - 273.15;
       const nC = nK != null ? nK - 273.15 : null;
-      setTile('t-lst', dC.toFixed(1), '°C day', nC != null ? `night ${nC.toFixed(1)}°C · 8-day` : '8-day composite');
+      setTile('t-lst', dC.toFixed(1), '°C', nC != null ? `cools to ${nC.toFixed(1)}°C at night` : 'recent satellite day');
     } catch (e) { errTile('t-lst'); }
   }
   async function loadWater(place) {
@@ -741,9 +750,9 @@
       const r = await cachedPost('water', place, '/v1/water', {place, n_cells:8});
       const rec = bandVal(r, 'surface_water.recurrence');
       if (rec == null) throw 'no water';
-      const cat = rec < 5 ? 'dry' : rec < 30 ? 'occasional' : rec < 70 ? 'seasonal' : 'permanent';
-      setTile('t-water', rec.toFixed(0), '%', cat + ' · 1984-2021');
-    } catch (e) { errTile('t-water', 'no JRC water here'); }
+      const cat = rec < 5 ? 'rarely wet' : rec < 30 ? 'occasional water' : rec < 70 ? 'seasonal' : 'almost always wet';
+      setTile('t-water', rec.toFixed(0), '%', cat);
+    } catch (e) { errTile('t-water', 'no water history here'); }
   }
   async function loadForest(place) {
     try {
@@ -751,8 +760,8 @@
       const tc = bandVal(r, 'hansen.tree_cover_2000');
       const ly = bandVal(r, 'hansen.loss_year');
       if (tc == null) throw 'no forest';
-      const lostCtx = (ly && ly > 0) ? `loss '${(2000+ly).toString().slice(-2)}` : 'no loss recorded';
-      setTile('t-forest', tc.toFixed(0), '% canopy y2000', lostCtx);
+      const lostCtx = (ly && ly > 0) ? `lost trees in 20${(ly|0).toString().padStart(2,'0').slice(-2)}` : 'no loss recorded';
+      setTile('t-forest', tc.toFixed(0), '%', lostCtx);
     } catch (e) { errTile('t-forest'); }
   }
   async function loadElevation(place) {
@@ -761,7 +770,7 @@
       const el = r.elevation_m ?? r.value;
       if (el == null) throw 'no elev';
       const below = el < 0;
-      setTile('t-elev', Math.abs(el).toFixed(0), 'm ' + (below ? 'below sea' : 'above sea'), (r.via || 'Cop-DEM').toString().slice(0,28));
+      setTile('t-elev', Math.abs(el).toFixed(0), 'm', below ? 'below sea level' : 'above sea level');
     } catch (e) { errTile('t-elev'); }
   }
   let _photoSeq = 0;
@@ -912,11 +921,16 @@
 
     svg.innerHTML = svgInner;
 
-    // caption
-    const dimsEl = document.getElementById('fp-dims');
+    // Caption is consumer-first ("place fingerprint") with the
+    // technical content-address as a tooltip + the dim count and
+    // CID head/tail tucked in the sub-caption for the curious.
     const cidEl = document.getElementById('fp-cid');
-    if (dimsEl) dimsEl.textContent = `${n}-D`;
-    if (cidEl && stateCid) cidEl.textContent = (stateCid.slice(0,4) + '…' + stateCid.slice(-4));
+    const dimsEl = document.getElementById('fp-dims');
+    if (cidEl) {
+      cidEl.textContent = stateCid ? (stateCid.slice(0,4) + '…' + stateCid.slice(-4)) : '';
+      if (stateCid) cidEl.title = `state_cid ${stateCid} — verifies at /verify`;
+    }
+    if (dimsEl) dimsEl.title = `${n}-D vector across ${(coverage||[]).length} bands; same place anywhere produces this exact stamp`;
     document.getElementById('fingerprint').classList.add('ready');
   }
 
