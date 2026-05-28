@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # `cargo install` works on every arch the build matrix supports (the
 # Rust toolchain is already present); no need to fish out a prebuilt
 # mdbook binary per ${TARGETARCH}.
-RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie,target=/usr/local/cargo/registry,sharing=locked \
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie-r2,target=/usr/local/cargo/registry,sharing=locked \
     cargo install --locked --version 0.5.2 mdbook
 
 # Cache `cargo fetch` against the workspace manifest before pulling in
@@ -80,9 +80,20 @@ RUN mdbook build docs && rm -f docs/book/book.toml
 # thin-LTO via the workspace profile.
 ENV CARGO_PROFILE_RELEASE_LTO=off \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=emem-target-${TARGETARCH}-trixie,target=/usr/src/emem/target,sharing=locked \
-    cargo build --release --bin emem-server && \
+# Use bash so PIPESTATUS works (sh doesn't). On failure, dump the last
+# 200 lines of cargo output so the actual rustc error is visible in the
+# buildx step log (annotations API only shows "cargo exit 101" otherwise).
+SHELL ["/bin/bash", "-c"]
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie-r2,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=emem-target-${TARGETARCH}-trixie-r2,target=/usr/src/emem/target,sharing=locked \
+    set -o pipefail; \
+    cargo build --release --bin emem-server 2>&1 | tee /tmp/build.log; \
+    rc=${PIPESTATUS[0]}; \
+    if [ "$rc" -ne 0 ]; then \
+      echo "==== CARGO BUILD FAILED (rc=$rc) — tail of build.log ===="; \
+      tail -200 /tmp/build.log; \
+      exit "$rc"; \
+    fi; \
     cp target/release/emem-server /usr/local/bin/emem-server
 
 # Runtime stage — minimal Debian, non-root, with cap_net_bind_service
