@@ -229,7 +229,7 @@ async fn recall_no_bound_returns_all_attested_facts() {
         tslot: None,
         as_of_tslot: None,
         as_of_signed_at: None,
-    scope: None,
+        scope: None,
     };
     let resp = recall(&req, &srv).await.expect("ok");
     let mut tslots = primary_tslots(&resp.facts);
@@ -259,7 +259,7 @@ async fn recall_with_as_of_tslot_picks_latest_le_bound() {
         tslot: None,
         as_of_tslot: Some(150),
         as_of_signed_at: None,
-    scope: None,
+        scope: None,
     };
     let resp = recall(&req, &srv).await.expect("ok");
     let tslots = primary_tslots(&resp.facts);
@@ -290,7 +290,7 @@ async fn recall_with_as_of_signed_at_picks_latest_le_signed_at() {
         tslot: None,
         as_of_tslot: None,
         as_of_signed_at: Some(T2.into()),
-    scope: None,
+        scope: None,
     };
     let resp = recall(&req, &srv).await.expect("ok");
     let tslots = primary_tslots(&resp.facts);
@@ -319,7 +319,7 @@ async fn recall_with_both_bounds_intersects() {
         tslot: None,
         as_of_tslot: Some(250),
         as_of_signed_at: Some(T2.into()),
-    scope: None,
+        scope: None,
     };
     let resp = recall(&req, &srv).await.expect("ok");
     let tslots = primary_tslots(&resp.facts);
@@ -337,7 +337,7 @@ async fn recall_with_both_bounds_intersects() {
         tslot: None,
         as_of_tslot: Some(150),
         as_of_signed_at: Some(T2.into()),
-    scope: None,
+        scope: None,
     };
     let resp = recall(&req, &srv).await.expect("ok");
     let tslots = primary_tslots(&resp.facts);
@@ -358,7 +358,7 @@ async fn empty_result_emits_temporal_advice_not_404() {
         tslot: None,
         as_of_tslot: Some(50), // every fact is > 50
         as_of_signed_at: None,
-    scope: None,
+        scope: None,
     };
     let resp = recall(&req, &srv).await.expect("ok");
     assert!(resp.facts.is_empty(), "every fact is filtered out");
@@ -383,7 +383,7 @@ async fn conflicting_tslot_and_as_of_returns_400() {
         tslot: Some(200),
         as_of_tslot: Some(150), // bound excludes tslot
         as_of_signed_at: None,
-    scope: None,
+        scope: None,
     };
     let err = recall(&req, &srv).await.expect_err("must error");
     let msg = format!("{err}");
@@ -406,7 +406,7 @@ async fn invalid_rfc3339_returns_400() {
         tslot: None,
         as_of_tslot: None,
         as_of_signed_at: Some("yesterday".into()),
-    scope: None,
+        scope: None,
     };
     let err = recall(&req, &srv).await.expect_err("must error");
     let msg = format!("{err}");

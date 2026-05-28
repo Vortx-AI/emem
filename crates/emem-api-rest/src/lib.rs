@@ -9607,7 +9607,7 @@ async fn post_recall_polygon(
                 tslot: req.tslot,
                 as_of_tslot: req.as_of_tslot,
                 as_of_signed_at: req.as_of_signed_at.clone(),
-            scope: None,
+                scope: None,
             };
             match recall_with_auto_materialize(&r, &s).await {
                 Ok((resp, notes)) => {
@@ -11156,7 +11156,8 @@ async fn post_a2a_task(
     })?;
 
     // Resolve skill_id + args from either shape.
-    let (skill, args, caller_id) = if v.get("method").and_then(|m| m.as_str()) == Some("message/send")
+    let (skill, args, caller_id) = if v.get("method").and_then(|m| m.as_str())
+        == Some("message/send")
     {
         // A2A strict JSON-RPC envelope.
         let id = v.get("id").cloned().unwrap_or(JsonValue::Null);
@@ -11182,9 +11183,9 @@ async fn post_a2a_task(
                         p.get("data").cloned()
                     } else if kind == "text" {
                         // Some hosts emit text-only — parse as JSON if it looks like one.
-                        p.get("text").and_then(|t| t.as_str()).and_then(|s| {
-                            serde_json::from_str::<JsonValue>(s).ok()
-                        })
+                        p.get("text")
+                            .and_then(|t| t.as_str())
+                            .and_then(|s| serde_json::from_str::<JsonValue>(s).ok())
                     } else {
                         None
                     }
@@ -11204,19 +11205,21 @@ async fn post_a2a_task(
         ));
     };
 
-    let result = mcp_tool_call(&skill, args, &s).await.map_err(|(code, msg)| {
-        ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody {
-                code: ErrorCode::InvalidArgument,
-                message: format!("a2a skill `{skill}` failed: ({code}) {msg}"),
-                details: Some(json!({
-                    "a2a_skill": skill,
-                    "mcp_error_code": code,
-                })),
-            },
-        )
-    })?;
+    let result = mcp_tool_call(&skill, args, &s)
+        .await
+        .map_err(|(code, msg)| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("a2a skill `{skill}` failed: ({code}) {msg}"),
+                    details: Some(json!({
+                        "a2a_skill": skill,
+                        "mcp_error_code": code,
+                    })),
+                },
+            )
+        })?;
 
     // ULID-style id derived from blake3(time + skill + request_body).
     // We don't bring in a ULID dep just for this; the unique-by-clock+input
@@ -11225,7 +11228,10 @@ async fn post_a2a_task(
     h.update(iso8601_now_utc().as_bytes());
     h.update(skill.as_bytes());
     h.update(&body);
-    let task_id = format!("a2a-{}", h.finalize().to_hex().to_string()[..26].to_string());
+    let task_id = format!(
+        "a2a-{}",
+        &h.finalize().to_hex().to_string()[..26]
+    );
     let now = iso8601_now_utc();
 
     Ok(Json(json!({
@@ -14315,7 +14321,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         tslot: req.tslot,
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
-    scope: None,
+        scope: None,
     };
     let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -14478,7 +14484,7 @@ async fn post_state_multi(
             tslot: req.tslot,
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
-        scope: None,
+            scope: None,
         };
         match recall_with_auto_materialize(&recall_req, &s).await {
             Ok((resp, _notes)) => {
@@ -14881,7 +14887,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         tslot: req.tslot,
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
-    scope: None,
+        scope: None,
     };
 
     let (resp, materialize_notes) = if materialize {
@@ -14915,7 +14921,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
             tslot: req.tslot,
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
-        scope: None,
+            scope: None,
         };
         match recall_with_auto_materialize(&warm_req, &s).await {
             Ok((r, n)) => {
@@ -15824,7 +15830,7 @@ async fn post_memory_bundle(
             tslot: t.tslot,
             as_of_tslot: t.as_of_tslot,
             as_of_signed_at: t.as_of_signed_at.clone(),
-        scope: None,
+            scope: None,
         };
         let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 

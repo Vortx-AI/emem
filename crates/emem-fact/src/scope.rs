@@ -116,12 +116,27 @@ mod tests {
     #[test]
     fn any_field_makes_it_non_empty() {
         for s in [
-            Scope { user_id: Some("u".into()), ..Default::default() },
-            Scope { agent_id: Some("a".into()), ..Default::default() },
-            Scope { run_id: Some("r".into()), ..Default::default() },
-            Scope { org_id: Some("o".into()), ..Default::default() },
+            Scope {
+                user_id: Some("u".into()),
+                ..Default::default()
+            },
+            Scope {
+                agent_id: Some("a".into()),
+                ..Default::default()
+            },
+            Scope {
+                run_id: Some("r".into()),
+                ..Default::default()
+            },
+            Scope {
+                org_id: Some("o".into()),
+                ..Default::default()
+            },
         ] {
-            assert!(!s.is_empty(), "scope with one Some field must not be empty: {s:?}");
+            assert!(
+                !s.is_empty(),
+                "scope with one Some field must not be empty: {s:?}"
+            );
         }
     }
 
@@ -143,23 +158,38 @@ mod tests {
         // ciborium emits an empty map for a struct with no Some fields;
         // exact bytes are CBOR major-type 5 (map) with length 0.
         let empty = Scope::default().to_canonical_cbor();
-        assert_eq!(empty, vec![0xa0], "empty Scope must encode as CBOR map(0) = 0xa0");
+        assert_eq!(
+            empty,
+            vec![0xa0],
+            "empty Scope must encode as CBOR map(0) = 0xa0"
+        );
     }
 
     #[test]
     fn digest_changes_when_any_field_changes() {
-        let base = Scope { user_id: Some("alice".into()), ..Default::default() };
-        let other = Scope { user_id: Some("bob".into()), ..Default::default() };
+        let base = Scope {
+            user_id: Some("alice".into()),
+            ..Default::default()
+        };
+        let other = Scope {
+            user_id: Some("bob".into()),
+            ..Default::default()
+        };
         assert_ne!(base.blake3_digest(), other.blake3_digest());
         assert_ne!(base.blake3_digest(), Scope::default().blake3_digest());
     }
 
     #[test]
     fn blake3_hex_is_64_chars() {
-        let s = Scope { user_id: Some("u1".into()), ..Default::default() };
+        let s = Scope {
+            user_id: Some("u1".into()),
+            ..Default::default()
+        };
         let h = s.blake3_hex();
         assert_eq!(h.len(), 64);
-        assert!(h.chars().all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase())));
+        assert!(h
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase())));
     }
 
     #[test]
