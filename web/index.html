@@ -467,7 +467,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div>
     <h1>Earth as memory,<br><span class="accent">for real-world agents.</span></h1>
 
-    <p class="sub">Every place on Earth has one signed memory. Read it in one HTTP call. Verify the receipt offline, no callback.</p>
+    <p class="sub">Every place on Earth has one signed memory. Above it, a substrate the agent writes to &mdash; typed, searchable, bi-temporal. Read in one HTTP call. Verify the receipt offline at <a href="/verify">/verify</a>.</p>
 
     <div class="hero-cta">
       <a class="btn" href="/docs/quickstart.html">Quickstart (60 s)</a>
@@ -854,6 +854,80 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
           <span class="k">read</span><span>the dense state for any cell on Earth in one round-trip, signed and content-addressed</span>
           <span class="k">steer</span><span>drop the vector into your LLM's context, or feed it to <code>/v1/find_similar</code> to ask "what looks like this place?"</span>
           <span class="k">write</span><span><code>POST /v1/attest</code> with a signed Attestation; the same cell becomes readable from any replica</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section page" id="agent-memory">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">03c</span><span class="idx-label">Agent memory</span></div>
+    <dl>
+      <dt>write</dt><dd>MCP&nbsp;memory_create</dd>
+      <dt>search</dt><dd>POST&nbsp;/v1/memory/search</dd>
+      <dt>cite</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">memb:&lt;cid&gt;</span></dd>
+      <dt>typed</dt><dd>episodic &middot; semantic &middot; procedural &middot; resource</dd>
+      <dt>bi-temporal</dt><dd>as_of_tslot &middot; as_of_signed_at on every read</dd>
+      <dt>stream</dt><dd>GET&nbsp;/v1/memory/sse</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">03c</span>The agent's own memory, on the same substrate</h2>
+    <p class="lede">The state vector is what the responder remembers about a place. Above it, the agent gets its own writable scratchpad &mdash; typed, content-addressed, ed25519-signed, searchable. Memory of Earth and memory of the agent ride the same trust layer; the same <a href="/verify">/verify</a> page checks them both.</p>
+
+    <div class="memt-block" aria-label="memory file — the agent's writable scratchpad, signed at every edit">
+      <div class="memt-head">
+        <span class="label">memory file</span>
+        <span class="gloss">Anthropic memory-tool shape; every write is content-addressed and signed</span>
+        <span class="spacer"></span>
+        <a href="/docs/memory.html">spec</a>
+        <a href="/agents.md">agent guide</a>
+      </div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>verbs:</b> <code>memory_view</code> &middot; <code>memory_create</code> &middot; <code>memory_str_replace</code> &middot; <code>memory_insert</code> &middot; <code>memory_delete</code> &middot; <code>memory_rename</code></div>
+        <div class="memt-example">{"path":"/memories/by_attester/aw3k7nq2/episodic/2026-05-28.md","file_text":"&hellip;","kind":"episodic","attester":{"pubkey_b32":"&hellip;","sig_b32":"&hellip;"}}</div>
+        <div class="memt-parts">
+          <span class="k">kind</span><span>one of <code>episodic</code> (events), <code>semantic</code> (facts), <code>procedural</code> (playbooks), <code>resource</code> (default scratchpad) &mdash; routes to a typed sled index so <code>memory_list_by_kind</code> returns only the slice the agent asked for</span>
+          <span class="k">cap</span><span>paths under <code>/memories/by_attester/&lt;pubkey&gt;/&hellip;</code> require an ed25519 signature over <code>blake3("emem.memory_write|"||verb||"|"||path||"|"||body_hash)</code>; wrong key &rarr; 401, wrong namespace &rarr; 403; bare <code>/memories/&hellip;</code> stays anyone-writable</span>
+          <span class="k">audit</span><span>every write surfaces a <code>file_cid</code> + signed receipt; <code>memory_file_history</code> keeps the chain of CIDs per path so an audit replays the exact byte sequence</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="memt-block" aria-label="memory search — semantic recall over the agent's files">
+      <div class="memt-head">
+        <span class="label">memory search</span>
+        <span class="gloss">BGE-768 + LanceDB IVF_PQ over /memories/* contents; paraphrase matches</span>
+        <span class="spacer"></span>
+        <a href="/docs/memory.html#semantic-search-over-memory-files">spec</a>
+      </div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>endpoint:</b> <code>POST /v1/memory/search {"q":"&hellip;","k":10,"kind?","path_prefix?","attester_pubkey_b32?"}</code></div>
+        <div class="memt-example">{"hits":[{"path":"/memories/&hellip;","file_cid":"&hellip;","kind":"episodic","similarity":0.81,"snippet":"&hellip;200&nbsp;chars around best chunk&hellip;"}],"via":"lance_ann","corpus_size":3217}</div>
+        <div class="memt-parts">
+          <span class="k">embed</span><span>BGE-base-en-v1.5 at 768-D, mean-pooled across &le;504-token chunks; the query side carries BGE's "Represent this sentence for searching relevant passages:" prefix</span>
+          <span class="k">store</span><span>Lance partition at <code>$EMEM_DATA/lance/memory_text_index_d768.lance</code>; IVF_PQ with cosine metric; brute-force fallback if Lance is disabled or empty (<code>via</code> reports which path served the query)</span>
+          <span class="k">filter</span><span>narrow by <code>kind</code>, <code>path_prefix</code>, <code>attester_pubkey_b32</code> &mdash; the agent finds only its own episodic notes from last week, not someone else's procedural playbooks</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="memt-block" aria-label="bi-temporal recall — what did emem know about a place on a given date">
+      <div class="memt-head">
+        <span class="label">bi-temporal</span>
+        <span class="gloss">valid-time + transaction-time on every read; receipts carry the bound</span>
+        <span class="spacer"></span>
+        <a href="/docs/memory.html#bi-temporal-reads">spec</a>
+      </div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>flags:</b> <code>as_of_tslot</code> (when the world was X) &nbsp;&middot;&nbsp; <code>as_of_signed_at</code> (when emem knew X) on every read primitive</div>
+        <div class="memt-example">{"cell":"&hellip;","band":"jrc_tmf_v3","as_of_tslot":1609372800,"as_of_signed_at":"2026-05-15T00:00:00Z"}<br>// receipt.as_of = { "valid_time": &hellip;, "transaction_time": "&hellip;" }</div>
+        <div class="memt-parts">
+          <span class="k">retrospect</span><span>an auditor in 2027 takes a 2026-05 receipt to any peer and replays the exact same query &mdash; no trust assumption back to our server</span>
+          <span class="k">honest</span><span>conflicting bounds &rarr; 400 <code>invalid_temporal_bound</code>; malformed timestamp &rarr; 400 <code>invalid_signed_at_format</code>; empty result with a bound returns 200 + <code>temporal_advice</code>, never a 404 (zero is a valid answer for "what did we know last quarter")</span>
+          <span class="k">scope</span><span>applies to <code>recall</code>, <code>recall_polygon</code>, <code>recall_many</code>, <code>trajectory</code>, <code>query_region</code>, <code>find_similar</code>, <code>state</code>, <code>state_multi</code>, and per-triple inside <code>memory_bundle</code></span>
         </div>
       </div>
     </div>

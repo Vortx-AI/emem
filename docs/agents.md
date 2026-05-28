@@ -2,17 +2,43 @@
 
 ## What this is
 
-**Working memory of Earth, for AI agents.** Every patch of ground gets a
-64-bit address (`cell64`, about 9.55 m on a side at the equator); every
-measurement there is stored as a fact keyed by `(cell, band, tslot)`;
-every read returns a content-addressed receipt the caller can verify
-offline. The address space is the planet, the state is persistent, the
-bytes are reproducible across any replica that mirrors them.
+**Verifiable memory substrate for AI agents.** Two layers, one trust
+surface. Every read returns an ed25519-signed receipt verifiable offline
+at `/verify`.
+
+- *Earth memory*: every patch of ground gets a 64-bit address (`cell64`,
+  about 9.55 m at the equator); every measurement there is a fact keyed
+  by `(cell, band, tslot)`, signed by the responder over the blake3 of
+  its canonical CBOR. The address space is the planet, the state is
+  persistent, the bytes are reproducible across any replica.
+- *Agent memory*: above the spatial fact store sits a writable scratchpad
+  the agent owns. Six Anthropic memory-tool verbs (`memory_view`,
+  `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`,
+  `memory_rename`). Each file carries a `kind` from the CoALA taxonomy
+  (`episodic`, `semantic`, `procedural`, `resource`). Writes can be
+  capability-bound: paths under `/memories/by_attester/<pubkey>/...`
+  require an ed25519 signature over the request preimage. `memory_search`
+  runs BGE-768 against a LanceDB index over file contents. `memory_bundle`
+  composes N facts into one signed envelope (`memb:<bundle_cid>`).
+  `memory_contradictions` scores disagreement between attesters at the
+  same `(cell, band, tslot)`. `memory/sse` streams writes with
+  server-side filter.
+
+Every read primitive accepts a bi-temporal axis: `as_of_tslot` returns
+the latest fact whose observation time is on or before the bound;
+`as_of_signed_at` returns the latest fact whose signing time is on or
+before the bound. Set both and both predicates hold simultaneously. The
+receipt carries an `as_of` block when the bound is non-empty, so an
+auditor in 2027 replays a 2026 query byte-for-byte without trusting our
+server.
 
 emem sits beneath whatever memory your agent runtime ships internally.
-Session memory, tenant scratchpads, and vector document stores all answer
-different questions. emem answers one: *what is at this place?* Once,
-signed, byte-identical for every caller that asks again.
+Session memory, tenant scratchpads, and vector document stores all
+answer different questions. emem answers four: *what is at this place*,
+*what did I learn / observe / decide and is it still mine*, *what did
+we know about this on date X*, *who disagreed with whom about it* —
+each signed, content-addressed, byte-identical for every caller that
+asks again.
 
 A `cell64` addresses a place the way a token addresses text in an LLM.
 It's a stable hierarchical handle the rest of the pipeline can quote

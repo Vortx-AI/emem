@@ -164,6 +164,74 @@ em.memory_token_resolve(token)["fact"]
 The token *is* the citation; two agents resolving the same token get
 byte-identical bytes back.
 
+## Memory bundles — sign N facts in one envelope
+
+```bash
+# Compose a bundle citing the elevation at Mount Fuji and the latest NDVI.
+curl -sX POST https://emem.dev/v1/memory_bundle \
+    -H 'content-type: application/json' \
+    -d '{
+      "triples": [
+        {"cell":"defi.zb592.nemu.zEvE","band":"copdem30m.elevation_mean"},
+        {"cell":"defi.zb592.nemu.zEvE","band":"indices.ndvi"}
+      ],
+      "purpose":"site assessment 2026-05"
+    }' | jq '.bundle_token'
+# "memb:vlkbh5bfzjeem6t3o54yje5rrq"
+
+# Anyone with the token can pull the same signed envelope.
+curl -sX GET https://emem.dev/v1/memory_bundle/memb:vlkbh5bfzjeem6t3o54yje5rrq | jq .schema
+# "emem.memory_bundle.v1"
+```
+
+## Agent memory — write, search, audit on the same trust layer
+
+The substrate gives the agent its own writable scratchpad. Every write is
+ed25519-signed and content-addressed. Every search is BGE-embedded semantic
+recall over file contents. Every disagreement between attesters is
+quantitatively scored.
+
+```bash
+# Write a note. Anthropic memory-tool shape; kind=episodic logs an event.
+curl -sX POST https://emem.dev/mcp \
+    -H 'content-type: application/json' \
+    -d '{
+      "jsonrpc":"2.0","id":1,"method":"tools/call",
+      "params":{"name":"memory_create","arguments":{
+        "path":"/memories/runbook/2026-05-28.md",
+        "file_text":"Mount Fuji elevation 3776 m via Cop-DEM, no surface water in 5 km buffer.",
+        "kind":"episodic"
+      }}
+    }' | jq '.result.content[0].text | fromjson | .file_cid'
+# "lvaqcp3op7ijcletzckpnzaksy"
+
+# Search the agent's own files semantically — paraphrases match.
+curl -sX POST https://emem.dev/v1/memory/search \
+    -H 'content-type: application/json' \
+    -d '{"q":"elevation observations at Japanese mountains","k":3}' \
+  | jq '.hits[0] | {path, similarity, snippet}'
+
+# Stream every memory write in real time, filtered by attester / kind / path.
+curl -N https://emem.dev/v1/memory/sse?path_prefix=/memories/runbook/
+# data: {"type":"created","path":"/memories/runbook/2026-05-28.md", ...}
+```
+
+Bi-temporal reads work everywhere. Ask `/v1/recall` what emem knew about a
+place on a given date:
+
+```bash
+curl -sX POST https://emem.dev/v1/recall \
+    -H 'content-type: application/json' \
+    -d '{
+      "cell":"defi.zb592.nemu.zEvE",
+      "bands":["copdem30m.elevation_mean"],
+      "as_of_signed_at":"2026-05-01T00:00:00Z"
+    }' | jq '.receipt.as_of'
+# {"transaction_time":"2026-05-01T00:00:00Z"}
+```
+
+The receipt carries the bound so any auditor replays the same query later.
+
 ## Next moves
 
 - [Whitepaper](./whitepaper.html) — the math, the bit layouts, the trust proof
