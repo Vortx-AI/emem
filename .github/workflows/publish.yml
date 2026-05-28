@@ -70,6 +70,11 @@ jobs:
           docker-images: false
           swap-storage: false
 
+      - name: report free disk + memory pre-build
+        run: |
+          echo "=== df -h / ==="; df -h /
+          echo "=== free -h ===";  free -h
+
       - name: set up buildx
         uses: docker/setup-buildx-action@v3
 

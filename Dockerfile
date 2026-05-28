@@ -66,6 +66,18 @@ RUN mdbook build docs && rm -f docs/book/book.toml
 # Cache id includes "trixie" so the bookworm-era target/ from previous
 # builds (which baked __isoc23_strtoull-referencing parser.cc.o under
 # different headers) is not reused — fresh trixie build from scratch.
+#
+# CARGO_PROFILE_RELEASE_LTO=off + CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+# override the workspace's `lto="thin", codegen-units=1` for the
+# docker build only — the LTO link step over Lance + datafusion +
+# arrow (530+ crates) peaks past the 16 GB ubuntu-latest RAM ceiling
+# and the linker dies with cargo exit 101 around 7-9 min. Disabling
+# LTO + parallelising codegen drops peak memory by ~10x; the binary
+# is ~5% larger and a few % slower on hot loops, but it actually
+# builds. Local builds and the GHA `ci` workflow keep full
+# thin-LTO via the workspace profile.
+ENV CARGO_PROFILE_RELEASE_LTO=off \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=emem-target-${TARGETARCH}-trixie,target=/usr/src/emem/target,sharing=locked \
     cargo build --release --bin emem-server && \
