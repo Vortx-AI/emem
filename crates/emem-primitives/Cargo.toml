@@ -22,6 +22,11 @@ blake3       = { workspace = true }
 tracing      = { workspace = true }
 futures-util = { workspace = true }
 data-encoding = { workspace = true }
+# ed25519 verification for the memory-write attester binding
+# (memory_acl). Pubkey/sig round-trip in the verifier only — no signing
+# from this crate; signing stays in the responder identity at the
+# server layer.
+ed25519-dalek = { workspace = true }
 
 # Lance — embedded columnar/vector index. The brute-force find_similar
 # path remains as a fallback; Lance is an ANN accelerator over per-dim
