@@ -59,6 +59,19 @@ pub const TREE_MEMORY_FILE_HISTORY: &str = "emem.memory_file_history";
 /// who-signed-what-when without re-signing.
 pub const TREE_MEMORY_FILE_META: &str = "emem.memory_file_meta";
 
+/// Sled tree indexing memory files by typed `kind` (episodic / semantic /
+/// procedural / resource — see `emem_primitives::memory_typing`). Key:
+/// `b"<kind>|<path>"`. Value: file_cid bytes. Powers
+/// `memory_list_by_kind` without scanning the global path index.
+pub const TREE_MEMORY_FILES_BY_KIND: &str = "emem.memory_files_by_kind";
+
+/// Sled tree mapping expired memory paths (TTL pass moved them out of
+/// the live index) to their last-known `file_cid`. Key: `path` bytes.
+/// Value: file_cid bytes. Blob retention stays in
+/// `TREE_MEMORY_FILE_BLOBS` so expired files are still dereferenceable
+/// by CID — only the live path index forgets.
+pub const TREE_MEMORY_FILES_EXPIRED: &str = "emem.memory_files_expired";
+
 pub mod attesters;
 pub mod merkle_log;
 pub mod server;

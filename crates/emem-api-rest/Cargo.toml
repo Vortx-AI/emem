@@ -76,3 +76,10 @@ model2vec-rs    = { version = "0.1", default-features = false, features = ["fanc
 # the signed binary so the docs site travels with the server — same model as
 # the rest of `web/` (see the `include_str!` block in `lib.rs`).
 include_dir     = { version = "0.7", default-features = false }
+
+[dev-dependencies]
+# Fresh ed25519 signing keys for the memory-attester test surface
+# (memory_typing / memory_acl / memory_events tests in lib.rs). The
+# main crate doesn't need rand at runtime — the responder identity is
+# already initialised on boot from a persisted secret.
+rand = { workspace = true }

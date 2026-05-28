@@ -351,33 +351,48 @@ const SCHEMA_MEMORY_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["toke
 // reference impl's safety contract.
 const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","required":["path"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` for a file, or `/memories/<subdir>/` for a directory listing. Must stay under `/memories/`."},
-"view_range":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Optional [start_line, end_line] inclusive, 1-indexed. Lets the agent read part of a long file."}
+"view_range":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Optional [start_line, end_line] inclusive, 1-indexed. Lets the agent read part of a long file."},
+"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional kind filter when listing a directory. Restricts entries to one memory type (episodic|semantic|procedural|resource)."}
 }}"#;
 
 const SCHEMA_MEMORY_CREATE: &str = r#"{"type":"object","required":["path","file_text"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` path. Overwrites if the file exists. Must stay under `/memories/`."},
-"file_text":{"type":"string","description":"Full file contents."}
+"file_text":{"type":"string","description":"Full file contents."},
+"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional memory typing tag. Default `resource`. `episodic` = observation; `semantic` = learned fact; `procedural` = playbook; `resource` = generic scratchpad."},
+"attester":{"type":"object","description":"Optional ed25519 caller binding. Required for writes under `/memories/by_attester/<pubkey8>/...`. Shape: {pubkey_b32, sig_b32} where sig signs blake3(\"emem.memory_write|create|path|body_hash\").","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 const SCHEMA_MEMORY_STR_REPLACE: &str = r#"{"type":"object","required":["path","old_str","new_str"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` path the replacement targets."},
 "old_str":{"type":"string","description":"Exact substring to replace. The whole call fails (no partial write) when the old_str is absent or appears more than once."},
-"new_str":{"type":"string","description":"Replacement substring."}
+"new_str":{"type":"string","description":"Replacement substring."},
+"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional memory typing override. If omitted the existing kind is preserved."},
+"attester":{"type":"object","description":"Optional ed25519 caller binding. See memory_create for the preimage shape (verb=str_replace).","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 const SCHEMA_MEMORY_INSERT: &str = r#"{"type":"object","required":["path","insert_line","new_str"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` path the insertion targets."},
 "insert_line":{"type":"integer","minimum":0,"description":"1-indexed line number AFTER which to insert. 0 inserts at the top of the file."},
-"new_str":{"type":"string","description":"Text to insert. A trailing newline is preserved if present; one is added otherwise."}
+"new_str":{"type":"string","description":"Text to insert. A trailing newline is preserved if present; one is added otherwise."},
+"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional memory typing override. If omitted the existing kind is preserved."},
+"attester":{"type":"object","description":"Optional ed25519 caller binding. See memory_create for the preimage shape (verb=insert).","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 const SCHEMA_MEMORY_DELETE: &str = r#"{"type":"object","required":["path"],"properties":{
-"path":{"type":"string","description":"`/memories/<file>` or `/memories/<subdir>/` to delete. Directories drop every file beneath them."}
+"path":{"type":"string","description":"`/memories/<file>` or `/memories/<subdir>/` to delete. Directories drop every file beneath them."},
+"attester":{"type":"object","description":"Optional ed25519 caller binding. Required for `/memories/by_attester/<pubkey8>/...`. Body is empty for delete; sig signs blake3(\"emem.memory_write|delete|path|body_hash\") where body_hash = blake3(\"\").","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 const SCHEMA_MEMORY_RENAME: &str = r#"{"type":"object","required":["old_path","new_path"],"properties":{
 "old_path":{"type":"string","description":"Existing `/memories/<file>` path."},
-"new_path":{"type":"string","description":"Destination `/memories/<file>` path. Fails when the destination exists."}
+"new_path":{"type":"string","description":"Destination `/memories/<file>` path. Fails when the destination exists."},
+"attester":{"type":"object","description":"Optional ed25519 caller binding (verb=rename). Required when either path is under `/memories/by_attester/<pubkey8>/...`.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
+}}"#;
+
+const SCHEMA_MEMORY_LIST_BY_KIND: &str = r#"{"type":"object","required":["kind"],"properties":{
+"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Memory type to enumerate."},
+"prefix":{"type":"string","description":"Optional path prefix filter, e.g. `/memories/by_attester/abcd1234/`."},
+"limit":{"type":"integer","minimum":1,"maximum":2048,"description":"Maximum entries to return (default 256, cap 2048). Results are sorted signed_at desc."}
 }}"#;
 
 const SCHEMA_EXPLAIN_ALGORITHM: &str = r#"{
@@ -739,6 +754,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"old_path":"/memories/notes.md","new_path":"/memories/archive/notes-2026-05.md"}"#,
         level: "L0", category: ToolCategory::Write,
         read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "memory_list_by_kind",
+        title: "memory_list_by_kind — typed enumeration of memory files",
+        description: "List memory files by their typed `kind` (episodic | semantic | procedural | resource). Optional path prefix narrows the scan; results are sorted by signed_at descending. The kind taxonomy follows the CoALA / LangMem / MIRIX agent-memory ontology: `episodic` = observations of events, `semantic` = durable learned facts, `procedural` = playbooks, `resource` = generic durable scratchpad (default for back-compat).",
+        when_to_use: "Call when an agent wants only one slice of its memory (e.g. surface every semantic fact it has learned about a topic) without scanning the full directory tree. Pair with memory_view for read-back of a specific entry.",
+        input_schema: SCHEMA_MEMORY_LIST_BY_KIND,
+        example_args: r#"{"kind":"semantic","prefix":"/memories/","limit":50}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1593,6 +1619,7 @@ mod tests {
             "memory_insert",
             "memory_delete",
             "memory_rename",
+            "memory_list_by_kind",
         ] {
             assert!(lookup(t).is_some(), "missing substrate tool: {t}");
         }

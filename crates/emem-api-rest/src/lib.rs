@@ -74,7 +74,8 @@ use emem_fact::{
 use emem_intent::{plan, Intent};
 use emem_primitives::{
     compare, compare_bands, diff, find_similar, query_region, recall, trajectory, verify,
-    CompareBandsReq, CompareReq, DiffReq, FindSimilarReq, LanceIndex, QueryRegionReq, RecallReq,
+    AttestationVerdict, CompareBandsReq, CompareReq, DiffReq, FindSimilarReq, LanceIndex,
+    MemoryAttester, MemoryEvent, MemoryEventFilter, MemoryKind, QueryRegionReq, RecallReq,
     RecallResp, TrajectoryReq, VerifyReq,
 };
 use emem_storage::{Server, StorageError};
@@ -464,6 +465,11 @@ pub fn router(state: AppState) -> Router {
         let db_arc = Arc::new(db.clone());
         agent_stats_init_persistence(db_arc);
     }
+
+    // W3: scheduled memory consolidation + TTL background tasks.
+    // Opt-in via EMEM_MEMORY_TTL_ENABLED=1 /
+    // EMEM_MEMORY_CONSOLIDATION_ENABLED=1.
+    spawn_memory_background_tasks(state.clone());
 
     // Start the capability cache poller. It refreshes every 30 s and
     // backs `cached_gpu_available()` / `cached_extension_available()`
@@ -891,6 +897,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/memory_token/resolve", post(post_memory_token_resolve))
         .route("/v1/memory_bundle", post(post_memory_bundle))
         .route("/v1/memory_bundle/:token", get(get_memory_bundle))
+        // W4: SSE stream of memory write events. Subscribers may filter
+        // by path_prefix, kind, attester. Events are best-effort (not
+        // individually signed — the underlying file's receipt remains
+        // the verification surface).
+        .route("/v1/memory/sse", get(get_memory_sse))
         .route("/v1/state", post(post_state))
         .route("/v1/state_multi", post(post_state_multi))
         .route("/v1/state_diff", post(post_state_diff))
@@ -1844,6 +1855,7 @@ struct ErrorBody {
     details: Option<serde_json::Value>,
 }
 
+#[derive(Debug)]
 pub(crate) struct ApiError(StatusCode, ErrorBody);
 
 impl IntoResponse for ApiError {
@@ -12167,6 +12179,13 @@ async fn mcp_tool_call(
                 .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))
         }
+        "memory_list_by_kind" => {
+            let req: MemoryListByKindReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_list_by_kind_inner(s, req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
         "emem_corpus_state_stats" => match get_corpus_state_stats(State(s.clone())).await {
             Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
             Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -15613,6 +15632,35 @@ async fn get_memory_bundle(
 
 const MEMORY_ROOT: &str = "/memories/";
 
+/// Process-global broadcast channel for memory write events (W4). The
+/// channel is lazily initialised on first publisher/subscriber. The
+/// 1024-slot buffer means a slow subscriber can lag up to 1024 events
+/// before tokio drops the oldest — SSE callers reconnect on `Lagged`.
+static MEMORY_EVENT_BUS: std::sync::OnceLock<tokio::sync::broadcast::Sender<MemoryEvent>> =
+    std::sync::OnceLock::new();
+
+/// Subscriber count gate (W4): hard-cap concurrent SSE connections.
+static MEMORY_SSE_SUB_COUNT: std::sync::OnceLock<std::sync::atomic::AtomicUsize> =
+    std::sync::OnceLock::new();
+
+fn memory_event_bus() -> &'static tokio::sync::broadcast::Sender<MemoryEvent> {
+    MEMORY_EVENT_BUS.get_or_init(|| {
+        let (tx, _rx) = tokio::sync::broadcast::channel(1024);
+        tx
+    })
+}
+
+fn memory_sse_sub_count() -> &'static std::sync::atomic::AtomicUsize {
+    MEMORY_SSE_SUB_COUNT.get_or_init(|| std::sync::atomic::AtomicUsize::new(0))
+}
+
+/// Publish a memory event onto the broadcast bus. If no subscribers
+/// are connected the call is a fast no-op — `send` returns `Err` and
+/// the publisher doesn't care.
+fn publish_memory_event(event: MemoryEvent) {
+    let _ = memory_event_bus().send(event);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MemoryFileMeta {
     /// Content-addressed file CID (base32-nopad-lc(blake3(bytes)[:16])).
@@ -15621,13 +15669,35 @@ struct MemoryFileMeta {
     path: String,
     /// ISO 8601 UTC timestamp of the write.
     signed_at: String,
+    /// Unix-epoch seconds of the write (denormalised — drives the TTL
+    /// scan without re-parsing ISO timestamps on every pass).
+    #[serde(default)]
+    signed_at_unix_s: i64,
     /// Bytes-length of the file.
     size_bytes: u64,
     /// Verb that produced this revision (`create` | `str_replace` |
     /// `insert` | `rename`).
     verb: String,
+    /// Memory kind — `episodic` | `semantic` | `procedural` |
+    /// `resource`. Defaults to `resource` so records written before W1
+    /// deserialise unchanged.
+    #[serde(default = "default_kind_str")]
+    kind: String,
+    /// Optional attester pubkey (base32-nopad-lc) that signed the
+    /// write. `None` means the write went through the open-namespace
+    /// back-compat path with no caller binding.
+    #[serde(default)]
+    attester_pubkey_b32: Option<String>,
+    /// If this file has been consolidated, the file_cid of the
+    /// consolidated summary that supersedes it.
+    #[serde(default)]
+    superseded_by: Option<String>,
     /// Signed receipt over the write.
     receipt: emem_fact::Receipt,
+}
+
+fn default_kind_str() -> String {
+    "resource".to_string()
 }
 
 /// Compute the content address for a memory file: blake3 → 16-byte
@@ -15722,6 +15792,78 @@ fn validate_memory_path(path: &str, allow_directory: bool) -> Result<String, Api
         ));
     }
     Ok(raw.to_string())
+}
+
+/// Validate the W2 attester binding on a write verb. Returns `Ok(())`
+/// if the binding verifies (or is absent and the path doesn't require
+/// one); returns a typed 401 / 403 otherwise.
+///
+/// `verb` is one of `create | str_replace | insert | delete | rename`.
+/// `body_hash` is the blake3 digest of the write body — for verbs
+/// without a body (delete/rename) pass blake3(b"").
+fn validate_attester_binding(
+    verb: &str,
+    path: &str,
+    body_hash: &[u8; 32],
+    attester: Option<&MemoryAttester>,
+) -> Result<(), ApiError> {
+    match attester {
+        None => {
+            // Bare write: only the open namespace accepts unattested writes.
+            if emem_primitives::namespace_requires_attester(path) {
+                return Err(ApiError(
+                    StatusCode::UNAUTHORIZED,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!(
+                            "write to attester-scoped path `{path}` requires `attester: {{pubkey_b32, sig_b32}}` block; the namespace `/memories/by_attester/<pubkey8>/...` is gated."
+                        ),
+                        details: Some(json!({
+                            "code": "memory_attestation_required",
+                            "path": path,
+                        })),
+                    },
+                ));
+            }
+            Ok(())
+        }
+        Some(att) => {
+            match emem_primitives::verify_attester(verb, path, body_hash, att) {
+                AttestationVerdict::Ok => Ok(()),
+                AttestationVerdict::BadPubkey => Err(ApiError(
+                    StatusCode::UNAUTHORIZED,
+                    ErrorBody {
+                        code: ErrorCode::BadSignature,
+                        message: "memory_attestation_invalid: attester.pubkey_b32 is not a valid 32-byte ed25519 key".into(),
+                        details: Some(json!({"code": "memory_attestation_invalid", "reason": "bad_pubkey"})),
+                    },
+                )),
+                AttestationVerdict::BadSignature => Err(ApiError(
+                    StatusCode::UNAUTHORIZED,
+                    ErrorBody {
+                        code: ErrorCode::BadSignature,
+                        message: "memory_attestation_invalid: attester.sig_b32 does not verify over blake3(\"emem.memory_write|verb|path|body_hash\")".into(),
+                        details: Some(json!({"code": "memory_attestation_invalid", "reason": "bad_signature"})),
+                    },
+                )),
+                AttestationVerdict::NamespaceMismatch => Err(ApiError(
+                    StatusCode::FORBIDDEN,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!(
+                            "memory_attestation_invalid: signature verified, but path `{path}` is under a different attester's namespace. Use `/memories/by_attester/{}/...`",
+                            att.pubkey_short()
+                        ),
+                        details: Some(json!({
+                            "code": "memory_attestation_invalid",
+                            "reason": "namespace_mismatch",
+                            "expected_short": att.pubkey_short(),
+                        })),
+                    },
+                )),
+            }
+        }
+    }
 }
 
 /// Open the sled DB or return a typed 503. Memory-tool surfaces
@@ -15832,15 +15974,28 @@ fn read_memory_file(
             file_cid: cid.clone(),
             path: path.to_string(),
             signed_at: emem_storage::server::iso8601_now(),
+            signed_at_unix_s: now_unix_s_local(),
             size_bytes: bytes.len() as u64,
             verb: "create".into(),
+            kind: default_kind_str(),
+            attester_pubkey_b32: None,
+            superseded_by: None,
             // Synthesise a minimal receipt for pre-meta entries. The
             // round-trip test path always writes meta, so this branch
             // only triggers for upgrade-in-place corner cases.
-            receipt: synth_memory_receipt(s, path, &cid, "create", std::time::Instant::now()),
+            receipt: synth_memory_receipt(s, path, &cid, "create", None, std::time::Instant::now()),
         },
     };
     Ok(Some((bytes.to_vec(), meta)))
+}
+
+/// Wall-clock unix seconds. Centralised so the TTL pass and write
+/// path share the same epoch reference.
+fn now_unix_s_local() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Sign a memory-file write receipt. Primitive is
@@ -15849,16 +16004,26 @@ fn read_memory_file(
 /// `fact_cids` slot carries the new `file_cid` (this is the audit
 /// anchor — `/v1/verify_receipt` validates the ed25519 signature
 /// against this exact set without needing the bytes inline).
+///
+/// When an `attester_pubkey_b32` is supplied (W2), the receipt's cells
+/// vector is prefixed with `"pubkey:<b32>"` so an auditor can resolve
+/// the caller binding without consulting the meta tree. Bare writes
+/// (no attester) keep `cells=[path]` for back-compat.
 fn synth_memory_receipt(
     s: &AppState,
     path: &str,
     file_cid: &str,
     _verb: &str,
+    attester_pubkey_b32: Option<&str>,
     started: std::time::Instant,
 ) -> emem_fact::Receipt {
+    let cells = match attester_pubkey_b32 {
+        Some(pk) => vec![format!("pubkey:{pk}"), path.to_string()],
+        None => vec![path.to_string()],
+    };
     s.sign_receipt(
         "emem.memory_file",
-        vec![path.to_string()],
+        cells,
         vec![emem_fact::FactCid::new(file_cid.to_string())],
         false,
         started,
@@ -15870,22 +16035,36 @@ fn synth_memory_receipt(
 /// history[path].push(file_cid), meta[file_cid]=MemoryFileMeta. The
 /// blob store is content-addressed so repeated writes of the same
 /// bytes cost storage once.
+///
+/// W1 adds a typed `kind` (episodic/semantic/procedural/resource) and
+/// a `(kind|path) → file_cid` index in `memory_files_by_kind`.
+/// W2 binds the write to an optional `attester_pubkey_b32` (the
+/// caller must already have passed the signature gate).
+/// W4 publishes a `MemoryEvent` on the broadcast channel after the
+/// sled commit succeeds. The previous file_cid (if any) is read up
+/// front so the Modified event can name what was replaced.
 fn persist_memory_write(
     s: &AppState,
     path: &str,
     bytes: &[u8],
     verb: &str,
+    kind: MemoryKind,
+    attester_pubkey_b32: Option<&str>,
     started: std::time::Instant,
 ) -> Result<MemoryFileMeta, ApiError> {
     let db = memory_db(s)?;
     let file_cid = compute_file_cid(bytes);
-    let receipt = synth_memory_receipt(s, path, &file_cid, verb, started);
+    let receipt = synth_memory_receipt(s, path, &file_cid, verb, attester_pubkey_b32, started);
     let meta = MemoryFileMeta {
         file_cid: file_cid.clone(),
         path: path.to_string(),
         signed_at: receipt.served_at.clone(),
+        signed_at_unix_s: now_unix_s_local(),
         size_bytes: bytes.len() as u64,
         verb: verb.to_string(),
+        kind: kind.as_str().to_string(),
+        attester_pubkey_b32: attester_pubkey_b32.map(|s| s.to_string()),
+        superseded_by: None,
         receipt,
     };
 
@@ -15921,6 +16100,35 @@ fn persist_memory_write(
             },
         )
     })?;
+    // Capture the previous file_cid (if any) and previous kind (so the
+    // by_kind index can drop the stale entry on a kind change).
+    let prev_file_cid: Option<String> = paths
+        .get(path.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|v| String::from_utf8(v.to_vec()).ok());
+    let prev_kind: Option<String> = if let Some(pcid) = prev_file_cid.as_ref() {
+        let metas_prev = db
+            .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+            .map_err(|e| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorBody {
+                        code: ErrorCode::CacheError,
+                        message: format!("open memory_file_meta: {e}"),
+                        details: None,
+                    },
+                )
+            })?;
+        metas_prev
+            .get(pcid.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+            .map(|m| m.kind)
+    } else {
+        None
+    };
     paths
         .insert(path.as_bytes(), file_cid.as_bytes())
         .map_err(|e| {
@@ -15929,6 +16137,39 @@ fn persist_memory_write(
                 ErrorBody {
                     code: ErrorCode::CacheError,
                     message: format!("insert memory_files: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+
+    // Typed index `kind|path` → file_cid.
+    let by_kind = db
+        .open_tree(emem_storage::TREE_MEMORY_FILES_BY_KIND)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_files_by_kind: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    if let Some(prev_k) = prev_kind.as_ref() {
+        if prev_k != kind.as_str() {
+            let stale = format!("{prev_k}|{path}");
+            let _ = by_kind.remove(stale.as_bytes());
+        }
+    }
+    let by_kind_key = format!("{}|{}", kind.as_str(), path);
+    by_kind
+        .insert(by_kind_key.as_bytes(), file_cid.as_bytes())
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("insert memory_files_by_kind: {e}"),
                     details: None,
                 },
             )
@@ -15977,8 +16218,45 @@ fn persist_memory_write(
 
     let _ = blobs.flush();
     let _ = paths.flush();
+    let _ = by_kind.flush();
     let _ = history.flush();
     let _ = metas.flush();
+
+    // Publish the SSE event after the sled commit succeeds.
+    let event = if let Some(prev) = prev_file_cid {
+        if prev == file_cid {
+            // Identical bytes — surface as Modified anyway so a
+            // subscriber can see the write attempt; prev = new.
+            MemoryEvent::Modified {
+                path: path.to_string(),
+                file_cid: file_cid.clone(),
+                prev_file_cid: Some(prev),
+                kind: kind.as_str().to_string(),
+                attester_pubkey_b32: attester_pubkey_b32.map(|s| s.to_string()),
+                signed_at: meta.signed_at.clone(),
+            }
+        } else {
+            MemoryEvent::Modified {
+                path: path.to_string(),
+                file_cid: file_cid.clone(),
+                prev_file_cid: Some(prev),
+                kind: kind.as_str().to_string(),
+                attester_pubkey_b32: attester_pubkey_b32.map(|s| s.to_string()),
+                signed_at: meta.signed_at.clone(),
+            }
+        }
+    } else {
+        MemoryEvent::Created {
+            path: path.to_string(),
+            file_cid: file_cid.clone(),
+            kind: kind.as_str().to_string(),
+            attester_pubkey_b32: attester_pubkey_b32.map(|s| s.to_string()),
+            signed_at: meta.signed_at.clone(),
+            size_bytes: meta.size_bytes,
+        }
+    };
+    publish_memory_event(event);
+
     Ok(meta)
 }
 
@@ -15987,12 +16265,22 @@ struct MemoryViewReq {
     path: String,
     #[serde(default)]
     view_range: Option<[i64; 2]>,
+    /// Optional kind filter for directory listings. When `path` ends
+    /// with `/`, only entries with this kind are returned.
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MemoryCreateReq {
     path: String,
     file_text: String,
+    /// Memory typing tag (W1). Default `"resource"` for back-compat.
+    #[serde(default)]
+    kind: Option<String>,
+    /// Optional ed25519 caller binding (W2).
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -16000,6 +16288,10 @@ struct MemoryStrReplaceReq {
     path: String,
     old_str: String,
     new_str: String,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -16007,23 +16299,41 @@ struct MemoryInsertReq {
     path: String,
     insert_line: i64,
     new_str: String,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MemoryDeleteReq {
     path: String,
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MemoryRenameReq {
     old_path: String,
     new_path: String,
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryListByKindReq {
+    kind: String,
+    #[serde(default)]
+    prefix: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue, ApiError> {
     let raw = req.path.trim();
     let is_dir = raw.ends_with('/');
     let path = validate_memory_path(&req.path, /*allow_directory=*/ is_dir)?;
+    let kind_filter = req.kind.as_deref().and_then(MemoryKind::from_wire);
     if is_dir {
         // Directory listing under `path`. List every key in
         // memory_files whose path starts with `path` (which already
@@ -16039,14 +16349,41 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                 },
             )
         })?;
+        let metas = db
+            .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+            .map_err(|e| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorBody {
+                        code: ErrorCode::CacheError,
+                        message: format!("open memory_file_meta: {e}"),
+                        details: None,
+                    },
+                )
+            })?;
         let mut entries: Vec<JsonValue> = Vec::new();
         for kv in paths.scan_prefix(path.as_bytes()).flatten() {
             let key = String::from_utf8_lossy(&kv.0).into_owned();
             let cid = String::from_utf8_lossy(&kv.1).into_owned();
+            // Resolve typed kind from meta; defaults to "resource" for
+            // legacy records.
+            let entry_kind = metas
+                .get(cid.as_bytes())
+                .ok()
+                .flatten()
+                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+                .map(|m| m.kind)
+                .unwrap_or_else(default_kind_str);
+            if let Some(want) = kind_filter {
+                if entry_kind != want.as_str() {
+                    continue;
+                }
+            }
             entries.push(json!({
                 "path": key,
                 "file_cid": cid,
                 "kind": "file",
+                "memory_kind": entry_kind,
             }));
         }
         return Ok(json!({
@@ -16054,6 +16391,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             "path": path,
             "entries": entries,
             "count": entries.len(),
+            "filter_kind": kind_filter.map(|k| k.as_str()),
         }));
     }
 
@@ -16102,6 +16440,9 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         "kind": "file",
         "path": path,
         "file_cid": meta.file_cid,
+        "memory_kind": meta.kind,
+        "attester_pubkey_b32": meta.attester_pubkey_b32,
+        "superseded_by": meta.superseded_by,
         "size_bytes": meta.size_bytes,
         "content": body,
         "signed_at": meta.signed_at,
@@ -16111,8 +16452,25 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
 
 async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonValue, ApiError> {
     let path = validate_memory_path(&req.path, /*allow_directory=*/ false)?;
+    let kind = req
+        .kind
+        .as_deref()
+        .and_then(MemoryKind::from_wire)
+        .unwrap_or_default();
+    let body = req.file_text.as_bytes();
+    let bh = emem_primitives::body_hash(body);
+    validate_attester_binding("create", &path, &bh, req.attester.as_ref())?;
+    let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let started = std::time::Instant::now();
-    let meta = persist_memory_write(s, &path, req.file_text.as_bytes(), "create", started)?;
+    let meta = persist_memory_write(
+        s,
+        &path,
+        body,
+        "create",
+        kind,
+        attester_pk.as_deref(),
+        started,
+    )?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -16121,6 +16479,8 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
         "verb": "create",
         "path": path,
         "file_cid": meta.file_cid,
+        "memory_kind": meta.kind,
+        "attester_pubkey_b32": meta.attester_pubkey_b32,
         "size_bytes": meta.size_bytes,
         "signed_at": meta.signed_at,
         "responder_pubkey_b32": responder_pubkey_b32,
@@ -16189,8 +16549,33 @@ async fn memory_str_replace_inner(
         ));
     }
     let updated = text.replacen(&req.old_str, &req.new_str, 1);
+    let body = updated.as_bytes();
+    let bh = emem_primitives::body_hash(body);
+    validate_attester_binding("str_replace", &path, &bh, req.attester.as_ref())?;
+    let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
+    // Default str_replace to the kind already in the file if not
+    // explicitly supplied, so editing doesn't accidentally reclassify
+    // the document.
+    let existing_kind = read_memory_file(s, &path)
+        .ok()
+        .flatten()
+        .map(|(_, m)| m.kind);
+    let kind = req
+        .kind
+        .as_deref()
+        .and_then(MemoryKind::from_wire)
+        .or_else(|| existing_kind.as_deref().and_then(MemoryKind::from_wire))
+        .unwrap_or_default();
     let started = std::time::Instant::now();
-    let meta = persist_memory_write(s, &path, updated.as_bytes(), "str_replace", started)?;
+    let meta = persist_memory_write(
+        s,
+        &path,
+        body,
+        "str_replace",
+        kind,
+        attester_pk.as_deref(),
+        started,
+    )?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -16199,6 +16584,8 @@ async fn memory_str_replace_inner(
         "verb": "str_replace",
         "path": path,
         "file_cid": meta.file_cid,
+        "memory_kind": meta.kind,
+        "attester_pubkey_b32": meta.attester_pubkey_b32,
         "size_bytes": meta.size_bytes,
         "signed_at": meta.signed_at,
         "responder_pubkey_b32": responder_pubkey_b32,
@@ -16208,7 +16595,7 @@ async fn memory_str_replace_inner(
 
 async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonValue, ApiError> {
     let path = validate_memory_path(&req.path, false)?;
-    let (bytes, _meta) = read_memory_file(s, &path)?.ok_or_else(|| {
+    let (bytes, prev_meta) = read_memory_file(s, &path)?.ok_or_else(|| {
         ApiError(
             StatusCode::NOT_FOUND,
             ErrorBody {
@@ -16268,8 +16655,26 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
         prefix.push_str(&text);
         out = prefix;
     }
+    let body = out.as_bytes();
+    let bh = emem_primitives::body_hash(body);
+    validate_attester_binding("insert", &path, &bh, req.attester.as_ref())?;
+    let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
+    let kind = req
+        .kind
+        .as_deref()
+        .and_then(MemoryKind::from_wire)
+        .or_else(|| MemoryKind::from_wire(&prev_meta.kind))
+        .unwrap_or_default();
     let started = std::time::Instant::now();
-    let meta = persist_memory_write(s, &path, out.as_bytes(), "insert", started)?;
+    let meta = persist_memory_write(
+        s,
+        &path,
+        body,
+        "insert",
+        kind,
+        attester_pk.as_deref(),
+        started,
+    )?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -16278,6 +16683,8 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
         "verb": "insert",
         "path": path,
         "file_cid": meta.file_cid,
+        "memory_kind": meta.kind,
+        "attester_pubkey_b32": meta.attester_pubkey_b32,
         "size_bytes": meta.size_bytes,
         "signed_at": meta.signed_at,
         "responder_pubkey_b32": responder_pubkey_b32,
@@ -16289,6 +16696,10 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     let raw = req.path.trim();
     let is_dir = raw.ends_with('/');
     let path = validate_memory_path(&req.path, is_dir)?;
+    // W2 attester binding (delete has no body — use blake3(b"")).
+    let empty_bh = emem_primitives::body_hash(b"");
+    validate_attester_binding("delete", &path, &empty_bh, req.attester.as_ref())?;
+    let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let db = memory_db(s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
         ApiError(
@@ -16300,13 +16711,39 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             },
         )
     })?;
-    let mut removed: Vec<String> = Vec::new();
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let by_kind = db
+        .open_tree(emem_storage::TREE_MEMORY_FILES_BY_KIND)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_files_by_kind: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    // Collect the (path, kind) pairs being removed so we can drop the
+    // typed index entries and emit one event per removed file.
+    let mut removed: Vec<(String, String)> = Vec::new();
     if is_dir {
-        let keys: Vec<Vec<u8>> = paths
+        let pairs: Vec<(Vec<u8>, sled::IVec)> = paths
             .scan_prefix(path.as_bytes())
-            .filter_map(|r| r.ok().map(|(k, _)| k.to_vec()))
+            .filter_map(|r| r.ok().map(|(k, v)| (k.to_vec(), v)))
             .collect();
-        if keys.is_empty() {
+        if pairs.is_empty() {
             return Err(ApiError(
                 StatusCode::NOT_FOUND,
                 ErrorBody {
@@ -16316,12 +16753,20 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
                 },
             ));
         }
-        for k in keys {
+        for (k, v) in pairs {
+            let key_str = String::from_utf8_lossy(&k).into_owned();
+            let kind_str = String::from_utf8(v.to_vec())
+                .ok()
+                .and_then(|cid| metas.get(cid.as_bytes()).ok().flatten())
+                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+                .map(|m| m.kind)
+                .unwrap_or_else(default_kind_str);
             let _ = paths.remove(&k);
-            removed.push(String::from_utf8_lossy(&k).into_owned());
+            let _ = by_kind.remove(format!("{kind_str}|{key_str}").as_bytes());
+            removed.push((key_str, kind_str));
         }
     } else {
-        if paths
+        let cur = paths
             .get(path.as_bytes())
             .map_err(|e| {
                 ApiError(
@@ -16333,34 +16778,58 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
                     },
                 )
             })?
-            .is_none()
-        {
-            return Err(ApiError(
-                StatusCode::NOT_FOUND,
-                ErrorBody {
-                    code: ErrorCode::CidNotFound,
-                    message: format!("memory_delete: no file at `{path}`"),
-                    details: None,
-                },
-            ));
-        }
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::NOT_FOUND,
+                    ErrorBody {
+                        code: ErrorCode::CidNotFound,
+                        message: format!("memory_delete: no file at `{path}`"),
+                        details: None,
+                    },
+                )
+            })?;
+        let kind_str = String::from_utf8(cur.to_vec())
+            .ok()
+            .and_then(|cid| metas.get(cid.as_bytes()).ok().flatten())
+            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+            .map(|m| m.kind)
+            .unwrap_or_else(default_kind_str);
         let _ = paths.remove(path.as_bytes());
-        removed.push(path.clone());
+        let _ = by_kind.remove(format!("{kind_str}|{path}").as_bytes());
+        removed.push((path.clone(), kind_str));
     }
     let _ = paths.flush();
+    let _ = by_kind.flush();
 
     // Sign a receipt over the delete. The audit binds the deleted
-    // path(s) to the responder identity.
+    // path(s) to the responder identity. When an attester is present
+    // its pubkey leads the cells vector (same shape as a signed write).
     let started = std::time::Instant::now();
-    let cells = removed.clone();
+    let mut cells: Vec<String> = Vec::new();
+    if let Some(pk) = attester_pk.as_deref() {
+        cells.push(format!("pubkey:{pk}"));
+    }
+    for (p, _k) in &removed {
+        cells.push(p.clone());
+    }
     let receipt = s.sign_receipt("emem.memory_file", cells, vec![], false, started, None);
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
+    let deleted_at = receipt.served_at.clone();
+    for (p, k) in &removed {
+        publish_memory_event(MemoryEvent::Deleted {
+            path: p.clone(),
+            kind: k.clone(),
+            attester_pubkey_b32: attester_pk.clone(),
+            deleted_at: deleted_at.clone(),
+        });
+    }
+    let removed_paths: Vec<String> = removed.iter().map(|(p, _)| p.clone()).collect();
     Ok(json!({
         "ok": true,
         "verb": "delete",
-        "removed": removed,
+        "removed": removed_paths,
         "responder_pubkey_b32": responder_pubkey_b32,
         "receipt": receipt,
     }))
@@ -16379,6 +16848,46 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
             },
         ));
     }
+    // W2: validate the signature against the NEW path (this is where
+    // the write effectively lands). Both old and new must satisfy
+    // namespace ownership independently — if either is attester-scoped
+    // a binding is required.
+    let empty_bh = emem_primitives::body_hash(b"");
+    validate_attester_binding("rename", &new_path, &empty_bh, req.attester.as_ref())?;
+    if emem_primitives::namespace_requires_attester(&old_path) {
+        // The source path is also attester-scoped; ensure the supplied
+        // attester (if any) owns it.
+        if let Some(att) = req.attester.as_ref() {
+            // Reuse the same verifier — it enforces namespace match.
+            match emem_primitives::verify_attester("rename", &old_path, &empty_bh, att) {
+                emem_primitives::AttestationVerdict::Ok => {}
+                v => {
+                    return Err(ApiError(
+                        StatusCode::FORBIDDEN,
+                        ErrorBody {
+                            code: ErrorCode::InvalidArgument,
+                            message: format!(
+                                "memory_attestation_invalid: rename source `{old_path}` not owned by attester (verdict={v:?})"
+                            ),
+                            details: Some(json!({"code": "memory_attestation_invalid", "reason": "source_namespace"})),
+                        },
+                    ));
+                }
+            }
+        } else {
+            return Err(ApiError(
+                StatusCode::UNAUTHORIZED,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "rename source `{old_path}` is in an attester-scoped namespace; supply an `attester` block"
+                    ),
+                    details: Some(json!({"code": "memory_attestation_required"})),
+                },
+            ));
+        }
+    }
+    let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let db = memory_db(s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
         ApiError(
@@ -16448,13 +16957,56 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
                 },
             )
         })?;
-    let _ = paths.flush();
-
+    // Also move the typed kind index entry.
     let cid_str = String::from_utf8_lossy(&cid).into_owned();
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let kind_str = metas
+        .get(cid_str.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+        .map(|m| m.kind)
+        .unwrap_or_else(default_kind_str);
+    let by_kind = db
+        .open_tree(emem_storage::TREE_MEMORY_FILES_BY_KIND)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_files_by_kind: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let _ = by_kind.remove(format!("{kind_str}|{old_path}").as_bytes());
+    let _ = by_kind.insert(
+        format!("{kind_str}|{new_path}").as_bytes(),
+        cid_str.as_bytes(),
+    );
+    let _ = paths.flush();
+    let _ = by_kind.flush();
+
     let started = std::time::Instant::now();
+    let mut cells: Vec<String> = Vec::new();
+    if let Some(pk) = attester_pk.as_deref() {
+        cells.push(format!("pubkey:{pk}"));
+    }
+    cells.push(new_path.clone());
     let receipt = s.sign_receipt(
         "emem.memory_file",
-        vec![new_path.clone()],
+        cells,
         vec![emem_fact::FactCid::new(cid_str.clone())],
         false,
         started,
@@ -16463,6 +17015,13 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
+    publish_memory_event(MemoryEvent::Renamed {
+        old_path: old_path.clone(),
+        new_path: new_path.clone(),
+        file_cid: cid_str.clone(),
+        kind: kind_str,
+        attester_pubkey_b32: attester_pk,
+    });
     Ok(json!({
         "ok": true,
         "verb": "rename",
@@ -16472,6 +17031,585 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
         "responder_pubkey_b32": responder_pubkey_b32,
         "receipt": receipt,
     }))
+}
+
+async fn memory_list_by_kind_inner(
+    s: &AppState,
+    req: MemoryListByKindReq,
+) -> Result<JsonValue, ApiError> {
+    let kind = MemoryKind::from_wire(&req.kind).ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_list_by_kind: unknown kind `{}`; expected one of episodic | semantic | procedural | resource",
+                    req.kind
+                ),
+                details: None,
+            },
+        )
+    })?;
+    let db = memory_db(s)?;
+    let by_kind = db
+        .open_tree(emem_storage::TREE_MEMORY_FILES_BY_KIND)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_files_by_kind: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let prefix = format!("{}|{}", kind.as_str(), req.prefix.unwrap_or_default());
+    let limit = req.limit.unwrap_or(256).min(2048);
+    let mut files: Vec<(MemoryFileMeta, String)> = Vec::new();
+    for kv in by_kind.scan_prefix(prefix.as_bytes()).flatten() {
+        let key = String::from_utf8_lossy(&kv.0).into_owned();
+        let cid = String::from_utf8_lossy(&kv.1).into_owned();
+        let Some((_k, path)) = key.split_once('|') else {
+            continue;
+        };
+        let meta = metas
+            .get(cid.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+        let m = match meta {
+            Some(m) => m,
+            None => MemoryFileMeta {
+                file_cid: cid.clone(),
+                path: path.to_string(),
+                signed_at: emem_storage::server::iso8601_now(),
+                signed_at_unix_s: 0,
+                size_bytes: 0,
+                verb: "create".into(),
+                kind: kind.as_str().to_string(),
+                attester_pubkey_b32: None,
+                superseded_by: None,
+                receipt: synth_memory_receipt(
+                    s,
+                    path,
+                    &cid,
+                    "create",
+                    None,
+                    std::time::Instant::now(),
+                ),
+            },
+        };
+        files.push((m, path.to_string()));
+    }
+    // Sort by signed_at_unix_s desc (most-recent first).
+    files.sort_by_key(|x| std::cmp::Reverse(x.0.signed_at_unix_s));
+    files.truncate(limit);
+    let out: Vec<JsonValue> = files
+        .into_iter()
+        .map(|(m, path)| {
+            json!({
+                "path": path,
+                "file_cid": m.file_cid,
+                "signed_at": m.signed_at,
+                "signed_at_unix_s": m.signed_at_unix_s,
+                "kind": m.kind,
+                "size_bytes": m.size_bytes,
+                "attester_pubkey_b32": m.attester_pubkey_b32,
+                "superseded_by": m.superseded_by,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "kind": kind.as_str(),
+        "files": out,
+        "count": out.len(),
+    }))
+}
+
+/// `GET /v1/memory/sse?path_prefix=&kind=&attester=` — SSE stream of
+/// memory write events (W4). The endpoint subscribes to the
+/// process-global broadcast channel, applies the filter server-side,
+/// and emits one `data: <json>\n\n` frame per matching event. Lagged
+/// receivers are reset and a `data: {"type":"lag",...}` frame is
+/// emitted so the client can decide whether to refetch state.
+#[derive(Debug, Deserialize)]
+struct MemorySseQuery {
+    #[serde(default)]
+    path_prefix: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    attester: Option<String>,
+}
+
+async fn get_memory_sse(State(_s): State<AppState>, Query(q): Query<MemorySseQuery>) -> Response {
+    let max_subs = emem_primitives::memory_consolidation::sse_max_subs();
+    let counter = memory_sse_sub_count();
+    let current = counter.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    if current >= max_subs {
+        counter.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        return ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::RateLimited,
+                message: format!(
+                    "memory SSE subscriber cap reached ({max_subs}); raise EMEM_SSE_MAX_SUBS or retry."
+                ),
+                details: None,
+            },
+        )
+        .into_response();
+    }
+
+    let filter = MemoryEventFilter {
+        path_prefix: q.path_prefix,
+        kind: q.kind,
+        attester_pubkey_b32: q.attester,
+    };
+    let rx = memory_event_bus().subscribe();
+
+    // Drop guard that lives inside the stream — decrements the
+    // subscriber counter when the stream is dropped (client
+    // disconnect, server shutdown).
+    struct SubGuard;
+    impl Drop for SubGuard {
+        fn drop(&mut self) {
+            memory_sse_sub_count().fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        }
+    }
+    let guard = std::sync::Arc::new(SubGuard);
+
+    use futures_util::stream::StreamExt;
+    let raw = tokio_stream::wrappers::BroadcastStream::new(rx);
+    let guard_for_stream = guard.clone();
+    let filtered = raw.filter_map(move |item| {
+        // Hold a clone of the guard Arc inside each closure invocation
+        // so the inner SubGuard stays alive for the stream's lifetime
+        // (counter is released only when the last clone drops).
+        let _g = guard_for_stream.clone();
+        let f = filter.clone();
+        async move {
+            let _hold = _g;
+            match item {
+                Ok(ev) => {
+                    if f.matches(&ev) {
+                        let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                        Some(Ok::<_, std::convert::Infallible>(
+                            axum::response::sse::Event::default().data(data),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                Err(_) => Some(Ok(axum::response::sse::Event::default()
+                    .data(r#"{"type":"lag","reason":"subscriber too slow"}"#))),
+            }
+        }
+    });
+    // Drop the original local handle so only the stream-borne clones
+    // remain. The counter will decrement when those go out of scope.
+    drop(guard);
+    // Forward the stream with a keep-alive ping every 15 s so proxies
+    // don't drop idle connections.
+    let sse = axum::response::sse::Sse::new(filtered).keep_alive(
+        axum::response::sse::KeepAlive::new().interval(std::time::Duration::from_secs(15)),
+    );
+    sse.into_response()
+}
+
+// ── W3: scheduled background tasks (TTL + consolidation) ────────────
+
+/// Spawn the W3 TTL + consolidation background tasks on boot. Both
+/// tasks are opt-in via env (`EMEM_MEMORY_TTL_ENABLED=1` /
+/// `EMEM_MEMORY_CONSOLIDATION_ENABLED=1`). When neither is enabled
+/// the function is a no-op and no tokio resources are consumed.
+fn spawn_memory_background_tasks(state: AppState) {
+    if emem_primitives::memory_consolidation::ttl_enabled() {
+        let st = state.clone();
+        let interval_s = emem_primitives::memory_consolidation::ttl_interval_secs();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(interval_s));
+            // First tick fires immediately; keep that behaviour so a
+            // freshly-booted server with TTL=on processes the backlog
+            // without waiting an hour.
+            loop {
+                tick.tick().await;
+                match run_memory_ttl_pass(&st).await {
+                    Ok((scanned, expired)) => tracing::info!(
+                        target: "emem::memory_ttl",
+                        scanned,
+                        expired,
+                        interval_s,
+                        "TTL pass complete"
+                    ),
+                    Err(e) => tracing::warn!(
+                        target: "emem::memory_ttl",
+                        error = %e.1.message,
+                        "TTL pass failed"
+                    ),
+                }
+            }
+        });
+    }
+    if emem_primitives::memory_consolidation::consolidation_enabled() {
+        let st = state.clone();
+        let interval_s = emem_primitives::memory_consolidation::consolidation_interval_secs();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(interval_s));
+            loop {
+                tick.tick().await;
+                match run_memory_consolidation_pass(&st).await {
+                    Ok((groups, consolidated_files)) => tracing::info!(
+                        target: "emem::memory_consolidation",
+                        groups,
+                        consolidated_files,
+                        interval_s,
+                        "consolidation pass complete"
+                    ),
+                    Err(e) => tracing::warn!(
+                        target: "emem::memory_consolidation",
+                        error = %e.1.message,
+                        "consolidation pass failed"
+                    ),
+                }
+            }
+        });
+    }
+}
+
+/// Run one pass of the TTL sweep. Returns `(scanned, expired)`.
+///
+/// For every (path, file_cid) in `memory_files` whose meta.kind has a
+/// finite TTL and whose `signed_at_unix_s + ttl_seconds < now`:
+///   1. remove from `memory_files`
+///   2. record in `memory_files_expired` so the path → cid mapping is
+///      still resolvable for audit
+///   3. drop the typed-index entry
+///   4. append `"expired"` to the history vector
+///   5. publish a [`MemoryEvent::Expired`] event
+///
+/// Blobs persist in `memory_file_blobs` — by design (content-addressed
+/// audit anchors must not vanish).
+pub(crate) async fn run_memory_ttl_pass(s: &AppState) -> Result<(usize, usize), ApiError> {
+    let db = memory_db(s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let expired_tree = db
+        .open_tree(emem_storage::TREE_MEMORY_FILES_EXPIRED)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_files_expired: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let by_kind = db
+        .open_tree(emem_storage::TREE_MEMORY_FILES_BY_KIND)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_files_by_kind: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let history = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_HISTORY)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_history: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+
+    let now = now_unix_s_local();
+    let mut scanned = 0usize;
+    let mut expired = 0usize;
+    let mut to_expire: Vec<(Vec<u8>, String, String, String)> = Vec::new(); // (path_bytes, cid, kind, iso_now)
+    for kv in paths.iter().flatten() {
+        scanned += 1;
+        let path_bytes = kv.0.to_vec();
+        let cid = match String::from_utf8(kv.1.to_vec()) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let meta = match metas
+            .get(cid.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+        {
+            Some(m) => m,
+            None => continue,
+        };
+        let Some(kind) = MemoryKind::from_wire(&meta.kind) else {
+            continue;
+        };
+        let ttl_days = emem_primitives::ttl_days_for_kind(kind);
+        if ttl_days == 0 {
+            continue; // infinite — never expire
+        }
+        let ttl_secs = (ttl_days * 86_400) as i64;
+        if meta.signed_at_unix_s == 0 {
+            // Pre-W1 file with no recorded signed_at. Skip — treating
+            // it as expired here would risk dropping legitimate
+            // long-lived state. Operators can rewrite the meta if they
+            // want it caught.
+            continue;
+        }
+        if meta.signed_at_unix_s + ttl_secs < now {
+            to_expire.push((
+                path_bytes,
+                cid,
+                meta.kind.clone(),
+                emem_storage::server::iso8601_now(),
+            ));
+        }
+    }
+    for (pbytes, cid, kind_str, iso_now) in to_expire {
+        let path_str = String::from_utf8_lossy(&pbytes).into_owned();
+        // Idempotence guard: skip if already moved.
+        if expired_tree.contains_key(&pbytes).unwrap_or(false)
+            && !paths.contains_key(&pbytes).unwrap_or(false)
+        {
+            continue;
+        }
+        let _ = expired_tree.insert(&pbytes, cid.as_bytes());
+        let _ = paths.remove(&pbytes);
+        let _ = by_kind.remove(format!("{kind_str}|{path_str}").as_bytes());
+        // Append `"expired"` to the history.
+        let mut hist: Vec<String> = match history.get(&pbytes) {
+            Ok(Some(v)) => ciborium::de::from_reader(&v[..]).unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        hist.push("expired".to_string());
+        let mut buf = Vec::new();
+        let _ = ciborium::ser::into_writer(&hist, &mut buf);
+        let _ = history.insert(&pbytes, buf);
+        publish_memory_event(MemoryEvent::Expired {
+            path: path_str,
+            kind: kind_str,
+            expired_at: iso_now,
+        });
+        expired += 1;
+    }
+    let _ = paths.flush();
+    let _ = expired_tree.flush();
+    let _ = by_kind.flush();
+    let _ = history.flush();
+    Ok((scanned, expired))
+}
+
+/// Run one pass of the consolidation sweep. Returns
+/// `(directories_consolidated, files_consolidated)`.
+///
+/// For each `(by_attester/<pubkey>/<sub>)` directory with more than
+/// `consolidation_min_files()` episodic files older than
+/// `consolidation_min_age_days()` and not in a `.consolidated/`
+/// sub-folder:
+///   1. concatenate file contents in chronological order
+///   2. write to `/memories/by_attester/<pubkey>/<sub>/.consolidated/<ts>.md`
+///      as a `semantic` kind file (responder-signed; no attester)
+///   3. mark each consolidated source with
+///      `MemoryFileMeta.superseded_by = <new_cid>`
+///   4. emit a [`MemoryEvent::Consolidated`] event
+///
+/// Idempotent: files already pointing to a `superseded_by` are
+/// skipped.
+pub(crate) async fn run_memory_consolidation_pass(
+    s: &AppState,
+) -> Result<(usize, usize), ApiError> {
+    let db = memory_db(s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let blobs = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_blobs: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let now = now_unix_s_local();
+    let min_files = emem_primitives::memory_consolidation::consolidation_min_files();
+    let min_age_secs =
+        (emem_primitives::memory_consolidation::consolidation_min_age_days() * 86_400) as i64;
+
+    // Group eligible episodic files by their parent directory.
+    // Eligibility:
+    //   - kind == "episodic"
+    //   - path under /memories/by_attester/<short>/<sub>/...
+    //   - parent dir is NOT itself .../.consolidated/
+    //   - signed_at_unix_s + min_age_secs < now
+    //   - superseded_by is None
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<String, Vec<(String, String, MemoryFileMeta)>> = BTreeMap::new();
+    for kv in paths.iter().flatten() {
+        let path = match String::from_utf8(kv.0.to_vec()) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let cid = match String::from_utf8(kv.1.to_vec()) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        if !path.starts_with(emem_primitives::BY_ATTESTER_PREFIX) {
+            continue;
+        }
+        let meta = match metas
+            .get(cid.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+        {
+            Some(m) => m,
+            None => continue,
+        };
+        if meta.kind != "episodic" {
+            continue;
+        }
+        if meta.superseded_by.is_some() {
+            continue;
+        }
+        if meta.signed_at_unix_s == 0 {
+            continue;
+        }
+        if meta.signed_at_unix_s + min_age_secs >= now {
+            continue;
+        }
+        // Strip the file name to get the parent dir.
+        let parent = match path.rsplit_once('/') {
+            Some((p, _)) => p.to_string(),
+            None => continue,
+        };
+        if parent.ends_with("/.consolidated") || parent.contains("/.consolidated/") {
+            continue;
+        }
+        groups.entry(parent).or_default().push((path, cid, meta));
+    }
+
+    let mut total_groups_consolidated = 0usize;
+    let mut total_files_consolidated = 0usize;
+    for (parent, mut entries) in groups {
+        if entries.len() < min_files {
+            continue;
+        }
+        // Oldest first.
+        entries.sort_by_key(|e| e.2.signed_at_unix_s);
+        let mut joined = String::new();
+        for (p, _cid, meta) in &entries {
+            let bytes = blobs
+                .get(meta.file_cid.as_bytes())
+                .ok()
+                .flatten()
+                .map(|b| b.to_vec())
+                .unwrap_or_default();
+            let text = String::from_utf8(bytes).unwrap_or_default();
+            joined.push_str(&format!(
+                "\n\n--- {} signed_at={} ---\n\n",
+                p, meta.signed_at
+            ));
+            joined.push_str(&text);
+        }
+        let summary_path = format!("{parent}/.consolidated/{now}.md");
+        // Write the consolidated summary as a semantic kind file. No
+        // attester — the responder signs as itself, which is the
+        // honest provenance for a server-side rollup.
+        let summary_meta = persist_memory_write(
+            s,
+            &summary_path,
+            joined.as_bytes(),
+            "consolidate",
+            MemoryKind::Semantic,
+            None,
+            std::time::Instant::now(),
+        )?;
+        // Mark each source as superseded.
+        for (_p, _cid, mut m) in entries.iter().cloned() {
+            m.superseded_by = Some(summary_meta.file_cid.clone());
+            let mut buf = Vec::new();
+            if ciborium::ser::into_writer(&m, &mut buf).is_ok() {
+                let _ = metas.insert(m.file_cid.as_bytes(), buf);
+            }
+            total_files_consolidated += 1;
+        }
+        let _ = metas.flush();
+        let paths_list: Vec<String> = entries.iter().map(|(p, _, _)| p.clone()).collect();
+        publish_memory_event(MemoryEvent::Consolidated {
+            paths: paths_list,
+            into_cid: summary_meta.file_cid.clone(),
+            kind: "semantic".into(),
+            signed_at: summary_meta.signed_at.clone(),
+        });
+        total_groups_consolidated += 1;
+    }
+
+    Ok((total_groups_consolidated, total_files_consolidated))
 }
 
 /// One cell-typed field of a primitive request after geocoding. Either
@@ -39472,6 +40610,8 @@ mod tests {
             MemoryCreateReq {
                 path: "/memories/notes.md".into(),
                 file_text: "hello world".into(),
+                kind: None,
+                attester: None,
             },
         )
         .await
@@ -39490,6 +40630,7 @@ mod tests {
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
                 view_range: None,
+                kind: None,
             },
         )
         .await
@@ -39507,6 +40648,8 @@ mod tests {
                 path: "/memories/notes.md".into(),
                 old_str: "hello".into(),
                 new_str: "hi".into(),
+                kind: None,
+                attester: None,
             },
         )
         .await
@@ -39524,6 +40667,7 @@ mod tests {
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
                 view_range: None,
+                kind: None,
             },
         )
         .await
@@ -39541,6 +40685,8 @@ mod tests {
                 path: "/memories/notes.md".into(),
                 insert_line: 0,
                 new_str: "header".into(),
+                kind: None,
+                attester: None,
             },
         )
         .await
@@ -39551,6 +40697,7 @@ mod tests {
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
                 view_range: None,
+                kind: None,
             },
         )
         .await
@@ -39570,6 +40717,7 @@ mod tests {
             &s,
             MemoryDeleteReq {
                 path: "/memories/notes.md".into(),
+                attester: None,
             },
         )
         .await
@@ -39581,6 +40729,7 @@ mod tests {
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
                 view_range: None,
+                kind: None,
             },
         )
         .await;
@@ -39597,6 +40746,8 @@ mod tests {
             MemoryCreateReq {
                 path: "/memories/verify.md".into(),
                 file_text: "audit me".into(),
+                kind: None,
+                attester: None,
             },
         )
         .await
@@ -39631,6 +40782,8 @@ mod tests {
             MemoryCreateReq {
                 path: "/memories/foo.md".into(),
                 file_text: "a a a".into(),
+                kind: None,
+                attester: None,
             },
         )
         .await
@@ -39642,11 +40795,463 @@ mod tests {
                 path: "/memories/foo.md".into(),
                 old_str: "a".into(),
                 new_str: "b".into(),
+                kind: None,
+                attester: None,
             },
         )
         .await
         .expect_err("must error on multi-match");
         assert_eq!(e.0, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    // ── W1: typing kind round-trip ──────────────────────────────────
+
+    #[tokio::test]
+    async fn memory_typing_kind_round_trips() {
+        let s = test_app_state();
+        for k in &["episodic", "semantic", "procedural", "resource"] {
+            let p = format!("/memories/typed_{k}.md");
+            let resp = memory_create_inner(
+                &s,
+                MemoryCreateReq {
+                    path: p.clone(),
+                    file_text: format!("kind={k}"),
+                    kind: Some((*k).into()),
+                    attester: None,
+                },
+            )
+            .await
+            .map_err(|e| format!("create: {} {}", e.0, e.1.message))
+            .unwrap();
+            assert_eq!(resp.get("memory_kind").and_then(|v| v.as_str()), Some(*k));
+            // View reflects the kind.
+            let view = memory_view_inner(
+                &s,
+                MemoryViewReq {
+                    path: p.clone(),
+                    view_range: None,
+                    kind: None,
+                },
+            )
+            .await
+            .map_err(|e| format!("view: {} {}", e.0, e.1.message))
+            .unwrap();
+            assert_eq!(view.get("memory_kind").and_then(|v| v.as_str()), Some(*k));
+        }
+        // memory_list_by_kind returns each kind once.
+        for k in &["episodic", "semantic", "procedural", "resource"] {
+            let listing = memory_list_by_kind_inner(
+                &s,
+                MemoryListByKindReq {
+                    kind: (*k).into(),
+                    prefix: None,
+                    limit: None,
+                },
+            )
+            .await
+            .map_err(|e| format!("list_by_kind {k}: {}", e.1.message))
+            .unwrap();
+            assert_eq!(
+                listing.get("count").and_then(|v| v.as_u64()),
+                Some(1),
+                "expected exactly one file of kind {k}: {listing:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_create_back_compat_no_kind_no_attester() {
+        // The original Anthropic memory_tool shape with only {path,
+        // file_text} must keep working: defaults to kind=resource, no
+        // attester, cells=[path].
+        let s = test_app_state();
+        let resp = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: "/memories/legacy.md".into(),
+                file_text: "untyped".into(),
+                kind: None,
+                attester: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            resp.get("memory_kind").and_then(|v| v.as_str()),
+            Some("resource")
+        );
+        let receipt = resp.get("receipt").expect("receipt");
+        let cells = receipt
+            .get("cells")
+            .and_then(|v| v.as_array())
+            .expect("receipt.cells array");
+        assert_eq!(cells.len(), 1, "bare write keeps cells=[path]: {cells:?}");
+        assert_eq!(
+            cells[0].as_str(),
+            Some("/memories/legacy.md"),
+            "first cell is the path"
+        );
+    }
+
+    // ── W2: attester binding ───────────────────────────────────────
+
+    fn test_attester_signer() -> (ed25519_dalek::SigningKey, String) {
+        use rand::rngs::OsRng;
+        use rand::RngCore;
+        let mut sec = [0u8; 32];
+        OsRng.fill_bytes(&mut sec);
+        let sk = ed25519_dalek::SigningKey::from_bytes(&sec);
+        let pubkey_b32 = data_encoding::BASE32_NOPAD
+            .encode(sk.verifying_key().as_bytes())
+            .to_lowercase();
+        (sk, pubkey_b32)
+    }
+
+    fn sign_attester(
+        sk: &ed25519_dalek::SigningKey,
+        verb: &str,
+        path: &str,
+        body: &[u8],
+    ) -> emem_primitives::MemoryAttester {
+        use ed25519_dalek::Signer;
+        let bh = emem_primitives::body_hash(body);
+        let preimage = emem_primitives::attester_preimage(verb, path, &bh);
+        let sig = sk.sign(&preimage);
+        let pubkey_b32 = data_encoding::BASE32_NOPAD
+            .encode(sk.verifying_key().as_bytes())
+            .to_lowercase();
+        let sig_b32 = data_encoding::BASE32_NOPAD
+            .encode(&sig.to_bytes())
+            .to_lowercase();
+        emem_primitives::MemoryAttester {
+            pubkey_b32,
+            sig_b32,
+        }
+    }
+
+    #[tokio::test]
+    async fn memory_attester_valid_signature_accepted() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let path = format!("/memories/by_attester/{short}/note.md");
+        let body = b"signed write";
+        let att = sign_attester(&sk, "create", &path, body);
+        let resp = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.clone(),
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: Some("episodic".into()),
+                attester: Some(att),
+            },
+        )
+        .await
+        .map_err(|e| format!("attested create: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(
+            resp.get("attester_pubkey_b32").and_then(|v| v.as_str()),
+            Some(pubkey_b32.as_str())
+        );
+        // Receipt cells should carry `pubkey:<b32>` followed by the path.
+        let cells = resp
+            .get("receipt")
+            .and_then(|r| r.get("cells"))
+            .and_then(|c| c.as_array())
+            .expect("cells");
+        assert_eq!(cells.len(), 2, "attested write has 2 cells: {cells:?}");
+        assert!(
+            cells[0]
+                .as_str()
+                .map(|s| s.starts_with("pubkey:"))
+                .unwrap_or(false),
+            "first cell is pubkey:<b32>"
+        );
+        assert_eq!(cells[1].as_str(), Some(path.as_str()));
+    }
+
+    #[tokio::test]
+    async fn memory_attester_invalid_signature_rejected() {
+        let s = test_app_state();
+        let (sk, _pubkey_b32) = test_attester_signer();
+        let path = "/memories/notes_bad_sig.md".to_string();
+        let body = b"body";
+        let mut att = sign_attester(&sk, "create", &path, body);
+        // Flip a character in the signature to break it.
+        let mut bytes: Vec<char> = att.sig_b32.chars().collect();
+        bytes[0] = if bytes[0] == 'a' { 'b' } else { 'a' };
+        att.sig_b32 = bytes.into_iter().collect();
+        let err = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path,
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: None,
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect_err("must reject bad signature");
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+        let details = err.1.details.expect("typed details");
+        assert_eq!(
+            details.get("code").and_then(|v| v.as_str()),
+            Some("memory_attestation_invalid")
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_attester_namespace_ownership_enforced() {
+        // A signs over a path inside B's `by_attester` namespace —
+        // signature verifies but namespace mismatch returns 403.
+        let s = test_app_state();
+        let (sk_a, _pk_a) = test_attester_signer();
+        let (_sk_b, pk_b) = test_attester_signer();
+        let short_b = emem_primitives::pubkey_short_from_b32(&pk_b);
+        let path = format!("/memories/by_attester/{short_b}/secrets.md");
+        let body = b"intruder";
+        let att = sign_attester(&sk_a, "create", &path, body);
+        let err = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path,
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: None,
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect_err("must reject cross-namespace write");
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn memory_attester_required_for_by_attester_namespace() {
+        // Bare write without an attester to a `by_attester` path must
+        // 401 with memory_attestation_required.
+        let s = test_app_state();
+        let err = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: "/memories/by_attester/abcd1234/note.md".into(),
+                file_text: "no attester".into(),
+                kind: None,
+                attester: None,
+            },
+        )
+        .await
+        .expect_err("must require attester");
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── W3: TTL + consolidation ────────────────────────────────────
+
+    #[tokio::test]
+    async fn memory_ttl_expires_episodic_and_keeps_blob() {
+        let s = test_app_state();
+        // Create an episodic file then backdate its meta so TTL trips.
+        let _ = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: "/memories/old.md".into(),
+                file_text: "old observation".into(),
+                kind: Some("episodic".into()),
+                attester: None,
+            },
+        )
+        .await
+        .unwrap();
+        // Backdate the file's signed_at_unix_s far into the past.
+        let db = memory_db(&s).unwrap();
+        let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).unwrap();
+        let cid_bytes = paths.get(b"/memories/old.md").unwrap().unwrap();
+        let cid = String::from_utf8(cid_bytes.to_vec()).unwrap();
+        let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).unwrap();
+        let raw = metas.get(cid.as_bytes()).unwrap().unwrap();
+        let mut meta: MemoryFileMeta = ciborium::de::from_reader(&raw[..]).unwrap();
+        // Episodic default TTL = 30 days; backdate by 60 days.
+        meta.signed_at_unix_s = now_unix_s_local() - 60 * 86_400;
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(&meta, &mut buf).unwrap();
+        metas.insert(cid.as_bytes(), buf).unwrap();
+        metas.flush().unwrap();
+
+        // Subscribe before the pass so we can see the Expired event.
+        let mut rx = memory_event_bus().subscribe();
+        let (scanned, expired) = run_memory_ttl_pass(&s).await.unwrap();
+        assert!(scanned >= 1);
+        assert!(expired >= 1, "expected at least one expiration");
+
+        // The path is no longer live.
+        assert!(paths.get(b"/memories/old.md").unwrap().is_none());
+        // The blob is retained — content-addressed, never vanishes.
+        let blobs = db.open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS).unwrap();
+        assert!(
+            blobs.get(cid.as_bytes()).unwrap().is_some(),
+            "blob must be retained after TTL"
+        );
+        // Expired tree carries the mapping.
+        let expired_tree = db
+            .open_tree(emem_storage::TREE_MEMORY_FILES_EXPIRED)
+            .unwrap();
+        assert!(expired_tree.get(b"/memories/old.md").unwrap().is_some());
+
+        // Idempotent: running again expires nothing new.
+        let (_s2, e2) = run_memory_ttl_pass(&s).await.unwrap();
+        assert_eq!(e2, 0, "second pass must be idempotent");
+
+        // Drain events looking for our specific Expired event (the
+        // bus is process-global; concurrent tests publish too).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+        let mut saw = false;
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline - std::time::Instant::now();
+            let recv = tokio::time::timeout(remaining, rx.recv()).await;
+            let ev = match recv {
+                Ok(Ok(ev)) => ev,
+                _ => break,
+            };
+            if let MemoryEvent::Expired { path, kind, .. } = ev {
+                if path == "/memories/old.md" && kind == "episodic" {
+                    saw = true;
+                    break;
+                }
+            }
+        }
+        assert!(saw, "did not receive matching Expired event");
+    }
+
+    #[tokio::test]
+    async fn memory_consolidation_rolls_up_episodic_files() {
+        let s = test_app_state();
+        let (sk, pk) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pk);
+        let parent = format!("/memories/by_attester/{short}/diary");
+        // Write 51 episodic files in the diary directory, backdated.
+        for i in 0..51u32 {
+            let path = format!("{parent}/note_{i:03}.md");
+            let body = format!("entry {i}");
+            let att = sign_attester(&sk, "create", &path, body.as_bytes());
+            memory_create_inner(
+                &s,
+                MemoryCreateReq {
+                    path: path.clone(),
+                    file_text: body,
+                    kind: Some("episodic".into()),
+                    attester: Some(att),
+                },
+            )
+            .await
+            .unwrap();
+            // Backdate the meta to qualify for consolidation.
+            let db = memory_db(&s).unwrap();
+            let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).unwrap();
+            let cid =
+                String::from_utf8(paths.get(path.as_bytes()).unwrap().unwrap().to_vec()).unwrap();
+            let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).unwrap();
+            let raw = metas.get(cid.as_bytes()).unwrap().unwrap();
+            let mut meta: MemoryFileMeta = ciborium::de::from_reader(&raw[..]).unwrap();
+            meta.signed_at_unix_s = now_unix_s_local() - 10 * 86_400; // 10 days old
+            let mut buf = Vec::new();
+            ciborium::ser::into_writer(&meta, &mut buf).unwrap();
+            metas.insert(cid.as_bytes(), buf).unwrap();
+            metas.flush().unwrap();
+        }
+
+        // Run the pass.
+        let (groups, files) = run_memory_consolidation_pass(&s).await.unwrap();
+        assert_eq!(groups, 1, "exactly one directory consolidated: {groups}");
+        assert_eq!(files, 51, "all 51 sources consolidated: {files}");
+
+        // Each original file's meta now carries `superseded_by`.
+        let db = memory_db(&s).unwrap();
+        let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).unwrap();
+        let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).unwrap();
+        let path0 = format!("{parent}/note_000.md");
+        let cid0 =
+            String::from_utf8(paths.get(path0.as_bytes()).unwrap().unwrap().to_vec()).unwrap();
+        let m0: MemoryFileMeta =
+            ciborium::de::from_reader(&metas.get(cid0.as_bytes()).unwrap().unwrap()[..]).unwrap();
+        assert!(
+            m0.superseded_by.is_some(),
+            "original episodic file must carry superseded_by"
+        );
+
+        // Idempotent: running again does nothing because every source
+        // already has superseded_by set.
+        let (g2, f2) = run_memory_consolidation_pass(&s).await.unwrap();
+        assert_eq!(g2, 0);
+        assert_eq!(f2, 0);
+    }
+
+    // ── W4: SSE subscription ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn memory_sse_receives_event_on_create() {
+        // The broadcast channel is process-global; other tests in this
+        // suite publish events too. Subscribe, trigger our specific
+        // write, then loop until we see the matching path (or time
+        // out). Use a unique path to disambiguate.
+        let s = test_app_state();
+        static SSE_TEST_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nonce = SSE_TEST_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let target = format!("/memories/sse_target_{nonce}.md");
+        let mut rx = memory_event_bus().subscribe();
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: target.clone(),
+                file_text: "hi".into(),
+                kind: Some("semantic".into()),
+                attester: None,
+            },
+        )
+        .await
+        .unwrap();
+        // Drain up to 1 s worth of events looking for our target.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+        let mut found = None;
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline - std::time::Instant::now();
+            let recv = tokio::time::timeout(remaining, rx.recv()).await;
+            let ev = match recv {
+                Ok(Ok(ev)) => ev,
+                _ => break,
+            };
+            if ev.primary_path() == target {
+                found = Some(ev);
+                break;
+            }
+        }
+        let ev = found.expect("did not receive matching SSE event for create");
+        match ev {
+            MemoryEvent::Created {
+                path,
+                kind,
+                size_bytes,
+                ..
+            } => {
+                assert_eq!(path, target);
+                assert_eq!(kind, "semantic");
+                assert_eq!(size_bytes, 2);
+            }
+            other => panic!("expected Created event, got {other:?}"),
+        }
+        // Filter check: a filter that excludes this path matches nothing.
+        let f = MemoryEventFilter {
+            path_prefix: Some("/memories/other/".into()),
+            kind: None,
+            attester_pubkey_b32: None,
+        };
+        let ev2 = MemoryEvent::Created {
+            path: target.clone(),
+            file_cid: "x".into(),
+            kind: "semantic".into(),
+            attester_pubkey_b32: None,
+            signed_at: "n".into(),
+            size_bytes: 2,
+        };
+        assert!(!f.matches(&ev2));
     }
 
     #[tokio::test]
