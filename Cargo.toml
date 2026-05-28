@@ -20,7 +20,11 @@ members = [
 [workspace.package]
 version = "0.0.6"
 edition = "2021"
-rust-version = "1.88"
+# Bumped 2026-05-28 from 1.88 → 1.91 to accommodate Lance 6.x's MSRV
+# (lance-namespace / lance-table / lance-tokenizer / roaring all require
+# 1.91). Lance is the embedded vector index that backs find_similar's
+# ANN fast-path; downgrading the dep would lose the IVF_PQ semantics.
+rust-version = "1.91"
 license = "Apache-2.0"
 repository = "https://github.com/Vortx-AI/emem"
 authors = ["Vortx-AI"]
