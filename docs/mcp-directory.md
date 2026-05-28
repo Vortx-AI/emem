@@ -49,3 +49,26 @@ Tier-gated `tools/list` returns 10 core tools by default. Pass `{"tier":"all"}` 
 ## Tags
 
 ai-agents, mcp, memory-substrate, signed-memory, content-addressed, bi-temporal, capability-binding, ed25519, geospatial, earth-observation, satellite, anthropic-memory-tool, coala-taxonomy, federated-memory, audit-trail, verifiable-receipts
+
+## Listing path to the official MCP registry
+
+emem ships a `server.json` at the repository root following the
+`https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`
+schema. It declares the registry name `io.github.Vortx-AI/emem`, an
+OCI package pointing at `ghcr.io/vortx-ai/emem:latest`, and the
+remote endpoint `https://emem.dev/mcp`.
+
+Two publish paths:
+
+* `.github/workflows/mcp-publish.yml` — fires on every `v*` tag push,
+  authenticates via GitHub OIDC, installs the `mcp-publisher` CLI,
+  and runs `mcp-publisher publish` against the official registry at
+  `https://registry.modelcontextprotocol.io`. The canonical path for
+  every future release.
+* `scripts/mcp-publish.sh` — manual one-off (GitHub device-flow
+  auth) for the first publish and for ad-hoc metadata updates
+  between release tags.
+
+The aggregator at `https://github.com/mcp` ingests the official
+registry on its own cadence; a new publish surfaces there within
+minutes to hours, not seconds.

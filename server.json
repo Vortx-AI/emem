@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Vortx-AI/emem",
-  "title": "emem — Earth memory protocol",
+  "title": "emem \u2014 Earth memory protocol",
   "description": "Content-addressed, ed25519-signed memory of every place on Earth. Apache-2.0, no keys for reads.",
   "version": "0.0.6",
   "websiteUrl": "https://emem.dev",
@@ -28,29 +28,31 @@
     {
       "src": "https://emem.dev/favicon.svg",
       "mimeType": "image/svg+xml",
-      "sizes": ["any"]
+      "sizes": [
+        "any"
+      ]
     }
   ],
   "x-emem": {
     "operator": {
-      "name":     "Vortx AI Private Limited",
-      "country":  "India",
-      "url":      "https://vortx.ai"
+      "name": "Vortx AI Private Limited",
+      "country": "India",
+      "url": "https://vortx.ai"
     },
     "contact": {
-      "name":  "Avijeet",
+      "name": "Avijeet",
       "email": "avijeet@vortx.ai",
-      "url":   "https://emem.dev"
+      "url": "https://emem.dev"
     },
-    "privacyPolicyUrl":   "https://emem.dev/privacy",
-    "termsOfServiceUrl":  "https://emem.dev/terms",
-    "supportUrl":         "https://emem.dev/support",
-    "issuesUrl":          "https://github.com/Vortx-AI/emem/issues",
-    "documentationUrl":   "https://github.com/Vortx-AI/emem/blob/main/docs/SPEC.md",
+    "privacyPolicyUrl": "https://emem.dev/privacy",
+    "termsOfServiceUrl": "https://emem.dev/terms",
+    "supportUrl": "https://emem.dev/support",
+    "issuesUrl": "https://github.com/Vortx-AI/emem/issues",
+    "documentationUrl": "https://emem.dev/docs/whitepaper.html",
     "directoryCompliance": {
-      "annotations":     "every tool emits title + annotations.{readOnlyHint,destructiveHint} on tools/list",
-      "transport":       "MCP Streamable HTTP (2025-03-26) over HTTPS",
-      "auth":            "unauthenticated public-read; writes (emem_attest, emem_challenge) authenticated by ed25519 signature on the request body",
+      "annotations": "every tool emits title + annotations.{readOnlyHint,destructiveHint} on tools/list",
+      "transport": "MCP Streamable HTTP (2025-03-26) over HTTPS",
+      "auth": "unauthenticated public-read; writes (emem_attest, emem_challenge) authenticated by ed25519 signature on the request body",
       "originAllowlist": "EMEM_ALLOWED_ORIGINS env var (comma-separated) flips CORS from `*` to a strict allowlist with Vary: Origin"
     }
   },

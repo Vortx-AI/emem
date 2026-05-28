@@ -1,0 +1,78 @@
+name: mcp-publish
+
+# Publish server.json to the official MCP Registry
+# (https://registry.modelcontextprotocol.io). Listings on
+# https://github.com/mcp are pulled from that registry on a delay, so
+# being listed there means being published here first.
+#
+# Triggers:
+#   * push of a tag matching v* (a real release) — the canonical path
+#   * manual workflow_dispatch — for one-off publishes after a
+#     server.json edit that doesn't warrant a new release tag
+#
+# Authentication is GitHub OIDC: the workflow exchanges an id-token
+# for a registry credential, scoped to the `io.github.Vortx-AI/*`
+# namespace because the workflow runs in the Vortx-AI/emem repo.
+# No PAT, no device-flow code entry, no human in the loop.
+#
+# Versions are immutable once published. The workflow reads the
+# version from server.json verbatim; bump it there (and keep it in
+# step with Cargo.toml's workspace.package.version) before tagging.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # required for the OIDC login
+
+jobs:
+  publish:
+    name: publish to MCP registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: confirm server.json is present and version-tagged
+        run: |
+          test -f server.json
+          jq -e '.name | startswith("io.github.")' server.json >/dev/null
+          jq -e '.version | length > 0' server.json >/dev/null
+          echo "server.json name=$(jq -r .name server.json) version=$(jq -r .version server.json)"
+
+      - name: install mcp-publisher
+        run: |
+          set -euo pipefail
+          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          URL="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz"
+          curl -fsSL "$URL" | tar xz mcp-publisher
+          ./mcp-publisher --version
+
+      - name: login via GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: publish
+        run: ./mcp-publisher publish
+
+      - name: confirm listing
+        run: |
+          set -euo pipefail
+          NAME=$(jq -r .name server.json)
+          VER=$(jq -r .version server.json)
+          # the registry exposes /v0/servers?search=<name>; the listing
+          # should already contain the just-published version.
+          for i in 1 2 3 4 5; do
+            sleep 3
+            if curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=$NAME" \
+                 | jq -e --arg n "$NAME" --arg v "$VER" \
+                       '.servers[]? | select(.name==$n and .version==$v)' >/dev/null; then
+              echo "listed at registry: $NAME @ $VER"
+              exit 0
+            fi
+            echo "  not visible yet, retrying ($i/5)..."
+          done
+          echo "  registry returned 200 but listing did not surface within ~15 s;" \
+               "downstream aggregators (github.com/mcp) ingest on their own cadence."
