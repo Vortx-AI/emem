@@ -16552,37 +16552,49 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                     },
                 )
             })?;
-        let mut entries: Vec<JsonValue> = Vec::new();
+        // Collect with the typed MemoryKind so we can sort by
+        // listing_priority before serialising — Core entries surface
+        // first ahead of every other kind, ties broken alphabetically
+        // by path inside each priority band.
+        let mut typed: Vec<(MemoryKind, String, JsonValue)> = Vec::new();
         for kv in paths.scan_prefix(path.as_bytes()).flatten() {
             let key = String::from_utf8_lossy(&kv.0).into_owned();
             let cid = String::from_utf8_lossy(&kv.1).into_owned();
-            // Resolve typed kind from meta; defaults to "resource" for
-            // legacy records.
-            let entry_kind = metas
+            // Resolve typed kind from meta; defaults to Resource for
+            // legacy records (their on-disk meta predates the kind tag).
+            let entry_kind: MemoryKind = metas
                 .get(cid.as_bytes())
                 .ok()
                 .flatten()
                 .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-                .map(|m| m.kind)
-                .unwrap_or_else(default_kind_str);
+                .and_then(|m| MemoryKind::from_wire(&m.kind))
+                .unwrap_or(MemoryKind::Resource);
             if let Some(want) = kind_filter {
-                if entry_kind != want.as_str() {
+                if entry_kind != want {
                     continue;
                 }
             }
-            entries.push(json!({
-                "path": key,
+            let entry = json!({
+                "path": key.clone(),
                 "file_cid": cid,
                 "kind": "file",
-                "memory_kind": entry_kind,
-            }));
+                "memory_kind": entry_kind.as_str(),
+            });
+            typed.push((entry_kind, key, entry));
         }
+        typed.sort_by(|a, b| {
+            a.0.listing_priority()
+                .cmp(&b.0.listing_priority())
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        let entries: Vec<JsonValue> = typed.into_iter().map(|(_, _, v)| v).collect();
         return Ok(json!({
             "kind": "directory",
             "path": path,
             "entries": entries,
             "count": entries.len(),
             "filter_kind": kind_filter.map(|k| k.as_str()),
+            "order": "core-first, then procedural, semantic, episodic, resource; alphabetical within kind",
         }));
     }
 

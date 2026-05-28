@@ -7,6 +7,45 @@ to verify.
 
 ## [Unreleased]
 
+### v0.0.8 — in progress
+
+**Change 3 (partial) — A2A v1.2 Agent Card** (commit `3d9d58c`):
+- `/.well-known/agent-card.json` `protocolVersion` bumped `0.2` -> `1.2.0`.
+- description rewritten with memory-substrate framing.
+- `supportsAuthenticatedExtendedCard: false` added per A2A v1.x.
+- The `POST /a2a/tasks` task adapter is deferred to a follow-up
+  commit. A2A clients keep working today through the existing
+  `additionalInterfaces` entry pointing at `/mcp`.
+
+**Change 4 — `emem-langmem` Python BaseStore** (commit `3d9d58c`):
+- New package `sdks/emem-langmem/`. LangChain `BaseStore[str, bytes]`
+  over emem MCP. Maps `mget`/`mset`/`mdelete`/`yield_keys` onto
+  `memory_view`/`memory_create`/`memory_delete`. Sync + async.
+- 7/7 mocked-transport tests green.
+- PyPI publish gated on the v0.0.8 tag.
+
+**Change 2 (partial) — `Core` memory kind**:
+- `MemoryKind` enum extended with `Core` (MIRIX six-type taxonomy
+  parity). `from_wire` / `as_str` / `default_ttl_days` round-trip
+  the new variant; default TTL infinite.
+- New `listing_priority()` orders kinds Core -> Procedural ->
+  Semantic -> Episodic -> Resource. `memory_view` directory
+  listings now sort Core entries first so an agent boot-strap
+  reads the persona block before crawling the tree.
+- New env var `EMEM_MEMORY_TTL_CORE_DAYS` for retention override.
+- `Vault` (AEAD-sealed compartment) deferred to its own commit
+  because the ChaCha20-Poly1305 + sled tree + ed25519 cap-binding
+  work is substantial; no half-implementation lands.
+
+**Pending for v0.0.8 tag**:
+- Change 1: scope tags (`{user_id, agent_id, run_id, org_id}` +
+  receipt preimage extension).
+- Change 2 follow-up: `Vault` kind with AEAD + cap-binding.
+- Change 3 follow-up: `POST /a2a/tasks` adapter.
+- Side lane: `example_args` for all 69 MCP tools.
+- Workspace version bump 0.0.7 -> 0.0.8 + tag + auto-publish.
+
+
 ## [0.0.7] — 2026-05-28
 
 ### Added
