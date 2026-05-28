@@ -982,6 +982,11 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/metrics", get(metrics))
         .route("/mcp", get(mcp_discover).post(mcp_jsonrpc))
+        // A2A v1.2 Task adapter — accepts either a strict A2A JSON-RPC
+        // `message/send` envelope or the friendlier `{skill, args}` shape,
+        // dispatches to the underlying MCP tool, and returns an A2A
+        // Task with the emem response as a `data` artifact part.
+        .route("/a2a/tasks", post(post_a2a_task))
         // Fallback: any path the route table doesn't claim renders the
         // canonical 404 HTML for browser clients (with a 20 s soft
         // redirect to `/`) or a `{schema:"emem.error.v1", code:"not_found"}`
@@ -11103,6 +11108,170 @@ fn mcp_origin_allowed(origin: &str) -> bool {
         }
     }
     false
+}
+
+/// A2A v1.2 Task adapter — `POST /a2a/tasks`.
+///
+/// Accepts either the strict A2A JSON-RPC envelope:
+///
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": "<caller id>",
+///   "method": "message/send",
+///   "params": {
+///     "message": {
+///       "role": "user",
+///       "parts": [{ "kind": "data", "data": { ... emem args ... } }]
+///     },
+///     "metadata": { "skill_id": "emem_recall" }
+///   }
+/// }
+/// ```
+///
+/// or a friendlier passthrough shape some agent runtimes prefer:
+///
+/// ```json
+/// { "skill": "emem_recall", "args": { ... } }
+/// ```
+///
+/// Dispatches to the same `mcp_tool_call` used by the MCP transport so
+/// every existing emem skill is reachable. Returns an A2A Task envelope
+/// with the emem response as a `data` artifact part — A2A clients on
+/// Vertex Agent Builder / Microsoft Copilot Studio import this without
+/// any extra adapter on their side.
+async fn post_a2a_task(
+    State(s): State<AppState>,
+    body: axum::body::Bytes,
+) -> Result<Json<JsonValue>, ApiError> {
+    let v: JsonValue = serde_json::from_slice(&body).map_err(|e| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("a2a: request body is not valid JSON: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    // Resolve skill_id + args from either shape.
+    let (skill, args, caller_id) = if v.get("method").and_then(|m| m.as_str()) == Some("message/send")
+    {
+        // A2A strict JSON-RPC envelope.
+        let id = v.get("id").cloned().unwrap_or(JsonValue::Null);
+        let params = v
+            .get("params")
+            .ok_or_else(|| a2a_bad_request("missing `params` for method=message/send"))?;
+        let skill = params
+            .get("metadata")
+            .and_then(|m| m.get("skill_id"))
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| a2a_bad_request(
+                "missing `params.metadata.skill_id` — set it to one of the skills listed in /.well-known/agent-card.json",
+            ))?
+            .to_string();
+        let args = params
+            .get("message")
+            .and_then(|m| m.get("parts"))
+            .and_then(|p| p.as_array())
+            .and_then(|parts| {
+                parts.iter().find_map(|p| {
+                    let kind = p.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+                    if kind == "data" {
+                        p.get("data").cloned()
+                    } else if kind == "text" {
+                        // Some hosts emit text-only — parse as JSON if it looks like one.
+                        p.get("text").and_then(|t| t.as_str()).and_then(|s| {
+                            serde_json::from_str::<JsonValue>(s).ok()
+                        })
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or(JsonValue::Null);
+        (skill, args, id)
+    } else if let Some(skill) = v.get("skill").and_then(|s| s.as_str()) {
+        // Friendly shape.
+        let args = v.get("args").cloned().unwrap_or(JsonValue::Null);
+        let id = v.get("id").cloned().unwrap_or(JsonValue::Null);
+        (skill.to_string(), args, id)
+    } else {
+        return Err(a2a_bad_request(
+            "request must be either A2A `{method:\"message/send\", params:{...}}` \
+             or the friendly `{skill:\"emem_*\", args:{...}}` shape",
+        ));
+    };
+
+    let result = mcp_tool_call(&skill, args, &s).await.map_err(|(code, msg)| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("a2a skill `{skill}` failed: ({code}) {msg}"),
+                details: Some(json!({
+                    "a2a_skill": skill,
+                    "mcp_error_code": code,
+                })),
+            },
+        )
+    })?;
+
+    // ULID-style id derived from blake3(time + skill + request_body).
+    // We don't bring in a ULID dep just for this; the unique-by-clock+input
+    // hash is sufficient for an A2A task-id.
+    let mut h = blake3::Hasher::new();
+    h.update(iso8601_now_utc().as_bytes());
+    h.update(skill.as_bytes());
+    h.update(&body);
+    let task_id = format!("a2a-{}", h.finalize().to_hex().to_string()[..26].to_string());
+    let now = iso8601_now_utc();
+
+    Ok(Json(json!({
+        "jsonrpc": "2.0",
+        "id":      caller_id,
+        "result": {
+            "id":     task_id,
+            "kind":   "task",
+            "status": {
+                "state":     "completed",
+                "timestamp": now,
+            },
+            "artifacts": [{
+                "artifactId": format!("{}-result", task_id),
+                "name":       format!("{skill}_result"),
+                "parts": [{
+                    "kind": "data",
+                    "data": result,
+                }],
+            }],
+            "metadata": {
+                "skill":            skill,
+                "protocolVersion":  "1.2.0",
+                "emem_responder":   format!("{}/mcp", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
+            },
+        },
+    })))
+}
+
+fn a2a_bad_request(msg: &str) -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: format!("a2a: {msg}"),
+            details: Some(json!({
+                "spec": "https://a2a-protocol.org/dev/specification/",
+                "agent_card": "/.well-known/agent-card.json",
+                "supported_shapes": ["message/send", "friendly_skill_args"],
+            })),
+        },
+    )
+}
+
+fn iso8601_now_utc() -> String {
+    emem_storage::server::iso8601_now()
 }
 
 async fn mcp_jsonrpc(
