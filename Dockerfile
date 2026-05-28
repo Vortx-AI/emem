@@ -19,16 +19,22 @@ WORKDIR /usr/src/emem
 # g++ is required by transitive C++ deps:
 #   • ort-sys → bundled ONNX parser.cc (compiled via cc-crate)
 #   • model2vec-rs → tokenizers → esaxx-rs
-# protobuf-compiler (protoc) is required by Lance 6.x build scripts:
-#   • lance-encoding / lance-table use prost-build, which invokes protoc
-#     at build time to generate Rust bindings from .proto files.
+# protobuf-compiler (protoc) + libprotobuf-dev (well-known protos) are
+# required by Lance 6.x build scripts:
+#   • lance-encoding's encodings_v2_0.proto imports
+#     google/protobuf/empty.proto — a Google well-known type. Debian
+#     ships the protoc binary in `protobuf-compiler` and the actual
+#     .proto definitions in `libprotobuf-dev` (under
+#     /usr/include/google/protobuf/). Both are needed; protoc alone
+#     dies with "File not found" at lance-encoding-*/build-script-build.
 # The runtime stage is a fresh debian:trixie-slim so it does not
 # inherit g++ / protoc — this only adds ~50 MB to the build stage.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        pkg-config ca-certificates g++ protobuf-compiler && \
+        pkg-config ca-certificates g++ \
+        protobuf-compiler libprotobuf-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Install mdbook *before* the COPY layers so this layer caches across
@@ -78,8 +84,14 @@ RUN mdbook build docs && rm -f docs/book/book.toml
 # is ~5% larger and a few % slower on hot loops, but it actually
 # builds. Local builds and the GHA `ci` workflow keep full
 # thin-LTO via the workspace profile.
+#
+# CARGO_BUILD_JOBS=2 caps parallel compile jobs at 2 so the largest
+# crates (datafusion / lance-datagen) don't stack their rustc peak
+# RAM across all 4 runner cores at the same moment. Trades ~30 %
+# wall-clock for ~50 % peak RAM headroom.
 ENV CARGO_PROFILE_RELEASE_LTO=off \
-    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    CARGO_BUILD_JOBS=2
 # Use bash so PIPESTATUS works (sh doesn't). On failure, dump the last
 # 200 lines of cargo output so the actual rustc error is visible in the
 # buildx step log (annotations API only shows "cargo exit 101" otherwise).
