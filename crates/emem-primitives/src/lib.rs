@@ -12,6 +12,7 @@ pub mod compare;
 pub mod compare_bands;
 pub mod diff;
 pub mod find_similar;
+pub mod memory_bundle;
 pub mod query_region;
 pub mod recall;
 pub mod refinement;

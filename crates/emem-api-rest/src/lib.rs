@@ -839,6 +839,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
         .route("/v1/memory_token/resolve", post(post_memory_token_resolve))
+        .route("/v1/memory_bundle", post(post_memory_bundle))
+        .route("/v1/memory_bundle/:token", get(get_memory_bundle))
         .route("/v1/state", post(post_state))
         .route("/v1/state_multi", post(post_state_multi))
         .route("/v1/state_diff", post(post_state_diff))
@@ -11089,15 +11091,19 @@ async fn mcp_jsonrpc(
         // dereferenced server-side from compile-time `include_str!`
         // constants — no I/O, no network round-trip.
         "resources/list" => Ok(json!({
-            "resources": mcp_static_resources(),
+            "resources": mcp_full_resources(),
+            "resourceTemplates": mcp_full_resource_templates(),
         })),
         "resources/templates/list" => Ok(json!({
-            "resourceTemplates": mcp_resource_templates(),
+            "resourceTemplates": mcp_full_resource_templates(),
         })),
         "resources/read" => {
             let p = req.params.unwrap_or(JsonValue::Null);
             match p.get("uri").and_then(|v| v.as_str()) {
-                Some(uri) => mcp_read_resource(uri).map(|c| json!({ "contents": [c] })),
+                Some(uri) => match mcp_read_resource_dynamic(uri, &s).await {
+                    Ok(c) => Ok(json!({ "contents": [c] })),
+                    Err(e) => Err(e),
+                },
                 None => Err((-32602, "missing `uri`".to_string())),
             }
         }
@@ -11407,6 +11413,185 @@ fn mcp_read_resource(uri: &str) -> Result<JsonValue, (i64, String)> {
         -32602,
         format!(
             "unknown resource uri '{uri}': call resources/list for the catalog. Templated URIs (emem://cell/..., emem://band/..., emem://algorithm/..., emem://fact/...) follow `resources/templates/list`."
+        ),
+    ))
+}
+
+/// Combined static catalog: doc anchors (legacy `emem://docs/...`) plus
+/// the new `memory://emem/...` registry + corpus_stats anchors. Returned
+/// under `resources/list` so an MCP host sees every always-on resource
+/// in one round-trip.
+fn mcp_full_resources() -> Vec<JsonValue> {
+    let mut out = mcp_static_resources();
+    for r in emem_mcp::RESOURCES {
+        out.push(json!({
+            "uri":         r.uri,
+            "name":        r.name,
+            "mimeType":    r.mime_type,
+            "description": r.description,
+        }));
+    }
+    out
+}
+
+/// Combined template catalog: legacy `emem://...` templates plus the
+/// new dynamic `memory://emem/{cell,fact,bundle}/...` family.
+fn mcp_full_resource_templates() -> Vec<JsonValue> {
+    let mut out = mcp_resource_templates();
+    for t in emem_mcp::RESOURCE_TEMPLATES {
+        out.push(json!({
+            "uriTemplate": t.uri_template,
+            "name":        t.name,
+            "mimeType":    t.mime_type,
+            "description": t.description,
+        }));
+    }
+    out
+}
+
+/// resources/read dispatcher with AppState access. Routes:
+/// - `emem://...`            → legacy static + band/algorithm lookup
+/// - `memory://emem/registry/<name>`  → in-process registry manifests
+/// - `memory://emem/corpus/state_stats` → signed corpus snapshot
+/// - `memory://emem/cell/<cell64>`     → full state cube
+/// - `memory://emem/fact/<cid>`        → signed fact body
+/// - `memory://emem/bundle/<token>`    → signed memory-bundle envelope
+async fn mcp_read_resource_dynamic(
+    uri: &str,
+    s: &AppState,
+) -> Result<JsonValue, (i64, String)> {
+    // Legacy / static `emem://...` URIs first (preserved verbatim).
+    if uri.starts_with("emem://") {
+        return mcp_read_resource(uri);
+    }
+
+    if let Some(rest) = uri.strip_prefix("memory://emem/") {
+        // Static registry manifests.
+        if let Some(name) = rest.strip_prefix("registry/") {
+            let body: Option<JsonValue> = match name {
+                "bands" => Some(
+                    serde_json::to_value(&*emem_core::bands::DEFAULT).unwrap_or(JsonValue::Null),
+                ),
+                "algorithms" => Some(
+                    serde_json::to_value(&*emem_core::algorithms::DEFAULT)
+                        .unwrap_or(JsonValue::Null),
+                ),
+                "sources" => Some(
+                    serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(JsonValue::Null),
+                ),
+                "topics" => Some(
+                    serde_json::to_value(&*emem_core::topics::DEFAULT).unwrap_or(JsonValue::Null),
+                ),
+                "functions" => Some(
+                    serde_json::to_value(&*emem_core::functions::DEFAULT)
+                        .unwrap_or(JsonValue::Null),
+                ),
+                "schema" => Some(
+                    serde_json::to_value(&*emem_core::schema::DEFAULT).unwrap_or(JsonValue::Null),
+                ),
+                _ => None,
+            };
+            if let Some(body) = body {
+                let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+                return Ok(json!({
+                    "uri":      uri,
+                    "mimeType": "application/json",
+                    "text":     text,
+                }));
+            }
+            return Err((
+                -32602,
+                format!(
+                    "unknown registry `{name}` under memory://emem/registry/. Try one of: bands, algorithms, sources, topics, functions, schema."
+                ),
+            ));
+        }
+        if rest == "corpus/state_stats" {
+            match get_corpus_state_stats(State(s.clone())).await {
+                Ok(Json(v)) => {
+                    let body = serde_json::to_value(&v).unwrap_or(JsonValue::Null);
+                    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+                    return Ok(json!({
+                        "uri":      uri,
+                        "mimeType": "application/json",
+                        "text":     text,
+                    }));
+                }
+                Err(e) => return Err((-(e.1.code as i64), e.1.message.clone())),
+            }
+        }
+        if let Some(cell) = rest.strip_prefix("cell/") {
+            // Resolve via the cube view — the state cube is the
+            // canonical "full state of a place" payload.
+            let req = StateReq {
+                cell: cell.to_string(),
+                view: Some("cube".to_string()),
+                encoder: None,
+                tslot: None,
+                materialize: None,
+                families: None,
+                include_reserved: None,
+            };
+            match state_view_cube(s.clone(), req).await {
+                Ok(Json(resp)) => {
+                    let body = serde_json::to_value(&resp).unwrap_or(JsonValue::Null);
+                    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+                    return Ok(json!({
+                        "uri":      uri,
+                        "mimeType": "application/json",
+                        "text":     text,
+                    }));
+                }
+                Err(e) => return Err((-(e.1.code as i64), e.1.message.clone())),
+            }
+        }
+        if let Some(cid) = rest.strip_prefix("fact/") {
+            let cid_obj = emem_fact::FactCid::new(cid.to_string());
+            let facts = s
+                .storage
+                .get_facts_many(&[cid_obj])
+                .await
+                .map_err(|e| (-(e.wire_code() as i64), e.to_string()))?;
+            let fact = facts.into_iter().next().flatten().ok_or_else(|| {
+                (
+                    -32602,
+                    format!("no fact for cid={cid} on this responder"),
+                )
+            })?;
+            let body = serde_json::to_value(&fact).unwrap_or(JsonValue::Null);
+            let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+            return Ok(json!({
+                "uri":      uri,
+                "mimeType": "application/json",
+                "text":     text,
+            }));
+        }
+        if let Some(token) = rest.strip_prefix("bundle/") {
+            // memb:<bundle_cid> or just <bundle_cid> — accept both.
+            let token = if token.starts_with("memb:") {
+                token.to_string()
+            } else {
+                format!("memb:{token}")
+            };
+            match get_memory_bundle(State(s.clone()), Path(token)).await {
+                Ok(Json(v)) => {
+                    let body = serde_json::to_value(&v).unwrap_or(JsonValue::Null);
+                    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+                    return Ok(json!({
+                        "uri":      uri,
+                        "mimeType": "application/json",
+                        "text":     text,
+                    }));
+                }
+                Err(e) => return Err((-(e.1.code as i64), e.1.message.clone())),
+            }
+        }
+    }
+
+    Err((
+        -32602,
+        format!(
+            "unknown resource uri '{uri}': call resources/list for the catalog. Templated URIs (memory://emem/cell/..., memory://emem/fact/..., memory://emem/bundle/..., emem://band/..., emem://algorithm/...) follow `resources/templates/list`."
         ),
     ))
 }
@@ -11833,6 +12018,68 @@ async fn mcp_tool_call(
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
+        }
+        "emem_memory_bundle" => {
+            let req: emem_primitives::memory_bundle::BundleReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_memory_bundle(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_memory_bundle_resolve" => {
+            #[derive(Deserialize)]
+            struct R {
+                token: String,
+            }
+            let r: R = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match get_memory_bundle(State(s.clone()), Path(r.token)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        // Anthropic memory tool (context-management-2025-06-27).
+        "memory_view" => {
+            let req: MemoryViewReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_view_inner(s, req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "memory_create" => {
+            let req: MemoryCreateReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_create_inner(s, req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "memory_str_replace" => {
+            let req: MemoryStrReplaceReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_str_replace_inner(s, req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "memory_insert" => {
+            let req: MemoryInsertReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_insert_inner(s, req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "memory_delete" => {
+            let req: MemoryDeleteReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_delete_inner(s, req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
+        }
+        "memory_rename" => {
+            let req: MemoryRenameReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_rename_inner(s, req)
+                .await
+                .map_err(|e| (-(e.1.code as i64), e.1.message))
         }
         "emem_corpus_state_stats" => match get_corpus_state_stats(State(s.clone())).await {
             Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
@@ -14981,6 +15228,1124 @@ async fn post_memory_token_resolve(
         resolved: true,
         fact_url,
         offline_verify_at: "/verify",
+    }))
+}
+
+// ── /v1/memory_bundle ────────────────────────────────────────────────────
+//
+// Compose N (cell, band, tslot?) triples into ONE signed envelope. Each
+// triple is run through the standard auto-materialize recall path; the
+// resulting fact_cids are bundled into a content-addressed envelope and
+// the responder signs over the full receipt.
+//
+// Wire identity:
+//   - `bundle_token = "memb:<bundle_cid>"`
+//   - `bundle_cid   = base32_nopad_lc(blake3(bundle_body)[:16])` where
+//     `bundle_body` is the deterministic concatenation defined in
+//     `emem-primitives::memory_bundle::compute_bundle_cid`.
+//   - The receipt is signed by `Server::sign_receipt` with primitive
+//     `"emem.memory_bundle"`; preimage matches
+//     `request_id|served_at|primitive|cells|fact_cids`. Bundles are
+//     directly verifiable by the existing `/v1/verify_receipt` path.
+//
+// Persistence: a sled tree keyed by `bundle_cid` → CBOR(BundleResp).
+// On a sled-less ephemeral deploy the response is still returned but
+// `GET /v1/memory_bundle/<token>` will 404 on the same payload (the
+// composer is stateless, the resolver is sled-backed).
+
+async fn post_memory_bundle(
+    State(s): State<AppState>,
+    Json(req): Json<emem_primitives::memory_bundle::BundleReq>,
+) -> Result<Json<emem_primitives::memory_bundle::BundleResp>, ApiError> {
+    use emem_primitives::memory_bundle::{
+        compute_bundle_cid, dedupe_first, BundleCitation, BundleResp, BUNDLES_TREE,
+    };
+
+    if req.triples.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory_bundle requires at least one triple in `triples`".into(),
+                details: None,
+            },
+        ));
+    }
+    if req.triples.len() > 256 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_bundle accepts at most 256 triples per call; got {}",
+                    req.triples.len()
+                ),
+                details: None,
+            },
+        ));
+    }
+
+    let started = std::time::Instant::now();
+    let mut citations: Vec<BundleCitation> = Vec::with_capacity(req.triples.len());
+
+    // Resolve each triple through the same recall path REST callers
+    // hit. Geocoding + auto-materialize follow as a side-effect — a
+    // place-name in `cell` is resolved to cell64 before bundling.
+    for t in &req.triples {
+        let (resolved_cell, _resolved_ref) = resolve_cell_field(&t.cell).await?;
+        let recall_req = RecallReq {
+            cell: resolved_cell.clone(),
+            bands: Some(vec![t.band.clone()]),
+            tslot: t.tslot,
+        };
+        let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
+
+        // Pick the first Primary fact for the requested band — what
+        // the recall path already would have surfaced. The recall
+        // response's `receipt.fact_cids` is positionally aligned with
+        // `resp.facts` (both come from the same pair iteration in the
+        // recall primitive), so we walk the indices to recover the CID
+        // for the band match.
+        let mut found: Option<(usize, &emem_fact::PrimaryFact)> = None;
+        for (i, f) in resp.facts.iter().enumerate() {
+            if let emem_fact::Fact::Primary(p) = f {
+                if p.band == t.band {
+                    found = Some((i, p));
+                    break;
+                }
+            }
+        }
+
+        let (fact_cid, resolved_tslot, miss_reason) = match found {
+            Some((i, p)) => {
+                let cid = resp.receipt.fact_cids.get(i).map(|c| c.0.clone());
+                (cid, p.tslot, None)
+            }
+            None => (
+                None,
+                t.tslot.unwrap_or(0),
+                Some(format!(
+                    "no Primary fact at cell={} band={} tslot={:?} on this responder",
+                    resolved_cell, t.band, t.tslot
+                )),
+            ),
+        };
+
+        let memory_token = fact_cid
+            .as_ref()
+            .map(|cid| format!("memt:{}:{}", resolved_cell, cid));
+
+        citations.push(BundleCitation {
+            cell: resolved_cell,
+            band: t.band.clone(),
+            resolved_tslot,
+            fact_cid,
+            miss_reason,
+            memory_token,
+        });
+    }
+
+    // Deduplicate cells & fact_cids preserving first-seen order; the
+    // receipt cites the union of both lists.
+    let cells: Vec<String> = dedupe_first(citations.iter().map(|c| c.cell.clone()));
+    let fact_cids: Vec<String> =
+        dedupe_first(citations.iter().filter_map(|c| c.fact_cid.clone()));
+
+    let bundle_cid = compute_bundle_cid(&citations, req.purpose.as_deref());
+
+    // Sign with the responder identity over the canonical receipt
+    // preimage so `/v1/verify_receipt` can validate the envelope
+    // without any new code path.
+    let fact_cid_objs: Vec<emem_fact::FactCid> = fact_cids
+        .iter()
+        .cloned()
+        .map(emem_fact::FactCid::new)
+        .collect();
+    let receipt = s.sign_receipt(
+        "emem.memory_bundle",
+        cells.clone(),
+        fact_cid_objs,
+        false,
+        started,
+        None,
+    );
+
+    let signed_at = receipt.served_at.clone();
+    let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+
+    let resp = BundleResp {
+        bundle_token: format!("memb:{}", bundle_cid),
+        bundle_cid: bundle_cid.clone(),
+        schema: "emem.memory_bundle.v1".to_string(),
+        citations,
+        fact_cids,
+        cells,
+        purpose: req.purpose,
+        signed_at,
+        responder_pubkey_b32,
+        receipt,
+    };
+
+    // Persist for `GET /v1/memory_bundle/<token>` resolution. Best-
+    // effort on ephemeral storage: composer still returns the signed
+    // envelope so the agent has the bytes even if the resolver path
+    // cannot serve it later.
+    if let Some(db) = s.storage.hot_sled_db() {
+        if let Ok(tree) = db.open_tree(BUNDLES_TREE) {
+            let mut buf = Vec::with_capacity(1024);
+            if ciborium::ser::into_writer(&resp, &mut buf).is_ok() {
+                let _ = tree.insert(bundle_cid.as_bytes(), buf);
+                let _ = tree.flush();
+            }
+        }
+    }
+
+    Ok(Json(resp))
+}
+
+async fn get_memory_bundle(
+    State(s): State<AppState>,
+    Path(token): Path<String>,
+) -> Result<Json<emem_primitives::memory_bundle::BundleResp>, ApiError> {
+    use emem_primitives::memory_bundle::{parse_bundle_token, BundleResp, BUNDLES_TREE};
+
+    let bundle_cid = parse_bundle_token(&token).map_err(|message| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message,
+                details: None,
+            },
+        )
+    })?;
+
+    let db = s.storage.hot_sled_db().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message:
+                    "memory_bundle persistence requires a sled-backed hot cache; this responder is running ephemeral storage."
+                        .into(),
+                details: None,
+            },
+        )
+    })?;
+    let tree = db.open_tree(BUNDLES_TREE).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_bundles tree: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let bytes = tree.get(bundle_cid.as_bytes()).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("read memory_bundles: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let bytes = bytes.ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "no memory bundle for token=memb:{bundle_cid}. Bundle may have been composed at a different responder; paste the token at that responder to dereference, or POST /v1/memory_bundle with the original triples to re-compose."
+                ),
+                details: None,
+            },
+        )
+    })?;
+
+    let resp: BundleResp = ciborium::de::from_reader(&bytes[..]).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CanonicalEncodingDivergence,
+                message: format!("cbor decode bundle: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    Ok(Json(resp))
+}
+
+// ── Anthropic memory-tool conformance (context-management-2025-06-27) ───
+//
+// File-op surface backing Anthropic's LLM-managed memory. Storage is
+// sled-persisted with two trees: `path → file_cid` and
+// `file_cid → bytes`. Every write is content-addressed and signed by
+// the responder identity so the operation carries a verifiable
+// receipt — the `file_cid` plays the role of a Fact CID for audits.
+//
+// Path safety: every public verb runs `validate_memory_path` to
+// reject any input outside `/memories/` (no `..`, no absolute paths
+// outside the root, no NUL bytes).
+
+const MEMORY_ROOT: &str = "/memories/";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemoryFileMeta {
+    /// Content-addressed file CID (base32-nopad-lc(blake3(bytes)[:16])).
+    file_cid: String,
+    /// Path the file currently lives at.
+    path: String,
+    /// ISO 8601 UTC timestamp of the write.
+    signed_at: String,
+    /// Bytes-length of the file.
+    size_bytes: u64,
+    /// Verb that produced this revision (`create` | `str_replace` |
+    /// `insert` | `rename`).
+    verb: String,
+    /// Signed receipt over the write.
+    receipt: emem_fact::Receipt,
+}
+
+/// Compute the content address for a memory file: blake3 → 16-byte
+/// prefix → base32-nopad-lowercase. Same shape as `bundle_cid`.
+fn compute_file_cid(bytes: &[u8]) -> String {
+    let h = blake3::hash(bytes);
+    data_encoding::BASE32_NOPAD
+        .encode(&h.as_bytes()[..16])
+        .to_lowercase()
+}
+
+/// Validate a memory-tool path stays under `/memories/`. Rejects:
+/// - paths that don't start with `/memories/`
+/// - any `..` segment (path-traversal)
+/// - NUL bytes (filesystem injection)
+/// - empty trailing names (e.g. `/memories//foo` collapses)
+///
+/// `allow_directory` controls whether a trailing slash is accepted.
+fn validate_memory_path(path: &str, allow_directory: bool) -> Result<String, ApiError> {
+    let raw = path.trim();
+    if raw.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory tool path must not be empty".into(),
+                details: None,
+            },
+        ));
+    }
+    if raw.contains('\0') {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory tool path contains NUL byte".into(),
+                details: None,
+            },
+        ));
+    }
+    if !raw.starts_with(MEMORY_ROOT) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory tool path `{raw}` must stay under `{MEMORY_ROOT}` — Anthropic memory tool spec restricts the root."
+                ),
+                details: None,
+            },
+        ));
+    }
+    // Reject `..` and absolute escapes piece by piece.
+    for seg in raw.split('/') {
+        if seg == ".." || seg == "." {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "memory tool path `{raw}` contains `.`/`..` segment; path traversal is rejected."
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
+    // Disallow consecutive slashes anywhere in the path beyond the
+    // single boundary slash. `/memories//x` collapses into an empty
+    // segment that filesystems treat as the parent — refuse it.
+    let inner = &raw[MEMORY_ROOT.len()..];
+    if inner.contains("//") || inner.starts_with('/') {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("memory tool path `{raw}` has empty segments (`//`)."),
+                details: None,
+            },
+        ));
+    }
+    if !allow_directory && raw.ends_with('/') {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory tool path `{raw}` ends with `/` — this verb expects a file path, not a directory."
+                ),
+                details: None,
+            },
+        ));
+    }
+    Ok(raw.to_string())
+}
+
+/// Open the sled DB or return a typed 503. Memory-tool surfaces
+/// always require persistence; an ephemeral deploy has no place for
+/// LLM-managed memory.
+fn memory_db(s: &AppState) -> Result<&sled::Db, ApiError> {
+    s.storage.hot_sled_db().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: "memory tool persistence requires a sled-backed hot cache; this responder is running ephemeral storage.".into(),
+                details: None,
+            },
+        )
+    })
+}
+
+/// Read a memory file's current content + meta. None when missing.
+fn read_memory_file(s: &AppState, path: &str) -> Result<Option<(Vec<u8>, MemoryFileMeta)>, ApiError> {
+    let db = memory_db(s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let Some(cid_bytes) = paths.get(path.as_bytes()).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("read memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?
+    else {
+        return Ok(None);
+    };
+    let cid = String::from_utf8(cid_bytes.to_vec()).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("memory_files cid utf8: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let blobs = db.open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_blobs: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let Some(bytes) = blobs.get(cid.as_bytes()).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("read memory_file_blobs: {e}"),
+                details: None,
+            },
+        )
+    })?
+    else {
+        // Path index pointed at a missing blob — pretend the file is
+        // absent rather than throwing a 500. Drops the index entry so
+        // subsequent calls don't trip the same dangling pointer.
+        let _ = paths.remove(path.as_bytes());
+        return Ok(None);
+    };
+
+    let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_meta: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let meta = metas
+        .get(cid.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+    let meta = match meta {
+        Some(m) => m,
+        None => MemoryFileMeta {
+            file_cid: cid.clone(),
+            path: path.to_string(),
+            signed_at: emem_storage::server::iso8601_now(),
+            size_bytes: bytes.len() as u64,
+            verb: "create".into(),
+            // Synthesise a minimal receipt for pre-meta entries. The
+            // round-trip test path always writes meta, so this branch
+            // only triggers for upgrade-in-place corner cases.
+            receipt: synth_memory_receipt(s, path, &cid, "create", std::time::Instant::now()),
+        },
+    };
+    Ok(Some((bytes.to_vec(), meta)))
+}
+
+/// Sign a memory-file write receipt. Primitive is
+/// `"emem.memory_file"`; `cells` carry the memory path verbatim so an
+/// auditor can grep `receipt.cells[0]` for the touched file; the
+/// `fact_cids` slot carries the new `file_cid` (this is the audit
+/// anchor — `/v1/verify_receipt` validates the ed25519 signature
+/// against this exact set without needing the bytes inline).
+fn synth_memory_receipt(
+    s: &AppState,
+    path: &str,
+    file_cid: &str,
+    _verb: &str,
+    started: std::time::Instant,
+) -> emem_fact::Receipt {
+    s.sign_receipt(
+        "emem.memory_file",
+        vec![path.to_string()],
+        vec![emem_fact::FactCid::new(file_cid.to_string())],
+        false,
+        started,
+        None,
+    )
+}
+
+/// Persist a write: blobs[file_cid]=bytes, paths[path]=file_cid,
+/// history[path].push(file_cid), meta[file_cid]=MemoryFileMeta. The
+/// blob store is content-addressed so repeated writes of the same
+/// bytes cost storage once.
+fn persist_memory_write(
+    s: &AppState,
+    path: &str,
+    bytes: &[u8],
+    verb: &str,
+    started: std::time::Instant,
+) -> Result<MemoryFileMeta, ApiError> {
+    let db = memory_db(s)?;
+    let file_cid = compute_file_cid(bytes);
+    let receipt = synth_memory_receipt(s, path, &file_cid, verb, started);
+    let meta = MemoryFileMeta {
+        file_cid: file_cid.clone(),
+        path: path.to_string(),
+        signed_at: receipt.served_at.clone(),
+        size_bytes: bytes.len() as u64,
+        verb: verb.to_string(),
+        receipt,
+    };
+
+    let blobs = db.open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_blobs: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    blobs.insert(file_cid.as_bytes(), bytes).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("insert memory_file_blobs: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    paths
+        .insert(path.as_bytes(), file_cid.as_bytes())
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("insert memory_files: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+
+    // Append-only history.
+    let history = db.open_tree(emem_storage::TREE_MEMORY_FILE_HISTORY).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_history: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let mut hist: Vec<String> = match history.get(path.as_bytes()) {
+        Ok(Some(v)) => ciborium::de::from_reader(&v[..]).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    if hist.last().map(|s| s.as_str()) != Some(file_cid.as_str()) {
+        hist.push(file_cid.clone());
+    }
+    let mut buf = Vec::new();
+    let _ = ciborium::ser::into_writer(&hist, &mut buf);
+    let _ = history.insert(path.as_bytes(), buf);
+
+    // Per-cid meta.
+    let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_meta: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let mut mbuf = Vec::new();
+    let _ = ciborium::ser::into_writer(&meta, &mut mbuf);
+    let _ = metas.insert(file_cid.as_bytes(), mbuf);
+
+    let _ = blobs.flush();
+    let _ = paths.flush();
+    let _ = history.flush();
+    let _ = metas.flush();
+    Ok(meta)
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryViewReq {
+    path: String,
+    #[serde(default)]
+    view_range: Option<[i64; 2]>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryCreateReq {
+    path: String,
+    file_text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryStrReplaceReq {
+    path: String,
+    old_str: String,
+    new_str: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryInsertReq {
+    path: String,
+    insert_line: i64,
+    new_str: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryDeleteReq {
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryRenameReq {
+    old_path: String,
+    new_path: String,
+}
+
+async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue, ApiError> {
+    let raw = req.path.trim();
+    let is_dir = raw.ends_with('/');
+    let path = validate_memory_path(&req.path, /*allow_directory=*/ is_dir)?;
+    if is_dir {
+        // Directory listing under `path`. List every key in
+        // memory_files whose path starts with `path` (which already
+        // ends in `/`).
+        let db = memory_db(s)?;
+        let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_files: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+        let mut entries: Vec<JsonValue> = Vec::new();
+        for kv in paths.scan_prefix(path.as_bytes()).flatten() {
+            let key = String::from_utf8_lossy(&kv.0).into_owned();
+            let cid = String::from_utf8_lossy(&kv.1).into_owned();
+            entries.push(json!({
+                "path": key,
+                "file_cid": cid,
+                "kind": "file",
+            }));
+        }
+        return Ok(json!({
+            "kind": "directory",
+            "path": path,
+            "entries": entries,
+            "count": entries.len(),
+        }));
+    }
+
+    let (bytes, meta) = read_memory_file(s, &path)?.ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!("no memory file at `{path}`"),
+                details: None,
+            },
+        )
+    })?;
+    let text = String::from_utf8(bytes).map_err(|e| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("memory file at `{path}` is not valid UTF-8: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    let body = if let Some([s_in, e_in]) = req.view_range {
+        // Anthropic spec: 1-indexed inclusive. Clamp to [1, len].
+        let lines: Vec<&str> = text.lines().collect();
+        let total = lines.len() as i64;
+        let start = s_in.max(1).min(total.max(1)) as usize;
+        let end = if e_in < 0 {
+            // Treat negative as "to end".
+            lines.len()
+        } else {
+            (e_in.max(1).min(total.max(1)) as usize).max(start)
+        };
+        if start == 0 || start > lines.len() {
+            String::new()
+        } else {
+            lines[start - 1..end].join("\n")
+        }
+    } else {
+        text
+    };
+
+    Ok(json!({
+        "kind": "file",
+        "path": path,
+        "file_cid": meta.file_cid,
+        "size_bytes": meta.size_bytes,
+        "content": body,
+        "signed_at": meta.signed_at,
+        "receipt": meta.receipt,
+    }))
+}
+
+async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonValue, ApiError> {
+    let path = validate_memory_path(&req.path, /*allow_directory=*/ false)?;
+    let started = std::time::Instant::now();
+    let meta = persist_memory_write(s, &path, req.file_text.as_bytes(), "create", started)?;
+    let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    Ok(json!({
+        "ok": true,
+        "verb": "create",
+        "path": path,
+        "file_cid": meta.file_cid,
+        "size_bytes": meta.size_bytes,
+        "signed_at": meta.signed_at,
+        "responder_pubkey_b32": responder_pubkey_b32,
+        "receipt": meta.receipt,
+    }))
+}
+
+async fn memory_str_replace_inner(
+    s: &AppState,
+    req: MemoryStrReplaceReq,
+) -> Result<JsonValue, ApiError> {
+    let path = validate_memory_path(&req.path, false)?;
+    if req.old_str.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory_str_replace: `old_str` must be non-empty".into(),
+                details: None,
+            },
+        ));
+    }
+    let (bytes, _meta) = read_memory_file(s, &path)?.ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!("memory_str_replace: no file at `{path}`"),
+                details: None,
+            },
+        )
+    })?;
+    let text = String::from_utf8(bytes).map_err(|e| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("memory_str_replace: file is not UTF-8: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let matches = text.matches(&req.old_str).count();
+    if matches == 0 {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_str_replace: `old_str` not found in `{path}`; no edit applied."
+                ),
+                details: None,
+            },
+        ));
+    }
+    if matches > 1 {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_str_replace: `old_str` matched {matches} times in `{path}`; need exactly one. Make the pattern more specific."
+                ),
+                details: None,
+            },
+        ));
+    }
+    let updated = text.replacen(&req.old_str, &req.new_str, 1);
+    let started = std::time::Instant::now();
+    let meta = persist_memory_write(s, &path, updated.as_bytes(), "str_replace", started)?;
+    let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    Ok(json!({
+        "ok": true,
+        "verb": "str_replace",
+        "path": path,
+        "file_cid": meta.file_cid,
+        "size_bytes": meta.size_bytes,
+        "signed_at": meta.signed_at,
+        "responder_pubkey_b32": responder_pubkey_b32,
+        "receipt": meta.receipt,
+    }))
+}
+
+async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonValue, ApiError> {
+    let path = validate_memory_path(&req.path, false)?;
+    let (bytes, _meta) = read_memory_file(s, &path)?.ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!("memory_insert: no file at `{path}`"),
+                details: None,
+            },
+        )
+    })?;
+    let text = String::from_utf8(bytes).map_err(|e| {
+        ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("memory_insert: file is not UTF-8: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let lines: Vec<&str> = text.split('\n').collect();
+    let max = lines.len() as i64;
+    if req.insert_line < 0 || req.insert_line > max {
+        return Err(ApiError(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_insert: insert_line={} out of range [0, {}]",
+                    req.insert_line, max
+                ),
+                details: None,
+            },
+        ));
+    }
+    let mut new_str = req.new_str.clone();
+    if !new_str.ends_with('\n') {
+        new_str.push('\n');
+    }
+    let pos = req.insert_line as usize;
+    let mut out = String::with_capacity(text.len() + new_str.len());
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        out.push_str(line);
+        if i + 1 == pos {
+            // We've just written line `i+1` (1-indexed `pos`). Insert
+            // the new content with a trailing newline before continuing.
+            out.push('\n');
+            out.push_str(new_str.trim_end_matches('\n'));
+        }
+    }
+    if pos == 0 {
+        // Insert at the top.
+        let mut prefix = new_str.trim_end_matches('\n').to_string();
+        prefix.push('\n');
+        prefix.push_str(&text);
+        out = prefix;
+    }
+    let started = std::time::Instant::now();
+    let meta = persist_memory_write(s, &path, out.as_bytes(), "insert", started)?;
+    let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    Ok(json!({
+        "ok": true,
+        "verb": "insert",
+        "path": path,
+        "file_cid": meta.file_cid,
+        "size_bytes": meta.size_bytes,
+        "signed_at": meta.signed_at,
+        "responder_pubkey_b32": responder_pubkey_b32,
+        "receipt": meta.receipt,
+    }))
+}
+
+async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonValue, ApiError> {
+    let raw = req.path.trim();
+    let is_dir = raw.ends_with('/');
+    let path = validate_memory_path(&req.path, is_dir)?;
+    let db = memory_db(s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let mut removed: Vec<String> = Vec::new();
+    if is_dir {
+        let keys: Vec<Vec<u8>> = paths
+            .scan_prefix(path.as_bytes())
+            .filter_map(|r| r.ok().map(|(k, _)| k.to_vec()))
+            .collect();
+        if keys.is_empty() {
+            return Err(ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("memory_delete: no files under `{path}`"),
+                    details: None,
+                },
+            ));
+        }
+        for k in keys {
+            let _ = paths.remove(&k);
+            removed.push(String::from_utf8_lossy(&k).into_owned());
+        }
+    } else {
+        if paths
+            .get(path.as_bytes())
+            .map_err(|e| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorBody {
+                        code: ErrorCode::CacheError,
+                        message: format!("read memory_files: {e}"),
+                        details: None,
+                    },
+                )
+            })?
+            .is_none()
+        {
+            return Err(ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("memory_delete: no file at `{path}`"),
+                    details: None,
+                },
+            ));
+        }
+        let _ = paths.remove(path.as_bytes());
+        removed.push(path.clone());
+    }
+    let _ = paths.flush();
+
+    // Sign a receipt over the delete. The audit binds the deleted
+    // path(s) to the responder identity.
+    let started = std::time::Instant::now();
+    let cells = removed.clone();
+    let receipt = s.sign_receipt(
+        "emem.memory_file",
+        cells,
+        vec![],
+        false,
+        started,
+        None,
+    );
+    let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    Ok(json!({
+        "ok": true,
+        "verb": "delete",
+        "removed": removed,
+        "responder_pubkey_b32": responder_pubkey_b32,
+        "receipt": receipt,
+    }))
+}
+
+async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonValue, ApiError> {
+    let old_path = validate_memory_path(&req.old_path, false)?;
+    let new_path = validate_memory_path(&req.new_path, false)?;
+    if old_path == new_path {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory_rename: old_path and new_path must differ".into(),
+                details: None,
+            },
+        ));
+    }
+    let db = memory_db(s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let cid = paths
+        .get(old_path.as_bytes())
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("read memory_files: {e}"),
+                    details: None,
+                },
+            )
+        })?
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("memory_rename: no file at `{old_path}`"),
+                    details: None,
+                },
+            )
+        })?;
+    if paths
+        .get(new_path.as_bytes())
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("read memory_files: {e}"),
+                    details: None,
+                },
+            )
+        })?
+        .is_some()
+    {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("memory_rename: destination `{new_path}` already exists"),
+                details: None,
+            },
+        ));
+    }
+    paths
+        .insert(new_path.as_bytes(), cid.clone())
+        .and_then(|_| paths.remove(old_path.as_bytes()))
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("rename memory_files: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let _ = paths.flush();
+
+    let cid_str = String::from_utf8_lossy(&cid).into_owned();
+    let started = std::time::Instant::now();
+    let receipt = s.sign_receipt(
+        "emem.memory_file",
+        vec![new_path.clone()],
+        vec![emem_fact::FactCid::new(cid_str.clone())],
+        false,
+        started,
+        None,
+    );
+    let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    Ok(json!({
+        "ok": true,
+        "verb": "rename",
+        "old_path": old_path,
+        "new_path": new_path,
+        "file_cid": cid_str,
+        "responder_pubkey_b32": responder_pubkey_b32,
+        "receipt": receipt,
     }))
 }
 
@@ -37765,5 +39130,351 @@ mod tests {
             aggregate_baseline_provenance(&none_cells),
             "neither_available"
         );
+    }
+
+    // ── Memory-substrate primitives (Part 1/2/3 of the substrate
+    //    upgrade) ────────────────────────────────────────────────────
+
+    /// Spin an in-process ephemeral responder so tokio-based tests can
+    /// exercise sled-persisted memory-tool / memory-bundle endpoints
+    /// without a network round-trip. Mirrors the construction used in
+    /// `emem-server`, minus the long-running router warmup.
+    fn test_app_state() -> AppState {
+        use emem_storage::server::{ManifestCids, ResponderIdentity};
+        use emem_storage::{MaterializingStorage, Server};
+        let bands = std::sync::Arc::new((*emem_core::bands::DEFAULT).clone());
+        let functions = std::sync::Arc::new((*emem_core::functions::DEFAULT).clone());
+        let sources = std::sync::Arc::new((*emem_core::sources::DEFAULT).clone());
+        let storage = MaterializingStorage::ephemeral(bands, functions, sources)
+            .expect("ephemeral storage");
+        let identity = ResponderIdentity::fresh();
+        let manifests = ManifestCids {
+            registry_cid: emem_fact::RegistryCid::new("reg".to_string()),
+            schema_cid: emem_fact::SchemaCid::new("sch".to_string()),
+            bands_cid: "bands".to_string(),
+            sources_cid: "sources".to_string(),
+        };
+        std::sync::Arc::new(Server {
+            storage: std::sync::Arc::new(storage),
+            identity,
+            manifests,
+            started_at_unix_s: 0,
+        })
+    }
+
+    #[test]
+    fn memory_path_rejects_traversal() {
+        // The Anthropic memory tool root is `/memories/`. Anything
+        // that tries to climb out (`..`, paths outside the prefix, NUL)
+        // must fail BEFORE we touch storage.
+        for bad in &[
+            "../etc/passwd",
+            "/etc/passwd",
+            "/memories/../etc/passwd",
+            "/memories/sub/../../etc",
+            "/memories/./hidden",
+            "memories/foo",     // no leading slash
+            "/memories",        // no trailing slash AND no name
+            "/memories/foo\0bar",
+            "/memories//double",
+        ] {
+            assert!(
+                validate_memory_path(bad, /*allow_directory=*/ true).is_err(),
+                "validate_memory_path must reject `{bad}`"
+            );
+        }
+        for good in &[
+            "/memories/foo.md",
+            "/memories/sub/foo.md",
+            "/memories/deep/nested/file.txt",
+        ] {
+            assert!(
+                validate_memory_path(good, false).is_ok(),
+                "validate_memory_path must accept `{good}`"
+            );
+        }
+        // Directory listing requires the trailing slash.
+        assert!(validate_memory_path("/memories/", true).is_ok());
+        assert!(validate_memory_path("/memories/", false).is_err());
+    }
+
+    #[tokio::test]
+    async fn memory_file_create_view_replace_insert_delete_roundtrip() {
+        let s = test_app_state();
+        // Create.
+        let create = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: "/memories/notes.md".into(),
+                file_text: "hello world".into(),
+            },
+        )
+        .await
+        .map_err(|e| format!("create: {} {}", e.0, e.1.message))
+        .unwrap();
+        let cid1 = create
+            .get("file_cid")
+            .and_then(|v| v.as_str())
+            .expect("file_cid")
+            .to_string();
+        assert!(!cid1.is_empty());
+
+        // View.
+        let view = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: "/memories/notes.md".into(),
+                view_range: None,
+            },
+        )
+        .await
+        .map_err(|e| format!("view: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(
+            view.get("content").and_then(|v| v.as_str()),
+            Some("hello world")
+        );
+
+        // str_replace produces a new file_cid.
+        let rep = memory_str_replace_inner(
+            &s,
+            MemoryStrReplaceReq {
+                path: "/memories/notes.md".into(),
+                old_str: "hello".into(),
+                new_str: "hi".into(),
+            },
+        )
+        .await
+        .map_err(|e| format!("str_replace: {} {}", e.0, e.1.message)).unwrap();
+        let cid2 = rep
+            .get("file_cid")
+            .and_then(|v| v.as_str())
+            .expect("file_cid")
+            .to_string();
+        assert_ne!(cid1, cid2, "str_replace must produce a fresh file_cid");
+
+        let view2 = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: "/memories/notes.md".into(),
+                view_range: None,
+            },
+        )
+        .await
+        .map_err(|e| format!("view2: {} {}", e.0, e.1.message)).unwrap();
+        assert_eq!(
+            view2.get("content").and_then(|v| v.as_str()),
+            Some("hi world")
+        );
+
+        // insert prepends at line 0.
+        let _ins = memory_insert_inner(
+            &s,
+            MemoryInsertReq {
+                path: "/memories/notes.md".into(),
+                insert_line: 0,
+                new_str: "header".into(),
+            },
+        )
+        .await
+        .map_err(|e| format!("insert: {} {}", e.0, e.1.message)).unwrap();
+        let view3 = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: "/memories/notes.md".into(),
+                view_range: None,
+            },
+        )
+        .await
+        .map_err(|e| format!("view3: {} {}", e.0, e.1.message)).unwrap();
+        let text3 = view3
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        assert!(
+            text3.starts_with("header\n"),
+            "expected insert at top; got {text3:?}"
+        );
+
+        // delete drops the file.
+        let del = memory_delete_inner(
+            &s,
+            MemoryDeleteReq {
+                path: "/memories/notes.md".into(),
+            },
+        )
+        .await
+        .map_err(|e| format!("delete: {} {}", e.0, e.1.message)).unwrap();
+        assert_eq!(del.get("ok").and_then(|v| v.as_bool()), Some(true));
+        let viewmiss = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: "/memories/notes.md".into(),
+                view_range: None,
+            },
+        )
+        .await;
+        assert!(viewmiss.is_err(), "view must 404 after delete");
+    }
+
+    #[tokio::test]
+    async fn memory_file_receipt_verifies_offline() {
+        // Every write returns a Receipt that the existing
+        // /v1/verify_receipt path validates without any new code.
+        let s = test_app_state();
+        let resp = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: "/memories/verify.md".into(),
+                file_text: "audit me".into(),
+            },
+        )
+        .await
+        .map_err(|e| format!("create: {} {}", e.0, e.1.message))
+        .unwrap();
+        let receipt_json = resp.get("receipt").cloned().expect("receipt");
+        let receipt: emem_fact::Receipt =
+            serde_json::from_value(receipt_json).expect("receipt deserialises");
+        let req = VerifyReceiptReq {
+            receipt,
+            pubkey_b32: None,
+        };
+        let v = post_verify_receipt(Ok(Json(req)))
+            .await
+            .map_err(|e| format!("verify ok: {} {}", e.0, e.1.message)).unwrap();
+        assert_eq!(
+            v.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "memory-file receipt must verify against the responder pubkey: {v:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn memory_str_replace_rejects_multiple_matches() {
+        // Strict single-match contract is the contract Anthropic's
+        // memory tool expects — a multi-match str_replace surfaces a
+        // typed error so the LLM widens the pattern.
+        let s = test_app_state();
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: "/memories/foo.md".into(),
+                file_text: "a a a".into(),
+            },
+        )
+        .await
+        .map_err(|e| format!("create: {} {}", e.0, e.1.message))
+        .unwrap();
+        let e = memory_str_replace_inner(
+            &s,
+            MemoryStrReplaceReq {
+                path: "/memories/foo.md".into(),
+                old_str: "a".into(),
+                new_str: "b".into(),
+            },
+        )
+        .await
+        .expect_err("must error on multi-match");
+        assert_eq!(e.0, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn memory_bundle_round_trip_persists_and_resolves() {
+        // Compose a bundle (the recall path 404s without seeded facts,
+        // so we cite a sentinel CID by issuing the request and letting
+        // each triple register as a miss). The composed envelope still
+        // signs over the deduped cells; the resolver returns the same
+        // payload. We then verify the receipt the bundle carries with
+        // the offline verifier.
+        let s = test_app_state();
+        let cell = "defi.zb4d9.pefa.zf619";
+        // Bundle with one triple — the band miss writes a citation
+        // with fact_cid=None; the receipt's fact_cids list is empty
+        // but cells are populated and the envelope still signs.
+        let req = emem_primitives::memory_bundle::BundleReq {
+            triples: vec![emem_primitives::memory_bundle::BundleTriple {
+                cell: cell.into(),
+                band: "indices.ndvi".into(),
+                tslot: Some(0),
+            }],
+            purpose: Some("test".into()),
+        };
+        let resp = post_memory_bundle(State(s.clone()), Json(req))
+            .await
+            .map_err(|e| format!("bundle: {} {}", e.0, e.1.message)).unwrap();
+        let bundle = resp.0;
+        assert!(bundle.bundle_token.starts_with("memb:"));
+        assert_eq!(bundle.cells, vec![cell.to_string()]);
+        assert_eq!(bundle.citations.len(), 1);
+
+        // Resolve via the GET path: the bundle bytes round-trip from
+        // sled byte-identically.
+        let resolved = get_memory_bundle(State(s.clone()), Path(bundle.bundle_token.clone()))
+            .await
+            .map_err(|e| format!("resolve: {} {}", e.0, e.1.message)).unwrap()
+            .0;
+        assert_eq!(resolved.bundle_cid, bundle.bundle_cid);
+        assert_eq!(resolved.cells, bundle.cells);
+
+        // Verify the bundle's signed receipt offline.
+        let vreq = VerifyReceiptReq {
+            receipt: bundle.receipt.clone(),
+            pubkey_b32: None,
+        };
+        let v = post_verify_receipt(Ok(Json(vreq)))
+            .await
+            .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
+            .unwrap();
+        assert_eq!(
+            v.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "bundle receipt must verify: {v:?}"
+        );
+
+        // Unknown token is 404.
+        let bad = get_memory_bundle(
+            State(s.clone()),
+            Path("memb:zzzzzzzzzzzzzzzz".to_string()),
+        )
+        .await
+        .expect_err("unknown token");
+        assert_eq!(bad.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn mcp_resources_list_includes_registry_anchors_and_templates() {
+        // resources/list must surface the new memory:// registry
+        // anchors AND the cell/fact/bundle templates so the MCP host
+        // sees both via the same call.
+        let res = mcp_full_resources();
+        let template_uris: std::collections::HashSet<_> = mcp_full_resource_templates()
+            .iter()
+            .filter_map(|t| t.get("uriTemplate").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        let uris: std::collections::HashSet<_> = res
+            .iter()
+            .filter_map(|r| r.get("uri").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        assert!(uris.contains("memory://emem/registry/bands"));
+        assert!(uris.contains("memory://emem/registry/algorithms"));
+        assert!(uris.contains("memory://emem/corpus/state_stats"));
+        assert!(template_uris.contains("memory://emem/cell/{cell64}"));
+        assert!(template_uris.contains("memory://emem/fact/{fact_cid}"));
+        assert!(template_uris.contains("memory://emem/bundle/{bundle_token}"));
+    }
+
+    #[tokio::test]
+    async fn mcp_resources_read_resolves_registry_manifest() {
+        let s = test_app_state();
+        let r = mcp_read_resource_dynamic("memory://emem/registry/bands", &s)
+            .await
+            .map_err(|(c, m)| format!("registry/bands: {c} {m}"))
+            .unwrap();
+        let text = r.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(text.starts_with('{'), "registry body must be JSON: {text:.40}");
+        // The bands manifest carries `bands` as the top-level array.
+        let parsed: serde_json::Value =
+            serde_json::from_str(text).expect("registry payload parses");
+        assert!(parsed.get("bands").is_some(), "expected `bands` field");
     }
 }
