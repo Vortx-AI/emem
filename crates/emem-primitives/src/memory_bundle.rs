@@ -38,6 +38,15 @@ pub struct BundleTriple {
     /// natural latest tslot at that cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tslot: Option<u64>,
+    /// Bi-temporal valid-time bound — forwarded to this triple's
+    /// recall so a bundle can cite "what was attested AS OF date X".
+    /// See [`crate::recall::RecallReq::as_of_tslot`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound (RFC 3339) — forwarded to
+    /// this triple's recall.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_signed_at: Option<String>,
 }
 
 /// One cited fact in the bundle. Carries the resolved cell64, band,

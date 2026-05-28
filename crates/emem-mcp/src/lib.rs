@@ -223,13 +223,17 @@ const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties"
 "cell":{"type":"string","description":"cell64 string, e.g. 'damO.zb000.xUti.zde78'","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "band":{"type":"string","description":"optional single band key — convenience alias for bands:[band]. Use when you want exactly one band (e.g. 'geotessera.2020', 'modis.ndvi_mean') and would otherwise have to wrap it in an array. Both `band` and `bands` are accepted; if both are given they are merged."},
 "bands":{"type":"array","items":{"type":"string"},"description":"optional band keys to filter, e.g. ['indices.ndvi','geotessera']"},
-"tslot":{"type":"integer","description":"optional time slot (band-tempo-relative integer offset from emem epoch)"}
+"tslot":{"type":"integer","description":"optional time slot (band-tempo-relative integer offset from emem epoch)"},
+"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Returns the latest fact per (cell,band) whose tslot ≤ as_of_tslot — answers `what did this place look like AS OF date X`. Conflicts with an explicit `tslot` when as_of_tslot < tslot (rejected with code:`invalid_temporal_bound`)."},
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound. RFC 3339 string. Returns only facts whose `signed_at` ≤ as_of_signed_at — answers `what did emem KNOW as of system-date Y`. Malformed strings are rejected with code:`invalid_signed_at_format`."}
 }}"#;
 
 const SCHEMA_QUERY_REGION: &str = r#"{"type":"object","required":["geometry"],"properties":{
 "geometry":{"type":"string","description":"cell64 string, or 'cells:c1,c2,c3'"},
 "bands":{"type":"array","items":{"type":"string"}},
-"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"],"description":"optional per-band aggregation"}
+"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"],"description":"optional per-band aggregation"},
+"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound — applied per cell across the region. See emem_recall for semantics."},
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
 }}"#;
 
 const SCHEMA_COMPARE: &str = r#"{"type":"object","required":["a","b"],"properties":{
@@ -251,7 +255,9 @@ const SCHEMA_FIND_SIMILAR: &str = r#"{"type":"object","required":["key"],"proper
 "key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},
 "k":{"type":"integer","minimum":1,"maximum":1000,"default":10},
 "band":{"type":"string","default":"geotessera","description":"vector band to scan (default: 128-D Tessera foundation embedding). For mode=hamming/hamming_then_rerank you can pass either the cosine band (e.g. 'geotessera') or its binary sibling ('geotessera.bin128') — the responder picks the right one."},
-"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. cosine = fp32 over full vector (precise, ~256 B/cell scan). hamming = sign-bit popcount over the binary sibling band (~16 B/cell, ~1000× faster, ~65% recall@10). hamming_then_rerank = triage with Hamming on 4·k candidates then re-rank by cosine — matches cosine precision at ~16× less work."}
+"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. cosine = fp32 over full vector (precise, ~256 B/cell scan). hamming = sign-bit popcount over the binary sibling band (~16 B/cell, ~1000× faster, ~65% recall@10). hamming_then_rerank = triage with Hamming on 4·k candidates then re-rank by cosine — matches cosine precision at ~16× less work."},
+"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Applied to candidate cells BEFORE cosine scoring — a cell with no fact whose tslot ≤ as_of_tslot under the scoring band is dropped from the candidate pool (undecidable→drop). When set, the Lance ANN fast-path is bypassed (the index has no signed_at column); brute-force k-NN runs instead so as_of is honoured truthfully."},
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Also applied to candidates BEFORE cosine. Same Lance-bypass note as as_of_tslot."}
 }}"#;
 
 const SCHEMA_DIFF: &str = r#"{"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{
@@ -264,7 +270,9 @@ const SCHEMA_DIFF: &str = r#"{"type":"object","required":["cell","band","tslot_a
 const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["cell","band","window"],"properties":{
 "cell":{"type":"string"},
 "band":{"type":"string"},
-"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot] inclusive"}
+"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot] inclusive"},
+"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Skips points with tslot > as_of_tslot — effectively clips the window's upper edge."},
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Restricts the series to facts signed at or before this instant."}
 }}"#;
 
 const SCHEMA_VERIFY: &str = r#"{"type":"object","required":["claim","cell"],"properties":{
@@ -300,13 +308,17 @@ const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"propert
 "tslot":{"type":"integer","description":"Optional tslot bucket; omit for natural per-band vintages."},
 "materialize":{"type":"boolean","description":"`view=cube` only. Opt in to FULL auto-materialisation. Default false. The cube view auto-warms geotessera on a cold cell regardless of this flag, so view=cube is never less informative than view=encoder."},
 "families":{"type":"array","items":{"type":"string"},"description":"`view=cube` only. Limit the cube to a subset of band families (e.g. [\"foundation\",\"vegetation\"]). Slots from other families report `status:\"filtered_out\"`."},
-"include_reserved":{"type":"boolean","description":"`view=cube` only. Include declared-but-inert placeholder slots (`_reserved_128`, `reserved`) in the coverage manifest. Default false."}
+"include_reserved":{"type":"boolean","description":"`view=cube` only. Include declared-but-inert placeholder slots (`_reserved_128`, `reserved`) in the coverage manifest. Default false."},
+"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound — forwarded to the underlying recall. Lets `/v1/state` answer `what did this place look like as of date X` for both encoder and cube views."},
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
 }}"#;
 
 const SCHEMA_STATE_MULTI: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string"},
 "encoders":{"type":"array","items":{"type":"string"},"description":"Optional explicit list; defaults to all wired foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`)."},
-"tslot":{"type":"integer"}
+"tslot":{"type":"integer"},
+"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound — forwarded to every per-encoder recall."},
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
 }}"#;
 
 const SCHEMA_STATE_DIFF: &str = r#"{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{
@@ -448,6 +460,8 @@ const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
 }, "description":"Explicit polygon bbox; alternative to `place` when caller already has coordinates. REQUIRED unless `place` is provided."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Bands to recall at each fan-out cell."},
 "tslot":{"type":"integer"},
+"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound — forwarded to every per-cell recall in the fan-out."},
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},
 "max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64,"description":"Cap on cells sampled from the polygon."},
 "include":{"type":"array","items":{"type":"string","enum":["ftw_fields"]},"description":"Optional supplements attached to the response. `ftw_fields` adds per-field agricultural-boundary polygons from Fields of The World (https://fieldsofthe.world, CC-BY-4.0) for the resolved polygon bbox — useful for farm queries where the OSM polygon is the estate envelope but the user wants the actual fields inside. Adds ~150-500 ms on first call per region (cached thereafter)."}
 }}"#;

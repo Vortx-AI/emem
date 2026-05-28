@@ -24,6 +24,7 @@ use emem_fact::{Fact, FactCid, Receipt};
 use emem_storage::{Server, StorageError};
 
 use crate::cbor_ops::{as_f64, as_vec_f32};
+use crate::recall::{build_as_of_bound, TemporalAdvice};
 
 /// Hard ceiling on cells synthesised from a bbox. At the cell64 ~10 m
 /// pitch this covers ~6.4 km × 6.4 km at the equator; agents asking for
@@ -40,17 +41,25 @@ pub const MAX_BBOX_CELLS: usize = 4096;
 pub const MAX_REGION_FACTS: usize = 65_536;
 
 /// query_region request — geometry can be cell or comma list of cells.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct QueryRegionReq {
     /// `<cell64>` | `cells:c1,c2,...`.
     pub geometry: String,
     /// Optional band filter.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bands: Option<Vec<String>>,
     /// Aggregation: "mean" | "median" | "p90" | "vector_centroid".
     /// When unset, every matching primary fact is returned per cell.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agg: Option<String>,
+    /// Bi-temporal valid-time bound — applied per-cell. See
+    /// [`crate::recall::RecallReq::as_of_tslot`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound — applied per-cell. See
+    /// [`crate::recall::RecallReq::as_of_signed_at`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_signed_at: Option<String>,
 }
 
 /// query_region response.
@@ -60,6 +69,11 @@ pub struct QueryRegionResp {
     pub facts: Vec<Fact>,
     /// Aggregated per-band summaries when `agg` is set.
     pub aggregates: BTreeMap<String, ciborium::Value>,
+    /// Populated when the response is empty BECAUSE the bi-temporal
+    /// `as_of_*` bound filtered everything out. See
+    /// [`crate::recall::TemporalAdvice`] for the contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temporal_advice: Option<TemporalAdvice>,
     /// Signed receipt.
     pub receipt: Receipt,
 }
@@ -71,6 +85,7 @@ pub async fn query_region(
 ) -> Result<QueryRegionResp, StorageError> {
     let started = Instant::now();
     let storage = srv.storage.as_ref();
+    let bound = build_as_of_bound(None, req.as_of_tslot, req.as_of_signed_at.as_deref())?;
 
     let cells: Vec<String> = if let Some(rest) = req.geometry.strip_prefix("cells:") {
         let parsed: Vec<String> = rest
@@ -108,11 +123,18 @@ pub async fn query_region(
 
     let mut all_facts: Vec<Fact> = Vec::new();
     let mut all_cids: Vec<FactCid> = Vec::new();
+    let mut unbounded_total: usize = 0;
     'outer: for cell in &cells {
         if all_facts.len() >= MAX_REGION_FACTS {
             break;
         }
-        let entries = storage.scan_cell(cell, None).await?;
+        let entries = if bound.is_unbounded() {
+            storage.scan_cell(cell, None).await?
+        } else {
+            // Track the unbounded count for the temporal_advice diagnostic.
+            unbounded_total += storage.scan_cell(cell, None).await?.len();
+            storage.scan_cell_as_of(cell, None, &bound).await?
+        };
         let cids: Vec<FactCid> = entries.into_iter().map(|(_, c)| c).collect();
         let fetched = storage.get_facts_many(&cids).await?;
         for (cid, fact) in cids.iter().zip(fetched) {
@@ -143,10 +165,35 @@ pub async fn query_region(
         Some(op) => aggregate(&all_facts, op)?,
     };
 
-    let receipt = srv.sign_receipt("emem.query_region", cells, all_cids, true, started, None);
+    let temporal_advice = if all_facts.is_empty() && !bound.is_unbounded() && unbounded_total > 0 {
+        Some(TemporalAdvice {
+                as_of_tslot: bound.valid_time,
+                as_of_signed_at: bound.transaction_time.clone(),
+                facts_at_cell_unbounded: unbounded_total,
+                hint: format!(
+                    "region has {unbounded_total} attested fact(s) across {} cell(s) without the as_of bound; \
+                     all of them were filtered by your as_of_tslot/as_of_signed_at. \
+                     Either drop the bound or widen it.",
+                    cells.len()
+                ),
+            })
+    } else {
+        None
+    };
+
+    let receipt = srv.sign_receipt_with_as_of(
+        "emem.query_region",
+        cells,
+        all_cids,
+        true,
+        started,
+        None,
+        &bound,
+    );
     Ok(QueryRegionResp {
         facts: all_facts,
         aggregates,
+        temporal_advice,
         receipt,
     })
 }

@@ -79,6 +79,162 @@ pub fn f32_to_cbor(x: f32) -> ciborium::Value {
     ciborium::Value::Float(x as f64)
 }
 
+/// Strict RFC 3339 / ISO 8601 validator used for `as_of_signed_at`.
+///
+/// We do not need to convert to a calendrical type — every comparison
+/// the bi-temporal filter performs is lexicographic against another
+/// RFC 3339 string (`fact.signed_at`). What we DO need is to reject
+/// malformed input with a clear error so an agent passing the wrong
+/// format gets a 400, not a silent always-empty result.
+///
+/// Accepted shape: `YYYY-MM-DDTHH:MM:SS(.fff)?(Z|±HH:MM)`. The check
+/// is deliberately permissive on the fractional-second precision so a
+/// caller that pastes e.g. `2026-05-21T00:00:00.123456Z` from another
+/// system still wins.
+pub fn parse_rfc3339_strict(s: &str) -> Result<(), String> {
+    // Bare minimum: `YYYY-MM-DDTHH:MM:SSZ` is 20 chars; with offset it's
+    // 25; with sub-second it can be longer. Anything shorter than 20 is
+    // structurally impossible to satisfy.
+    if s.len() < 20 {
+        return Err(format!(
+            "as_of_signed_at must be RFC 3339 (e.g. `2026-05-21T00:00:00Z`); got `{s}` (too short)"
+        ));
+    }
+    let b = s.as_bytes();
+    // YYYY-MM-DDT
+    let is_d = |i: usize| b[i].is_ascii_digit();
+    if !(is_d(0)
+        && is_d(1)
+        && is_d(2)
+        && is_d(3)
+        && b[4] == b'-'
+        && is_d(5)
+        && is_d(6)
+        && b[7] == b'-'
+        && is_d(8)
+        && is_d(9)
+        && (b[10] == b'T' || b[10] == b't' || b[10] == b' ')
+        && is_d(11)
+        && is_d(12)
+        && b[13] == b':'
+        && is_d(14)
+        && is_d(15)
+        && b[16] == b':'
+        && is_d(17)
+        && is_d(18))
+    {
+        return Err(format!(
+            "as_of_signed_at must be RFC 3339 (e.g. `2026-05-21T00:00:00Z`); got `{s}` (bad date/time skeleton)"
+        ));
+    }
+    // Validate calendar / clock ranges to reject obvious garbage like
+    // `2026-13-32T25:99:99Z`. Bi-temporal filtering relies on the input
+    // being lexically order-comparable; a syntactically valid but
+    // calendrically impossible value would lex-sort to a misleading
+    // spot.
+    let parse_n = |start: usize, len: usize| -> u32 {
+        let mut v = 0u32;
+        for i in 0..len {
+            v = v * 10 + (b[start + i] - b'0') as u32;
+        }
+        v
+    };
+    let month = parse_n(5, 2);
+    let day = parse_n(8, 2);
+    let hour = parse_n(11, 2);
+    let min = parse_n(14, 2);
+    let sec = parse_n(17, 2);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || min > 59 || sec > 60
+    // RFC 3339 allows leap seconds (60).
+    {
+        return Err(format!(
+            "as_of_signed_at must be RFC 3339 (e.g. `2026-05-21T00:00:00Z`); got `{s}` (out-of-range component)"
+        ));
+    }
+    // Optional fractional seconds: `.ddd…`.
+    let mut i = 19usize;
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        let frac_start = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == frac_start {
+            return Err(format!(
+                "as_of_signed_at must be RFC 3339; got `{s}` (empty fractional seconds after `.`)"
+            ));
+        }
+    }
+    // Required timezone: `Z` or `±HH:MM`.
+    if i >= b.len() {
+        return Err(format!(
+            "as_of_signed_at must end with a timezone (`Z` or `±HH:MM`); got `{s}`"
+        ));
+    }
+    match b[i] {
+        b'Z' | b'z' => {
+            if i + 1 != b.len() {
+                return Err(format!(
+                    "as_of_signed_at has trailing chars after `Z`; got `{s}`"
+                ));
+            }
+        }
+        b'+' | b'-' => {
+            if i + 6 != b.len()
+                || !is_d(i + 1)
+                || !is_d(i + 2)
+                || b[i + 3] != b':'
+                || !is_d(i + 4)
+                || !is_d(i + 5)
+            {
+                return Err(format!(
+                    "as_of_signed_at timezone offset must be `±HH:MM`; got `{s}`"
+                ));
+            }
+            let tz_h = parse_n(i + 1, 2);
+            let tz_m = parse_n(i + 4, 2);
+            if tz_h > 14 || tz_m > 59 {
+                return Err(format!(
+                    "as_of_signed_at timezone offset out of range; got `{s}`"
+                ));
+            }
+        }
+        _ => {
+            return Err(format!(
+                "as_of_signed_at must end with `Z` or `±HH:MM`; got `{s}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod rfc3339_tests {
+    use super::parse_rfc3339_strict;
+
+    #[test]
+    fn parses_z_suffixed() {
+        assert!(parse_rfc3339_strict("2026-05-21T00:00:00Z").is_ok());
+        assert!(parse_rfc3339_strict("2026-05-21T00:00:00.123Z").is_ok());
+        assert!(parse_rfc3339_strict("2026-05-21T00:00:00.123456Z").is_ok());
+    }
+
+    #[test]
+    fn parses_offset_suffix() {
+        assert!(parse_rfc3339_strict("2026-05-21T00:00:00+05:30").is_ok());
+        assert!(parse_rfc3339_strict("2026-05-21T00:00:00-08:00").is_ok());
+    }
+
+    #[test]
+    fn rejects_malformed() {
+        assert!(parse_rfc3339_strict("2026-05-21").is_err());
+        assert!(parse_rfc3339_strict("2026-13-21T00:00:00Z").is_err());
+        assert!(parse_rfc3339_strict("2026-05-21T25:00:00Z").is_err());
+        assert!(parse_rfc3339_strict("2026-05-21T00:00:00").is_err());
+        assert!(parse_rfc3339_strict("yesterday").is_err());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,4 +17,4 @@ pub use fact::{
     Derivation, DerivativeFact, Fact, FactKind, NegativeFact, PrimaryFact, ServedVia, Source,
     Uncertainty,
 };
-pub use receipt::{Cost, MerkleProof, Receipt};
+pub use receipt::{AsOfReceipt, Cost, MerkleProof, Receipt};

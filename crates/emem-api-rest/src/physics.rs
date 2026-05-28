@@ -153,6 +153,7 @@ async fn fetch_primary_scalar(
         cell: cell.to_string(),
         bands: Some(vec![band.to_string()]),
         tslot: None,
+        ..Default::default()
     };
     let (resp, _notes) = recall_with_auto_materialize(&req, state).await?;
     for (idx, f) in resp.facts.iter().enumerate() {
@@ -936,6 +937,7 @@ async fn walk_seaward_profile(
                 cell: probe.clone(),
                 bands: Some(vec![band.to_string()]),
                 tslot: None,
+                ..Default::default()
             };
             if let Ok((resp, _)) = recall_with_auto_materialize(&req, state).await {
                 if let Some((depth, _)) = primary_scalar_for_band(&resp, band) {
@@ -1261,6 +1263,7 @@ pub async fn jepa_predict(
         cell: req.cell.clone(),
         bands: Some(vec![req.band.clone()]),
         tslot: None,
+        ..Default::default()
     };
     let (resp, materialize_notes) = recall_with_auto_materialize(&req_recall, state).await?;
     let mut history = primary_history_for_band(&resp, &req.band);
@@ -1475,6 +1478,7 @@ async fn collect_lags_for_band(
         cell: cell.to_string(),
         bands: Some(vec![band.to_string()]),
         tslot: None,
+        ..Default::default()
     };
     let mut history: Vec<(u64, f32, String)> = Vec::new();
     if let Ok((resp, _notes)) = recall_with_auto_materialize(&req, state).await {

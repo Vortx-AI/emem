@@ -5664,6 +5664,7 @@ async fn get_cell(
         cell: cell64,
         bands: None,
         tslot: None,
+        ..Default::default()
     };
     let resp = recall(&req, &s).await?;
     let mut v = serde_json::to_value(resp).unwrap_or(json!({}));
@@ -5691,6 +5692,13 @@ struct RecallApiReq {
     bands: Option<Vec<String>>,
     #[serde(default)]
     tslot: Option<u64>,
+    /// Bi-temporal valid-time bound — forwarded to the canonical
+    /// `RecallReq`. See the primitive docs for semantics + honesty guards.
+    #[serde(default)]
+    as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound (RFC 3339).
+    #[serde(default)]
+    as_of_signed_at: Option<String>,
 }
 
 impl From<RecallApiReq> for RecallReq {
@@ -5713,6 +5721,8 @@ impl From<RecallApiReq> for RecallReq {
             cell: api.cell,
             bands,
             tslot: api.tslot,
+            as_of_tslot: api.as_of_tslot,
+            as_of_signed_at: api.as_of_signed_at,
         }
     }
 }
@@ -6650,6 +6660,7 @@ async fn boring_recall_at(
             Some(bands.to_vec())
         },
         tslot,
+        ..Default::default()
     };
     let (resp, materialize_notes) = recall_with_auto_materialize(&req, state).await?;
 
@@ -6896,6 +6907,7 @@ async fn get_places_scene_overlay_svg(
             cell: cell.clone(),
             bands: bands_for_recall.clone(),
             tslot: q.tslot,
+            ..Default::default()
         };
         let cell = cell.clone();
         let st = s.clone();
@@ -7597,6 +7609,7 @@ async fn boring_recall_aggregated(
             cell: cell.clone(),
             bands: bands_for_recall.clone(),
             tslot,
+            ..Default::default()
         };
         let cell = cell.clone();
         let s = state.clone();
@@ -8804,6 +8817,7 @@ async fn post_recall_many(
                 cell: cell.clone(),
                 bands,
                 tslot,
+                ..Default::default()
             };
             (idx, cell, recall(&r, &s_clone).await)
         });
@@ -8884,6 +8898,13 @@ struct RecallPolygonReq {
     /// Optional uniform tslot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tslot: Option<u64>,
+    /// Bi-temporal valid-time bound — forwarded to every per-cell
+    /// recall in the fan-out. See `RecallReq::as_of_tslot`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    as_of_signed_at: Option<String>,
     /// Cap on cells sampled from the polygon. Default 64; hard max 1024
     /// (raised from 256 in May 2026 — Katihar test showed a 2 km stride
     /// at 64 cells over a 100 km² PIN-code polygon misses sub-200 m
@@ -9380,6 +9401,8 @@ async fn post_recall_polygon(
         let cell_owned = cell.clone();
         let bands = req.bands.clone();
         let tslot = req.tslot;
+        let as_of_tslot = req.as_of_tslot;
+        let as_of_signed_at = req.as_of_signed_at.clone();
         let s_clone = s.clone();
         let sema = sema.clone();
         recall_set.spawn(async move {
@@ -9388,6 +9411,8 @@ async fn post_recall_polygon(
                 cell: cell_owned.clone(),
                 bands,
                 tslot,
+                as_of_tslot,
+                as_of_signed_at,
             };
             (
                 idx,
@@ -9506,6 +9531,8 @@ async fn post_recall_polygon(
                 cell: cell.clone(),
                 bands: req.bands.clone(),
                 tslot: req.tslot,
+                as_of_tslot: req.as_of_tslot,
+                as_of_signed_at: req.as_of_signed_at.clone(),
             };
             match recall_with_auto_materialize(&r, &s).await {
                 Ok((resp, notes)) => {
@@ -9703,6 +9730,13 @@ struct QueryRegionRestReq {
     /// same cap /v1/recall_many enforces).
     #[serde(default)]
     max_cells: Option<usize>,
+    /// Bi-temporal valid-time bound, forwarded to the canonical primitive.
+    #[serde(default)]
+    as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound (RFC 3339), forwarded to the
+    /// canonical primitive.
+    #[serde(default)]
+    as_of_signed_at: Option<String>,
 }
 
 async fn post_query_region(
@@ -9785,6 +9819,8 @@ async fn post_query_region(
         geometry,
         bands: req.bands,
         agg: req.agg,
+        as_of_tslot: req.as_of_tslot,
+        as_of_signed_at: req.as_of_signed_at,
     };
     let resp = query_region(&inner, &s).await?;
     Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
@@ -11618,6 +11654,8 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
                 materialize: None,
                 families: None,
                 include_reserved: None,
+                as_of_tslot: None,
+                as_of_signed_at: None,
             };
             match state_view_cube(s.clone(), req).await {
                 Ok(Json(resp)) => {
@@ -13755,6 +13793,15 @@ struct StateReq {
     /// way to keep offsets byte-stable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     include_reserved: Option<bool>,
+    /// Bi-temporal valid-time bound — forwarded to the underlying
+    /// recall so `/v1/state` answers "what did this place look like as
+    /// of date X". See [`emem_primitives::recall::RecallReq::as_of_tslot`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound (RFC 3339) — what did this
+    /// responder know about this place as of system-date Y.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    as_of_signed_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -13928,6 +13975,8 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         cell: cell.clone(),
         bands: Some(vec![encoder.clone()]),
         tslot: req.tslot,
+        as_of_tslot: req.as_of_tslot,
+        as_of_signed_at: req.as_of_signed_at.clone(),
     };
     let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -14036,6 +14085,13 @@ struct StateMultiReq {
     encoders: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tslot: Option<u64>,
+    /// Bi-temporal valid-time bound — forwarded to every per-encoder
+    /// recall. See `RecallReq::as_of_tslot`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound (RFC 3339).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    as_of_signed_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -14081,6 +14137,8 @@ async fn post_state_multi(
             cell: cell.clone(),
             bands: Some(vec![encoder.clone()]),
             tslot: req.tslot,
+            as_of_tslot: req.as_of_tslot,
+            as_of_signed_at: req.as_of_signed_at.clone(),
         };
         match recall_with_auto_materialize(&recall_req, &s).await {
             Ok((resp, _notes)) => {
@@ -14237,6 +14295,7 @@ async fn post_state_diff_inner(
             cell: cell.clone(),
             bands: Some(vec![encoder.clone()]),
             tslot: Some(tslot),
+            ..Default::default()
         }
     };
     let (resp_a, _) = recall_with_auto_materialize(&fetch(req.tslot_a), &s).await?;
@@ -14480,6 +14539,8 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         cell: cell.clone(),
         bands: Some(live_band_keys.clone()),
         tslot: req.tslot,
+        as_of_tslot: req.as_of_tslot,
+        as_of_signed_at: req.as_of_signed_at.clone(),
     };
 
     let (resp, materialize_notes) = if materialize {
@@ -14511,6 +14572,8 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
             cell: cell.clone(),
             bands: Some(vec!["geotessera".into()]),
             tslot: req.tslot,
+            as_of_tslot: req.as_of_tslot,
+            as_of_signed_at: req.as_of_signed_at.clone(),
         };
         match recall_with_auto_materialize(&warm_req, &s).await {
             Ok((r, n)) => {
@@ -15417,6 +15480,8 @@ async fn post_memory_bundle(
             cell: resolved_cell.clone(),
             bands: Some(vec![t.band.clone()]),
             tslot: t.tslot,
+            as_of_tslot: t.as_of_tslot,
+            as_of_signed_at: t.as_of_signed_at.clone(),
         };
         let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -16818,6 +16883,7 @@ async fn elevation_coherent(s: &AppState, target: ResolvedTarget) -> Result<Json
                 .collect(),
         ),
         tslot: None,
+        ..Default::default()
     };
     let (resp, materialize_notes) = recall_with_auto_materialize(&req, s).await?;
     let pubkey_b32 = data_encoding::BASE32_NOPAD
@@ -17005,6 +17071,7 @@ async fn elevation_coherent_polygon(
             cell: cell.clone(),
             bands: Some(bands.clone()),
             tslot: None,
+            ..Default::default()
         };
         let cell = cell.clone();
         let s2 = s.clone();
@@ -24231,6 +24298,7 @@ async fn materialize_algorithm_band_impl(
         cell: cell64.to_string(),
         bands: Some(inputs.clone()),
         tslot: None,
+        ..Default::default()
     };
     let (resp, _notes) = recall_with_auto_materialize(&req, s).await.map_err(|e| {
         format!(
@@ -29420,6 +29488,7 @@ async fn fan_out_and_rank(s: &AppState, cells: &[String], spec: RankingSpec) -> 
                 cell: cell_owned.clone(),
                 bands: Some(bands),
                 tslot: None,
+                ..Default::default()
             };
             (cell_owned, recall_with_auto_materialize(&r, &s_clone).await)
         });
@@ -29577,6 +29646,7 @@ async fn tessera_rerank(
                 cell,
                 bands: Some(vec!["geotessera".to_string()]),
                 tslot: None,
+                ..Default::default()
             };
             let vec = match recall_with_auto_materialize(&r, &s_clone).await {
                 Ok((resp, _)) => resp.facts.iter().find_map(|f| match f {
@@ -33297,6 +33367,7 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             Some(bands_vec.clone())
         },
         tslot: None,
+        ..Default::default()
     };
     let (recall_resp, materialize_notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -36257,6 +36328,7 @@ async fn get_cell_recall_geojson(
         cell: cell64.clone(),
         bands: band_filter,
         tslot,
+        ..Default::default()
     };
     let resp = recall(&req, &s).await.map_err(|e| {
         ApiError(
@@ -39667,6 +39739,8 @@ mod tests {
                 cell: cell.into(),
                 band: "indices.ndvi".into(),
                 tslot: Some(0),
+                as_of_tslot: None,
+                as_of_signed_at: None,
             }],
             purpose: Some("test".into()),
         };

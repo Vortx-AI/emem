@@ -15,9 +15,9 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 
 use emem_core::{AttesterKey, KeyEpoch, Signature};
-use emem_fact::{Cost, FactCid, Receipt, RegistryCid, SchemaCid};
+use emem_fact::{AsOfReceipt, Cost, FactCid, Receipt, RegistryCid, SchemaCid};
 
-use crate::Storage;
+use crate::{AsOfBound, Storage};
 
 /// A live emem responder. Owned by the HTTP server and lent to each
 /// primitive call.
@@ -185,7 +185,36 @@ impl Server {
                 source_freshness_s: 0,
                 was_cached,
             },
+            as_of: None,
         }
+    }
+
+    /// Bi-temporal sibling of [`Server::sign_receipt`]. When `bound`
+    /// constrains either axis the returned receipt carries an `as_of`
+    /// block recording the exact bound the responder honoured, so an
+    /// offline verifier can replay the same read. Unbounded bounds
+    /// produce a receipt byte-identical (in the `as_of`-omitted JSON
+    /// projection) to the historical `sign_receipt`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sign_receipt_with_as_of(
+        &self,
+        primitive: &'static str,
+        cells: Vec<String>,
+        fact_cids: Vec<FactCid>,
+        was_cached: bool,
+        started: Instant,
+        intent: Option<String>,
+        bound: &AsOfBound,
+    ) -> Receipt {
+        let mut receipt =
+            self.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent);
+        if !bound.is_unbounded() {
+            receipt.as_of = Some(AsOfReceipt {
+                valid_time: bound.valid_time,
+                transaction_time: bound.transaction_time.clone(),
+            });
+        }
+        receipt
     }
 }
 

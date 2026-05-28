@@ -21,13 +21,14 @@ use serde::{Deserialize, Serialize};
 use emem_claim::{Claim, Op};
 use emem_core::ErrorCode;
 use emem_fact::{Fact, FactCid, Receipt};
-use emem_storage::{Server, StorageError};
+use emem_storage::{AsOfBound, Server, StorageError};
 
 use crate::binary_embedding::{
     hamming_distance, hamming_score, pack_bin128_slice, BIN_BYTES, BIN_DIMS,
 };
 use crate::cbor_ops::{as_vec_f32, cosine, eq, lt};
 use crate::lance_index::{lance_disabled, LanceIndex};
+use crate::recall::build_as_of_bound;
 
 /// Process-global Lance handle, installed by the API layer at boot via
 /// [`set_lance_index`]. When `Some`, the Lance ANN fast-path is tried
@@ -83,7 +84,7 @@ pub enum FindSimilarMode {
 }
 
 /// find_similar request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FindSimilarReq {
     /// `cell64` (e.g. `"damO.zb000.xUti.zde78"`) or `inline:[x,y,...]` vector literal.
     pub key: String,
@@ -106,6 +107,18 @@ pub struct FindSimilarReq {
     /// trade-off between fp32 cosine and binary-quantized Hamming.
     #[serde(default, skip_serializing_if = "is_default_mode")]
     pub mode: FindSimilarMode,
+    /// Bi-temporal valid-time bound — applied to candidate cells
+    /// BEFORE cosine scoring. A cell with no fact whose `tslot` is
+    /// `<= as_of_tslot` under the scoring band is dropped entirely
+    /// (undecidable, not "false"). See
+    /// [`crate::recall::RecallReq::as_of_tslot`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound — also applied BEFORE cosine
+    /// scoring. RFC 3339. Format errors land as
+    /// `code: "invalid_signed_at_format"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_signed_at: Option<String>,
 }
 
 fn is_default_mode(m: &FindSimilarMode) -> bool {
@@ -338,6 +351,7 @@ pub async fn find_similar(
     let storage = srv.storage.as_ref();
     let k = req.k.unwrap_or(10).min(1000) as usize;
     let band = req.band.clone().unwrap_or_else(|| "geotessera".into());
+    let bound = build_as_of_bound(None, req.as_of_tslot, req.as_of_signed_at.as_deref())?;
 
     // ── Binary fast path ───────────────────────────────────────────
     // Branch *before* loading the full vector — for `Hamming` we do
@@ -349,7 +363,13 @@ pub async fn find_similar(
     // 4–16× oversampling factor) when no filter is set and the
     // requested band is the cosine sibling family. Falls through to
     // the Hamming binary path otherwise.
-    if matches!(req.mode, FindSimilarMode::HammingThenRerank) && req.filter.is_none() {
+    // Lance ANN paths skip the bi-temporal predicate (the index has no
+    // signed_at column). When the caller has pinned either axis, fall
+    // through to the brute-force scan so as_of is honoured truthfully.
+    if matches!(req.mode, FindSimilarMode::HammingThenRerank)
+        && req.filter.is_none()
+        && bound.is_unbounded()
+    {
         if let Some(resp) = try_lance_cosine(req, srv, started, k, &band).await? {
             return Ok(resp);
         }
@@ -358,7 +378,7 @@ pub async fn find_similar(
         req.mode,
         FindSimilarMode::Hamming | FindSimilarMode::HammingThenRerank
     ) {
-        return find_similar_binary(req, srv, started, k, &band).await;
+        return find_similar_binary(req, srv, started, k, &band, &bound).await;
     }
 
     let query_vec: Vec<f32> = if let Some(rest) = req.key.strip_prefix("inline:") {
@@ -375,7 +395,7 @@ pub async fn find_similar(
     // path), and a non-empty query vector. The path is strictly an
     // accelerator: any failure or empty result falls through to the
     // brute-force scan below.
-    if !query_vec.is_empty() && req.filter.is_none() {
+    if !query_vec.is_empty() && req.filter.is_none() && bound.is_unbounded() {
         if let Some(resp) = try_lance_with_query(&query_vec, req, srv, started, k, &band).await? {
             return Ok(resp);
         }
@@ -435,12 +455,40 @@ pub async fn find_similar(
     // each tslot it has under the scoring band — common when find_similar
     // is run over a corpus with multi-vintage geotessera attestations.
     let mut filter_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    // Memo per-cell bi-temporal verdicts — same shape as filter_memo,
+    // populated only when `bound` actually constrains either axis.
+    let mut as_of_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
     for (key, cid) in entries {
         if key.band != band {
             continue;
         }
         if Some(key.cell.as_str()) == self_match {
             continue;
+        }
+        // Bi-temporal pre-filter: BEFORE cosine, drop cells that have no
+        // fact within the as_of bound under the scoring band. A cell
+        // with no qualifying fact is `false` (undecidable → drop), same
+        // contract as the structured `filter:` claim.
+        if !bound.is_unbounded() {
+            let pass = match as_of_memo.get(&key.cell) {
+                Some(v) => *v,
+                None => {
+                    let v = cell_has_fact_within_bound(storage, &key.cell, &band, &bound).await?;
+                    as_of_memo.insert(key.cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
+            // Skip individual entries that fail valid-time on the key —
+            // we want the LATEST valid-time fact per cell to drive the
+            // score, not every vintage.
+            if let Some(vt) = bound.valid_time {
+                if key.tslot > vt {
+                    continue;
+                }
+            }
         }
         if let Some(claim) = req.filter.as_ref() {
             let pass = match filter_memo.get(&key.cell) {
@@ -459,6 +507,12 @@ pub async fn find_similar(
         let Some(Some(fact)) = facts.into_iter().next() else {
             continue;
         };
+        // Per-entry transaction-time check (the per-cell memo above
+        // ensures the cell has at least one qualifying fact; the entry
+        // itself may still be over the signed_at bound).
+        if !bound.is_unbounded() && !bound.fact_passes(&fact) {
+            continue;
+        }
         if let Fact::Primary(p) = fact {
             if let Some(vec) = as_vec_f32(&p.value) {
                 let score = cosine(&query_vec, &vec);
@@ -475,7 +529,15 @@ pub async fn find_similar(
     let cells: Vec<String> = kept.iter().map(|n| n.cell.clone()).collect();
     let returned_k = kept.len() as u32;
     let interpretation = interpretation_for_band(&band);
-    let receipt = srv.sign_receipt("emem.find_similar", cells, kept_cids, true, started, None);
+    let receipt = srv.sign_receipt_with_as_of(
+        "emem.find_similar",
+        cells,
+        kept_cids,
+        true,
+        started,
+        None,
+        &bound,
+    );
     Ok(FindSimilarResp {
         neighbors: kept,
         requested_k: k as u32,
@@ -709,6 +771,7 @@ async fn find_similar_binary(
     started: Instant,
     k: usize,
     cosine_band: &str,
+    bound: &AsOfBound,
 ) -> Result<FindSimilarResp, StorageError> {
     let storage = srv.storage.as_ref();
     let bin_band: String = if cosine_band.ends_with(".bin128") {
@@ -778,12 +841,32 @@ async fn find_similar_binary(
     };
     let mut triage: Vec<(String, u32, FactCid)> = Vec::new();
     let mut filter_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut as_of_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
     for (key, cid) in entries {
         if key.band != bin_band {
             continue;
         }
         if Some(key.cell.as_str()) == self_match {
             continue;
+        }
+        if !bound.is_unbounded() {
+            let pass = match as_of_memo.get(&key.cell) {
+                Some(v) => *v,
+                None => {
+                    let v =
+                        cell_has_fact_within_bound(storage, &key.cell, &bin_band, bound).await?;
+                    as_of_memo.insert(key.cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
+            if let Some(vt) = bound.valid_time {
+                if key.tslot > vt {
+                    continue;
+                }
+            }
         }
         if let Some(claim) = req.filter.as_ref() {
             let pass = match filter_memo.get(&key.cell) {
@@ -802,6 +885,9 @@ async fn find_similar_binary(
         let Some(Some(fact)) = facts.into_iter().next() else {
             continue;
         };
+        if !bound.is_unbounded() && !bound.fact_passes(&fact) {
+            continue;
+        }
         if let Fact::Primary(p) = fact {
             if let Some(bytes) = as_bin128(&p.value) {
                 let dist = hamming_distance(&query_bytes, &bytes);
@@ -879,7 +965,15 @@ async fn find_similar_binary(
     let cells: Vec<String> = neighbors.iter().map(|n| n.cell.clone()).collect();
     let returned_k = neighbors.len() as u32;
     let interpretation = interpretation_for_band(cosine_band);
-    let receipt = srv.sign_receipt("emem.find_similar", cells, fact_cids, true, started, None);
+    let receipt = srv.sign_receipt_with_as_of(
+        "emem.find_similar",
+        cells,
+        fact_cids,
+        true,
+        started,
+        None,
+        bound,
+    );
     Ok(FindSimilarResp {
         neighbors,
         requested_k: k as u32,
@@ -887,6 +981,25 @@ async fn find_similar_binary(
         interpretation,
         receipt,
     })
+}
+
+/// Does this cell carry at least one fact under `band` that survives
+/// the bi-temporal `bound`? Used by `find_similar` to drop cells that
+/// have no qualifying attestation under the scoring band BEFORE cosine
+/// scoring — same undecidable→drop contract as the structured `filter:`
+/// claim. When `bound.is_unbounded()` this always returns `true`; the
+/// caller should skip the check in that case.
+async fn cell_has_fact_within_bound(
+    storage: &(dyn emem_storage::Storage + Send + Sync),
+    cell: &str,
+    band: &str,
+    bound: &AsOfBound,
+) -> Result<bool, StorageError> {
+    if bound.is_unbounded() {
+        return Ok(true);
+    }
+    let pairs = storage.scan_cell_as_of(cell, None, bound).await?;
+    Ok(pairs.iter().any(|(k, _)| k.band == band))
 }
 
 /// Evaluate `claim` over the facts attested at `cell`. Mirrors the
@@ -1338,6 +1451,7 @@ mod tests {
             band: Some("geotessera".into()),
             filter: None,
             mode: FindSimilarMode::Cosine,
+            ..Default::default()
         };
         let resp = find_similar(&req, &srv).await.expect("find_similar ok");
 
@@ -1403,6 +1517,7 @@ mod tests {
             band: Some("geotessera".into()),
             filter: None,
             mode: FindSimilarMode::Cosine,
+            ..Default::default()
         };
         let resp = find_similar(&req, &srv).await.expect("find_similar ok");
 
@@ -1433,6 +1548,7 @@ mod tests {
             band: Some("geotessera".into()),
             filter: None,
             mode: FindSimilarMode::Cosine,
+            ..Default::default()
         };
         let resp = find_similar(&req, &srv).await.expect("find_similar ok");
 

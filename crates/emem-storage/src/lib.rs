@@ -67,6 +67,67 @@ pub use attesters::{AttesterRegistry, AttesterStats};
 pub use merkle_log::{AppendOutcome, AttestationLog, VerifyReport};
 pub use server::Server;
 
+/// Bi-temporal filter (Zep / Graphiti edge model, arXiv 2501.13956).
+///
+/// `valid_time` = the planet-side observation time (a fact's `tslot`).
+/// `transaction_time` = the system-side learning time (a fact's
+/// `signed_at` ISO-8601 wall clock). A scan with both fields `None` is
+/// unbounded and behaves like the historical recall path.
+///
+/// When both fields are `Some`, both predicates must hold simultaneously
+/// (`fact.tslot <= valid_time` AND `fact.signed_at <= transaction_time`).
+/// The single-axis cases pin only one side.
+#[derive(Debug, Clone, Default)]
+pub struct AsOfBound {
+    /// Upper bound on a fact's `tslot` (valid-time). When `Some(t)`, only
+    /// facts with `tslot <= t` survive the filter.
+    pub valid_time: Option<u64>,
+    /// Upper bound on a fact's `signed_at` (transaction-time). RFC 3339
+    /// string; lexicographic comparison is safe because RFC 3339 / ISO
+    /// 8601 strings sort correctly when truncated to the same precision.
+    /// The primitive layer parses the caller's input with [`chrono`] /
+    /// the time crate to reject malformed strings BEFORE constructing
+    /// this bound — by the time a value lands here it has been validated.
+    pub transaction_time: Option<String>,
+}
+
+impl AsOfBound {
+    /// True when neither bound was set — the historical "latest"
+    /// behaviour applies and no `as_of` block is added to the receipt.
+    pub fn is_unbounded(&self) -> bool {
+        self.valid_time.is_none() && self.transaction_time.is_none()
+    }
+
+    /// Whether the fact passes both predicates. `valid_time` is checked
+    /// purely on `fact.tslot`; `transaction_time` is checked on the
+    /// fact's `signed_at` string via lexicographic comparison, which
+    /// is order-correct for normalised RFC 3339 timestamps.
+    pub fn fact_passes(&self, fact: &Fact) -> bool {
+        let (tslot, signed_at) = match fact {
+            Fact::Primary(p) => (p.tslot, p.signed_at.as_str()),
+            Fact::Absence(a) => (a.tslot, a.signed_at.as_str()),
+            Fact::Derivative(d) => {
+                // Derivative facts use a tslot window; treat the upper
+                // bound as the effective "valid time" of the derivative
+                // so a derivative computed across [t0, t1] is excluded
+                // from an as_of query that pre-dates t1.
+                (d.tslot_window[1], d.signed_at.as_str())
+            }
+        };
+        if let Some(t) = self.valid_time {
+            if tslot > t {
+                return false;
+            }
+        }
+        if let Some(tt) = self.transaction_time.as_deref() {
+            if signed_at > tt {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// The lazy-materialization storage facade. Composes cache + fetch + log.
 pub struct MaterializingStorage {
     /// Multi-tier fact cache.
@@ -119,6 +180,55 @@ pub trait Storage: Send + Sync {
         cell: &str,
         tslot: Option<u64>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>;
+
+    /// Bi-temporal sibling of [`Storage::scan_cell`]. Pre-filters on
+    /// `tslot` directly from the canonical index (key carries the
+    /// `tslot` bytes — no body load required for the valid-time half of
+    /// the bound), then for any caller-set `transaction_time` it loads
+    /// each fact and filters by `signed_at`. Default implementation
+    /// delegates to `scan_cell` + `get_facts_many`; backend-specific
+    /// implementations may push the valid-time filter into the index
+    /// scan for a faster cold path.
+    ///
+    /// When `bound.is_unbounded()`, this is equivalent to
+    /// `scan_cell(cell, tslot)`. When `tslot` is `Some(t)` the exact-
+    /// match takes precedence over the bound's `valid_time` ceiling —
+    /// the caller is expected to have rejected the conflict at the
+    /// surface (`as_of_tslot < tslot`) before reaching the storage
+    /// layer.
+    async fn scan_cell_as_of(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+        bound: &AsOfBound,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+        let mut pairs = self.scan_cell(cell, tslot).await?;
+        if bound.is_unbounded() {
+            return Ok(pairs);
+        }
+        // Cheap half: valid-time predicate is fully decidable from the
+        // index key — no body load needed.
+        if let Some(vt) = bound.valid_time {
+            pairs.retain(|(k, _)| k.tslot <= vt);
+        }
+        if bound.transaction_time.is_none() {
+            return Ok(pairs);
+        }
+        // Expensive half: transaction-time predicate reads `signed_at`
+        // off the body. Batch-load every surviving fact so the cost is
+        // one get-facts-many round-trip, not N.
+        let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
+        let facts = self.get_facts_many(&cids).await?;
+        let mut filtered: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
+        for ((k, c), fact) in pairs.into_iter().zip(facts) {
+            if let Some(f) = fact {
+                if bound.fact_passes(&f) {
+                    filtered.push((k, c));
+                }
+            }
+        }
+        Ok(filtered)
+    }
 
     /// Iterate every (canonical_key, fact_cid) in the index. Used by
     /// corpus-wide scans (find_similar). Bounded by the optional `limit`
@@ -338,6 +448,38 @@ impl Storage for MaterializingStorage {
             message: "scan_cell requires a SledHotCache handle".into(),
         })?;
         Ok(hot.scan_cell(cell, tslot)?)
+    }
+
+    async fn scan_cell_as_of(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+        bound: &AsOfBound,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+        // Index-bound fast path: when the caller did not pin transaction
+        // time, we can satisfy the whole bound from the canonical index
+        // without loading a single CBOR body.
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "scan_cell_as_of requires a SledHotCache handle".into(),
+        })?;
+        let pairs = hot.scan_cell_with_tslot_bound(cell, tslot, bound.valid_time)?;
+        if bound.transaction_time.is_none() {
+            return Ok(pairs);
+        }
+        // Transaction-time predicate requires loading the body for
+        // `signed_at`. Batch the loads so the cost is one round-trip.
+        let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
+        let facts = self.get_facts_many(&cids).await?;
+        let mut filtered: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
+        for ((k, c), fact) in pairs.into_iter().zip(facts) {
+            if let Some(f) = fact {
+                if bound.fact_passes(&f) {
+                    filtered.push((k, c));
+                }
+            }
+        }
+        Ok(filtered)
     }
 
     async fn iter_index(
