@@ -242,7 +242,11 @@ mod tests {
         // for the wave_solve / coastal_proximity / flood_risk@2
         // algorithms) plus a slimmed reserved (91 dims at 1701). Count
         // rose 40 → 41. Σ stays at 1792.
-        assert_eq!(r.bands.len(), 41);
+        // 2026-05-28: reserved (91 dims at 1701) carved further to add
+        // galileo (48 dims at 1701, NASA Harvest Galileo Base/Tiny
+        // foundation embedding via GPU sidecar) plus a slimmed reserved
+        // (43 dims at 1749). Count rose 41 → 42. Σ stays at 1792.
+        assert_eq!(r.bands.len(), 42);
     }
 
     #[test]
@@ -311,7 +315,14 @@ mod tests {
         // from 95 → 91 dims at 1701. Subsequent offsets stay byte-stable.
         assert_eq!(idx["gmrt"].offset, 1697);
         assert_eq!(idx["gmrt"].dims, 4);
-        assert_eq!(idx["reserved"].offset, 1701);
-        assert_eq!(idx["reserved"].dims, 91);
+        // 2026-05-28: galileo (NASA Harvest Galileo) carves 48 dims at
+        // offset 1701 from the reserved tail to add the third live
+        // GPU-sidecar foundation embedding (alongside clay_v1 and
+        // prithvi_eo2). Reserved drops from 91 → 43 dims at 1749 with
+        // total_dims = 1792 unchanged.
+        assert_eq!(idx["galileo"].offset, 1701);
+        assert_eq!(idx["galileo"].dims, 48);
+        assert_eq!(idx["reserved"].offset, 1749);
+        assert_eq!(idx["reserved"].dims, 43);
     }
 }

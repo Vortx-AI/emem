@@ -656,6 +656,54 @@
       "native_resolution_m": 10
     },
     {
+      "scheme": "model.prithvi_eo2_300m_tl",
+      "_note": "IBM-NASA Prithvi-EO-2.0-300M-TL Vision Transformer (ViT-L, 300 M params), the temporal-encoder variant of Prithvi-EO-2 trained on HLS V2 6-band chips at 30 m. emem reads chip→embedding via the Python GPU sidecar at `EMEM_SIDECAR_SOCK` (default `/run/emem/jepa_sidecar.sock`) over a Unix-domain HTTP/1 socket; the chip is built from Sentinel-2 L2A (close-but-not-identical to HLS V2 — receipt flags `s2_l2a_substitute_for_hls_v2`). License: Apache-2.0. Cold load ~10 s for the 1.24 GB checkpoint; warm calls ~20 ms. No CPU fallback (CPU inference at ViT-L scale is not viable + would change the embedding's kernel-order accumulation). When the sidecar is unreachable the recall path signs an honest Absence with reason=gpu_unavailable.",
+      "providers": [
+        {
+          "id": "huggingface.ibm-nasa-geospatial",
+          "kind": "gpu_sidecar",
+          "url_template": "uds:/run/emem/jepa_sidecar.sock/predict/prithvi_eo2_embed",
+          "auth": "anonymous",
+          "rate_limit_qps": 50,
+          "license": "Apache-2.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 30
+    },
+    {
+      "scheme": "model.clay_v1_5",
+      "_note": "Clay Foundation Model v1.5 — wavelength-conditioned ViT-L/8 MAE + DINOv2 teacher (Made With Clay, https://clay-foundation.github.io/model/). emem reads chip→embedding via the Python GPU sidecar at `EMEM_SIDECAR_SOCK` (default `/run/emem/jepa_sidecar.sock`) over a Unix-domain HTTP/1 socket; the chip is built from Sentinel-2 L2A 10-band 256×256 at 10 m. License: Apache-2.0. Cold load ~6-10 s for the 1.25 GB encoder weights + 304 MB DINOv2 teacher; warm calls ~25-40 ms at fp16. No CPU fallback (CPU pass through ViT-L/8 takes 3-8 s per chip and would change the embedding's distribution). When the sidecar is unreachable the recall path signs an honest Absence with reason=gpu_unavailable.",
+      "providers": [
+        {
+          "id": "huggingface.made-with-clay",
+          "kind": "gpu_sidecar",
+          "url_template": "uds:/run/emem/jepa_sidecar.sock/predict/clay_embed",
+          "auth": "anonymous",
+          "rate_limit_qps": 50,
+          "license": "Apache-2.0"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 10
+    },
+    {
+      "scheme": "model.galileo_v1",
+      "_note": "NASA Harvest Galileo — multi-modal foundation model (Base = 86.5 M params / 768-D; Tiny = ~22 M params / 192-D). Variant selected at sidecar startup via `EMEM_GALILEO_VARIANT`. emem reads chip→embedding via the Python GPU sidecar at `EMEM_SIDECAR_SOCK` (default `/run/emem/jepa_sidecar.sock`) over a Unix-domain HTTP/1 socket; the chip is built from a Sentinel-2 L2A 10-band 8×8 window at 30 m equiv (~240 m × 240 m physical extent). Other Galileo modalities (SAR, climate, DEM) are zero-masked at this responder; the embedding is biased toward the S2-only manifold. License: MIT. Cold load ~4 s (Tiny) / ~5 s (Base); warm calls ~14 ms (Tiny) / ~25 ms (Base). No CPU fallback. When the sidecar is unreachable the recall path signs an honest Absence with reason=gpu_unavailable.",
+      "providers": [
+        {
+          "id": "huggingface.nasaharvest",
+          "kind": "gpu_sidecar",
+          "url_template": "uds:/run/emem/jepa_sidecar.sock/predict/galileo_embed",
+          "auth": "anonymous",
+          "rate_limit_qps": 50,
+          "license": "MIT"
+        }
+      ],
+      "tempo": "slow",
+      "native_resolution_m": 30
+    },
+    {
       "scheme": "ftw.field_polygons.v1",
       "_note": "Fields of The World — global agricultural-field-boundary product, ~3.17B polygons across 241 countries at 10 m (2024-2025). Single PMTiles archive on Source Cooperative S3 (~2.14 TB, CloudFront-fronted, anonymous, HTTP range-read). emem reads it lazily via pmtiles + mvt-reader (see crates/emem-fetch/src/ftw.rs); each bbox query touches only the covering Web-Mercator tiles. Supplements the OSM/Nominatim polygon path on /v1/recall_polygon when the caller passes include=ftw_fields, and is the primary source for the standalone /v1/field_boundaries primitive. License: CC-BY-4.0 on the global product (the per-country labeled benchmark mixes CC-BY-NC for Latvia/Portugal but that data is not consumed here). Reference: https://fieldsofthe.world/ and https://source.coop/ftw.",
       "providers": [

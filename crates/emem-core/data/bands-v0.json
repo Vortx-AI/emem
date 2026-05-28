@@ -654,14 +654,28 @@
       "_source_note": "Carved from the historic 95-dim `reserved` tail in 2026-05; subsequent reserved offsets stay byte-stable. Wired by `crates/emem-fetch/src/gmrt.rs` via PointServer (single-pixel, ~60 B JSON) for the `topobathy_mean` scalar and GridServer (Float32 GeoTIFF) for the min/max/std reductions over a ~9.55 m cell64 footprint."
     },
     {
+      "key": "galileo",
+      "family": "foundation",
+      "offset": 1701,
+      "dims": 48,
+      "tempo": "slow",
+      "privacy": {"class": "public"},
+      "description": "NASA Harvest Galileo per-cell foundation embedding (Base = 768-D / Tiny = 192-D, variant chosen at the sidecar via `EMEM_GALILEO_VARIANT`). The cell's 10-band 8×8 Sentinel-2 L2A chip (B2, B3, B4, B5, B6, B7, B8, B8A, B11, B12 in canonical Galileo `S2_BANDS` order, 30 m equivalent — ~240 m × 240 m physical extent) is encoded by the multi-modal Galileo transformer with the other modalities zero-masked; the materializer signs the encoder's average-pooled token embedding (768-D Base / 192-D Tiny) as the fact value alongside lat/lng + month-of-year conditioning. The cube slot allocates 48 dims at offset 1701 as a compact carrier; the full fact `value` carries the variant-native dim and downstream similarity reads that directly. Carved out of the historic 91-dim `reserved` tail in 2026-05; subsequent reserved offsets stay byte-stable.",
+      "units": "unitless (learned embedding)",
+      "interpretation": "Compare via cosine similarity. Two cells with cosine > 0.85 share the small-footprint (~240 m × 240 m) chip archetype Galileo learned over global multi-modal corpora. Variant-agnostic: a deployment swapping `EMEM_GALILEO_VARIANT` from Base to Tiny does NOT change the band key — agents see the same `galileo` band, just at a different dim. Always cite the model_cid (Galileo Base = blake2b of nano_galileo_base.pt; Tiny = blake2b of nano_galileo_tiny.pt) so a verifier can pin which encoder version produced the embedding.",
+      "pitfalls": "Receptive field is only 240 m × 240 m — much narrower than Prithvi (6.7 km) or Clay (2.56 km). For continental-scale similarity prefer `clay_v1`; for sub-cell discrimination prefer `geotessera` per-pixel. S2-only mode here — Galileo's other modalities (SAR, climate, DEM) are zero-masked at this responder, which biases the embedding toward the optical-only manifold. Privacy class is `public` because the small 8×8 chip is too coarse to leak identifiable scene content.",
+      "references": "Tseng, G. et al. 2025. Galileo: Learning Global & Local Features of Many Remote Sensing Modalities. https://nasaharvest.github.io/galileo.html ; https://huggingface.co/nasaharvest/galileo ; https://github.com/nasaharvest/galileo"
+    },
+    {
       "key": "reserved",
       "family": "reserved",
-      "offset": 1701,
-      "dims": 91,
+      "offset": 1749,
+      "dims": 43,
       "tempo": "static",
       "privacy": {"class": "public"},
       "description": "Tail reservation slot for future cube extensions. Currently zero-padded — recall returns Absence.",
-      "interpretation": "Do not query. Reserved for future band families without breaking byte-stable layout."
+      "interpretation": "Do not query. Reserved for future band families without breaking byte-stable layout.",
+      "_source_note": "Reservation slot, 43 dims (was 91 before `galileo` carved 48 dims at offset 1701 in 2026-05). Currently unattested — kept zero-padded so the total_dims=1792 layout stays byte-stable."
     }
   ]
 }
