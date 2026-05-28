@@ -14,6 +14,7 @@ emem-storage = { workspace = true }
 emem-codec   = { workspace = true }
 emem-fetch   = { workspace = true }
 serde        = { workspace = true }
+serde_json   = { workspace = true }
 ciborium     = { workspace = true }
 thiserror    = { workspace = true }
 async-trait  = { workspace = true }
@@ -51,7 +52,6 @@ ort-ndarray     = { package = "ndarray", version = "0.17" }
 tokenizers      = { version = "0.22", default-features = false, features = ["onig"] }
 
 [dev-dependencies]
-serde_json   = { workspace = true }
 tempfile     = "3"
 rand         = { workspace = true }
 tokio        = { workspace = true, features = ["macros", "rt-multi-thread"] }

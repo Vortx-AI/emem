@@ -340,6 +340,14 @@ const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token
 // Multi-fact memory-bundle composer. N (cell, band, tslot?) triples in,
 // one signed envelope out. The composed `bundle_token` is `memb:<bundle_cid>`
 // — a single rebindable string that cites the whole set.
+const SCHEMA_MEMORY_CONTRADICTIONS: &str = r#"{"type":"object","properties":{
+"cell_prefix":{"type":"string","description":"Bytewise prefix on cell64 (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap."},
+"band":{"type":"string","description":"Band key filter (e.g. `indices.ndvi`). Omit to include all bands."},
+"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at — all disagreeing attestations must fall in the window."},
+"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Max contradictions to return."},
+"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Severity floor in [0, 1]. 0 = report every disagreement, 1 = only flagrant. Severity scoring is per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share)."}
+}}"#;
+
 const SCHEMA_MEMORY_BUNDLE: &str = r#"{"type":"object","required":["triples"],"properties":{
 "triples":{"type":"array","minItems":1,"description":"One or more (cell, band, tslot?) triples to bundle. Each entry is recalled through the standard auto-materialize path; the bundle envelope cites every resulting fact_cid.","items":{"type":"object","required":["cell","band"],"properties":{
   "cell":{"type":"string","description":"cell64 string (or free-text place name; the responder resolves before bundling)."},
@@ -917,6 +925,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks 'what changed between t1 and t2', 'give me the delta'. Returns a signed DerivativeFact + receipt — the delta itself is content-addressed and citable.",
         input_schema: SCHEMA_DIFF,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_memory_contradictions",
+        title: "Scan for multi-attester disagreement",
+        description: "Scan the multi-attester index for (cell, band, tslot) triples where two or more attesters have signed disagreeing observations. Returns a signed list of contradictions with per-band-kind severity scores and citations to every disputed fact CID.",
+        when_to_use: "Call when the user asks 'is there disagreement about X', 'audit corroboration for this claim', 'find contradictory observations in region Y', or wants to confirm cross-attester consistency before relying on a fact. Use `cell_prefix` (e.g. \"defi.zb5\") to narrow the scan to a region; `band` to one band family. Severity scoring is per band kind: scalar bands compare max-min over the band's documented range; vector bands compute 1 - mean(cosine); categorical bands use 1 - mode_share. The receipt cites every disputed fact CID — follow up with `emem_diff` on two CIDs to quantify the disagreement, or `emem_verify_receipt` to confirm the signatures.",
+        input_schema: SCHEMA_MEMORY_CONTRADICTIONS,
+        example_args: r#"{"cell_prefix":"damO","band":"indices.ndvi","min_severity":0.2}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     tier: "extended",

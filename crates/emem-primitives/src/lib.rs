@@ -16,6 +16,7 @@ pub mod lance_index;
 pub mod memory_acl;
 pub mod memory_bundle;
 pub mod memory_consolidation;
+pub mod memory_contradictions;
 pub mod memory_events;
 pub mod memory_search;
 pub mod memory_typing;
@@ -33,6 +34,10 @@ pub use lance_index::{IndexStats, LanceIndex, PerDimStats};
 pub use memory_acl::{
     attester_preimage, body_hash, namespace_requires_attester, pubkey_short_from_b32,
     verify_attester, AttestationVerdict, MemoryAttester, BY_ATTESTER_PREFIX, PUBKEY_SHORT_LEN,
+};
+pub use memory_contradictions::{
+    memory_contradictions, AttesterDisagreement, Contradiction, ContradictionsReq,
+    ContradictionsResp,
 };
 pub use memory_events::{MemoryEvent, MemoryEventFilter};
 pub use memory_search::{

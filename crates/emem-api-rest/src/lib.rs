@@ -73,10 +73,10 @@ use emem_fact::{
 };
 use emem_intent::{plan, Intent};
 use emem_primitives::{
-    compare, compare_bands, diff, find_similar, query_region, recall, trajectory, verify,
-    AttestationVerdict, CompareBandsReq, CompareReq, DiffReq, FindSimilarReq, LanceIndex,
-    MemoryAttester, MemoryEvent, MemoryEventFilter, MemoryKind, MemorySearchReq, QueryRegionReq,
-    RecallReq, RecallResp, TrajectoryReq, VerifyReq,
+    compare, compare_bands, diff, find_similar, memory_contradictions, query_region, recall,
+    trajectory, verify, AttestationVerdict, CompareBandsReq, CompareReq, ContradictionsReq,
+    DiffReq, FindSimilarReq, LanceIndex, MemoryAttester, MemoryEvent, MemoryEventFilter,
+    MemoryKind, MemorySearchReq, QueryRegionReq, RecallReq, RecallResp, TrajectoryReq, VerifyReq,
 };
 use emem_storage::{Server, StorageError};
 
@@ -941,6 +941,10 @@ pub fn router(state: AppState) -> Router {
         // individually signed — the underlying file's receipt remains
         // the verification surface).
         .route("/v1/memory/sse", get(get_memory_sse))
+        .route(
+            "/v1/memory_contradictions",
+            post(post_memory_contradictions).get(get_memory_contradictions),
+        )
         .route("/v1/state", post(post_state))
         .route("/v1/state_multi", post(post_state_multi))
         .route("/v1/state_diff", post(post_state_diff))
@@ -10106,6 +10110,59 @@ async fn post_trajectory(
     )))
 }
 
+/// `POST /v1/memory_contradictions` — scan the multi-attester index
+/// for any `(cell, band, tslot)` triple where two or more attesters
+/// have signed disagreeing observations. Returns a signed
+/// `ContradictionsResp` whose receipt cites every fact CID involved.
+/// Severity is computed per band kind: scalar (max-min over band
+/// range), vector (1 - mean cosine), categorical (1 - mode share).
+async fn post_memory_contradictions(
+    State(s): State<AppState>,
+    Json(req): Json<ContradictionsReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    emem_primitives::memory_contradictions::validate_request(&req)?;
+    let resp = memory_contradictions(&req, &s).await?;
+    Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
+}
+
+/// `GET /v1/memory_contradictions?cell_prefix=...&band=...&limit=...&min_severity=...`
+/// — same primitive as the POST variant, lifted into query-string form
+/// for casual exploration from a browser or curl. `window_unix_s` is
+/// expressed as the two-element `window_lo` + `window_hi` pair so the
+/// query string stays flat. Defaults match the POST handler.
+async fn get_memory_contradictions(
+    State(s): State<AppState>,
+    Query(q): Query<ContradictionsQuery>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let req = ContradictionsReq {
+        cell_prefix: q.cell_prefix,
+        band: q.band,
+        window_unix_s: match (q.window_lo, q.window_hi) {
+            (Some(lo), Some(hi)) => Some([lo, hi]),
+            _ => None,
+        },
+        limit: q.limit,
+        min_severity: q.min_severity,
+    };
+    emem_primitives::memory_contradictions::validate_request(&req)?;
+    let resp = memory_contradictions(&req, &s).await?;
+    Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
+}
+
+/// Query-string projection of [`ContradictionsReq`] used by
+/// `GET /v1/memory_contradictions`. Keeps the JSON shape flat —
+/// nested arrays (`window_unix_s`) get split into two scalar fields
+/// (`window_lo`, `window_hi`).
+#[derive(Debug, Deserialize, Default)]
+struct ContradictionsQuery {
+    cell_prefix: Option<String>,
+    band: Option<String>,
+    window_lo: Option<u64>,
+    window_hi: Option<u64>,
+    limit: Option<usize>,
+    min_severity: Option<f32>,
+}
+
 /// Request body for `POST /v1/backfill`. Mirrors the MCP `emem_backfill`
 /// schema declared in `emem-mcp/src/lib.rs`. `deny_unknown_fields` so
 /// agents that send `from_unix`/`to_unix` (or any other typo) get a 400
@@ -12317,6 +12374,19 @@ async fn mcp_tool_call(
         "emem_diff" => call!(DiffReq, diff).map(attach_resolved_env),
         "emem_trajectory" => call!(TrajectoryReq, trajectory).map(attach_resolved_env),
         "emem_verify" => call!(VerifyReq, verify).map(attach_resolved_env),
+        "emem_memory_contradictions" => {
+            let req: ContradictionsReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            emem_primitives::memory_contradictions::validate_request(&req).map_err(|e| {
+                let code = e.wire_code();
+                (-(code as i64), e.to_string())
+            })?;
+            let resp = memory_contradictions(&req, s).await.map_err(|e| {
+                let code = e.wire_code();
+                (-(code as i64), e.to_string())
+            })?;
+            serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))
+        }
         // ── Bulk + utility primitives ────────────────────────────────
         "emem_recall_many" => {
             let req: RecallManyReq =
@@ -12858,6 +12928,7 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
         ("emem_trajectory", "SignedResponse"),
         ("emem_backfill", "SignedResponse"),
         ("emem_verify", "VerifyResp"),
+        ("emem_memory_contradictions", "SignedResponse"),
         ("emem_verify_receipt", "VerifyReceiptResp"),
         ("emem_fetch", "Fact"),
         ("emem_fetch_post", "Fact"),
@@ -13126,6 +13197,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/memory_token":      {"post":{"summary":"compose a memt:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token plus a docs link.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a memory token. Parses memt:<cell>:<fact_cid>, fetches the signed fact body by CID, returns the canonical body plus the offline-verify URL. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"memt:<cell64>:<fact_cid>"}}}}}},"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
+            "/v1/memory_contradictions":{"post":{"summary":"Scan the multi-attester index for (cell, band, tslot) triples where two or more attesters have signed disagreeing observations. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"Bytewise prefix filter on cell64 (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."}}}}}},"responses":{"200":json_ok}},
+                                       "get":{"summary":"Same primitive as POST, exposed in query-string form for casual exploration. window_unix_s is split into window_lo + window_hi.","operationId":"emem_memory_contradictions_get","tags":["memory","contradiction-detection"],"parameters":[{"name":"cell_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string"}},{"name":"window_lo","in":"query","required":false,"schema":{"type":"integer"}},{"name":"window_hi","in":"query","required":false,"schema":{"type":"integer"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer"}},{"name":"min_severity","in":"query","required":false,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
             "/v1/stream":            {"get":{"summary":"Server-Sent Events corpus stream. Emits a signed corpus.state event every `interval` seconds (default 15, clamped to [5,300]). Each tick carries a deterministic preimage and ed25519 signature so subscribers can verify without re-fetching.","operationId":"emem_stream","parameters":[{"name":"interval","in":"query","required":false,"schema":{"type":"integer","minimum":5,"maximum":300,"default":15}}],"responses":{"200":{"description":"text/event-stream","content":{"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/benchmark":         {"get":{"summary":"hand-verified evaluation items for grading an agent against the responder. Returns {items[], grader_url, _note}. Submit answers to POST /v1/benchmark/grade for per-item scores.","operationId":"emem_benchmark","responses":{"200":json_ok}}},
             "/v1/benchmark/grade":   {"post":{"summary":"grade an agent's submission against /v1/benchmark items. Body: {answers: {<item_id>: <fact_cid or cell64>}}. Returns per-item correctness plus an aggregate score.","operationId":"emem_benchmark_grade","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["answers"],"properties":{"answers":{"type":"object","additionalProperties":{"type":"string"}}}}}}},"responses":{"200":json_ok}}}

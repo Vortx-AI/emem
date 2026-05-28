@@ -32,6 +32,17 @@ use emem_fetch::Dispatcher;
 /// signed it. Tree value: canonical CBOR of [`MerkleProof`].
 const TREE_FACT_PROOFS: &str = "emem.fact_proofs";
 
+/// Sled tree mapping `(cell, band, tslot)` (encoded the same way as the
+/// canonical index: `cell\0band\0tslot_be8`) → canonical CBOR of
+/// `Vec<FactCid>`. Every attested Primary / Absence fact that produces a
+/// canonical-keyable triple appends its CID to the slot here, even when
+/// the canonical index has already been overwritten by a later
+/// last-write-wins. This is the substrate the memory-contradictions
+/// primitive scans: when two attesters disagree about the same (cell,
+/// band, tslot) we want BOTH CIDs to live and be addressable, not just
+/// the latest writer's.
+pub const TREE_MULTI_ATTESTER_INDEX: &str = "emem.multi_attester_index";
+
 /// Sled tree storing memory-bundle envelopes keyed by `bundle_cid`.
 /// Value: canonical CBOR of the bundle response shape (defined in
 /// `emem-primitives::memory_bundle`). Lookups serve the
@@ -274,6 +285,28 @@ pub trait Storage: Send + Sync {
     fn hot_sled_db(&self) -> Option<&sled::Db> {
         None
     }
+
+    /// Scan the multi-attester index for every `(cell, band, tslot)` key
+    /// that has at least TWO distinct fact CIDs recorded (which is the
+    /// minimum for a contradiction to be possible). Returns
+    /// `(CanonicalKey, Vec<FactCid>)` pairs in the iteration order of
+    /// the underlying tree.
+    ///
+    /// `cell_prefix` filters at the iterator boundary so a regional
+    /// scan never loads the whole index — `prefix = "defi.zb"` only
+    /// walks the matching sled key range.
+    ///
+    /// Default impl returns `Ok(vec![])` so backends that don't
+    /// implement the multi-attester index (in-memory mocks, ephemeral
+    /// stores opened before this tree existed) continue to compile and
+    /// answer with "no contradictions known".
+    async fn scan_multi_attester(
+        &self,
+        _cell_prefix: Option<&str>,
+        _limit: usize,
+    ) -> Result<Vec<(emem_cache::CanonicalKey, Vec<FactCid>)>, StorageError> {
+        Ok(Vec::new())
+    }
 }
 
 /// Storage errors.
@@ -426,6 +459,15 @@ impl Storage for MaterializingStorage {
             if let Err(e) = persist_fact_proofs(hot.db(), &att.facts, &cids) {
                 tracing::warn!(error=%e, "fact proof persistence error (ignored)");
             }
+            // Append every keyable fact's CID to the multi-attester
+            // index. The canonical index above is last-write-wins;
+            // this parallel index preserves every distinct CID
+            // attested at a (cell, band, tslot) key so the
+            // contradictions primitive can surface disagreement.
+            // Best-effort: errors here never fail the attestation.
+            if let Err(e) = append_multi_attester(hot.db(), &att.facts, &cids) {
+                tracing::warn!(error=%e, "multi-attester index append error (ignored)");
+            }
         }
         if let Some(reg) = &self.attesters {
             if let Err(e) = reg.record_attestation(&att.attester.0, &att.facts) {
@@ -529,6 +571,144 @@ impl Storage for MaterializingStorage {
         let bytes = tree.get(cid.as_str().as_bytes()).ok()??;
         ciborium::de::from_reader::<MerkleProof, _>(&*bytes).ok()
     }
+
+    async fn scan_multi_attester(
+        &self,
+        cell_prefix: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(emem_cache::CanonicalKey, Vec<FactCid>)>, StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "scan_multi_attester requires a SledHotCache handle".into(),
+        })?;
+        scan_multi_attester_tree(hot.db(), cell_prefix, limit)
+    }
+}
+
+/// Append every keyable fact's CID to the multi-attester index. CBOR
+/// payload at each key is `Vec<FactCid>` (the encoded `String` form so
+/// readers don't need the `FactCid` type to deserialize). Dedupe is
+/// done in-memory before write so a redundant attestation (same fact
+/// re-signed by the same attester) is a no-op. Best-effort: a write
+/// error here is logged but never fails the attestation.
+fn append_multi_attester(
+    db: &sled::Db,
+    facts: &[Fact],
+    cids: &[FactCid],
+) -> Result<(), StorageError> {
+    if facts.is_empty() || cids.len() != facts.len() {
+        return Ok(());
+    }
+    let tree = db
+        .open_tree(TREE_MULTI_ATTESTER_INDEX)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    for (f, cid) in facts.iter().zip(cids.iter()) {
+        let key_bytes = match fact_canonical_key_bytes(f) {
+            Some(k) => k,
+            None => continue, // derivative facts have no canonical key
+        };
+        let existing: Vec<String> = match tree
+            .get(&key_bytes)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
+        {
+            Some(b) => ciborium::de::from_reader::<Vec<String>, _>(&*b)
+                .map_err(|e| StorageError::Cbor(format!("multi_attester decode: {e}")))?,
+            None => Vec::new(),
+        };
+        if existing.iter().any(|s| s == cid.as_str()) {
+            continue;
+        }
+        let mut updated = existing;
+        updated.push(cid.as_str().to_string());
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(&updated, &mut buf)
+            .map_err(|e| StorageError::Cbor(format!("multi_attester encode: {e}")))?;
+        tree.insert(&key_bytes, buf)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    }
+    tree.flush()
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    Ok(())
+}
+
+/// Encode `(cell, band, tslot)` exactly as `emem-cache` does so the
+/// multi-attester index keys are bytewise-comparable with the canonical
+/// index for prefix scans by cell64.
+fn fact_canonical_key_bytes(fact: &Fact) -> Option<Vec<u8>> {
+    let (cell, band, tslot) = match fact {
+        Fact::Primary(p) => (p.cell.as_str(), p.band.as_str(), p.tslot),
+        Fact::Absence(n) => (n.cell.as_str(), n.band.as_str(), n.tslot),
+        Fact::Derivative(_) => return None,
+    };
+    let mut buf = Vec::with_capacity(cell.len() + band.len() + 10);
+    buf.extend_from_slice(cell.as_bytes());
+    buf.push(0u8);
+    buf.extend_from_slice(band.as_bytes());
+    buf.push(0u8);
+    buf.extend_from_slice(&tslot.to_be_bytes());
+    Some(buf)
+}
+
+/// Decode a `(cell, band, tslot)` key emitted by
+/// [`fact_canonical_key_bytes`].
+fn decode_key_bytes(b: &[u8]) -> Option<emem_cache::CanonicalKey> {
+    let mut parts = b.splitn(3, |c| *c == 0u8);
+    let cell = parts.next()?;
+    let band = parts.next()?;
+    let rest = parts.next()?;
+    if rest.len() != 8 {
+        return None;
+    }
+    let mut t = [0u8; 8];
+    t.copy_from_slice(rest);
+    Some(emem_cache::CanonicalKey {
+        cell: std::str::from_utf8(cell).ok()?.to_string(),
+        band: std::str::from_utf8(band).ok()?.to_string(),
+        tslot: u64::from_be_bytes(t),
+    })
+}
+
+/// Walk the multi-attester index. Returns only entries with ≥ 2
+/// distinct CIDs (where a contradiction is possible). Stops once
+/// `limit` such entries have been collected so a corpus-wide scan
+/// remains O(scanned_keys) rather than O(all_keys).
+fn scan_multi_attester_tree(
+    db: &sled::Db,
+    cell_prefix: Option<&str>,
+    limit: usize,
+) -> Result<Vec<(emem_cache::CanonicalKey, Vec<FactCid>)>, StorageError> {
+    let tree = db
+        .open_tree(TREE_MULTI_ATTESTER_INDEX)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    let mut out: Vec<(emem_cache::CanonicalKey, Vec<FactCid>)> = Vec::new();
+    let iter: Box<dyn Iterator<Item = sled::Result<(sled::IVec, sled::IVec)>>> = match cell_prefix {
+        Some(p) if !p.is_empty() => {
+            // Iterator at the sled level over the byte prefix. We
+            // include the SEP byte only when the caller passed the
+            // full cell64 path; for a partial prefix we keep it as
+            // a raw bytewise prefix.
+            let prefix_bytes = p.as_bytes().to_vec();
+            Box::new(tree.scan_prefix(prefix_bytes))
+        }
+        _ => Box::new(tree.iter()),
+    };
+    for kv in iter {
+        if out.len() >= limit {
+            break;
+        }
+        let (k, v) = kv.map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        let Some(key) = decode_key_bytes(&k) else {
+            continue;
+        };
+        let cids: Vec<String> = ciborium::de::from_reader::<Vec<String>, _>(&*v)
+            .map_err(|e| StorageError::Cbor(format!("multi_attester decode: {e}")))?;
+        if cids.len() < 2 {
+            continue;
+        }
+        let cids: Vec<FactCid> = cids.into_iter().map(FactCid::new).collect();
+        out.push((key, cids));
+    }
+    Ok(out)
 }
 
 /// Compute the per-fact merkle inclusion proof for every fact in the
@@ -627,4 +807,204 @@ fn hex32(b: &[u8; 32]) -> String {
         s.push_str(&format!("{:02x}", x));
     }
     s
+}
+
+#[cfg(test)]
+mod multi_attester_tests {
+    //! End-to-end smoke that two attesters writing to the same
+    //! `(cell, band, tslot)` triple end up with BOTH CIDs in the
+    //! multi-attester index (even though the canonical index is
+    //! last-write-wins). Drives `MaterializingStorage::put_attestation`
+    //! directly with fully-signed attestations so the test exercises
+    //! the production code path.
+
+    use super::*;
+    use blake3::Hasher;
+    use ed25519_dalek::{Signer, SigningKey};
+    use emem_attest::merkle_root;
+    use emem_core::{AttesterKey, KeyEpoch, Signature};
+    use emem_fact::{Attestation, Derivation, Fact, PrimaryFact, RegistryCid, SchemaCid, Source};
+
+    fn build_signed(facts: Vec<Fact>, secret: [u8; 32]) -> (Attestation, [u8; 32]) {
+        let registry_cid = "test-registry";
+        let schema_cid = "test-schema";
+        let signing = SigningKey::from_bytes(&secret);
+        let vk = signing.verifying_key();
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(vk.as_bytes());
+        let mut leaves: Vec<[u8; 32]> = facts
+            .iter()
+            .map(|f| {
+                let mut buf = Vec::new();
+                ciborium::ser::into_writer(f, &mut buf).unwrap();
+                let h = blake3::hash(&buf);
+                let mut a = [0u8; 32];
+                a.copy_from_slice(h.as_bytes());
+                a
+            })
+            .collect();
+        leaves.sort();
+        let root = merkle_root(&leaves);
+        let mut h = Hasher::new();
+        h.update(&root);
+        h.update(registry_cid.as_bytes());
+        h.update(schema_cid.as_bytes());
+        let msg = h.finalize();
+        let sig = signing.sign(msg.as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&sig.to_bytes());
+        let att = Attestation {
+            facts,
+            batch_root: root,
+            attester: AttesterKey(pk),
+            attester_key_epoch: KeyEpoch(0),
+            registry_cid: RegistryCid::new(registry_cid),
+            schema_cid: SchemaCid::new(schema_cid),
+            signature: Signature(sig_bytes),
+            attested_at: "2026-05-28T00:00:00Z".into(),
+        };
+        (att, pk)
+    }
+
+    fn mk_ndvi_fact(cell: &str, tslot: u64, ndvi: f64, signer_pk: [u8; 32]) -> Fact {
+        Fact::Primary(PrimaryFact {
+            cell: cell.into(),
+            band: "indices.ndvi".into(),
+            tslot,
+            value: ciborium::Value::Float(ndvi),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "test".into(),
+                id: format!("ndvi-{ndvi}"),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new("test-schema"),
+            signer: AttesterKey(signer_pk),
+            signed_at: "2026-05-28T00:00:00Z".into(),
+            served_via: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn put_attestation_populates_multi_attester_index() {
+        // Build an ephemeral MaterializingStorage so the test exercises
+        // the hot-cache sled tree wiring end to end. The function
+        // registry has nothing wired for "indices.ndvi" but we never
+        // call materialize_many in this test, only put_attestation —
+        // which doesn't touch the registry.
+        let bands = Arc::new(emem_core::bands::DEFAULT.clone());
+        let functions =
+            Arc::new(emem_core::FunctionRegistry::parse_default().expect("default functions"));
+        let sources =
+            Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
+        let storage =
+            MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage");
+
+        let cell = "damO.zb000.xUti.zde78";
+        let tslot = 12u64;
+        // Attester A signs NDVI = 0.85.
+        let mut sec_a = [0u8; 32];
+        sec_a[0] = 1;
+        let f_a = mk_ndvi_fact(
+            cell,
+            tslot,
+            0.85,
+            SigningKey::from_bytes(&sec_a).verifying_key().to_bytes(),
+        );
+        let (att_a, _pk_a) = build_signed(vec![f_a.clone()], sec_a);
+        let cids_a = storage.put_attestation(&att_a).await.expect("put A");
+        assert_eq!(cids_a.len(), 1);
+
+        // Attester B signs NDVI = 0.10 at the SAME (cell, band, tslot).
+        let mut sec_b = [0u8; 32];
+        sec_b[0] = 2;
+        let f_b = mk_ndvi_fact(
+            cell,
+            tslot,
+            0.10,
+            SigningKey::from_bytes(&sec_b).verifying_key().to_bytes(),
+        );
+        let (att_b, _pk_b) = build_signed(vec![f_b.clone()], sec_b);
+        let cids_b = storage.put_attestation(&att_b).await.expect("put B");
+        assert_eq!(cids_b.len(), 1);
+        assert_ne!(
+            cids_a[0].as_str(),
+            cids_b[0].as_str(),
+            "two attesters at the same triple MUST produce different CIDs (they sign different content)"
+        );
+
+        // Canonical index is last-write-wins → only B's CID should
+        // live there. (Confirming our motivation for the multi-attester
+        // index.)
+        let canonical = storage
+            .lookup_canonical_many(&[emem_cache::CanonicalKey {
+                cell: cell.into(),
+                band: "indices.ndvi".into(),
+                tslot,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(
+            canonical[0].as_ref().map(|c| c.as_str()),
+            Some(cids_b[0].as_str())
+        );
+
+        // Multi-attester index MUST carry both CIDs.
+        let multi = storage.scan_multi_attester(None, 1024).await.expect("scan");
+        let entry = multi
+            .iter()
+            .find(|(k, _)| k.cell == cell && k.band == "indices.ndvi" && k.tslot == tslot)
+            .expect("multi-attester entry for the disputed triple");
+        let cid_strs: std::collections::BTreeSet<&str> =
+            entry.1.iter().map(|c| c.as_str()).collect();
+        assert!(cid_strs.contains(cids_a[0].as_str()));
+        assert!(cid_strs.contains(cids_b[0].as_str()));
+        assert_eq!(entry.1.len(), 2, "exactly two distinct CIDs preserved");
+    }
+
+    #[tokio::test]
+    async fn cell_prefix_scan_filters_at_iterator() {
+        let bands = Arc::new(emem_core::bands::DEFAULT.clone());
+        let functions =
+            Arc::new(emem_core::FunctionRegistry::parse_default().expect("default functions"));
+        let sources =
+            Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
+        let storage = MaterializingStorage::ephemeral(bands, functions, sources).unwrap();
+
+        // Two contradictions in different cell prefixes — only the
+        // matching prefix should surface.
+        for (cell, ndvi_a, ndvi_b, sec_seed_a, sec_seed_b) in [
+            ("alfa.zb000.aaaa.aaaa", 0.85_f64, 0.10_f64, 11u8, 12u8),
+            ("bravo.zb000.aaaa.aaaa", 0.90_f64, 0.05_f64, 21u8, 22u8),
+        ] {
+            for (ndvi, sec_seed) in [(ndvi_a, sec_seed_a), (ndvi_b, sec_seed_b)] {
+                let mut sec = [0u8; 32];
+                sec[0] = sec_seed;
+                let pk = SigningKey::from_bytes(&sec).verifying_key().to_bytes();
+                let f = mk_ndvi_fact(cell, 0, ndvi, pk);
+                let (att, _) = build_signed(vec![f], sec);
+                storage.put_attestation(&att).await.unwrap();
+            }
+        }
+
+        let only_alfa = storage
+            .scan_multi_attester(Some("alfa"), 1024)
+            .await
+            .unwrap();
+        assert_eq!(only_alfa.len(), 1);
+        assert!(only_alfa[0].0.cell.starts_with("alfa"));
+
+        let all = storage.scan_multi_attester(None, 1024).await.unwrap();
+        assert_eq!(all.len(), 2, "no prefix → both contradictions");
+    }
 }
