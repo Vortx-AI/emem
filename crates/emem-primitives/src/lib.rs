@@ -17,6 +17,7 @@ pub mod memory_acl;
 pub mod memory_bundle;
 pub mod memory_consolidation;
 pub mod memory_events;
+pub mod memory_search;
 pub mod memory_typing;
 pub mod query_region;
 pub mod recall;
@@ -34,6 +35,10 @@ pub use memory_acl::{
     verify_attester, AttestationVerdict, MemoryAttester, BY_ATTESTER_PREFIX, PUBKEY_SHORT_LEN,
 };
 pub use memory_events::{MemoryEvent, MemoryEventFilter};
+pub use memory_search::{
+    memory_search, MemoryFileSource, MemoryFileSummary, MemoryIndexStats, MemorySearchError,
+    MemorySearchHit, MemorySearchReq, MemorySearchResp, MemoryTextIndex,
+};
 pub use memory_typing::{ttl_days_for_kind, MemoryKind};
 pub use query_region::{query_region, QueryRegionReq, QueryRegionResp};
 pub use recall::{recall, RecallReq, RecallResp};

@@ -407,6 +407,14 @@ const SCHEMA_MEMORY_LIST_BY_KIND: &str = r#"{"type":"object","required":["kind"]
 "limit":{"type":"integer","minimum":1,"maximum":2048,"description":"Maximum entries to return (default 256, cap 2048). Results are sorted signed_at desc."}
 }}"#;
 
+const SCHEMA_MEMORY_SEARCH: &str = r#"{"type":"object","required":["q"],"properties":{
+"q":{"type":"string","description":"Free-text query. Semantic — matches paraphrases not just substrings."},
+"k":{"type":"integer","minimum":1,"maximum":100,"default":10,"description":"Number of hits to return."},
+"kind":{"type":"string","description":"Optional filter: only files whose typing taxonomy entry matches (defaults to `resource` until Agent W's typing lands)."},
+"path_prefix":{"type":"string","description":"Optional filter: only files whose path starts with this prefix (e.g. `/memories/journal/`)."},
+"attester_pubkey_b32":{"type":"string","description":"Optional filter: only files attested by this signer (base32-nopad-lowercase pubkey)."}
+}}"#;
+
 const SCHEMA_EXPLAIN_ALGORITHM: &str = r#"{
 "type":"object",
 "required":["key"],
@@ -780,6 +788,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_memory_search",
+        title: "emem_memory_search — semantic search over /memories/* files",
+        description: "Semantic search over /memories/* file contents using BGE-base-en-v1.5 (768-D, L2-normalised) backed by a Lance partition (`memory_text_index_d768.lance`). Matches paraphrases — \"rainfall in March\" finds \"precipitation observed in spring\" without an exact substring match. Returns ranked hits with similarity in [0,1], 200-char snippets around the best-matching chunk, and the signing receipt's path / file_cid / signed_at / attester_pubkey_b32 fields. Filters: `kind`, `path_prefix`, `attester_pubkey_b32`. Falls back to a brute-force scan (slower but correct) when the index is empty or `EMEM_DISABLE_LANCE=1` is set; the `via` field of the response reports which path was taken.",
+        when_to_use: "Call instead of paging through `memory_view` whenever the agent knows roughly what it wants (a topic, a name, a paraphrase) but not the exact file path. Pair with `memory_view` for the full body once you've narrowed down the candidate — `emem_memory_search` returns a 200-char snippet, not the whole file. The polling indexer hydrates once per minute (configurable via `EMEM_MEMORY_SEARCH_POLL_SECS`), so a file created in the same turn may briefly miss the fast-path — the brute-force fallback still catches it.",
+        input_schema: SCHEMA_MEMORY_SEARCH,
+        example_args: r#"{"q":"rainfall observations in spring","k":5}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "core",
     },
     ToolDescriptor {
         name: "emem_corpus_state_stats",
