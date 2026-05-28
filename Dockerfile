@@ -17,13 +17,16 @@ WORKDIR /usr/src/emem
 # g++ is required by transitive C++ deps:
 #   • ort-sys → bundled ONNX parser.cc (compiled via cc-crate)
 #   • model2vec-rs → tokenizers → esaxx-rs
+# protobuf-compiler (protoc) is required by Lance 6.x build scripts:
+#   • lance-encoding / lance-table use prost-build, which invokes protoc
+#     at build time to generate Rust bindings from .proto files.
 # The runtime stage is a fresh debian:trixie-slim so it does not
-# inherit g++ — this only adds ~50 MB to the build stage.
+# inherit g++ / protoc — this only adds ~50 MB to the build stage.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        pkg-config ca-certificates g++ && \
+        pkg-config ca-certificates g++ protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
 
 # Install mdbook *before* the COPY layers so this layer caches across
