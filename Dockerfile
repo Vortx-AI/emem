@@ -1,15 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
-# Build stage — Rust 1.91+ required by Lance 6.x (lance-namespace,
+# Build stage — Rust ≥ 1.91 required by Lance 6.x (lance-namespace,
 # lance-table, lance-tokenizer all MSRV 1.91; roaring 0.11 MSRV 1.90).
-# Lance backs find_similar's embedded ANN index. Pinned to 1.91
-# (workspace MSRV).
+# We use `rust:1-slim-trixie` (latest stable in the 1.x series) rather
+# than pinning to 1.91, because cargo build of the Lance + datafusion
+# graph against exactly 1.91 was failing (no specific rustc error
+# surfaced; latest stable builds cleanly locally on 1.95).
 #
 # Trixie (Debian 13, glibc 2.41) is required because ort-sys 2.0.0-rc.12
 # bundles ONNX's parser.cc which references __isoc23_strtoull /
 # __isoc23_strtol — symbols that only exist in glibc ≥ 2.38. On
 # bookworm-slim (glibc 2.36) the link fails with "undefined reference".
-FROM rust:1.91-slim-trixie AS build
+FROM rust:1-slim-trixie AS build
 ARG TARGETARCH
 WORKDIR /usr/src/emem
 
