@@ -1570,6 +1570,7 @@ pub async fn jepa_predict_v2(
 
     // Normalise lags into row-major (lag, band) layout.
     let mut lags_normalised: Vec<f32> = Vec::with_capacity(K_LAGS * N_BANDS);
+    #[allow(clippy::needless_range_loop)] // lag_idx is used as inner index into all_lags_phys[band_idx]
     for lag_idx in 0..K_LAGS {
         for (band_idx, band) in BAND_KEYS.iter().enumerate() {
             let (mean, std) = metadata.band_norm(band);
@@ -1600,8 +1601,8 @@ pub async fn jepa_predict_v2(
         let mp = (5 * doy + 2) / 153;
         let m = if mp < 10 { mp + 3 } else { mp - 9 };
         // Next-month-of-year (1..12).
-        let next = ((m as u32) % 12) + 1;
-        next
+        
+        ((m as u32) % 12) + 1
     });
     let target_month = target_month.clamp(1, 12);
     let lat_norm = lat_deg / 90.0;

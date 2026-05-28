@@ -194,7 +194,7 @@ async fn lance_ann_finds_seeded_vector_and_brute_force_agrees() {
     let storage = Arc::new(MemStorage::new());
     let dim = 128;
     let n = 1000;
-    let mut rng = StdRng::seed_from_u64(2026_05_28);
+    let mut rng = StdRng::seed_from_u64(20_260_528);
 
     // Seed a known "query" cell first, then `n` random neighbours.
     let mut query_vec: Vec<f32> = (0..dim)

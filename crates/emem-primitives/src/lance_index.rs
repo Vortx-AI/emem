@@ -268,10 +268,7 @@ impl LanceIndex {
             }
         }
         let path = dataset_path(&self.root, dim);
-        let dataset = match Dataset::open(path.to_string_lossy().as_ref()).await {
-            Ok(ds) => Some(ds),
-            Err(_) => None,
-        };
+        let dataset = Dataset::open(path.to_string_lossy().as_ref()).await.ok();
         let part = DimPartition {
             dim,
             path: path.clone(),
@@ -340,7 +337,7 @@ impl LanceIndex {
         let target = (dim / 16).max(1);
         let num_sub_vectors = (1..=target)
             .rev()
-            .find(|k| dim % k == 0)
+            .find(|k| dim.is_multiple_of(*k))
             .unwrap_or(1);
         let params = VectorIndexParams::ivf_pq(
             num_partitions,
@@ -749,7 +746,7 @@ mod tests {
             fact_cid: "cid-1".into(),
             vector: vec![0.5; dim],
         };
-        idx.write_rows(dim, &[row.clone()]).await.unwrap();
+        idx.write_rows(dim, std::slice::from_ref(&row)).await.unwrap();
         let initial = idx.total_rows().await;
         assert_eq!(initial, 1);
         // Re-hydrate the same row through the existing-cid filter the
