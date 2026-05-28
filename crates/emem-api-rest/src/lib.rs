@@ -2963,10 +2963,11 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         })
         .collect();
     Json(json!({
-        // A2A protocol envelope (https://a2a-protocol.org/latest/topics/agent-discovery/)
-        "protocolVersion":    "0.2",
+        // A2A v1.2 envelope (Linux Foundation A2A project, March 2026).
+        // Compliant against https://a2a-protocol.org/dev/specification/
+        "protocolVersion":    "1.2.0",
         "name":               "emem",
-        "description":        "Agent-native, content-addressed, ed25519-signed Earth memory protocol. Recall any place on Earth (cell × band × tslot) and get back a signed receipt with a content address you can cite.",
+        "description":        "Verifiable memory substrate for AI agents. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (memb:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
         "url":                format!("{origin}/mcp"),
         "preferredTransport": "HTTP+JSON",
         "version":            env!("CARGO_PKG_VERSION"),
@@ -2977,6 +2978,10 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "pushNotifications":    false,
             "stateTransitionHistory": true,
         },
+        // A2A v1.2 added this field; we never serve a separate authenticated
+        // card (every endpoint is open + receipt-signed). Explicit `false`
+        // beats omission for downstream validators.
+        "supportsAuthenticatedExtendedCard": false,
         "defaultInputModes":  ["text/plain", "application/json"],
         "defaultOutputModes": ["application/json"],
         "skills": skills,
