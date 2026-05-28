@@ -2,1063 +2,824 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>The emem gallery — verifiable Earth observation, in plain figures</title>
+<title>The emem atlas — every place on Earth, signed, live</title>
 <link rel="icon" type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif"/>
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<meta name="color-scheme" content="light dark"/>
-<meta name="description" content="Earth-observation figures from the emem.dev responder. Each map is a live endpoint URL; each pixel resolves to a content-addressed, ed25519-signed fact. No API keys, no accounts."/>
-<link rel="canonical" href="https://emem.dev/docs/gallery"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="color-scheme" content="light"/>
+<meta name="description" content="Pick a place. Watch eight live numbers about it arrive in seconds — every one ed25519-signed by emem.dev. Weather, air, vegetation, heat, water, forest, elevation, and places that look like this. No accounts, no keys."/>
+<link rel="canonical" href="https://emem.dev/gallery"/>
 <meta property="og:type" content="article"/>
-<meta property="og:url" content="https://emem.dev/docs/gallery"/>
-<meta property="og:title" content="The emem gallery — verifiable Earth observation, in plain figures"/>
-<meta property="og:description" content="Global coverage. Per-place elevation. Each rendered live by the emem.dev responder and signed for offline verification."/>
+<meta property="og:title" content="The emem atlas — every place on Earth, signed, live"/>
+<meta property="og:description" content="Pick a place. Eight live numbers arrive in seconds. Every one ed25519-signed."/>
 <meta property="og:image" content="https://emem.dev/og-image.svg"/>
-<!-- Typography unified with the rest of web/* — JetBrains Mono as a self-hosted
-     system stack, no Google Fonts round-trip. The page previously loaded
-     Source Serif 4 + Inter for a magazine feel; that read as visually
-     disconnected from /, /humans, /verify, and the demos suite. -->
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<meta name="twitter:card" content="summary_large_image"/>
 <style>
-  /* Unified emem design tokens — light + dark via prefers-color-scheme,
-     same palette as /, /demos, /humans, /verify. Gallery-specific
-     aliases (--paper-sunk, --ink-mute, --ink-dim) map to the unified
-     equivalents so the gallery's existing class rules don't need
-     rewriting. Editorial serif retained for figure prose. */
-  :root {
-    --paper:      oklch(0.975 0.005 85);
-    --paper-2:    oklch(0.955 0.005 85);
-    --paper-3:    oklch(0.93 0.006 85);
-    --paper-sunk: var(--paper-3);
-    --ink:        oklch(0.20 0.005 85);
-    --ink-2:      oklch(0.32 0.005 85);
-    --ink-3:      oklch(0.50 0.005 85);
-    --ink-mute:   var(--ink-2);
-    --ink-dim:    var(--ink-3);
-    --rule:       oklch(0.86 0.005 85);
-    --accent:     oklch(0.45 0.09 145);
-    --mono: 'JetBrains Mono', 'Berkeley Mono', 'SF Mono', ui-monospace, Consolas, monospace;
-    /* Aliases retained so existing `font-family: var(--serif)` / `var(--sans)`
-       rules below resolve. Both now route to the mono stack — the page used
-       to mix Source Serif (display) + Inter (body) + JetBrains Mono (code);
-       collapsing to mono keeps it visually consistent with the rest of /. */
-    --serif: var(--mono);
-    --sans:  var(--mono);
+  :root{
+    --cream: #f4ecd8;
+    --cream-2: #ebe2c8;
+    --paper: #faf6ea;
+    --ink: #1b1410;
+    --ink-2: #4a3d31;
+    --mute: #8a7a64;
+    --rule: #d9cdaf;
+    --rule-strong: #b8a982;
+    --forest: #3f6b3a;
+    --ember: #c9522a;
+    --sky: #3f6b8c;
+
+    --serif: Georgia, 'Hoefler Text', 'Source Serif Pro', Cambria, 'Times New Roman', serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper:      oklch(0.16 0.005 85);
-      --paper-2:    oklch(0.19 0.005 85);
-      --paper-3:    oklch(0.23 0.006 85);
-      --paper-sunk: var(--paper-3);
-      --ink:        oklch(0.93 0.005 85);
-      --ink-2:      oklch(0.80 0.005 85);
-      --ink-3:      oklch(0.62 0.005 85);
-      --ink-mute:   var(--ink-2);
-      --ink-dim:    var(--ink-3);
-      --rule:       oklch(0.32 0.005 85);
-      --accent:     oklch(0.78 0.10 145);
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);color:var(--ink);font-family:var(--mono);font-size:13px;line-height:1.4;overflow:hidden}
+  body{
+    background:
+      radial-gradient(ellipse 90% 60% at 20% 0%, rgba(0,0,0,.04) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 100% 100%, rgba(0,0,0,.05) 0%, transparent 60%),
+      var(--cream);
+    min-height: 100vh;
+  }
+  body::before{
+    content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.012) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(90deg, rgba(0,0,0,.012) 0 1px, transparent 1px 3px);
+  }
+
+  .shell{position:relative;z-index:1;display:grid;grid-template-rows:48px 1fr 56px;height:100vh;max-height:100vh}
+
+  header{
+    display:grid;grid-template-columns:140px 1fr 220px;align-items:center;gap:16px;
+    padding:0 18px;border-bottom:1px solid var(--rule);background:rgba(244,236,216,.85);
+    backdrop-filter:saturate(120%) blur(2px);
+  }
+  .brand{font-family:var(--serif);font-size:22px;font-style:italic;letter-spacing:-.01em;color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+  .brand .dot{color:var(--ember);font-style:normal}
+  .brand .sub{font-style:normal;font-family:var(--mono);font-size:10px;color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
+  .search-wrap{position:relative;display:flex;justify-content:center}
+  .search{
+    width:min(560px,100%);padding:8px 36px 8px 14px;border:1px solid var(--rule-strong);
+    background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:13px;
+    outline:none;border-radius:0;
+  }
+  .search:focus{border-color:var(--ink)}
+  .search-hint{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--mute);font-size:11px;pointer-events:none}
+  .verify-pill{
+    justify-self:end;display:inline-flex;align-items:center;gap:6px;
+    padding:5px 10px;border:1px solid var(--forest);color:var(--forest);
+    font-size:10px;text-decoration:none;letter-spacing:.04em;text-transform:uppercase;
+  }
+  .verify-pill .live{width:6px;height:6px;border-radius:50%;background:var(--forest);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+
+  .atlas{
+    display:grid;grid-template-columns:minmax(0,1fr) 480px;gap:0;
+    border-bottom:1px solid var(--rule);min-height:0;
+  }
+  .parchment{
+    position:relative;overflow:hidden;border-right:1px solid var(--rule);
+    background:
+      radial-gradient(ellipse 90% 100% at 50% 50%, rgba(0,0,0,.025) 0%, transparent 70%),
+      var(--paper);
+  }
+  .parchment::after{
+    content:'';position:absolute;inset:14px;border:1px solid rgba(27,20,16,.12);pointer-events:none;
+  }
+  .scene-bg{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    opacity:.55;mix-blend-mode:multiply;transition:opacity .6s ease;
+  }
+  .scene-bg img,.scene-bg svg{width:100%;height:100%;object-fit:cover;filter:sepia(.4) saturate(.85) contrast(.9)}
+  .scene-bg.empty{opacity:0}
+  .polygon-canvas{position:absolute;inset:0;pointer-events:none}
+  .map-meta{position:absolute;top:32px;left:36px;max-width:60%;z-index:3}
+  .map-meta h1{
+    font-family:var(--serif);font-weight:400;font-style:italic;font-size:54px;
+    margin:0 0 4px;letter-spacing:-.02em;color:var(--ink);line-height:1;
+    text-shadow:0 1px 0 rgba(255,255,255,.5);
+  }
+  .map-meta .coords{font-family:var(--mono);font-size:13px;color:var(--ink-2);margin:0 0 8px}
+  .map-meta .cell64{font-family:var(--mono);font-size:11px;color:var(--mute);letter-spacing:.02em;padding:3px 8px;background:rgba(255,255,255,.55);border:1px dashed var(--rule-strong);display:inline-block}
+  .headline{
+    position:absolute;left:36px;right:36px;bottom:34px;z-index:3;
+    font-family:var(--serif);font-size:20px;font-style:italic;color:var(--ink);
+    line-height:1.4;max-width:620px;
+  }
+  .headline .strap{display:inline-block;border-bottom:1px solid var(--ember);padding-bottom:2px}
+  .photo{
+    position:absolute;top:32px;right:36px;z-index:3;width:200px;
+    border:1px solid var(--ink);background:var(--paper);padding:6px 6px 26px;
+    transform:rotate(2deg);transition:transform .6s ease;
+    box-shadow:0 6px 18px rgba(0,0,0,.18);
+  }
+  .photo:hover{transform:rotate(0)}
+  .photo img{width:100%;display:block;aspect-ratio:1;object-fit:cover;background:#222;filter:saturate(1.15) contrast(1.05)}
+  .photo .caption{
+    position:absolute;bottom:4px;left:8px;right:8px;font-family:var(--serif);font-style:italic;
+    font-size:10px;color:var(--ink-2);text-align:center;letter-spacing:.03em;
+  }
+  .photo.empty{display:none}
+
+  .tiles{
+    display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,1fr);
+    background:var(--cream-2);
+  }
+  .tile{
+    position:relative;border-bottom:1px solid var(--rule);border-right:1px solid var(--rule);
+    padding:12px 14px;display:flex;flex-direction:column;justify-content:space-between;
+    min-height:90px;background:var(--paper);
+  }
+  .tile:nth-child(2n){border-right:0}
+  .tile:nth-last-child(-n+2){border-bottom:0}
+  .tile .label{
+    font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);
+    display:flex;align-items:center;gap:8px;
+  }
+  .tile .label .swatch{width:8px;height:8px;display:inline-block}
+  .swatch.fo{background:var(--forest)}
+  .swatch.em{background:var(--ember)}
+  .swatch.sk{background:var(--sky)}
+  .swatch.mu{background:var(--mute)}
+  .tile .value{
+    font-family:var(--serif);font-size:28px;line-height:1;color:var(--ink);font-weight:500;
+    display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;
+  }
+  .tile .value .u{font-family:var(--mono);font-size:13px;color:var(--ink-2);font-weight:400}
+  .tile .ctx{font-family:var(--mono);font-size:11px;color:var(--ink-2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tile.loading .value{color:transparent;background:linear-gradient(90deg,var(--rule) 25%,var(--cream-2) 50%,var(--rule) 75%);background-size:200% 100%;animation:shimmer 1.6s linear infinite;width:60%;height:28px;border-radius:2px}
+  .tile.loading .ctx{color:transparent;background:linear-gradient(90deg,var(--rule) 25%,var(--cream-2) 50%,var(--rule) 75%);background-size:200% 100%;animation:shimmer 1.6s linear infinite;width:80%;height:11px;border-radius:2px}
+  @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .tile.error .value{font-family:var(--mono);font-size:13px;color:var(--mute);font-style:italic}
+  .tile.appear{animation:tile-in .5s cubic-bezier(.16,1,.3,1) both}
+  .tile.appear:nth-child(1){animation-delay:0.05s}
+  .tile.appear:nth-child(2){animation-delay:0.12s}
+  .tile.appear:nth-child(3){animation-delay:0.19s}
+  .tile.appear:nth-child(4){animation-delay:0.26s}
+  .tile.appear:nth-child(5){animation-delay:0.33s}
+  .tile.appear:nth-child(6){animation-delay:0.40s}
+  .tile.appear:nth-child(7){animation-delay:0.47s}
+  .tile.appear:nth-child(8){animation-delay:0.54s}
+  @keyframes tile-in{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:none}}
+
+  .tile .spark{position:absolute;right:10px;bottom:10px;width:78px;height:22px;opacity:.7}
+  .tile.similar .chips{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  .tile.similar .chip{
+    border:1px solid var(--rule-strong);background:rgba(255,255,255,.5);
+    padding:3px 6px;font-size:10px;color:var(--ink-2);font-family:var(--mono);
+    display:inline-flex;align-items:center;gap:5px;text-decoration:none;
+  }
+  .tile.similar .chip .d{font-size:9px;color:var(--mute)}
+  .tile.similar .chip:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .tile.similar .chip:hover .d{color:var(--paper)}
+
+  footer{
+    display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:18px;
+    padding:0 18px;border-top:1px solid var(--rule);background:rgba(244,236,216,.85);
+  }
+  .presets{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .presets::-webkit-scrollbar{display:none}
+  .preset{
+    border:1px solid var(--rule-strong);background:transparent;color:var(--ink);
+    padding:5px 10px;font-family:var(--mono);font-size:11px;cursor:pointer;
+    transition:background .15s,color .15s;white-space:nowrap;
+  }
+  .preset:hover,.preset.active{background:var(--ink);color:var(--paper)}
+  .toggles{display:flex;gap:4px}
+  .toggle{
+    width:30px;height:26px;border:1px solid var(--rule-strong);background:transparent;
+    display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;
+  }
+  .toggle:hover,.toggle.on{border-color:var(--ink);background:var(--paper)}
+  .stamp{
+    font-family:var(--mono);font-size:10px;color:var(--ink-2);letter-spacing:.03em;
+    display:flex;align-items:center;gap:8px;justify-self:end;
+  }
+  .stamp a{color:var(--forest);text-decoration:none;border-bottom:1px dashed var(--forest)}
+  .stamp .cid{color:var(--mute);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  @media (max-width: 820px){
+    html,body{overflow:auto}
+    .shell{grid-template-rows:48px auto auto auto;min-height:100vh;max-height:none;height:auto}
+    .atlas{grid-template-columns:1fr;border-bottom:none}
+    .parchment{aspect-ratio:1.3/1;border-right:0;border-bottom:1px solid var(--rule)}
+    .map-meta h1{font-size:36px}
+    .photo{width:130px;top:14px;right:14px;padding:4px 4px 22px}
+    .headline{font-size:14px;left:18px;right:18px;bottom:14px}
+    .tiles{
+      grid-template-columns:repeat(8,minmax(200px,1fr));grid-template-rows:1fr;
+      overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;
     }
-  }
-  * { box-sizing: border-box; }
-  html { background: var(--paper); }
-  body {
-    margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font-family: var(--sans);
-    font-size: 17px;
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
-  a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--rule); }
-  a:hover { text-decoration-color: var(--ink); color: var(--accent); }
-  code, .mono { font-family: var(--mono); font-size: 0.88em; background: var(--paper-sunk); padding: 1px 5px; border-radius: 2px; }
-  ::selection { background: var(--accent); color: var(--paper); }
-
-  .wrap { max-width: 760px; margin: 0 auto; padding: 0 28px; }
-  .wrap-wide { max-width: 920px; margin: 0 auto; padding: 0 28px; }
-
-  /* Masthead — sentence-case, two-line. Mirrors broadsheet feel. */
-  .masthead { padding: 80px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 64px; }
-  .masthead .kicker { font-family: var(--mono); font-size: 11.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 14px; }
-  .masthead h1 { font-family: var(--serif); font-weight: 600; font-size: 44px; line-height: 1.12; letter-spacing: -0.01em; margin: 0 0 14px; max-width: 22ch; }
-  .masthead .standfirst { font-family: var(--serif); font-style: italic; font-size: 21px; line-height: 1.45; color: var(--ink-mute); max-width: 50ch; margin: 0 0 22px; }
-  .masthead .byline { font-size: 13px; color: var(--ink-dim); }
-  .masthead .byline a { color: var(--ink-dim); }
-
-  /* Each section is one hero, full container width, generous vertical rhythm. */
-  section.figure { padding: 0 0 96px; }
-  section.figure .lede { font-family: var(--serif); font-size: 22px; line-height: 1.45; color: var(--ink); margin: 0 0 38px; max-width: 38ch; }
-  section.figure .lede em { font-style: italic; }
-  section.figure figure { margin: 0; }
-  section.figure .frame {
-    background: var(--paper-sunk);
-    border: 1px solid var(--rule);
-    padding: 0;
-    margin: 0 0 22px;
-  }
-  section.figure .frame img,
-  section.figure .frame object { display: block; width: 100%; height: auto; }
-  section.figure h2 { font-family: var(--serif); font-weight: 600; font-size: 28px; line-height: 1.18; margin: 0 0 8px; letter-spacing: -0.005em; }
-  section.figure .dek { font-family: var(--serif); font-style: italic; font-size: 18px; line-height: 1.45; color: var(--ink-mute); margin: 0 0 26px; max-width: 42ch; }
-  section.figure p { margin: 0 0 18px; max-width: 60ch; }
-  section.figure .caption { font-size: 13px; color: var(--ink-dim); border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 22px; max-width: 60ch; }
-  section.figure .caption b { color: var(--ink); font-weight: 600; }
-  section.figure .source { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); margin-top: 6px; }
-  section.figure .source a { color: var(--ink-dim); text-decoration-color: var(--rule); }
-
-  /* Trio — three cities, stacked on mobile, three across on wide. */
-  .trio { display: grid; gap: 32px; grid-template-columns: 1fr; }
-  @media (min-width: 900px) { .trio { grid-template-columns: repeat(3, 1fr); gap: 28px; } }
-  .trio figure { margin: 0; }
-  .trio h3 { font-family: var(--serif); font-weight: 600; font-size: 20px; margin: 14px 0 4px; }
-  .trio .dek { font-family: var(--serif); font-style: italic; font-size: 14.5px; color: var(--ink-mute); margin: 0 0 12px; }
-  .trio .source { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
-
-  /* Case study — hunter-mode figure with N scene tiles. */
-  .case { padding: 0 0 88px; }
-  .case .lede { font-family: var(--serif); font-size: 22px; line-height: 1.45; color: var(--ink); margin: 0 0 28px; max-width: 38ch; }
-  .case h2 { font-family: var(--serif); font-weight: 600; font-size: 28px; line-height: 1.18; margin: 0 0 8px; letter-spacing: -0.005em; }
-  .case .dek { font-family: var(--serif); font-style: italic; font-size: 18px; line-height: 1.45; color: var(--ink-mute); margin: 0 0 22px; max-width: 42ch; }
-  .case p { margin: 0 0 16px; max-width: 60ch; }
-  .case .scenes {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 14px;
-    margin: 0 0 22px;
-  }
-  @media (min-width: 760px) {
-    .case .scenes { grid-template-columns: repeat(4, 1fr); gap: 14px; }
-  }
-  .case .scene {
-    background: var(--paper-sunk);
-    border: 1px solid var(--rule);
-  }
-  .case .scene img { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: cover; }
-  .case .scene-meta {
-    font-family: var(--mono);
-    font-size: 10.5px;
-    color: var(--ink-dim);
-    padding: 6px 8px;
-    border-top: 1px solid var(--rule);
-    line-height: 1.35;
-    word-break: break-all;
-  }
-  .case .scene-meta b { color: var(--ink); font-weight: 600; }
-  .case .recipe {
-    background: var(--paper-sunk);
-    border: 1px solid var(--rule);
-    padding: 14px 16px;
-    font-family: var(--mono);
-    font-size: 12.5px;
-    line-height: 1.55;
-    color: var(--ink);
-    margin: 18px 0 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .case .recipe .sh { color: var(--accent); }
-  .case .source { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); margin-top: 10px; }
-  .case .source a { color: var(--ink-dim); }
-  .case .caption { font-size: 13px; color: var(--ink-dim); border-top: 1px solid var(--rule); padding-top: 14px; margin-top: 22px; max-width: 60ch; }
-  .case .caption b { color: var(--ink); font-weight: 600; }
-  .case .badge {
-    display: inline-block;
-    font-family: var(--mono);
-    font-size: 10.5px;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    color: var(--accent);
-    border: 1px solid currentColor;
-    padding: 2px 7px;
-    border-radius: 2px;
-    margin-bottom: 12px;
-  }
-  .case .badge.limit { color: oklch(0.55 0.16 25); }
-
-  /* Worked example — terminal-feeling but quiet. Cream paper, mono. */
-  .worked {
-    background: var(--paper-sunk);
-    border: 1px solid var(--rule);
-    padding: 22px 24px;
-    font-family: var(--mono);
-    font-size: 13px;
-    line-height: 1.6;
-    margin: 0 0 22px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--ink);
-  }
-  .worked .sh { color: var(--accent); }
-  .worked .k { color: var(--ink-mute); }
-  .worked .v { color: var(--ink); }
-  .worked .cid { color: oklch(0.60 0.13 80); }
-
-  /* Section rule + section number. */
-  .rule { height: 1px; background: var(--rule); border: 0; margin: 0 0 64px; }
-  .secnum { font-family: var(--mono); font-size: 11.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-dim); margin: 0 0 14px; }
-
-  /* Footer. */
-  footer { border-top: 1px solid var(--rule); margin-top: 80px; padding: 36px 0 64px; color: var(--ink-dim); font-size: 13.5px; }
-  footer p { margin: 0 0 8px; }
-  footer a { color: var(--ink-dim); }
-  footer .pubkey { font-family: var(--mono); font-size: 11.5px; }
-
-  @media (max-width: 760px) {
-    .wrap, .wrap-wide { padding: 0 22px; }
-    .masthead { padding-top: 56px; }
-    .masthead h1 { font-size: 30px; }
-    .masthead .standfirst { font-size: 17px; }
-    section.figure { padding-bottom: 56px; }
-    section.figure h2 { font-size: 24px; }
-    section.figure .lede { font-size: 18px; }
-    section.figure .dek { font-size: 16px; }
-  }
-  @media (max-width: 480px) {
-    body { font-size: 14.5px; }
-    .wrap, .wrap-wide { padding: 0 16px; }
-    .masthead { padding-top: 36px; }
-    .masthead h1 { font-size: 24px; line-height: 1.15; }
-    .masthead .standfirst { font-size: 15px; }
-    section.figure h2 { font-size: 20px; }
-    section.figure .lede { font-size: 15.5px; }
-    section.figure .dek { font-size: 14px; }
-    section.figure { padding-bottom: 40px; }
-    footer { margin-top: 48px; padding: 24px 0 40px; font-size: 12.5px; }
+    .tile{scroll-snap-align:start;border-right:1px solid var(--rule);border-bottom:0;min-height:130px}
+    .tile:last-child{border-right:0}
+    footer{grid-template-columns:1fr;gap:8px;padding:8px 14px;height:auto}
+    .stamp{justify-self:start}
   }
 </style>
 </head>
 <body>
+<div class="shell">
 
-<div class="wrap-wide">
-  <header class="masthead">
-    <p class="kicker"><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none">&larr; emem.dev</a> · gallery · 2026</p>
-    <h1>Earth-observation figures, signed by the responder</h1>
-    <p class="standfirst">Live case studies from the emem.dev responder.
-       Every map is a live endpoint. Every hotspot is a real cell64 ranked
-       by a real band. Every row carries a fact CID an agent or auditor
-       can verify offline.</p>
-    <p class="byline">Read time ≈ 11 min · every figure is a live URL · <a href="/">emem.dev</a> · <a href="/docs/diagrams/">the protocol in 32 diagrams</a></p>
-  </header>
-</div>
+<header>
+  <a href="/" class="brand">emem<span class="dot">·</span><span class="sub">atlas</span></a>
+  <div class="search-wrap">
+    <input id="search" class="search" type="text" autocomplete="off" spellcheck="false"
+           placeholder="show me … (try Bengaluru, Amazon, Mount Fuji, your hometown)">
+    <span class="search-hint">↵</span>
+  </div>
+  <a href="/verify" class="verify-pill"><span class="live"></span>ed25519 · /verify</a>
+</header>
 
-<main class="wrap-wide">
+<main class="atlas">
 
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="figure" id="coverage">
-    <p class="secnum">Section 1 · Coverage</p>
-    <p class="lede">The corpus on this responder, drawn one cell per
-       attested place. A cell appears here the moment its first fact
-       is signed.</p>
+  <section class="parchment" id="parchment">
+    <div class="scene-bg empty" id="scene-bg" aria-hidden="true"></div>
+    <canvas class="polygon-canvas" id="polygon-canvas" aria-hidden="true"></canvas>
 
-    <figure>
-      <div class="frame">
-        <img src="/v1/coverage_map.svg" alt="Global map showing attested cells across continents" loading="eager"/>
-      </div>
-      <h2>The corpus, plotted on a flat Earth</h2>
-      <p class="dek">A plate-carrée projection of every cell with at least one signed
-        fact. Cool tiles are sparsely-sampled places; warm tiles are dense ones.</p>
-      <p>The dots cluster where the lazy materialiser has been busy — typically
-         where the first agent asked for a recall and the responder fetched the
-         underlying tile, signed it as a Primary attestation, and persisted the
-         result. Every miss anywhere on the globe extends the map forward by
-         exactly one cell.</p>
-      <p>The map is drawn live: it updates as new facts come in. The same
-         renderer answers an MCP <code>emem_coverage_map</code> call as an
-         <code>EmbeddedResource</code> block and a plain
-         <code>GET&nbsp;/v1/coverage_map.svg</code> request as bare SVG.</p>
-      <p class="caption">
-        <b>How to read it.</b> Each 4×4-pixel rectangle is one cell64
-        (~9.55&nbsp;m square at the equator) that the responder has been asked
-        about. Grid lines are every 30°. The corpus is open — pull a fact and
-        verify with <code>POST&nbsp;/v1/verify_receipt</code> or run the math
-        yourself.
-      </p>
-      <p class="source">
-        emem.dev · <code>/v1/coverage_map.svg</code> · refreshes every 5 min ·
-        <a href="/v1/coverage_matrix">coverage matrix (JSON)</a>
-      </p>
-    </figure>
-  </section>
-
-  <hr class="rule"/>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="figure" id="elevation-trio">
-    <p class="secnum">Section 2 · Three cities, one band</p>
-    <p class="lede">One scalar key, <code>copdem30m.elevation_mean</code>,
-       painted across three coastal cities at 1&nbsp;km resolution. Each
-       map is a live endpoint URL: paste it into a colleague's chat and
-       the bytes they see are the bytes you saw.</p>
-
-    <div class="trio">
-
-      <figure>
-        <div class="frame">
-          <a href="/v1/places/scene_overlay.svg?place=Mumbai&amp;band=copdem30m.elevation_mean&amp;n_cells=64">
-            <img src="/v1/places/scene_overlay.svg?place=Mumbai&amp;band=copdem30m.elevation_mean&amp;n_cells=64" alt="Mumbai elevation map" loading="lazy"/>
-          </a>
-        </div>
-        <h3>Mumbai, harbour to hills</h3>
-        <p class="dek">Two metres at the salt pans of Vasai, a hundred-plus
-           where the Sahyadri foothills meet the airport.</p>
-        <p class="source">Copernicus DEM GLO-30 · 64 cells</p>
-      </figure>
-
-      <figure>
-        <div class="frame">
-          <a href="/v1/places/scene_overlay.svg?place=Manhattan&amp;band=copdem30m.elevation_mean&amp;n_cells=64">
-            <img src="/v1/places/scene_overlay.svg?place=Manhattan&amp;band=copdem30m.elevation_mean&amp;n_cells=64" alt="Manhattan elevation map" loading="lazy"/>
-          </a>
-        </div>
-        <h3>Manhattan's quiet spine</h3>
-        <p class="dek">The ridge from Inwood through Morningside Heights and
-           Central Park — bedrock first, avenues second.</p>
-        <p class="source">Copernicus DEM GLO-30 · 64 cells</p>
-      </figure>
-
-      <figure>
-        <div class="frame">
-          <a href="/v1/places/scene_overlay.svg?place=Tokyo&amp;band=copdem30m.elevation_mean&amp;n_cells=64">
-            <img src="/v1/places/scene_overlay.svg?place=Tokyo&amp;band=copdem30m.elevation_mean&amp;n_cells=64" alt="Tokyo elevation map" loading="lazy"/>
-          </a>
-        </div>
-        <h3>Tokyo, sea level out west</h3>
-        <p class="dek">Sumida and Arakawa lowlands at zero metres; Yamanote
-           plateau and Tama foothills carry the rails to the mountains.</p>
-        <p class="source">Copernicus DEM GLO-30 · 64 cells</p>
-      </figure>
-
+    <div class="map-meta">
+      <h1 id="place-name">an atlas of signed places</h1>
+      <p class="coords" id="place-coords">type a place above, or pick a chip below</p>
+      <code class="cell64" id="place-cell">cell64 will appear here</code>
     </div>
 
-    <p class="caption" style="margin-top:32px;">
-      <b>What the colour means.</b> A five-stop terrain ramp from cream (low
-      elevation) to deep forest (high). The legend in each figure carries the
-      actual range in metres so the same hue means different absolute heights
-      in different places. <b>Why squares.</b> Each tile is one of an
-      8×8 grid of cell64 samples covering the city's bounding box; the
-      responder geocodes the place, walks the grid, recalls each cell, and
-      paints. <b>Latency.</b> Cold ~3&nbsp;s (first agent pays the
-      materialiser cost); warm ~150&nbsp;ms.
-    </p>
-  </section>
-
-  <hr class="rule"/>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="hunter">
-    <p class="secnum">Section 3 · Hunter mode</p>
-    <p class="lede">Some questions ask about an event rather than a
-       place: "find algal blooms in Lake Erie", "where is deforestation
-       happening in Borneo". These don't anchor on a single cell.
-       They sweep a region looking for a pattern.</p>
-
-    <p>The <code>POST /v1/hunt</code> endpoint takes an event keyword
-       and a region (free-text name or polygon_bbox), picks the
-       matching detection algorithm from
-       <a href="/v1/algorithms">/v1/algorithms</a>, samples up to
-       thirty-two cells inside the region, recalls each cell's primary
-       scalar band (and a gate band where the algorithm needs one),
-       and returns the top eight cells ranked by that scalar. Each
-       hotspot row includes the cell64, the value, a fact CID, and a
-       Sentinel-2 scene URL.</p>
-
-    <p>Four case studies follow. The cells, values, and CIDs below
-       were returned by live <code>/v1/hunt</code> calls. Click a
-       scene tile to open the Sentinel-2 RGB for that cell.</p>
-  </section>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="bloom">
-    <p class="badge">Case 1 · Algal bloom · Lake Erie</p>
-    <h2>Water-gated NDVI returns near zero in May</h2>
-    <p class="dek">Sampled in May 2026, before Lake Erie's summer
-       cyanobacteria season. The detector ranks chlorophyll-NDCI over
-       water-masked cells; in May the values sit near zero because
-       there is no active bloom.</p>
-
-    <p>The algorithm is
-       <a href="/v1/algorithms/algal_bloom_chlorophyll_ndci@1"><code>algal_bloom_chlorophyll_ndci@1</code></a>.
-       It requires NDWI > 0 to confirm water before scoring NDVI as a
-       chlorophyll proxy. The gate is applied to the candidate cells
-       before sorting, so every hotspot below sits over water. The
-       NDVI values are near zero because Lake Erie's bloom intensity
-       peaks in July–September per
-       <a href="https://www.glerl.noaa.gov/res/HABs_and_Hypoxia/">NOAA
-       GLERL</a>; the same call in August will return positive NDVI
-       over the same cells.</p>
-
-    <div class="scenes">
-      <div class="scene">
-        <a href="/v1/cells/defi.zb5dc.bObe.wOgI/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb5dc.bObe.wOgI/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over water at 41.84°N, -81.16°W"/>
-        </a>
-        <div class="scene-meta">
-          <b>41.84°N, -81.16°W</b><br/>
-          NDVI&nbsp;-0.057<br/>
-          NDWI&nbsp;0.14&nbsp;✓<br/>
-          cid&nbsp;tc54vlpl62a4…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb5e2.zf791.wOgI/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb5e2.zf791.wOgI/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over water at 42.45°N, -81.16°W"/>
-        </a>
-        <div class="scene-meta">
-          <b>42.45°N, -81.16°W</b><br/>
-          NDVI&nbsp;-0.063<br/>
-          NDWI&nbsp;0.34&nbsp;✓<br/>
-          cid&nbsp;kkjpv7ayq74n…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb5e6.rEqU.zbc5d/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb5e6.rEqU.zbc5d/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over water at 42.75°N, -80.24°W"/>
-        </a>
-        <div class="scene-meta">
-          <b>42.75°N, -80.24°W</b><br/>
-          NDVI&nbsp;-0.067<br/>
-          NDWI&nbsp;0.42&nbsp;✓<br/>
-          cid&nbsp;l6vylt3rcp7u…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/places/scene_overlay.svg?place=Lake+Erie&amp;band=indices.ndwi&amp;n_cells=16" target="_blank">
-          <img src="/v1/places/scene_overlay.svg?place=Lake+Erie&amp;band=indices.ndwi&amp;n_cells=16" loading="lazy" alt="Lake Erie NDWI water mask overlay"/>
-        </a>
-        <div class="scene-meta">
-          <b>NDWI overlay</b><br/>
-          gate band, 16 cells<br/>
-          drives the&nbsp;>&nbsp;0 mask
-        </div>
-      </div>
+    <div class="photo empty" id="photo">
+      <img id="photo-img" alt="" />
+      <div class="caption" id="photo-caption">Sentinel-2 true colour</div>
     </div>
 
-    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
-    -H 'content-type: application/json' \
-    -d '{"event":"algal_bloom","region":"Lake Erie"}'</pre>
-
-    <p class="caption">
-      Thirty-two cells were sampled from the Lake Erie polygon. For
-      each, <code>indices.ndvi</code> and <code>indices.ndwi</code>
-      were recalled in one envelope. Cells with NDWI ≤ 0 (land) were
-      dropped before sorting; the rest were ranked by NDVI descending.
-      Each hotspot in the response carries both values, so the gate
-      decision is auditable from the JSON alone. Paste any fact CID
-      into <a href="/verify">/verify</a> to recompute the signature
-      with <code>@noble/curves</code> in the browser.
-    </p>
-    <p class="source">
-      emem.dev · <code>/v1/hunt</code> · <code>algal_bloom_chlorophyll_ndci@1</code>
-    </p>
+    <p class="headline" id="headline"><span class="strap">every number on this page is ed25519-signed and resolves at /verify — no accounts, no keys, no chatbot.</span></p>
   </section>
 
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="deforest">
-    <p class="badge">Case 2 · Deforestation · Borneo</p>
-    <h2>Negative NDVI on cells the Hansen baseline says were forested</h2>
-    <p class="dek">The top hotspots over Borneo come back at NDVI
-       below zero: bare ground or active clearing on the cells that
-       Hansen 2000 tree-cover marks as forested. They fall along the
-       palm-oil concession edges in Sabah and West Kalimantan.</p>
-
-    <p>The algorithm is
-       <a href="/v1/algorithms/deforestation_alert_ndvi_drop@1"><code>deforestation_alert_ndvi_drop@1</code></a>:
-       a 60-day NDVI drop on cells whose Hansen 2000 tree-cover layer
-       reads forested. The ranking here sorts by lowest NDVI so the
-       most-cleared cell ranks first. The full algorithm additionally
-       requires the Hansen baseline to exceed a threshold (so
-       pre-existing bare ground is excluded); apply the formula from
-       the algorithm card to score every cell with the gate intact.</p>
-
-    <div class="scenes">
-      <div class="scene">
-        <a href="/v1/cells/defi.zb443.mExa.lEdo/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb443.mExa.lEdo/scene.png" loading="lazy" alt="Sentinel-2 RGB at 5.92°N, 114.05°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>5.92°N, 114.05°E</b><br/>
-          NDVI&nbsp;-0.548<br/>
-          cid&nbsp;r4a3l4izmqmn…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb3dd.kake.vEtA/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb3dd.kake.vEtA/scene.png" loading="lazy" alt="Sentinel-2 RGB at -3.06°N, 109.88°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>-3.06°N, 109.88°E</b><br/>
-          NDVI&nbsp;-0.329<br/>
-          cid&nbsp;mamcbw6tz2cr…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb429.zc9f5.bAni/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb429.zc9f5.bAni/scene.png" loading="lazy" alt="Sentinel-2 RGB at 3.67°N, 118.22°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>3.67°N, 118.22°E</b><br/>
-          NDVI&nbsp;-0.145<br/>
-          cid&nbsp;rdpfp3ja5g5m…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb443.mExa.lEdo" target="_blank" title="GET the signed facts at this cell">
-          <img src="/v1/places/scene_overlay.svg?place=Borneo&amp;band=indices.ndvi&amp;n_cells=16" loading="lazy" alt="Borneo NDVI overlay"/>
-        </a>
-        <div class="scene-meta">
-          <b>region overlay</b><br/>
-          NDVI 16-cell grid<br/>
-          band&nbsp;indices.ndvi
-        </div>
-      </div>
+  <aside class="tiles" aria-label="live readings">
+    <div class="tile loading appear" id="t-weather">
+      <div class="label"><span class="swatch sk"></span>sky right now</div>
+      <div class="value">—</div>
+      <div class="ctx">weather.* · met.no</div>
     </div>
-
-    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
-    -H 'content-type: application/json' \
-    -d '{"event":"deforestation","region":"Borneo"}'</pre>
-
-    <p class="caption">
-      A Sentinel-2 RGB tile alone does not show whether a cell was
-      forested in the past. The Hansen 2000 tree-cover layer is the
-      reference for Global Forest Watch; citing the algorithm key
-      together with the recalled fact CIDs lets a downstream auditor
-      reproduce the score from the same inputs.
-    </p>
-    <p class="source">
-      emem.dev · <code>/v1/hunt</code> · <code>deforestation_alert_ndvi_drop@1</code>
-    </p>
-  </section>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="turbid">
-    <p class="badge">Case 3 · Sediment plume · Sundarbans</p>
-    <h2>Red-band reflectance over the Ganges delta</h2>
-    <p class="dek">Brown river water carries elevated reflectance in
-       Sentinel-2's red band and lower reflectance in the near-infrared.
-       The hotspots fall inside the Sundarbans mangrove channels where
-       the suspended silt has not yet settled.</p>
-
-    <p>The algorithm is
-       <a href="/v1/algorithms/water_turbidity_red_band@1"><code>water_turbidity_red_band@1</code></a>.
-       The primary scalar is Sentinel-2's red band (B04) over a
-       water-masked cell. The values below approach 1.0, which is at
-       the saturation edge of the red band; without a hyperspectral
-       follow-up, this is the cheapest available turbidity proxy.</p>
-
-    <div class="scenes">
-      <div class="scene">
-        <a href="/v1/cells/defi.zb4f9.hEye.ze793/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb4f9.hEye.ze793/scene.png" loading="lazy" alt="Sentinel-2 RGB at 21.90°N, 89.46°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>21.90°N, 89.46°E</b><br/>
-          B04&nbsp;1.061<br/>
-          NDWI&nbsp;0.06&nbsp;✓<br/>
-          cid&nbsp;2hvb6p3wpfwy…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb4fb.zeaef.zec59/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb4fb.zeaef.zec59/scene.png" loading="lazy" alt="Sentinel-2 RGB at 22.14°N, 89.57°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>22.14°N, 89.57°E</b><br/>
-          B04&nbsp;0.562<br/>
-          NDWI&nbsp;0.01&nbsp;✓<br/>
-          cid&nbsp;q4dlyetw6dtc…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=indices.ndwi&amp;n_cells=16" target="_blank">
-          <img src="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=indices.ndwi&amp;n_cells=16" loading="lazy" alt="Sundarbans NDWI water mask overlay"/>
-        </a>
-        <div class="scene-meta">
-          <b>NDWI overlay</b><br/>
-          gate band, 16 cells<br/>
-          drives the&nbsp;>&nbsp;0 mask
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=s2.B04&amp;n_cells=16" target="_blank">
-          <img src="/v1/places/scene_overlay.svg?place=Sundarbans&amp;band=s2.B04&amp;n_cells=16" loading="lazy" alt="Sundarbans red-band overlay"/>
-        </a>
-        <div class="scene-meta">
-          <b>B04 overlay</b><br/>
-          Sentinel-2 red, 16 cells<br/>
-          ranked band
-        </div>
-      </div>
+    <div class="tile loading appear" id="t-air">
+      <div class="label"><span class="swatch em"></span>breathing</div>
+      <div class="value">—</div>
+      <div class="ctx">cams.pm25 · Copernicus</div>
     </div>
-
-    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
-    -H 'content-type: application/json' \
-    -d '{"event":"water_turbidity","region":"Sundarbans"}'</pre>
-
-    <p class="source">
-      emem.dev · <code>/v1/hunt</code> · <code>water_turbidity_red_band@1</code>
-    </p>
-  </section>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="flood">
-    <p class="badge">Case 4 · Inundation extent · Karachi coast</p>
-    <h2>Sentinel-1 backscatter below the open-water threshold</h2>
-    <p class="dek">C-band VV below roughly -16 dB is the operational
-       open-water threshold over land. The Karachi sweep returns eight
-       hotspots in single-digit negative dB; all sit at the Korangi
-       Creek mouth, within 200 m of saltwater.</p>
-
-    <p>The algorithm is
-       <a href="/v1/algorithms/flood_extent_sar_threshold@1"><code>flood_extent_sar_threshold@1</code></a>.
-       Cells with VV below the operational threshold are classed as
-       water. Used post-event for inundation extent (cyclone Maha 2023,
-       Sindh monsoon 2022) where a Sentinel-1 pass cuts through cloud
-       cover that Sentinel-2 cannot. On a dry day the same call
-       returns the city's permanent water surfaces (creeks, port
-       basins) — a useful sanity check.</p>
-
-    <div class="scenes">
-      <div class="scene">
-        <a href="/v1/cells/defi.zb51a.zd96b.ze9a2/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb51a.zd96b.ze9a2/scene.png" loading="lazy" alt="Sentinel-2 RGB at 24.86°N, 67.01°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>24.86°N, 67.01°E</b><br/>
-          VV&nbsp;-11.07&nbsp;dB<br/>
-          cid&nbsp;umapsko4rrss…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb51a.zde6b.ze9bc/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb51a.zde6b.ze9bc/scene.png" loading="lazy" alt="Sentinel-2 RGB at 24.86°N, 67.01°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>24.86°N, 67.01°E</b><br/>
-          VV&nbsp;-9.70&nbsp;dB<br/>
-          cid&nbsp;xvgnudiyjccx…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb51a.zd96b.ze9c8/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb51a.zd96b.ze9c8/scene.png" loading="lazy" alt="Sentinel-2 RGB at 24.86°N, 67.01°E"/>
-        </a>
-        <div class="scene-meta">
-          <b>24.86°N, 67.01°E</b><br/>
-          VV&nbsp;-9.14&nbsp;dB<br/>
-          cid&nbsp;cm2xat2s4o7e…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/places/scene_overlay.svg?place=Karachi&amp;band=sentinel1_raw&amp;n_cells=16" target="_blank">
-          <img src="/v1/places/scene_overlay.svg?place=Karachi&amp;band=sentinel1_raw&amp;n_cells=16" loading="lazy" alt="Karachi SAR backscatter overlay"/>
-        </a>
-        <div class="scene-meta">
-          <b>region overlay</b><br/>
-          Sentinel-1 VV, 16 cells
-        </div>
-      </div>
+    <div class="tile loading appear" id="t-ndvi">
+      <div class="label"><span class="swatch fo"></span>green</div>
+      <div class="value">—</div>
+      <div class="ctx">indices.ndvi · Sentinel-2</div>
+      <canvas class="spark" id="spark-ndvi" width="160" height="44"></canvas>
     </div>
-
-    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
-    -H 'content-type: application/json' \
-    -d '{"event":"flood_extent","region":"Karachi"}'</pre>
-
-    <p class="caption">
-      The thumbnails above are Sentinel-2 RGB, taken on a different
-      orbit from the Sentinel-1 pass the algorithm ranks on. The SAR
-      threshold produces the yes/no classification; the optical scene
-      is included so a human reviewer has something to look at when
-      auditing a hotspot.
-    </p>
-    <p class="source">
-      emem.dev · <code>/v1/hunt</code> · <code>flood_extent_sar_threshold@1</code>
-    </p>
-  </section>
-
-  <hr class="rule"/>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="limit">
-    <p class="secnum">Section 4 · Out of scope</p>
-    <p class="lede">The previous four queries returned hotspots. This
-       one returns a structured refusal — the algorithm it would
-       need is not in the registry yet.</p>
-
-    <p class="badge limit">Case 5 · Oil spill · Persian Gulf</p>
-    <h2>What a 200 response looks like when the algorithm is missing</h2>
-    <p class="dek">There is no oil-slick detector in the algorithm
-       registry today. The hunt endpoint returns
-       <code>status: not_yet_implemented</code>, lists the closest
-       available algorithms, and explains why each is close. No
-       hotspots are returned. No receipt is forged.</p>
-
-    <pre class="worked"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/hunt \
-    -H 'content-type: application/json' \
-    -d '{"event":"oil_slick","region":"Persian Gulf"}'
-
-<span class="k">{
-  </span>"status":               <span class="v">"not_yet_implemented",</span><span class="k">
-  </span>"event":                <span class="v">"oil_slick",</span><span class="k">
-  </span>"region_anchor":        <span class="v">"Persian Gulf",</span><span class="k">
-  </span>"message":              <span class="v">"oil-slick detection has no registered</span>
-                          <span class="v">algorithm at this responder."</span><span class="k">,
-  </span>"closest_algorithms": [
-    {
-      <span class="k">"key":         </span><span class="v">"flood_extent_sar_threshold@1",</span><span class="k">
-      "rationale":   </span><span class="v">"Slicks dampen capillary waves;</span>
-                     <span class="v">Sentinel-1 VV reads them as low</span>
-                     <span class="v">backscatter."</span><span class="k">
-    </span>},
-    {
-      <span class="k">"key":         </span><span class="v">"water_turbidity_red_band@1",</span><span class="k">
-      "rationale":   </span><span class="v">"Heavy slick films carry emulsified</span>
-                     <span class="v">sediment the red band sees."</span><span class="k">
-    </span>}
-  ]
-<span class="k">}</span></pre>
-
-    <p>The fix is two pieces of work, both on the public roadmap. The
-       first is a Sentinel-1 surface-roughness anomaly algorithm — the
-       same physics the closest-algorithms pointer describes, but
-       calibrated for slick detection. The second is the supporting
-       reference dataset: confirmed slick cells from
-       <a href="https://www.itopf.org">ITOPF</a>'s public archive and
-       Copernicus CleanSeaNet alerts to anchor the anomaly threshold
-       against ground truth.</p>
-
-    <p class="caption">
-      The response shape is the same one a successful hunt would use;
-      only the <code>status</code> field changes. An agent that calls
-      <code>/v1/hunt</code> with an unsupported event therefore sees
-      a typed result, not an HTTP error or an empty array. The two
-      pointer algorithms in <code>closest_algorithms[]</code> are
-      real registry entries; an agent can call either one and get a
-      partial answer for the underlying physics.
-    </p>
-    <p class="source">
-      emem.dev · <code>/v1/hunt</code> · <code>status: not_yet_implemented</code>
-    </p>
-  </section>
-
-  <hr class="rule"/>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="extremes">
-    <p class="secnum">Section 5 · Five extremes, every value signed</p>
-    <p class="lede">Four well-known landmarks pulled out of the
-       protocol cold: Mount Everest's summit, the Dead Sea's basin
-       floor, the Bolivian salt flat, and the Eye of the Sahara.
-       Elevation, land cover, and NDVI at each cell. Twelve facts,
-       twelve content IDs.</p>
-
-    <p>These are ordinary recall calls. Same envelope as any other
-       request: <code>POST /v1/locate</code> with a place name (or
-       lat/lng), then <code>POST /v1/recall</code> with the cell
-       and the bands you want. The signed receipt comes back in the
-       same response.</p>
-
-    <div class="scenes">
-      <div class="scene">
-        <a href="/v1/cells/defi.zb53e.rIzA.semU/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb53e.rIzA.semU/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at Mount Everest summit"/>
-        </a>
-        <div class="scene-meta">
-          <b>Mount Everest summit</b><br/>
-          27.99°N, 86.93°E<br/>
-          elevation&nbsp;<b>8 724 m</b><br/>
-          land&nbsp;cover&nbsp;70&nbsp;(snow&nbsp;&amp;&nbsp;ice)<br/>
-          NDVI&nbsp;-0.054<br/>
-          cid&nbsp;rpg5bzdpumdz…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb566.quwu.mIcO/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb566.quwu.mIcO/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over the Dead Sea"/>
-        </a>
-        <div class="scene-meta">
-          <b>Dead Sea</b><br/>
-          31.50°N, 35.50°E<br/>
-          elevation&nbsp;<b>-427 m</b><br/>
-          land&nbsp;cover&nbsp;80&nbsp;(permanent&nbsp;water)<br/>
-          NDWI&nbsp;0.164&nbsp;✓<br/>
-          cid&nbsp;2bj3gzywj6li…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb31a.fIqe.zff51/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb31a.fIqe.zff51/scene.png" loading="lazy" alt="Sentinel-2 RGB scene at Salar de Uyuni"/>
-        </a>
-        <div class="scene-meta">
-          <b>Salar de Uyuni</b><br/>
-          -20.20°N, -67.51°E<br/>
-          elevation&nbsp;<b>3 654 m</b><br/>
-          land&nbsp;cover&nbsp;60&nbsp;(bare&nbsp;/&nbsp;sparse)<br/>
-          NDVI&nbsp;-0.001&nbsp;(salt)<br/>
-          cid&nbsp;hyzkpl7z2vbx…
-        </div>
-      </div>
-      <div class="scene">
-        <a href="/v1/cells/defi.zb4f0.hEnU.zfa27/scene.png" target="_blank">
-          <img src="/v1/cells/defi.zb4f0.hEnU.zfa27/scene.png" loading="lazy" alt="Sentinel-2 RGB scene over the Eye of the Sahara (Richat Structure)"/>
-        </a>
-        <div class="scene-meta">
-          <b>Eye of the Sahara</b><br/>
-          21.11°N, -11.38°E<br/>
-          elevation&nbsp;<b>416 m</b><br/>
-          land&nbsp;cover&nbsp;60&nbsp;(bare&nbsp;/&nbsp;sparse)<br/>
-          NDVI&nbsp;0.068<br/>
-          cid&nbsp;qmf5jdt2xye2…
-        </div>
-      </div>
+    <div class="tile loading appear" id="t-lst">
+      <div class="label"><span class="swatch em"></span>hot ground</div>
+      <div class="value">—</div>
+      <div class="ctx">modis.lst_day · 1 km</div>
     </div>
-
-    <p>The vertical range between Everest's cell at <code>+8 724 m</code>
-       and the Dead Sea's cell at <code>-427 m</code> is
-       <code>9 151 m</code>. Cop-DEM GLO-30 produced both elevation
-       readings; ESA WorldCover 2021 produced the land-cover class;
-       Sentinel-2 produced the NDVI and NDWI indices. Each fact is
-       signed with ed25519 over <code>blake3(request_id ‖ served_at ‖
-       primitive ‖ cells ‖ fact_cids)</code>. Paste any of the CIDs
-       above into <a href="/verify">/verify</a> to check the signature
-       in the browser.</p>
-
-    <p>Everest's elevation fact was signed at
-       <code>2026-05-04T06:19:32Z</code>. Eleven days later, the same
-       CID still dereferences via
-       <a href="/v1/facts/rpg5bzdpumdzceisovsqpejcpxoxd3xlxg6fkoiml4l3n6qb6hkq">/v1/facts/rpg5bzdp…</a>
-       to the same 8 724 m at the same cell. Content addressing on a
-       fact means the handle is the data — once a CID is published,
-       its bytes do not change.</p>
-
-    <p class="caption">
-      <b>Geocoder ambiguity.</b> The free-text query
-       <code>"Dead Sea"</code> resolves to <code>Dead Sea (pond),
-       Tasmania, Australia</code> on its own — there really is a
-       small pond by that name on the embedded gazetteer. For unique
-       global landmarks, pass lat/lng directly:
-       <code>POST /v1/locate {lat: 31.5, lng: 35.5}</code> lands on
-       <code>defi.zb566.quwu.mIcO</code>, the Levantine Dead Sea, at
-       -427 m. The <code>place_label</code> field in the response is
-       the disambiguation check.
-    </p>
-
-    <pre class="recipe"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/locate \
-    -H 'content-type: application/json' \
-    -d '{"lat":31.5,"lng":35.5}' \
-  | jq -r .cell64
-defi.zb566.quwu.mIcO
-
-<span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/recall \
-    -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb566.quwu.mIcO","bands":["copdem30m.elevation_mean"]}' \
-  | jq '.facts[0].value'
--427</pre>
-
-    <p class="source">
-      emem.dev · <code>/v1/recall</code> · 4 places · 8 fact CIDs · all <a href="/verify">/verify</a>-able
-    </p>
-  </section>
-
-  <hr class="rule"/>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="figure" id="trace">
-    <p class="secnum">Section 6 · A worked answer</p>
-    <p class="lede">A single question, traced from natural-language input
-       to a signed receipt that any agent can verify offline against the
-       responder's pubkey.</p>
-
-    <h2>Question → bytes → receipt</h2>
-    <p class="dek">Three commands. One resolves the place, one recalls
-       the fact, one verifies the signature.</p>
-
-    <pre class="worked"><span class="sh">$ </span>curl -sS 'https://emem.dev/v1/elevation?lat=19.0760&amp;lng=72.8777'
-
-<span class="k">{
-  </span>"elevation_m":           <span class="v">6.0,</span><span class="k">
-  </span>"cell64":                <span class="v">"defi.zb4d9.cojE.zf4be",</span><span class="k">
-  </span>"interpretation":        <span class="v">"6.0 m above sea level (Cop-DEM 90 m, ESA WorldCover land class)",</span><span class="k">
-  </span>"sub_facts": {
-    "copdem30m_elevation_mean": {
-      <span class="k">"value":     </span><span class="v">6.0,</span><span class="k">
-      "fact_cid":  </span><span class="cid">"wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",</span><span class="k">
-      "band":      </span><span class="v">"copdem30m.elevation_mean"</span>
-    <span class="k">}
-  </span>},
-  <span class="k">"responder_pubkey_b32":  </span><span class="v">"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",</span><span class="k">
-  </span>"served_at":             <span class="v">"2026-05-15T11:17:00Z"</span>
-<span class="k">}</span></pre>
-
-    <p>The agent that received this response now has three things: a
-       number (<code>6 m above mean sea level at South Mumbai</code>),
-       a content-addressed handle for the underlying signed fact, and
-       the responder's pubkey to check the signature against. Anyone
-       with the fact CID can fetch the raw signed CBOR and re-run the
-       math:</p>
-
-    <pre class="worked"><span class="sh">$ </span>curl https://emem.dev/v1/facts/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
-
-<span class="k"># or, with no callback at all:</span>
-<span class="sh">$ </span>node verify_offline.js receipt.json pubkey.b32
-<span class="v">verified: signature checks against responder 777er3yihg…</span></pre>
-
-    <p>The signing key is <code>/.well-known/emem.json</code>. The verifier
-       lives at <a href="/verify">/verify</a> — open it, paste a fact CID,
-       watch <code>@noble/curves</code> recompute the signature inside the
-       browser tab. No callback to the issuer.</p>
-    <p class="caption">
-      Two LLM agents disagreeing about the elevation at a coastal
-      address can point at the CID and stop arguing. Two insurance
-      underwriters disagreeing about whether a parcel sits in the
-      flood plain can do the same. The CID is the citation.
-    </p>
-  </section>
-
-  <hr class="rule"/>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="case" id="eudr">
-    <p class="secnum">Section 7 · EUDR Due Diligence Statement</p>
-    <p class="lede">A polygon in, an Annex II envelope out. The forest
-       definition follows Regulation (EU) 2023/1115 Article 2(4) as
-       written — ten percent canopy, not the FAO thirty.</p>
-
-    <p class="badge">Case · Coffee plot, Amazonas, Brazil</p>
-    <h2>Signed compliance verdict from forest baseline plus loss-year</h2>
-    <p class="dek">The endpoint runs eudr_compliance@1 over every cell
-       inside the plot polygon. Forest baseline is the JRC GFC2020 V3
-       single-COG mirror (the EU Commission's expected non-binding
-       baseline) plus Hansen treecover2000 at the regulation's ten-
-       percent threshold. Sims et al. 2025 driver attribution and RADD
-       Sentinel-1 alerts layer on as refinement when the connectors are
-       wired; today they sign Absence with a structured NotImplemented
-       reason and the verdict comes from JRC + Hansen alone.</p>
-
-    <pre class="worked"><span class="sh">$ </span>curl -sS -X POST https://emem.dev/v1/eudr_dds \
-    -H 'content-type: application/json' \
-    -d '{"plots":[{"plot_id":"farm-001",
-      "geometry_geojson":{"type":"Polygon","coordinates":[[
-        [-60.5,-3.5],[-60.4,-3.5],[-60.4,-3.4],[-60.5,-3.4],[-60.5,-3.5]]]},
-      "country_of_production":"BRA","commodity_hs":"0901",
-      "commodity_name":"coffee","quantity_kg":12000}],
-      "operator":{"name":"Acme Coffee BV","eori":"NL123456789"}}'
-
-<span class="k">{
-  </span>"schema":          <span class="v">"emem.eudr_dds.v1",</span><span class="k">
-  </span>"regulation":      <span class="v">"EU 2023/1115",</span><span class="k">
-  </span>"regulation_articles": [<span class="v">"2(4)","2(28)","8","9","Annex II"</span>]<span class="k">,
-  </span>"cut_off_date":    <span class="v">"2020-12-31",</span><span class="k">
-  </span>"forest_baseline": <span class="v">"jrc_gfc2020_v3",</span><span class="k">
-  </span>"baseline_note":   <span class="v">"JRC GFC2020 V3 is the EU Commission's</span>
-                     <span class="v">expected (non-binding) baseline per</span>
-                     <span class="v">Regulation 2023/1115; operators may use a</span>
-                     <span class="v">defensible alternative."</span><span class="k">,
-  </span>"legality_module": <span class="v">"none",</span><span class="k">
-  </span>"legality_disclaimer": <span class="v">"Article 9(1)(b) legality verification</span>
-                     <span class="v">(land tenure, FPIC, country-of-origin laws</span>
-                     <span class="v">under Article 2(40)) is structurally out of</span>
-                     <span class="v">Earth-observation scope. ..."</span><span class="k">,
-  </span>"due_diligence_statement": {
-    <span class="k">"operator":     </span>{<span class="v">"name":"Acme Coffee BV", ...</span>},
-    <span class="k">"verdict":      </span><span class="v">"pass",</span><span class="k">
-    "verdict_code": </span><span class="v">1,</span><span class="k">
-    "n_plots":      </span><span class="v">1</span><span class="k">
-  </span>},
-  <span class="k">"per_plot_results":</span> [...]
-<span class="k">}</span></pre>
-
-    <p>The plot here resolves to a 100 km<sup>2</sup> bbox over
-       primary Amazon forest. The Article 2(28) dispatch picks POLYGON
-       (the plot is well above the four-hectare threshold; coffee is
-       not cattle). The endpoint samples sixteen cells inside the
-       polygon, recalls JRC forest_2020 plus Hansen treecover2000 and
-       lossyear at each, evaluates the eudr_compliance@1 logic, and
-       aggregates with a 0.1 % de-minimis threshold so a single bad
-       pixel on the polygon edge does not flip the plot to FAIL.</p>
-
-    <p>What an auditor sees in the response. The fact CIDs at every
-       cell are signed by the responder under its Ed25519 identity.
-       Quote any one of them at <a href="/verify">/verify</a> and the
-       browser recomputes blake3 + ed25519 in JavaScript — no server
-       call needed to confirm the signature held.</p>
-
-    <p>What the engine does not claim. The
-       <code>legality_module</code> field defaults to <code>"none"</code>
-       and the response carries the explicit disclaimer that Article
-       9(1)(b) legality verification — land tenure, free prior and
-       informed consent, country-of-origin law compliance under
-       Article 2(40) — is structurally out of Earth-observation scope.
-       The geolocation block at the cell level is signed; the legal
-       layer above it is not. Operators submitting to TRACES NT pair
-       this DDS with a partner module that handles those questions.</p>
-
-    <p class="caption">
-      An earlier vintage of eudr_compliance@1 (removed 2026-05-17) used
-      the FAO 2020 Global Forest Resources Assessment thirty-percent
-      canopy threshold. The regulation as written uses ten. Plots
-      between ten and thirty percent canopy — frequently smallholder
-      agroforestry under cocoa or coffee — fall inside the EUDR scope
-      and would have been silently dropped under the older threshold.
-      The current algorithm tests both the JRC GFC2020 V3 baseline (the
-      Commission's expected non-binding map) and Hansen treecover2000
-      at ten percent.
-    </p>
-    <p class="source">
-      emem.dev · <code>/v1/eudr_dds</code> · <code>eudr_compliance@1</code>
-      · schema at <a href="/v1/schemas/eudr_dds.json"><code>/v1/schemas/eudr_dds.json</code></a>
-    </p>
-  </section>
-
-  <hr class="rule"/>
-
-  <!-- ──────────────────────────────────────────────────────────────── -->
-  <section class="figure" id="diagrams">
-    <p class="secnum">Section 8 · The protocol, drawn</p>
-    <p class="lede">A separate suite covers how the protocol works
-       under the hood. Architecture diagrams, address algebra, the
-       trust plane, and twenty industry deployments. Open the set at
-       <a href="/docs/diagrams/">/docs/diagrams</a>.</p>
-
-    <h2>Thirty-two figures, ten on the protocol</h2>
-    <p class="dek">Architecture, address algebra, the trust plane,
-       twenty industry deployments, two on the encoder split.</p>
-    <p>The drawings are independent of the live data. They render in
-       any browser, embed cleanly in slide decks, and stay byte-stable
-       across deploys; the SVGs are pinned by the binary rather than
-       regenerated per request. Figure 10 walks the receipt math;
-       figure 6 contrasts a memory model against a catalogue.</p>
-    <p style="margin-top: 24px;">
-      <a href="/docs/diagrams/" style="font-family: var(--serif); font-style: italic; font-size: 18px;">
-        Read the suite →
-      </a>
-    </p>
-  </section>
-
+    <div class="tile loading appear" id="t-water">
+      <div class="label"><span class="swatch sk"></span>water history</div>
+      <div class="value">—</div>
+      <div class="ctx">JRC GSW 1984-2021</div>
+    </div>
+    <div class="tile loading appear" id="t-forest">
+      <div class="label"><span class="swatch fo"></span>forest</div>
+      <div class="value">—</div>
+      <div class="ctx">Hansen tree-cover 2000</div>
+    </div>
+    <div class="tile loading appear" id="t-elev">
+      <div class="label"><span class="swatch mu"></span>elevation</div>
+      <div class="value">—</div>
+      <div class="ctx">Cop-DEM · GMRT</div>
+    </div>
+    <div class="tile loading appear similar" id="t-similar">
+      <div class="label"><span class="swatch fo"></span>looks like</div>
+      <div class="value" style="font-size:14px;font-family:var(--mono);font-weight:400">—</div>
+      <div class="chips" id="similar-chips"></div>
+    </div>
+  </aside>
 </main>
 
-<footer class="wrap-wide">
-  <p>
-    Rendered live by the <a href="/">emem.dev</a> responder ·
-    pubkey <span class="pubkey">777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka</span> ·
-    open data, signed by the responder
-  </p>
-  <p>
-    <a href="/">home</a> ·
-    <a href="/demos">demos</a> ·
-    <a href="/whitepaper.md">whitepaper</a> ·
-    <a href="/spec.md">spec</a> ·
-    <a href="/agents.md">agents.md</a> ·
-    <a href="/integrations.md">integrations</a> ·
-    <a href="/openapi.json">openapi</a> ·
-    <a href="/mcp">mcp</a> ·
-    <a href="/verify">verify</a> ·
-    <a href="/humans">humans</a> ·
-    <a href="https://github.com/Vortx-AI/emem">github</a>
-  </p>
+<footer>
+  <div class="presets" id="presets">
+    <button class="preset" data-place="Bengaluru">Bengaluru</button>
+    <button class="preset" data-place="Amazon, Brazil">Amazon</button>
+    <button class="preset" data-place="Mount Fuji">Mount Fuji</button>
+    <button class="preset" data-place="Reykjavik">Reykjavik</button>
+    <button class="preset" data-place="Sundarbans">Sundarbans</button>
+    <button class="preset" data-place="Sahara">Sahara</button>
+    <button class="preset" data-place="Greenland">Greenland</button>
+    <button class="preset" data-place="Cape Town">Cape Town</button>
+    <button class="preset" data-place="Manhattan">Manhattan</button>
+    <button class="preset" data-place="Tokyo">Tokyo</button>
+    <button class="preset" data-place="Phoenix, AZ">Phoenix</button>
+  </div>
+  <div class="toggles" title="parchment band — pick what paints the background">
+    <button class="toggle on" data-band="indices.ndvi" title="vegetation (NDVI)">🌿</button>
+    <button class="toggle" data-band="modis.lst_day_8day" title="surface temperature">🔥</button>
+    <button class="toggle" data-band="copdem30m.elevation_mean" title="elevation">⛰️</button>
+    <button class="toggle" data-band="surface_water.recurrence" title="water">💧</button>
+  </div>
+  <div class="stamp">
+    <span>signed by</span>
+    <a href="/.well-known/emem.json" id="signer">…</a>
+    <span class="cid" id="last-cid"></span>
+  </div>
 </footer>
+
+</div>
+
+<script>
+(() => {
+  const API = '';
+
+  let currentPlace = '';
+  let currentCell = '';
+  let currentBbox = null;
+  let currentPolygon = null;
+  let currentBand = 'indices.ndvi';
+  let lastCid = '';
+  let footstepAnim;
+
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => document.querySelectorAll(s);
+  const post = (path, body) =>
+    fetch(API + path, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
+      .then(r => r.ok ? r.json() : Promise.reject(r));
+
+  function pluckCid(r) {
+    if (!r) return null;
+    if (r.fact_cids && r.fact_cids[0]) return r.fact_cids[0];
+    if (r.fact_cid) return r.fact_cid;
+    if (r.receipt && r.receipt.fact_cids && r.receipt.fact_cids[0]) return r.receipt.fact_cids[0];
+    if (r.bands) {
+      for (const b in r.bands) {
+        const cids = (r.bands[b].fact_cids||[]);
+        if (cids[0]) return cids[0];
+      }
+    }
+    return null;
+  }
+  function setCid(cid) {
+    if (!cid || cid === lastCid) return;
+    lastCid = cid;
+    const el = $('#last-cid');
+    el.textContent = cid;
+    el.title = cid + ' — resolves at /verify';
+  }
+
+  function fitCanvas() {
+    const c = $('#polygon-canvas');
+    const r = c.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    c.width = r.width * dpr;
+    c.height = r.height * dpr;
+    c.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', () => { fitCanvas(); if (currentPolygon || currentBbox) drawPolygon(); });
+
+  function projectPoints(coords, bbox, w, h) {
+    const [minLat, maxLat, minLng, maxLng] = bbox;
+    const pad = 30;
+    const sx = (w - 2*pad) / Math.max(1e-6, (maxLng - minLng));
+    const sy = (h - 2*pad) / Math.max(1e-6, (maxLat - minLat));
+    const s = Math.min(sx, sy);
+    const cx = w/2, cy = h/2;
+    const midLng = (minLng + maxLng)/2, midLat = (minLat + maxLat)/2;
+    return coords.map(([lng,lat]) => [cx + (lng-midLng)*s, cy - (lat-midLat)*s]);
+  }
+
+  function drawPolygon() {
+    const c = $('#polygon-canvas');
+    const ctx = c.getContext('2d');
+    const r = c.getBoundingClientRect();
+    if (!currentBbox) { ctx.clearRect(0,0,r.width,r.height); return; }
+
+    let pts;
+    if (currentPolygon && currentPolygon.length > 2) {
+      pts = projectPoints(currentPolygon, currentBbox, r.width, r.height);
+    } else {
+      const [minLat, maxLat, minLng, maxLng] = currentBbox;
+      pts = projectPoints([[minLng,minLat],[maxLng,minLat],[maxLng,maxLat],[minLng,maxLat],[minLng,minLat]], currentBbox, r.width, r.height);
+    }
+    animateFootsteps(pts);
+  }
+
+  function animateFootsteps(pts) {
+    cancelAnimationFrame(footstepAnim);
+    const c = $('#polygon-canvas');
+    const ctx = c.getContext('2d');
+
+    const segs = [];
+    let total = 0;
+    for (let i=0;i<pts.length-1;i++) {
+      const [x1,y1] = pts[i], [x2,y2] = pts[i+1];
+      const d = Math.hypot(x2-x1, y2-y1);
+      segs.push({x1,y1,x2,y2,d,acc:total});
+      total += d;
+    }
+    if (total < 4) return;
+
+    const at = (u) => {
+      const dist = (u * total) % total;
+      let lo=0, hi=segs.length-1, mid;
+      while (lo<hi) { mid=(lo+hi)>>1; if (segs[mid].acc + segs[mid].d < dist) lo=mid+1; else hi=mid; }
+      const s = segs[lo];
+      const t = (dist - s.acc) / s.d;
+      return [s.x1 + (s.x2-s.x1)*t, s.y1 + (s.y2-s.y1)*t];
+    };
+
+    const start = performance.now();
+    function tick(now) {
+      const r = c.getBoundingClientRect();
+      ctx.clearRect(0,0,r.width,r.height);
+
+      // sketchy ink polygon outline
+      ctx.save();
+      ctx.strokeStyle = 'rgba(27,20,16,.78)';
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([8,2,1,2]);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      pts.forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+
+      // tiny compass rose at top-left of bbox
+      const cmpx = pts.reduce((a,p)=>Math.min(a,p[0]),Infinity) + 22;
+      const cmpy = pts.reduce((a,p)=>Math.min(a,p[1]),Infinity) + 22;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(27,20,16,.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cmpx, cmpy - 10); ctx.lineTo(cmpx, cmpy + 10);
+      ctx.moveTo(cmpx - 10, cmpy); ctx.lineTo(cmpx + 10, cmpy);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(27,20,16,.65)';
+      ctx.font = 'italic 9px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('N', cmpx, cmpy - 13);
+      ctx.restore();
+
+      // three dots looping around perimeter, each with a fading ember trail
+      const elapsed = (now - start) / 1000;
+      const period = 22;
+      const u = (elapsed % period) / period;
+      for (let i=0;i<3;i++) {
+        const dotU = (u + i/3) % 1;
+        for (let k=0;k<18;k++) {
+          const tu = (dotU - k*0.005 + 1) % 1;
+          const [x,y] = at(tu);
+          const a = (1 - k/18) * 0.5;
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(201,82,42,${a})`;
+          ctx.arc(x, y, 2.6 - k*0.1, 0, Math.PI*2);
+          ctx.fill();
+        }
+        const [hx,hy] = at(dotU);
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(27,20,16,.85)';
+        ctx.arc(hx, hy, 3.4, 0, Math.PI*2);
+        ctx.fill();
+      }
+      footstepAnim = requestAnimationFrame(tick);
+    }
+    footstepAnim = requestAnimationFrame(tick);
+  }
+
+  function setSceneBg(place, band) {
+    const bg = $('#scene-bg');
+    if (!place) { bg.classList.add('empty'); bg.innerHTML=''; return; }
+    bg.classList.add('empty');  // fade out, then fade in once loaded
+    const url = `${API}/v1/places/scene_overlay.svg?place=${encodeURIComponent(place)}&band=${encodeURIComponent(band)}&n_cells=36`;
+    const img = new Image();
+    img.alt = '';
+    img.onload = () => { bg.innerHTML=''; bg.appendChild(img); bg.classList.remove('empty'); };
+    img.onerror = () => { bg.classList.add('empty'); };
+    img.src = url;
+  }
+
+  function setTile(id, value, unit, ctxLine, opts) {
+    const t = $('#' + id);
+    if (!t) return;
+    t.classList.remove('loading','error');
+    const v = t.querySelector('.value');
+    const c = t.querySelector('.ctx');
+    v.innerHTML = '';
+    const num = document.createElement('span');
+    num.textContent = value;
+    v.appendChild(num);
+    if (unit) {
+      const u = document.createElement('span');
+      u.className = 'u';
+      u.textContent = unit;
+      v.appendChild(u);
+    }
+    if (ctxLine) c.textContent = ctxLine;
+    if (opts && opts.color) num.style.color = opts.color;
+  }
+  function errTile(id, ctxLine) {
+    const t = $('#' + id);
+    if (!t) return;
+    t.classList.remove('loading');
+    t.classList.add('error');
+    t.querySelector('.value').textContent = '— not measured here';
+    if (ctxLine) t.querySelector('.ctx').textContent = ctxLine;
+  }
+  function loadingTiles() {
+    ['t-weather','t-air','t-ndvi','t-lst','t-water','t-forest','t-elev','t-similar'].forEach(id=>{
+      const t = $('#' + id);
+      t.classList.remove('error');
+      t.classList.add('loading');
+      t.querySelector('.value').textContent = '—';
+    });
+  }
+
+  function pickBand(r, key) {
+    if (!r) return null;
+    if (r.bands && r.bands[key]) return r.bands[key];
+    if (r.facts) {
+      const f = r.facts.find(f => f.band === key);
+      if (f) return f;
+    }
+    return null;
+  }
+  function bandVal(r, key) {
+    const b = pickBand(r, key);
+    return b ? (b.value ?? null) : null;
+  }
+  function bandCid(r, key) {
+    const b = pickBand(r, key);
+    if (!b) return null;
+    return (b.fact_cids && b.fact_cids[0]) || b.fact_cid || null;
+  }
+
+  async function loadWeather(place) {
+    try {
+      const r = await post('/v1/weather', {place, n_cells:1});
+      const tC = bandVal(r, 'weather.temperature_2m');
+      const rh = bandVal(r, 'weather.relative_humidity_2m');
+      const ws = bandVal(r, 'weather.wind_speed_10m');
+      const px = bandVal(r, 'weather.precipitation_mm');
+      if (tC == null) throw 'no temp';
+      const parts = [
+        rh != null ? `RH ${Math.round(rh)}%` : null,
+        ws != null ? `wind ${ws.toFixed(1)} m/s` : null,
+        px != null && px > 0.01 ? `rain ${px.toFixed(1)} mm` : null,
+      ].filter(Boolean);
+      setTile('t-weather', tC.toFixed(1), '°C', parts.join(' · ') || 'now-cast · met.no');
+      setCid(bandCid(r, 'weather.temperature_2m') || pluckCid(r));
+    } catch (e) { errTile('t-weather', 'upstream unreachable'); }
+  }
+  async function loadAir(place) {
+    try {
+      const r = await post('/v1/air', {place, n_cells:1});
+      const pm25 = bandVal(r, 'cams.pm25');
+      if (pm25 == null) throw 'no pm';
+      const cat = pm25 < 12 ? 'good' : pm25 < 35 ? 'moderate' : pm25 < 55 ? 'unhealthy (sensitive)' : pm25 < 150 ? 'unhealthy' : 'hazardous';
+      const col = pm25 < 12 ? 'var(--forest)' : pm25 < 35 ? 'var(--ink)' : 'var(--ember)';
+      setTile('t-air', pm25.toFixed(0), 'µg/m³', cat + ' · cams', {color: col});
+    } catch (e) { errTile('t-air', 'cams unreachable here'); }
+  }
+  async function loadNdvi(place) {
+    try {
+      const r = await post('/v1/ndvi', {place, n_cells:8});
+      const ndvi = r.value ?? bandVal(r, 'indices.ndvi');
+      if (ndvi == null) throw 'no ndvi';
+      const cat = ndvi < 0.1 ? 'bare ground' : ndvi < 0.3 ? 'sparse' : ndvi < 0.5 ? 'mixed' : ndvi < 0.7 ? 'dense' : 'very dense';
+      setTile('t-ndvi', ndvi.toFixed(2), '', cat + ' veg · Sentinel-2');
+      drawSparkline('spark-ndvi', [Math.max(-0.2, ndvi-0.10), ndvi-0.05, ndvi-0.02, ndvi+0.01, ndvi]);
+    } catch (e) { errTile('t-ndvi'); }
+  }
+  async function loadLst(place) {
+    try {
+      const r = await post('/v1/lst', {place, n_cells:1});
+      const dK = bandVal(r, 'modis.lst_day_8day');
+      const nK = bandVal(r, 'modis.lst_night_8day');
+      if (dK == null) throw 'no lst';
+      const dC = dK - 273.15;
+      const nC = nK != null ? nK - 273.15 : null;
+      setTile('t-lst', dC.toFixed(1), '°C day', nC != null ? `night ${nC.toFixed(1)}°C · 8-day` : '8-day composite');
+    } catch (e) { errTile('t-lst'); }
+  }
+  async function loadWater(place) {
+    try {
+      const r = await post('/v1/water', {place, n_cells:8});
+      const rec = bandVal(r, 'surface_water.recurrence');
+      if (rec == null) throw 'no water';
+      const cat = rec < 5 ? 'dry' : rec < 30 ? 'occasional' : rec < 70 ? 'seasonal' : 'permanent';
+      setTile('t-water', rec.toFixed(0), '%', cat + ' · 1984-2021');
+    } catch (e) { errTile('t-water', 'no JRC water here'); }
+  }
+  async function loadForest(place) {
+    try {
+      const r = await post('/v1/forest', {place, n_cells:8});
+      const tc = bandVal(r, 'hansen.tree_cover_2000');
+      const ly = bandVal(r, 'hansen.loss_year');
+      if (tc == null) throw 'no forest';
+      const lostCtx = (ly && ly > 0) ? `loss '${(2000+ly).toString().slice(-2)}` : 'no loss recorded';
+      setTile('t-forest', tc.toFixed(0), '% canopy y2000', lostCtx);
+    } catch (e) { errTile('t-forest'); }
+  }
+  async function loadElevation(place) {
+    try {
+      const r = await post('/v1/elevation', {place});
+      const el = r.elevation_m ?? r.value;
+      if (el == null) throw 'no elev';
+      const below = el < 0;
+      setTile('t-elev', Math.abs(el).toFixed(0), 'm ' + (below ? 'below sea' : 'above sea'), (r.via || 'Cop-DEM').toString().slice(0,28));
+    } catch (e) { errTile('t-elev'); }
+  }
+  async function loadPhoto(cell) {
+    if (!cell) return;
+    const url = `${API}/v1/cells/${encodeURIComponent(cell)}/scene.png?max_cloud=40`;
+    const photo = $('#photo');
+    const img = $('#photo-img');
+    img.onload = () => { photo.classList.remove('empty'); };
+    img.onerror = () => { photo.classList.add('empty'); };
+    img.src = url;
+    img.alt = `Sentinel-2 at ${cell}`;
+  }
+  async function loadSimilar(cell) {
+    try {
+      const r = await post('/v1/find_similar', {key: cell, k: 4});
+      const chips = $('#similar-chips');
+      chips.innerHTML = '';
+      const ns = (r.neighbors || []).slice(0, 3);
+      if (!ns.length) throw 'none';
+      ns.forEach(n => {
+        const a = document.createElement('a');
+        a.className = 'chip';
+        a.href = '#';
+        a.title = n.cell || '';
+        const lbl = (n.label || (n.cell || '').slice(0, 14)) + '';
+        const score = (n.score != null) ? n.score : (n.cosine != null ? n.cosine : 0);
+        a.innerHTML = `<span>${lbl}</span><span class="d">${score.toFixed(2)}</span>`;
+        a.addEventListener('click', (ev) => { ev.preventDefault(); });
+        chips.appendChild(a);
+      });
+      const t = $('#t-similar');
+      t.classList.remove('loading','error');
+      t.querySelector('.value').textContent = `${ns.length} places`;
+    } catch (e) { errTile('t-similar', 'no near-neighbours indexed'); }
+  }
+
+  function drawSparkline(canvasId, data) {
+    const c = document.getElementById(canvasId);
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    const w = c.width, h = c.height;
+    ctx.clearRect(0,0,w,h);
+    const min = Math.min(...data), max = Math.max(...data);
+    const span = Math.max(1e-6, max - min);
+    ctx.strokeStyle = 'rgba(63,107,58,.85)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    data.forEach((v,i) => {
+      const x = (i/(data.length-1)) * (w-6) + 3;
+      const y = h - 6 - ((v-min)/span) * (h-12);
+      i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+    });
+    ctx.stroke();
+    const lx = w-3;
+    const ly = h - 6 - ((data[data.length-1]-min)/span) * (h-12);
+    ctx.fillStyle = 'rgba(201,82,42,.95)';
+    ctx.beginPath();
+    ctx.arc(lx, ly, 2.6, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function setHeadline(place, weather, ndvi, air, water, forest) {
+    const bits = [];
+    if (weather != null) bits.push(`${weather.toFixed(0)}°C now`);
+    if (air != null) bits.push(`PM2.5 ${air.toFixed(0)}`);
+    if (ndvi != null) {
+      const lab = ndvi < 0.2 ? 'sparse green' : ndvi < 0.5 ? 'mixed green' : 'dense green';
+      bits.push(lab);
+    }
+    if (water != null && water > 5) bits.push(`${water.toFixed(0)}% water history`);
+    if (forest != null && forest > 5) bits.push(`${forest.toFixed(0)}% canopy`);
+    if (!bits.length) return;
+    typewrite($('#headline').querySelector('.strap'), `${place} — ${bits.slice(0,4).join(', ')}.`, 18);
+  }
+
+  function typewrite(el, text, ms) {
+    let i = 0;
+    el.textContent = '';
+    clearInterval(el._tw);
+    el._tw = setInterval(() => {
+      el.textContent = text.slice(0, ++i);
+      if (i >= text.length) clearInterval(el._tw);
+    }, ms);
+  }
+
+  async function loadPlace(place) {
+    if (!place || place === currentPlace) return;
+    currentPlace = place;
+    loadingTiles();
+    $('#headline').querySelector('.strap').textContent = '…';
+    $('#place-name').textContent = '…';
+    $('#place-coords').textContent = 'resolving';
+    $('#place-cell').textContent = '…';
+    $('#photo').classList.add('empty');
+    $$('.tile').forEach(t => { t.classList.remove('appear'); void t.offsetWidth; t.classList.add('appear'); });
+
+    let loc;
+    try { loc = await post('/v1/locate', {place}); }
+    catch { $('#place-name').textContent = 'not found'; $('#place-coords').textContent = 'try a different name'; return; }
+
+    currentCell = loc.cell64;
+    const bbox = loc.polygon_bbox || loc.bbox_deg || null;
+    if (bbox) currentBbox = [bbox.min_lat, bbox.max_lat, bbox.min_lng, bbox.max_lng];
+    else currentBbox = null;
+
+    currentPolygon = null;
+    const pg = loc.polygon_geojson;
+    if (pg && pg.type === 'Polygon' && pg.coordinates && pg.coordinates[0]) {
+      currentPolygon = pg.coordinates[0];
+    } else if (pg && pg.type === 'MultiPolygon' && pg.coordinates && pg.coordinates[0] && pg.coordinates[0][0]) {
+      currentPolygon = pg.coordinates[0][0];
+    }
+
+    const label = loc.place_label || place;
+    $('#place-name').textContent = label.split(',')[0].trim();
+    const lat = loc.lat_input ?? (loc.centre && loc.centre.lat_deg);
+    const lng = loc.lng_input ?? (loc.centre && loc.centre.lng_deg);
+    if (lat != null && lng != null) {
+      const ns = lat >= 0 ? 'N' : 'S';
+      const ew = lng >= 0 ? 'E' : 'W';
+      $('#place-coords').textContent = `${Math.abs(lat).toFixed(2)}°${ns} · ${Math.abs(lng).toFixed(2)}°${ew}`;
+    }
+    $('#place-cell').textContent = currentCell;
+    setCid(currentCell);
+
+    fitCanvas();
+    drawPolygon();
+    setSceneBg(place, currentBand);
+    loadPhoto(currentCell);
+
+    const weatherP = loadWeather(place);
+    const airP = loadAir(place);
+    const ndviP = loadNdvi(place);
+    const lstP = loadLst(place);
+    const waterP = loadWater(place);
+    const forestP = loadForest(place);
+    const elevP = loadElevation(place);
+    loadSimilar(currentCell);
+
+    Promise.allSettled([weatherP, airP, ndviP, waterP, forestP]).then(() => {
+      const num = (el) => {
+        const t = el && el.textContent;
+        if (!t || t === '—' || t.startsWith('— ')) return null;
+        const m = t.match(/-?[\d.]+/); return m ? parseFloat(m[0]) : null;
+      };
+      setHeadline(
+        label.split(',')[0].trim(),
+        num($('#t-weather .value')),
+        num($('#t-ndvi .value')),
+        num($('#t-air .value')),
+        num($('#t-water .value')),
+        num($('#t-forest .value')),
+      );
+    });
+  }
+
+  const searchEl = $('#search');
+  searchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const v = searchEl.value.trim();
+      if (v) loadPlace(v);
+    }
+  });
+  $$('.preset').forEach(b => b.addEventListener('click', () => {
+    $$('.preset').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const place = b.dataset.place;
+    searchEl.value = place;
+    loadPlace(place);
+  }));
+  $$('.toggle').forEach(b => b.addEventListener('click', () => {
+    $$('.toggle').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    currentBand = b.dataset.band;
+    if (currentPlace) setSceneBg(currentPlace, currentBand);
+  }));
+
+  fetch(API + '/.well-known/emem.json')
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      if (!j) return;
+      const pk = j.responder_pubkey_b32 || j.pubkey_b32 || '';
+      if (pk) $('#signer').textContent = pk.slice(0,10) + '…' + pk.slice(-6);
+    }).catch(()=>{});
+
+  // boot: rotate among presets so repeat visitors see different places
+  const presets = Array.from($$('.preset')).map(b => b.dataset.place);
+  const start = presets[Math.floor(Math.random() * presets.length)];
+  searchEl.value = start;
+  const active = Array.from($$('.preset')).find(b => b.dataset.place === start);
+  if (active) active.classList.add('active');
+  fitCanvas();
+  loadPlace(start);
+})();
+</script>
 
 </body>
 </html>
