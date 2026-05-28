@@ -338,9 +338,71 @@
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => document.querySelectorAll(s);
+
+  // ── two-tier cache: in-memory Map (per-session, instant) +
+  //    localStorage (cross-session, per-endpoint TTL).
+  //
+  // TTLs match the data's natural cadence — re-fetching weather every
+  // 10 min is honest, re-fetching JRC water recurrence every 7 days
+  // is honest. Anything in-memory short-circuits the disk read; a
+  // cold reload hits localStorage; a stale entry hits the network.
+  //
+  // Bump KEY_PREFIX on schema changes so old payloads get evicted.
+  const KEY_PREFIX = 'emem.gal.v1:';
+  const TTL = {
+    locate:         30 * 24 * 60 * 60 * 1000,   // place → cell64, deterministic
+    weather:             10 * 60 * 1000,        // met.no nowcast
+    air:                 30 * 60 * 1000,        // CAMS
+    ndvi:           24 * 60 * 60 * 1000,        // S2 16-day-ish
+    lst:             6 * 60 * 60 * 1000,        // MODIS 8-day composite
+    water:       7 * 24 * 60 * 60 * 1000,       // JRC GSW 1984-2021 static
+    forest:      7 * 24 * 60 * 60 * 1000,       // Hansen static
+    elevation:  30 * 24 * 60 * 60 * 1000,       // DEM static
+    similar:    24 * 60 * 60 * 1000,            // k-NN index drift is slow
+    pubkey:     24 * 60 * 60 * 1000,            // signer rotation is rare
+  };
+  const mem = new Map();
+  function cacheGet(kind, key) {
+    const k = KEY_PREFIX + kind + ':' + key;
+    if (mem.has(k)) return mem.get(k);
+    try {
+      const raw = localStorage.getItem(k);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      const ttl = TTL[kind] || 0;
+      if (!ttl || (Date.now() - obj.t) < ttl) {
+        mem.set(k, obj.v);
+        return obj.v;
+      }
+      localStorage.removeItem(k);  // expired
+    } catch {}
+    return null;
+  }
+  function cacheSet(kind, key, value) {
+    const k = KEY_PREFIX + kind + ':' + key;
+    mem.set(k, value);
+    try {
+      localStorage.setItem(k, JSON.stringify({t: Date.now(), v: value}));
+    } catch (e) {
+      // QuotaExceeded — evict half the keys with our prefix and try once.
+      try {
+        const keys = Object.keys(localStorage).filter(x => x.startsWith(KEY_PREFIX));
+        keys.slice(0, Math.ceil(keys.length / 2)).forEach(x => localStorage.removeItem(x));
+        localStorage.setItem(k, JSON.stringify({t: Date.now(), v: value}));
+      } catch {}
+    }
+  }
+
+  // post() — raw JSON-RPC POST. cachedPost(kind, key, path, body)
+  // routes through the cache; on miss it fetches and stores.
   const post = (path, body) =>
     fetch(API + path, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})
       .then(r => r.ok ? r.json() : Promise.reject(r));
+  function cachedPost(kind, key, path, body) {
+    const hit = cacheGet(kind, key);
+    if (hit) return Promise.resolve(hit);
+    return post(path, body).then(r => { cacheSet(kind, key, r); return r; });
+  }
 
   function pluckCid(r) {
     if (!r) return null;
@@ -553,7 +615,7 @@
 
   async function loadWeather(place) {
     try {
-      const r = await post('/v1/weather', {place, n_cells:1});
+      const r = await cachedPost('weather', place, '/v1/weather', {place, n_cells:1});
       const tC = bandVal(r, 'weather.temperature_2m');
       const rh = bandVal(r, 'weather.relative_humidity_2m');
       const ws = bandVal(r, 'weather.wind_speed_10m');
@@ -570,7 +632,7 @@
   }
   async function loadAir(place) {
     try {
-      const r = await post('/v1/air', {place, n_cells:1});
+      const r = await cachedPost('air', place, '/v1/air', {place, n_cells:1});
       const pm25 = bandVal(r, 'cams.pm25');
       if (pm25 == null) throw 'no pm';
       const cat = pm25 < 12 ? 'good' : pm25 < 35 ? 'moderate' : pm25 < 55 ? 'unhealthy (sensitive)' : pm25 < 150 ? 'unhealthy' : 'hazardous';
@@ -580,7 +642,7 @@
   }
   async function loadNdvi(place) {
     try {
-      const r = await post('/v1/ndvi', {place, n_cells:8});
+      const r = await cachedPost('ndvi', place, '/v1/ndvi', {place, n_cells:8});
       const ndvi = r.value ?? bandVal(r, 'indices.ndvi');
       if (ndvi == null) throw 'no ndvi';
       const cat = ndvi < 0.1 ? 'bare ground' : ndvi < 0.3 ? 'sparse' : ndvi < 0.5 ? 'mixed' : ndvi < 0.7 ? 'dense' : 'very dense';
@@ -590,7 +652,7 @@
   }
   async function loadLst(place) {
     try {
-      const r = await post('/v1/lst', {place, n_cells:1});
+      const r = await cachedPost('lst', place, '/v1/lst', {place, n_cells:1});
       const dK = bandVal(r, 'modis.lst_day_8day');
       const nK = bandVal(r, 'modis.lst_night_8day');
       if (dK == null) throw 'no lst';
@@ -601,7 +663,7 @@
   }
   async function loadWater(place) {
     try {
-      const r = await post('/v1/water', {place, n_cells:8});
+      const r = await cachedPost('water', place, '/v1/water', {place, n_cells:8});
       const rec = bandVal(r, 'surface_water.recurrence');
       if (rec == null) throw 'no water';
       const cat = rec < 5 ? 'dry' : rec < 30 ? 'occasional' : rec < 70 ? 'seasonal' : 'permanent';
@@ -610,7 +672,7 @@
   }
   async function loadForest(place) {
     try {
-      const r = await post('/v1/forest', {place, n_cells:8});
+      const r = await cachedPost('forest', place, '/v1/forest', {place, n_cells:8});
       const tc = bandVal(r, 'hansen.tree_cover_2000');
       const ly = bandVal(r, 'hansen.loss_year');
       if (tc == null) throw 'no forest';
@@ -620,7 +682,7 @@
   }
   async function loadElevation(place) {
     try {
-      const r = await post('/v1/elevation', {place});
+      const r = await cachedPost('elevation', place, '/v1/elevation', {place});
       const el = r.elevation_m ?? r.value;
       if (el == null) throw 'no elev';
       const below = el < 0;
@@ -639,7 +701,7 @@
   }
   async function loadSimilar(cell) {
     try {
-      const r = await post('/v1/find_similar', {key: cell, k: 4});
+      const r = await cachedPost('similar', cell, '/v1/find_similar', {key: cell, k: 4});
       const chips = $('#similar-chips');
       chips.innerHTML = '';
       const ns = (r.neighbors || []).slice(0, 3);
@@ -722,7 +784,7 @@
     $$('.tile').forEach(t => { t.classList.remove('appear'); void t.offsetWidth; t.classList.add('appear'); });
 
     let loc;
-    try { loc = await post('/v1/locate', {place}); }
+    try { loc = await cachedPost('locate', place, '/v1/locate', {place}); }
     catch { $('#place-name').textContent = 'not found'; $('#place-coords').textContent = 'try a different name'; return; }
 
     currentCell = loc.cell64;
@@ -802,13 +864,19 @@
     if (currentPlace) setSceneBg(currentPlace, currentBand);
   }));
 
-  fetch(API + '/.well-known/emem.json')
-    .then(r => r.ok ? r.json() : null)
-    .then(j => {
-      if (!j) return;
-      const pk = j.responder_pubkey_b32 || j.pubkey_b32 || '';
-      if (pk) $('#signer').textContent = pk.slice(0,10) + '…' + pk.slice(-6);
-    }).catch(()=>{});
+  // signer pubkey — cached 24h to skip the /.well-known round-trip on repeat loads
+  (function loadSigner(){
+    const cached = cacheGet('pubkey', 'responder');
+    const apply = (pk) => { if (pk) $('#signer').textContent = pk.slice(0,10) + '…' + pk.slice(-6); };
+    if (cached) { apply(cached); return; }
+    fetch(API + '/.well-known/emem.json')
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (!j) return;
+        const pk = j.responder_pubkey_b32 || j.pubkey_b32 || '';
+        if (pk) { cacheSet('pubkey', 'responder', pk); apply(pk); }
+      }).catch(()=>{});
+  })();
 
   // boot: rotate among presets so repeat visitors see different places
   const presets = Array.from($$('.preset')).map(b => b.dataset.place);
@@ -818,6 +886,24 @@
   if (active) active.classList.add('active');
   fitCanvas();
   loadPlace(start);
+
+  // ── background prefetch of the other presets ──
+  // After the foreground place finishes, prefetch /v1/locate for the
+  // other 10 presets (cheap, deterministic, 30-day TTL) so clicking
+  // any chip is one network round-trip lighter on cold visits. We
+  // intentionally don't prefetch the heavy boring-endpoint tiles —
+  // that would multiply load by 11×. The locate cache alone makes
+  // chip clicks feel instant; the tiles still fetch on click but
+  // benefit from the cached cell64 + polygon geometry immediately.
+  const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500));
+  idle(() => {
+    presets.filter(p => p !== start).forEach((p, i) => {
+      setTimeout(() => {
+        if (cacheGet('locate', p)) return;
+        cachedPost('locate', p, '/v1/locate', {place: p}).catch(()=>{});
+      }, i * 300);
+    });
+  });
 })();
 </script>
 
