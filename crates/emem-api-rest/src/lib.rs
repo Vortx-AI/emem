@@ -3164,25 +3164,24 @@ async fn serve_example_openai() -> Response {
     text_response("application/json", EXAMPLE_OPENAI)
 }
 /// `GET /gemini-extension.json` — Gemini CLI extension manifest rendered
-/// at request time from the live registry counts. The static file at
-/// `examples/gemini-extension.json` ships hand-edited fallback copy that
-/// drifts (it was last touched in 0.0.3 and claimed `36 MCP tools / 149
-/// algorithms / 35 bands` against today's true `49 / 155 / 35`). Render
-/// from the same constants `/v1/discover` reads so the manifest cannot
-/// disagree with `/mcp tools/list`.
+/// at request time from the live registry counts so the wire response
+/// cannot disagree with `/mcp tools/list`. The static file at
+/// `examples/gemini-extension.json` is the in-repo template; the
+/// rendered manifest pulls counts from `emem_mcp::TOOLS`,
+/// `emem_core::bands::DEFAULT`, and `emem_core::algorithms::DEFAULT`.
 async fn serve_example_gemini() -> Response {
     let n_tools = emem_mcp::TOOLS.len();
     let n_bands = emem_core::bands::DEFAULT.bands.len();
     let n_algorithms = emem_core::algorithms::DEFAULT.algorithms.len();
     let manifest = json!({
         "_doc": format!(
-            "Gemini CLI extension manifest. Install with one command: `gemini extensions install https://emem.dev/gemini-extension.json`. After install, every Gemini CLI session can call emem_recall, emem_compare, emem_find_similar, etc. against any place on Earth without an API key. The hosted instance at https://emem.dev/mcp is HTTPS-only Streamable HTTP transport (MCP 2025-03-26+). For self-hosted, change `url` to your own emem responder. Counts ({}/{}/{}) are rendered from the live registry at request time.",
+            "Gemini CLI extension manifest. Install with one command: `gemini extensions install https://emem.dev/gemini-extension.json`. After install, every Gemini CLI session can call emem_recall, emem_compare, emem_find_similar, emem_memory_bundle, emem_memory_contradictions, etc. against any place on Earth without an API key. The hosted instance at https://emem.dev/mcp is HTTPS-only Streamable HTTP transport (MCP 2025-03-26+). For self-hosted, change `url` to your own emem responder. Counts ({}/{}/{}) are rendered from the live registry at request time.",
             n_tools, n_bands, n_algorithms,
         ),
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
         "description": format!(
-            "Cite-able, content-addressed, signed Earth memory protocol. Recall any place on Earth (cell × band × tslot) and get back ed25519 receipts you can quote in your reply. {n_tools} MCP tools across read + write primitives. {n_bands} materializable bands. {n_algorithms} composition algorithms. No API keys."
+            "Verifiable memory substrate for AI agents. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (memb:<bundle_cid>), multi-attester contradiction scoring. No API keys."
         ),
         "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
         "license": "Apache-2.0",

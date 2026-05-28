@@ -65,7 +65,7 @@ materializers inside `crates/emem-api-rest/src/lib.rs` that hit JSON REST
 endpoints directly without a dedicated fetch module. Both classes are
 listed below.
 
-`crates/emem-core/data/sources-v0.json` declares 43 source schemes; the
+`crates/emem-core/data/sources-v0.json` declares 46 source schemes; the
 universal STAC + COG sampler (`cog.rs`) handles the majority of raster
 sources. The hosted responder reports its live coverage at
 `/v1/materializers` (20 materializer registrations today), so an agent can

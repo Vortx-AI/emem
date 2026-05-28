@@ -353,7 +353,7 @@ Examples (one per kind):
 
 ## emem-sources (sources-v0.json)
 
-43 source-scheme entries. Each scheme has an ordered `providers[]` list; the
+46 source-scheme entries. Each scheme has an ordered `providers[]` list; the
 dispatcher walks them in order and returns on the first 2xx. The receipt
 records which provider actually answered.
 

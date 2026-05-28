@@ -190,7 +190,7 @@ Designed for agents to read, not for humans to remember:
 ```
 GET /openapi.json                  — OpenAPI 3.1 of every REST route
 GET /v1/agent_card                 — live capability snapshot + manifest CIDs
-GET /v1/tools                      — 70 MCP tools (10 core, 60 extended) with when_to_use + annotations
+GET /v1/tools                      — 69 MCP tools (10 core, 59 extended) with when_to_use + annotations
 GET /v1/algorithms?summary=true    — 159 algorithm keys + categories
 GET /v1/topics                     — 27 topic-grouped bands + algorithms (router brain)
 GET /v1/manifests                  — bands_cid, algorithms_cid, sources_cid, schema_cid

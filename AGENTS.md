@@ -85,7 +85,7 @@ will reject it and the next agent will have to figure out why.
 
 Commit messages are sentence-case, ≤72 chars on the subject line. Body
 explains the *why* and any non-obvious wire/protocol implications. Tag
-with the version prefix when relevant — `0.0.6: …`.
+with the version prefix when relevant — `0.0.7: …`.
 
 **Never** add a `Co-Authored-By: Claude` trailer or any AI attribution
 trailer. The user has stated this preference in
@@ -120,7 +120,7 @@ hook fails, fix the underlying issue.
 | Cell64 / tslot / alphabet | `crates/emem-codec/src/` |
 | Merkle log + per-fact proofs | `crates/emem-storage/src/{merkle_log,server}.rs` |
 | Registries (8 manifests) | `crates/emem-core/data/*.json` + `src/` |
-| MCP tool registry (58 tools) | `crates/emem-mcp/src/lib.rs` |
+| MCP tool registry (69 tools) | `crates/emem-mcp/src/lib.rs` |
 | Read primitives | `crates/emem-primitives/src/*.rs` |
 | Foundation-embedding fan-out for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |
 | Physics solvers (heat / wave / NDVI / JEPA-v2) | `crates/emem-api-rest/src/physics.rs` |

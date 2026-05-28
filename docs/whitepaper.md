@@ -835,7 +835,7 @@ tslot, no single-point window) cannot pick a target tslot, so they
 fall back to Fast over whatever is already in the index.
 
 `Mode::Zk` was removed in 0.0.4 — Rust enum, MCP schema, OpenAPI
-VerifyReq schema. It returned 500 on every call. ZK is not in 0.0.6.
+VerifyReq schema. It returned 500 on every call. ZK is not in 0.0.7.
 
 ### 9.5 compare / compare_bands
 
@@ -1148,7 +1148,7 @@ JEPA v2 architecture: 3 × 128-D lags → flatten `[B, 384]` → 128-D
 projection → 4 pre-LN residual blocks → zero-init head → `last_vintage
 + delta`. With delta starting at zero the baseline is identity. The
 v2 handler short-circuits ONNX/sidecar inference when
-`is_trained() == false` (which it is in 0.0.6) and returns
+`is_trained() == false` (which it is in 0.0.7) and returns
 `last_input_vintage` directly, attaching `untrained_baseline` and
 `upstream_geotessera_single_vintage` honesty warnings on the receipt.
 
@@ -1174,7 +1174,7 @@ until §12 changes.
 ## 13. Sources and connectors
 
 `emem-fetch` ships **12 data connectors + 6 utility modules**.
-**43 source schemes** are declared in `sources-v0.json`; the wired
+**46 source schemes** are declared in `sources-v0.json`; the wired
 subset answers recall today.
 
 ```text
@@ -1196,7 +1196,7 @@ subset answers recall today.
   vector         FTW field polygons (~3.17 B fields), OSM Overpass
                  (WDPA fallback)
   embeddings     Tessera annual vintages (2017-2024 + multi_year + bin128)
-  * declared, materialiser not wired in 0.0.6
+  * declared, materialiser not wired in 0.0.7
 ```
 
 Utility modules: `cog` (universal pure-Rust COG range sampler —
@@ -1238,7 +1238,7 @@ the provenance:
 
 `emem-server` serves both HTTP/REST and MCP JSON-RPC on one port
 (default `0.0.0.0:5051`). **169 REST routes** total, **79 under
-`/v1/*`**, **70 MCP tools (10 core, 60 extended)**. Discovery chain on first contact:
+`/v1/*`**, **69 MCP tools (10 core, 59 extended)**. Discovery chain on first contact:
 
 ```text
   1. GET  /.well-known/emem.json         responder pubkey + capabilities

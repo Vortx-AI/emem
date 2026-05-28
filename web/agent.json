@@ -3,7 +3,7 @@
   "version": "0.0.7",
   "protocol": "emem-earth-memory",
   "tagline": "Verifiable Earth observation for AI agents. Three foundation encoders, one consensus, every answer cryptographically signed.",
-  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns \u2014 six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (memb:<bundle_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 70 MCP tools (10 core, 60 extended), 18 static MCP resources + 8 URI templates, 159 algorithms in a content-addressed registry, 42 bands, 46 source schemes, 4 GPU-pinned foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo) behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
+  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns \u2014 six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (memb:<bundle_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 69 MCP tools (10 core, 59 extended), 18 static MCP resources + 8 URI templates, 159 algorithms in a content-addressed registry, 42 bands, 46 source schemes, 4 GPU-pinned foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo) behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",
@@ -119,13 +119,13 @@
     "emem_hunt",
     "emem_eudr_dds"
   ],
-  "primitive_count": 58,
+  "primitive_count": 69,
   "algorithm_count": 159,
   "band_cube_slot_count": 35,
   "materializer_wired_band_names": 118,
-  "rest_paths_in_openapi": 71,
-  "rest_paths_v1_in_openapi": 68,
-  "source_scheme_count": 43,
+  "rest_paths_in_openapi": 83,
+  "rest_paths_v1_in_openapi": 80,
+  "source_scheme_count": 46,
   "topic_count_declared": 27,
   "address_algebra": {
     "cell": "64-bit cell identifier \u2014 21-bit lat \u00d7 22-bit lng on the active grid (~9.54 m \u00d7 ~9.55 m at the equator, matching Sentinel-1/Sentinel-2 native pitch). Wire form: four base-1024 bigrams separated by dots, Hilbert-ordered so neighbours share string prefixes.",
@@ -293,5 +293,15 @@
     "open_data_default": true,
     "every_tool_annotated_with_when_to_use": true,
     "every_algorithm_has_formula_and_citation": true
-  }
+  },
+  "mcp_tools": {
+    "core": 10,
+    "extended": 59,
+    "total": 69
+  },
+  "mcp_resources": {
+    "static": 18,
+    "uri_templates": 8
+  },
+  "materializable_band_count": 42
 }

@@ -61,7 +61,7 @@
     <rect x="0" y="172" width="180" height="148" rx="12" fill="url(#core)" stroke="url(#acc)" stroke-width="1.5"/>
     <text x="90" y="216" text-anchor="middle" font-size="22" fill="#eaeaea" font-weight="700">MCP</text>
     <text x="90" y="248" text-anchor="middle" font-size="14" fill="#9aa3b8">JSON-RPC 2.0</text>
-    <text x="90" y="272" text-anchor="middle" font-size="14" fill="#9aa3b8">36 tools</text>
+    <text x="90" y="272" text-anchor="middle" font-size="14" fill="#9aa3b8">69 tools</text>
     <text x="90" y="296" text-anchor="middle" font-size="14" fill="#9aa3b8">POST /mcp</text>
   </g>
 

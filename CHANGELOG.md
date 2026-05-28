@@ -20,11 +20,24 @@ to verify.
 ### Fixed
 - `server.json` `documentationUrl` pointed at a renamed `docs/SPEC.md`;
   repointed to `https://emem.dev/docs/whitepaper.html`.
+- `/v1/locate` now mirrors the resolved `cell64` as `cell` at the top
+  level of the response. The request-side alias was already there;
+  this closes the response-side gap so naive agents doing
+  `recall({cell: locate_resp.cell})` work first try.
+- `docs/errors.md` regenerated from the live `/v1/errors` payload
+  (28 codes, schema `emem.errors.v1`). Previously documented codes
+  the responder never emits are gone; the catalog is now wire truth.
+- Discovery surfaces (`web/agent.json`, `web/ai-plugin.json`,
+  `examples/gemini-extension.json`, all docs + diagram SVGs) refreshed
+  to the canonical counts: 69 MCP tools (10 core / 59 extended),
+  18 static MCP resources + 8 URI templates, 42 user-callable bands,
+  46 source schemes, 159 algorithms, 80 paths under `/v1/*`,
+  83 total OpenAPI paths.
 
 ### Notes
-- No protocol or wire surface changes. Workspace version bump only,
-  to give the registry listing a versioned record (versions are
-  immutable post-publish).
+- Wire change is purely additive: the new `cell` field is a mirror of
+  `cell64`, never replaces it. v0.0.6 and v0.0.7 receipts continue
+  to verify under v0.0.7 code.
 
 
 ### Added (2026-05-16)
