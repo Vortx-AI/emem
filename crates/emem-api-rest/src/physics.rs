@@ -1373,27 +1373,43 @@ pub async fn post_jepa_predict(
     Ok(Json(jepa_predict(req, &state).await?))
 }
 
-// ── jepa_temporal_predictor@2 — learned dynamics head over Tessera ────────
+// ── jepa_temporal_predictor@2 — learned multi-band scalar dynamics ───────
+//
+// v0.0.1 pivots off the K=3 Tessera-vintage shape: the upstream
+// dl2.geotessera.org bucket only serves 2024 reliably, so the lag
+// window collapsed and the receipt always carried
+// `upstream_geotessera_single_vintage`. The new shape predicts one
+// step ahead of a 4-band scalar state `{indices.ndvi,
+// modis.lst_day_8day, modis.lst_night_8day, cams.pm25}` from K=6
+// monthly lags + (cell_lat, cell_lng, month) context. See
+// `python/jepa_v2_sidecar/training_data_report.md` for the audit that
+// motivated the pivot and `python/jepa_v2_sidecar/train_dynamics_v2.py`
+// for the trained model.
 
 /// Choose the inference backend for jepa_v2: prefer the GPU sidecar,
-/// fall back to the in-process CPU path.
-///
-/// Why three branches:
-///   - sidecar `Ok(_)`: use it (much faster on CUDA)
-///   - sidecar `Upstream`: 502; the sidecar is up and rejected the request,
-///     masking it would lie to the caller about model state
-///   - sidecar unreachable / timeout / framing garble: fall back to
-///     in-process CPU. Tag `via` + `fallback_reason` in the receipt
-///     so the verifier sees which backend produced the prediction.
+/// fall back to the in-process CPU ONNX path. Both paths run on the
+/// same .onnx artifact, just routed differently.
 async fn predict_via_sidecar_or_local(
-    lags_2d: &[Vec<f32>],
-    flat: &[f32],
-) -> Result<(Vec<f32>, JsonValue), ApiError> {
+    lags_normalised: &[f32],
+    context: &[f32],
+) -> Result<(crate::jepa_v2::DynamicsOutput, JsonValue), ApiError> {
     let req = crate::gpu_sidecar::DynamicsRequest {
-        lags: lags_2d.to_vec(),
+        lags_normalised: lags_normalised.to_vec(),
+        context: context.to_vec(),
     };
     match crate::gpu_sidecar::predict_dynamics_v2(&req).await {
-        Ok(resp) => Ok((resp.prediction, resp.model)),
+        Ok(resp) => {
+            // The sidecar already denormalised + clamped predictions;
+            // wrap into the shared DynamicsOutput shape so the caller
+            // doesn't care which backend served the call.
+            let out = crate::jepa_v2::DynamicsOutput {
+                predictions: resp.predictions,
+                confidence: resp.confidence,
+                low_confidence_bands: resp.low_confidence_bands,
+                band_keys: resp.band_keys,
+            };
+            Ok((out, resp.model))
+        }
         Err(crate::gpu_sidecar::SidecarError::Upstream { status, body }) => Err(ApiError(
             StatusCode::BAD_GATEWAY,
             ErrorBody {
@@ -1407,9 +1423,10 @@ async fn predict_via_sidecar_or_local(
                 ?reason,
                 "jepa_v2 sidecar unavailable; falling back to in-process CPU"
             );
-            let (pred, metadata) = crate::jepa_v2::predict_next_vintage(flat)
-                .map_err(crate::jepa_v2::into_api_error)?;
-            let mut block = crate::jepa_v2::receipt_block(&metadata);
+            let (out, metadata) =
+                crate::jepa_v2::predict_next_step(lags_normalised, context)
+                    .map_err(crate::jepa_v2::into_api_error)?;
+            let mut block = crate::jepa_v2::receipt_block(&metadata, Some(&out));
             if let Some(obj) = block.as_object_mut() {
                 obj.insert("via".into(), JsonValue::String("in_process_cpu".into()));
                 obj.insert(
@@ -1417,147 +1434,212 @@ async fn predict_via_sidecar_or_local(
                     JsonValue::String(reason.to_string()),
                 );
             }
-            Ok((pred, block))
+            Ok((out, block))
         }
     }
 }
 
 /// `POST /v1/jepa_predict_v2` request body.
 ///
-/// Predicts the next-vintage Tessera embedding at a cell from the K
-/// most-recent attested vintages. Output is a 128-D vector — agents
-/// can compare against any other Tessera-attested cell via cosine, or
-/// dot-decode through any algorithm in
-/// `algorithms_for_topic.foundation_embedding`.
+/// Predicts the next monthly value of four scalar bands at a cell.
+/// See `crate::jepa_v2::BAND_KEYS` for the canonical band ordering.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct JepaPredictV2Req {
     /// Cell to forecast at. Accepts cell64 or a free-text place name
     /// (resolved via /v1/locate). Aliased to `place`.
     #[serde(alias = "place")]
     pub cell: String,
+    /// Optional override for the target month-of-year (1..=12). When
+    /// absent we read the current UTC month so the prediction is
+    /// "next month from now". Surfaced so an agent can ask "what will
+    /// NDVI look like in this cell in July of any year" without
+    /// shifting the system clock.
+    #[serde(default)]
+    pub target_month: Option<u32>,
 }
 
-/// Run the learned-dynamics predictor.
-pub async fn jepa_predict_v2(
-    mut req: JepaPredictV2Req,
+/// Pull the most-recent K_LAGS observations for `band` at `cell`. When
+/// `K_LAGS` cannot be filled from history alone, the gap is back-filled
+/// with the band's climatological mean (from the trained model's
+/// metadata) so the predictor receives a coherent input. The
+/// `contributed_cids` list tracks which real fact CIDs grounded the
+/// prediction; the receipt cites them and an `n_real_lags_per_band`
+/// counter so verifiers can see how synthetic the input was.
+async fn collect_lags_for_band(
+    cell: &str,
+    band: &str,
+    k: usize,
+    fallback: f32,
     state: &AppState,
-) -> Result<JsonValue, ApiError> {
-    let started = Instant::now();
-    let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
-    req.cell = resolved_cell.clone();
-
-    // Pull ALL attested geotessera.YYYY vintages at this cell. Auto-
-    // materialise on miss is OFF for the historical sweep — Tessera
-    // vintages are heavy (~tens of seconds each) and a v2 predict call
-    // shouldn't burn an upstream sweep. Agents seeking history call
-    // /v1/backfill explicitly.
-    //
-    // We fan-fetch each year band and assemble what's actually present.
-    const TESSERA_YEARS: std::ops::RangeInclusive<i32> = 2017..=2024;
-    let years: Vec<i32> = TESSERA_YEARS.collect();
-    let mut by_year: Vec<(i32, Vec<f32>, String)> = Vec::new();
-    for &y in &years {
-        let band = format!("geotessera.{y}");
-        let req_recall = RecallReq {
-            cell: req.cell.clone(),
-            bands: Some(vec![band.clone()]),
-            tslot: None,
-        };
-        let (resp, _notes) = recall_with_auto_materialize(&req_recall, state).await?;
+) -> (Vec<f32>, usize, Vec<String>) {
+    let req = RecallReq {
+        cell: cell.to_string(),
+        bands: Some(vec![band.to_string()]),
+        tslot: None,
+    };
+    let mut history: Vec<(u64, f32, String)> = Vec::new();
+    if let Ok((resp, _notes)) = recall_with_auto_materialize(&req, state).await {
         for (idx, f) in resp.facts.iter().enumerate() {
             if let Fact::Primary(p) = f {
-                if p.band != band {
-                    continue;
-                }
-                if let ciborium::Value::Array(arr) = &p.value {
-                    if arr.len() != crate::jepa_v2::TESSERA_DIM {
-                        continue;
-                    }
-                    let mut v: Vec<f32> = Vec::with_capacity(arr.len());
-                    let mut ok = true;
-                    for x in arr {
-                        match x {
-                            ciborium::Value::Float(f) => v.push(*f as f32),
-                            ciborium::Value::Integer(i) => {
-                                let as_i: i128 = (*i).into();
-                                v.push(as_i as f32)
-                            }
-                            _ => {
-                                ok = false;
-                                break;
-                            }
+                if p.band == band {
+                    if let ciborium::Value::Float(v) = p.value {
+                        if v.is_finite() {
+                            let cid = resp
+                                .receipt
+                                .fact_cids
+                                .get(idx)
+                                .map(|c| c.0.clone())
+                                .unwrap_or_default();
+                            history.push((p.tslot, v as f32, cid));
                         }
-                    }
-                    if ok && v.len() == crate::jepa_v2::TESSERA_DIM {
-                        let cid = resp
-                            .receipt
-                            .fact_cids
-                            .get(idx)
-                            .map(|c| c.0.clone())
-                            .unwrap_or_default();
-                        by_year.push((y, v, cid));
-                        break;
                     }
                 }
             }
         }
     }
+    history.sort_by_key(|(t, _, _)| *t);
+    let n_real = history.len().min(k);
+    let cids: Vec<String> = history
+        .iter()
+        .rev()
+        .take(k)
+        .filter_map(|(_, _, c)| if c.is_empty() { None } else { Some(c.clone()) })
+        .collect();
+    let mut out = vec![fallback; k];
+    // Place real observations at the END of the lag window so the
+    // most-recent value lands at position k-1 (Markov-friendliest).
+    let take = history.len().min(k);
+    for (i, (_, v, _)) in history.iter().rev().take(take).enumerate() {
+        out[k - 1 - i] = *v;
+    }
+    (out, n_real, cids)
+}
 
-    if by_year.len() < crate::jepa_v2::INPUT_LAGS {
-        return Err(unprocessable(format!(
-            "jepa_v2 needs ≥{lags} consecutive Tessera vintages at cell {cell}; \
-             found {n}. Run POST /v1/backfill {{cell:'{cell}', \
-             band:'geotessera.YYYY', start_unix:..., end_unix:...}} for {miss} \
-             more years, or call /v1/jepa_predict (the v1 NDVI-scalar predictor) \
-             for a closed-form fallback that needs only monthly NDVI history.",
-            lags = crate::jepa_v2::INPUT_LAGS,
-            cell = req.cell,
-            n = by_year.len(),
-            miss = crate::jepa_v2::INPUT_LAGS - by_year.len(),
-        )));
+/// Run the learned multi-band-scalar dynamics predictor.
+pub async fn jepa_predict_v2(
+    mut req: JepaPredictV2Req,
+    state: &AppState,
+) -> Result<JsonValue, ApiError> {
+    use crate::jepa_v2::{BAND_KEYS, K_LAGS, N_BANDS, N_CONTEXT};
+
+    let started = Instant::now();
+    let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
+    req.cell = resolved_cell.clone();
+
+    // Resolve the cell's lat/lng for the context vector. The model was
+    // trained to read `lat_norm` + sin/cos(lng) so a cell that can't be
+    // decoded geographically can't be served — we surface that as a
+    // 422 with the exact decode error.
+    let info = emem_codec::latlng_from_cell64(&req.cell).map_err(|e| {
+        unprocessable(format!(
+            "cell decode failed for {}: {e}. jepa_v2 needs a geo cell to \
+             build the spatial-context vector.",
+            req.cell
+        ))
+    })?;
+    let lat_deg = info.lat_deg as f32;
+    let lng_deg = info.lng_deg as f32;
+
+    // Ensure metadata is loadable so we can fail early with a clean
+    // error and so the receipt has the model's blake2b regardless of
+    // whether inference runs.
+    let metadata = crate::jepa_v2::ensure_metadata().map_err(crate::jepa_v2::into_api_error)?;
+
+    // Pull the K_LAGS most-recent observations per band, filling gaps
+    // with the band's climatological mean (= metadata.normalisation.band_norm[band].mean).
+    let mut all_lags_phys: Vec<Vec<f32>> = Vec::with_capacity(N_BANDS);
+    let mut n_real_per_band: Vec<usize> = Vec::with_capacity(N_BANDS);
+    let mut input_cids: Vec<String> = Vec::new();
+    let mut per_band_cids: serde_json::Map<String, JsonValue> = serde_json::Map::new();
+    for band in BAND_KEYS.iter() {
+        let (mean, _std) = metadata.band_norm(band);
+        let (lags, n_real, cids) =
+            collect_lags_for_band(&req.cell, band, K_LAGS, mean, state).await;
+        n_real_per_band.push(n_real);
+        per_band_cids.insert(
+            (*band).to_string(),
+            JsonValue::Array(cids.iter().cloned().map(JsonValue::String).collect()),
+        );
+        for c in &cids {
+            if !input_cids.contains(c) {
+                input_cids.push(c.clone());
+            }
+        }
+        all_lags_phys.push(lags);
     }
 
-    by_year.sort_by_key(|(y, _, _)| *y);
-    // Take the K most-recent vintages as input.
-    let lag_window = &by_year[by_year.len() - crate::jepa_v2::INPUT_LAGS..];
-    let mut flat: Vec<f32> =
-        Vec::with_capacity(crate::jepa_v2::INPUT_LAGS * crate::jepa_v2::TESSERA_DIM);
-    let mut lags_2d: Vec<Vec<f32>> = Vec::with_capacity(crate::jepa_v2::INPUT_LAGS);
-    for (_, v, _) in lag_window {
-        flat.extend_from_slice(v);
-        lags_2d.push(v.clone());
+    // Normalise lags into row-major (lag, band) layout.
+    let mut lags_normalised: Vec<f32> = Vec::with_capacity(K_LAGS * N_BANDS);
+    for lag_idx in 0..K_LAGS {
+        for (band_idx, band) in BAND_KEYS.iter().enumerate() {
+            let (mean, std) = metadata.band_norm(band);
+            let phys = all_lags_phys[band_idx][lag_idx];
+            lags_normalised.push((phys - mean) / std);
+        }
     }
 
-    // Short-circuit on the untrained-baseline sentinel. When the loaded
-    // model's metadata reports `training.trained = false`, the ONNX
-    // network is the residual-zero init that returns `last_input_vintage`
-    // by construction (see jepa_v2/export_baseline.py). Running it via
-    // the GPU sidecar adds ~4.6 s of CUDA warmup on the first request
-    // and ~30-200 ms of UDS+Python round-trip after that — purely for
-    // an identity function. Skip both the sidecar and the in-process
-    // ONNX entirely; set prediction = last lag, surface
-    // `via: "short_circuit_untrained"` plus the same `honesty_warnings`
-    // a real ONNX call would carry. Receipt still cites the K input
-    // fact_cids so a verifier can replay the trivial prediction.
-    let (pred, model_block) = if !crate::jepa_v2::is_trained() {
-        let last_lag = lag_window
-            .last()
-            .map(|(_, v, _)| v.clone())
-            .expect("INPUT_LAGS check above guarantees a non-empty lag window");
-        // Fall back to in-process metadata when accessible; default to
-        // an empty-but-shaped block when the file is missing so the
-        // short-circuit never gates the response on artifact presence.
-        let mut block = match crate::jepa_v2::ensure_metadata() {
-            Ok(m) => crate::jepa_v2::receipt_block(&m),
-            Err(e) => serde_json::json!({
-                "model_id":         "jepa_temporal_predictor@2",
-                "trained":          false,
-                "metadata_error":   e,
-                "honesty_warnings": [
-                    "untrained_baseline: model metadata unavailable; treating as untrained baseline by default",
-                ],
-            }),
+    // Build context vector.
+    let target_month = req.target_month.unwrap_or_else(|| {
+        // Default: month-after-now (next-step prediction at the current
+        // wall clock). Use chrono via std::time. We don't depend on
+        // chrono here to avoid pulling a new crate; the formula is the
+        // standard Howard 1582 algorithm applied to Unix seconds.
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        // Days since 1970-01-01.
+        let days = secs.div_euclid(86_400);
+        // 1970-01-01 was day 0 of month 1. Cheap approximation: this
+        // is the "Howard" algorithm.
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        // Next-month-of-year (1..12).
+        let next = ((m as u32) % 12) + 1;
+        next
+    });
+    let target_month = target_month.clamp(1, 12);
+    let lat_norm = lat_deg / 90.0;
+    let lng_rad = lng_deg.to_radians();
+    let lng_sin = lng_rad.sin();
+    let lng_cos = lng_rad.cos();
+    let m_rad = std::f32::consts::TAU * (target_month as f32 - 1.0) / 12.0;
+    let month_sin = m_rad.sin();
+    let month_cos = m_rad.cos();
+    let context: Vec<f32> = vec![lat_norm, lng_sin, lng_cos, month_sin, month_cos];
+    debug_assert_eq!(context.len(), N_CONTEXT);
+
+    // Short-circuit on the untrained-baseline sentinel. When
+    // `training.trained == false` the loaded head is zero-init and
+    // running inference would just emit the climatological mean — not
+    // wrong but wasteful of an UDS round-trip and surfaces no
+    // confidence information. Return the climatological means
+    // directly with all-zero confidence (= caller MUST treat as
+    // baseline) and tag the receipt with `via:
+    // short_circuit_untrained`.
+    let (output, mut model_block) = if !crate::jepa_v2::is_trained() {
+        let mut preds = Vec::with_capacity(N_BANDS);
+        let mut conf = Vec::with_capacity(N_BANDS);
+        let mut low_conf = Vec::with_capacity(N_BANDS);
+        for band in BAND_KEYS.iter() {
+            let (mean, _std) = metadata.band_norm(band);
+            let (lo, hi) = metadata.physical_range(band);
+            preds.push(mean.clamp(lo, hi));
+            conf.push(0.0);
+            low_conf.push((*band).to_string());
+        }
+        let out = crate::jepa_v2::DynamicsOutput {
+            predictions: preds,
+            confidence: conf,
+            low_confidence_bands: low_conf,
+            band_keys: BAND_KEYS.iter().map(|s| s.to_string()).collect(),
         };
+        let mut block = crate::jepa_v2::receipt_block(&metadata, Some(&out));
         if let Some(obj) = block.as_object_mut() {
             obj.insert(
                 "via".into(),
@@ -1566,29 +1648,51 @@ pub async fn jepa_predict_v2(
             obj.insert(
                 "short_circuit_reason".into(),
                 JsonValue::String(
-                    "metadata.training.trained == false; \
-                     residual-zero ONNX would return last_input_vintage \
-                     by construction. Returned the last attested Tessera \
-                     vintage directly to avoid ~4.6s of GPU sidecar warmup."
+                    "metadata.training.trained == false; returning band \
+                     climatological means with zero confidence so the \
+                     receipt isn't a lie. Re-train with \
+                     python/jepa_v2_sidecar/train_dynamics_v2.py."
                         .into(),
                 ),
             );
         }
-        (last_lag, block)
+        (out, block)
     } else {
-        predict_via_sidecar_or_local(&lags_2d, &flat).await?
+        predict_via_sidecar_or_local(&lags_normalised, &context).await?
     };
-    let predicted_year = lag_window.last().expect("non-empty").0 + 1;
 
-    // The v2 surface returns the prediction inline — we DO NOT persist
-    // a synthetic Tessera fact under `geotessera.<predicted_year>`
-    // because that would clobber the band's contract (Tessera facts
-    // are upstream-attested, not predicted). Agents that want to
-    // persist the prediction can attest it themselves under a
-    // private band. The receipt cites the K input fact_cids so
-    // verifiers can replay the prediction by re-running the .onnx.
+    // Patch in the band-keys + per-band fact-cid attribution so the
+    // receipt is self-describing.
+    if let Some(obj) = model_block.as_object_mut() {
+        obj.insert(
+            "band_keys".into(),
+            JsonValue::Array(
+                BAND_KEYS
+                    .iter()
+                    .map(|s| JsonValue::String((*s).to_string()))
+                    .collect(),
+            ),
+        );
+        obj.insert(
+            "n_real_lags_per_band".into(),
+            JsonValue::Object(
+                BAND_KEYS
+                    .iter()
+                    .zip(n_real_per_band.iter())
+                    .map(|(b, n)| ((*b).to_string(), JsonValue::Number((*n).into())))
+                    .collect(),
+            ),
+        );
+        obj.insert(
+            "per_band_input_fact_cids".into(),
+            JsonValue::Object(per_band_cids.clone()),
+        );
+    }
+
+    // Sign receipt over real input CIDs only — synthetic-filled lags
+    // (no fact CID) don't enter the receipt's `cited_fact_cids` because
+    // they have nothing to dereference back to.
     let pubkey = pubkey_b32(state);
-    let input_cids: Vec<String> = lag_window.iter().map(|(_, _, cid)| cid.clone()).collect();
     let receipt = state.sign_receipt(
         "emem.jepa_predict_v2",
         vec![req.cell.clone()],
@@ -1603,23 +1707,43 @@ pub async fn jepa_predict_v2(
         None,
     );
 
+    let predictions_map: serde_json::Map<String, JsonValue> = BAND_KEYS
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            (
+                (*b).to_string(),
+                json!({
+                    "value": output.predictions[i],
+                    "confidence": output.confidence[i],
+                    "n_real_lags": n_real_per_band[i],
+                }),
+            )
+        })
+        .collect();
+
     Ok(json!({
-        "schema": "emem.jepa_predict_v2.v1",
+        "schema": "emem.jepa_predict_v2.v2",
         "cell": req.cell,
         "resolved_from": resolved_ref,
-        "lag_window_years": lag_window.iter().map(|(y, _, _)| *y).collect::<Vec<_>>(),
-        "predicted_year": predicted_year,
-        "predicted_band": format!("geotessera.{predicted_year}"),
-        "prediction_dim": pred.len(),
-        "prediction": pred,
+        "cell_lat_deg": lat_deg,
+        "cell_lng_deg": lng_deg,
+        "target_month": target_month,
+        "band_keys": BAND_KEYS,
+        "predictions": predictions_map,
+        "predictions_array": output.predictions,
+        "confidence_array": output.confidence,
+        "low_confidence_bands": output.low_confidence_bands,
+        "n_real_lags_per_band": n_real_per_band,
         "input_fact_cids": input_cids,
+        "per_band_input_fact_cids": per_band_cids,
         "model": model_block,
         "responder_pubkey_b32": pubkey,
         "receipt": receipt,
         "next": {
             "verify_offline":   "POST /v1/verify_receipt {receipt}",
-            "compare_against":  "POST /v1/find_similar { key:'inline:[…prediction…]', band:'geotessera', k:10 }",
             "v1_fallback":      format!("POST /v1/jepa_predict {{cell:'{}'}} for the closed-form NDVI-scalar predictor", req.cell),
+            "densify_corpus":   format!("POST /v1/backfill {{cell:'{}', band:'<band>', start_unix:..., end_unix:...}} to raise n_real_lags_per_band", req.cell),
         },
     }))
 }
