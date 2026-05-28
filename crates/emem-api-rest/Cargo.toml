@@ -29,6 +29,7 @@ serde_json      = { workspace = true }
 thiserror       = { workspace = true }
 data-encoding   = { workspace = true }
 ciborium        = { workspace = true }
+async-trait     = { workspace = true }
 ed25519-dalek   = { workspace = true }
 blake3          = { workspace = true }
 # sha2 is used only for hash-based CSP — sha256 of every inline

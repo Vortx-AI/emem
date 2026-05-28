@@ -14,6 +14,7 @@ pub mod diff;
 pub mod find_similar;
 pub mod lance_index;
 pub mod memory_bundle;
+pub mod memory_search;
 pub mod query_region;
 pub mod recall;
 pub mod refinement;
@@ -25,6 +26,10 @@ pub use compare_bands::{compare_bands, CompareBandsReq, CompareBandsResp};
 pub use diff::{diff, DiffReq, DiffResp};
 pub use find_similar::{find_similar, FindSimilarReq, FindSimilarResp, Neighbor};
 pub use lance_index::{IndexStats, LanceIndex, PerDimStats};
+pub use memory_search::{
+    memory_search, MemoryFileSource, MemoryFileSummary, MemoryIndexStats, MemorySearchError,
+    MemorySearchHit, MemorySearchReq, MemorySearchResp, MemoryTextIndex,
+};
 pub use query_region::{query_region, QueryRegionReq, QueryRegionResp};
 pub use recall::{recall, RecallReq, RecallResp};
 pub use trajectory::{trajectory, Point, TrajectoryReq, TrajectoryResp};

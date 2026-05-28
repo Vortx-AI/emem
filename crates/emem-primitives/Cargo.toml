@@ -35,7 +35,18 @@ lance-linalg = { version = "6.0.1" }
 arrow-array  = "58"
 arrow-schema = "58"
 
+# Text embedder for `memory_search` — BGE-base-en-v1.5 ONNX inference.
+# Mirrors the topic-router setup in emem-api-rest: direct ort 2.x +
+# tokenizers, no fastembed-rs wrapper. The model is loaded lazily on
+# first call so a build without the model still compiles + serves
+# everything else; missing-model is surfaced via the search endpoint
+# as a typed "model not present" error, never as random vectors.
+ort             = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray", "std", "api-24", "download-binaries", "tls-rustls"] }
+ort-ndarray     = { package = "ndarray", version = "0.17" }
+tokenizers      = { version = "0.22", default-features = false, features = ["onig"] }
+
 [dev-dependencies]
 serde_json   = { workspace = true }
 tempfile     = "3"
 rand         = { workspace = true }
+tokio        = { workspace = true, features = ["macros", "rt-multi-thread"] }

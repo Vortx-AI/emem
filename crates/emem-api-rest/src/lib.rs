@@ -74,8 +74,8 @@ use emem_fact::{
 use emem_intent::{plan, Intent};
 use emem_primitives::{
     compare, compare_bands, diff, find_similar, query_region, recall, trajectory, verify,
-    CompareBandsReq, CompareReq, DiffReq, FindSimilarReq, LanceIndex, QueryRegionReq, RecallReq,
-    RecallResp, TrajectoryReq, VerifyReq,
+    CompareBandsReq, CompareReq, DiffReq, FindSimilarReq, LanceIndex, MemorySearchReq,
+    QueryRegionReq, RecallReq, RecallResp, TrajectoryReq, VerifyReq,
 };
 use emem_storage::{Server, StorageError};
 
@@ -532,6 +532,39 @@ pub fn router(state: AppState) -> Router {
             );
         }
     }
+
+    // Open the memory-search index (Lance partition `memory_text_index_d768.lance`).
+    // Lazy on-disk file under `$EMEM_DATA/lance/`; the polling indexer
+    // hydrates from sled on boot (immediate first pass) and every
+    // `EMEM_MEMORY_SEARCH_POLL_SECS` seconds thereafter. Decoupled from
+    // the fact-vector hydration above because the schema + lifecycle
+    // are different (mutable text rows, not append-only fact rows).
+    match emem_primitives::memory_search::MemoryTextIndex::open_default() {
+        Ok(mem_idx) => {
+            MEMORY_INDEX_GLOBAL.set(mem_idx.clone()).ok();
+            emem_primitives::memory_search::set_memory_index(mem_idx.clone());
+            // Install a sled-backed `MemoryFileSource` so the polling
+            // indexer (and brute-force fallback) can read every file.
+            let source: Arc<dyn emem_primitives::memory_search::MemoryFileSource> =
+                Arc::new(SledMemoryFileSource {
+                    state: state.clone(),
+                });
+            emem_primitives::memory_search::set_memory_source(source.clone());
+            // Polling loop. Spawned even when the model is missing —
+            // hydrate_once will fail fast with a typed embed error and
+            // log it; the loop keeps retrying so an operator who
+            // installs the model later doesn't need to restart.
+            emem_primitives::memory_search::spawn_polling_indexer(mem_idx, source);
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "emem::memory_search",
+                error = %e,
+                "memory-text index open failed; /v1/memory/search will fall back to brute-force"
+            );
+        }
+    }
+
     Router::new()
         // Landing & agent-targeted pages
         .route("/", get(landing))
@@ -828,6 +861,12 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/recall_many", post(post_recall_many))
         .route("/v1/recall_polygon", post(post_recall_polygon))
         .route("/v1/field_boundaries", post(post_field_boundaries))
+        // Semantic search over /memories/* files (Anthropic memory tool).
+        // Backed by the BGE-base-en-v1.5 ONNX embedder + Lance partition
+        // `memory_text_index_d768.lance`. Falls back to a brute-force
+        // scan when Lance is disabled (EMEM_DISABLE_LANCE=1) or empty.
+        .route("/v1/memory/search", post(post_memory_search))
+        .route("/v1/memory_search/stats", get(get_memory_search_stats))
         // Introspection
         .route("/v1/manifests", get(manifests))
         .route("/v1/capabilities", get(get_capabilities))
@@ -12167,6 +12206,16 @@ async fn mcp_tool_call(
                 .await
                 .map_err(|e| (-(e.1.code as i64), e.1.message))
         }
+        // Semantic search over /memories/* file contents (BGE + Lance).
+        // Mirrors POST /v1/memory/search exactly so MCP + REST agree.
+        "emem_memory_search" => {
+            let req: MemorySearchReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_memory_search(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_corpus_state_stats" => match get_corpus_state_stats(State(s.clone())).await {
             Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
             Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -16471,6 +16520,220 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
         "file_cid": cid_str,
         "responder_pubkey_b32": responder_pubkey_b32,
         "receipt": receipt,
+    }))
+}
+
+// ── Memory-file semantic search (BGE + Lance) ────────────────────────────
+//
+// `POST /v1/memory/search` runs a BGE-base-en-v1.5 query against the
+// Lance partition `memory_text_index_d768.lance`, falls back to
+// brute-force iteration over sled when Lance is empty/disabled, and
+// returns ranked hits with 200-char snippets.
+//
+// The polling indexer (spawned in `router(...)`) hydrates the partition
+// from this sled-backed source on boot and every 60 s thereafter. Any
+// agent calling /memories/write before the next poll fires will still
+// be findable via the brute-force fallback (slower, but correct).
+
+/// Process-global memory-text index handle, shared between the
+/// `/v1/memory_search/stats` endpoint and the polling spawn point.
+static MEMORY_INDEX_GLOBAL: std::sync::OnceLock<
+    Arc<emem_primitives::memory_search::MemoryTextIndex>,
+> = std::sync::OnceLock::new();
+
+/// Sled-backed implementation of `MemoryFileSource`. Reads every
+/// `path → file_cid → bytes` triple from the three memory trees so the
+/// indexer can enumerate the current corpus without owning a sled
+/// reference itself.
+struct SledMemoryFileSource {
+    state: AppState,
+}
+
+#[async_trait::async_trait]
+impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
+    async fn list_all(
+        &self,
+    ) -> Result<
+        Vec<emem_primitives::memory_search::MemoryFileSummary>,
+        emem_primitives::memory_search::IndexerError,
+    > {
+        let db = self.state.storage.hot_sled_db().ok_or_else(|| {
+            emem_primitives::memory_search::IndexerError::Storage(
+                "memory search requires a sled-backed hot cache".into(),
+            )
+        })?;
+        let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+            emem_primitives::memory_search::IndexerError::Storage(format!("open memory_files: {e}"))
+        })?;
+        let metas = db
+            .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+            .map_err(|e| {
+                emem_primitives::memory_search::IndexerError::Storage(format!(
+                    "open memory_file_meta: {e}"
+                ))
+            })?;
+        let mut out = Vec::new();
+        for kv in paths.iter().flatten() {
+            let Ok(path) = std::str::from_utf8(&kv.0) else {
+                continue;
+            };
+            let Ok(cid) = std::str::from_utf8(&kv.1) else {
+                continue;
+            };
+            // Pull the meta CBOR so we can fill signed_at +
+            // attester_pubkey_b32 + size_bytes. Missing meta is
+            // recoverable — we synthesise minimal fields.
+            let meta_bytes = metas.get(cid.as_bytes()).ok().flatten();
+            let meta: Option<MemoryFileMeta> = meta_bytes
+                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+            let (signed_at, attester_pubkey_b32, size_bytes) = match meta {
+                Some(m) => {
+                    let pk_b32 = data_encoding::BASE32_NOPAD
+                        .encode(&m.receipt.responder.0)
+                        .to_lowercase();
+                    (m.signed_at, Some(pk_b32), m.size_bytes)
+                }
+                None => (String::new(), None, 0),
+            };
+            out.push(emem_primitives::memory_search::MemoryFileSummary {
+                path: path.to_string(),
+                file_cid: cid.to_string(),
+                // Kind taxonomy is owned by Agent W (memory_typing.rs).
+                // Until that lands, every file is plain "resource".
+                kind: "resource".to_string(),
+                signed_at,
+                attester_pubkey_b32,
+                size_bytes,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn read_text(
+        &self,
+        path: &str,
+    ) -> Result<Option<String>, emem_primitives::memory_search::IndexerError> {
+        let db = self.state.storage.hot_sled_db().ok_or_else(|| {
+            emem_primitives::memory_search::IndexerError::Storage(
+                "memory search requires a sled-backed hot cache".into(),
+            )
+        })?;
+        let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+            emem_primitives::memory_search::IndexerError::Storage(format!("open memory_files: {e}"))
+        })?;
+        let Some(cid_bytes) = paths.get(path.as_bytes()).ok().flatten() else {
+            return Ok(None);
+        };
+        let Ok(cid) = std::str::from_utf8(&cid_bytes) else {
+            return Ok(None);
+        };
+        let blobs = db
+            .open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS)
+            .map_err(|e| {
+                emem_primitives::memory_search::IndexerError::Storage(format!(
+                    "open memory_file_blobs: {e}"
+                ))
+            })?;
+        let Some(bytes) = blobs.get(cid.as_bytes()).ok().flatten() else {
+            return Ok(None);
+        };
+        Ok(String::from_utf8(bytes.to_vec()).ok())
+    }
+}
+
+/// `POST /v1/memory/search` — semantic search over /memories/* files.
+///
+/// The MCP arm `emem_memory_search` calls this same handler so the two
+/// surfaces stay byte-identical.
+async fn post_memory_search(
+    State(s): State<AppState>,
+    Json(req): Json<MemorySearchReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    match emem_primitives::memory_search::memory_search(&req, &s).await {
+        Ok(resp) => {
+            let mut v = serde_json::to_value(resp).map_err(|e| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorBody {
+                        code: ErrorCode::Internal,
+                        message: format!("memory_search serialise: {e}"),
+                        details: None,
+                    },
+                )
+            })?;
+            // Surface a request_id + responder pubkey so the response
+            // is auditable even though no fact CID is signed (this is
+            // a read primitive over an internal index, not over the
+            // attested corpus).
+            if let Some(map) = v.as_object_mut() {
+                let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+                    .encode(&s.identity.pubkey.0)
+                    .to_lowercase();
+                map.insert(
+                    "responder_pubkey_b32".into(),
+                    JsonValue::String(responder_pubkey_b32),
+                );
+            }
+            Ok(Json(v))
+        }
+        Err(emem_primitives::memory_search::MemorySearchError::EmptyQuery) => Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory_search: `q` must not be empty".into(),
+                details: None,
+            },
+        )),
+        Err(emem_primitives::memory_search::MemorySearchError::Embed(e)) => Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!(
+                    "memory_search: text embedder unavailable ({e}). Install \
+                     bge-base-en-v1.5 under $EMEM_DATA/models/ via \
+                     scripts/install-topic-model.sh."
+                ),
+                details: None,
+            },
+        )),
+        Err(emem_primitives::memory_search::MemorySearchError::Index(e)) => Err(ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("memory_search: index error: {e}"),
+                details: None,
+            },
+        )),
+    }
+}
+
+/// `GET /v1/memory_search/stats` — snapshot of the memory-text index.
+///
+/// Includes:
+///  - row count (number of indexed files)
+///  - filesystem path of the Lance dataset
+///  - whether the BGE model loaded on this responder
+///  - last hydration / last index Unix-seconds timestamps
+///  - indexer mode (polling/broadcast) + cadence
+async fn get_memory_search_stats() -> Json<JsonValue> {
+    let stats = match MEMORY_INDEX_GLOBAL.get() {
+        Some(idx) => idx.stats().await,
+        None => emem_primitives::memory_search::MemoryIndexStats {
+            indexer_mode: "polling".into(),
+            ..Default::default()
+        },
+    };
+    Json(json!({
+        "schema": "emem.memory_search_stats.v1",
+        "rows": stats.rows,
+        "path": stats.path,
+        "model_loaded": stats.model_loaded,
+        "embed_dim": stats.embed_dim,
+        "last_hydrated_at_unix_s": stats.last_hydrated_at_unix_s,
+        "last_indexed_at_unix_s": stats.last_indexed_at_unix_s,
+        "indexer_mode": stats.indexer_mode,
+        "poll_interval_secs": stats.poll_interval_secs,
+        "polling_active": stats.polling_active,
     }))
 }
 
