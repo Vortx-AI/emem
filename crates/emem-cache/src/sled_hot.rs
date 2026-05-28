@@ -108,6 +108,64 @@ impl SledHotCache {
         Ok(out)
     }
 
+    /// Bi-temporal sibling of [`SledHotCache::scan_cell`]. Pre-filters
+    /// on `tslot` directly from the canonical key (decoded inline as
+    /// the iterator walks — no CBOR body load required), then on
+    /// `valid_time` (also a key-level predicate). This keeps the cold
+    /// path index-bound when the caller only constrains valid-time —
+    /// fact bodies are loaded only for entries that survived the
+    /// valid-time filter, and only when the caller additionally pinned
+    /// transaction-time. Returns the (key, fact_cid) pairs that survive
+    /// both predicates; transaction-time filtering is left to the
+    /// caller because resolving `signed_at` requires the body and the
+    /// storage layer is the canonical loader.
+    pub fn scan_cell_with_tslot_bound(
+        &self,
+        cell: &str,
+        tslot_eq: Option<u64>,
+        tslot_le: Option<u64>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+        let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10_000);
+        let mut prefix = Vec::with_capacity(cell.len() + 1);
+        prefix.extend_from_slice(cell.as_bytes());
+        prefix.push(SEP);
+        let mut out = Vec::new();
+        let mut seen = 0usize;
+        for kv in self.idx.scan_prefix(&prefix) {
+            seen += 1;
+            if out.len() >= limit {
+                tracing::warn!(
+                    target: "emem::storage",
+                    scan_cell = %cell,
+                    scan_limit = limit,
+                    scan_seen = seen,
+                    "scan_cell_limit_hit",
+                );
+                break;
+            }
+            let (k, v) = kv?;
+            let key = decode_key(&k).map_err(CacheError::Cbor)?;
+            if let Some(t) = tslot_eq {
+                if key.tslot != t {
+                    continue;
+                }
+            }
+            if let Some(t) = tslot_le {
+                if key.tslot > t {
+                    continue;
+                }
+            }
+            let cid_s = std::str::from_utf8(&v)
+                .map_err(|e| CacheError::Cbor(e.to_string()))?
+                .to_string();
+            out.push((key, FactCid::new(cid_s)));
+        }
+        Ok(out)
+    }
+
     /// Approximate item count across the index tree.
     pub fn len(&self) -> usize {
         self.idx.len()
@@ -333,5 +391,41 @@ mod tests {
         assert_eq!(only_t7.len(), 2);
         let all = c.scan_cell("ento.bria.calo.tris", None).unwrap();
         assert_eq!(all.len(), 3);
+    }
+
+    /// Bi-temporal valid-time fast path: pre-filter on `tslot <= bound`
+    /// directly from the canonical-key bytes — no body load required.
+    #[tokio::test]
+    async fn scan_cell_with_tslot_bound_filters_in_index() {
+        let c = SledHotCache::open_temporary().unwrap();
+        c.put_many(&[
+            sample_fact("ento.bria.calo.tris", "indices.ndvi", 5),
+            sample_fact("ento.bria.calo.tris", "indices.ndvi", 7),
+            sample_fact("ento.bria.calo.tris", "indices.ndvi", 9),
+        ])
+        .await
+        .unwrap();
+
+        // Cap at 7 → keep tslots 5 + 7, drop 9.
+        let bounded = c
+            .scan_cell_with_tslot_bound("ento.bria.calo.tris", None, Some(7))
+            .unwrap();
+        let mut tslots: Vec<u64> = bounded.iter().map(|(k, _)| k.tslot).collect();
+        tslots.sort_unstable();
+        assert_eq!(tslots, vec![5, 7], "tslot_le=7 must drop the tslot=9 entry");
+
+        // Same as scan_cell when both bounds are None.
+        let all = c
+            .scan_cell_with_tslot_bound("ento.bria.calo.tris", None, None)
+            .unwrap();
+        assert_eq!(all.len(), 3);
+
+        // Exact + ceiling: tslot_eq wins precedence over the ceiling
+        // (exact match excludes everything else regardless of bound).
+        let exact = c
+            .scan_cell_with_tslot_bound("ento.bria.calo.tris", Some(7), Some(100))
+            .unwrap();
+        assert_eq!(exact.len(), 1);
+        assert_eq!(exact[0].0.tslot, 7);
     }
 }

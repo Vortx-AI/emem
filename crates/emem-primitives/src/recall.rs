@@ -5,11 +5,14 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 use emem_cache::CanonicalKey;
+use emem_core::ErrorCode;
 use emem_fact::{Fact, FactCid, Receipt};
-use emem_storage::{Server, StorageError};
+use emem_storage::{AsOfBound, Server, StorageError};
+
+use crate::cbor_ops::parse_rfc3339_strict;
 
 /// Recall request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RecallReq {
     /// cell64 string. Accepts the alias `cell64` because that's the natural
     /// name agents reach for after reading the SPEC, and a wire mismatch
@@ -17,11 +20,94 @@ pub struct RecallReq {
     #[serde(alias = "cell64")]
     pub cell: String,
     /// Optional band filter (defaults: all).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bands: Option<Vec<String>>,
     /// Optional time slot.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tslot: Option<u64>,
+    /// Bi-temporal valid-time bound. When set, only facts whose `tslot`
+    /// is `<= as_of_tslot` are returned per (cell, band) — emulating
+    /// Zep/Graphiti's edge-style "what did this place look like as of
+    /// date X" query (arXiv 2501.13956). Conflicts with an exact
+    /// `tslot` when `as_of_tslot < tslot` — that is rejected at the
+    /// API surface with `code: "invalid_temporal_bound"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound. When set, only facts whose
+    /// `signed_at` is `<= as_of_signed_at` are returned — emulating
+    /// "what did emem know about this place as of system-date Y". RFC
+    /// 3339 string; format errors are rejected at the API surface with
+    /// `code: "invalid_signed_at_format"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_signed_at: Option<String>,
+}
+
+impl RecallReq {
+    /// Construct + validate the [`AsOfBound`] this request implies.
+    /// Returns the bound on success or a structured error the API layer
+    /// can map to a 400 envelope (`invalid_temporal_bound` /
+    /// `invalid_signed_at_format`).
+    pub fn build_as_of_bound(&self) -> Result<AsOfBound, StorageError> {
+        build_as_of_bound(
+            self.tslot,
+            self.as_of_tslot,
+            self.as_of_signed_at.as_deref(),
+        )
+    }
+}
+
+/// Honesty-guard helper shared by every read primitive. Catches the two
+/// classes of caller mistake the spec calls out: a bi-temporal bound
+/// that contradicts an explicit tslot, and a non-RFC-3339
+/// transaction-time string. A successful result is the validated
+/// `AsOfBound` ready to hand to storage.
+pub fn build_as_of_bound(
+    tslot: Option<u64>,
+    as_of_tslot: Option<u64>,
+    as_of_signed_at: Option<&str>,
+) -> Result<AsOfBound, StorageError> {
+    if let (Some(t), Some(a)) = (tslot, as_of_tslot) {
+        if a < t {
+            return Err(StorageError::Protocol {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "invalid_temporal_bound: explicit tslot={t} but as_of_tslot={a} excludes it. \
+                     Either drop `tslot` and rely on `as_of_tslot` (latest fact ≤ as_of_tslot) or set as_of_tslot ≥ tslot."
+                ),
+            });
+        }
+    }
+    if let Some(s) = as_of_signed_at {
+        parse_rfc3339_strict(s).map_err(|msg| StorageError::Protocol {
+            code: ErrorCode::InvalidArgument,
+            message: format!("invalid_signed_at_format: {msg}"),
+        })?;
+    }
+    Ok(AsOfBound {
+        valid_time: as_of_tslot,
+        transaction_time: as_of_signed_at.map(|s| s.to_string()),
+    })
+}
+
+/// Diagnostic block emitted when the bi-temporal filter excluded every
+/// otherwise-recallable fact. Lets the caller distinguish "nothing
+/// known about this cell" from "the as_of bound filtered everything
+/// out" — same honesty contract as `trajectory`'s `empty_series_diag`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemporalAdvice {
+    /// Echo of the caller's bi-temporal bound for easy comparison.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub as_of_tslot: Option<u64>,
+    /// Echo of the caller's transaction-time bound.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub as_of_signed_at: Option<String>,
+    /// Number of (cell, band) pairs that exist at this cell without the
+    /// bound applied. When `0`, the cell is genuinely empty regardless
+    /// of the bound; when `> 0`, the bound is what made the response
+    /// empty and the caller should consider relaxing it.
+    pub facts_at_cell_unbounded: usize,
+    /// Plain-text hint naming the most common root cause.
+    pub hint: String,
 }
 
 /// Recall response.
@@ -49,6 +135,12 @@ pub struct RecallResp {
     #[serde(rename = "bands_already_attested_at_cell")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bands_already_attested_at_cell: Option<Vec<String>>,
+    /// Populated when the response is empty BECAUSE the bi-temporal
+    /// `as_of_*` bound filtered every otherwise-recallable fact out.
+    /// Distinguishes "this cell is empty" from "as_of cut everything
+    /// off" so the agent can decide whether to relax the bound.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temporal_advice: Option<TemporalAdvice>,
 }
 
 /// Recall facts at a cell, optionally filtered by band and tslot.
@@ -61,9 +153,14 @@ pub struct RecallResp {
 pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, StorageError> {
     let started = Instant::now();
     let storage = srv.storage.as_ref();
+    let bound = req.build_as_of_bound()?;
 
     let pairs: Vec<(CanonicalKey, FactCid)> = match (&req.bands, req.tslot) {
         (Some(bands), Some(tslot)) => {
+            // Exact (cell, band, tslot) lookup — bound is honoured by
+            // post-filtering the lookup result through `AsOfBound::fact_passes`
+            // when transaction-time is set; the valid-time half is
+            // already enforced by `tslot <= as_of_tslot` validated above.
             let keys: Vec<CanonicalKey> = bands
                 .iter()
                 .map(|b| CanonicalKey {
@@ -73,15 +170,56 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
                 })
                 .collect();
             let cids = storage.lookup_canonical_many(&keys).await?;
-            keys.into_iter()
+            let mut pairs: Vec<(CanonicalKey, FactCid)> = keys
+                .into_iter()
                 .zip(cids)
                 .filter_map(|(k, c)| c.map(|cid| (k, cid)))
-                .collect()
+                .collect();
+            if bound.transaction_time.is_some() {
+                let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
+                let facts = storage.get_facts_many(&cids).await?;
+                let mut kept: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
+                for ((k, c), fact) in pairs.drain(..).zip(facts) {
+                    if let Some(f) = fact {
+                        if bound.fact_passes(&f) {
+                            kept.push((k, c));
+                        }
+                    }
+                }
+                kept
+            } else {
+                pairs
+            }
         }
-        (None, t) => storage.scan_cell(&req.cell, t).await?,
+        (None, t) => {
+            if bound.is_unbounded() {
+                storage.scan_cell(&req.cell, t).await?
+            } else {
+                let scanned = storage.scan_cell_as_of(&req.cell, t, &bound).await?;
+                // When no exact `tslot` was pinned we collapse to the
+                // latest fact per (cell, band) within the bound — same
+                // shape as the historical `scan_cell(None)` result, just
+                // pre-filtered. This is the core of "what did X look
+                // like as of date Y".
+                if t.is_none() {
+                    latest_per_band(scanned)
+                } else {
+                    scanned
+                }
+            }
+        }
         (Some(bands), None) => {
-            let mut all = storage.scan_cell(&req.cell, None).await?;
+            let mut all = if bound.is_unbounded() {
+                storage.scan_cell(&req.cell, None).await?
+            } else {
+                storage.scan_cell_as_of(&req.cell, None, &bound).await?
+            };
             all.retain(|(k, _)| bands.iter().any(|b| b == &k.band));
+            // Collapse to latest-per-band so the as_of semantics match
+            // the per-cell unfiltered case above.
+            if !bound.is_unbounded() {
+                all = latest_per_band(all);
+            }
             all
         }
     };
@@ -104,27 +242,77 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     //
     // Cost: one extra `scan_cell` per recall, which is the same call we
     // already do under sled (point-in-tree scan, ~tens of microseconds).
+    let unbounded_pairs = storage.scan_cell(&req.cell, None).await.unwrap_or_default();
+    let unbounded_count = unbounded_pairs.len();
     let bands_already_attested_at_cell = {
-        let all = storage.scan_cell(&req.cell, None).await.unwrap_or_default();
-        let mut bands: Vec<String> = all.into_iter().map(|(k, _)| k.band).collect();
+        let mut bands: Vec<String> = unbounded_pairs.into_iter().map(|(k, _)| k.band).collect();
         bands.sort();
         bands.dedup();
         Some(bands)
     };
 
-    let receipt = srv.sign_receipt(
+    // Temporal advice — populated when the response is empty BECAUSE
+    // the bi-temporal bound filtered everything out (zero is a valid
+    // answer for "what did emem know as of yesterday?", so we surface
+    // diagnostics instead of returning a 404).
+    let temporal_advice = if facts.is_empty() && !bound.is_unbounded() && unbounded_count > 0 {
+        Some(TemporalAdvice {
+            as_of_tslot: bound.valid_time,
+            as_of_signed_at: bound.transaction_time.clone(),
+            facts_at_cell_unbounded: unbounded_count,
+            hint: format!(
+                "cell has {unbounded_count} attested fact(s) without the as_of bound; \
+                 all of them were filtered out by your as_of_tslot/as_of_signed_at. \
+                 Either drop the bound or widen it. The empty response is not a 404 — it is the honest \
+                 answer to `what did emem know as of that moment`."
+            ),
+        })
+    } else {
+        None
+    };
+
+    let receipt = srv.sign_receipt_with_as_of(
         "emem.recall",
         vec![req.cell.clone()],
         cids,
         true,
         started,
         None,
+        &bound,
     );
     Ok(RecallResp {
         facts,
         receipt,
         bands_already_attested_at_cell,
+        temporal_advice,
     })
+}
+
+/// Collapse the result of a per-cell scan to the latest fact per
+/// `(cell, band)` — used by the bi-temporal recall path so an as_of
+/// query produces the same one-fact-per-band shape as the historical
+/// "latest" recall, just with the cap applied. Ties on `tslot` are
+/// broken by the lexicographic order of the FactCid string, which is
+/// deterministic across responders.
+fn latest_per_band(pairs: Vec<(CanonicalKey, FactCid)>) -> Vec<(CanonicalKey, FactCid)> {
+    use std::collections::BTreeMap;
+    let mut by_band: BTreeMap<String, (CanonicalKey, FactCid)> = BTreeMap::new();
+    for (k, c) in pairs {
+        let key = k.band.clone();
+        match by_band.get(&key) {
+            Some((existing_k, existing_c)) => {
+                let replace = k.tslot > existing_k.tslot
+                    || (k.tslot == existing_k.tslot && c.as_str() > existing_c.as_str());
+                if replace {
+                    by_band.insert(key, (k, c));
+                }
+            }
+            None => {
+                by_band.insert(key, (k, c));
+            }
+        }
+    }
+    by_band.into_values().collect()
 }
 
 #[cfg(test)]

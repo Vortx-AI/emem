@@ -590,6 +590,7 @@ async fn similarity_fanout(cell: String, k: usize, s: AppState) -> JsonValue {
             filter: None,
             band: Some(band.to_string()),
             mode: FindSimilarMode::Cosine,
+            ..Default::default()
         };
         let band_used = band.to_string();
         match find_similar_with_auto_materialize(&req, &band_used, &s).await {
@@ -685,6 +686,7 @@ async fn change_fanout(cell: String, s: AppState) -> JsonValue {
             cell: cell.clone(),
             bands: Some(vec![(*band).to_string()]),
             tslot: None,
+            ..Default::default()
         };
         if let Ok((resp, _notes)) = crate::recall_with_auto_materialize(&req, &s).await {
             if !resp.facts.is_empty() {

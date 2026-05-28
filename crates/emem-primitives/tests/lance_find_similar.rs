@@ -281,6 +281,7 @@ async fn lance_ann_finds_seeded_vector_and_brute_force_agrees() {
         band: Some("geotessera".into()),
         filter: None,
         mode: FindSimilarMode::Cosine,
+        ..Default::default()
     };
     let resp_lance = find_similar(&req, &srv).await.expect("lance fast-path");
     assert!(

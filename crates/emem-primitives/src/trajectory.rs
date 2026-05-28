@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use emem_fact::{Fact, FactCid, Receipt};
 use emem_storage::{Server, StorageError};
 
+use crate::recall::{build_as_of_bound, TemporalAdvice};
+
 /// trajectory request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrajectoryReq {
@@ -20,6 +22,16 @@ pub struct TrajectoryReq {
     pub band: String,
     /// [start, end] inclusive tslot window.
     pub window: [u64; 2],
+    /// Bi-temporal valid-time bound — clips the window's upper edge to
+    /// `min(end, as_of_tslot)` and skips points with `tslot > as_of_tslot`.
+    /// See [`crate::recall::RecallReq::as_of_tslot`] for semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_tslot: Option<u64>,
+    /// Bi-temporal transaction-time bound — restricts the series to
+    /// points whose attesting fact was signed at or before the given
+    /// RFC 3339 instant. See [`crate::recall::RecallReq::as_of_signed_at`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub as_of_signed_at: Option<String>,
 }
 
 /// A single (tslot, value) point with its individual fact_cid so
@@ -61,6 +73,12 @@ pub struct TrajectoryResp {
     /// have" so it can re-query without giving up.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub empty_series_diag: Option<EmptySeriesDiag>,
+    /// Populated when the response is empty BECAUSE the bi-temporal
+    /// `as_of_*` bound excluded every otherwise-recallable point — same
+    /// contract as `recall.temporal_advice`. Distinct from
+    /// `empty_series_diag` (which describes a wrong `window`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temporal_advice: Option<TemporalAdvice>,
     /// Signed receipt.
     pub receipt: Receipt,
 }
@@ -71,7 +89,16 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     let storage = srv.storage.as_ref();
     let [s, e] = req.window;
 
-    let pairs = storage.scan_cell(&req.cell, None).await?;
+    // trajectory has no explicit `tslot` field — it's a window query —
+    // so the only conflict the bound can introduce is a malformed
+    // signed_at. Reuse the shared validator.
+    let bound = build_as_of_bound(None, req.as_of_tslot, req.as_of_signed_at.as_deref())?;
+
+    let pairs = if bound.is_unbounded() {
+        storage.scan_cell(&req.cell, None).await?
+    } else {
+        storage.scan_cell_as_of(&req.cell, None, &bound).await?
+    };
     let all_band_pairs: Vec<(u64, FactCid)> = pairs
         .into_iter()
         .filter(|(k, _)| k.band == req.band)
@@ -132,17 +159,44 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
         None
     };
 
-    let receipt = srv.sign_receipt(
+    // Temporal advice: surfaced when the response is empty AND there
+    // are facts at this (cell, band) outside the bi-temporal bound that
+    // would have answered without it.
+    let temporal_advice = if series.is_empty() && !bound.is_unbounded() {
+        let unbounded = storage.scan_cell(&req.cell, None).await.unwrap_or_default();
+        let unbounded_count = unbounded.iter().filter(|(k, _)| k.band == req.band).count();
+        if unbounded_count > 0 {
+            Some(TemporalAdvice {
+                as_of_tslot: bound.valid_time,
+                as_of_signed_at: bound.transaction_time.clone(),
+                facts_at_cell_unbounded: unbounded_count,
+                hint: format!(
+                    "(cell, band={}) has {unbounded_count} attested fact(s) without the as_of bound; \
+                     all of them were filtered by your as_of_tslot/as_of_signed_at. \
+                     Either drop the bound or widen it.",
+                    req.band
+                ),
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let receipt = srv.sign_receipt_with_as_of(
         "emem.trajectory",
         vec![req.cell.clone()],
         cids,
         true,
         started,
         None,
+        &bound,
     );
     Ok(TrajectoryResp {
         series,
         empty_series_diag,
+        temporal_advice,
         receipt,
     })
 }
