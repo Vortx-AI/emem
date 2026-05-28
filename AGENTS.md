@@ -59,7 +59,7 @@ cargo clippy --workspace --all-targets -- -D warnings            # CI gate
 ```
 
 Both gates run in `.github/workflows/ci.yml` against Linux + macOS, plus
-an MSRV 1.88 build job. Don't ship a commit that fails either — the CI
+an MSRV 1.91 build job. Don't ship a commit that fails either — the CI
 will reject it and the next agent will have to figure out why.
 
 ## Code style

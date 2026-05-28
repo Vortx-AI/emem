@@ -55,8 +55,8 @@ across all three. Consensus across the three is strong signal;
 one-or-none flags receptive-field aliasing rather than land-surface
 change.
 
-This document specifies the math and architecture that 0.0.6 ships.
-Items not in 0.0.6 are listed under "Honest limits" and not discussed
+This document specifies the math and architecture that 0.0.7 ships.
+Items not in 0.0.7 are listed under "Honest limits" and not discussed
 elsewhere.
 
 ![emem architecture — one Rust binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
@@ -162,7 +162,7 @@ The asymmetric bit count (21 lat × 22 lng) keeps cells square at the
 equator: `Δlat ≈ Δlng ≈ 8.583e-5°`, equator extent ~9.55 m. Poleward
 the lng pixel narrows by cos(lat); cells become taller than wide.
 The eventual migration target is an H3-style hex DGGS at resolution
-13 (~3.4 m equal-area cells); cell64 is the active grid in 0.0.6.
+13 (~3.4 m equal-area cells); cell64 is the active grid in 0.0.7.
 
 ### 2.3 Why a square 10 m grid
 
@@ -497,7 +497,7 @@ key. The `u32` key epoch bumps on rotation.
 "We don't have this here" is a citable receipt, not a 404. A
 NegativeFact carries the same `(cell, band, tslot)` key as a
 PrimaryFact would, plus a `ReasonCid` pointing at the upstream
-evidence that confirmed the absence. Typed reasons in 0.0.6:
+evidence that confirmed the absence. Typed reasons in 0.0.7:
 
 | reason                       | meaning                                            |
 |------------------------------|----------------------------------------------------|
@@ -616,7 +616,7 @@ array on `/v1/ask`.
 
 ### 8.2 Triple-encoder consensus
 
-The differentiator of 0.0.6 is `clay_prithvi_tessera_triple_consensus@1`
+The differentiator of 0.0.7 is `clay_prithvi_tessera_triple_consensus@1`
 plus six domain variants. Three foundation encoders with independent
 receptive fields vote on a per-cell change index over a 365-day
 window.
@@ -1238,7 +1238,7 @@ the provenance:
 
 `emem-server` serves both HTTP/REST and MCP JSON-RPC on one port
 (default `0.0.0.0:5051`). **169 REST routes** total, **79 under
-`/v1/*`**, **58 MCP tools**. Discovery chain on first contact:
+`/v1/*`**, **70 MCP tools (10 core, 60 extended)**. Discovery chain on first contact:
 
 ```text
   1. GET  /.well-known/emem.json         responder pubkey + capabilities

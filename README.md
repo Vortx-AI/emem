@@ -155,7 +155,7 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 
 - **Locate:** name or lat/lng → `cell64`. Five-layer cascade: wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim. Polygon geometry from Overture `divisions/division_area`. District-level queries reroute through Overture when Nominatim returns a POI courthouse.
 - **Memory substrate** (state + tokens + bundles + memory files + search + contradictions + SSE): `POST /v1/state` returns a signed dense per-place embedding (`view=encoder` default 128-D, `view=cube` full 1792-D). `POST /v1/state_multi` fans across `geotessera` + `clay_v1` + `prithvi_eo2` + `galileo`. `POST /v1/state_diff` returns residual + L2 + cosine between two vintages. `POST /v1/memory_token` composes `memt:<cell64>:<fact_cid>`. `POST /v1/memory_bundle` composes a signed envelope `memb:<bundle_cid>` over N (cell, band, tslot) triples. Six MCP file-op verbs (`memory_view`, `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`) conform to Anthropic's memory-tool spec; every write is ed25519-signed and content-addressed. Paths under `/memories/by_attester/<pubkey>/...` enforce capability binding (ed25519 signature over `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`). Each file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`). `POST /v1/memory/search` does BGE-768 semantic search over file contents via a LanceDB IVF_PQ partition. `POST /v1/memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind (scalar / vector / categorical). `GET /v1/memory/sse?path_prefix=&kind=&attester=` streams write events with server-side filter. Every read primitive accepts `as_of_tslot` + `as_of_signed_at` for bi-temporal queries (valid-time + transaction-time); the receipt carries an `as_of` block when set. See [`docs/memory.md`](docs/memory.md) for the full reference.
-- **Recall / recall_many / recall_polygon:** 118 materializer-wired band names across 35 cube slots. Auto-fetch on miss; signed Absence on out-of-coverage.
+- **Recall / recall_many / recall_polygon:** 42 bands answer recall (118 materializer-wired band names across 35 cube slots, of which 42 are user-callable today). Auto-fetch on miss; signed Absence on out-of-coverage.
 - **Find similar:** k-NN over any vector band. Hamming fast path (sign-bit pop-count) auto-derives from the cosine band when the binary sibling is absent. Mode `hamming_then_rerank` triages with Hamming then re-orders by cosine; the over-sampling factor is EWMA-adaptive.
 - **Compare / compare_bands / diff / trajectory:** pairwise and time-series.
 - **Verify:** structured claim against attested facts; returns signed verdict + evidence CIDs.
@@ -190,7 +190,7 @@ Designed for agents to read, not for humans to remember:
 ```
 GET /openapi.json                  — OpenAPI 3.1 of every REST route
 GET /v1/agent_card                 — live capability snapshot + manifest CIDs
-GET /v1/tools                      — 58 MCP tools with when_to_use + annotations
+GET /v1/tools                      — 70 MCP tools (10 core, 60 extended) with when_to_use + annotations
 GET /v1/algorithms?summary=true    — 159 algorithm keys + categories
 GET /v1/topics                     — 27 topic-grouped bands + algorithms (router brain)
 GET /v1/manifests                  — bands_cid, algorithms_cid, sources_cid, schema_cid

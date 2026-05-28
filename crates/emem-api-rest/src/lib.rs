@@ -36402,6 +36402,13 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             }
         }
     }
+    if let Some(map) = body.as_object_mut() {
+        if !map.contains_key("cell") {
+            if let Some(c) = map.get("cell64").cloned() {
+                map.insert("cell".into(), c);
+            }
+        }
+    }
     Ok(Json(body))
 }
 

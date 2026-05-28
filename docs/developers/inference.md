@@ -221,7 +221,7 @@ configuration without retraining.
 The v2 handler reads `is_trained()` from a metadata-only cache
 (`ensure_metadata`) before spinning up the ONNX session or hitting
 the sidecar. When `training.trained == false` (the shipped state in
-0.0.6) the handler returns `last_input_vintage` directly and attaches
+0.0.7) the handler returns `last_input_vintage` directly and attaches
 both honesty warnings on the receipt. This costs nothing — no ONNX
 init, no sidecar round-trip — and makes the untrained baseline
 indistinguishable in cost from a pure recall.

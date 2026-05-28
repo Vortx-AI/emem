@@ -90,9 +90,11 @@ stack, the mapping below is the rosetta-stone:
 | bi-temporal recall              | `as_of_tslot`, `as_of_signed_at` | flags on every read primitive |
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 80 paths under
-`/v1/*`, 55 MCP tools, 159 algorithms in the content-addressed registry,
-41 bands in the manifest, 43 source schemes, and 12 fetch connectors.
+port 5051. The live surface ships 80+ paths under
+`/v1/*`, 70 MCP tools (10 core, 60 extended), 18 static MCP
+resources + 8 URI templates, 159 algorithms in the content-addressed
+registry, 42 bands in the manifest, 46 source schemes, and 16 data
+connectors + 13 utility modules.
 Version 0.0.7, MSRV Rust 1.91. No API keys; the MCP surface is read-only
 because writes need an Ed25519 secret no LLM host can manage safely.
 
@@ -117,14 +119,15 @@ log. See "Watching humans use the API" below.
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 71 documented, 68 under `/v1/*` |
-| MCP tools | 58 |
+| REST paths (OpenAPI) | 80+ documented, 70+ under `/v1/*` |
+| MCP tools | 70 (10 core / 60 extended) |
 | Algorithms (composition recipes) | 159 |
 | Band-cube slots | 35 |
+| MCP resources | 18 static + 8 URI templates |
 | Materializer-wired band names | 118 |
-| Source schemes | 43 |
-| Data connectors | 12 + 6 utility modules |
-| Topics (declared / live) | 26 / 11 |
+| Source schemes | 46 |
+| Data connectors | 16 data + 13 utility modules |
+| Topics (declared / live) | 27 / 11 |
 | Version | 0.0.7 |
 
 ---

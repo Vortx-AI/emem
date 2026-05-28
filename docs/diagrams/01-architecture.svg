@@ -214,6 +214,6 @@
     <text x="130" y="0">cache write</text>
     <circle cx="246" cy="-4" r="5" fill="#ffb86b"/>
     <text x="260" y="0">materialize from upstream</text>
-    <text x="1760" y="0" text-anchor="end" fill="#6c7396">v0.0.6 · 14 crates</text>
+    <text x="1760" y="0" text-anchor="end" fill="#6c7396">v0.0.7 · 14 crates</text>
   </g>
 </svg>

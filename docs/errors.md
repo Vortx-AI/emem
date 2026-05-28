@@ -1,233 +1,73 @@
-# Errors
+# emem error reference
+_Generated from `/v1/errors` on 2026-05-28. Schema: `emem.errors.v1`._
 
-Every error response is a small JSON object with a stable `code`, a
-human-readable `message`, and (where useful) a `hint` pointing at the
-next call to make. emem never returns an empty error body. If you get a
-non-JSON 5xx, the responder is broken — please open an issue.
-
-## Shape
+This catalog is the wire truth. Every code below is something the
+running responder will actually emit; nothing aspirational. Error
+responses follow the `emem.error.v1` envelope:
 
 ```json
 {
-  "code":    "<stable string, kebab-case>",
-  "message": "<human-readable explanation>",
-  "hint":    "<optional, what to call next>",
-  "request_id": "<base32, useful in bug reports>"
+  "code":   "<one of the codes below>",
+  "message": "human-readable detail",
+  "path":   "/v1/...",
+  "schema": "emem.error.v1"
 }
 ```
 
-`code` is the field you switch on. `message` is what you show the user.
-`hint` is what your code does next. The codes below are stable across
-0.0.x; new codes may be added, never renamed.
+An agent should `switch (error.code)` rather than match on `message`
+or status — messages may evolve; codes are stable.
 
-## Common codes
+## Catalog (28 codes)
 
-### `cid_not_found` (404)
+| Code | HTTP | Where it surfaces | Meaning |
+|---|---|---|---|
+| `invalid_cell` | 422 | * | cell64 string failed grammar check (4 base-1024 bigrams joined by dots, with a valid prefix). |
+| `invalid_resolution` | 422 | /v1/grid_info | resolution argument out of range for the cell tier. |
+| `tslot_mismatch` | 422 | /v1/recall, /v1/trajectory | Requested tslot is not at the band's tempo cadence. |
+| `band_not_in_registry` | 404 | * | Band name is not declared in the band manifest. |
+| `function_not_in_registry` | 404 | /v1/algorithms | Algorithm function id is not declared in the algorithm registry. |
+| `source_scheme_unknown` | 404 | /v1/fetch | Source URL scheme is not declared in the source registry. |
+| `cid_not_found` | 404 | /v1/recall, /v1/recall_polygon, /v1/memory_bundle/{token} | No fact or bundle stored under the given content id at this responder. |
+| `no_geocoder_match` | 404 | /v1/locate, /v1/ask | Geocoder cascade exhausted without a confident match for the place query. |
+| `place_not_found` | 404 | /v1/locate | Place name not found in any embedded layer or network fallback. |
+| `geocoder_transport_down` | — | — | (see /v1/errors live payload for description) |
+| `invalid_argument` | 422 | * | Request payload failed validation; see message for the specific field. |
+| `registry_cid_unknown` | 404 | /v1/manifests | Registry CID does not resolve at this responder. |
+| `schema_cid_unknown` | 404 | /v1/manifests | Schema CID does not resolve at this responder. |
+| `privacy_refused` | 403 | /v1/recall | Caller does not meet the privacy_class gate declared for this band. |
+| `level_too_low` | 403 | /v1/attest | Caller trust level is below the band's declared min level. |
+| `attester_revoked` | 403 | /v1/recall, /v1/memory_contradictions | Attester pubkey is on the revocation list maintained by this responder. |
+| `unauthorized` | 401 | /v1/attest, /v1/memory/* | Missing or malformed bearer / signature. |
+| `claim_undecidable` | 422 | /v1/verify_claim | The claim has no decidable resolution at the supplied tslot bound. |
+| `bad_signature` | 401 | /v1/verify_receipt, /v1/memory/* | Ed25519 verification failed against the supplied pubkey. |
+| `bad_merkle_proof` | 422 | /v1/verify_receipt | Receipt was signed but the merkle inclusion proof does not chain. |
+| `canonical_encoding_divergence` | 422 | /v1/verify_receipt | Re-encoded CBOR does not match the bytes the receipt was signed over. |
+| `source_fetch_failed` | 502 | /v1/recall, /v1/fetch | Upstream source connector returned a network or HTTP error. |
+| `source_format_mismatch` | 502 | /v1/recall, /v1/fetch | Upstream returned a payload that does not match the registered driver schema. |
+| `compute_timeout` | 504 | /v1/recall, /v1/state | Inference sidecar or upstream exceeded the per-request deadline. |
+| `compute_quota_exceeded` | 429 | /v1/recall, /v1/state | Caller is past the per-window compute budget. |
+| `rate_limited` | 429 | * | Caller is over the request-rate budget for the window. |
+| `cache_error` | 500 | * | sled or LanceDB cache returned an unexpected error; transient — retry once. |
+| `internal` | 500 | * | Unclassified server-side error; receipts already signed are still valid. |
 
-The fact CID you asked for is not in this responder's storage.
+## Recovery hints
 
-```json
-{ "code":"cid_not_found",
-  "message":"no fact stored for CID wbqyx…m5q",
-  "hint":"call POST /v1/recall to materialise this (cell, band) — auto-materialize will fetch upstream and persist" }
-```
+- GET /v1/manifests  — current registry/schema/bands/sources CIDs
+- GET /v1/bands      — band catalogue with tempo + privacy_class
+- POST /v1/verify_receipt — debug a bad_signature with `preimage_blake3_hex`
 
-What to do: call `/v1/recall` with the original `(cell, band)`. The
-responder will fetch from open data, sign, persist, and serve it. The
-recall is idempotent — repeat callers see the same fact.
+## How agents should handle errors
 
-### `cell_not_found` (404)
-
-You called `/v1/locate` with a query that doesn't resolve to a cell.
-
-```json
-{ "code":"cell_not_found",
-  "message":"could not geocode 'NotAReadPlace'",
-  "hint":"try a more specific name, or POST /v1/locate with {\"lat\":…, \"lng\":…} directly" }
-```
-
-What to do: be specific ("South Mumbai" beats "Mumbai", which beats
-"India"), or pass coordinates directly.
-
-### `band_unknown` (422)
-
-The band key you asked for isn't in the registry.
-
-```json
-{ "code":"band_unknown",
-  "message":"band 'sentinel2.ndvi_avg' is not declared",
-  "hint":"GET /v1/bands for the registry; correct spelling is 'sentinel2_l2a.ndvi'" }
-```
-
-What to do: pull `/v1/bands` once at startup and cache the keys. Bands
-are content-addressed: the response carries `bands_cid` so you can
-detect schema drift.
-
-### `band_not_materialized` (404)
-
-The band is declared but no materializer is wired on this responder.
-Emem returns a **signed Absence** — that's a citable receipt, not a
-failure. Use it.
-
-```json
-{ "code":"band_not_materialized",
-  "message":"band 'radd.alert' is declared but no live connector is wired here",
-  "hint":"check GET /v1/materializers; signed Absence is in receipt — cite it as 'no data at this place'" }
-```
-
-What to do: surface the absence to your user as "no data here", don't
-retry. A signed Absence has the same CID semantics as a positive fact.
-
-### `polygon_too_large` (422)
-
-Your `/v1/recall_polygon` polygon exceeds the per-call cell budget.
-
-```json
-{ "code":"polygon_too_large",
-  "message":"polygon spans 18421 cells; max per call is 4096",
-  "hint":"split into tiles, or use GET /v1/query_region for aggregate-only" }
-```
-
-What to do: split or aggregate. Each tile gets its own receipt.
-
-### `signature_invalid` (422)
-
-Receipt failed signature verification.
-
-```json
-{ "code":"signature_invalid",
-  "message":"ed25519.verify returned false against responder pubkey 777er…womvka",
-  "hint":"check the receipt wasn't truncated; preimage rules at /docs/whitepaper.html#trust-receipts" }
-```
-
-What to do: re-fetch the receipt. If it still fails, the responder pubkey
-may have rolled — pull `/.well-known/emem.json` for the current key.
-
-### `rate_limited` (429)
-
-You're hitting the public responder too hard. Backoff per the
-`retry-after` header.
-
-```json
-{ "code":"rate_limited",
-  "message":"too many requests; retry after 5 s",
-  "hint":"self-host for unlimited throughput: docker run ghcr.io/vortx-ai/emem:latest" }
-```
-
-What to do: exponential backoff (start 1 s, cap at 30 s). Self-host if
-your workload sustains > 50 rps.
-
-### `internal_error` (5xx)
-
-Something went wrong on the responder. The `request_id` in the body is
-what to paste into a GitHub issue.
-
-```json
-{ "code":"internal_error",
-  "message":"upstream connector 'jrc_tmf' timed out after 8 s",
-  "hint":"retry once; if it persists, open an issue with this request_id",
-  "request_id":"r-c3vbhf2x6m" }
-```
-
-What to do: one retry. If it persists, file
-[github.com/Vortx-AI/emem/issues](https://github.com/Vortx-AI/emem/issues)
-with the `request_id`.
-
-### `memory_attestation_invalid` (401)
-
-A memory write supplied an `attester: {pubkey_b32, sig_b32}` block
-whose signature does not verify against the supplied pubkey over the
-canonical preimage `blake3("emem.memory_write|" + verb + "|" + path +
-"|" + body_hash)`. Either the caller signed the wrong bytes, the
-pubkey doesn't match the private key, or the body got rewritten in
-flight.
-
-```json
-{ "code":"memory_attestation_invalid",
-  "message":"attester.sig_b32 does not verify over blake3(emem.memory_write|create|/memories/by_attester/wosdtqio/note.md|<body_hash>)",
-  "hint":"recompute the preimage and re-sign with the matching ed25519 private key" }
-```
-
-What to do: regenerate `body_hash = blake3(canonical request body
-bytes)`, recompute the preimage, sign with the corresponding private
-key, retry. Reference implementation in
-`crates/emem-primitives/src/memory_acl.rs` (`attester_preimage` +
-`verify_attester`).
-
-### `memory_namespace_violation` (403)
-
-A memory write supplied a valid attester signature, but the path
-falls under a namespace owned by a *different* attester. Paths under
-`/memories/by_attester/<pubkey_short>/...` are write-restricted to
-the holder of the corresponding ed25519 key.
-
-```json
-{ "code":"memory_namespace_violation",
-  "message":"signature verified, but path /memories/by_attester/zzzzzzzz/foo.md is under a different attester's namespace. Use /memories/by_attester/wosdtqio/...",
-  "hint":"either change the path to your own namespace, or write to bare /memories/... which accepts anyone" }
-```
-
-What to do: either prefix the path with your own
-`/memories/by_attester/<your_pubkey_short>/...`, or drop the
-`by_attester` segment entirely and write to `/memories/...` which
-stays anyone-writable.
-
-### `invalid_temporal_bound` (400)
-
-A read primitive received both an explicit `tslot` and an
-`as_of_tslot` whose values conflict (the `as_of` bound excludes the
-explicit tslot). Bi-temporal reads must intersect, not contradict.
-
-```json
-{ "code":"invalid_temporal_bound",
-  "message":"explicit tslot=99999 but as_of_tslot=12345 excludes it",
-  "hint":"drop tslot and use only as_of_tslot, or set as_of_tslot >= tslot" }
-```
-
-What to do: pick one. If you want "the latest fact ≤ T," set
-`as_of_tslot = T`. If you want "the fact at exactly tslot T," set
-`tslot = T` and leave `as_of_tslot` unset.
-
-### `invalid_signed_at_format` (400)
-
-A read primitive received `as_of_signed_at` that doesn't parse as
-RFC 3339. The validator is strict — it checks calendar ranges,
-clock ranges, optional fractional seconds, and the offset
-(`Z` or `±HH:MM`).
-
-```json
-{ "code":"invalid_signed_at_format",
-  "message":"as_of_signed_at must be RFC 3339 (e.g. '2026-05-15T00:00:00Z'); got 'not-a-date' (too short)",
-  "hint":"format as YYYY-MM-DDThh:mm:ssZ or with explicit offset" }
-```
-
-What to do: format the timestamp as RFC 3339. Examples:
-`2026-05-15T00:00:00Z`, `2026-05-15T18:30:00+05:30`,
-`2026-05-15T18:30:00.500Z`.
-
-## Status codes at a glance
-
-| HTTP | What it usually means | Retryable? |
-|------|----------------------|------------|
-| 200  | OK                                                                | n/a |
-| 304  | Not modified — your `If-None-Match` matched current ETag         | n/a |
-| 400  | Malformed JSON, missing required field, conflicting bi-temporal bounds, malformed RFC 3339 | no — fix the call |
-| 401  | `memory_attestation_invalid` (memory writes only; reads stay open) | no — re-sign |
-| 403  | `memory_namespace_violation` (memory writes to someone else's namespace) | no — change path |
-| 404  | `cid_not_found`, `cell_not_found`, or `band_not_materialized`    | depends on `code` |
-| 422  | Validation failure (`band_unknown`, `polygon_too_large`, etc.)   | no — fix the call |
-| 429  | `rate_limited`                                                   | yes, with backoff |
-| 500  | `internal_error`                                                 | once |
-| 502  | Upstream connector unreachable                                   | yes, with backoff |
-| 504  | Upstream timeout                                                 | yes, with backoff |
-
-## Honest absences vs. errors
-
-A 404 with `code:"cid_not_found"` says *the fact isn't in this
-responder's hot storage* — call `/v1/recall` and it will materialize.
-A signed Absence inside a 200 response says *there is no data at this
-cell for this band, and we've signed that fact*. Treat the second as a
-real answer (cite the receipt). Treat the first as a hint to call recall.
-
-If you find an error path that doesn't follow the shape above, file an
-issue — it's a bug, not a feature.
+1. **Switch on `code`, not on status or message.** Status is a coarse
+   bucket; the same `400/422` can carry a dozen distinct codes.
+2. **`signed Absence` is not an error.** A `/v1/recall` 200 carrying
+   `Fact::Absence { reason_cid, signed_at, … }` is the canonical
+   answer for "this band has no data at this cell." Retrying will
+   not change the result.
+3. **`rate_limited` / `compute_quota_exceeded`** carry a `retry_after`
+   hint in the response body (seconds, integer). Honour it.
+4. **`bad_signature` + `canonical_encoding_divergence`** mean the
+   client and server disagree on the canonical CBOR encoding. Most
+   often the client serialised maps with non-canonical key order.
+5. **`internal` + `cache_error`** are transient. Retry once with a
+   fresh request id; if it persists, file a bug with the receipt.

@@ -1,3 +1,5 @@
+<!-- archive: this is the merged-PR text from the v0.0.6 publish; kept for history. The active publish path is now the OIDC workflow .github/workflows/mcp-publish.yml; the current namespace publishes automatically on every `v*` tag. -->
+
 # PR text for `modelcontextprotocol/servers`
 
 The official MCP server catalog (`https://github.com/modelcontextprotocol/servers`)
