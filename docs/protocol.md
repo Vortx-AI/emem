@@ -588,10 +588,11 @@ Failure → write rejected. The HTTP layer surfaces this as the
 |-------|------|-------|
 | `request_id` | `String` | ULID generated per request |
 | `served_at` | `String` | ISO 8601 UTC, second precision (`server.rs:194-211`) |
-| `primitive` | `String` | namespaced wire form: `"emem.recall"`, `"emem.find_similar"`, `"emem.verify"`, `"emem.query_region"`, … (the bare `"recall"` form is internal-only; wire receipts always include the `emem.` prefix) |
+| `primitive` | `String` | namespaced wire form: `"emem.recall"`, `"emem.find_similar"`, `"emem.verify"`, `"emem.query_region"`, `"emem.memory_file"`, `"emem.memory_bundle"`, `"emem.memory_contradictions"`, … (the bare form without `emem.` is internal-only; wire receipts always carry the prefix) |
 | `intent` | `Option<String>` | populated when served via `/v1/intent`; omitted from JSON when None |
-| `cells` | `Vec<String>` | cell64 strings cited in the response |
-| `fact_cids` | `Vec<FactCid>` | every fact CID returned |
+| `cells` | `Vec<String>` | cell64 strings cited in the response. For `emem.memory_file` primitives, `cells[0]` is the memory path; when an attester block was supplied, `cells[0] = "pubkey:<b32>"` and `cells[1]` is the path |
+| `fact_cids` | `Vec<FactCid>` | every fact CID returned. For `emem.memory_file`, `fact_cids[0]` is the new `file_cid`; for `emem.memory_bundle`, the spatial `fact_cids` cited inside the bundle in citation order |
+| `as_of` | `Option<AsOfReceipt>` | `{valid_time?: u64, transaction_time?: ISO8601}`. Present only when at least one bi-temporal bound was set on the read; absent for current-state reads so pre-bi-temporal receipts deserialise byte-identically |
 | `schema_cid` | `SchemaCid` | active CDDL profile |
 | `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted; omitted from JSON when None |
 | `responder` | `AttesterKey` | ed25519 pubkey, `[u8; 32]` |
@@ -662,6 +663,18 @@ emitted as a 64-byte `Signature`.
    Echo the original query alongside the receipt if the downstream
    needs *"the user asked X and the responder agreed"* — the receipt
    alone does not testify to the resolution-of-intent step.
+
+   **The `as_of` block sits outside the preimage.** When a read carried
+   a bi-temporal bound (`as_of_tslot` and/or `as_of_signed_at`), the
+   receipt body carries an `as_of: {valid_time?, transaction_time?}`
+   block. The block is metadata describing the temporal window the
+   caller passed; it is *not* hashed into the preimage. Re-signing a
+   different bound would change which fact_cids are returned, and the
+   preimage already binds those — so the temporal claim is anchored
+   transitively. A verifier reading a receipt with `as_of` checks the
+   signature against the §7.1 preimage rule as if `as_of` were absent;
+   the block is for inspection and replay, not for the cryptographic
+   verdict.
 
    **Per-replica fact identity.** Each Primary / Negative /
    Derivative fact body includes `signed_at` (ISO-8601 wall clock at
@@ -748,6 +761,52 @@ VerifyKey(pk_bytes).verify(digest, bytes(receipt["signature"]))
 A verifier that can reproduce the preimage and run `verify_strict` is
 the entire trust-rebinding path — no other call to the responder is
 required.
+
+### 7.5 Capability binding for memory writes
+
+Memory file writes can carry an `attester: {pubkey_b32, sig_b32}`
+block where the signature is computed by the *caller* (not the
+responder) over a separate preimage. The responder checks this
+signature before persisting the write, and rejects it if the path
+namespace belongs to a different attester.
+
+```
+attester_preimage = blake3(
+    "emem.memory_write|" || verb || "|" || path || "|" || body_hash
+)
+attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
+```
+
+where:
+
+- `verb ∈ {create, str_replace, insert, delete, rename}`
+- `path` is the canonical memory path beginning with `/memories/`
+- `body_hash = blake3(canonical request body bytes)` — the JSON body
+  the caller will POST, byte-for-byte
+
+The reference implementation is `crates/emem-primitives/src/memory_acl.rs`:
+
+```rust
+pub fn attester_preimage(verb: &str, path: &str, body_hash: &[u8; 32]) -> [u8; 32]
+pub fn verify_attester(verb: &str, path: &str, body_hash: &[u8; 32],
+                       attester: &MemoryAttester) -> AttestationVerdict
+```
+
+Namespace ownership: paths under `/memories/by_attester/<pubkey_short>/`
+are write-restricted, where `pubkey_short` is the first 8 chars of
+`base32_nopad_lower(pubkey_bytes)`. A write with a valid signature
+but the wrong namespace returns 403 `memory_namespace_violation`. A
+write with an invalid signature returns 401
+`memory_attestation_invalid`. Bare `/memories/...` paths (no
+`by_attester` segment) accept anyone — back-compat with the
+unsigned Anthropic memory-tool form.
+
+For attested writes, the responder's own receipt (§7.1) carries
+`cells = ["pubkey:<b32>", path]`, so the path → attester binding
+is reproducible from the receipt body. Two signatures cover the
+write: the caller's over `attester_preimage`, and the responder's
+over §7.1 — the first proves authority over the namespace, the
+second proves the responder persisted the bytes.
 
 ---
 

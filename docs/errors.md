@@ -133,15 +133,87 @@ What to do: one retry. If it persists, file
 [github.com/Vortx-AI/emem/issues](https://github.com/Vortx-AI/emem/issues)
 with the `request_id`.
 
+### `memory_attestation_invalid` (401)
+
+A memory write supplied an `attester: {pubkey_b32, sig_b32}` block
+whose signature does not verify against the supplied pubkey over the
+canonical preimage `blake3("emem.memory_write|" + verb + "|" + path +
+"|" + body_hash)`. Either the caller signed the wrong bytes, the
+pubkey doesn't match the private key, or the body got rewritten in
+flight.
+
+```json
+{ "code":"memory_attestation_invalid",
+  "message":"attester.sig_b32 does not verify over blake3(emem.memory_write|create|/memories/by_attester/wosdtqio/note.md|<body_hash>)",
+  "hint":"recompute the preimage and re-sign with the matching ed25519 private key" }
+```
+
+What to do: regenerate `body_hash = blake3(canonical request body
+bytes)`, recompute the preimage, sign with the corresponding private
+key, retry. Reference implementation in
+`crates/emem-primitives/src/memory_acl.rs` (`attester_preimage` +
+`verify_attester`).
+
+### `memory_namespace_violation` (403)
+
+A memory write supplied a valid attester signature, but the path
+falls under a namespace owned by a *different* attester. Paths under
+`/memories/by_attester/<pubkey_short>/...` are write-restricted to
+the holder of the corresponding ed25519 key.
+
+```json
+{ "code":"memory_namespace_violation",
+  "message":"signature verified, but path /memories/by_attester/zzzzzzzz/foo.md is under a different attester's namespace. Use /memories/by_attester/wosdtqio/...",
+  "hint":"either change the path to your own namespace, or write to bare /memories/... which accepts anyone" }
+```
+
+What to do: either prefix the path with your own
+`/memories/by_attester/<your_pubkey_short>/...`, or drop the
+`by_attester` segment entirely and write to `/memories/...` which
+stays anyone-writable.
+
+### `invalid_temporal_bound` (400)
+
+A read primitive received both an explicit `tslot` and an
+`as_of_tslot` whose values conflict (the `as_of` bound excludes the
+explicit tslot). Bi-temporal reads must intersect, not contradict.
+
+```json
+{ "code":"invalid_temporal_bound",
+  "message":"explicit tslot=99999 but as_of_tslot=12345 excludes it",
+  "hint":"drop tslot and use only as_of_tslot, or set as_of_tslot >= tslot" }
+```
+
+What to do: pick one. If you want "the latest fact ≤ T," set
+`as_of_tslot = T`. If you want "the fact at exactly tslot T," set
+`tslot = T` and leave `as_of_tslot` unset.
+
+### `invalid_signed_at_format` (400)
+
+A read primitive received `as_of_signed_at` that doesn't parse as
+RFC 3339. The validator is strict — it checks calendar ranges,
+clock ranges, optional fractional seconds, and the offset
+(`Z` or `±HH:MM`).
+
+```json
+{ "code":"invalid_signed_at_format",
+  "message":"as_of_signed_at must be RFC 3339 (e.g. '2026-05-15T00:00:00Z'); got 'not-a-date' (too short)",
+  "hint":"format as YYYY-MM-DDThh:mm:ssZ or with explicit offset" }
+```
+
+What to do: format the timestamp as RFC 3339. Examples:
+`2026-05-15T00:00:00Z`, `2026-05-15T18:30:00+05:30`,
+`2026-05-15T18:30:00.500Z`.
+
 ## Status codes at a glance
 
 | HTTP | What it usually means | Retryable? |
 |------|----------------------|------------|
 | 200  | OK                                                                | n/a |
 | 304  | Not modified — your `If-None-Match` matched current ETag         | n/a |
-| 400  | Malformed JSON / missing required field                          | no — fix the call |
-| 401  | (reserved; emem reads are open and don't require auth)           | — |
-| 403  | (reserved)                                                       | — |
+| 400  | Malformed JSON, missing required field, conflicting bi-temporal bounds, malformed RFC 3339 | no — fix the call |
+| 401  | `memory_attestation_invalid` (memory writes only; reads stay open) | no — re-sign |
+| 403  | `memory_namespace_violation` (memory writes to someone else's namespace) | no — change path |
 | 404  | `cid_not_found`, `cell_not_found`, or `band_not_materialized`    | depends on `code` |
 | 422  | Validation failure (`band_unknown`, `polygon_too_large`, etc.)   | no — fix the call |
 | 429  | `rate_limited`                                                   | yes, with backoff |

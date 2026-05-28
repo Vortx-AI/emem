@@ -1,20 +1,42 @@
-# emem: a content-addressed protocol for verifiable Earth observation
+# emem: a content-addressed protocol for verifiable agent memory
 
-**Version 0.0.6 / 2026-05-14**
+**Version 0.0.6 / 2026-05-28**
 
 ---
 
 ## Abstract
 
-emem is a protocol for AI agents and analysts that need a stable,
-citation-carrying place to ground spatial answers. Three primitives —
-`locate`, `recall`, `find_similar` — operate over an open-data corpus
-addressed by `(cell, band, tslot)`. Every response carries an Ed25519
-receipt over the canonical CBOR of the cited facts. A downstream
-verifier reproduces the canonical preimage from the receipt fields
-and checks the signature without trusting the issuer.
+emem is a memory substrate for AI agents that need a stable,
+citation-carrying place to ground spatial answers and a writable
+scratchpad for their own observations. Two layers ride a single
+trust surface. The lower layer is *Earth memory*: an open-data
+corpus addressed by `(cell, band, tslot)` whose unit is a signed
+fact. The upper layer is *agent memory*: a content-addressed file
+store under `/memories/*`, six file-op verbs that conform to the
+Anthropic memory-tool specification, four memory kinds drawn from
+the CoALA agent-memory ontology (`episodic`, `semantic`,
+`procedural`, `resource`), and an ed25519 capability binding on
+paths under `/memories/by_attester/<pubkey>/...`. Both layers
+return signed receipts; the same `/verify` page checks them both
+without trusting the issuer.
 
-The protocol defines the loader, the validator, the CID rule, and the
+Every read primitive accepts two optional bounds, `as_of_tslot`
+(observation time) and `as_of_signed_at` (transaction time). Set
+either, both, or neither. The receipt carries an `as_of` block
+when the bound is non-empty so a verifier in year *t+k* replays
+the exact query a system answered at year *t*. Three derived
+primitives complete the substrate: `memory_bundle` composes N
+facts into one signed envelope (`memb:<bundle_cid>`); `memory_search`
+embeds queries through BGE-base-en-v1.5 and runs cosine against a
+LanceDB IVF_PQ partition over memory-file contents;
+`memory_contradictions` walks a parallel multi-attester index and
+scores cross-signer disagreement per band kind (scalar, vector,
+categorical, mixed). A Server-Sent Events stream surfaces every
+memory write with server-side filter on `path_prefix`, `kind`, and
+`attester`.
+
+The protocol defines the loader, the validator, the CID rule, the
+receipt-signing rule, the capability-binding rule, and the
 primitive semantics. It is never the data itself. Any conforming
 implementation must produce byte-identical CIDs from byte-identical
 inputs; the conformance set is a content-addressed manifest pinning
@@ -22,14 +44,16 @@ bands, algorithms, sources, schema, and the function registry. The
 reference responder is a single Rust binary at
 `github.com/Vortx-AI/emem`, running at `https://emem.dev`.
 
-Three foundation encoders sit GPU-pinned inside the same tenant as
-the responder — Clay v1.5 (1024-D), Prithvi-EO-2.0-300M-TL (1024-D),
-and Tessera (128-D annual stack via `geotessera.multi_year`). Their
-receptive fields are independent (Clay ~2.56 km, Prithvi ~6.7 km,
-Tessera per-pixel), and the protocol surfaces a triple-consensus
-change algorithm that votes across all three. Consensus across the
-three is strong signal; one-or-none flags receptive-field aliasing
-rather than land-surface change.
+Four foundation encoders sit GPU-pinned inside the same tenant as
+the responder — Clay v1.5 (1024-D, Sentinel-2, receptive field
+~2.56 km), Prithvi-EO-2.0-300M-TL (1024-D, HLS V2, ~6.7 km),
+Tessera (128-D annual stack via `geotessera.multi_year`, per-pixel),
+and Galileo (multimodal stack: S1, S2, DEM, climate). Their
+receptive fields and modality coverage are independent, and the
+protocol surfaces a triple-consensus change algorithm that votes
+across all three. Consensus across the three is strong signal;
+one-or-none flags receptive-field aliasing rather than land-surface
+change.
 
 This document specifies the math and architecture that 0.0.6 ships.
 Items not in 0.0.6 are listed under "Honest limits" and not discussed
@@ -48,34 +72,52 @@ across runs (no canonical address for "the patch of land at
 lat=12.97°, lng=77.59° on 2024-09-01"), and no way to cite (the
 underlying tile, timestamp, and algorithm get smeared together).
 
-The wider context is memory. Long-term assistants and agent systems
-need to accumulate, update, and reuse historical information across
+The same agents asked "what did *we* learn here last week" fail in
+the same shape. Long-term assistants and agent systems need to
+accumulate, update, and reuse historical information across
 sessions; current practice splits along three lines. Textual stores
 inject prior history through the context window. Parametric stores
 fold knowledge into adapter or prefix weights. Outside-channel stores
 keep state in a separate module reached by retrieval. Each of these
 operates over a *single agent's* history, scoped to a conversation
-or a tenant. emem occupies a different layer: a shared, cross-session,
-cross-tenant working memory of *Earth itself*, where the addresses
-are places rather than token positions, the state is persistent
-rather than per-conversation, and the bytes are reproducible across
-replicas rather than fuzzily retrieved. Section 19.2 places this
-layer alongside the in-agent memory patterns and addresses the
-standard objections to outside-channel state.
+or a tenant, and produces unsigned strings the system administrator
+can rewrite at will (MINJA, NeurIPS 2025, demonstrates 95 %
+poisoning success against this class through query-only interaction).
+
+emem covers both failure modes on one trust surface. The lower layer
+is a shared, cross-session, cross-tenant working memory of *Earth
+itself*: addresses are places rather than token positions, state is
+persistent rather than per-conversation, bytes are reproducible
+across replicas rather than fuzzily retrieved. The upper layer is
+the agent's own writable scratchpad: file-op verbs over `/memories/*`
+backed by content-addressed sled trees, ed25519-signed at every
+write, capability-bound to the attester pubkey when the path
+namespace requires it. Section 19.2 places this layer alongside the
+in-agent memory patterns and addresses the standard objections to
+outside-channel state.
 
 emem's response to the citation failure is a small set of address
-rules plus one signing rule. Every fact is keyed by
-`(cell64, band, tslot)`. Every fact's CID is
+rules plus one signing rule. Every spatial fact is keyed by
+`(cell64, band, tslot)`. Every agent memory file is keyed by a
+path under `/memories/` and identified by a `file_cid`. Every CID is
 `base32_nopad_lower(blake3(canonical_cbor)[..16])`. Every response
 carries an Ed25519 receipt over a deterministic preimage naming the
-cited CIDs. An offline verifier with the responder's pubkey
-reproduces the preimage and checks the signature.
+cited CIDs and (when set) the bi-temporal bound. An offline verifier
+with the responder's pubkey reproduces the preimage and checks the
+signature.
 
-The surface stays small on purpose: three core primitives, one
-verify call, seven derived primitives (`compare`, `compare_bands`,
-`diff`, `trajectory`, `query_region`, `recall_polygon`,
-`field_boundaries`). New bands, algorithms, and sources extend the
-registries without changing the primitive surface.
+The surface stays small on purpose. Spatial reads: `locate`,
+`recall`, `find_similar`, `recall_polygon`, `query_region`,
+`trajectory`, `diff`, `compare`, `compare_bands`, `field_boundaries`,
+`verify`. Memory reads + writes: `memory_view`, `memory_create`,
+`memory_str_replace`, `memory_insert`, `memory_delete`,
+`memory_rename`, `memory_list_by_kind`, `memory_search`,
+`memory_bundle`, `memory_bundle/<token>`, `memory_contradictions`,
+`memory/sse`. Bi-temporal flags (`as_of_tslot`, `as_of_signed_at`)
+ride every read; cite handles (`memt:<cell>:<fact_cid>`,
+`memb:<bundle_cid>`) ride between agents. New bands, algorithms,
+sources, and memory kinds extend the registries without changing
+the primitive surface.
 
 ---
 
@@ -256,12 +298,25 @@ padding-free, and has no slash collisions inside path segments.
   ----------------------  ----------------------------------------------
   request_id              ULID; sortable + unique per call
   served_at               ISO 8601 UTC
-  primitive               "emem.recall" | "emem.find_similar" | ...
+  primitive               "emem.recall" | "emem.find_similar"
+                          | "emem.memory_file" | "emem.memory_bundle"
+                          | "emem.memory_contradictions" | ...
   intent                  optional natural-language hint
   cells                   list of cell64 strings the call touched
-  fact_cids               list of FactCid the response cited
+                          (for memory_file primitives the first entry
+                          is the path; when attester is set, "pubkey:
+                          <b32>" prepends the path)
+  fact_cids               list of FactCid the response cited (for
+                          memory_file: [file_cid]; for memory_bundle:
+                          the cited spatial fact_cids in order)
   schema_cid              CID of the CDDL bundle used
   merkle_proof            optional inclusion proof for fact_cids[0]
+  as_of                   optional { valid_time?: u64,
+                                     transaction_time?: ISO8601 }
+                          present only when at least one bi-temporal
+                          bound was set on the read; absent otherwise,
+                          so pre-bi-temporal receipts deserialise
+                          byte-identically
   responder               32-byte ed25519 pubkey
   responder_key_epoch     u32; bumps when the operator rotates keys
   signature               64 bytes
@@ -275,7 +330,7 @@ padding-free, and has no slash collisions inside path segments.
 
 The preimage is deterministic in field order; fields join with the
 literal `|` byte, list elements with the literal `,` byte. The
-implementation lives in `crates/emem-storage/src/server.rs:119-189`.
+implementation lives in `crates/emem-storage/src/server.rs`.
 
 ```text
   preimage_hash = blake3(
@@ -290,7 +345,42 @@ implementation lives in `crates/emem-storage/src/server.rs:119-189`.
 
 Both empty `cells` and empty `fact_cids` lists emit their trailing
 field separator, so a verifier reproduces the exact byte string from
-the receipt fields without ambiguity.
+the receipt fields without ambiguity. The `as_of` block sits outside
+the preimage — it is metadata describing the temporal bound the
+caller passed, and re-signing the receipt with a different bound
+would produce a different value at the cell, which already changes
+`fact_cids`. So `as_of` rides the receipt body but does not change
+the signature math.
+
+#### 5.2.1 Capability-binding preimage (memory writes)
+
+Memory file writes carry an optional `attester: {pubkey_b32, sig_b32}`
+block. The signature on it is computed by the *caller* (not the
+responder) over a separate preimage shaped to the verb:
+
+```text
+  attester_preimage = blake3(
+      "emem.memory_write|" || verb || "|" || path || "|" || body_hash
+  )
+  attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
+```
+
+where `verb ∈ {create, str_replace, insert, delete, rename}`,
+`path` is the canonical memory path beginning with `/memories/`, and
+`body_hash = blake3(canonical request body bytes)`. The responder
+verifies `attester_sig` against `pubkey_b32` before persisting; an
+invalid signature returns 401 `memory_attestation_invalid`. A path
+under `/memories/by_attester/<pubkey_short>/...` whose short form
+disagrees with the attester pubkey returns 403
+`memory_namespace_violation`. Bare `/memories/...` paths accept
+writes with no attester block and stay anyone-writable for the
+Anthropic memory-tool back-compat case.
+
+The responder's own receipt for the write still follows the §5.2
+rule. When attester is set, `cells[0] = "pubkey:<b32>"` and
+`cells[1] = path`; the receipt's signer remains the responder.
+Two signatures cover the write: the caller's authority over the
+namespace, and the responder's attestation of the write itself.
 
 Verification uses `verify_strict` on `ed25519_dalek::VerifyingKey`.
 The strict variant rejects malleable signatures.
@@ -804,6 +894,165 @@ cap.
 The place-name path reuses the locate cascade (§11): GeoNames
 cities-5000 → Overture divisions → Photon → Nominatim, with polygon
 enrichment from Overture's `divisions/division_area`.
+
+### 9.8 Memory substrate primitives
+
+Above the spatial fact store sits the agent's writable layer. Six
+file-op verbs implement the Anthropic memory-tool spec
+(`context-management-2025-06-27`):
+
+```text
+  memory_view(path, view_range?)
+      → file contents, or directory listing if path ends in "/"
+  memory_create(path, file_text, kind?, attester?)
+      → file_cid + receipt; persists path → file_cid in
+        emem.memory_files, content-addressed bytes in
+        emem.memory_file_blobs, append-only audit in
+        emem.memory_file_history, signed metadata in
+        emem.memory_file_meta
+  memory_str_replace(path, old_str, new_str)
+      → reject if old_str matches != 1 occurrence; otherwise persist
+        new file_cid + update history
+  memory_insert(path, insert_line, new_str)
+      → 1-indexed line; 0 = top
+  memory_delete(path)
+      → drop path index; blob remains content-addressed under
+        emem.memory_file_blobs; history retained
+  memory_rename(old_path, new_path)
+      → move path index; reject if new_path exists
+```
+
+Files carry a `kind ∈ {episodic, semantic, procedural, resource}`
+(CoALA taxonomy; default `resource` for back-compat). A new sled tree
+`emem.memory_files_by_kind` indexes `(kind | path) → file_cid` so
+`memory_list_by_kind { kind, prefix?, limit? }` returns the typed
+slice sorted by `signed_at` descending.
+
+Three derived primitives close the substrate:
+
+```text
+  memory_bundle { triples: [{cell, band, tslot?}], purpose? }
+      → composes a signed envelope over N facts; bundle_cid =
+        base32_nopad_lower( blake3(
+            "emem.memory_bundle.v1|" || purpose? || "\n" ||
+            for each citation: cell || "|" || band || "|" || tslot
+                                    || "|" || fact_cid_or_empty
+                                    || "\n"
+        )[..16] )
+        Token grammar: memb:<bundle_cid>. Persisted to
+        emem.memory_bundles keyed by bundle_cid. Resolves via
+        GET /v1/memory_bundle/<token> on the originating responder
+        or any peer that holds the bytes (CID-deterministic).
+  memory_search { q, k?, kind?, path_prefix?, attester_pubkey_b32? }
+      → BGE-base-en-v1.5 embedding (768-D, L2-normalised) against a
+        LanceDB IVF_PQ partition at
+        $EMEM_DATA/lance/memory_text_index_d768.lance; cosine metric;
+        mean-pooled across ≤504-token chunks per file. Brute-force
+        fallback when EMEM_DISABLE_LANCE=1 or the partition is empty;
+        the response's `via` field reports which path served the
+        query. Hits include a 200-char snippet around the best-
+        matching chunk.
+  memory_contradictions { cell_prefix?, band?, window_unix_s?,
+                          min_severity?, limit? }
+      → walks emem.multi_attester_index (CBOR Vec<FactCid> per
+        (cell, band, tslot) canonical key). Severity scored by
+        band kind:
+          scalar:      (max - min) / band_typical_range,
+                       clamped to [0,1]
+          vector:      1 - mean(cosine off-diagonal)
+          categorical: 1 - max_class_share
+          mixed:       1.0 (flag for human review)
+        Same-attester re-attestation is filtered out
+        (attester_set.len() < 2 → skip). Receipt signed under
+        primitive "emem.memory_contradictions".
+```
+
+A Server-Sent Events stream surfaces every write the moment its
+sled commit lands:
+
+```text
+  GET /v1/memory/sse?path_prefix=&kind=&attester=
+      → text/event-stream; events:
+        data: { "type": "created" | "modified" | "deleted"
+                       | "renamed" | "expired" | "consolidated",
+                "path", "file_cid", "prev_file_cid"?,
+                "kind", "attester_pubkey_b32"?, "signed_at",
+                "size_bytes"? }
+        Filter applied server-side; events are not individually
+        signed (the underlying file's receipt is the verification
+        surface); cap EMEM_SSE_MAX_SUBS=256 concurrent subscribers.
+```
+
+Two scheduled tokio workers, both opt-in via env:
+
+```text
+  EMEM_MEMORY_TTL_ENABLED=1                 — hourly TTL sweep
+  EMEM_MEMORY_CONSOLIDATION_ENABLED=1       — daily consolidation
+```
+
+Per-kind TTL defaults: `resource` 90 d, `episodic` 30 d,
+`semantic` / `procedural` infinite (each overridable via
+`EMEM_MEMORY_TTL_{KIND}_DAYS`). Expired paths move from
+`emem.memory_files` to `emem.memory_files_expired`; blobs remain
+content-addressed (never deleted). Consolidation: for every
+`/memories/by_attester/<pubkey>/<sub>/` with > 50 episodic files
+older than 7 days, the worker concatenates bodies chronologically,
+writes a `semantic` consolidated file at
+`.consolidated/<unix_ts>.md`, and stamps `superseded_by:
+<consolidated_file_cid>` on each original's metadata. Originals
+remain accessible via history; idempotent.
+
+### 9.9 Bi-temporal reads
+
+Every read primitive accepts two optional bounds:
+
+```text
+  as_of_tslot       : u64                     — observation time
+  as_of_signed_at   : RFC 3339 timestamp      — transaction time
+```
+
+Semantics: "return the latest fact per `(cell, band)` whose tslot ≤
+`as_of_tslot` (if set) and whose `signed_at` ≤ `as_of_signed_at`
+(if set)." Both bounds intersect when both set; absent bounds give
+current-state reads (back-compat).
+
+The Storage trait carries the bound through:
+
+```rust
+trait Storage {
+    async fn scan_cell_as_of(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+        bound: &AsOfBound,   // { valid_time, transaction_time }
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError>;
+}
+```
+
+The sled implementation pushes the valid-time predicate into the
+canonical key index (`SledHotCache::scan_cell_with_tslot_bound`
+decodes the tslot off the key bytes inline — zero CBOR loads for
+the valid-time half); the transaction-time half loads the fact body
+and checks `signed_at`. `find_similar` with either bound set
+bypasses the LanceDB ANN fast-path because the index has no
+`signed_at` column, and the response's `via` field reports
+`brute_force_fallback`.
+
+Honesty guards:
+
+```text
+  as_of_tslot < tslot (conflicting)        → 400 invalid_temporal_bound
+  as_of_signed_at not RFC 3339             → 400 invalid_signed_at_format
+  empty result with bound set              → 200 with temporal_advice
+                                             (NOT 404; zero is a valid
+                                             answer for "what did we
+                                             know last quarter")
+```
+
+The receipt carries an `as_of` block when either bound is set
+(§5.1); absent otherwise. A verifier in year *t+k* recomputes the
+preimage from the original `cells` + `fact_cids` and accepts the
+signature without trusting whatever responder reproduced the read.
 
 ---
 

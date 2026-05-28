@@ -169,6 +169,116 @@ The outer separator is `:`. Neither `cell64` nor `fact_cid` may contain
 path, and named failure modes (`malformed`, `cid_not_found`, drift on
 re-encode) are in [`/whitepaper.md#194-memory-tokens`](whitepaper.md#194-memory-tokens).
 
+## Memory bundles
+
+A bundle composes N facts at N places into one signed envelope. The
+token grammar is `memb:<bundle_cid>` (parallel to `memt:`). Bundles
+fit the "task done, here are the citations I used" pattern: the agent
+hands one token to the next caller, who pulls every cited fact in one
+round-trip.
+
+```bash
+curl -sX POST https://emem.dev/v1/memory_bundle \
+  -H 'content-type: application/json' \
+  -d '{
+    "triples": [
+      {"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},
+      {"cell":"defi.zb4d9.pefa.zf619","band":"surface_water.recurrence"},
+      {"cell":"defi.zb4d9.pefa.zf619","band":"hansen.loss_year"}
+    ],
+    "purpose":"flood-risk site assessment 2026-05"
+  }' | jq '.bundle_token'
+# "memb:vlkbh5bfzjeem6t3o54yje5rrq"
+
+curl -sX GET https://emem.dev/v1/memory_bundle/memb:vlkbh5bfzjeem6t3o54yje5rrq | jq .
+```
+
+`bundle_cid` is deterministic across responders: the same triples in
+the same order produce the same `bundle_cid` everywhere. Any peer
+that holds the underlying facts can resolve the bundle.
+
+## Memory files — the agent's writable scratchpad
+
+The substrate exposes six file-op verbs that conform to Anthropic's
+memory-tool spec (header `context-management-2025-06-27`). The
+"files" live at paths under `/memories/`, are content-addressed
+(each write produces a `file_cid`), and ed25519-signed under the
+responder's identity. Any MCP host that uses Anthropic's memory tool
+can point at emem and get signed, replayable, federated memory for
+free.
+
+```jsonc
+// Write
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+  "name":"memory_create",
+  "arguments":{
+    "path":"/memories/runbook/2026-05-28.md",
+    "file_text":"Mount Fuji elevation 3776 m via Cop-DEM, no surface water in 5 km buffer.",
+    "kind":"episodic"
+  }
+}}
+
+// Search semantically over file contents (BGE + Lance)
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+  "name":"emem_memory_search",
+  "arguments":{"q":"elevation observations at Japanese mountains","k":3}
+}}
+
+// Stream every write as it happens (SSE)
+GET /v1/memory/sse?path_prefix=/memories/runbook/&kind=episodic
+```
+
+`kind` carries the CoALA taxonomy: `episodic` for observations,
+`semantic` for durable facts, `procedural` for playbooks, `resource`
+for generic scratchpads (default). `memory_list_by_kind` returns
+only the slice the agent asked for, sorted by `signed_at` desc.
+
+### Capability binding (multi-agent integration)
+
+For multi-agent setups where each agent should write to its own
+namespace, send an `attester` block on every write:
+
+```jsonc
+{"name":"memory_create","arguments":{
+  "path":"/memories/by_attester/wosdtqio/note.md",
+  "file_text":"...",
+  "kind":"episodic",
+  "attester":{
+    "pubkey_b32":"wosdtqio...",
+    "sig_b32":"ed25519 signature over blake3(\"emem.memory_write|create|<path>|<body_hash>\")"
+  }
+}}
+```
+
+The responder verifies the signature before persisting; an invalid
+sig returns 401 `memory_attestation_invalid`, a wrong-namespace
+write returns 403 `memory_namespace_violation`. Reference
+implementation in `crates/emem-primitives/src/memory_acl.rs` —
+`attester_preimage()`, `verify_attester()`. The same shape works
+across LangChain, AutoGen, CrewAI multi-agent flows: each agent
+gets a stable identity, every action is signed by that identity,
+and `memory_contradictions` surfaces disagreement between agents
+on the same `(cell, band, tslot)`.
+
+### Bi-temporal queries (audit + replay)
+
+Every read primitive accepts `as_of_tslot` (what the world looked
+like on a date) and `as_of_signed_at` (what emem knew on a date).
+The receipt carries an `as_of` block when the bound is set, so an
+auditor in year *t+k* replays a year-*t* query byte-for-byte:
+
+```bash
+curl -sX POST https://emem.dev/v1/recall \
+  -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["copdem30m.elevation_mean"],"as_of_signed_at":"2026-05-01T00:00:00Z"}' \
+  | jq '.receipt.as_of'
+# {"transaction_time":"2026-05-01T00:00:00Z"}
+```
+
+This pattern is what powers EUDR DDS audits (cite forest baseline
+as of submission date), insurance underwriting (cite evidence as of
+bind date), and EU AI Act Article 12 logging (verifiable evidence
+trail to a regulator who never trusted the operator).
+
 ## At a glance
 
 | Runtime                  | Surface           | Auth | Example                                       |

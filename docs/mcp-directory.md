@@ -11,22 +11,21 @@
 
 ## Description
 
-emem is a cite-able, content-addressed, signed Earth memory MCP server.
-
-It helps AI agents answer place-based questions with verifiable geospatial evidence, including questions about flooding, elevation, surface water, vegetation, built-up areas, weather, and land-use context.
+emem is a verifiable memory substrate for AI agents. Earth memory and agent memory on one signed trust surface: every read returns an ed25519 receipt, every write is content-addressed, every byte is reproducible on any peer. 69 MCP tools (10 core, 59 extended), tier-gated for progressive disclosure, plus 18 MCP resources + 8 URI templates (`memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`).
 
 ## Key capabilities
 
-- Resolve places, addresses, or latitude/longitude into cell64 identifiers.
-- Recall signed facts for a cell and band.
-- Ask natural-language questions about a real-world place.
-- Compare cells and bands.
-- Retrieve time series and signed deltas.
-- Return content-addressed receipts that agents can cite.
+**Earth memory (read).** Resolve places, addresses, or latitude/longitude into `cell64` identifiers. Recall signed facts for a cell and band. Compare two cells or two bands. Retrieve time series and signed deltas. Ask natural-language questions about a real-world place. Search for similar places by foundation embedding (Tessera, Clay v1.5, Prithvi-EO-2.0-300M-TL, Galileo).
+
+**Agent memory (write + read).** Six file-op verbs that conform to the Anthropic memory-tool spec (`memory_view`, `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`). Each file carries a `kind` from the CoALA taxonomy: `episodic`, `semantic`, `procedural`, `resource`. Writes can be capability-bound to an ed25519 attester so paths under `/memories/by_attester/<pubkey>/...` reject any signer that isn't their owner. `memory_list_by_kind` returns the typed slice. `memory_bundle` composes N facts into one signed envelope (`memb:<bundle_cid>`).
+
+**Search + audit.** `memory_search` runs BGE-base-en-v1.5 embeddings against a LanceDB IVF_PQ partition over memory-file contents — paraphrases match. `memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind (scalar, vector, categorical). `memory/sse` opens a Server-Sent Events stream filtered by `path_prefix`, `kind`, `attester`.
+
+**Bi-temporal recall.** Every read primitive accepts `as_of_tslot` (observation time) and `as_of_signed_at` (transaction time). The receipt carries an `as_of` block when set, so an auditor replays a past query byte-for-byte without trusting the issuer.
 
 ## MCP transport
 
-Remote HTTP MCP endpoint:
+Remote HTTP MCP endpoint (Streamable HTTP, JSON-RPC 2.0):
 
 ```json
 {
@@ -38,15 +37,15 @@ Remote HTTP MCP endpoint:
 }
 ```
 
+Tier-gated `tools/list` returns 10 core tools by default. Pass `{"tier":"all"}` to enumerate the full 69-tool catalog. Tool dispatch via `tools/call` ignores tier — every tool is callable.
+
 ## Example questions
 
-- Has this site flooded recently?
-- What is the elevation here?
-- Is this neighbourhood in a low-lying pocket?
-- Has vegetation changed here?
-- Is this area built-up or agricultural?
-- What evidence supports this place-based answer?
+- *Place-anchored*: Has this site flooded recently? What is the elevation here? Is this neighbourhood in a low-lying pocket? Has vegetation changed here? Is this area built-up or agricultural?
+- *Audit / point-in-time*: What did our system know about this place last quarter? Show me the signed evidence as of 2024-09-10. Was this plot forest on the EUDR cut-off date?
+- *Multi-attester provenance*: Which sourcing agent attested this coordinate? Do the forester, mill, and brand agree on canopy at this cell?
+- *Agent memory*: What episodic notes did I write about Mato Grosso last month? Search my procedural playbooks for "flood risk." Show me all observations I signed under my pubkey.
 
 ## Tags
 
-geospatial, earth-observation, satellite, memory, receipts, signed-facts, ai-agents, mcp
+ai-agents, mcp, memory-substrate, signed-memory, content-addressed, bi-temporal, capability-binding, ed25519, geospatial, earth-observation, satellite, anthropic-memory-tool, coala-taxonomy, federated-memory, audit-trail, verifiable-receipts

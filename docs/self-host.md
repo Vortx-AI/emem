@@ -72,6 +72,37 @@ warm. First build ~5 min; incremental ~30 s.
 | `EMEM_GALILEO_VARIANT`  | `base`             | Galileo encoder variant |
 | `EMEM_HUNT_CONCURRENCY` | `32`               | parallel cell sweeps for `/v1/hunt` |
 
+### Memory substrate
+
+| Var | Default | Notes |
+|-----|---------|-------|
+| `EMEM_DISABLE_LANCE`                       | `0`    | `1` forces find_similar and memory_search to the brute-force scan |
+| `EMEM_SSE_MAX_SUBS`                        | `256`  | concurrent SSE subscribers on `/v1/memory/sse`; 503 on overflow |
+| `EMEM_MEMORY_SEARCH_POLL_SECS`             | `60`   | indexer cadence — how often the BGE indexer scans memory_file_meta for new writes |
+| `EMEM_MEMORY_SEARCH_MODEL_DIR`             | `$EMEM_DATA/models/bge-base-en-v1.5` | overrides the BGE model location (legacy alias `EMEM_TOPIC_MODEL_DIR` also accepted) |
+| `EMEM_MEMORY_TTL_ENABLED`                  | `0`    | `1` arms the hourly TTL pass over `memory_file_meta` |
+| `EMEM_MEMORY_TTL_INTERVAL_SECS`            | `3600` | TTL sweep cadence; lower values are useful in tests |
+| `EMEM_MEMORY_TTL_RESOURCE_DAYS`            | `90`   | TTL for `kind=resource` (0 = infinite) |
+| `EMEM_MEMORY_TTL_EPISODIC_DAYS`            | `30`   | TTL for `kind=episodic` (0 = infinite) |
+| `EMEM_MEMORY_TTL_SEMANTIC_DAYS`            | `0`    | infinite by default — semantic facts are durable |
+| `EMEM_MEMORY_TTL_PROCEDURAL_DAYS`          | `0`    | infinite — playbooks are durable |
+| `EMEM_MEMORY_CONSOLIDATION_ENABLED`        | `0`    | `1` arms the daily consolidation pass |
+| `EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`  | `86400`| consolidation cadence |
+| `EMEM_MEMORY_CONSOLIDATION_MIN_FILES`      | `50`   | min episodic files per attester-subdir before consolidating |
+| `EMEM_MEMORY_CONSOLIDATION_MIN_AGE_DAYS`   | `7`    | files newer than this stay unconsolidated |
+
+Notes. Both schedulers are opt-in and idempotent. The TTL pass moves
+expired path → file_cid mappings from `emem.memory_files` to
+`emem.memory_files_expired`; the blobs stay content-addressed under
+`emem.memory_file_blobs` and are never deleted. Consolidation writes
+a `semantic`-kind file at `.consolidated/<unix_ts>.md` summarising
+the chronologically-concatenated originals and stamps each original
+with `superseded_by: <consolidated_file_cid>` in its metadata. The
+BGE model at `EMEM_MEMORY_SEARCH_MODEL_DIR` is required for
+`/v1/memory/search`; a missing model returns 503 (typed, not silent
+random vectors). Lance partitions land under `$EMEM_DATA/lance/` and
+hydrate idempotently on boot.
+
 `EMEM_BIND` requires `host:port` (not bare host). To bind `:443` as a
 non-root user under systemd, set the file capability after every build:
 
