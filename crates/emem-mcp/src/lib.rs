@@ -67,6 +67,112 @@ pub struct ToolDescriptor {
     pub tier: &'static str,
 }
 
+/// MCP resource descriptor — the static catalog that `resources/list`
+/// returns alongside the doc-anchor / corpus-stat resources defined in
+/// the API layer. Each entry advertises a stable `memory://emem/...`
+/// or `emem://...` URI, a friendly name, a short description, and the
+/// MIME type clients should expect from `resources/read`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceDescriptor {
+    /// Stable URI (e.g. `memory://emem/registry/bands`).
+    pub uri: &'static str,
+    /// Display name surfaced to MCP hosts.
+    pub name: &'static str,
+    /// One-sentence description.
+    pub description: &'static str,
+    /// MIME type the resource body is served as.
+    pub mime_type: &'static str,
+}
+
+/// Resource template descriptor — describes a class of dynamic URIs
+/// (cell / fact / bundle) the host can fill in and resolve via
+/// `resources/read`. Mirrors the MCP `resourceTemplate` shape.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceTemplateDescriptor {
+    /// URI template (RFC 6570) like `memory://emem/cell/{cell64}`.
+    pub uri_template: &'static str,
+    /// Display name.
+    pub name: &'static str,
+    /// One-sentence description.
+    pub description: &'static str,
+    /// MIME type expected on resolution.
+    pub mime_type: &'static str,
+}
+
+/// The static, always-on resource catalog. Returned verbatim under
+/// `resources/list`'s payload alongside the doc-anchor entries the API
+/// layer keeps near the markdown content. Compiled in so an MCP host
+/// can probe what dynamic-URI templates are available without an extra
+/// `resources/templates/list` round-trip.
+pub const RESOURCES: &[ResourceDescriptor] = &[
+    ResourceDescriptor {
+        uri: "memory://emem/registry/bands",
+        name: "registry.bands",
+        description: "Full bands manifest (41+ bands) keyed by family/topic with units, value_range, interpretation, and per-band dimensions.",
+        mime_type: "application/json",
+    },
+    ResourceDescriptor {
+        uri: "memory://emem/registry/algorithms",
+        name: "registry.algorithms",
+        description: "Algorithm registry (~160 entries): formula text, inputs, evaluation AST, accuracy_band, temporal_recipe, citations.",
+        mime_type: "application/json",
+    },
+    ResourceDescriptor {
+        uri: "memory://emem/registry/sources",
+        name: "registry.sources",
+        description: "Upstream source registry: connector wiring, license, attribution, revisit cadence per source.",
+        mime_type: "application/json",
+    },
+    ResourceDescriptor {
+        uri: "memory://emem/registry/topics",
+        name: "registry.topics",
+        description: "Topic taxonomy: which bands/algorithms answer which natural-language question.",
+        mime_type: "application/json",
+    },
+    ResourceDescriptor {
+        uri: "memory://emem/registry/functions",
+        name: "registry.functions",
+        description: "Function registry: per-band recipes that turn raw upstream sources into one signed fact.",
+        mime_type: "application/json",
+    },
+    ResourceDescriptor {
+        uri: "memory://emem/registry/schema",
+        name: "registry.schema",
+        description: "Active CDDL/JSON schema bundle — describes Receipt, Fact, RecallResp shapes on the wire.",
+        mime_type: "application/json",
+    },
+    ResourceDescriptor {
+        uri: "memory://emem/corpus/state_stats",
+        name: "corpus.state_stats",
+        description: "Signed snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, top per-band counts.",
+        mime_type: "application/json",
+    },
+];
+
+/// Templated URIs the host can fill in. `resources/read` resolves
+/// them by stripping the prefix and routing to the cell / fact /
+/// bundle handler.
+pub const RESOURCE_TEMPLATES: &[ResourceTemplateDescriptor] = &[
+    ResourceTemplateDescriptor {
+        uri_template: "memory://emem/cell/{cell64}",
+        name: "memory.cell",
+        description: "Full state cube for a cell64 — every wired band concatenated into the responder's 1792-D voxel with a per-band coverage manifest. Resolves to the same JSON `POST /v1/state {cell:..., view:'cube'}` returns.",
+        mime_type: "application/json",
+    },
+    ResourceTemplateDescriptor {
+        uri_template: "memory://emem/fact/{fact_cid}",
+        name: "memory.fact",
+        description: "Signed fact body for a content-addressed fact CID. Same JSON `GET /v1/facts/<cid>` returns.",
+        mime_type: "application/json",
+    },
+    ResourceTemplateDescriptor {
+        uri_template: "memory://emem/bundle/{bundle_token}",
+        name: "memory.bundle",
+        description: "Full signed memory-bundle envelope for a `memb:<bundle_cid>` token. Resolves to the same JSON `GET /v1/memory_bundle/<token>` returns.",
+        mime_type: "application/json",
+    },
+];
+
 /// Tool category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -217,6 +323,61 @@ const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_c
 
 const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
 "token":{"type":"string","description":"A `memt:<cell64>:<fact_cid>` citation handle to dereference."}
+}}"#;
+
+// Multi-fact memory-bundle composer. N (cell, band, tslot?) triples in,
+// one signed envelope out. The composed `bundle_token` is `memb:<bundle_cid>`
+// — a single rebindable string that cites the whole set.
+const SCHEMA_MEMORY_BUNDLE: &str = r#"{"type":"object","required":["triples"],"properties":{
+"triples":{"type":"array","minItems":1,"description":"One or more (cell, band, tslot?) triples to bundle. Each entry is recalled through the standard auto-materialize path; the bundle envelope cites every resulting fact_cid.","items":{"type":"object","required":["cell","band"],"properties":{
+  "cell":{"type":"string","description":"cell64 string (or free-text place name; the responder resolves before bundling)."},
+  "band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)."},
+  "tslot":{"type":"integer","description":"Optional tslot pin. Omit to use the band's natural latest tslot at the cell."}
+}}},
+"purpose":{"type":"string","description":"Optional human-readable purpose string. Included in the bundle_cid preimage so the same triples + different purposes produce distinct CIDs."}
+}}"#;
+
+const SCHEMA_MEMORY_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
+"token":{"type":"string","description":"A `memb:<bundle_cid>` rebindable handle to dereference."}
+}}"#;
+
+// ── Anthropic memory tool (context-management-2025-06-27) ──
+//
+// File-op surface so a Claude.ai connector or Anthropic API caller
+// running with `betas: ["context-management-2025-06-27"]` can use
+// emem as the backend storage for the model's LLM-managed memory.
+// Paths are confined to `/memories/<...>` — the wrapper rejects any
+// `..` or absolute path that escapes that root, mirroring the
+// reference impl's safety contract.
+const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","required":["path"],"properties":{
+"path":{"type":"string","description":"`/memories/<file>` for a file, or `/memories/<subdir>/` for a directory listing. Must stay under `/memories/`."},
+"view_range":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Optional [start_line, end_line] inclusive, 1-indexed. Lets the agent read part of a long file."}
+}}"#;
+
+const SCHEMA_MEMORY_CREATE: &str = r#"{"type":"object","required":["path","file_text"],"properties":{
+"path":{"type":"string","description":"`/memories/<file>` path. Overwrites if the file exists. Must stay under `/memories/`."},
+"file_text":{"type":"string","description":"Full file contents."}
+}}"#;
+
+const SCHEMA_MEMORY_STR_REPLACE: &str = r#"{"type":"object","required":["path","old_str","new_str"],"properties":{
+"path":{"type":"string","description":"`/memories/<file>` path the replacement targets."},
+"old_str":{"type":"string","description":"Exact substring to replace. The whole call fails (no partial write) when the old_str is absent or appears more than once."},
+"new_str":{"type":"string","description":"Replacement substring."}
+}}"#;
+
+const SCHEMA_MEMORY_INSERT: &str = r#"{"type":"object","required":["path","insert_line","new_str"],"properties":{
+"path":{"type":"string","description":"`/memories/<file>` path the insertion targets."},
+"insert_line":{"type":"integer","minimum":0,"description":"1-indexed line number AFTER which to insert. 0 inserts at the top of the file."},
+"new_str":{"type":"string","description":"Text to insert. A trailing newline is preserved if present; one is added otherwise."}
+}}"#;
+
+const SCHEMA_MEMORY_DELETE: &str = r#"{"type":"object","required":["path"],"properties":{
+"path":{"type":"string","description":"`/memories/<file>` or `/memories/<subdir>/` to delete. Directories drop every file beneath them."}
+}}"#;
+
+const SCHEMA_MEMORY_RENAME: &str = r#"{"type":"object","required":["old_path","new_path"],"properties":{
+"old_path":{"type":"string","description":"Existing `/memories/<file>` path."},
+"new_path":{"type":"string","description":"Destination `/memories/<file>` path. Fails when the destination exists."}
 }}"#;
 
 const SCHEMA_EXPLAIN_ALGORITHM: &str = r#"{
@@ -483,6 +644,101 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"token":"memt:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_memory_bundle",
+        title: "Compose a signed multi-fact memory bundle",
+        description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `memb:<bundle_cid>` — a single rebindable string that cites the whole set.",
+        when_to_use: "Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt (the receipt covers all cited fact_cids and cells). Use this instead of N separate `emem_memory_token` composers when the citation is conceptually one thing (e.g. \"the EUDR-relevant baseline for these 8 plots at 2020-12-31\").",
+        input_schema: SCHEMA_MEMORY_BUNDLE,
+        example_args: r#"{"triples":[{"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},{"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi"}],"purpose":"audit baseline 2026"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+        tier: "core",
+    },
+    ToolDescriptor {
+        name: "emem_memory_bundle_resolve",
+        title: "Dereference a memory_bundle token",
+        description: "Parse a `memb:<bundle_cid>` token and return the signed bundle envelope: every citation (cell, band, resolved_tslot, fact_cid, memory_token), the receipt, the responder pubkey, and the deduped flat cells[] / fact_cids[] arrays. Returns 404 with a typed code when the responder does not hold the bundle.",
+        when_to_use: "Call when an agent receives a `memb:` token from another agent (or earlier turn) and wants the underlying signed citation set. The response is byte-identical to what `emem_memory_bundle` returned at the original responder.",
+        input_schema: SCHEMA_MEMORY_BUNDLE_RESOLVE,
+        example_args: r#"{"token":"memb:wbqyxljmeewr7z4cav7g"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    // ── Anthropic memory tool (context-management-2025-06-27) ──
+    //
+    // File-op surface backing Anthropic's LLM-managed memory tool.
+    // Storage is sled-persisted; every write is content-addressed and
+    // signed by the responder so an audit can replay every edit. Path
+    // root is `/memories/`; the wrapper rejects any path that escapes
+    // it (no `..`, no absolute paths outside the root).
+    ToolDescriptor {
+        name: "memory_view",
+        title: "memory_view — read file or directory listing",
+        description: "Read the contents of a memory file at `/memories/<path>` or list a directory when the path ends with `/`. Optional `view_range: [start, end]` slices a 1-indexed inclusive line range out of the file. Mirrors the `view` verb in Anthropic's context-management-2025-06-27 memory tool spec.",
+        when_to_use: "Call when the model running with `betas: ['context-management-2025-06-27']` issues a `view` against its memory directory. Use `/memories/` (trailing slash) to enumerate files; `/memories/notes.md` to read one. Returns a 404 with typed code on missing path.",
+        input_schema: SCHEMA_MEMORY_VIEW,
+        example_args: r#"{"path":"/memories/"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "memory_create",
+        title: "memory_create — write a memory file (overwrite if exists)",
+        description: "Write a memory file at `/memories/<path>` with the supplied `file_text`. Overwrites if the file exists. Persists to sled, content-addresses the bytes (`file_cid`), and signs the write so the operation carries a verifiable receipt. Mirrors the `create` verb in Anthropic's context-management-2025-06-27 memory tool spec.",
+        when_to_use: "Call when the LLM issues a `create` against its memory directory (initial scratchpad write, refresh of a notes file, etc.). The response carries the new `file_cid` and a signed receipt the agent can quote in audits.",
+        input_schema: SCHEMA_MEMORY_CREATE,
+        example_args: r##"{"path":"/memories/notes.md","file_text":"# Today\n- read the brief\n"}"##,
+        level: "L0", category: ToolCategory::Write,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "memory_str_replace",
+        title: "memory_str_replace — exact-string replacement in a memory file",
+        description: "Replace `old_str` with `new_str` in the named memory file. Fails (no partial write) when `old_str` is absent or matches more than once. Writes a new content-addressed `file_cid` and signs the receipt. Mirrors the `str_replace` verb in Anthropic's context-management-2025-06-27 memory tool spec.",
+        when_to_use: "Call when the LLM issues a `str_replace` against its memory file — typical for small targeted edits. The strict single-match contract is the contract Claude expects: an LLM that sees a single-match diff knows the change applied where it intended.",
+        input_schema: SCHEMA_MEMORY_STR_REPLACE,
+        example_args: r#"{"path":"/memories/notes.md","old_str":"read the brief","new_str":"finished the brief"}"#,
+        level: "L0", category: ToolCategory::Write,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "memory_insert",
+        title: "memory_insert — insert at a given line",
+        description: "Insert `new_str` after the given 1-indexed line in the named memory file. `insert_line: 0` inserts at the top. Writes a new `file_cid` and signs the receipt. Mirrors the `insert` verb in Anthropic's context-management-2025-06-27 memory tool spec.",
+        when_to_use: "Call when the LLM wants to append a new line to a memory file without rewriting it. For top-of-file inserts, pass `insert_line: 0`; for end-of-file, pass the current line count (the responder rejects out-of-range with a typed error).",
+        input_schema: SCHEMA_MEMORY_INSERT,
+        example_args: r#"{"path":"/memories/notes.md","insert_line":0,"new_str":"draft 2026-05-28"}"#,
+        level: "L0", category: ToolCategory::Write,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "memory_delete",
+        title: "memory_delete — remove a memory file or directory",
+        description: "Delete a memory file at `/memories/<path>`. When the path ends with `/`, every file beneath the directory is removed. Updates the path index but leaves prior content-addressed blobs in place (the audit history is append-only). Mirrors the `delete` verb in Anthropic's context-management-2025-06-27 memory tool spec.",
+        when_to_use: "Call when the LLM issues a `delete` against a memory file or subdirectory it no longer needs. Existing receipts citing the old file_cid stay verifiable — the blob is content-addressed, only the path → file_cid index forgets.",
+        input_schema: SCHEMA_MEMORY_DELETE,
+        example_args: r#"{"path":"/memories/notes.md"}"#,
+        level: "L0", category: ToolCategory::Write,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "memory_rename",
+        title: "memory_rename — move a memory file",
+        description: "Move (rename) a memory file from `old_path` to `new_path`. Both paths must stay under `/memories/`; `new_path` must not already exist. The file_cid is preserved (no re-sign) so the prior receipt still binds the bytes. Mirrors the `rename` verb in Anthropic's context-management-2025-06-27 memory tool spec.",
+        when_to_use: "Call when the LLM wants to rename or move a memory file. Failure modes: source missing, destination already exists, path escapes `/memories/`.",
+        input_schema: SCHEMA_MEMORY_RENAME,
+        example_args: r#"{"old_path":"/memories/notes.md","new_path":"/memories/archive/notes-2026-05.md"}"#,
+        level: "L0", category: ToolCategory::Write,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1309,5 +1565,56 @@ mod tests {
             names.contains(&"emem_verify_receipt"),
             "core must include emem_verify_receipt"
         );
+        // Substrate primitive — the multi-fact composer is the single
+        // most important new tool for agent-managed memory.
+        assert!(
+            names.contains(&"emem_memory_bundle"),
+            "core must include emem_memory_bundle"
+        );
+    }
+
+    /// The substrate upgrade adds 6 Anthropic memory-tool verbs and 2
+    /// memory-bundle composer/resolver tools. Lock the contract so a
+    /// future cleanup doesn't accidentally drop one.
+    #[test]
+    fn substrate_tools_present() {
+        for t in &[
+            "emem_memory_bundle",
+            "emem_memory_bundle_resolve",
+            "memory_view",
+            "memory_create",
+            "memory_str_replace",
+            "memory_insert",
+            "memory_delete",
+            "memory_rename",
+        ] {
+            assert!(lookup(t).is_some(), "missing substrate tool: {t}");
+        }
+    }
+
+    /// RESOURCES + RESOURCE_TEMPLATES must catalog the substrate
+    /// anchors. `resources/list` reads from these consts.
+    #[test]
+    fn resources_catalog_covers_substrate_uris() {
+        let r_uris: Vec<&str> = RESOURCES.iter().map(|r| r.uri).collect();
+        for must in &[
+            "memory://emem/registry/bands",
+            "memory://emem/registry/algorithms",
+            "memory://emem/registry/sources",
+            "memory://emem/registry/topics",
+            "memory://emem/registry/functions",
+            "memory://emem/registry/schema",
+            "memory://emem/corpus/state_stats",
+        ] {
+            assert!(r_uris.contains(must), "RESOURCES missing {must}");
+        }
+        let t_uris: Vec<&str> = RESOURCE_TEMPLATES.iter().map(|t| t.uri_template).collect();
+        for must in &[
+            "memory://emem/cell/{cell64}",
+            "memory://emem/fact/{fact_cid}",
+            "memory://emem/bundle/{bundle_token}",
+        ] {
+            assert!(t_uris.contains(must), "RESOURCE_TEMPLATES missing {must}");
+        }
     }
 }

@@ -32,6 +32,33 @@ use emem_fetch::Dispatcher;
 /// signed it. Tree value: canonical CBOR of [`MerkleProof`].
 const TREE_FACT_PROOFS: &str = "emem.fact_proofs";
 
+/// Sled tree storing memory-bundle envelopes keyed by `bundle_cid`.
+/// Value: canonical CBOR of the bundle response shape (defined in
+/// `emem-primitives::memory_bundle`). Lookups serve the
+/// `GET /v1/memory_bundle/<token>` and MCP `resources/read` paths.
+pub const TREE_MEMORY_BUNDLES: &str = "emem.memory_bundles";
+
+/// Sled tree mapping LLM-managed memory-tool paths (Anthropic
+/// `context-management-2025-06-27` spec) to their current file CID.
+/// Key: UTF-8 path string (e.g. `/memories/foo.md`). Value: file_cid
+/// bytes (base32-nopad-lc).
+pub const TREE_MEMORY_FILES: &str = "emem.memory_files";
+
+/// Sled tree mapping `file_cid → bytes`. Content-addressed blob store
+/// for the memory-tool surface — independent of the `path → file_cid`
+/// index so the same blob shared across paths costs storage once.
+pub const TREE_MEMORY_FILE_BLOBS: &str = "emem.memory_file_blobs";
+
+/// Sled tree mapping `path → CBOR(Vec<file_cid>)` — append-only edit
+/// history per path. Lets an audit replay every str_replace / insert /
+/// create touch in order. Most recent CID at the back.
+pub const TREE_MEMORY_FILE_HISTORY: &str = "emem.memory_file_history";
+
+/// Sled tree mapping `file_cid → CBOR(MemoryFileMeta)` — the
+/// receipt + sign timestamp for each write so an audit can reconstruct
+/// who-signed-what-when without re-signing.
+pub const TREE_MEMORY_FILE_META: &str = "emem.memory_file_meta";
+
 pub mod attesters;
 pub mod merkle_log;
 pub mod server;

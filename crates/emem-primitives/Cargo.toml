@@ -21,6 +21,7 @@ tokio        = { workspace = true }
 blake3       = { workspace = true }
 tracing      = { workspace = true }
 futures-util = { workspace = true }
+data-encoding = { workspace = true }
 
 # Lance — embedded columnar/vector index. The brute-force find_similar
 # path remains as a fallback; Lance is an ANN accelerator over per-dim

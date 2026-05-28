@@ -2567,6 +2567,7 @@ dependencies = [
  "async-trait",
  "blake3",
  "ciborium",
+ "data-encoding",
  "emem-cache",
  "emem-claim",
  "emem-codec",
