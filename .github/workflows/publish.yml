@@ -51,6 +51,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GitHub ubuntu-latest runners ship with ~14 GB free disk; Lance
+      # 6.x + datafusion + arrow pull in 530+ crates and the release
+      # build exhausts that during `cargo build --bin emem-server`,
+      # which is the actual root cause of the post-Lance publish
+      # failures (cargo exit 101 at ~7 min, no specific compile error
+      # surfaced — the docker layer just dies). Frees ~30 GB by
+      # removing dotnet / android sdk / ghc / hosted toolcache that
+      # this image doesn't need.
+      - name: free up disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
       - name: set up buildx
         uses: docker/setup-buildx-action@v3
 
