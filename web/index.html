@@ -1043,18 +1043,20 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">05</span><span class="idx-label">Substrate</span></div>
     <dl>
-      <dt>read</dt><dd>POST&nbsp;/v1/state</dd>
-      <dt>compose</dt><dd>POST&nbsp;/v1/memory_token</dd>
-      <dt>resolve</dt><dd>POST&nbsp;/v1/memory_token/resolve</dd>
-      <dt>fan-out</dt><dd>POST&nbsp;/v1/state_multi</dd>
-      <dt>delta</dt><dd>POST&nbsp;/v1/state_diff</dd>
-      <dt>mcp tools</dt><dd>5 of 59</dd>
+      <dt>read</dt><dd>POST&nbsp;/v1/state · /v1/state_multi · /v1/state_diff</dd>
+      <dt>cite</dt><dd>POST&nbsp;/v1/memory_token · /v1/memory_bundle</dd>
+      <dt>write</dt><dd>POST&nbsp;/v1/attest · MCP&nbsp;memory_create&hellip;rename (6)</dd>
+      <dt>search</dt><dd>POST&nbsp;/v1/memory/search (BGE&nbsp;+ Lance)</dd>
+      <dt>audit</dt><dd>POST&nbsp;/v1/memory_contradictions</dd>
+      <dt>stream</dt><dd>GET&nbsp;/v1/memory/sse</dd>
+      <dt>bi-temporal</dt><dd>as_of_tslot · as_of_signed_at on every read</dd>
+      <dt>mcp tools</dt><dd>16 of 69 (1 core, 15 extended)</dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">05</span>The memory substrate, five motions</h2>
-    <p class="lede">Below the recall surface sits a typed memory substrate. State is the read motion (planet-keyed dense vector). The memory token is the cite motion (one string any pipeline can paste). Resolve, fan-out, and diff round out the verbs.</p>
+    <h2><span class="num">05</span>The memory substrate</h2>
+    <p class="lede">Below the recall surface sits a typed, signed, searchable memory substrate. State is the read motion (planet-keyed dense vector). The memory token is the cite motion (one string any pipeline can paste). Memory files give an agent a writable scratchpad whose every edit is ed25519-signed and content-addressed. Every read carries the same bi-temporal axis pair: <span class="band">as_of_tslot</span> for what the world looked like on a given date; <span class="band">as_of_signed_at</span> for what the system knew on a given date.</p>
 
     <div class="substrate-grid">
       <div class="lane">
@@ -1105,9 +1107,61 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <span class="tok-key">"docs"</span>: <span class="tok-s">"/whitepaper.md#195-memory-token-format"</span> <span class="tok-p">}</span></code></pre>
     </div>
 
-    <p>Two more verbs round out the substrate. <span class="band">/v1/state_multi</span> fans across every wired foundation encoder (<span class="band">geotessera</span>, <span class="band">clay_v1</span>, <span class="band">prithvi_eo2</span>) for the same cell, returning a per-encoder map plus a typed <span class="band">missing[]</span> list when an encoder is not wired at this responder. <span class="band">/v1/state_diff</span> takes one cell and two tslots and returns the delta vector, its L2 norm, and the cosine between the two source vectors, with both source <span class="band">fact_cid</span>s so the agent can quote both attestations as evidence.</p>
+    <p>Two more verbs fan the state read. <span class="band">/v1/state_multi</span> fans across every wired foundation encoder (<span class="band">geotessera</span>, <span class="band">clay_v1</span>, <span class="band">prithvi_eo2</span>, <span class="band">galileo</span>) for the same cell, returning a per-encoder map plus a typed <span class="band">missing[]</span> list when an encoder is not wired at this responder. <span class="band">/v1/state_diff</span> takes one cell and two tslots and returns the delta vector, its L2 norm, and the cosine between the two source vectors, with both source <span class="band">fact_cid</span>s so the agent can quote both attestations as evidence.</p>
 
-    <p>This substrate is the <em>read · steer · write</em> triad in code: state is read, memory tokens are steered through the pipeline as citations, and writes go through <span class="band">/v1/attest</span> with the attester&rsquo;s own ed25519 key. The substrate is intentionally typed: vector-only bands accept <span class="band">/v1/state</span>, scalar bands return a typed 422 pointing the agent at <span class="band">/v1/recall</span> instead. Empty cells return a typed 404 pointing at <span class="band">/v1/materializers</span>. No silent zero-fills.</p>
+    <p>Above the read surface sits a writable memory substrate the agent owns. <span class="band">/v1/memory_bundle</span> takes N (cell, band, tslot) triples and returns one signed envelope &mdash; the <span class="band">memb:&lt;bundle_cid&gt;</span> token is the multi-fact analogue of <span class="band">memt:</span>. The six file-op verbs (<span class="band">memory_view · memory_create · memory_str_replace · memory_insert · memory_delete · memory_rename</span>) conform to Anthropic&rsquo;s memory tool spec (header <span class="band">context-management-2025-06-27</span>): the &ldquo;files&rdquo; are signed, content-addressed blobs under a path tree rooted at <span class="band">/memories/</span>. Each file carries a <span class="band">kind</span> from the CoALA / LangMem taxonomy &mdash; <span class="band">episodic</span> for observations of events, <span class="band">semantic</span> for durable learned facts, <span class="band">procedural</span> for playbooks, <span class="band">resource</span> for scratchpads &mdash; and <span class="band">memory_list_by_kind</span> returns only the slice the agent asked for.</p>
+
+    <p>Writes can be capability-bound. Paths under <span class="band">/memories/by_attester/&lt;pubkey_short&gt;/&hellip;</span> are write-restricted to the holder of the corresponding ed25519 private key: every <span class="band">memory_create</span> in that namespace carries an <span class="band">attester: {pubkey_b32, sig_b32}</span> block where the signature is computed over <span class="band">blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)</span>. Wrong key &rarr; 401 <span class="band">memory_attestation_invalid</span>. Wrong namespace &rarr; 403. Bare <span class="band">/memories/&hellip;</span> stays anyone-writable and back-compat with the unsigned form.</p>
+
+    <p>Three primitives turn the substrate from storage into a queryable knowledge surface. <span class="band">/v1/memory/search</span> embeds the query through BGE-base-en-v1.5 and runs cosine against a LanceDB IVF_PQ partition (<span class="band">memory_text_index_d768.lance</span>) over every memory file&rsquo;s contents &mdash; the agent paraphrases, the index finds. <span class="band">/v1/memory_contradictions</span> walks the parallel multi-attester index and scores disagreement per band kind: scalar bands by normalised spread against the documented physical range, vector bands by 1 minus mean cosine, categorical bands by 1 minus mode-share. <span class="band">/v1/memory/sse</span> opens an event stream filtered by <span class="band">path_prefix · kind · attester</span> so a compliance subscriber or a downstream agent receives every write the moment its sled commit lands.</p>
+
+    <p>The substrate is intentionally typed at every boundary. Vector-only bands accept <span class="band">/v1/state</span>; scalar bands return a typed 422 pointing the agent at <span class="band">/v1/recall</span>. Empty cells return a typed 404 pointing at <span class="band">/v1/materializers</span>. Bi-temporal queries with an inverted bound return 400 <span class="band">invalid_temporal_bound</span>; a malformed timestamp returns 400 <span class="band">invalid_signed_at_format</span>. Receipts carry an <span class="band">as_of</span> block when the bound is non-empty; pre-bi-temporal receipts deserialise byte-identically because the field is absent. Memory file writes are append-only at the content-address layer &mdash; <span class="band">memory_delete</span> drops the path index but the blob lives on, addressable through <span class="band">memory_file_history</span>. No silent zero-fills, no last-writer-wins, no opaque mutation.</p>
+  </div>
+</section>
+
+<section class="section page" id="memory-cases">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">05b</span><span class="idx-label">In production</span></div>
+    <dl>
+      <dt>audit</dt><dd>EU AI Act Art. 12 · EUDR DDS</dd>
+      <dt>retrospect</dt><dd>as_of_signed_at over every read</dd>
+      <dt>provenance</dt><dd>per-attester namespace, ed25519 signed</dd>
+      <dt>federation</dt><dd>CID-deterministic across peers</dd>
+      <dt>contradiction</dt><dd>per-band severity scorer</dd>
+      <dt>peer systems</dt><dd>Mem0 · Letta · Zep · Anthropic memory-tool</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">05b</span>What the substrate is for</h2>
+    <p class="lede">Five production problems we built the substrate to solve. Each call sketch is paste-runnable against <a href="https://emem.dev">emem.dev</a>; every receipt verifies offline at <a href="/verify">/verify</a>.</p>
+
+    <h3>Audit-grade point-in-time evidence</h3>
+    <p>An auditor in 2027 asks whether a plot was forest on 2020-12-31 <em>according to your system at the time of the DDS submission</em>, not according to today&rsquo;s reprocessed tiles. Last-writer-wins memory loses the original; Zep&rsquo;s bi-temporal graph keeps both timestamps but issues unsigned facts that an admin can rewrite. emem pairs <span class="band">as_of_tslot</span> + <span class="band">as_of_signed_at</span> on every read with content-addressed signed receipts: the auditor takes a 2026-05 receipt to any peer node and verifies the BLAKE3 preimage and ed25519 signature without trusting our server.</p>
+    <pre><code>POST /v1/recall { cell, band: "jrc_tmf_v3", as_of_tslot: 1609372800, as_of_signed_at: "2026-05-15T00:00:00Z" }
+POST /v1/verify_receipt { receipt }   # any peer, any time, no network back to us</code></pre>
+
+    <h3>Insurance underwriting &mdash; what did we know when we bound the policy</h3>
+    <p>A claim filed today disputes wildfire perimeter on a 2024-09 policy bind date. Mem0 and LangMem give &ldquo;current memory&rdquo; with timestamped extracts but no valid-time / transaction-time split. Anthropic&rsquo;s memory tool stores plain files an operator can edit. The substrate&rsquo;s bi-temporal axis + ed25519 capability binding pins the bind-time evidence under the underwriter&rsquo;s pubkey namespace; nobody including us can retroactively edit the path.</p>
+    <pre><code>POST /v1/recall_polygon { geometry, band: "modis.lst_day_8day", as_of_signed_at: "2024-09-10T00:00:00Z" }
+POST /v1/memory_bundle  { triples, purpose: "policy POL-1234 bind evidence" }   # returns memb:&lt;cid&gt;</code></pre>
+
+    <h3>Multi-attester supply-chain provenance</h3>
+    <p>Four sourcing agents (forester, mill, customs, brand) each push location and biomass claims about the same plot; one is wrong. Recent multi-agent failure research finds ~37&nbsp;% of cross-agent breakdowns are memory-shaped: last-writer-wins on shared state. Mem0&rsquo;s scoped writes don&rsquo;t carry per-agent signatures; Letta&rsquo;s shared blocks don&rsquo;t either. The substrate routes each writer through <span class="band">/memories/by_attester/&lt;pubkey&gt;/&hellip;</span> and the multi-attester index keeps both CIDs at the same canonical key; <span class="band">/v1/memory_contradictions</span> scores the disagreement and quotes both <span class="band">fact_cid</span>s so the brand agent can act on signed evidence.</p>
+    <pre><code>POST /v1/memory_contradictions { cell_prefix: "defi.zb5f9", band: "indices.ndvi", min_severity: 0.2 }
+# returns: [{ cell, band, tslot, attestations: [...signed disagreements...], severity, kind }]</code></pre>
+
+    <h3>Hallucination prevention via signed reads</h3>
+    <p>The MINJA memory-injection attack (NeurIPS 2025) hit 95&nbsp;% success on agent memory stores through query-only interaction &mdash; agents implicitly trust their own memory. Mem0, LangMem, and Anthropic&rsquo;s memory tool persist unsigned strings; a poisoned memory looks identical to a real one. Every <span class="band">memory_view</span> and <span class="band">/v1/recall</span> return the signer pubkey; the agent&rsquo;s &ldquo;did I really learn this&rdquo; check becomes signature verification against a trusted set, not a trust assumption.</p>
+    <pre><code># every read carries: { value, signer_pubkey_b32, signed_at, fact_cid }
+# agent rule: if signer_pubkey_b32 ∉ trusted_set: ignore + alert</code></pre>
+
+    <h3>Real-time compliance subscription &mdash; EU AI Act Article 12</h3>
+    <p>Article 12 (high-risk systems, applicable 2026-08) requires automatic event logging across the lifecycle, with logs generated by the system and verifiable to third parties. LangMem and Anthropic&rsquo;s memory tool produce logs the operator can edit. The substrate&rsquo;s SSE stream + per-event ed25519 signature + content-addressed append-only history means a compliance subscriber filters by <span class="band">path_prefix=/memories/by_attester/&lt;clinician_pubkey&gt;</span> and proves non-repudiation to a regulator who never trusted us.</p>
+    <pre><code>GET /v1/memory/sse?path_prefix=/memories/by_attester/clinician-aw3k7nq/&amp;kind=episodic
+# emits: data: { "type": "created", "path", "file_cid", "kind", "attester_pubkey_b32", "signed_at", "size_bytes" }</code></pre>
+
+    <p style="margin-top:1.5rem;font-size:var(--t-xs);color:var(--mute)">The vendor map: <a href="https://mem0.ai/blog/state-of-ai-agent-memory-2026">Mem0</a> leads on chat-memory inference; <a href="https://arxiv.org/html/2501.13956v1">Zep / Graphiti</a> on temporal graph memory; <a href="https://www.letta.com/blog/agent-memory">Letta</a> on stateful agent runtimes; <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool">Anthropic&rsquo;s memory tool</a> on tight Claude-loop integration. emem covers signed, federated, point-in-time, multi-attester memory &mdash; a verifiable spatial / temporal fact store with memory-system ergonomics bolted on. The wins concentrate in audit, multi-attester, point-in-time, and signed-provenance.</p>
   </div>
 </section>
 

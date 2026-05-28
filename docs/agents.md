@@ -53,6 +53,15 @@ stack, the mapping below is the rosetta-stone:
 | corpus observability            | `corpus_state_stats` | `GET /v1/corpus_state_stats`      |
 | subscribe to corpus events      | `stream` (SSE)       | `GET /v1/stream`                  |
 | run the agent benchmark         | `benchmark`          | `GET /v1/benchmark`, `POST /v1/benchmark/grade` |
+| compose a multi-fact bundle     | `memory_bundle`      | `POST /v1/memory_bundle`          |
+| resolve a memory bundle         | `memory_bundle/<token>` | `GET /v1/memory_bundle/<token>` |
+| write / edit a memory file      | `memory_create`, `memory_str_replace`, `memory_insert`, `memory_rename`, `memory_delete` | MCP tools (Anthropic memory-tool spec) |
+| read a memory file or directory | `memory_view`        | MCP tool                          |
+| list memory files by kind       | `memory_list_by_kind`| MCP tool                          |
+| semantic search over /memories/ | `memory_search`      | `POST /v1/memory/search`          |
+| detect attester disagreement    | `memory_contradictions` | `POST /v1/memory_contradictions` |
+| subscribe to memory writes      | `memory_sse`         | `GET /v1/memory/sse`              |
+| bi-temporal recall              | `as_of_tslot`, `as_of_signed_at` | flags on every read primitive |
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 80 paths under
