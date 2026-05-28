@@ -1,6 +1,6 @@
 # emem: a content-addressed protocol for verifiable agent memory
 
-**Version 0.0.6 / 2026-05-28**
+**Version 0.0.7 / 2026-05-28**
 
 ---
 

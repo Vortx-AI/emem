@@ -1,6 +1,6 @@
 # emem architecture
 
-System-level mental model for `emem.dev` v0.0.6. Covers process
+System-level mental model for `emem.dev` v0.0.7. Covers process
 topology, the 14 workspace crates, the data / trust / fetch /
 inference / agent planes, the auto-materialize loop, and the storage
 layout on disk. Companion documents: `protocol.md` for byte-level

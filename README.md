@@ -7,7 +7,7 @@
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
-    <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.88-orange.svg" alt="Rust"></a>
+    <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.91-orange.svg" alt="Rust"></a>
     <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-Streamable%20HTTP-7af.svg" alt="MCP"></a>
     <a href="https://www.openapis.org/"><img src="https://img.shields.io/badge/OpenAPI-3.1-green.svg" alt="OpenAPI"></a>
     <a href="https://github.com/Vortx-AI/emem/pkgs/container/emem"><img src="https://img.shields.io/badge/ghcr.io-vortx--ai%2Femem-181717?logo=github" alt="Container"></a>
@@ -243,7 +243,7 @@ The active grid is ~9.54 m × ~9.55 m at the equator (lat 21 bits × lng 22 bits
 
 ```
 emem/
-├── crates/                       # 14 workspace crates, MSRV 1.88, version 0.0.6
+├── crates/                       # 14 workspace crates, MSRV 1.91, version 0.0.7
 │   ├── emem-core/                # bands, algorithms, functions, sources, topics, schema
 │   ├── emem-codec/               # cell64, cid64, vec64, hilbert, geo, alphabet
 │   ├── emem-fact/                # canonical CBOR; fact, receipt, attestation

@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "name_for_human": "emem · Earth Memory Protocol",
   "name_for_model": "emem",
   "description_for_human": "Verifiable Earth observation for AI agents. Three foundation encoders, one consensus, every answer cryptographically signed.",

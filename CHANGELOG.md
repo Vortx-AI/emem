@@ -7,6 +7,26 @@ to verify.
 
 ## [Unreleased]
 
+## [0.0.7] — 2026-05-28
+
+### Added
+- **Official MCP Registry listing.** `server.json` at the repo root
+  follows the `2025-12-11` schema; a new GitHub Actions workflow
+  (`.github/workflows/mcp-publish.yml`) auto-publishes the manifest on
+  every `v*` tag via GitHub OIDC. Manual one-off available via
+  `scripts/mcp-publish.sh`. Registry name: `io.github.Vortx-AI/emem`;
+  the GitHub aggregator at `github.com/mcp` ingests on a delay.
+
+### Fixed
+- `server.json` `documentationUrl` pointed at a renamed `docs/SPEC.md`;
+  repointed to `https://emem.dev/docs/whitepaper.html`.
+
+### Notes
+- No protocol or wire surface changes. Workspace version bump only,
+  to give the registry listing a versioned record (versions are
+  immutable post-publish).
+
+
 ### Added (2026-05-16)
 
 - **Memory substrate, five new endpoints.** `POST /v1/state` returns a signed

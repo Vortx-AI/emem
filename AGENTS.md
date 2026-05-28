@@ -9,7 +9,7 @@ instead — those describe how to *use* emem from an agent.
 
 ## Repo shape
 
-Rust workspace, 14 crates, version 0.0.6, MSRV 1.88. The bulk of the code
+Rust workspace, 14 crates, version 0.0.7, MSRV 1.91. The bulk of the code
 lives in `crates/emem-api-rest/src/lib.rs` (~29 k lines: HTTP/MCP router
 plus every inline materializer plus the foundation-embedding fan-out for
 `/v1/ask`) and `crates/emem-fetch/src/*.rs` (18 data connectors + 5
