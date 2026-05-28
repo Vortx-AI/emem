@@ -74,8 +74,8 @@ use emem_fact::{
 use emem_intent::{plan, Intent};
 use emem_primitives::{
     compare, compare_bands, diff, find_similar, query_region, recall, trajectory, verify,
-    CompareBandsReq, CompareReq, DiffReq, FindSimilarReq, QueryRegionReq, RecallReq, RecallResp,
-    TrajectoryReq, VerifyReq,
+    CompareBandsReq, CompareReq, DiffReq, FindSimilarReq, LanceIndex, QueryRegionReq, RecallReq,
+    RecallResp, TrajectoryReq, VerifyReq,
 };
 use emem_storage::{Server, StorageError};
 
@@ -482,6 +482,56 @@ pub fn router(state: AppState) -> Router {
             tracing::info!(target: "emem::geocoder", geonames_index_warm = n, "geonames_index_warm");
         })
         .ok();
+
+    // Open the embedded Lance vector index, install it on
+    // `emem_primitives::find_similar` (process-global OnceLock), and
+    // kick off hydration from sled in the background. The index is an
+    // ANN accelerator only — find_similar falls back to the brute-force
+    // scan when the OnceLock is empty, Lance returns 0 results, or
+    // `EMEM_DISABLE_LANCE=1` is set. Hydration runs in a Tokio task so
+    // boot stays fast on cold corpora; the brute-force path serves
+    // requests until hydration completes.
+    match LanceIndex::open_default() {
+        Ok(idx) => {
+            let idx = Arc::new(idx);
+            emem_primitives::find_similar::set_lance_index(idx.clone());
+            // Stash the handle on a process-global so the stats endpoint
+            // and tests can reach it without state plumbing.
+            LANCE_INDEX_GLOBAL.set(idx.clone()).ok();
+            let storage_for_hydrate: Arc<dyn emem_storage::Storage + Send + Sync> =
+                state.storage.clone();
+            let idx_for_hydrate = idx.clone();
+            tokio::spawn(async move {
+                let storage_dyn: &(dyn emem_storage::Storage + Send + Sync) =
+                    storage_for_hydrate.as_ref();
+                match idx_for_hydrate.hydrate_from_storage(storage_dyn).await {
+                    Ok((written, seen, elapsed)) => {
+                        tracing::info!(
+                            target: "emem::lance",
+                            rows_written = written,
+                            vector_facts_seen = seen,
+                            elapsed_ms = elapsed.as_millis() as u64,
+                            "lance hydration complete"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::lance",
+                            error = %e,
+                            "lance hydration failed; brute-force path remains active"
+                        );
+                    }
+                }
+            });
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "emem::lance",
+                error = %e,
+                "lance index open failed; brute-force find_similar will be used"
+            );
+        }
+    }
     Router::new()
         // Landing & agent-targeted pages
         .route("/", get(landing))
@@ -843,6 +893,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/state_multi", post(post_state_multi))
         .route("/v1/state_diff", post(post_state_diff))
         .route("/v1/corpus_state_stats", get(get_corpus_state_stats))
+        .route("/v1/vector_index/stats", get(get_vector_index_stats))
         .route("/v1/stream", get(get_stream_sse))
         .route("/v1/benchmark", get(get_benchmark))
         .route("/v1/benchmark/grade", post(post_benchmark_grade))
@@ -14532,6 +14583,39 @@ struct CorpusStateStats {
     signature: JsonValue,
 }
 
+/// GET `/v1/vector_index/stats` — snapshot of the embedded Lance index.
+///
+/// Returns:
+///  - per-dim row count + index-built flag
+///  - total distinct dims
+///  - last hydration timestamp (Unix seconds)
+///  - last incremental append timestamp (Unix seconds)
+///  - index type (`IVF_PQ`)
+///  - whether `EMEM_DISABLE_LANCE=1` is currently in effect
+///
+/// When the index hasn't been opened (e.g. boot opened the directory
+/// but no hydration has happened yet), the per-dim list is empty and
+/// `total_dims = 0`. Agents can poll this endpoint to know when the
+/// ANN fast-path has finished hydrating after a deploy.
+async fn get_vector_index_stats() -> Json<JsonValue> {
+    let stats = match LANCE_INDEX_GLOBAL.get() {
+        Some(idx) => idx.stats().await,
+        None => emem_primitives::IndexStats {
+            disabled: emem_primitives::lance_index::lance_disabled(),
+            ..Default::default()
+        },
+    };
+    Json(json!({
+        "schema": "emem.vector_index_stats.v1",
+        "per_dim": stats.per_dim,
+        "total_dims": stats.total_dims,
+        "last_hydrated_at_unix_s": stats.last_hydrated_at_unix_s,
+        "last_appended_at_unix_s": stats.last_appended_at_unix_s,
+        "index_type": stats.index_type,
+        "disabled": stats.disabled,
+    }))
+}
+
 async fn get_corpus_state_stats(
     State(s): State<AppState>,
 ) -> Result<Json<CorpusStateStats>, ApiError> {
@@ -22946,10 +23030,32 @@ async fn sign_and_persist_many(
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
     };
-    s.storage
+    let cids = s
+        .storage
         .put_attestation(&att)
         .await
-        .map_err(|e| format!("put_attestation: {e}"))
+        .map_err(|e| format!("put_attestation: {e}"))?;
+    // Incremental append into the Lance ANN index. Best-effort: a failure
+    // here must not unwind the sled write (sled is authoritative). Only
+    // primary facts with a `Vec<f32>` value are vector candidates;
+    // everything else (numeric, struct, absence) is silently skipped.
+    if let Some(idx) = LANCE_INDEX_GLOBAL.get() {
+        for (cid, fact) in cids.iter().zip(att.facts.iter()) {
+            if let Fact::Primary(p) = fact {
+                if let Some(vec) = emem_primitives::cbor_ops::as_vec_f32(&p.value) {
+                    if !vec.is_empty() {
+                        let key = emem_cache::CanonicalKey {
+                            cell: p.cell.clone(),
+                            band: p.band.clone(),
+                            tslot: p.tslot,
+                        };
+                        idx.append_fact(&key, cid, vec).await;
+                    }
+                }
+            }
+        }
+    }
+    Ok(cids)
 }
 
 /// Long-timeout HTTP client for STAC + COG range reads. The default
@@ -34878,6 +34984,14 @@ static ATTEST_FAIL_TOTAL: AtomicU64 = AtomicU64::new(0);
 static RECALL_TOTAL: AtomicU64 = AtomicU64::new(0);
 static MCP_TOTAL: AtomicU64 = AtomicU64::new(0);
 static START_INSTANT: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// Process-global handle to the embedded Lance vector index. Installed
+/// by `router(...)` after a successful open; consumed by the
+/// `/v1/vector_index/stats` endpoint and by smoke tests. Separate from
+/// the OnceLock inside `emem_primitives::find_similar` because that one
+/// is intentionally write-once-only — this stats handle wants to read
+/// the same Arc without going through the primitive's gated accessor.
+static LANCE_INDEX_GLOBAL: std::sync::OnceLock<Arc<LanceIndex>> = std::sync::OnceLock::new();
 
 // ── Agent stats aggregator ───────────────────────────────────────────────
 //

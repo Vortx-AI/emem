@@ -19,6 +19,22 @@ thiserror    = { workspace = true }
 async-trait  = { workspace = true }
 tokio        = { workspace = true }
 blake3       = { workspace = true }
+tracing      = { workspace = true }
+futures-util = { workspace = true }
+
+# Lance — embedded columnar/vector index. The brute-force find_similar
+# path remains as a fallback; Lance is an ANN accelerator over per-dim
+# FixedSizeList<Float32> partitions. Disabled features that pull in
+# cloud object stores so a default build stays light: aws/azure/gcp/oss/
+# huggingface/tencent and geo are all off, leaving only the local
+# columnar file format + index machinery.
+lance        = { version = "6.0.1", default-features = false }
+lance-index  = { version = "6.0.1", default-features = false }
+lance-linalg = { version = "6.0.1" }
+arrow-array  = "58"
+arrow-schema = "58"
 
 [dev-dependencies]
 serde_json   = { workspace = true }
+tempfile     = "3"
+rand         = { workspace = true }

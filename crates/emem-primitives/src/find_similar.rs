@@ -12,6 +12,8 @@
 //! protocol surface (`Storage::iter_index`) is the same.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,34 @@ use crate::binary_embedding::{
     hamming_distance, hamming_score, pack_bin128_slice, BIN_BYTES, BIN_DIMS,
 };
 use crate::cbor_ops::{as_vec_f32, cosine, eq, lt};
+use crate::lance_index::{lance_disabled, LanceIndex};
+
+/// Process-global Lance handle, installed by the API layer at boot via
+/// [`set_lance_index`]. When `Some`, the Lance ANN fast-path is tried
+/// before the brute-force scan; when `None` (tests, ephemeral deploys)
+/// the historical scan runs unchanged. Set once at boot — `OnceLock`
+/// gives lock-free reads on the hot path without forcing the API layer
+/// to thread a handle through every primitive call.
+static LANCE: OnceLock<Arc<LanceIndex>> = OnceLock::new();
+
+/// Install the process-global Lance index. Idempotent — repeated calls
+/// after the first are no-ops. Called by `emem-api-rest::router(...)`
+/// before any request is served.
+pub fn set_lance_index(idx: Arc<LanceIndex>) {
+    let _ = LANCE.set(idx);
+}
+
+/// Read the process-global Lance index, if one was installed AND the
+/// kill-switch `EMEM_DISABLE_LANCE=1` is not set. Returning `None` makes
+/// `find_similar` fall through to the brute-force scan — that's the
+/// contract used for A/B correctness in tests and for production
+/// incidents where the index needs to be turned off without redeploy.
+fn lance_handle() -> Option<&'static Arc<LanceIndex>> {
+    if lance_disabled() {
+        return None;
+    }
+    LANCE.get()
+}
 
 /// Scoring mode for [`find_similar`]. The default `cosine` is the
 /// historical behaviour (fp32 cosine over the requested band).
@@ -313,6 +343,17 @@ pub async fn find_similar(
     // Branch *before* loading the full vector — for `Hamming` we do
     // not need it at all, and for `HammingThenRerank` we delegate the
     // full-vector load to the rerank phase only on the shortlist.
+    //
+    // For `HammingThenRerank`, attempt the Lance cosine ANN path first
+    // (same precision as the triage→rerank result, but without the
+    // 4–16× oversampling factor) when no filter is set and the
+    // requested band is the cosine sibling family. Falls through to
+    // the Hamming binary path otherwise.
+    if matches!(req.mode, FindSimilarMode::HammingThenRerank) && req.filter.is_none() {
+        if let Some(resp) = try_lance_cosine(req, srv, started, k, &band).await? {
+            return Ok(resp);
+        }
+    }
     if matches!(
         req.mode,
         FindSimilarMode::Hamming | FindSimilarMode::HammingThenRerank
@@ -325,6 +366,22 @@ pub async fn find_similar(
     } else {
         load_cell_vec(storage, &req.key, &band).await?
     };
+
+    // ── Lance ANN fast-path ────────────────────────────────────────
+    // When the global LanceIndex is installed and the corpus has been
+    // hydrated, try the IVF_PQ index first. We only take this path for
+    // `Cosine` here (Hamming variants already routed above), no filter
+    // present (Lance push-down filters would require a separate code
+    // path), and a non-empty query vector. The path is strictly an
+    // accelerator: any failure or empty result falls through to the
+    // brute-force scan below.
+    if !query_vec.is_empty() && req.filter.is_none() {
+        if let Some(resp) =
+            try_lance_with_query(&query_vec, req, srv, started, k, &band).await?
+        {
+            return Ok(resp);
+        }
+    }
 
     if query_vec.is_empty() {
         // Surface what *is* attested at this cell so the agent can pick a
@@ -428,6 +485,98 @@ pub async fn find_similar(
         interpretation,
         receipt,
     })
+}
+
+/// Attempt the Lance ANN cosine path with the query vector resolved
+/// off `req.key` (cell64 → fact lookup or inline literal). Returns
+/// `Ok(None)` when the Lance index isn't present, the query vector
+/// can't be loaded, or Lance returns 0 results — every such case
+/// must fall through to brute force.
+async fn try_lance_cosine(
+    req: &FindSimilarReq,
+    srv: &Server,
+    started: Instant,
+    k: usize,
+    band: &str,
+) -> Result<Option<FindSimilarResp>, StorageError> {
+    if lance_handle().is_none() {
+        return Ok(None);
+    }
+    let storage = srv.storage.as_ref();
+    let query_vec: Vec<f32> = if let Some(rest) = req.key.strip_prefix("inline:") {
+        match parse_inline_vec(rest) {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        }
+    } else {
+        load_cell_vec(storage, &req.key, band).await.unwrap_or_default()
+    };
+    if query_vec.is_empty() {
+        return Ok(None);
+    }
+    try_lance_with_query(&query_vec, req, srv, started, k, band).await
+}
+
+/// Run the Lance ANN scan with a caller-supplied query vector. Returns
+/// `Ok(None)` when Lance produces no usable neighbours (which signals
+/// the brute-force fallback). The receipt is signed here so the caller
+/// can return the response directly.
+async fn try_lance_with_query(
+    query_vec: &[f32],
+    req: &FindSimilarReq,
+    srv: &Server,
+    started: Instant,
+    k: usize,
+    band: &str,
+) -> Result<Option<FindSimilarResp>, StorageError> {
+    let Some(lance) = lance_handle() else {
+        return Ok(None);
+    };
+    // Oversample so per-cell dedupe doesn't shrink the top-k below `k`
+    // distinct cells (multi-vintage attestations).
+    let oversample = 4;
+    let triples = match lance.knn(query_vec, k, Some(band), oversample).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::debug!(
+                target: "emem::lance",
+                band = %band,
+                error = %e,
+                "Lance knn failed; falling back to brute force"
+            );
+            return Ok(None);
+        }
+    };
+    let self_match: Option<&str> = if req.key.starts_with("inline:") {
+        None
+    } else {
+        Some(req.key.as_str())
+    };
+    let mut scored: Vec<(Neighbor, FactCid)> = Vec::with_capacity(triples.len());
+    for (cell, score, cid_str) in triples {
+        if Some(cell.as_str()) == self_match {
+            continue;
+        }
+        if score.is_nan() {
+            continue;
+        }
+        scored.push((make_neighbor(cell, score), FactCid::new(&cid_str)));
+    }
+    if scored.is_empty() {
+        return Ok(None);
+    }
+    let (kept, kept_cids) = dedupe_top_k_by_cell(scored, k);
+    let cells: Vec<String> = kept.iter().map(|n| n.cell.clone()).collect();
+    let returned_k = kept.len() as u32;
+    let interpretation = interpretation_for_band(band);
+    let receipt = srv.sign_receipt("emem.find_similar", cells, kept_cids, true, started, None);
+    Ok(Some(FindSimilarResp {
+        neighbors: kept,
+        requested_k: k as u32,
+        returned_k,
+        interpretation,
+        receipt,
+    }))
 }
 
 /// Group scored candidates by `cell64`, keep the highest-scoring entry
