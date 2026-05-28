@@ -1,7 +1,7 @@
 [book]
-title       = "emem.dev — Earth memory protocol"
+title       = "emem.dev — verifiable memory for AI agents"
 authors     = ["Vortx-AI"]
-description = "Signed, cell-addressed Earth memory. Protocol, registries, agents, primitives."
+description = "Earth memory + agent memory on one signed substrate. Every read returns an ed25519 receipt. Every write is content-addressed. Bi-temporal at every query."
 src         = "."
 language    = "en"
 
