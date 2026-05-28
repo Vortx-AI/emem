@@ -300,8 +300,37 @@ impl Server {
         intent: Option<String>,
         bound: &AsOfBound,
     ) -> Receipt {
-        let mut receipt =
-            self.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent);
+        self.sign_receipt_full(
+            primitive, cells, fact_cids, was_cached, started, intent, None, bound,
+        )
+    }
+
+    /// Composed signer that honours both `scope` (v0.0.8) and `bound`
+    /// (bi-temporal valid/transaction time). The preimage branches on
+    /// `scope` exactly as [`Server::sign_receipt_with_scope`]; the
+    /// `as_of` block is attached to the receipt body after signing —
+    /// it does not enter the signed bytes, matching the bi-temporal
+    /// design that already shipped.
+    ///
+    /// Existing call sites that only care about one axis call
+    /// [`Server::sign_receipt_with_as_of`] (no scope) or
+    /// [`Server::sign_receipt_with_scope`] (no bound); this method is
+    /// the convergence point for any primitive that takes both.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sign_receipt_full(
+        &self,
+        primitive: &'static str,
+        cells: Vec<String>,
+        fact_cids: Vec<FactCid>,
+        was_cached: bool,
+        started: Instant,
+        intent: Option<String>,
+        scope: Option<emem_fact::Scope>,
+        bound: &AsOfBound,
+    ) -> Receipt {
+        let mut receipt = self.sign_receipt_with_scope(
+            primitive, cells, fact_cids, was_cached, started, intent, scope,
+        );
         if !bound.is_unbounded() {
             receipt.as_of = Some(AsOfReceipt {
                 valid_time: bound.valid_time,

@@ -5758,6 +5758,14 @@ struct RecallApiReq {
     /// Bi-temporal transaction-time bound (RFC 3339).
     #[serde(default)]
     as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8). When at least one field is `Some`,
+    /// the returned receipt binds the scope into its signature
+    /// preimage so an offline verifier can replay the same recall on
+    /// the same caller. Filtering on scope (only returning facts
+    /// written under the same scope) lands in v0.0.9 — v0.0.8 ships
+    /// scope as a receipt-binding + audit-log primitive.
+    #[serde(default)]
+    scope: Option<emem_fact::Scope>,
 }
 
 impl From<RecallApiReq> for RecallReq {
@@ -5782,6 +5790,7 @@ impl From<RecallApiReq> for RecallReq {
             tslot: api.tslot,
             as_of_tslot: api.as_of_tslot,
             as_of_signed_at: api.as_of_signed_at,
+            scope: api.scope,
         }
     }
 }
@@ -9472,6 +9481,7 @@ async fn post_recall_polygon(
                 tslot,
                 as_of_tslot,
                 as_of_signed_at,
+                scope: None,
             };
             (
                 idx,
@@ -9592,6 +9602,7 @@ async fn post_recall_polygon(
                 tslot: req.tslot,
                 as_of_tslot: req.as_of_tslot,
                 as_of_signed_at: req.as_of_signed_at.clone(),
+            scope: None,
             };
             match recall_with_auto_materialize(&r, &s).await {
                 Ok((resp, notes)) => {
@@ -14135,6 +14146,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         tslot: req.tslot,
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
+    scope: None,
     };
     let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -14297,6 +14309,7 @@ async fn post_state_multi(
             tslot: req.tslot,
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
+        scope: None,
         };
         match recall_with_auto_materialize(&recall_req, &s).await {
             Ok((resp, _notes)) => {
@@ -14699,6 +14712,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         tslot: req.tslot,
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
+    scope: None,
     };
 
     let (resp, materialize_notes) = if materialize {
@@ -14732,6 +14746,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
             tslot: req.tslot,
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
+        scope: None,
         };
         match recall_with_auto_materialize(&warm_req, &s).await {
             Ok((r, n)) => {
@@ -15640,6 +15655,7 @@ async fn post_memory_bundle(
             tslot: t.tslot,
             as_of_tslot: t.as_of_tslot,
             as_of_signed_at: t.as_of_signed_at.clone(),
+        scope: None,
         };
         let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 

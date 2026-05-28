@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use emem_cache::CanonicalKey;
 use emem_core::ErrorCode;
-use emem_fact::{Fact, FactCid, Receipt};
+use emem_fact::{Fact, FactCid, Receipt, Scope};
 use emem_storage::{AsOfBound, Server, StorageError};
 
 use crate::cbor_ops::parse_rfc3339_strict;
@@ -40,6 +40,16 @@ pub struct RecallReq {
     /// `code: "invalid_signed_at_format"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (`{user_id, agent_id, run_id, org_id}`). When
+    /// at least one field is `Some`, the returned receipt carries the
+    /// scope and the signature preimage includes
+    /// `blake3(canonical_cbor(scope))` so an offline verifier rebinds
+    /// the response to this caller. The fact-filter side of scope
+    /// (sled-tree `scope_index` + write-side tagging) lands in v0.0.9
+    /// — v0.0.8 ships scope as a receipt-binding + audit-log primitive,
+    /// not yet a recall-time filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Scope>,
 }
 
 impl RecallReq {
@@ -271,13 +281,14 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         None
     };
 
-    let receipt = srv.sign_receipt_with_as_of(
+    let receipt = srv.sign_receipt_full(
         "emem.recall",
         vec![req.cell.clone()],
         cids,
         true,
         started,
         None,
+        req.scope.clone(),
         &bound,
     );
     Ok(RecallResp {
