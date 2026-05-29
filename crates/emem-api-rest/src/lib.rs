@@ -3161,9 +3161,13 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             "tools":     { "count": tools.len(), "listChanged": false },
             "resources": { "listChanged": false, "subscribe": false },
             "prompts":   { "listChanged": false },
+            // Task-augmented execution (spec 2025-11-25): tasks/get,
+            // tasks/result, tasks/list, tasks/cancel are implemented;
+            // emem_eudr_dds and emem_hunt advertise taskSupport=optional.
+            "tasks":     { "list": {}, "cancel": {}, "requests": { "tools": { "call": {} } } },
             "auth":      { "type": "none", "required": false },
             "transport": ["streamable-http", "http+json"],
-            "protocol_versions": ["2024-11-05", "2025-03-26", "2025-06-18"],
+            "protocol_versions": ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"],
         },
         "tools": tools,
         "discovery": {
@@ -11374,7 +11378,257 @@ async fn post_fetch(
     Ok(Json(out))
 }
 
-// ── MCP JSON-RPC 2.0 ──────────────────────────────────────────────────────
+// ── MCP async task registry (spec revision 2025-11-25) ────────────────────
+//
+// The 2025-11-25 MCP revision defines task-augmented requests: a
+// `tools/call` whose params carry a `task: { ttl? }` object returns a
+// `CreateTaskResult` immediately (a `Task` with `taskId` + `status`), runs
+// the tool in the background, and the host later polls `tasks/get` for
+// status and `tasks/result` for the final `CallToolResult`. We implement
+// exactly those spec method names. The synchronous path (no `task` param)
+// is unchanged.
+//
+// Backing store: a process-global `Mutex<HashMap<TaskId, TaskSlot>>`. Bound
+// is enforced two ways — a hard `MAX_TASKS` cap (oldest finished task is
+// evicted first; if none are finished the new task is rejected with a
+// JSON-RPC error) and a per-task TTL after which a *completed* task's slot
+// is reaped on the next registry touch. This keeps the map from growing
+// unbounded under a misbehaving or chatty host.
+
+/// Spec task status strings (`TaskStatus` in schema 2025-11-25). We use
+/// `working` while the join handle is in flight and `completed` / `failed`
+/// once it resolves. We do not emit `input_required` (no elicitation path)
+/// and `cancelled` only after an explicit `tasks/cancel`.
+const TASK_STATUS_WORKING: &str = "working";
+const TASK_STATUS_COMPLETED: &str = "completed";
+const TASK_STATUS_FAILED: &str = "failed";
+const TASK_STATUS_CANCELLED: &str = "cancelled";
+
+/// Hard upper bound on live task slots. Picked well above any realistic
+/// concurrent slow-tool fan-out for a single host while staying small
+/// enough that a leaked-poll loop can't exhaust memory.
+const MCP_MAX_TASKS: usize = 256;
+
+/// Default retention for a finished task slot when the caller does not
+/// request a `ttl`. The host is expected to poll within this window.
+const MCP_TASK_DEFAULT_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// Upper clamp on a caller-requested `ttl` so a host cannot pin a slot
+/// open indefinitely.
+const MCP_TASK_MAX_TTL_MS: u64 = 30 * 60 * 1000;
+
+/// Suggested poll cadence handed back to the host in the `Task.pollInterval`
+/// field (milliseconds). The slow tools settle in single-digit seconds.
+const MCP_TASK_POLL_INTERVAL_MS: u64 = 1000;
+
+/// One task's state in the registry. The spawned tool future writes its
+/// own terminal status + result back into this slot on completion (see
+/// `mcp_spawn_task`), so polling never blocks on a join handle. The
+/// `abort` handle is retained only so `tasks/cancel` can stop in-flight
+/// work.
+struct McpTaskSlot {
+    status: String,
+    status_message: Option<String>,
+    /// RFC3339 creation timestamp (spec `Task.createdAt`).
+    created_at_iso: String,
+    /// RFC3339 last-status-change timestamp (spec `Task.lastUpdatedAt`).
+    last_updated_iso: String,
+    /// Unix-ms of the last status change, used for TTL reaping.
+    last_updated_ms: u64,
+    ttl_ms: u64,
+    /// `Some` once the tool finished and we captured the `CallToolResult`
+    /// JSON (success) or a synthesised `isError` result (tool error).
+    result: Option<JsonValue>,
+    /// Abort handle for an in-flight task; `None` once terminal.
+    abort: Option<tokio::task::AbortHandle>,
+}
+
+impl McpTaskSlot {
+    /// A slot is terminal once it has no live abort handle (the spawned
+    /// future cleared it on completion, or `tasks/cancel` took it).
+    fn is_terminal(&self) -> bool {
+        self.abort.is_none()
+    }
+}
+
+/// Process-global async-task registry. `LazyLock` so it initialises on
+/// first task and adds no startup cost for the synchronous-only path.
+static MCP_TASKS: LazyLock<Mutex<std::collections::HashMap<String, McpTaskSlot>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+fn now_unix_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Build the spec `Task` object for a slot.
+fn task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
+    json!({
+        "taskId":        task_id,
+        "status":        slot.status,
+        "statusMessage": slot.status_message,
+        "createdAt":     slot.created_at_iso,
+        "lastUpdatedAt": slot.last_updated_iso,
+        "ttl":           slot.ttl_ms,
+        "pollInterval":  MCP_TASK_POLL_INTERVAL_MS,
+    })
+}
+
+/// Evict terminal slots whose TTL has elapsed. In-flight slots are kept
+/// regardless of age (a slow tool legitimately runs longer than the TTL,
+/// which only governs *post-completion* retention). Takes the lock itself.
+fn mcp_tasks_reap(now_ms: u64) {
+    let mut map = MCP_TASKS.lock().unwrap();
+    map.retain(|_, slot| {
+        if !slot.is_terminal() {
+            return true; // still running — keep regardless of age
+        }
+        now_ms.saturating_sub(slot.last_updated_ms) < slot.ttl_ms
+    });
+}
+
+/// Spawn `mcp_tool_call` for `name`/`args` as a background task, register a
+/// `working` slot, and return the spec `CreateTaskResult` (`{ task: {...} }`)
+/// to return immediately. The spawned future writes its own terminal status
+/// and `CallToolResult` JSON back into the slot when it finishes. Enforces
+/// the `MCP_MAX_TASKS` bound (evicting the oldest finished slot, else
+/// erroring).
+fn mcp_spawn_task(
+    name: &str,
+    args: JsonValue,
+    ttl_ms: u64,
+    s: &AppState,
+) -> Result<JsonValue, (i64, String)> {
+    let now = now_unix_ms();
+    mcp_tasks_reap(now);
+
+    // Mint a task id: blake3 over clock + tool + a registry-unique salt.
+    let mut h = blake3::Hasher::new();
+    h.update(&now.to_le_bytes());
+    h.update(name.as_bytes());
+    h.update(&(MCP_TASKS.lock().unwrap().len() as u64).to_le_bytes());
+    let task_id = format!("emem-task-{}", &h.finalize().to_hex().to_string()[..26]);
+
+    {
+        let mut map = MCP_TASKS.lock().unwrap();
+        if map.len() >= MCP_MAX_TASKS {
+            // Try to make room by dropping the oldest terminal slot.
+            let victim = map
+                .iter()
+                .filter(|(_, sl)| sl.is_terminal())
+                .min_by_key(|(_, sl)| sl.last_updated_ms)
+                .map(|(id, _)| id.clone());
+            match victim {
+                Some(id) => {
+                    map.remove(&id);
+                }
+                None => {
+                    return Err((
+                        -32000,
+                        format!(
+                            "task registry at capacity ({MCP_MAX_TASKS} in-flight); \
+                             retry after a running task completes or use synchronous mode"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    let task_id_for_future = task_id.clone();
+    let name_owned = name.to_string();
+    let state = s.clone();
+    let join = tokio::spawn(async move {
+        let result = match mcp_tool_call(&name_owned, args, &state).await {
+            Ok(inner) => mcp_wrap_call_tool_result(inner),
+            Err((code, msg)) => {
+                if code == -32601 {
+                    json!({
+                        "content": [{
+                            "type": "text",
+                            "text": format!("method not found: {msg}"),
+                        }],
+                        "isError": true,
+                    })
+                } else {
+                    json!({
+                        "content": [{
+                            "type": "text",
+                            "text": format!("tool error ({code}): {msg}"),
+                        }],
+                        "isError": true,
+                    })
+                }
+            }
+        };
+        // Fold the terminal status + payload back into the slot.
+        let fin = now_unix_ms();
+        let fin_iso = iso8601_now_utc();
+        let mut map = MCP_TASKS.lock().unwrap();
+        if let Some(slot) = map.get_mut(&task_id_for_future) {
+            let is_err = result
+                .get("isError")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
+            // If a cancel raced in first, keep the cancelled status.
+            if slot.status != TASK_STATUS_CANCELLED {
+                slot.status = if is_err {
+                    TASK_STATUS_FAILED.to_string()
+                } else {
+                    TASK_STATUS_COMPLETED.to_string()
+                };
+                slot.result = Some(result);
+            }
+            slot.abort = None;
+            slot.last_updated_ms = fin;
+            slot.last_updated_iso = fin_iso;
+        }
+        json!({})
+    });
+
+    let now_iso = iso8601_now_utc();
+    let slot = McpTaskSlot {
+        status: TASK_STATUS_WORKING.to_string(),
+        status_message: None,
+        created_at_iso: now_iso.clone(),
+        last_updated_iso: now_iso,
+        last_updated_ms: now,
+        ttl_ms,
+        result: None,
+        abort: Some(join.abort_handle()),
+    };
+    let task_json = {
+        let mut map = MCP_TASKS.lock().unwrap();
+        map.insert(task_id.clone(), slot);
+        task_object(&task_id, map.get(&task_id).unwrap())
+    };
+    Ok(json!({ "task": task_json }))
+}
+
+/// Wrap a tool's inner JSON into the spec `CallToolResult` envelope, mirroring
+/// the synchronous `tools/call` path (multimodal `_mcp_content` escape hatch
+/// included) so an async result is byte-identical to the sync one.
+fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
+    let raw_content = inner.get("_mcp_content").and_then(|v| v.as_array()).cloned();
+    let raw_structured = inner.get("_mcp_structured").cloned();
+    if let Some(content) = raw_content {
+        json!({
+            "content": content,
+            "structuredContent": raw_structured.unwrap_or(JsonValue::Null),
+            "isError": false,
+        })
+    } else {
+        let text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
+        json!({
+            "content": [{"type": "text", "text": text}],
+            "structuredContent": inner,
+            "isError": false,
+        })
+    }
+}
 
 #[derive(Deserialize)]
 struct JsonRpcReq {
@@ -11412,7 +11666,8 @@ async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
         "method": "POST",
         "content_type": "application/json",
         "accept": ["application/json", "text/event-stream"],
-        "protocolVersion": "2025-03-26",
+        "protocolVersion": "2025-11-25",
+        "supportedProtocolVersions": ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"],
         "serverInfo": { "name": "emem", "version": env!("CARGO_PKG_VERSION") },
         "responder_pubkey_b32": pubkey,
         "tools": tools,
@@ -11728,12 +11983,15 @@ async fn mcp_jsonrpc(
             // Spec-correct version negotiation: if the client requested a
             // version we support, echo it back; otherwise default to our
             // highest. We support 2024-11-05 (initial Streamable-HTTP),
-            // 2025-03-26 (annotations, structuredContent), and 2025-06-18
-            // (tool titles + content-block resource refresh) — all three
-            // share the same wire shape for tools/list and tools/call,
-            // and emem's tools haven't required behavioural changes
-            // across them.
-            const SUPPORTED: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
+            // 2025-03-26 (annotations, structuredContent), 2025-06-18
+            // (tool titles + content-block resource refresh), and
+            // 2025-11-25 (task-augmented requests — the `tasks/*` methods +
+            // `tasks` server capability implemented below). All four share
+            // the same wire shape for tools/list and tools/call; only
+            // 2025-11-25 adds the optional task layer, which is additive.
+            const SUPPORTED: &[&str] =
+                &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+            const LATEST: &str = "2025-11-25";
             let requested = req
                 .params
                 .as_ref()
@@ -11743,8 +12001,40 @@ async fn mcp_jsonrpc(
             let negotiated = if SUPPORTED.contains(&requested) {
                 requested
             } else {
-                "2025-06-18"
+                LATEST
             };
+            // Capabilities are advertised honestly: only features with a
+            // real implemented path below appear here.
+            //
+            // - tools / resources / prompts: fully implemented.
+            // - tasks: implemented as `tasks/get`, `tasks/result`,
+            //   `tasks/list`, `tasks/cancel` with a bounded in-process
+            //   registry. The spec `tasks` capability is only meaningful at
+            //   2025-11-25, so we advertise it ONLY when that revision is
+            //   negotiated. `requests.tools.call` signals that
+            //   task-augmented `tools/call` is accepted (for the tools that
+            //   declare execution.taskSupport != forbidden).
+            // - sampling / elicitation: NOT advertised. Those are client
+            //   capabilities (server-initiated), and emem has no
+            //   implemented server-initiated sampling/elicitation path, so
+            //   claiming them would be false.
+            let mut capabilities = json!({
+                "tools":     { "listChanged": false },
+                "resources": { "listChanged": false, "subscribe": false },
+                "prompts":   { "listChanged": false },
+            });
+            if negotiated == "2025-11-25" {
+                if let Some(obj) = capabilities.as_object_mut() {
+                    obj.insert(
+                        "tasks".into(),
+                        json!({
+                            "list":   {},
+                            "cancel": {},
+                            "requests": { "tools": { "call": {} } },
+                        }),
+                    );
+                }
+            }
             Ok(json!({
                 "protocolVersion": negotiated,
                 "serverInfo": { "name": "emem", "version": env!("CARGO_PKG_VERSION") },
@@ -11754,11 +12044,7 @@ async fn mcp_jsonrpc(
                 // resources/list and prompts/list. `listChanged: false`
                 // because emem's resource and prompt sets are compiled in
                 // — they only change on a redeploy.
-                "capabilities": {
-                    "tools":     { "listChanged": false },
-                    "resources": { "listChanged": false, "subscribe": false },
-                    "prompts":   { "listChanged": false },
-                },
+                "capabilities": capabilities,
             }))
         }
         "tools/list" => {
@@ -11793,6 +12079,11 @@ async fn mcp_jsonrpc(
                 "title": t.title,
                 "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
                 "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
+                // Spec 2025-11-25 `Tool.execution.taskSupport`. "optional" on
+                // the documented slow tools (emem_eudr_dds, emem_hunt) so a
+                // host MAY run them as background tasks; "forbidden" (default)
+                // everywhere else.
+                "execution": { "taskSupport": emem_mcp::tool_task_support(t.name) },
                 "annotations": {
                     "title":           t.title,
                     "readOnlyHint":    t.read_only_hint,
@@ -11844,6 +12135,34 @@ async fn mcp_jsonrpc(
             let p = req.params.unwrap_or(JsonValue::Null);
             let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let args = p.get("arguments").cloned().unwrap_or(JsonValue::Null);
+            // Spec 2025-11-25 task-augmented execution: when params carry a
+            // `task` object AND the tool advertises `taskSupport != forbidden`,
+            // spawn the work in the background and return a CreateTaskResult
+            // immediately. Without `task`, behaviour is exactly as before.
+            // Requesting `task` on a non-task tool is a spec violation, so we
+            // reject it with an invalid-params error rather than silently
+            // running it synchronously.
+            let task_meta = p.get("task");
+            if let Some(task_meta) = task_meta {
+                let support = emem_mcp::tool_task_support(name);
+                if support == "forbidden" {
+                    Err((
+                        -32602,
+                        format!(
+                            "tool `{name}` does not support task-augmented execution \
+                             (execution.taskSupport=forbidden); omit the `task` param to \
+                             call it synchronously"
+                        ),
+                    ))
+                } else {
+                    let requested_ttl = task_meta
+                        .get("ttl")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(MCP_TASK_DEFAULT_TTL_MS);
+                    let ttl = requested_ttl.clamp(1, MCP_TASK_MAX_TTL_MS);
+                    mcp_spawn_task(name, args, ttl, &s)
+                }
+            } else {
             match mcp_tool_call(name, args, &s).await {
                 Ok(inner) => {
                     // Multimodal escape hatch. A tool that needs to emit
@@ -11855,26 +12174,7 @@ async fn mcp_jsonrpc(
                     // the structured-content sibling. This keeps the
                     // dispatch signature uniform while letting
                     // `emem_coverage_map` ship a real EmbeddedResource.
-                    let raw_content = inner
-                        .get("_mcp_content")
-                        .and_then(|v| v.as_array())
-                        .cloned();
-                    let raw_structured = inner.get("_mcp_structured").cloned();
-                    if let Some(content) = raw_content {
-                        Ok(json!({
-                            "content": content,
-                            "structuredContent": raw_structured.unwrap_or(JsonValue::Null),
-                            "isError": false,
-                        }))
-                    } else {
-                        let text =
-                            serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
-                        Ok(json!({
-                            "content": [{"type": "text", "text": text}],
-                            "structuredContent": inner,
-                            "isError": false,
-                        }))
-                    }
+                    Ok(mcp_wrap_call_tool_result(inner))
                 }
                 Err((code, msg)) => {
                     // Unknown-method (-32601) is a protocol error, propagate
@@ -11892,6 +12192,92 @@ async fn mcp_jsonrpc(
                         }))
                     }
                 }
+            }
+            }
+        }
+        // ---- MCP task lifecycle (spec revision 2025-11-25) --------------
+        //
+        // `tasks/get`    → the spec `Task` object (status snapshot).
+        // `tasks/result` → the final `CallToolResult` payload for a
+        //                  completed/failed task (spec `GetTaskPayloadResult`).
+        // `tasks/list`   → all live task objects (single page; emem keeps a
+        //                  small bounded set so no real pagination needed).
+        // `tasks/cancel` → abort an in-flight task; idempotent on terminal.
+        "tasks/get" => {
+            let p = req.params.unwrap_or(JsonValue::Null);
+            match p.get("taskId").and_then(|v| v.as_str()) {
+                Some(task_id) => {
+                    mcp_tasks_reap(now_unix_ms());
+                    let map = MCP_TASKS.lock().unwrap();
+                    match map.get(task_id) {
+                        Some(slot) => Ok(task_object(task_id, slot)),
+                        None => Err((
+                            -32602,
+                            format!("unknown taskId `{task_id}` (expired or never created)"),
+                        )),
+                    }
+                }
+                None => Err((-32602, "missing `taskId`".to_string())),
+            }
+        }
+        "tasks/result" => {
+            let p = req.params.unwrap_or(JsonValue::Null);
+            match p.get("taskId").and_then(|v| v.as_str()) {
+                Some(task_id) => {
+                    mcp_tasks_reap(now_unix_ms());
+                    let map = MCP_TASKS.lock().unwrap();
+                    match map.get(task_id) {
+                        Some(slot) => match &slot.result {
+                            Some(result) => Ok(result.clone()),
+                            None => Err((
+                                -32002,
+                                format!(
+                                    "task `{task_id}` is still {} — poll tasks/get until status \
+                                     is completed/failed before reading tasks/result",
+                                    slot.status
+                                ),
+                            )),
+                        },
+                        None => Err((
+                            -32602,
+                            format!("unknown taskId `{task_id}` (expired or never created)"),
+                        )),
+                    }
+                }
+                None => Err((-32602, "missing `taskId`".to_string())),
+            }
+        }
+        "tasks/list" => {
+            mcp_tasks_reap(now_unix_ms());
+            let map = MCP_TASKS.lock().unwrap();
+            let tasks: Vec<JsonValue> =
+                map.iter().map(|(id, slot)| task_object(id, slot)).collect();
+            Ok(json!({ "tasks": tasks }))
+        }
+        "tasks/cancel" => {
+            let p = req.params.unwrap_or(JsonValue::Null);
+            match p.get("taskId").and_then(|v| v.as_str()) {
+                Some(task_id) => {
+                    let now = now_unix_ms();
+                    let mut map = MCP_TASKS.lock().unwrap();
+                    match map.get_mut(task_id) {
+                        Some(slot) => {
+                            if let Some(abort) = slot.abort.take() {
+                                abort.abort();
+                                slot.status = TASK_STATUS_CANCELLED.to_string();
+                                slot.status_message = Some("cancelled by host".to_string());
+                                slot.last_updated_ms = now;
+                                slot.last_updated_iso = iso8601_now_utc();
+                            }
+                            Ok(task_object(task_id, map.get(task_id).unwrap()))
+                        }
+                        None => Err((
+                            -32602,
+                            format!("unknown taskId `{task_id}` (expired or never created)"),
+                        )),
+                    }
+                }
+                None => Err((-32602, "missing `taskId`".to_string())),
             }
         }
         // ---- MCP Resources ----------------------------------------------
@@ -11948,9 +12334,12 @@ async fn mcp_jsonrpc(
         // empty result here is harmless because the dispatch layer below
         // suppresses notifications when `id` is null.
         "notifications/initialized" => Ok(json!({})),
-        // Cancellation notifications — we don't track in-flight ids
-        // (every tool call is awaited synchronously here), so accept and
-        // discard.
+        // Cancellation notifications target a JSON-RPC request `id`.
+        // Synchronous tools/call is awaited inline (no in-flight id to
+        // cancel), and async task-augmented calls are cancelled via the
+        // spec `tasks/cancel` method (which targets a taskId, not the
+        // request id) — so this notification has nothing to act on here.
+        // Accept and discard per spec.
         "notifications/cancelled" => Ok(json!({})),
         // Optional health-ping; MCP spec leaves the response shape free
         // beyond it being a successful result.
@@ -44866,5 +45255,177 @@ mod tests {
                 "refinement must be OFF by default"
             );
         }
+    }
+
+    /// MCP async task handle (spec revision 2025-11-25): spawning a tool as
+    /// a background task returns a `CreateTaskResult` immediately with a
+    /// `taskId`/`status`; polling the registry eventually yields a
+    /// `CallToolResult` byte-EQUAL to the synchronous path for the same
+    /// args. We use the fast, deterministic, fully-local `emem_grid_info`
+    /// tool as the stand-in for the slow tools so the test is hermetic.
+    #[tokio::test]
+    async fn async_task_handle() {
+        let s = test_app_state();
+
+        // Synchronous reference result (what tools/call returns today).
+        let sync_inner = mcp_tool_call("emem_grid_info", json!({}), &s)
+            .await
+            .expect("sync grid_info ok");
+        let sync_result = mcp_wrap_call_tool_result(sync_inner);
+
+        // Async path: spawn → CreateTaskResult with a running task.
+        let create = mcp_spawn_task("emem_grid_info", json!({}), MCP_TASK_DEFAULT_TTL_MS, &s)
+            .expect("spawn ok");
+        let task = create.get("task").expect("CreateTaskResult has task");
+        let task_id = task
+            .get("taskId")
+            .and_then(|v| v.as_str())
+            .expect("taskId present")
+            .to_string();
+        assert!(task_id.starts_with("emem-task-"));
+        let initial_status = task.get("status").and_then(|v| v.as_str()).unwrap();
+        assert!(
+            initial_status == TASK_STATUS_WORKING || initial_status == TASK_STATUS_COMPLETED,
+            "fresh task should be working (or already completed on a fast tool), got {initial_status}"
+        );
+        // Spec Task object shape.
+        assert!(task.get("createdAt").is_some());
+        assert!(task.get("lastUpdatedAt").is_some());
+        assert!(task.get("pollInterval").is_some());
+
+        // Poll the registry (mirrors what the tasks/get + tasks/result
+        // dispatch does) until terminal, with a bounded number of yields.
+        let mut polled_result = None;
+        for _ in 0..200 {
+            {
+                let map = MCP_TASKS.lock().unwrap();
+                let slot = map.get(&task_id).expect("slot still present");
+                if slot.is_terminal() {
+                    assert_eq!(slot.status, TASK_STATUS_COMPLETED);
+                    polled_result = slot.result.clone();
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let polled_result = polled_result.expect("task reached terminal state with a result");
+
+        // The async result must equal the synchronous one for the same args.
+        assert_eq!(
+            polled_result, sync_result,
+            "async task result must equal the synchronous tools/call result"
+        );
+
+        // tasks/result-style read after completion returns the same payload.
+        let after = {
+            let map = MCP_TASKS.lock().unwrap();
+            map.get(&task_id).unwrap().result.clone().unwrap()
+        };
+        assert_eq!(after, sync_result);
+    }
+
+    /// A `task`-param `tools/call` against a tool whose taskSupport is
+    /// `forbidden` (the spec default for everything except the slow tools)
+    /// must be rejected — async mode is never silently downgraded to sync.
+    #[test]
+    fn async_task_forbidden_for_non_task_tools() {
+        // grid_info is fast/local — explicitly NOT in the async allow-list.
+        assert_eq!(emem_mcp::tool_task_support("emem_grid_info"), "forbidden");
+        // The documented slow tools opt in.
+        assert_eq!(emem_mcp::tool_task_support("emem_eudr_dds"), "optional");
+        assert_eq!(emem_mcp::tool_task_support("emem_hunt"), "optional");
+    }
+
+    /// initialize advertises ONLY capabilities emem actually implements at
+    /// the advertised protocolVersion. The advertised version must be one
+    /// of the real supported MCP revisions, and the `tasks` capability — if
+    /// present — must correspond to the implemented tasks/* dispatch and
+    /// only appear at the 2025-11-25 revision that defines it. Sampling and
+    /// elicitation are client capabilities with no server-side path here,
+    /// so they MUST NOT be advertised.
+    #[tokio::test]
+    async fn initialize_capabilities_honest() {
+        use axum::body::to_bytes;
+        use axum::response::IntoResponse;
+
+        // Real, published MCP protocol revisions (schema dirs on the spec
+        // repo). 2025-11-25 is the latest and the one that defines tasks.
+        const REAL_SUPPORTED: &[&str] =
+            &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+
+        async fn do_initialize(s: &AppState, requested: Option<&str>) -> JsonValue {
+            let params = match requested {
+                Some(v) => json!({ "protocolVersion": v }),
+                None => json!({}),
+            };
+            let body = serde_json::to_vec(&json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": params,
+            }))
+            .unwrap();
+            let resp = mcp_jsonrpc(
+                State(s.clone()),
+                axum::http::HeaderMap::new(),
+                axum::body::Bytes::from(body),
+            )
+            .await
+            .into_response();
+            let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            serde_json::from_slice(&bytes).unwrap()
+        }
+
+        let s = test_app_state();
+
+        // Default initialize (no requested version) → latest real revision.
+        let v = do_initialize(&s, None).await;
+        let result = v.get("result").expect("initialize returns a result");
+        let proto = result
+            .get("protocolVersion")
+            .and_then(|p| p.as_str())
+            .expect("protocolVersion present");
+        assert!(
+            REAL_SUPPORTED.contains(&proto),
+            "advertised protocolVersion `{proto}` must be a real published revision"
+        );
+        assert_eq!(proto, "2025-11-25", "default must negotiate the latest real revision");
+
+        let caps = result.get("capabilities").expect("capabilities present");
+        // Implemented capabilities.
+        assert!(caps.get("tools").is_some(), "tools is implemented");
+        assert!(caps.get("resources").is_some(), "resources is implemented");
+        assert!(caps.get("prompts").is_some(), "prompts is implemented");
+        // tasks present at 2025-11-25 and matches the implemented dispatch
+        // (tasks/list, tasks/cancel, task-augmented tools/call).
+        let tasks = caps.get("tasks").expect("tasks advertised at 2025-11-25");
+        assert!(tasks.get("list").is_some());
+        assert!(tasks.get("cancel").is_some());
+        assert!(tasks
+            .get("requests")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.get("call"))
+            .is_some());
+        // Honesty: no sampling / elicitation path implemented → not claimed.
+        assert!(
+            caps.get("sampling").is_none(),
+            "emem implements no server-initiated sampling path; must not advertise it"
+        );
+        assert!(
+            caps.get("elicitation").is_none(),
+            "emem implements no elicitation path; must not advertise it"
+        );
+
+        // An older negotiated revision must NOT advertise the tasks
+        // capability (it isn't defined before 2025-11-25), even though the
+        // tasks/* methods remain reachable for clients that try them.
+        let v_old = do_initialize(&s, Some("2025-06-18")).await;
+        let caps_old = v_old.get("result").unwrap().get("capabilities").unwrap();
+        assert_eq!(
+            v_old.get("result").unwrap().get("protocolVersion").unwrap(),
+            "2025-06-18"
+        );
+        assert!(
+            caps_old.get("tasks").is_none(),
+            "tasks capability is 2025-11-25-only and must not appear at 2025-06-18"
+        );
     }
 }

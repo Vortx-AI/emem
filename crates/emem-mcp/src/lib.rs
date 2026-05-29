@@ -1431,6 +1431,31 @@ pub fn tools_at_level(level: &str) -> Vec<&'static ToolDescriptor> {
         .collect()
 }
 
+/// Names of tools whose worst-case latency can exceed a typical MCP host
+/// call timeout (>3 s) and which therefore advertise `execution.taskSupport
+/// = "optional"` in `tools/list` and accept the spec `task` request param
+/// in `tools/call`. Every other tool keeps the spec default
+/// (`taskSupport = "forbidden"`), so async mode is rejected for them.
+///
+/// `emem_eudr_dds` fans out 6 bands per cell across a multi-cell plot and
+/// can take tens of seconds cold; `emem_hunt` runs a multi-event sweep with
+/// per-cell reranking. Both are the documented slow paths.
+pub const ASYNC_TASK_TOOLS: &[&str] = &["emem_eudr_dds", "emem_hunt"];
+
+/// MCP `Tool.execution.taskSupport` value for a tool, by name.
+///
+/// Returns `"optional"` for the long-running tools in [`ASYNC_TASK_TOOLS`]
+/// (the caller MAY request task-augmented execution) and `"forbidden"` —
+/// the spec default — for everything else. Unknown names also return
+/// `"forbidden"`.
+pub fn tool_task_support(name: &str) -> &'static str {
+    if ASYNC_TASK_TOOLS.contains(&name) {
+        "optional"
+    } else {
+        "forbidden"
+    }
+}
+
 /// Tools at the given discovery tier. `"core"` returns the default
 /// high-signal subset; `"extended"` returns the rest; `"all"` returns
 /// everything. Unknown values fall back to `"core"`.
