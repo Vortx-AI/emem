@@ -1173,7 +1173,7 @@ until §12 changes.
 
 ## 13. Sources and connectors
 
-`emem-fetch` ships **12 data connectors + 6 utility modules**.
+`emem-fetch` ships **16 data connectors + 13 utility modules**.
 **46 source schemes** are declared in `sources-v0.json`; the wired
 subset answers recall today.
 
@@ -1328,7 +1328,7 @@ captured for the 30-day journald retention window.
   `dl2.geotessera.org` bucket ships 2017-2024 annual vintages; most
   cells in `/v1/coverage` have only the latest year attested
   locally.
-- **12 wired data connectors.** The catalog count (43 declared
+- **16 wired data connectors.** The catalog count (46 declared
   schemes) is not the pitch. Five schemes remain declared-but-
   unwired: `openet.30m.daily`, `dynamic_world.v1`,
   `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`.

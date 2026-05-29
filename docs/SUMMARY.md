@@ -1,7 +1,10 @@
 # Summary
 
 [Introduction](./intro.md)
+[Why an agent benefits from emem](./why-agents.md)
 [Quickstart (60 seconds)](./quickstart.md)
+[What only emem does](./only-emem.md)
+[Connect & evolve](./connect-and-evolve.md)
 
 ---
 

@@ -57,12 +57,14 @@ fan-out (3+ windows × ~8 samples for `flood_risk@2` cold).
 
 ## Live connector inventory
 
-The `emem-fetch` crate ships 12 data connector modules (chirps, cog,
-dmsp_ols, firms, ftw, geonames, hansen_gfc, koppen, overture, terraclimate,
-wdpa, worldpop) and 6 utility modules (cache_window, connectors, lib, proj,
-stac, template). The remainder of the live ingest surface is inline
-materializers inside `crates/emem-api-rest/src/lib.rs` that hit JSON REST
-endpoints directly without a dedicated fetch module. Both classes are
+The `emem-fetch` crate ships 16 data connector modules (chirps, cog,
+copernicus_dem, dmsp_ols, esa_cci_biomass, esa_worldcover, firms, ftw,
+geonames, gmrt, hansen_gfc, jrc_gfc2020, jrc_gsw, jrc_tmf, koppen, overture,
+radd_alerts, terraclimate, wdpa, worldpop, wri_gdm_drivers) and 13 utility
+modules (admin1, admin2, admin3, cache_window, connectors, countries, lib,
+pois, proj, stac, template). The remainder of the live ingest surface is
+inline materializers inside `crates/emem-api-rest/src/lib.rs` that hit JSON
+REST endpoints directly without a dedicated fetch module. Both classes are
 listed below.
 
 `crates/emem-core/data/sources-v0.json` declares 46 source schemes; the
