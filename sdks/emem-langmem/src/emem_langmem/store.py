@@ -174,11 +174,15 @@ class EmemStore(BaseStore[_K, _V]):
     def mset(self, key_value_pairs: Sequence[tuple[_K, _V]]) -> None:
         for k, v in key_value_pairs:
             path = _key_to_path(k)
+            # Anthropic memory-tool spec field name is `file_text`, not
+            # `content` — confirmed against the emem responder which
+            # returns `tool error (-32602): missing field 'file_text'`
+            # when the wrong field is sent.
             self._mcp_call(
                 "memory_create",
                 {
                     "path": path,
-                    "content": _encode_value(v),
+                    "file_text": _encode_value(v),
                     "kind": self.default_kind,
                 },
             )
@@ -213,11 +217,12 @@ class EmemStore(BaseStore[_K, _V]):
     async def amset(self, key_value_pairs: Sequence[tuple[_K, _V]]) -> None:
         for k, v in key_value_pairs:
             path = _key_to_path(k)
+            # See note on mset — field is `file_text`, not `content`.
             await self._mcp_call_async(
                 "memory_create",
                 {
                     "path": path,
-                    "content": _encode_value(v),
+                    "file_text": _encode_value(v),
                     "kind": self.default_kind,
                 },
             )

@@ -71,7 +71,7 @@ def test_mset_dispatches_memory_create():
     assert captured["body"]["method"] == "tools/call"
     assert captured["body"]["params"]["name"] == "memory_create"
     assert captured["body"]["params"]["arguments"]["path"] == "/memories/my-note"
-    assert captured["body"]["params"]["arguments"]["content"] == "hello"
+    assert captured["body"]["params"]["arguments"]["file_text"] == "hello"
     assert captured["body"]["params"]["arguments"]["kind"] == "resource"
 
 
