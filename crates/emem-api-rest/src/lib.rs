@@ -13434,7 +13434,7 @@ async fn openapi() -> Json<JsonValue> {
                     "forest_baseline_override":{"type":"string","description":"Optional baseline override: 'jrc_gfc2020_v3' (default), 'hansen_only', or 'both' (consensus)."},
                     "legality_module":{"type":"string","description":"Operator-chosen legality provider. Default 'none' surfaces the explicit Article 9(1)(b) out-of-scope disclaimer."},
                     "operator":{"type":"object","description":"Operator identification per Annex II §1.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
-                    "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":256,"default":16,"description":"Sample budget per POLYGON plot. POINT plots evaluate at 1 cell regardless of this value."}
+                    "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"default":"auto-derived from polygon area (~110 cells/ha, clamped to 51,200)","description":"Sample budget per POLYGON plot. POINT plots evaluate at 1 cell regardless of this value."}
                 }},
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
                 "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
@@ -32138,6 +32138,18 @@ fn verdict_label(code: u8) -> &'static str {
 const EUDR_MMU_THRESHOLD_HA: f64 = 0.5;
 const EUDR_CELL_AREA_M2: f64 = 9.55 * 9.55;
 
+/// Per-plot cell sample ceiling. Raised from 512 → 51,200 in the
+/// 2026-05-29 audit because the previous cap left a 12 kha plot at
+/// 0.04 % sampling — fine for cell-level signed facts, too thin for
+/// regulator-grade statistics. The batched-polygon COG path
+/// ([`batch_build_facts_via_window`]) makes the extra cells essentially
+/// free: one `cog::sample_window` already pulls every pixel in the
+/// bbox, and the cells are pure indices into the in-memory buffer.
+///
+/// Override per request via `max_cells_per_plot` (operators on tight
+/// payload budgets) — clamped to `1..=51_200`.
+const EUDR_MAX_CELLS_PER_PLOT: usize = 51_200;
+
 /// Result of applying the 0.5 ha MMU floor to a plot's failing-cell
 /// count. If the failing area is below 0.5 ha, the verdict is demoted
 /// to `below_mmu` (code 6) and treated as compliant in DDS aggregation.
@@ -32148,8 +32160,37 @@ struct MmuDemotion {
     mmu_floor_applied: bool,
 }
 
-fn mmu_demote(failing_cells: usize, cell_area_m2: f64) -> MmuDemotion {
-    let failing_area_ha = (failing_cells as f64 * cell_area_m2) / 10_000.0;
+/// Compute the failing-area projection for the EUDR Article 2(4) 0.5 ha
+/// MMU floor.
+///
+/// **What this fixes (audit 2026-05-29).** The previous version of this
+/// function computed `failing_area_ha = failing_cells × cell_area_m²`,
+/// which is only valid when every pixel of the plot is sampled — true
+/// for plots up to ~4 ha (n_cells caps at 512 ≈ 4.7 ha of cell area).
+/// For larger plots the sampler hits its `EMEM_BORING_MAX_CELLS=512` cap
+/// and only inspects ~0.04 % of the polygon, so the raw `n_fail × cell`
+/// math under-reports the failing area by hundreds or thousands of
+/// times. A 12 kha plot with 4.3 % failing pixels was reporting
+/// `failing_area_ha: 0.20` (below the 0.5 ha MMU floor → "compliant")
+/// when extrapolation gave ≈528 ha (firmly non-compliant). That's a
+/// regulatory-grade false positive.
+///
+/// **The fix.** Project failing-area as `(failing_cells / total_cells) ×
+/// polygon_area_ha`. For dense sampling (≥ 1 cell per real-world pixel)
+/// this matches the old formula; for sparse sampling it scales to the
+/// actual polygon. The MMU verdict is checked against the projected
+/// area, not the sampled-cell area.
+///
+/// The per-plot response also surfaces `sampled_area_ha` and
+/// `sampled_polygon_fraction` so an auditor sees the sampling density
+/// alongside the verdict.
+fn mmu_demote(failing_cells: usize, total_cells: usize, polygon_area_ha: f64) -> MmuDemotion {
+    let fail_fraction = if total_cells > 0 {
+        failing_cells as f64 / total_cells as f64
+    } else {
+        0.0
+    };
+    let failing_area_ha = fail_fraction * polygon_area_ha;
     if failing_cells > 0 && failing_area_ha < EUDR_MMU_THRESHOLD_HA {
         MmuDemotion {
             verdict_code: 6,
@@ -33242,10 +33283,10 @@ async fn evaluate_eudr_plot_batched(
 /// polygon read trips a regression; should be measurement-driven,
 /// not preventative.
 fn eudr_batch_path_enabled() -> bool {
-    match std::env::var("EMEM_EUDR_BATCH_PATH").ok().as_deref() {
-        Some("0") | Some("false") | Some("no") => false,
-        _ => true,
-    }
+    !matches!(
+        std::env::var("EMEM_EUDR_BATCH_PATH").ok().as_deref(),
+        Some("0") | Some("false") | Some("no")
+    )
 }
 
 async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
@@ -33739,9 +33780,20 @@ async fn post_eudr_dds_inner(
     // scale automatically so 100 % of the polygon is evaluated and
     // the Article 2(4) 0.5 ha MMU floor works on real failing-area
     // measurements, not on the sparse 16-cell approximation.
+    //
+    // **2026-05-29 audit fix.** The cap was 512 and the auto-pick
+    // also capped at 512, which gave ~0.04 % coverage on a 12 kha
+    // plot — combined with the now-fixed `failing_area_ha`
+    // projection it was still leaving the verdict statistics
+    // extremely thin. Raised to `EUDR_MAX_CELLS_PER_PLOT` (51,200,
+    // 100×) so a 466 ha sample is taken even on the largest plots
+    // we expect (~12 kha). The batched-polygon COG path makes the
+    // extra cells essentially free — one sample_window already
+    // returns every pixel in the bbox, the cells are just indices
+    // into the in-memory buffer.
     let max_cells_default = req
         .max_cells_per_plot
-        .map(|n| n.clamp(1, 512))
+        .map(|n| n.clamp(1, EUDR_MAX_CELLS_PER_PLOT))
         .unwrap_or_else(|| {
             // Derive from the largest plot's area. Compute area for
             // each plot (same extract_plot_geometry used downstream) and
@@ -33758,7 +33810,7 @@ async fn post_eudr_dds_inner(
             } else {
                 // ~110 cells per hectare (10000 m² / 91 m² per cell).
                 let needed = (max_area_ha * 110.0).ceil() as usize;
-                needed.clamp(55, 512)
+                needed.clamp(55, EUDR_MAX_CELLS_PER_PLOT)
             }
         });
 
@@ -33910,16 +33962,37 @@ async fn post_eudr_dds_inner(
             };
 
             let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
+            // Failing-area projection follows the polygon's actual area,
+            // not the sampled-cell area — see [`mmu_demote`] for the
+            // 2026-05-29 audit + the reason behind the change. A plot
+            // sampled at 0.04 % coverage (n_cells capped at 512 on a
+            // 12 kha polygon) must extrapolate from fail_fraction to
+            // get a regulator-defensible verdict.
             let mmu = if raw_verdict == 2 {
-                mmu_demote(n_fail, EUDR_CELL_AREA_M2)
+                mmu_demote(n_fail, n_total, area_ha)
             } else {
                 MmuDemotion {
                     verdict_code: raw_verdict,
-                    failing_area_ha: (n_fail as f64 * EUDR_CELL_AREA_M2) / 10_000.0,
+                    failing_area_ha: if n_total > 0 {
+                        (n_fail as f64 / n_total as f64) * area_ha
+                    } else {
+                        0.0
+                    },
                     mmu_floor_applied: false,
                 }
             };
             let plot_verdict = mmu.verdict_code;
+            // Sampling-density disclosure — how much of the polygon was
+            // actually inspected. At n_cells = 512 (the cap) and a
+            // 12 kha plot, this is ~0.04 %. An auditor needs both the
+            // failing-area projection and the coverage to weight the
+            // verdict's confidence.
+            let sampled_area_ha = (n_total as f64 * EUDR_CELL_AREA_M2) / 10_000.0;
+            let sampled_polygon_fraction = if area_ha > 0.0 {
+                (sampled_area_ha / area_ha).min(1.0)
+            } else {
+                0.0
+            };
             let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
 
             // Article 2(28) precision: pull GeoJSON polygon coords (if any)
@@ -33951,7 +34024,20 @@ async fn post_eudr_dds_inner(
                 "verdict_code":    plot_verdict,
                 "fail_fraction":   fail_fraction,
                 "failing_cells":   n_fail,
+                // Projected to the polygon's real area, not the sampled-cell area
+                // (audit 2026-05-29 fix — see [`mmu_demote`] docs).
                 "failing_area_ha": mmu.failing_area_ha,
+                "failing_area_projection": "fail_fraction × polygon_area_ha",
+                "sampled_area_ha": (sampled_area_ha * 100.0).round() / 100.0,
+                "sampled_polygon_fraction": (sampled_polygon_fraction * 10_000.0).round() / 10_000.0,
+                "sampling_note": if sampled_polygon_fraction < 0.5 {
+                    "Polygon is larger than the cell-sampler ceiling (EMEM_BORING_MAX_CELLS=512). \
+                     `failing_area_ha` is the polygon-area projection of `fail_fraction`; \
+                     `sampled_area_ha` is the area actually inspected. Confidence widens as \
+                     sampled_polygon_fraction shrinks."
+                } else {
+                    "Polygon was fully sampled — failing_area is per-cell-counted, not projected."
+                },
                 "mmu_threshold_ha": EUDR_MMU_THRESHOLD_HA,
                 "mmu_floor_applied": mmu.mmu_floor_applied,
                 "total_cells":     n_total,
@@ -41249,16 +41335,36 @@ mod tests {
 
     #[test]
     fn mmu_floor_demotes_sub_05ha_failures() {
-        // 10 failing cells × 91 m² ≈ 910 m² = 0.091 ha; below 0.5 ha → demote.
-        let v = mmu_demote(10, 91.0);
+        // Dense sampling: 10 fail / 100 total over a 1 ha plot → 0.10 ha
+        // failing-area projection. Below 0.5 ha → demote to below_mmu.
+        let v = mmu_demote(10, 100, 1.0);
         assert_eq!(v.verdict_code, 6); // below_mmu
         assert!(v.failing_area_ha < 0.5);
         assert!(v.mmu_floor_applied);
 
-        // 100 failing cells × 91 m² ≈ 9100 m² = 0.91 ha; above MMU → keep fail.
-        let v2 = mmu_demote(100, 91.0);
+        // 10 fail / 100 total over a 10 ha plot → 1.0 ha failing-area
+        // projection. Above MMU → keep fail.
+        let v2 = mmu_demote(10, 100, 10.0);
         assert_eq!(v2.verdict_code, 2);
         assert!(!v2.mmu_floor_applied);
+
+        // Audit regression: the 12 kha plot bug. 22 fail / 512 total
+        // over a 12,298 ha plot → ~528 ha failing-area projection
+        // (NOT 0.20 ha from the old `n_fail × cell_area` math).
+        // Must trigger fail, not below_mmu.
+        let v3 = mmu_demote(22, 512, 12_298.67);
+        assert_eq!(
+            v3.verdict_code, 2,
+            "polygon-projected fail must not be demoted to below_mmu"
+        );
+        assert!(
+            v3.failing_area_ha > 0.5,
+            "failing_area must project to polygon scale"
+        );
+        assert!(
+            v3.failing_area_ha > 500.0,
+            "12 kha plot at 4.3% should report >500 ha failing"
+        );
     }
 
     #[test]
