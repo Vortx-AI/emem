@@ -116,6 +116,16 @@ pub struct AsOfBound {
 }
 
 impl AsOfBound {
+    /// Construct an unbounded bound (no valid-time, no transaction-time
+    /// cap). Callers that never expose an `as_of` knob — e.g. polygon
+    /// aggregators that always read "latest known" — use this so the
+    /// receipt signer can take `&AsOfBound` uniformly without each call
+    /// site re-typing the `AsOfBound { valid_time: None, transaction_time:
+    /// None }` literal.
+    pub fn unbounded() -> Self {
+        Self::default()
+    }
+
     /// True when neither bound was set — the historical "latest"
     /// behaviour applies and no `as_of` block is added to the receipt.
     pub fn is_unbounded(&self) -> bool {

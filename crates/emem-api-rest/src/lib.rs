@@ -13473,7 +13473,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (32-byte BLAKE3 of the per-fact merkle root, hex), `attester_pubkey_b32`, `signature_b32` (ed25519 over batch_root), and `facts[]` (each carries cell, band, tslot, value, and any per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester_pubkey_b32","signature_b32","facts"],"properties":{"batch_root":{"type":"string","description":"hex BLAKE3 root of the per-fact merkle tree"},"attester_pubkey_b32":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature_b32":{"type":"string","description":"base32-nopad-lc ed25519 signature over batch_root"},"facts":{"type":"array","items":{"type":"object","required":["cell","band","value"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
             "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
@@ -13593,7 +13593,7 @@ async fn openapi() -> Json<JsonValue> {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (Hansen + JRC GFC2020 + JRC TMF v2025 multi-product loss-year consensus), applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (Hansen + JRC GFC2020 + JRC TMF v2025 multi-product loss-year consensus), applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`). Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
                         "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
@@ -32210,6 +32210,15 @@ struct EudrDdsReq {
     /// Annex II geolocation-confidentiality flag (default false).
     #[serde(default)]
     geolocation_confidential: Option<bool>,
+    /// Multi-tenant scope (`{user_id, agent_id, run_id, org_id}`). When
+    /// at least one field is `Some`, the returned signed receipt binds
+    /// the scope into its signature preimage so an offline verifier
+    /// rebinds the DDS to this caller. Wire shape + semantics mirror
+    /// every other scope-aware request (`/v1/recall`, `/v1/find_similar`,
+    /// …). Filtering on scope is out of scope for v0.0.8 — v0.0.8 ships
+    /// scope as a receipt-binding + audit-log primitive.
+    #[serde(default)]
+    scope: Option<emem_fact::Scope>,
 }
 
 fn default_eudr_cutoff_date() -> String {
@@ -32438,6 +32447,51 @@ const EUDR_CELL_AREA_M2: f64 = emem_codec::CELL_PITCH_M_EQUATOR * emem_codec::CE
 /// Override per request via `max_cells_per_plot` (operators on tight
 /// payload budgets) — clamped to `1..=51_200`.
 const EUDR_MAX_CELLS_PER_PLOT: usize = 51_200;
+
+/// Receipt-level fact-CID cap for `/v1/eudr_dds`. A 51,200-cell × 4-band
+/// run produces 204,800 fact_cids; signed and JSON-encoded, that is a
+/// 5+ MB receipt — agents truncate it, intermediaries refuse to forward
+/// it, and the signed-receipt loses its utility as a verifiable handle.
+///
+/// Default 2048 covers a ~512-cell × 4-band plot (one full polygon at
+/// the historical sampling cap). Override via `EMEM_EUDR_RECEIPT_MAX_FACTS`
+/// — clamped to `256..=51_200`. When the cap fires:
+///   * the receipt's `fact_cids` field is the FIRST N entries of the
+///     all-plot union, sorted alphabetically by base32 — deterministic
+///     so two identical runs sign byte-identical bytes;
+///   * the response body surfaces `receipt_fact_cids_capped: true` and
+///     `receipt_fact_cids_total` = the pre-cap count, so an auditor
+///     sees exactly how much was hidden behind the cap.
+const EUDR_RECEIPT_MAX_FACTS_DEFAULT: usize = 2048;
+const EUDR_RECEIPT_MAX_FACTS_MIN: usize = 256;
+const EUDR_RECEIPT_MAX_FACTS_MAX: usize = 51_200;
+
+fn eudr_receipt_max_facts() -> usize {
+    std::env::var("EMEM_EUDR_RECEIPT_MAX_FACTS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(EUDR_RECEIPT_MAX_FACTS_DEFAULT)
+        .clamp(EUDR_RECEIPT_MAX_FACTS_MIN, EUDR_RECEIPT_MAX_FACTS_MAX)
+}
+
+/// Receipt-level cell64 cap for `/v1/eudr_dds`. Default 2048; override
+/// via `EMEM_EUDR_RECEIPT_MAX_CELLS` (clamped `256..=51_200`). Above the
+/// cap, the receipt's `cells` array is collapsed to the per-plot
+/// centroid cell64s and the response surfaces
+/// `receipt_cells_truncated: true` + `receipt_cells_total` so an
+/// auditor can re-derive the full set from `per_plot_results`. The
+/// signature still binds the per-cell `fact_cids` (capped per
+/// EMEM_EUDR_RECEIPT_MAX_FACTS), so a falsified plot verdict remains
+/// detectable even when the cells list is truncated.
+const EUDR_RECEIPT_MAX_CELLS_DEFAULT: usize = 2048;
+
+fn eudr_receipt_max_cells() -> usize {
+    std::env::var("EMEM_EUDR_RECEIPT_MAX_CELLS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(EUDR_RECEIPT_MAX_CELLS_DEFAULT)
+        .clamp(EUDR_RECEIPT_MAX_FACTS_MIN, EUDR_RECEIPT_MAX_FACTS_MAX)
+}
 
 /// Result of applying the 0.5 ha MMU floor to a plot's failing-cell
 /// count. If the failing area is below 0.5 ha, the verdict is demoted
@@ -34242,6 +34296,11 @@ async fn post_eudr_dds_inner(
     State(s): State<AppState>,
     Json(req): Json<EudrDdsReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // Captured for the latency block on the signed receipt the responder
+    // mints just before returning. Carried through to `sign_receipt_full`
+    // unchanged so the receipt's `cost.latency_p50_ms` reflects the real
+    // wall-clock of this evaluation (network fan-out + aggregation).
+    let started = std::time::Instant::now();
     if req.plots.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -34328,10 +34387,17 @@ async fn post_eudr_dds_inner(
     let mut annex_i_warnings: Vec<JsonValue> = Vec::new();
     // Carry per-plot context the TRACES envelope needs (set during the
     // per-plot pass; producer_geojson is None for POINT plots).
+    //
+    // `centroid_cell` carries the plot's bbox-centre cell64 — used as
+    // the receipt's `cells` fallback when the union of per-cell cells
+    // exceeds EMEM_EUDR_RECEIPT_MAX_CELLS. Unset for plots whose
+    // geometry failed to parse (indeterminate verdict; no cell to
+    // anchor a centroid to).
     struct PlotCtx {
         verdict_code: u8,
         producer_geojson: Option<JsonValue>,
         precision_warning: Option<String>,
+        centroid_cell: Option<String>,
     }
     let mut plot_ctx: Vec<Option<PlotCtx>> = (0..req.plots.len()).map(|_| None).collect();
     let mut per_plot_results: Vec<Option<JsonValue>> = (0..req.plots.len()).map(|_| None).collect();
@@ -34360,6 +34426,7 @@ async fn post_eudr_dds_inner(
                 verdict_code: 4,
                 producer_geojson: None,
                 precision_warning: None,
+                centroid_cell: None,
             });
             continue;
         }
@@ -34571,10 +34638,12 @@ async fn post_eudr_dds_inner(
                     );
                 }
             }
+            let centroid_cell = emem_codec::cell64_from_latlng(lat_c, lng_c);
             let ctx = PlotCtx {
                 verdict_code: plot_verdict,
                 producer_geojson: Some(producer_geojson),
                 precision_warning,
+                centroid_cell: Some(centroid_cell),
             };
             (idx, (plot_obj, ctx, per_cell))
         })
@@ -34790,6 +34859,110 @@ async fn post_eudr_dds_inner(
             );
         }
     }
+
+    // ── Signed receipt over the union of every per-cell fact_cid ──────
+    //
+    // Closes the 2026-05-29 audit gap: pre-fix, /v1/eudr_dds returned a
+    // 200-line statement_of_compliance body with no cryptographic proof
+    // the responder ran the cited per-cell fetches — a buggy responder
+    // could falsify a verdict and a downstream agent had no way to
+    // notice. The receipt binds:
+    //   * `cells` — the union of every plot's per-cell cell64s. When
+    //     the union exceeds `EMEM_EUDR_RECEIPT_MAX_CELLS` we fall back
+    //     to the per-plot centroid cells and surface
+    //     `receipt_cells_truncated: true` + `receipt_cells_total`.
+    //   * `fact_cids` — the union of every per-cell band-fact CID
+    //     across every plot. When the union exceeds
+    //     `EMEM_EUDR_RECEIPT_MAX_FACTS` we keep the first N entries
+    //     after alphabetical sort (deterministic so two runs produce
+    //     byte-identical receipts) and surface
+    //     `receipt_fact_cids_capped: true` + `receipt_fact_cids_total`.
+    //   * `scope` — the caller's `req.scope` is honoured via
+    //     `sign_receipt_full` so the receipt's preimage carries
+    //     `blake3(canonical_cbor(scope))` when at least one field is
+    //     `Some` (v0.0.8 receipt rule). Filtering on scope is the
+    //     v0.0.9 follow-up; this is the receipt-binding pass.
+    let mut all_cells: Vec<String> = Vec::new();
+    let mut all_fact_cids_raw: Vec<String> = Vec::new();
+    for cv in &all_cells_for_provenance {
+        all_cells.push(cv.cell.clone());
+        for fc in &cv.fact_cids {
+            all_fact_cids_raw.push(fc.clone());
+        }
+    }
+
+    let fact_cap = eudr_receipt_max_facts();
+    let cells_cap = eudr_receipt_max_cells();
+    let total_facts = all_fact_cids_raw.len();
+    let total_cells = all_cells.len();
+    let fact_cids_capped = total_facts > fact_cap;
+    let cells_truncated = total_cells > cells_cap;
+    if fact_cids_capped {
+        // Deterministic ordering: alphabetical (base32 → byte-order) so
+        // two identical runs sign byte-identical bytes. The cap drops
+        // the tail of the sorted set, not a random subset.
+        all_fact_cids_raw.sort();
+        all_fact_cids_raw.truncate(fact_cap);
+    }
+    if cells_truncated {
+        // Cells cap fallback: collapse to per-plot centroid cell64s.
+        // The fact_cids still bind the deeper attestation chain, so a
+        // falsified per-plot verdict is detectable even when `cells` is
+        // condensed. Centroids are missing for plots whose geometry
+        // failed to parse (verdict=indeterminate, no cell to anchor).
+        all_cells = plot_ctx
+            .iter()
+            .filter_map(|c| c.as_ref().and_then(|c| c.centroid_cell.clone()))
+            .collect();
+    }
+
+    let fact_cids: Vec<emem_fact::FactCid> = all_fact_cids_raw
+        .into_iter()
+        .map(emem_fact::FactCid::new)
+        .collect();
+
+    let receipt = s.sign_receipt_full(
+        "emem.eudr_dds",
+        all_cells,
+        fact_cids,
+        /* was_cached */ false,
+        started,
+        /* intent */ None,
+        req.scope.clone(),
+        &emem_storage::AsOfBound::unbounded(),
+    );
+
+    if let Some(obj) = body.as_object_mut() {
+        if fact_cids_capped {
+            obj.insert("receipt_fact_cids_capped".into(), JsonValue::Bool(true));
+            obj.insert(
+                "receipt_fact_cids_total".into(),
+                JsonValue::Number(total_facts.into()),
+            );
+            obj.insert(
+                "receipt_fact_cids_cap".into(),
+                JsonValue::Number(fact_cap.into()),
+            );
+        }
+        if cells_truncated {
+            obj.insert("receipt_cells_truncated".into(), JsonValue::Bool(true));
+            obj.insert(
+                "receipt_cells_total".into(),
+                JsonValue::Number(total_cells.into()),
+            );
+            obj.insert(
+                "receipt_cells_cap".into(),
+                JsonValue::Number(cells_cap.into()),
+            );
+        }
+        // Serialize the typed Receipt through serde so the wire shape
+        // matches /v1/recall, /v1/find_similar, /v1/memory_*, etc. — the
+        // same shape /v1/verify_receipt already parses.
+        if let Ok(receipt_json) = serde_json::to_value(&receipt) {
+            obj.insert("receipt".into(), receipt_json);
+        }
+    }
+
     Ok(Json(body))
 }
 
@@ -42915,5 +43088,313 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(text).expect("registry payload parses");
         assert!(parsed.get("bands").is_some(), "expected `bands` field");
+    }
+
+    // ── /v1/eudr_dds signed receipt round-trip (2026-05-29 audit F1) ──
+    //
+    // The EUDR DDS body used to ship a verdict + due_diligence_statement
+    // with no signature; a buggy responder could falsify any plot's
+    // outcome and there was no cryptographic record. These tests pin
+    // that the receipt:
+    //   (a) is present and verifies through /v1/verify_receipt;
+    //   (b) carries the caller's scope when supplied;
+    //   (c) caps `fact_cids` deterministically once the union exceeds
+    //       EMEM_EUDR_RECEIPT_MAX_FACTS so a 51,200-cell plot can't
+    //       produce a 5 MB receipt that no agent will forward.
+    //
+    // Tests do NOT depend on a real JRC GFC2020 / Hansen upstream. They
+    // synthesise a 1-plot POINT geometry through `post_eudr_dds_inner`
+    // against `:memory:` storage; the band materialisers fail fast
+    // under `EMEM_MATERIALIZER_TIMEOUT_SECS=2`, the receipt still binds
+    // over (empty fact_cids, the single sampled cell) which is exactly
+    // the contract — the signature attests to what the responder ran,
+    // not to a forged successful upstream.
+
+    /// Test helper: serialises env-var mutation across the three EUDR
+    /// receipt tests since `std::env::set_var` is process-global and
+    /// `cargo test` shares a process. Each test takes the lock, sets
+    /// only the vars it needs, runs to completion, then drops the lock.
+    fn eudr_test_env_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        // Map a poisoned mutex (a prior test panicked while holding the
+        // lock) into a still-usable guard — env state isn't structural
+        // here, just a serialisation point.
+        LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Build a 1-plot EudrDdsReq at the given (lat, lng) with a POINT
+    /// geometry (so the sampler picks 1 cell, not 16+). Annex-I HS code
+    /// `0901` (coffee) keeps the warnings array empty.
+    fn make_point_eudr_req(lat: f64, lng: f64, scope: Option<emem_fact::Scope>) -> EudrDdsReq {
+        EudrDdsReq {
+            plots: vec![EudrPlot {
+                plot_id: "test-plot-1".into(),
+                geometry_geojson: json!({"type": "Point", "coordinates": [lng, lat]}),
+                country_of_production: "BRA".into(),
+                commodity_hs: "0901".into(),
+                commodity_name: Some("coffee".into()),
+                quantity_kg: 100.0,
+                supplier: None,
+                common_name: None,
+                scientific_name: None,
+                trade_name: None,
+                description_of_goods: None,
+                quantity_volume_m3: None,
+                quantity_supplementary_units: None,
+                quantity_supplementary_unit_qualifier: None,
+                number_of_units: None,
+                producer_name: None,
+                producer_country: None,
+                request_visual_evidence: None,
+            }],
+            cut_off_date: default_eudr_cutoff_date(),
+            forest_baseline_override: None,
+            legality_module: None,
+            operator: None,
+            max_cells_per_plot: Some(1),
+            activity_type: None,
+            internal_reference_number: None,
+            geolocation_confidential: None,
+            scope,
+        }
+    }
+
+    // The MutexGuard is held across awaits on purpose — it serialises
+    // process-global `std::env::set_var` across the three EUDR receipt
+    // tests so they don't race on EMEM_MATERIALIZER_TIMEOUT_SECS and
+    // EMEM_EUDR_RECEIPT_MAX_*. The lock is uncontended outside this
+    // test trio; the std::sync::Mutex is the right primitive.
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn eudr_dds_receipt_signed_round_trip() {
+        let _guard = eudr_test_env_guard();
+        // Keep each band fetch capped at the minimum 2 s timeout so a
+        // test that runs offline (CI, sandboxes, the laptop on a plane)
+        // finishes in ~2 s rather than the default 30 s × 4 bands.
+        std::env::set_var("EMEM_MATERIALIZER_TIMEOUT_SECS", "2");
+        std::env::set_var("EMEM_MATERIALIZER_RETRIES", "1");
+
+        let s = test_app_state();
+        let req = make_point_eudr_req(-3.4653, -62.2159, None);
+        let resp = post_eudr_dds_inner(State(s.clone()), Json(req))
+            .await
+            .map_err(|e| format!("eudr_dds: {} {}", e.0, e.1.message))
+            .unwrap();
+        let body: JsonValue = resp.0;
+
+        // The receipt MUST be present and parse as a typed Receipt with
+        // primitive=emem.eudr_dds (hard-coded ASCII per the contract).
+        let receipt_json = body
+            .get("receipt")
+            .cloned()
+            .expect("response body must carry a `receipt` field");
+        let receipt: emem_fact::Receipt = serde_json::from_value(receipt_json.clone())
+            .expect("receipt JSON must deserialise as emem_fact::Receipt");
+        assert_eq!(
+            receipt.primitive, "emem.eudr_dds",
+            "receipt.primitive must be `emem.eudr_dds` exactly"
+        );
+        // No scope passed → receipt body omits the scope field (legacy
+        // pre-v0.0.8 preimage rule).
+        assert!(
+            receipt.scope.is_none(),
+            "no-scope request must produce a receipt with omitted scope"
+        );
+
+        // Round-trip through /v1/verify_receipt — the public offline
+        // verifier path. Must return valid:true and primitive echo.
+        let v = post_verify_receipt(Ok(Json(VerifyReceiptReq {
+            receipt,
+            pubkey_b32: None,
+        })))
+        .await
+        .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
+        .unwrap();
+        let v = v.0;
+        assert_eq!(
+            v.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "eudr_dds receipt must verify against the responder pubkey: {v:?}"
+        );
+        assert_eq!(
+            v.get("primitive").and_then(|x| x.as_str()),
+            Some("emem.eudr_dds"),
+            "verifier must echo `emem.eudr_dds` as the receipt primitive"
+        );
+        assert_eq!(
+            v.get("scope_bound").and_then(|x| x.as_bool()),
+            Some(false),
+            "no-scope receipt must report scope_bound=false"
+        );
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn eudr_dds_receipt_carries_scope() {
+        let _guard = eudr_test_env_guard();
+        std::env::set_var("EMEM_MATERIALIZER_TIMEOUT_SECS", "2");
+        std::env::set_var("EMEM_MATERIALIZER_RETRIES", "1");
+
+        let s = test_app_state();
+        let scope = emem_fact::Scope {
+            user_id: Some("audit-user".into()),
+            agent_id: Some("audit-agent".into()),
+            run_id: Some("run-2026-05-29".into()),
+            org_id: Some("org-eu-compliance".into()),
+        };
+        let req = make_point_eudr_req(-3.4653, -62.2159, Some(scope.clone()));
+        let resp = post_eudr_dds_inner(State(s.clone()), Json(req))
+            .await
+            .map_err(|e| format!("eudr_dds: {} {}", e.0, e.1.message))
+            .unwrap();
+        let body: JsonValue = resp.0;
+
+        let receipt_json = body
+            .get("receipt")
+            .cloned()
+            .expect("response body must carry a `receipt` field");
+        let receipt: emem_fact::Receipt =
+            serde_json::from_value(receipt_json).expect("receipt JSON must deserialise");
+
+        // Scope must round-trip byte-identically — the receipt is what
+        // an offline auditor uses to prove this DDS was bound to this
+        // {user_id, agent_id, run_id, org_id}.
+        let bound = receipt
+            .scope
+            .as_ref()
+            .expect("scoped request must produce a receipt carrying the scope");
+        assert_eq!(bound, &scope, "receipt.scope must equal the request scope");
+
+        // verify_receipt must accept the scoped receipt and report
+        // scope_bound=true so an agent can branch on it.
+        let v = post_verify_receipt(Ok(Json(VerifyReceiptReq {
+            receipt,
+            pubkey_b32: None,
+        })))
+        .await
+        .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
+        .unwrap();
+        let v = v.0;
+        assert_eq!(
+            v.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "scoped eudr_dds receipt must verify: {v:?}"
+        );
+        assert_eq!(
+            v.get("scope_bound").and_then(|x| x.as_bool()),
+            Some(true),
+            "scope_bound must be true for a scoped receipt"
+        );
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn eudr_dds_receipt_cells_capped() {
+        let _guard = eudr_test_env_guard();
+        std::env::set_var("EMEM_MATERIALIZER_TIMEOUT_SECS", "2");
+        std::env::set_var("EMEM_MATERIALIZER_RETRIES", "1");
+        // Pin the caps below the cells we'll actually synthesise so the
+        // receipt-truncation paths fire deterministically — both clamp
+        // to 256, the minimum allowed (anything lower clamps up).
+        std::env::set_var("EMEM_EUDR_RECEIPT_MAX_CELLS", "256");
+        std::env::set_var("EMEM_EUDR_RECEIPT_MAX_FACTS", "256");
+
+        let s = test_app_state();
+        // Build the request directly so we get a polygon with
+        // max_cells_per_plot set above the cap. We don't depend on
+        // upstream materialisers to land any facts — the test exercises
+        // the cells-truncation branch which fires on the cells union
+        // alone.
+        let polygon = json!({
+            "type": "Polygon",
+            "coordinates": [[
+                // ~2 km square in the Amazon. The cell sampler emits
+                // n_cells (1024 here) cell64s inside the bbox.
+                [-62.20, -3.50],
+                [-62.18, -3.50],
+                [-62.18, -3.48],
+                [-62.20, -3.48],
+                [-62.20, -3.50]
+            ]]
+        });
+        let req = EudrDdsReq {
+            plots: vec![EudrPlot {
+                plot_id: "test-plot-cap".into(),
+                geometry_geojson: polygon,
+                country_of_production: "BRA".into(),
+                commodity_hs: "0901".into(),
+                commodity_name: Some("coffee".into()),
+                quantity_kg: 100.0,
+                supplier: None,
+                common_name: None,
+                scientific_name: None,
+                trade_name: None,
+                description_of_goods: None,
+                quantity_volume_m3: None,
+                quantity_supplementary_units: None,
+                quantity_supplementary_unit_qualifier: None,
+                number_of_units: None,
+                producer_name: None,
+                producer_country: None,
+                request_visual_evidence: None,
+            }],
+            cut_off_date: default_eudr_cutoff_date(),
+            forest_baseline_override: None,
+            legality_module: None,
+            operator: None,
+            max_cells_per_plot: Some(1024), // > cap of 256
+            activity_type: None,
+            internal_reference_number: None,
+            geolocation_confidential: None,
+            scope: None,
+        };
+
+        let resp = post_eudr_dds_inner(State(s.clone()), Json(req))
+            .await
+            .map_err(|e| format!("eudr_dds: {} {}", e.0, e.1.message))
+            .unwrap();
+        let body: JsonValue = resp.0;
+
+        // Cells truncation must fire: the response body surfaces the
+        // truncation flag + the pre-cap total so an auditor sees the
+        // exact gap between what was sampled and what the receipt binds.
+        assert_eq!(
+            body.get("receipt_cells_truncated")
+                .and_then(|v| v.as_bool()),
+            Some(true),
+            "1024-cell polygon must trip the 256-cell receipt cap: {body:?}"
+        );
+        let total = body
+            .get("receipt_cells_total")
+            .and_then(|v| v.as_u64())
+            .expect("receipt_cells_total must be present when truncated");
+        assert!(
+            total > 256,
+            "receipt_cells_total must report the pre-cap union ({total})"
+        );
+
+        // The receipt itself must still parse + verify; truncating the
+        // cells list doesn't break the signature (the truncated list IS
+        // what got signed).
+        let receipt_json = body.get("receipt").cloned().expect("receipt present");
+        let receipt: emem_fact::Receipt =
+            serde_json::from_value(receipt_json).expect("receipt deserialises");
+        let v = post_verify_receipt(Ok(Json(VerifyReceiptReq {
+            receipt,
+            pubkey_b32: None,
+        })))
+        .await
+        .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(
+            v.0.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "truncated-cells receipt must still verify"
+        );
+
+        // Reset the env so other tests in the same process see the
+        // default caps again.
+        std::env::remove_var("EMEM_EUDR_RECEIPT_MAX_CELLS");
+        std::env::remove_var("EMEM_EUDR_RECEIPT_MAX_FACTS");
     }
 }
