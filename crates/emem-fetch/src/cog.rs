@@ -1318,11 +1318,25 @@ pub async fn sample_window(
             }
             // Use coalesced buffer when available (strip-encoded),
             // else fall back to per-tile http_range (tiled COGs).
+            //
+            // 2026-05-29 audit: when a tile's `off` falls below the
+            // coalesced base offset (race between prewarm picking a
+            // wider window and the per-tile resolver picking a tile
+            // outside that window), `off - coalesced_base_offset`
+            // wrapped to ~`2^64`, then `buf.slice(huge..end)` panicked
+            // inside the bytes crate at `range start <= end` check. The
+            // explicit `off >= coalesced_base_offset` guard prevents
+            // the wrap and falls back to a fresh `http_range` call,
+            // matching the byte semantics of the tile-COG path.
             let tile_compressed: Bytes = if let Some(ref buf) = coalesced_buf {
-                let start = (off - coalesced_base_offset) as usize;
-                let end = start + len as usize;
-                if end <= buf.len() {
-                    buf.slice(start..end)
+                if off >= coalesced_base_offset {
+                    let start = (off - coalesced_base_offset) as usize;
+                    let end = start.saturating_add(len as usize);
+                    if end <= buf.len() {
+                        buf.slice(start..end)
+                    } else {
+                        http_range(client, url, off, off + len - 1).await?
+                    }
                 } else {
                     http_range(client, url, off, off + len - 1).await?
                 }
