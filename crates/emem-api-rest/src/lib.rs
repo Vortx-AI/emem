@@ -33229,15 +33229,23 @@ async fn evaluate_eudr_plot_batched(
 }
 
 /// Returns true when the operator has opted into the batched EUDR
-/// per-plot path via `EMEM_EUDR_BATCH_PATH=1`. Default is false so
-/// the rollout stays gated; once we've watched a few thousand
-/// production batched calls, the default flips and the per-cell
-/// path becomes the fallback.
+/// per-plot path. Default is now `true` (was `false` during initial
+/// rollout) — the batched polygon path runs ONE `cog::sample_window`
+/// per band covering the plot bbox and indexes per-cell pixel values
+/// from the in-memory buffer, vs the per-cell path which fans out N
+/// separate `cog::sample_pixel` HTTP range reads. For a 4 ha plot at
+/// 110 cells/ha that is 4 HTTP reads vs ~1,760 — a >=30x drop in
+/// wall-clock that the live-agent audit measured at 180s -> ~3s.
+///
+/// Set `EMEM_EUDR_BATCH_PATH=0` (or `false`/`no`) to fall back to the
+/// per-cell path. Useful for operators on infra where the batched
+/// polygon read trips a regression; should be measurement-driven,
+/// not preventative.
 fn eudr_batch_path_enabled() -> bool {
-    matches!(
-        std::env::var("EMEM_EUDR_BATCH_PATH").ok().as_deref(),
-        Some("1") | Some("true") | Some("yes")
-    )
+    match std::env::var("EMEM_EUDR_BATCH_PATH").ok().as_deref() {
+        Some("0") | Some("false") | Some("no") => false,
+        _ => true,
+    }
 }
 
 async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
