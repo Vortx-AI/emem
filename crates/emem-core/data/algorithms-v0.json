@@ -10005,15 +10005,15 @@
           "explanation": "Sims et al. 2025 driver attribution (1 km). Reclassifies wildfire (class 5) and other natural disturbance (class 7) loss out of EUDR scope."
         }
       ],
-      "formula": "Polygon-in, signed-Annex-II-DDS-out wrapper around eudr_compliance@1. Steps: (1) Read the input polygon; if any plot has area <= 4 ha treat the centroid as a POINT per Article 2(28), else a POLYGON. (2) For each cell inside the plot, evaluate eudr_compliance@1's AST. (3) Layer wri_gdm.driver_class refinement: cells with driver_class in {5,7} downgrade 'fail' -> 'not_in_scope'. (4) Layer radd.alert_date orchestration: cells where Hansen reports no loss but RADD reports a post-cut-off alert with confidence >= 3 upgrade 'pass' -> 'fail'. (5) Aggregate: polygon verdict = FAIL if any cell is 'fail' AND failing-cell area / total plot area >= 0.001 (0.1 % threshold; smaller footprints surface as 'fail_below_de_minimis' to flag edge-effect false positives). (6) Emit the Annex II structured envelope with the signed receipt: every cell's fact_cid is cited; the polygon-level verdict carries its own algorithm_cid.",
+      "formula": "Polygon-in, signed-Annex-II-DDS-out wrapper around eudr_compliance@1. Steps: (1) Read the input polygon; if any plot has area <= 4 ha treat the centroid as a POINT per Article 2(28), else a POLYGON. (2) For each cell inside the plot, evaluate eudr_compliance@1's AST. (3) Layer wri_gdm.driver_class refinement: cells with driver_class in {5,7} downgrade 'fail' -> 'not_in_scope'. (4) Layer radd.alert_date orchestration: cells where Hansen reports no loss but RADD reports a post-cut-off alert with confidence >= 3 upgrade 'pass' -> 'fail'. (5) Aggregate: polygon verdict = FAIL if any cell is 'fail'. Strict EUDR has no de-minimis fail-fraction tolerance; the only area floor is the Article 2(4) 0.5 ha minimum mapping unit (MMU): a plot whose projected failing area (fail_fraction * polygon_area) is below 0.5 ha is demoted to 'below_mmu' and treated as compliant in DDS aggregation. (6) Emit the Annex II structured envelope with the signed receipt: every cell's fact_cid is cited; the polygon-level verdict carries its own algorithm_cid.",
       "output": {
         "kind": "classification",
         "values": [
           "pass",
           "fail",
-          "fail_below_de_minimis",
           "not_in_scope",
-          "indeterminate"
+          "indeterminate",
+          "below_mmu"
         ],
         "explanation": "EUDR Due Diligence Statement polygon-level verdict, per Annex II of Regulation 2023/1115. The /v1/eudr_dds endpoint emits the full structured envelope (operator, commodity, HS/CN, country of production, geolocation block per Article 2(28), risk_assessment_outcome). This algorithm key is the metadata anchor; the actual aggregation logic lives in the endpoint handler because the per-cell AST cannot model polygon aggregation."
       },
@@ -11124,7 +11124,7 @@
           "explanation": "PM2.5 24-hour-average proxy. CAMS hourly forecasts approximate the 24-hour average that the US EPA AQI breakpoint table is defined against \u2014 adequate for a 'roughly Good / Moderate / Unhealthy' classification, not for regulatory reporting."
         }
       ],
-      "formula": "let p = cams.pm25; if p > 250.4 -> 6 (Hazardous); else if p > 150.4 -> 5 (Very Unhealthy); else if p > 55.4 -> 4 (Unhealthy); else if p > 35.4 -> 3 (Unhealthy for Sensitive Groups); else if p > 9.0 -> 2 (Moderate); else -> 1 (Good)",
+      "formula": "let p = cams.pm25; if p > 225.4 -> 6 (Hazardous); else if p > 125.4 -> 5 (Very Unhealthy); else if p > 55.4 -> 4 (Unhealthy); else if p > 35.4 -> 3 (Unhealthy for Sensitive Groups); else if p > 9.0 -> 2 (Moderate); else -> 1 (Good)",
       "output": {
         "kind": "scalar",
         "unit": "aqi_category_index",
@@ -11145,14 +11145,14 @@
       "when_to_use": "Use when an agent has already pulled `cams.pm25` and wants a stable, cite-able AQI category instead of inventing thresholds. Pair with the pollutant value itself in the answer (`PM2.5 = 142 \u00b5g/m\u00b3, AQI category 4 / Unhealthy`).",
       "primitive": "POST /v1/recall {bands:['cams.pm25']} \u2192 evaluate `aqi_class@1` Expr \u2192 integer 1\u20136 \u2192 look up label in output.values[index-1]",
       "deterministic": true,
-      "citation": "US EPA. National Primary Ambient Air Quality Standards for Particulate Matter (Final Rule), 89 FR 16202, effective 2024-05-06: 24-hour PM2.5 NAAQS Good/Moderate boundary lowered from 12.0 to 9.0 \u00b5g/m\u00b3. Other breakpoints retained from EPA 454/B-18-007 (Sep 2018) until the 2025 AQI Technical Assistance Document update.",
+      "citation": "US EPA 2024-05-06 final rule (revised PM2.5 NAAQS), 24-hour AQI breakpoints. National Primary Ambient Air Quality Standards for Particulate Matter (Final Rule), 89 FR 16202, effective 2024-05-06. Revised 24-hour PM2.5 AQI breakpoint table (\u00b5g/m\u00b3 -> AQI category): Good 0.0\u20139.0; Moderate 9.1\u201335.4; Unhealthy for Sensitive Groups 35.5\u201355.4; Unhealthy 55.5\u2013125.4; Very Unhealthy 125.5\u2013225.4; Hazardous 225.5+. Supersedes the 2018 table (EPA 454/B-18-007): Good/Moderate boundary 12.0->9.0, Unhealthy upper 150.4->125.4, Very Unhealthy upper 250.4->225.4, Hazardous floor 250.5->225.5.",
       "evaluation": {
         "op": "where",
         "cond": {
           "op": "band",
           "band": "cams.pm25"
         },
-        "gt": 250.4,
+        "gt": 225.4,
         "then_": {
           "op": "const",
           "value": 6.0
@@ -11163,7 +11163,7 @@
             "op": "band",
             "band": "cams.pm25"
           },
-          "gt": 150.4,
+          "gt": 125.4,
           "then_": {
             "op": "const",
             "value": 5.0
