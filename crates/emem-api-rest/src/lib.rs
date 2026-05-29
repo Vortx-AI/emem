@@ -3778,12 +3778,12 @@ async fn materializers(
                 "band":              "copdem30m.elevation_mean",
                 "unit":              "m",
                 "value_kind":        "primary_or_absence",
-                "coverage":          "land surface only; |lat| < ~85°. Returns Fact::Absence over open water (Cop-DEM uses 0 m as no-data marker over ocean) or upstream no-coverage zones.",
-                "upstream_scheme":   "open_meteo",
-                "upstream_endpoint": "https://api.open-meteo.com/v1/elevation",
-                "derivation_fn_key": "open_meteo_copdem90m@1",
+                "coverage":          "land surface only; AWS Open Data Cop-DEM GLO-30 publishes no tile over open ocean (responder signs Absence) and has documented gaps in some Antarctic interiors. Land cells globally.",
+                "upstream_scheme":   "copernicus.dem.30m.aws",
+                "upstream_endpoint": "https://copernicus-dem-30m.s3.amazonaws.com/",
+                "derivation_fn_key": "copernicus_dem_30m_aws_pixel@1",
                 "confidence":        0.95,
-                "notes":             "Use this when you specifically want a *land DEM* answer and want a signed absence over water rather than topo-bathy. For most general-purpose elevation queries, prefer gmrt.topobathy_mean."
+                "notes":             "Migrated 2026-05-29 from the rate-limited Open-Meteo per-point HTTPS path (`open_meteo_copdem90m@1`) to the AWS Open Data COG mirror. Polygon recalls now fire one HTTP range read per tile via `prewarm_polygon_static_cog_bands` instead of N rate-limited point queries. Use this when you specifically want a *land DEM* answer with a signed absence over water rather than topo-bathy. For most general-purpose elevation queries, prefer gmrt.topobathy_mean."
             },
             {
                 "band":              "geotessera",
@@ -19189,17 +19189,22 @@ async fn elevation_coherent_polygon(
 // ── Lazy materialization (the read → attest → cache loop) ───────────────
 //
 // When an agent calls /v1/recall for `copdem30m.elevation_mean` on a cell
-// no one has attested yet, the responder fetches Open-Meteo, signs a
+// no one has attested yet, the responder range-reads the per-tile
+// Copernicus DEM 30 m COG from the AWS Open Data mirror, signs a
 // Primary fact under its own identity, persists it via storage layer,
 // then returns it. Future calls hit the sled hot cache. Net effect: ANY
-// geo cell on Earth answers elevation cite-ably, without an external
+// land cell on Earth answers elevation cite-ably, without an external
 // attester having walked there first.
 //
 // Honesty:
-// - The fact's `derivation.fn_key = "open_meteo_copdem90m@1"` declares the
-//   exact function used. A skeptical verifier downweights non-deterministic
-//   derivations; this one is deterministic up to the upstream provider's
-//   stability.
+// - The fact's `derivation.fn_key = "copernicus_dem_30m_aws_pixel@1"`
+//   declares the exact function used (was `open_meteo_copdem90m@1`
+//   before the 2026-05-29 AWS migration). A skeptical verifier
+//   downweights non-deterministic derivations; this one is deterministic
+//   up to the upstream provider's stability. Receipts already signed
+//   under the previous fn_key continue to verify — content addressing
+//   pins each fact's CID to its exact byte form, and the new fn_key
+//   only applies to facts signed after the migration.
 // - The signer is the responder's pubkey (the same one that signs receipts).
 //   Agents already trust this key for receipts; an attestation under the
 //   same key extends that trust to the materialized fact.
@@ -19296,13 +19301,26 @@ fn static_release_date(band: &str) -> Option<&'static str> {
     }
 }
 
-/// Fetch elevation from Open-Meteo (Cop-DEM 90 m wrap), build a signed
-/// attestation under the responder's identity, store via the storage
-/// layer, return what was materialized. On a successful land query a
-/// Primary fact is signed; on Cop-DEM no-data (value=0 over water) or
-/// upstream error a NegativeFact is signed with a content-addressed
-/// reason. Either way the next /v1/recall on this cell hits the hot
-/// cache and serves the result from sled without re-fetching upstream.
+/// Fetch elevation from the **AWS Open Data Cop-DEM GLO-30 COG mirror**,
+/// build a signed attestation under the responder's identity, store via
+/// the storage layer, return what was materialized.
+///
+/// **Migration from the Open-Meteo per-point HTTPS path (commit
+/// pre-2026-05-29):** Open-Meteo wraps Cop-DEM but caps at ~50-100
+/// req/min, so polygon recalls > 50 cells time out. The AWS Open Data
+/// mirror serves the same Cop-DEM 30 m product as anonymous-read COGs
+/// at `copernicus-dem-30m.s3.amazonaws.com`, range-readable so one
+/// polygon prewarm pulls the IFD + tile bytes for an N-cell bbox in
+/// ONE HTTP read; the per-cell `cog::sample_pixel` then hits the byte
+/// cache and skips the network entirely (same handshake every other
+/// static-COG band uses — Hansen, WorldCover, JRC-GFC2020, JRC-GSW).
+///
+/// On a successful land query a Primary fact is signed; on Cop-DEM
+/// no-data (the AWS COG marks ocean with a sentinel that decodes to
+/// 0 m / non-finite) or upstream coverage gap a NegativeFact is signed
+/// with a content-addressed reason. Either way the next /v1/recall on
+/// this cell hits the hot cache and serves the result from sled without
+/// re-fetching upstream.
 async fn materialize_elevation_mean(
     cell64: &str,
     s: &AppState,
@@ -19312,56 +19330,67 @@ async fn materialize_elevation_mean(
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
-    // 2. Call Open-Meteo. (Same client + UA as /v1/elevation.)
-    let url =
-        format!("https://api.open-meteo.com/v1/elevation?latitude={lat:.6}&longitude={lng:.6}",);
-    let resp_result = reqwest_client().get(&url).send().await;
+    // 2. Resolve the AWS Open Data tile URL covering this cell. The URL
+    //    helper lives in `emem_fetch::copernicus_dem` so the polygon
+    //    prewarm path (`prewarm_polygon_static_cog_bands`) and this
+    //    materializer always reach for the exact same tile — any drift
+    //    would break `TILE_CACHE` hits.
+    let url = emem_fetch::copernicus_dem::tile_url_for(lat, lng);
+    let cli = s2_http_client();
     let signed_at = chrono_iso8601_utc();
 
-    let elev_m = match resp_result {
-        Ok(resp) if resp.status().is_success() => {
-            let body: JsonValue = resp
-                .json()
-                .await
-                .map_err(|e| format!("open-meteo json: {e}"))?;
-            body.get("elevation")
-                .and_then(|v| v.as_array())
-                .and_then(|a| a.first())
-                .and_then(|v| v.as_f64())
-                .ok_or_else(|| "open-meteo response missing elevation[0]".to_string())?
+    // 3. Open the COG profile (cached + single-flighted across concurrent
+    //    callers). On 404 or other open_profile error we surface a signed
+    //    Absence — the AWS mirror does not publish tiles over the open
+    //    ocean and has documented gaps in some Antarctic interiors. Do
+    //    NOT fall back to Open-Meteo here; the responder must be honest
+    //    about which source signed the value.
+    let profile = match emem_fetch::cog::open_profile(&cli, &url).await {
+        Ok(p) => p,
+        Err(e) => {
+            let es = e.to_string();
+            if es.contains("404") || es.contains("Not Found") {
+                let reason = format!(
+                    "copdem_coverage_gap: AWS Open Data Cop-DEM GLO-30 publishes no tile at ({lat:.6},{lng:.6}); the tile URL {url} returned 404. This is the documented behaviour over open ocean (Cop-DEM is a land DEM) and at certain unmapped Antarctic interiors. Recorded as a confirmed absence."
+                );
+                let cid = sign_elevation_absence(cell64, s, &url, &signed_at, &reason).await?;
+                return Ok(ElevationMaterialization::Absence(cid));
+            }
+            return Err(format!("open copdem cog {url}: {e}"));
         }
-        Ok(resp) => {
-            // Upstream error (e.g. 502 above the polar circle). Sign an
-            // Absence fact so subsequent recalls short-circuit.
+    };
+
+    // 4. Sample the pixel covering (lat, lng). Cop-DEM tiles are in
+    //    EPSG:4326, so world_x = lng, world_y = lat directly. On a
+    //    sampling error we again sign Absence with `copdem_coverage_gap`
+    //    rather than silently fall back to a different source.
+    let elev_m = match emem_fetch::cog::sample_pixel(&cli, &url, &profile, lng, lat).await {
+        Ok(v) => v,
+        Err(e) => {
             let reason = format!(
-                "upstream_no_coverage: copdem30m.elevation_mean lookup at ({lat:.6},{lng:.6}) returned HTTP {} from open-meteo; Cop-DEM 90m has no global coverage above |lat|≈85° and at certain Antarctic interiors, so this cell is recorded as a confirmed absence rather than re-fetched on every call.",
-                resp.status(),
+                "copdem_coverage_gap: AWS Open Data Cop-DEM GLO-30 sample at ({lat:.6},{lng:.6}) on tile {url} failed: {e}. Recorded as a confirmed absence."
             );
             let cid = sign_elevation_absence(cell64, s, &url, &signed_at, &reason).await?;
             return Ok(ElevationMaterialization::Absence(cid));
         }
-        Err(e) => {
-            // Network error — DON'T persist an absence (we don't know
-            // if the cell genuinely has no coverage; might be transient).
-            return Err(format!("open-meteo https: {e}"));
-        }
     };
 
-    // Cop-DEM is a *land* digital elevation model: ocean cells return
-    // exactly 0 m by design. Signing 0 m as elevation_mean would be
+    // Cop-DEM is a *land* digital elevation model: ocean cells decode to
+    // a no-data sentinel (typically 0 m or a non-finite float depending on
+    // the per-tile nodata tag). Signing 0 m as elevation_mean would be
     // verifiable but factually wrong by up to 11 km (Mariana Trench).
     // Materialize a NegativeFact instead so the agent gets a signed,
     // cite-able absence-of-land-elevation here, and a future
     // gebco.bathymetry_mean materializer can supply real depth.
-    if elev_m == 0.0 {
+    if !elev_m.is_finite() || elev_m == 0.0 {
         let reason = format!(
-            "ocean_or_no_land_dem: open-meteo cop-dem 90m returned exactly 0 m at ({lat:.6},{lng:.6}). Cop-DEM is a land DEM and uses 0 as its no-data marker over water. This cell is recorded as a confirmed absence for band copdem30m.elevation_mean; a future gebco.bathymetry_mean materializer will provide bathymetric depth here."
+            "copdem_coverage_gap: AWS Open Data Cop-DEM GLO-30 returned 0 m / non-finite at ({lat:.6},{lng:.6}). Cop-DEM is a land DEM and uses 0 / nodata as the marker over water. Recorded as a confirmed absence for band copdem30m.elevation_mean; a future gebco.bathymetry_mean materializer will provide bathymetric depth here."
         );
         let cid = sign_elevation_absence(cell64, s, &url, &signed_at, &reason).await?;
         return Ok(ElevationMaterialization::Absence(cid));
     }
 
-    // 3. Build the Primary fact. The schema_cid binds the meaning of this
+    // 5. Build the Primary fact. The schema_cid binds the meaning of this
     //    fact to the responder's active manifest at materialization time.
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
@@ -19372,15 +19401,15 @@ async fn materialize_elevation_mean(
         confidence: 0.95,
         uncertainty: None,
         sources: vec![Source {
-            scheme: "open_meteo".into(),
+            scheme: "copernicus.dem.30m.aws".into(),
             id: url.clone(),
             cid: None,
             hash: None,
             captured_at: static_release_date("copdem30m.elevation_mean").map(str::to_string),
-            url: None,
+            url: Some(url.clone()),
         }],
         derivation: Derivation {
-            fn_key: "open_meteo_copdem90m@1".into(),
+            fn_key: "copernicus_dem_30m_aws_pixel@1".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -19393,49 +19422,7 @@ async fn materialize_elevation_mean(
         served_via: None,
     });
 
-    // 4. Compute the merkle root via emem_attest::merkle_root over the
-    //    sorted leaf hashes (verify_attestation re-runs this exact path).
-    let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
-    let leaf_hash = blake3::hash(&buf);
-    let mut leaf = [0u8; 32];
-    leaf.copy_from_slice(leaf_hash.as_bytes());
-    let batch_root = emem_attest::merkle_root(&[leaf]);
-
-    // 5. Sign blake3(batch_root || registry_cid || schema_cid) with the
-    //    responder's identity key.
-    let mut h = blake3::Hasher::new();
-    h.update(&batch_root);
-    h.update(s.manifests.registry_cid.as_str().as_bytes());
-    h.update(s.manifests.schema_cid.as_str().as_bytes());
-    let signed_digest = h.finalize();
-    let sig = s.identity.signing.sign(signed_digest.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&sig.to_bytes());
-
-    let att = Attestation {
-        facts: vec![fact],
-        batch_root,
-        attester: s.identity.pubkey,
-        attester_key_epoch: KeyEpoch(s.identity.epoch.0),
-        registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signature: EmCoreSignature(sig_bytes),
-        attested_at: signed_at,
-    };
-
-    // 6. Persist. Storage layer recomputes the root, validates the
-    //    signature, and commits to sled. Future recalls hit hot cache.
-    let cids = s
-        .storage
-        .put_attestation(&att)
-        .await
-        .map_err(|e| format!("put_attestation: {e}"))?;
-
-    let cid = cids
-        .into_iter()
-        .next()
-        .ok_or_else(|| "put_attestation returned no fact_cid".to_string())?;
+    let cid = sign_and_persist(s, fact, &signed_at).await?;
     Ok(ElevationMaterialization::Primary(cid))
 }
 
@@ -26527,7 +26514,7 @@ async fn sign_elevation_absence(
         s,
         "copdem30m.elevation_mean",
         0,
-        "open_meteo",
+        "copernicus.dem.30m.aws",
         upstream_url,
         signed_at,
         reason_text,
@@ -32969,6 +32956,15 @@ fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Opti
         // tiles on `storage.googleapis.com/global-surface-water/...`.
         // Same prewarm + per-cell handshake as WorldCover.
         "surface_water.recurrence" => Some(emem_fetch::jrc_gsw::recurrence_tile_url_for(
+            centre_lat, centre_lng,
+        )),
+        // Copernicus DEM GLO-30 on the AWS Open Data mirror — 1°×1°
+        // SW-corner-named COGs at `copernicus-dem-30m.s3.amazonaws.com`
+        // (anonymous read, CC BY 4.0). Replaces the rate-limited
+        // Open-Meteo per-point HTTPS path (commit pre-2026-05-29) so
+        // a polygon recall fires ONE range read per tile, then every
+        // per-cell `cog::sample_pixel` lands in `TILE_CACHE`.
+        "copdem30m.elevation_mean" => Some(emem_fetch::copernicus_dem::tile_url_for(
             centre_lat, centre_lng,
         )),
         // CHIRPS daily / monthly precip — global COG per epoch. We

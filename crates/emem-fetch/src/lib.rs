@@ -29,6 +29,7 @@ pub mod cache_window;
 pub mod chirps;
 pub mod cog;
 pub mod connectors;
+pub mod copernicus_dem;
 pub mod countries;
 pub mod dmsp_ols;
 pub mod esa_cci_biomass;

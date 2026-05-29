@@ -212,8 +212,10 @@ async fn main() -> anyhow::Result<()> {
         // plausibly correct as the *summit* elevation, but the band is
         // defined as the *cell-mean* elevation, and these LLM-attested
         // facts then took precedence over the real auto-materializer
-        // (Open-Meteo `open_meteo_copdem90m@1`) for the read path,
-        // returning summit values where the registry promises cell-means.
+        // (AWS Open Data Cop-DEM `copernicus_dem_30m_aws_pixel@1`,
+        // previously Open-Meteo `open_meteo_copdem90m@1`) for the read
+        // path, returning summit values where the registry promises
+        // cell-means.
         //
         // The right behavior is: emit only the integrity bands above
         // (`copdem30m.provenance`, `copdem30m.byte_histogram_v1`) which
@@ -398,22 +400,13 @@ async fn main() -> anyhow::Result<()> {
 
 // ---- Cop-DEM URL resolver --------------------------------------------
 
+/// Thin wrapper around `emem_fetch::copernicus_dem::tile_url_for` so the
+/// realdemo and the live `/v1/elevation` materializer always reach for
+/// the same AWS Open Data tile URL. Pre-2026-05-29 this helper lived
+/// inline here as a private fn; it has since been lifted into
+/// `emem-fetch` so the polygon prewarm path can share it.
 fn copdem_url_for_latlon(lat: f64, lng: f64) -> String {
-    let lat_floor = lat.floor() as i32;
-    let lon_floor = lng.floor() as i32;
-    let lat_band = if lat_floor >= 0 {
-        format!("N{:02}", lat_floor)
-    } else {
-        format!("S{:02}", -lat_floor)
-    };
-    let lon_band = if lon_floor >= 0 {
-        format!("E{:03}", lon_floor)
-    } else {
-        format!("W{:03}", -lon_floor)
-    };
-    format!(
-        "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_{lat_band}_00_{lon_band}_00_DEM/Copernicus_DSM_COG_10_{lat_band}_00_{lon_band}_00_DEM.tif"
-    )
+    emem_fetch::copernicus_dem::tile_url_for(lat, lng)
 }
 
 // ---- GeoTIFF header inspection (real bytes) --------------------------

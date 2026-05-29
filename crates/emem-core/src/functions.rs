@@ -167,6 +167,10 @@ mod tests {
         // walking the function manifest from a Primary fact's
         // `derivation.fn_key` must be able to look them up here.
         assert!(r.lookup("open_meteo_copdem90m@1").is_some());
+        // AWS Open Data Cop-DEM mirror replacement landed 2026-05-29.
+        // The old key is retained for receipt-verifiability; the new key
+        // is what every fresh /v1/recall signs.
+        assert!(r.lookup("copernicus_dem_30m_aws_pixel@1").is_some());
         assert!(r.lookup("met_no_locationforecast_compact@1").is_some());
     }
 }

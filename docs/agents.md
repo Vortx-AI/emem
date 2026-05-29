@@ -222,10 +222,10 @@ curl -s -X POST https://emem.dev/v1/recall \
   "facts": [{
     "band": "copdem30m.elevation_mean", "cell": "defi.zb493.xoso.zcb6a",
     "tslot": 0, "value": 910.0, "unit": "m", "confidence": 0.95,
-    "derivation": {"fn_key": "open_meteo_copdem90m@1", "args": [12.971641, 77.594609]},
-    "sources": [{"scheme": "open_meteo",
-                 "id": "https://api.open-meteo.com/v1/elevation?latitude=12.971641&longitude=77.594609",
-                 "captured_at": "2026-05-03T17:45:32Z"}],
+    "derivation": {"fn_key": "copernicus_dem_30m_aws_pixel@1", "args": [12.971641, 77.594609]},
+    "sources": [{"scheme": "copernicus.dem.30m.aws",
+                 "id": "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_N12_00_E077_00_DEM/Copernicus_DSM_COG_10_N12_00_E077_00_DEM.tif",
+                 "captured_at": "2021-04-30T00:00:00Z"}],
     "signed_at": "2026-05-03T17:45:32Z",
     "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"
   }],
