@@ -74,7 +74,7 @@ signed `Receipt`.
 | Crate | Role |
 |-------|------|
 | emem-api-rest | HTTP/MCP router + AppState + inline materializers + sidecar client + physics solvers |
-| emem-fetch | 12 data connectors + 6 utility modules: `cache_window`, `chirps`, `cog`, `connectors`, `dmsp_ols`, `firms`, `ftw`, `geonames`, `hansen_gfc`, `koppen`, `overture`, `proj`, `stac`, `template`, `terraclimate`, `wdpa`, `worldpop` |
+| emem-fetch | 16 data connectors + 13 utility modules: `chirps`, `cog`, `copernicus_dem`, `dmsp_ols`, `esa_cci_biomass`, `esa_worldcover`, `firms`, `ftw`, `geonames`, `gmrt`, `hansen_gfc`, `jrc_gfc2020`, `jrc_gsw`, `jrc_tmf`, `koppen`, `overture`, `radd_alerts`, `terraclimate`, `wdpa`, `worldpop`, `wri_gdm_drivers`; utility: `admin1`, `admin2`, `admin3`, `cache_window`, `connectors`, `countries`, `lib`, `pois`, `proj`, `stac`, `template` |
 | emem-primitives | recall / find_similar / trajectory / compare / compare_bands / diff / verify / query_region + binary_embedding + refinement + cbor_ops |
 | emem-core | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
 | emem-cli | 7 binaries: `emem`, `emem-server`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-ask-eval`, `emem-purge-fnkey` |
@@ -358,7 +358,7 @@ surfaces as `FetchError::RateLimited` with `Retry-After`.
 
 Two surface populations produce live facts.
 
-**Dedicated `emem-fetch` modules — 12 data connectors:**
+**Dedicated `emem-fetch` modules — 16 data connectors:**
 
 | Module | Read path | Bands |
 |--------|-----------|-------|
@@ -392,7 +392,7 @@ depths), `materialize_firms_active_fires`,
 Prithvi / Galileo / Clay encoders, JRC GSW, Overture, ESA
 WorldCover, Köppen, WorldPop, WDPA.
 
-Of the **43 declared source schemes** in `sources-v0.json`, five
+Of the **46 declared source schemes** in `sources-v0.json`, five
 remain declared-but-unwired: `dynamic_world.v1`,
 `openet.30m.daily`, `tropomi.s5p.{ch4, no2}`, `viirs.dnb.monthly`.
 A recall on those bands returns a typed `MaterializeMiss` Absence.
