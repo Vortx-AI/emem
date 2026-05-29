@@ -2196,9 +2196,8 @@ mod tests {
         // must short-circuit before computing `off - base`.
         let base: u64 = 10_000;
         let off: u64 = 5_000;
-        let len: u64 = 256;
         // The guarded branch:
-        let took_fallback = !(off >= base);
+        let took_fallback = off < base;
         assert!(
             took_fallback,
             "off ({off}) < base ({base}) must trigger the http_range fallback path"
