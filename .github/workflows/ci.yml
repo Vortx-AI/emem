@@ -105,3 +105,27 @@ jobs:
         # findings; informational warnings (unmaintained, yanked,
         # notice) are surfaced in the log but don't fail CI.
         run: cargo audit
+
+  python-sdks:
+    name: python SDK tests (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the package floor (declared in pyproject.toml); 3.12
+        # catches warnings from newer interpreter behaviour. These two
+        # bracket the supported range.
+        python: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: install test deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "httpx>=0.27" "pytest>=8.0" "respx>=0.21" "langchain-core>=0.3,<1.0"
+      - name: emem-py parity tests
+        run: PYTHONPATH=sdks/emem-py/src python -m pytest sdks/emem-py/tests/ -v
+      - name: emem-langmem smoke tests
+        run: PYTHONPATH=sdks/emem-langmem/src python -m pytest sdks/emem-langmem/tests/ -v
