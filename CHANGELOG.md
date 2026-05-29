@@ -7,8 +7,94 @@ to verify.
 
 ## [Unreleased]
 
-_Nothing pending; next planned cut is v0.0.9 — see
-`docs/plans/v0.0.8-and-v0.0.9.md`._
+_Branch `feat/connect-and-evolve`. Finishes the remaining v0.0.8 items and
+lands the v0.0.9 "memory that connects & evolves" feature set. Every change is
+additive — v0.0.6/v0.0.7/v0.0.8 receipts and attestations still verify
+byte-identically (regression-tested). Version bump to 0.0.9 + tag intentionally
+left for a release decision; `Cargo.toml` stays at 0.0.8._
+
+### v0.0.9 — connectivity layer (the headline)
+
+**Temporal knowledge-graph edges** (commit `d369948`):
+- New sibling type `EdgeFact { subj, pred, obj, valid_from, valid_to?,
+  confidence, signer, signed_at, .. }` in `crates/emem-fact/src/edge.rs`,
+  content-addressed like a fact. NOT a `Fact` variant — the frozen `Fact` CBOR
+  is untouched.
+- Sled trees `emem.edges` / `emem.edge_spo` (big-endian `valid_from` so range
+  scans ascend) / `emem.edge_ops`; `add_edges` / `recall_edges` / `has_edge` on
+  the Storage trait (default no-op so all impls compile). Bi-temporal
+  supersession: a newer `valid_from` shadows the older without deleting it.
+- Edges ride the existing `Attestation` envelope (`edges: Vec<EdgeFact>`,
+  serde-default); `verify_attestation` folds edge leaves into the merkle root
+  only when non-empty → empty-edges attestations are byte-identical.
+- New optional receipt preimage segment `edges_blake3_hex` (after `as_of`,
+  before `manifest`); `sign_receipt_with_edges([])` short-circuits to the
+  existing path → byte-identical for every legacy call site.
+- `POST /v1/edges` + `POST /v1/edges/recall`; MCP tool `emem_edges_recall`;
+  `include:["edges"]` attaches a fact's edges to `/v1/recall`.
+
+**Contradiction-fed refinement loop** (commit `ab7d2ec`):
+- Opt-in (`EMEM_REFINEMENT_ENABLED`, default off) scheduler pass that consumes
+  the existing signed contradiction signal and records one `disagrees_with`
+  edge per high-severity disagreeing pair (`valid_from` = contested tslot,
+  `confidence` = severity), plus a non-destructive `emem.fact_contested` marker
+  on the lower-confidence fact. The fact body is never mutated.
+- Idempotent by construction: dedupe is on the logical key
+  `(subj, pred, obj, valid_from)` (not the CID, since `signed_at` varies), so a
+  re-run emits zero new edges. Edges are batched into one responder-self-signed
+  attestation — no new key material.
+
+**MCP async tasks + protocol 2025-11-25** (commit `84d943a`):
+- Verified `2025-11-25` is a real published MCP revision; added it as the
+  negotiation default (older revisions still supported).
+- Async task handles for long-running tools (`emem_eudr_dds`, `emem_hunt`):
+  `tools/call` with a `task` param returns `{taskId, status}`; `tasks/get` /
+  `tasks/result` / `tasks/list` / `tasks/cancel` poll it. Bounded registry
+  (256 slots, TTL eviction). Sync path unchanged when no `task` param.
+- `tasks` capability advertised only at `2025-11-25`. `sampling` /
+  `elicitation` deliberately NOT advertised (no implemented path — honesty).
+
+**`emem-membench` scorecard** (commit `6e2561d`):
+- New crate/binary scoring a responder on four MemoryAgentBench-style axes
+  (retrieval, test-time learning, long-range, conflict resolution) + a
+  LongMemEval-S-style topline. `--self-test` runs offline against a built-in
+  fixture; live mode embeds the responder's signed receipt. Scores are
+  computed, never fabricated.
+
+### v0.0.8 — completion
+
+**Scope filtering end-to-end** (commit `c150cc7`): the existing `Scope`
+four-tuple now filters reads. New `emem.scope_index` tree populated on scoped
+writes; `scan_cell_in_scope` (default falls back to `scan_cell`); optional
+`scope` threaded through `recall` + the other read primitives. A fact written
+under `{user_id:"u1"}` is invisible to a `u2` recall.
+
+**Vault memory kind** (commit `c150cc7`): `MemoryKind::Vault`, AEAD-sealed
+(ChaCha20-Poly1305, key via HKDF-SHA512 off the responder ed25519). Reads return
+ciphertext unless the caller signs a `vault_open` capability over
+`blake3("emem.vault_open|"||path||"|"||nonce)`. Excluded from `memory_search`
+and contradiction detection.
+
+### Fixed (P2 correctness) (commit `d3b829b`)
+
+- `aqi_class@1` PM2.5 24-hour breakpoints updated to the 2024-05-06 EPA final
+  rule (Good→Moderate 12.0→9.0; Unhealthy upper 150.4→125.4; Very Unhealthy
+  250.4→225.4); citation updated. Registry CID legitimately changes.
+- Removed the dead `eudr_cell_verdict` code 5 `fail_below_de_minimis` (no path
+  emitted it; strict EUDR has no de-minimis — the 0.5 ha MMU floor → `below_mmu`
+  is the real behavior).
+
+### Content & narrative
+
+- Docs: one "connects & evolves" thesis; de-jargoned intros; reconciled stale
+  counts (46 source schemes, 16 data + 13 utility connectors) + declared-but-
+  unwired honesty note; new `why-agents` / `only-emem` / `connect-and-evolve`
+  pages.
+- Website: peer-comparison block (vs Mem0 / Letta / Zep / Anthropic memory
+  tool), connect-&-evolve diagram, try-it lifted to the hero, edges surfaced.
+- Agent surfaces: `agent_card` "first 5 minutes" + cite-this-fact blocks;
+  de-jargoned `emem_state` / `state_multi` / `temporal_route` /
+  `memory_contradictions`; `examples/connect-and-evolve.md` runnable walkthrough.
 
 ## [0.0.8] — 2026-05-28
 

@@ -624,7 +624,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <dt>connect</dt><dd>signed facts grouped into one envelope</dd>
       <dt>cite</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">memb:&lt;cid&gt;</span></dd>
       <dt>disagree</dt><dd>POST&nbsp;/v1/memory_contradictions</dd>
-      <dt>tool</dt><dd>emem_memory_contradictions</dd>
+      <dt>edges</dt><dd>POST&nbsp;/v1/edges/recall &middot; emem_edges_recall</dd>
       <dt>supersede</dt><dd>as_of_signed_at (transaction time)</dd>
       <dt>reflect</dt><dd>POST&nbsp;/v1/reviews</dd>
     </dl>
@@ -680,6 +680,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="cev-legend">
         <div class="e"><b>connect</b><span><code>/v1/memory_bundle</code> groups N signed facts into one <code>memb:&lt;cid&gt;</code> envelope an agent cites as a unit.</span></div>
         <div class="e"><b>disagree</b><span><code>/v1/memory_contradictions</code> scores per-band spread and keeps every conflicting <code>fact_cid</code> &mdash; no last-writer-wins.</span></div>
+        <div class="e"><b>edges</b><span>Typed connections are first-class: <code>(subj, pred, obj, valid_from)</code> queried by <code>/v1/edges/recall</code>, attached to any read with <code>include:["edges"]</code>. The opt-in refinement loop records <code>disagrees_with</code> edges from contradictions automatically.</span></div>
         <div class="e"><b>evolve</b><span>A new attestation supersedes on <code>as_of_signed_at</code>; <code>/v1/reviews</code> records the task outcome. The earlier bytes never vanish.</span></div>
       </div>
     </div>
