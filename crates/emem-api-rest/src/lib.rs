@@ -19531,10 +19531,12 @@ async fn materialize_elevation_mean(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "copdem30m.elevation_mean".into(),
-        // Cop-DEM GLO-30 v2021 release: 2021-04-30 (per static_release_date).
-        // Bi-temporal anchor is the public release date, not 0 — clears the
-        // 2026-05-29 audit gap where as_of_tslot < 2021-04-30 would have
-        // silently matched Cop-DEM facts that should have been excluded.
+        // Cop-DEM: tempo="static" in bands-v0.json, so `Tslot::from_unix(_,
+        // Static)` returns 0 by design (the whole point of static tempo is
+        // "no temporal index"). The helper still asks the band registry
+        // for the canonical tslot rather than hard-coding 0 — if the band
+        // ever gets re-classified to "slow" (annual), this picks it up
+        // automatically. 2026-05-29 audit follow-up.
         tslot: static_release_tslot("copdem30m.elevation_mean").unwrap_or(0),
         value: ciborium::Value::Float(elev_m),
         unit: Some("m".into()),
