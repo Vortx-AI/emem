@@ -1,45 +1,20 @@
 """Thin synchronous + asynchronous HTTP client for emem.dev.
 
-Coverage map (REST → method):
+Covers ~90% of the live REST surface (75 of 83 endpoints in OpenAPI).
+Each REST endpoint maps 1:1 to a method on both ``Client`` (sync) and
+``AsyncClient`` (async); the wire body for identical inputs is
+byte-for-byte identical across the two — enforced by the parity test
+suite at ``sdks/emem-py/tests/test_client_parity.py``.
 
-  POST /v1/locate            → Client.locate
-  POST /v1/recall            → Client.recall
-  POST /v1/recall_many       → Client.recall_many
-  POST /v1/recall_polygon    → Client.recall_polygon
-  POST /v1/find_similar      → Client.find_similar
-  POST /v1/compare           → Client.compare
-  POST /v1/compare_bands     → Client.compare_bands
-  POST /v1/trajectory        → Client.trajectory
-  POST /v1/diff              → Client.diff
-  POST /v1/query_region      → Client.query_region
-  POST /v1/verify            → Client.verify
-  POST /v1/ask               → Client.ask
-  POST /v1/fetch             → Client.fetch
-  POST /v1/backfill          → Client.backfill
-  POST /v1/intent            → Client.intent
-  POST /v1/heat_solve        → Client.heat_solve
-  POST /v1/wave_solve        → Client.wave_solve
-  POST /v1/jepa_predict      → Client.jepa_predict
-  POST /v1/jepa_predict_v2   → Client.jepa_predict_v2
-  GET  /v1/bands             → Client.bands
-  GET  /v1/algorithms        → Client.algorithms
-  GET  /v1/sources           → Client.sources
-  GET  /v1/schema            → Client.schema
-  GET  /v1/manifests         → Client.manifests
-  GET  /v1/topics            → Client.topics
-  GET  /v1/grid_info         → Client.grid_info
-  GET  /v1/coverage_matrix   → Client.coverage_matrix
-  GET  /v1/agent_card        → Client.agent_card
-  GET  /v1/discover          → Client.discover
-  GET  /openapi.json         → Client.openapi
-  GET  /health               → Client.health
+Endpoints intentionally not wrapped (non-JSON or non-HTTP-1.1
+semantics — use ``httpx`` directly): ``/v1/stream`` (SSE),
+``/v1/cells/{cell64}/scene.{png,rgb}`` (binary imagery),
+``/v1/coverage_map.svg`` (SVG), ``/v1/attest_cbor`` (raw CBOR body),
+``/mcp`` (JSON-RPC), ``/.well-known/emem.json`` (discovery).
 
-Boring lat/lng shortcuts (skip locate→recall):
-
-  Client.ndvi / elevation / air / lst / soil / water / forest / weather
-
-All calls return parsed JSON. HTTP non-2xx responses raise EmemHTTPError
-with the response status, URL, and parsed body (when JSON).
+All wrapped calls return parsed JSON. HTTP non-2xx responses raise
+``EmemHTTPError`` with the response status, URL, and parsed body
+(when JSON).
 """
 
 from __future__ import annotations
@@ -377,6 +352,200 @@ class Client:
     def health(self) -> Any:
         return self._get("/health")
 
+    # ── extended methods (v0.0.8) ────────────────────────────────────
+    def at(
+        self,
+        *,
+        place: str | None = None,
+        cell: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+        bands: Sequence[str] | None = None,
+    ) -> Any:
+        return self._post("/v1/at", _at_body(place, cell, lat, lng, bands))
+
+    def verify_receipt(
+        self,
+        receipt: Mapping[str, Any],
+        *,
+        pubkey_b32: str | None = None,
+    ) -> Any:
+        return self._post("/v1/verify_receipt", _verify_receipt_body(receipt, pubkey_b32))
+
+    def hunt(
+        self,
+        event: str,
+        *,
+        region: str | None = None,
+        polygon_bbox: Sequence[float] | None = None,
+        polygon_geojson: Mapping[str, Any] | None = None,
+        n_cells: int | None = None,
+    ) -> Any:
+        return self._post("/v1/hunt", _hunt_body(event, region, polygon_bbox, polygon_geojson, n_cells))
+
+    def eudr_dds(
+        self,
+        plots: Sequence[Mapping[str, Any]],
+        *,
+        operator: Mapping[str, Any] | None = None,
+        include_evidence: bool = False,
+    ) -> Any:
+        return self._post("/v1/eudr_dds", _eudr_dds_body(plots, operator, include_evidence))
+
+    def attest(
+        self,
+        fact: Mapping[str, Any],
+        signature_b32: str,
+        pubkey_b32: str,
+    ) -> Any:
+        return self._post("/v1/attest", _attest_body(fact, signature_b32, pubkey_b32))
+
+    def state(
+        self,
+        cell: str,
+        *,
+        view: str = 'encoder',
+        encoder: str | None = None,
+    ) -> Any:
+        return self._post("/v1/state", _state_body(cell, view, encoder))
+
+    def state_multi(
+        self,
+        cell: str,
+    ) -> Any:
+        return self._post("/v1/state_multi", _state_multi_body(cell))
+
+    def state_diff(
+        self,
+        cell: str,
+        *,
+        encoder: str = 'geotessera',
+        tslot_a: int,
+        tslot_b: int,
+    ) -> Any:
+        return self._post("/v1/state_diff", _state_diff_body(cell, encoder, tslot_a, tslot_b))
+
+    def field_boundaries(
+        self,
+        *,
+        place: str | None = None,
+        polygon_bbox: Sequence[float] | None = None,
+        polygon_geojson: Mapping[str, Any] | None = None,
+        max_polygons: int | None = None,
+    ) -> Any:
+        return self._post("/v1/field_boundaries", _field_boundaries_body(place, polygon_bbox, polygon_geojson, max_polygons))
+
+    def temporal_route(
+        self,
+        q: str,
+        *,
+        place: str | None = None,
+        cell: str | None = None,
+    ) -> Any:
+        return self._post("/v1/temporal_route", _temporal_route_body(q, place, cell))
+
+    def memory_token(
+        self,
+        cell: str,
+        fact_cid: str,
+    ) -> Any:
+        return self._post("/v1/memory_token", _memory_token_body(cell, fact_cid))
+
+    def memory_token_resolve(
+        self,
+        token: str,
+    ) -> Any:
+        return self._post("/v1/memory_token/resolve", _memory_token_resolve_body(token))
+
+    def memory_contradictions(
+        self,
+        cell: str,
+        *,
+        band: str | None = None,
+        tslot: int | None = None,
+    ) -> Any:
+        return self._post("/v1/memory_contradictions", _memory_contradictions_body(cell, band, tslot))
+
+    def reviews(
+        self,
+        subject_id: str,
+        outcome: str,
+        *,
+        rating: int | None = None,
+        notes: str | None = None,
+    ) -> Any:
+        return self._post("/v1/reviews", _reviews_body(subject_id, outcome, rating, notes))
+
+    def benchmark_grade(
+        self,
+        answers: Mapping[str, Any],
+    ) -> Any:
+        return self._post("/v1/benchmark/grade", _benchmark_grade_body(answers))
+
+    def cell_info(self, cell64: str) -> Any:
+        return self._get(f"/v1/cells/{cell64}/info")
+
+    def cell_geojson(self, cell64: str) -> Any:
+        return self._get(f"/v1/cells/{cell64}/geojson")
+
+    def cell_recall_geojson(self, cell64: str) -> Any:
+        return self._get(f"/v1/cells/{cell64}/recall_geojson")
+
+    def fact_by_cid(self, cid: str) -> Any:
+        return self._get(f"/v1/facts/{cid}")
+
+    def review_by_subject(self, subject_id: str) -> Any:
+        return self._get(f"/v1/reviews/{subject_id}")
+
+    def contributor_by_pubkey(self, pubkey_b32: str) -> Any:
+        return self._get(f"/v1/contributors/{pubkey_b32}")
+
+    def agent_quickref(self) -> Any:
+        return self._get("/v1/agent_quickref")
+
+    def agent_stats(self) -> Any:
+        return self._get("/v1/agent_stats")
+
+    def capabilities(self) -> Any:
+        return self._get("/v1/capabilities")
+
+    def contributors(self) -> Any:
+        return self._get("/v1/contributors")
+
+    def corpus_state_stats(self) -> Any:
+        return self._get("/v1/corpus_state_stats")
+
+    def coverage(self) -> Any:
+        return self._get("/v1/coverage")
+
+    def data_availability(self) -> Any:
+        return self._get("/v1/data_availability")
+
+    def demos(self) -> Any:
+        return self._get("/v1/demos")
+
+    def errors(self) -> Any:
+        return self._get("/v1/errors")
+
+    def fleet(self) -> Any:
+        return self._get("/v1/fleet")
+
+    def functions(self) -> Any:
+        return self._get("/v1/functions")
+
+    def materializers(self) -> Any:
+        return self._get("/v1/materializers")
+
+    def quickstart(self) -> Any:
+        return self._get("/v1/quickstart")
+
+    def tools(self) -> Any:
+        return self._get("/v1/tools")
+
+    def benchmark(self) -> Any:
+        return self._get("/v1/benchmark")
+
+
 
 # ── Endpoint body builders ──────────────────────────────────────────────
 # Shared between Client and AsyncClient so the wire bodies they emit for
@@ -569,6 +738,113 @@ def _boring_get_params(
 
 def _algorithms_path(key: str | None) -> str:
     return f"/v1/algorithms/{key}" if key else "/v1/algorithms"
+
+
+
+# ── extended endpoint body builders (v0.0.8) ─────────────────────────
+def _at_body(place: str | None, cell: str | None, lat: float | None, lng: float | None, bands: Sequence[str] | None) -> dict[str, Any]:
+    return {
+        "place": place,
+        "cell": cell,
+        "lat": lat,
+        "lng": lng,
+        "bands": list(bands) if bands else None,
+    }
+
+def _verify_receipt_body(receipt: Mapping[str, Any], pubkey_b32: str | None) -> dict[str, Any]:
+    return {
+        "receipt": dict(receipt),
+        "pubkey_b32": pubkey_b32,
+    }
+
+def _hunt_body(event: str, region: str | None, polygon_bbox: Sequence[float] | None, polygon_geojson: Mapping[str, Any] | None, n_cells: int | None) -> dict[str, Any]:
+    return {
+        "event": event,
+        "region": region,
+        "polygon_bbox": list(polygon_bbox) if polygon_bbox else None,
+        "polygon_geojson": polygon_geojson,
+        "n_cells": n_cells,
+    }
+
+def _eudr_dds_body(plots: Sequence[Mapping[str, Any]], operator: Mapping[str, Any] | None, include_evidence: bool) -> dict[str, Any]:
+    return {
+        "plots": [dict(p) for p in plots],
+        "operator": dict(operator) if operator else None,
+        "include_evidence": include_evidence,
+    }
+
+def _attest_body(fact: Mapping[str, Any], signature_b32: str, pubkey_b32: str) -> dict[str, Any]:
+    return {
+        "fact": dict(fact),
+        "signature_b32": signature_b32,
+        "pubkey_b32": pubkey_b32,
+    }
+
+def _state_body(cell: str, view: str, encoder: str | None) -> dict[str, Any]:
+    return {
+        "cell": cell,
+        "view": view,
+        "encoder": encoder,
+    }
+
+def _state_multi_body(cell: str) -> dict[str, Any]:
+    return {
+        "cell": cell,
+    }
+
+def _state_diff_body(cell: str, encoder: str, tslot_a: int, tslot_b: int) -> dict[str, Any]:
+    return {
+        "cell": cell,
+        "encoder": encoder,
+        "tslot_a": tslot_a,
+        "tslot_b": tslot_b,
+    }
+
+def _field_boundaries_body(place: str | None, polygon_bbox: Sequence[float] | None, polygon_geojson: Mapping[str, Any] | None, max_polygons: int | None) -> dict[str, Any]:
+    return {
+        "place": place,
+        "polygon_bbox": list(polygon_bbox) if polygon_bbox else None,
+        "polygon_geojson": polygon_geojson,
+        "max_polygons": max_polygons,
+    }
+
+def _temporal_route_body(q: str, place: str | None, cell: str | None) -> dict[str, Any]:
+    return {
+        "q": q,
+        "place": place,
+        "cell": cell,
+    }
+
+def _memory_token_body(cell: str, fact_cid: str) -> dict[str, Any]:
+    return {
+        "cell": cell,
+        "fact_cid": fact_cid,
+    }
+
+def _memory_token_resolve_body(token: str) -> dict[str, Any]:
+    return {
+        "token": token,
+    }
+
+def _memory_contradictions_body(cell: str, band: str | None, tslot: int | None) -> dict[str, Any]:
+    return {
+        "cell": cell,
+        "band": band,
+        "tslot": tslot,
+    }
+
+def _reviews_body(subject_id: str, outcome: str, rating: int | None, notes: str | None) -> dict[str, Any]:
+    return {
+        "subject_id": subject_id,
+        "outcome": outcome,
+        "rating": rating,
+        "notes": notes,
+    }
+
+def _benchmark_grade_body(answers: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "answers": dict(answers),
+    }
 
 
 class AsyncClient:
@@ -925,3 +1201,196 @@ class AsyncClient:
 
     async def health(self) -> Any:
         return await self._get("/health")
+
+    # ── extended methods (v0.0.8) ────────────────────────────────────
+    async def at(
+        self,
+        *,
+        place: str | None = None,
+        cell: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+        bands: Sequence[str] | None = None,
+    ) -> Any:
+        return await self._post("/v1/at", _at_body(place, cell, lat, lng, bands))
+
+    async def verify_receipt(
+        self,
+        receipt: Mapping[str, Any],
+        *,
+        pubkey_b32: str | None = None,
+    ) -> Any:
+        return await self._post("/v1/verify_receipt", _verify_receipt_body(receipt, pubkey_b32))
+
+    async def hunt(
+        self,
+        event: str,
+        *,
+        region: str | None = None,
+        polygon_bbox: Sequence[float] | None = None,
+        polygon_geojson: Mapping[str, Any] | None = None,
+        n_cells: int | None = None,
+    ) -> Any:
+        return await self._post("/v1/hunt", _hunt_body(event, region, polygon_bbox, polygon_geojson, n_cells))
+
+    async def eudr_dds(
+        self,
+        plots: Sequence[Mapping[str, Any]],
+        *,
+        operator: Mapping[str, Any] | None = None,
+        include_evidence: bool = False,
+    ) -> Any:
+        return await self._post("/v1/eudr_dds", _eudr_dds_body(plots, operator, include_evidence))
+
+    async def attest(
+        self,
+        fact: Mapping[str, Any],
+        signature_b32: str,
+        pubkey_b32: str,
+    ) -> Any:
+        return await self._post("/v1/attest", _attest_body(fact, signature_b32, pubkey_b32))
+
+    async def state(
+        self,
+        cell: str,
+        *,
+        view: str = 'encoder',
+        encoder: str | None = None,
+    ) -> Any:
+        return await self._post("/v1/state", _state_body(cell, view, encoder))
+
+    async def state_multi(
+        self,
+        cell: str,
+    ) -> Any:
+        return await self._post("/v1/state_multi", _state_multi_body(cell))
+
+    async def state_diff(
+        self,
+        cell: str,
+        *,
+        encoder: str = 'geotessera',
+        tslot_a: int,
+        tslot_b: int,
+    ) -> Any:
+        return await self._post("/v1/state_diff", _state_diff_body(cell, encoder, tslot_a, tslot_b))
+
+    async def field_boundaries(
+        self,
+        *,
+        place: str | None = None,
+        polygon_bbox: Sequence[float] | None = None,
+        polygon_geojson: Mapping[str, Any] | None = None,
+        max_polygons: int | None = None,
+    ) -> Any:
+        return await self._post("/v1/field_boundaries", _field_boundaries_body(place, polygon_bbox, polygon_geojson, max_polygons))
+
+    async def temporal_route(
+        self,
+        q: str,
+        *,
+        place: str | None = None,
+        cell: str | None = None,
+    ) -> Any:
+        return await self._post("/v1/temporal_route", _temporal_route_body(q, place, cell))
+
+    async def memory_token(
+        self,
+        cell: str,
+        fact_cid: str,
+    ) -> Any:
+        return await self._post("/v1/memory_token", _memory_token_body(cell, fact_cid))
+
+    async def memory_token_resolve(
+        self,
+        token: str,
+    ) -> Any:
+        return await self._post("/v1/memory_token/resolve", _memory_token_resolve_body(token))
+
+    async def memory_contradictions(
+        self,
+        cell: str,
+        *,
+        band: str | None = None,
+        tslot: int | None = None,
+    ) -> Any:
+        return await self._post("/v1/memory_contradictions", _memory_contradictions_body(cell, band, tslot))
+
+    async def reviews(
+        self,
+        subject_id: str,
+        outcome: str,
+        *,
+        rating: int | None = None,
+        notes: str | None = None,
+    ) -> Any:
+        return await self._post("/v1/reviews", _reviews_body(subject_id, outcome, rating, notes))
+
+    async def benchmark_grade(
+        self,
+        answers: Mapping[str, Any],
+    ) -> Any:
+        return await self._post("/v1/benchmark/grade", _benchmark_grade_body(answers))
+
+    async def cell_info(self, cell64: str) -> Any:
+        return await self._get(f"/v1/cells/{cell64}/info")
+
+    async def cell_geojson(self, cell64: str) -> Any:
+        return await self._get(f"/v1/cells/{cell64}/geojson")
+
+    async def cell_recall_geojson(self, cell64: str) -> Any:
+        return await self._get(f"/v1/cells/{cell64}/recall_geojson")
+
+    async def fact_by_cid(self, cid: str) -> Any:
+        return await self._get(f"/v1/facts/{cid}")
+
+    async def review_by_subject(self, subject_id: str) -> Any:
+        return await self._get(f"/v1/reviews/{subject_id}")
+
+    async def contributor_by_pubkey(self, pubkey_b32: str) -> Any:
+        return await self._get(f"/v1/contributors/{pubkey_b32}")
+
+    async def agent_quickref(self) -> Any:
+        return await self._get("/v1/agent_quickref")
+
+    async def agent_stats(self) -> Any:
+        return await self._get("/v1/agent_stats")
+
+    async def capabilities(self) -> Any:
+        return await self._get("/v1/capabilities")
+
+    async def contributors(self) -> Any:
+        return await self._get("/v1/contributors")
+
+    async def corpus_state_stats(self) -> Any:
+        return await self._get("/v1/corpus_state_stats")
+
+    async def coverage(self) -> Any:
+        return await self._get("/v1/coverage")
+
+    async def data_availability(self) -> Any:
+        return await self._get("/v1/data_availability")
+
+    async def demos(self) -> Any:
+        return await self._get("/v1/demos")
+
+    async def errors(self) -> Any:
+        return await self._get("/v1/errors")
+
+    async def fleet(self) -> Any:
+        return await self._get("/v1/fleet")
+
+    async def functions(self) -> Any:
+        return await self._get("/v1/functions")
+
+    async def materializers(self) -> Any:
+        return await self._get("/v1/materializers")
+
+    async def quickstart(self) -> Any:
+        return await self._get("/v1/quickstart")
+
+    async def tools(self) -> Any:
+        return await self._get("/v1/tools")
+
+    async def benchmark(self) -> Any:
+        return await self._get("/v1/benchmark")

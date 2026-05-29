@@ -11228,10 +11228,7 @@ async fn post_a2a_task(
     h.update(iso8601_now_utc().as_bytes());
     h.update(skill.as_bytes());
     h.update(&body);
-    let task_id = format!(
-        "a2a-{}",
-        &h.finalize().to_hex().to_string()[..26]
-    );
+    let task_id = format!("a2a-{}", &h.finalize().to_hex().to_string()[..26]);
     let now = iso8601_now_utc();
 
     Ok(Json(json!({
