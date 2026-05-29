@@ -43837,8 +43837,8 @@ mod tests {
         let bands = std::sync::Arc::new((*emem_core::bands::DEFAULT).clone());
         let functions = std::sync::Arc::new((*emem_core::functions::DEFAULT).clone());
         let sources = std::sync::Arc::new((*emem_core::sources::DEFAULT).clone());
-        let storage = MaterializingStorage::ephemeral(bands, functions, sources)
-            .expect("ephemeral storage");
+        let storage =
+            MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage");
         let mut sec = [0u8; 32];
         sec[0] = 0xa5; // deterministic so the pubkey is stable in CI
         let identity = ResponderIdentity::from_secret(sec, 10);
