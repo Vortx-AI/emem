@@ -4907,6 +4907,14 @@ fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) 
         "citation":      a.citation,
         "when_to_use":   a.when_to_use,
         "fetch_url":     format!("/v1/algorithms/{}", a.key),
+        // 2026-05-29 audit honesty: agents must know which algorithms
+        // have a runtime evaluator and which are formula-only. 140 of
+        // 159 entries today are documentation-only and the dispatcher
+        // silently skips them. Surfacing the flag here makes the
+        // "agent quotes an algorithm_key whose math never ran" trap
+        // impossible to fall into.
+        "documentation_only": a.documentation_only,
+        "runtime_evaluable":  a.evaluation.is_some(),
         "summary":       true,
     })
 }
@@ -4944,6 +4952,8 @@ fn project_algorithm_for_question(
             "output":           a.output,
             "citation":         a.citation,
             "fetch_url":        format!("/v1/algorithms/{}", a.key),
+            "documentation_only": a.documentation_only,
+            "runtime_evaluable":  a.evaluation.is_some(),
         })
     }
 }

@@ -345,6 +345,17 @@ pub struct Algorithm {
     /// composes itself. Added in 0.0.3 alongside `temporal_recipe`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation: Option<Expr>,
+    /// True when the algorithm has no runtime `evaluation` AST and no
+    /// per-key Rust dispatcher. Honest flag added 2026-05-29 after the
+    /// parallel-agent audit caught that 140 of 159 registered
+    /// algorithms had no executable path — agents quoting their
+    /// `algorithm_key` in receipts were citing math that never ran.
+    /// The dispatcher must not silently evaluate to `None` on these
+    /// entries; it should surface `documentation_only: true` so the
+    /// caller knows to compose the formula client-side rather than
+    /// trust a missing number.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub documentation_only: bool,
     /// Optional inference-tier declaration — see [`InferenceTier`]. When
     /// present, the dispatcher consults the sidecar's `/health.extensions`
     /// at planning time and filters algorithms whose required hardware is
@@ -932,6 +943,10 @@ pub struct TemporalRecipe {
     /// can quote it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 fn default_true() -> bool {
