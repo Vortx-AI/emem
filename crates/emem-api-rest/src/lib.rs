@@ -2911,6 +2911,51 @@ fn jan1_unix(year: i32) -> i64 {
     days_from_civil(year, 1, 1) * 86_400
 }
 
+/// Build a `tslot` for a fact whose observation time is known in unix
+/// seconds. Looks up the band's tempo from the registry; falls back to
+/// `Tempo::Slow` (yearly) when the band isn't declared — every site
+/// currently wired here is at most yearly so the fallback is honest.
+///
+/// **Why this exists.** The 2026-05-29 audit caught 7 materializers
+/// persisting facts with `tslot: 0` despite having the
+/// year-or-daily-date already in scope. Bi-temporal recall
+/// (`as_of_tslot < observation`) silently matched the wrong vintage
+/// because `0 <= any_bound` always passes. Threading the tempo here
+/// makes every fact's `tslot` reflect the real observation time.
+fn tslot_at_band(unix_seconds: i64, band: &str) -> u64 {
+    let tempo = band_tempo_for_key(band).unwrap_or(emem_core::tslot::Tempo::Slow);
+    emem_core::tslot::Tslot::from_unix(unix_seconds, tempo).0
+}
+
+/// Convenience: per-band tslot anchored at `YYYY-01-01T00:00:00Z`.
+fn tslot_for_year(year: i32, band: &str) -> u64 {
+    tslot_at_band(jan1_unix(year), band)
+}
+
+/// Parse an Overture release string like `"2025-04-23.0"` into the unix
+/// seconds at midnight UTC of that date. Releases ship monthly; the
+/// `.N` suffix is a minor revision pin and doesn't change the calendar
+/// date. Returns `None` if the input doesn't begin with `YYYY-MM-DD`.
+fn overture_release_unix(release: &str) -> Option<i64> {
+    let head = release.split('.').next()?;
+    let mut parts = head.split('-');
+    let y: i32 = parts.next()?.parse().ok()?;
+    let m: u32 = parts.next()?.parse().ok()?;
+    let d: u32 = parts.next()?.parse().ok()?;
+    Some(days_from_civil(y, m, d) * 86_400)
+}
+
+/// RADD alert date in `YYYYDDD` format (4-digit year + 3-digit Julian
+/// day-of-year, 1-based) → unix seconds at midnight UTC of that day.
+/// Used by `materialize_radd_band` so RADD's daily alerts persist with
+/// a real tslot instead of 0.
+fn radd_yyyyddd_to_unix(yyyyddd: u32) -> i64 {
+    let y = (yyyyddd / 1000) as i32;
+    let doy = (yyyyddd % 1000).max(1);
+    let jan1 = jan1_unix(y);
+    jan1 + (doy.saturating_sub(1) as i64) * 86_400
+}
+
 /// Convert days since 1970-01-01 to civil (Y, M, D). Algorithm by Howard
 /// Hinnant — overflow-safe for any plausible epoch second.
 fn civil_from_days(z: i64) -> (i32, u32, u32) {
@@ -23117,7 +23162,9 @@ async fn materialize_overture_buildings_count(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "overture.buildings.count".into(),
-        tslot: 0,
+        tslot: overture_release_unix(&release)
+            .map(|u| tslot_at_band(u, "overture.buildings.count"))
+            .unwrap_or(0),
         value: ciborium::Value::Integer((n as i64).into()),
         unit: None,
         confidence: 0.95,
@@ -23173,7 +23220,9 @@ async fn materialize_overture_places_count(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "overture.places.count".into(),
-        tslot: 0,
+        tslot: overture_release_unix(&release)
+            .map(|u| tslot_at_band(u, "overture.places.count"))
+            .unwrap_or(0),
         value: ciborium::Value::Integer((n as i64).into()),
         unit: None,
         confidence: 0.90,
@@ -23229,7 +23278,9 @@ async fn materialize_overture_road_length_m(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "overture.transportation.road_length_m".into(),
-        tslot: 0,
+        tslot: overture_release_unix(&release)
+            .map(|u| tslot_at_band(u, "overture.transportation.road_length_m"))
+            .unwrap_or(0),
         value: ciborium::Value::Float(length_m),
         unit: Some("m".into()),
         confidence: 0.85,
@@ -23317,7 +23368,7 @@ async fn materialize_esa_worldcover_2021(
                 let fact = Fact::Absence(NegativeFact {
                     cell: cell64.to_string(),
                     band: "esa_worldcover.lc_2021".into(),
-                    tslot: 0,
+                    tslot: tslot_for_year(2021, "esa_worldcover.lc_2021"),
                     reason_cid,
                     confidence: 1.0,
                     sources: vec![Source {
@@ -23351,7 +23402,7 @@ async fn materialize_esa_worldcover_2021(
         let fact = Fact::Absence(NegativeFact {
             cell: cell64.to_string(),
             band: "esa_worldcover.lc_2021".into(),
-            tslot: 0,
+            tslot: tslot_for_year(2021, "esa_worldcover.lc_2021"),
             reason_cid,
             confidence: 1.0,
             sources: vec![Source {
@@ -23381,7 +23432,7 @@ async fn materialize_esa_worldcover_2021(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "esa_worldcover.lc_2021".into(),
-        tslot: 0,
+        tslot: tslot_for_year(2021, "esa_worldcover.lc_2021"),
         value: ciborium::Value::Integer(class_int.into()),
         unit: Some("lccs_class".into()),
         confidence: 0.92,
@@ -23545,7 +23596,7 @@ async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact:
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),
                 band: "population".into(),
-                tslot: 0,
+                tslot: tslot_for_year(sample.year as i32, "population"),
                 value: ciborium::Value::Float(sample.people_per_km2),
                 unit: Some("people_per_km2".into()),
                 confidence: 0.85,
@@ -23588,7 +23639,10 @@ async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact:
             let fact = Fact::Absence(NegativeFact {
                 cell: cell64.to_string(),
                 band: "population".into(),
-                tslot: 0,
+                tslot: tslot_for_year(
+                    emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR as i32,
+                    "population",
+                ),
                 reason_cid,
                 confidence: 1.0,
                 sources: vec![Source {
@@ -23838,7 +23892,7 @@ async fn materialize_nightlights_band(
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),
                 band: band.to_string(),
-                tslot: 0,
+                tslot: tslot_for_year(sample.year as i32, band),
                 value,
                 unit: Some(unit.into()),
                 confidence,
@@ -23885,7 +23939,7 @@ async fn materialize_nightlights_band(
             let fact = Fact::Absence(NegativeFact {
                 cell: cell64.to_string(),
                 band: band.to_string(),
-                tslot: 0,
+                tslot: tslot_for_year(2013, band),
                 reason_cid,
                 confidence: 1.0,
                 sources: vec![Source {
@@ -24579,7 +24633,7 @@ async fn build_fact_hansen(
     Ok(Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
-        tslot: 0,
+        tslot: tslot_for_year(2025, band),
         value: ciborium::Value::Integer(value_int.into()),
         unit: Some(unit.into()),
         confidence: 0.93,
@@ -24807,7 +24861,7 @@ async fn build_fact_jrc_tmf(
     Ok(Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
-        tslot: 0,
+        tslot: tslot_for_year(2025, band),
         value: ciborium::Value::Integer(value_int.into()),
         unit: Some(unit.into()),
         confidence: 0.93,
@@ -25048,7 +25102,7 @@ async fn materialize_esa_cci_biomass_band(
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),
                 band: band.to_string(),
-                tslot: 0,
+                tslot: tslot_for_year(year as i32, band),
                 value: ciborium::Value::Float(value),
                 unit: Some("t_per_ha".into()),
                 confidence,
@@ -25250,7 +25304,7 @@ async fn materialize_radd_band(
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),
                 band: band.to_string(),
-                tslot: 0,
+                tslot: tslot_at_band(radd_yyyyddd_to_unix(alert.alert_date_yyyyddd), band),
                 value,
                 unit: Some(unit.into()),
                 confidence: 0.90,
