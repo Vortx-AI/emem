@@ -15,7 +15,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 
 use emem_core::{AttesterKey, KeyEpoch, Signature};
-use emem_fact::{AsOfReceipt, Cost, FactCid, Receipt, RegistryCid, SchemaCid};
+use emem_fact::{AsOfReceipt, Cost, EdgeCid, FactCid, Receipt, RegistryCid, SchemaCid};
 
 use crate::{AsOfBound, Storage};
 
@@ -248,6 +248,7 @@ impl Server {
             },
             as_of: None,
             scope: None,
+            edge_cids: Vec::new(),
         }
     }
 
@@ -348,6 +349,7 @@ impl Server {
             },
             as_of: None,
             scope: Some(scope_inner),
+            edge_cids: Vec::new(),
         }
     }
 
@@ -501,6 +503,149 @@ impl Server {
             },
             as_of: Some(as_of),
             scope: scope.filter(|s| !s.is_empty()),
+            edge_cids: Vec::new(),
+        }
+    }
+
+    /// Lowercase-hex blake3 of the canonical-CBOR encoding of the SORTED
+    /// edge-CID string list. `None` when empty so the signer skips the
+    /// segment entirely and every pre-v0.0.9 receipt verifies byte-for-
+    /// byte. Sorting makes the digest order-independent — a verifier
+    /// rebuilds it from `receipt.edge_cids` without caring how the
+    /// responder ordered them.
+    pub fn edges_blake3_hex(edges: &[EdgeCid]) -> Option<String> {
+        if edges.is_empty() {
+            return None;
+        }
+        let mut strs: Vec<String> = edges.iter().map(|c| c.as_str().to_string()).collect();
+        strs.sort();
+        let mut buf = Vec::with_capacity(64 * strs.len());
+        let _ = ciborium::into_writer(&strs, &mut buf);
+        Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
+    }
+
+    /// Edge-aware signer. The preimage extends the v0.0.8 scope + as_of
+    /// rule with an `edges_blake3_hex|` segment placed AFTER `as_of` and
+    /// BEFORE `manifest`:
+    ///
+    /// ```text
+    /// <request_id>|<served_at>|[scope|][as_of|][edges|][manifest|]<primitive>|<cells>,|<fact_cids>,
+    /// ```
+    ///
+    /// CRITICAL back-compat: when `edges.is_empty()` this early-returns to
+    /// [`Server::sign_receipt_full`], so the signed bytes are byte-
+    /// identical to today for every existing call site and every pre-
+    /// v0.0.9 receipt continues to verify.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sign_receipt_with_edges(
+        &self,
+        primitive: &'static str,
+        cells: Vec<String>,
+        fact_cids: Vec<FactCid>,
+        was_cached: bool,
+        started: Instant,
+        intent: Option<String>,
+        scope: Option<emem_fact::Scope>,
+        bound: &AsOfBound,
+        edges: &[EdgeCid],
+    ) -> Receipt {
+        // No edges → byte-identical to the established sign_receipt_full
+        // path (which itself collapses to sign_receipt / *_with_scope when
+        // those axes are also absent).
+        if edges.is_empty() {
+            return self.sign_receipt_full(
+                primitive, cells, fact_cids, was_cached, started, intent, scope, bound,
+            );
+        }
+
+        let request_id = ulid::Ulid::new().to_string();
+        let served_at = iso8601_now();
+        let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+
+        let bound_present = !bound.is_unbounded();
+
+        let scope_hex_opt = scope
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.blake3_hex());
+        let as_of = if bound_present {
+            Some(AsOfReceipt {
+                valid_time: bound.valid_time,
+                transaction_time: bound.transaction_time.clone(),
+            })
+        } else {
+            None
+        };
+        let as_of_hex_opt = as_of.as_ref().map(|a| a.blake3_hex());
+        let edges_hex = Self::edges_blake3_hex(edges).expect("edges non-empty checked above");
+        let source_versions = self.manifest_versions_snapshot();
+        let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
+
+        let mut h = Hasher::new();
+        h.update(request_id.as_bytes());
+        h.update(b"|");
+        h.update(served_at.as_bytes());
+        h.update(b"|");
+        if let Some(ref sh) = scope_hex_opt {
+            h.update(sh.as_bytes());
+            h.update(b"|");
+        }
+        if let Some(ref ah) = as_of_hex_opt {
+            h.update(ah.as_bytes());
+            h.update(b"|");
+        }
+        // edges segment: AFTER as_of, BEFORE manifest.
+        h.update(edges_hex.as_bytes());
+        h.update(b"|");
+        if let Some(ref mh) = manifest_hex {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
+        h.update(primitive.as_bytes());
+        h.update(b"|");
+        for c in &cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        let msg = h.finalize();
+
+        let dalek_sig = self.identity.signing.sign(msg.as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
+
+        let merkle_proof = fact_cids
+            .first()
+            .and_then(|c| self.storage.proof_for_cid(c));
+
+        Receipt {
+            request_id,
+            served_at,
+            primitive: primitive.into(),
+            intent,
+            cells,
+            fact_cids,
+            schema_cid: self.manifests.schema_cid.clone(),
+            merkle_proof,
+            responder: self.identity.pubkey,
+            responder_key_epoch: self.identity.epoch,
+            signature: Signature(sig_bytes),
+            source_versions,
+            registry_cid: self.manifests.registry_cid.clone(),
+            cost: Cost {
+                credits: 0,
+                latency_p50_ms: elapsed_ms,
+                latency_p99_ms: elapsed_ms,
+                source_freshness_s: 0,
+                was_cached,
+            },
+            as_of,
+            scope: scope.filter(|s| !s.is_empty()),
+            edge_cids: edges.to_vec(),
         }
     }
 }
@@ -561,5 +706,156 @@ mod tests {
             iso8601_from_unix(1_767_225_600 + 13 * 3600 + 55 * 60 + 7),
             "2026-01-01T13:55:07Z"
         );
+    }
+
+    fn test_server() -> Server {
+        use crate::MaterializingStorage;
+        let bands = std::sync::Arc::new(emem_core::bands::DEFAULT.clone());
+        let functions = std::sync::Arc::new(
+            emem_core::FunctionRegistry::parse_default().expect("default functions"),
+        );
+        let sources =
+            std::sync::Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
+        let storage = std::sync::Arc::new(
+            MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral"),
+        );
+        Server {
+            storage,
+            identity: ResponderIdentity::fresh(),
+            manifests: ManifestCids {
+                registry_cid: RegistryCid::new("test-registry"),
+                schema_cid: SchemaCid::new("test-schema"),
+                bands_cid: "test-bands".into(),
+                sources_cid: "test-sources".into(),
+            },
+            started_at_unix_s: 0,
+        }
+    }
+
+    /// `edges_blake3_hex([]) == None`; non-empty is order-independent.
+    #[test]
+    fn edges_blake3_hex_empty_is_none_and_sorted() {
+        assert!(Server::edges_blake3_hex(&[]).is_none());
+        let a = Server::edges_blake3_hex(&[EdgeCid::new("z"), EdgeCid::new("a")]);
+        let b = Server::edges_blake3_hex(&[EdgeCid::new("a"), EdgeCid::new("z")]);
+        assert_eq!(a, b, "sorted → order-independent digest");
+        assert!(a.is_some());
+    }
+
+    /// CRITICAL back-compat: sign_receipt_with_edges(edges=[]) is byte-
+    /// identical to the legacy sign_receipt_full path. We assert the
+    /// preimage segment layout has no edges segment and the signature
+    /// verifies under the legacy (no-edges) preimage.
+    #[test]
+    fn legacy_receipt_still_verifies() {
+        let srv = test_server();
+        let started = Instant::now();
+        let bound = AsOfBound::default();
+        let r = srv.sign_receipt_with_edges(
+            "emem.recall",
+            vec!["damO.zb000.xUti.zde78".into()],
+            vec![FactCid::new("fc-1")],
+            true,
+            started,
+            None,
+            None,
+            &bound,
+            &[],
+        );
+        assert!(r.edge_cids.is_empty(), "no edges → empty edge_cids");
+
+        // Reconstruct the LEGACY preimage (no scope, no as_of, no edges) —
+        // request_id | served_at | [manifest|] primitive | cells, | fact_cids,
+        let manifest_hex_opt = if r.source_versions.is_empty() {
+            None
+        } else {
+            let mut buf = Vec::new();
+            let _ = ciborium::into_writer(&r.source_versions, &mut buf);
+            Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
+        };
+        let mut h = Hasher::new();
+        h.update(r.request_id.as_bytes());
+        h.update(b"|");
+        h.update(r.served_at.as_bytes());
+        h.update(b"|");
+        if let Some(ref mh) = manifest_hex_opt {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
+        h.update(r.primitive.as_bytes());
+        h.update(b"|");
+        for c in &r.cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &r.fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        let msg = h.finalize();
+        let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
+        pk.verify_strict(msg.as_bytes(), &sig)
+            .expect("no-edges receipt must verify under the legacy preimage");
+    }
+
+    /// With edges present, the receipt verifies ONLY when the preimage
+    /// includes the new edges segment AFTER as_of, BEFORE manifest.
+    #[test]
+    fn edges_receipt_verifies_with_edges_segment() {
+        let srv = test_server();
+        let started = Instant::now();
+        let bound = AsOfBound::default();
+        let edges = vec![EdgeCid::new("ecid-1"), EdgeCid::new("ecid-2")];
+        let r = srv.sign_receipt_with_edges(
+            "emem.recall",
+            vec!["cellX".into()],
+            vec![FactCid::new("fc-1")],
+            true,
+            started,
+            None,
+            None,
+            &bound,
+            &edges,
+        );
+        assert_eq!(r.edge_cids.len(), 2);
+
+        let edges_hex = Server::edges_blake3_hex(&r.edge_cids).unwrap();
+        let manifest_hex_opt = if r.source_versions.is_empty() {
+            None
+        } else {
+            let mut buf = Vec::new();
+            let _ = ciborium::into_writer(&r.source_versions, &mut buf);
+            Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
+        };
+        let mut h = Hasher::new();
+        h.update(r.request_id.as_bytes());
+        h.update(b"|");
+        h.update(r.served_at.as_bytes());
+        h.update(b"|");
+        // no scope, no as_of → edges segment next.
+        h.update(edges_hex.as_bytes());
+        h.update(b"|");
+        if let Some(ref mh) = manifest_hex_opt {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
+        h.update(r.primitive.as_bytes());
+        h.update(b"|");
+        for c in &r.cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &r.fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        let msg = h.finalize();
+        let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
+        pk.verify_strict(msg.as_bytes(), &sig)
+            .expect("edges receipt must verify with the edges segment");
     }
 }

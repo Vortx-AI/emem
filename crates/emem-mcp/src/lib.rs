@@ -348,6 +348,13 @@ const SCHEMA_MEMORY_CONTRADICTIONS: &str = r#"{"type":"object","properties":{
 "min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Severity floor in [0, 1]. 0 = report every disagreement, 1 = only flagrant. Severity scoring is per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share)."}
 }}"#;
 
+const SCHEMA_EDGES_RECALL: &str = r#"{"type":"object","required":["subj"],"properties":{
+"subj":{"type":"string","description":"Subject fact CID. Temporal knowledge-graph edges originating at this fact are returned."},
+"pred":{"type":"string","description":"Predicate filter (e.g. `replaced_by`, `co_located_with`). Empty string (default) scans every predicate for the subject."},
+"as_of_tslot":{"type":"integer","description":"Valid-time bound. Returns the latest edge per object whose [valid_from, valid_to) interval covers this tslot; supersession keeps the newest edge. Omit for all edges regardless of valid-time."},
+"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Max edges to return."}
+}}"#;
+
 const SCHEMA_MEMORY_BUNDLE: &str = r#"{"type":"object","required":["triples"],"properties":{
 "triples":{"type":"array","minItems":1,"description":"One or more (cell, band, tslot?) triples to bundle. Each entry is recalled through the standard auto-materialize path; the bundle envelope cites every resulting fact_cid.","items":{"type":"object","required":["cell","band"],"properties":{
   "cell":{"type":"string","description":"cell64 string (or free-text place name; the responder resolves before bundling)."},
@@ -936,6 +943,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks 'is there disagreement about X', 'audit corroboration for this claim', 'find contradictory observations in region Y', or wants to confirm cross-attester consistency before relying on a fact. Use `cell_prefix` (e.g. \"defi.zb5\") to narrow the scan to a region; `band` to one band family. Severity scoring is per band kind: scalar bands compare max-min over the band's documented range; vector bands compute 1 - mean(cosine); categorical bands use 1 - mode_share. The receipt cites every disputed fact CID — follow up with `emem_diff` on two CIDs to quantify the disagreement, or `emem_verify_receipt` to confirm the signatures.",
         input_schema: SCHEMA_MEMORY_CONTRADICTIONS,
         example_args: r#"{"cell_prefix":"damO","band":"indices.ndvi","min_severity":0.2}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_edges_recall",
+        title: "Recall temporal knowledge-graph edges",
+        description: "Read temporal knowledge-graph edges (subj --pred--> obj, valid over [valid_from, valid_to)) originating at a subject fact, bi-temporally filtered. Returns a signed list of edges plus the distinct object fact CIDs; the receipt commits the returned edge CIDs into its signature preimage.",
+        when_to_use: "Call when the user asks 'what is this fact related to', 'what replaced/superseded this observation', or 'what did this place's relations look like as of date X'. Pass `as_of_tslot` to get the latest edge per object whose valid interval covers that moment (supersession keeps the newest); pass `pred` to filter to one relation type, or omit it (empty string) to scan every predicate. Follow each edge's `obj` with `emem_fetch` to resolve the related fact, or `emem_verify_receipt` to confirm the signature offline.",
+        input_schema: SCHEMA_EDGES_RECALL,
+        example_args: r#"{"subj":"qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq","pred":"replaced_by","as_of_tslot":1767225600}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     tier: "extended",

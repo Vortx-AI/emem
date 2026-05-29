@@ -8,12 +8,14 @@
 pub mod attest;
 pub mod cbor;
 pub mod cid;
+pub mod edge;
 pub mod fact;
 pub mod receipt;
 pub mod scope;
 
 pub use attest::Attestation;
-pub use cid::{FactCid, ReasonCid, RegistryCid, SchemaCid};
+pub use cid::{EdgeCid, FactCid, ReasonCid, RegistryCid, SchemaCid};
+pub use edge::EdgeFact;
 pub use fact::{
     Derivation, DerivativeFact, Fact, FactKind, NegativeFact, PrimaryFact, ServedVia, Source,
     Uncertainty,

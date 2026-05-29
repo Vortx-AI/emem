@@ -73,10 +73,11 @@ use emem_fact::{
 };
 use emem_intent::{plan, Intent};
 use emem_primitives::{
-    compare, compare_bands, diff, find_similar, memory_contradictions, query_region, recall,
-    trajectory, verify, AttestationVerdict, CompareBandsReq, CompareReq, ContradictionsReq,
-    DiffReq, FindSimilarReq, LanceIndex, MemoryAttester, MemoryEvent, MemoryEventFilter,
-    MemoryKind, MemorySearchReq, QueryRegionReq, RecallReq, RecallResp, TrajectoryReq, VerifyReq,
+    compare, compare_bands, diff, edges_recall, find_similar, memory_contradictions, query_region,
+    recall, trajectory, verify, AttestationVerdict, CompareBandsReq, CompareReq, ContradictionsReq,
+    DiffReq, EdgesRecallReq, FindSimilarReq, LanceIndex, MemoryAttester, MemoryEvent,
+    MemoryEventFilter, MemoryKind, MemorySearchReq, QueryRegionReq, RecallReq, RecallResp,
+    TrajectoryReq, VerifyReq,
 };
 use emem_storage::{Server, StorageError};
 
@@ -945,6 +946,8 @@ pub fn router(state: AppState) -> Router {
             "/v1/memory_contradictions",
             post(post_memory_contradictions).get(get_memory_contradictions),
         )
+        .route("/v1/edges", post(post_edges_write))
+        .route("/v1/edges/recall", post(post_edges_recall))
         .route("/v1/state", post(post_state))
         .route("/v1/state_multi", post(post_state_multi))
         .route("/v1/state_diff", post(post_state_diff))
@@ -5830,6 +5833,12 @@ struct RecallApiReq {
     /// scope as a receipt-binding + audit-log primitive.
     #[serde(default)]
     scope: Option<emem_fact::Scope>,
+    /// Response-expansion flags (v0.0.9). `["edges"]` attaches each
+    /// returned fact's temporal knowledge-graph edges and threads their
+    /// CIDs into the receipt signature. Absent leaves the response byte-
+    /// identical to the pre-v0.0.9 recall.
+    #[serde(default)]
+    include: Option<Vec<String>>,
 }
 
 impl From<RecallApiReq> for RecallReq {
@@ -5855,6 +5864,7 @@ impl From<RecallApiReq> for RecallReq {
             as_of_tslot: api.as_of_tslot,
             as_of_signed_at: api.as_of_signed_at,
             scope: api.scope,
+            include: api.include,
         }
     }
 }
@@ -9663,6 +9673,7 @@ async fn post_recall_polygon(
                 as_of_tslot,
                 as_of_signed_at,
                 scope: None,
+                include: None,
             };
             (
                 idx,
@@ -9784,6 +9795,7 @@ async fn post_recall_polygon(
                 as_of_tslot: req.as_of_tslot,
                 as_of_signed_at: req.as_of_signed_at.clone(),
                 scope: None,
+                include: None,
             };
             match recall_with_auto_materialize(&r, &s).await {
                 Ok((resp, notes)) => {
@@ -10318,6 +10330,66 @@ async fn post_memory_contradictions(
 ) -> Result<Json<JsonValue>, ApiError> {
     emem_primitives::memory_contradictions::validate_request(&req)?;
     let resp = memory_contradictions(&req, &s).await?;
+    Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
+}
+
+/// `POST /v1/edges` — persist temporal knowledge-graph edges. Accepts a
+/// signed [`Attestation`] whose `edges` array carries the edges; the same
+/// `put_attestation` path that verifies facts also folds the edge leaves
+/// into the merkle root (so the signature commits to them) and persists
+/// them to the edge index. Mirrors [`post_attest`].
+async fn post_edges_write(
+    State(s): State<AppState>,
+    Json(att): Json<Attestation>,
+) -> Result<Json<JsonValue>, ApiError> {
+    if att.edges.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "POST /v1/edges requires a non-empty `edges` array on the signed Attestation envelope".into(),
+                details: None,
+            },
+        ));
+    }
+    let edge_cids: Vec<String> = att.edges.iter().map(|e| e.cid().as_str().to_string()).collect();
+    match s.storage.put_attestation(&att).await {
+        Ok(cids) => {
+            metrics_inc(&ATTEST_TOTAL);
+            let cid_strs: Vec<&str> = cids.iter().map(|c| c.as_str()).collect();
+            Ok(Json(json!({
+                "fact_cids": cid_strs,
+                "edge_cids": edge_cids,
+                "edge_count": edge_cids.len(),
+            })))
+        }
+        Err(e) => {
+            metrics_inc(&ATTEST_FAIL_TOTAL);
+            Err(ApiError::from(e))
+        }
+    }
+}
+
+/// `POST /v1/edges/recall` — read temporal knowledge-graph edges for a
+/// subject fact, bi-temporally filtered. Returns a signed
+/// [`emem_primitives::EdgesRecallResp`] whose receipt cites the subject +
+/// object fact CIDs and commits the returned edge CIDs into the signature
+/// preimage.
+async fn post_edges_recall(
+    State(s): State<AppState>,
+    Json(req): Json<EdgesRecallReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    if req.subj.trim().is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "edges_recall: `subj` (subject fact CID) is required".into(),
+                details: None,
+            },
+        ));
+    }
+    let resp = edges_recall(&req, &s).await?;
     Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
 }
 
@@ -12882,6 +12954,15 @@ async fn mcp_tool_call(
             })?;
             serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))
         }
+        "emem_edges_recall" => {
+            let req: EdgesRecallReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            let resp = edges_recall(&req, s).await.map_err(|e| {
+                let code = e.wire_code();
+                (-(code as i64), e.to_string())
+            })?;
+            serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))
+        }
         // ── Bulk + utility primitives ────────────────────────────────
         "emem_recall_many" => {
             let req: RecallManyReq =
@@ -13424,6 +13505,7 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
         ("emem_backfill", "SignedResponse"),
         ("emem_verify", "VerifyResp"),
         ("emem_memory_contradictions", "SignedResponse"),
+        ("emem_edges_recall", "SignedResponse"),
         ("emem_verify_receipt", "VerifyReceiptResp"),
         ("emem_fetch", "Fact"),
         ("emem_fetch_post", "Fact"),
@@ -13694,6 +13776,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
             "/v1/memory_contradictions":{"post":{"summary":"Scan the multi-attester index for (cell, band, tslot) triples where two or more attesters have signed disagreeing observations. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"Bytewise prefix filter on cell64 (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."}}}}}},"responses":{"200":json_ok}},
                                        "get":{"summary":"Same primitive as POST, exposed in query-string form for casual exploration. window_unix_s is split into window_lo + window_hi.","operationId":"emem_memory_contradictions_get","tags":["memory","contradiction-detection"],"parameters":[{"name":"cell_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string"}},{"name":"window_lo","in":"query","required":false,"schema":{"type":"integer"}},{"name":"window_hi","in":"query","required":false,"schema":{"type":"integer"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer"}},{"name":"min_severity","in":"query","required":false,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
+            "/v1/edges":             {"post":{"summary":"Persist temporal knowledge-graph edges. Body is a signed Attestation envelope whose `edges[]` array carries each edge {subj, pred, obj, valid_from, valid_to?, confidence, signer, signed_at, schema_cid?, note?}. The edge leaves are folded into the merkle root so the signature commits to them. Additive: an attestation with no edges behaves exactly as /v1/attest.","operationId":"emem_edges_write","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["facts","edges","batch_root","attester","signature"],"properties":{"edges":{"type":"array","items":{"type":"object","required":["subj","pred","obj","valid_from","confidence","signer","signed_at"],"properties":{"subj":{"type":"string","description":"subject fact CID"},"pred":{"type":"string"},"obj":{"type":"string","description":"object fact CID"},"valid_from":{"type":"integer"},"valid_to":{"type":"integer"},"confidence":{"type":"number"},"note":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/edges/recall":      {"post":{"summary":"Recall temporal knowledge-graph edges from a subject fact, bi-temporally filtered. With as_of_tslot set, returns the latest edge per object whose [valid_from, valid_to) interval covers as_of_tslot (supersession keeps the newest). pred=\"\" scans all predicates. Receipt cites the subject + object fact CIDs and commits the returned edge CIDs into the signature preimage.","operationId":"emem_edges_recall","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["subj"],"properties":{"subj":{"type":"string","description":"subject fact CID"},"pred":{"type":"string","description":"predicate filter; empty string scans all predicates"},"as_of_tslot":{"type":"integer","description":"valid-time bound; latest edge per object whose interval covers it"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok}}},
             "/v1/stream":            {"get":{"summary":"Server-Sent Events corpus stream. Emits a signed corpus.state event every `interval` seconds (default 15, clamped to [5,300]). Each tick carries a deterministic preimage and ed25519 signature so subscribers can verify without re-fetching.","operationId":"emem_stream","parameters":[{"name":"interval","in":"query","required":false,"schema":{"type":"integer","minimum":5,"maximum":300,"default":15}}],"responses":{"200":{"description":"text/event-stream","content":{"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/benchmark":         {"get":{"summary":"hand-verified evaluation items for grading an agent against the responder. Returns {items[], grader_url, _note}. Submit answers to POST /v1/benchmark/grade for per-item scores.","operationId":"emem_benchmark","responses":{"200":json_ok}}},
             "/v1/benchmark/grade":   {"post":{"summary":"grade an agent's submission against /v1/benchmark items. Body: {answers: {<item_id>: <fact_cid or cell64>}}. Returns per-item correctness plus an aggregate score.","operationId":"emem_benchmark_grade","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["answers"],"properties":{"answers":{"type":"object","additionalProperties":{"type":"string"}}}}}}},"responses":{"200":json_ok}}}
@@ -14614,6 +14698,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
         scope: None,
+        include: None,
     };
     let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -14777,6 +14862,7 @@ async fn post_state_multi(
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
             scope: None,
+            include: None,
         };
         match recall_with_auto_materialize(&recall_req, &s).await {
             Ok((resp, _notes)) => {
@@ -15180,6 +15266,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
         scope: None,
+        include: None,
     };
 
     let (resp, materialize_notes) = if materialize {
@@ -15214,6 +15301,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
             scope: None,
+            include: None,
         };
         match recall_with_auto_materialize(&warm_req, &s).await {
             Ok((r, n)) => {
@@ -16123,6 +16211,7 @@ async fn post_memory_bundle(
             as_of_tslot: t.as_of_tslot,
             as_of_signed_at: t.as_of_signed_at.clone(),
             scope: None,
+            include: None,
         };
         let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -20025,6 +20114,7 @@ async fn materialize_modis_ndvi_window(
 
     let att = Attestation {
         facts: vec![fact],
+        edges: vec![],
         batch_root,
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
@@ -26626,6 +26716,7 @@ async fn sign_and_persist_many(
     sig_bytes.copy_from_slice(&sig.to_bytes());
     let att = Attestation {
         facts,
+        edges: vec![],
         batch_root,
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),
@@ -26884,6 +26975,7 @@ async fn sign_band_absence(
 
     let att = Attestation {
         facts: vec![fact],
+        edges: vec![],
         batch_root,
         attester: s.identity.pubkey,
         attester_key_epoch: KeyEpoch(s.identity.epoch.0),

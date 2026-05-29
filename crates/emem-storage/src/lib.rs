@@ -23,7 +23,7 @@ use blake3::Hasher;
 
 use emem_cache::{Cache, CanonicalKey, SledHotCache};
 use emem_core::{BandRegistry, ErrorCode, FunctionRegistry, SourceRegistry};
-use emem_fact::{Attestation, Fact, FactCid, MerkleProof};
+use emem_fact::{Attestation, EdgeCid, EdgeFact, Fact, FactCid, MerkleProof};
 use emem_fetch::Dispatcher;
 
 /// Sled tree storing per-fact merkle inclusion proofs. Populated by
@@ -82,6 +82,25 @@ pub const TREE_MEMORY_FILES_BY_KIND: &str = "emem.memory_files_by_kind";
 /// `TREE_MEMORY_FILE_BLOBS` so expired files are still dereferenceable
 /// by CID — only the live path index forgets.
 pub const TREE_MEMORY_FILES_EXPIRED: &str = "emem.memory_files_expired";
+
+/// Sled tree mapping `edge_cid` (base32-nopad-lc) → canonical CBOR of the
+/// [`emem_fact::EdgeFact`] body. The content-addressed edge store; the SPO
+/// / OPS index trees point back here to hydrate bodies. (v0.0.9 temporal
+/// knowledge-graph edges.)
+pub const TREE_EDGES: &str = "emem.edges";
+
+/// Sled tree indexing edges by `(subject, predicate, valid_from)` for
+/// ascending range scans. Key:
+/// `subj_bytes \0 pred_bytes \0 valid_from.to_be_bytes() \0 edge_cid_bytes`.
+/// Big-endian `valid_from` so a `scan_prefix(subj\0pred\0)` walks edges in
+/// ascending valid-time order. Value: the object fact CID bytes.
+pub const TREE_EDGE_SPO: &str = "emem.edge_spo";
+
+/// Reverse of [`TREE_EDGE_SPO`], keyed by object: `obj_bytes \0 pred_bytes
+/// \0 valid_from_be8 \0 edge_cid_bytes` → subject fact CID bytes. Lets a
+/// future "what points at this fact" query range-scan without walking the
+/// forward index.
+pub const TREE_EDGE_OPS: &str = "emem.edge_ops";
 
 pub mod attesters;
 pub mod merkle_log;
@@ -317,6 +336,41 @@ pub trait Storage: Send + Sync {
     ) -> Result<Vec<(emem_cache::CanonicalKey, Vec<FactCid>)>, StorageError> {
         Ok(Vec::new())
     }
+
+    /// Persist temporal knowledge-graph edges. Idempotent: an edge whose
+    /// CID already lives in [`TREE_EDGES`] is a no-op. Returns the CIDs in
+    /// input order. Default impl is a no-op returning `[]` so in-memory
+    /// mocks and ephemeral backends keep compiling. (v0.0.9.)
+    async fn add_edges(
+        &self,
+        _edges: &[emem_fact::EdgeFact],
+    ) -> Result<Vec<emem_fact::EdgeCid>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    /// Recall edges originating at `subj` under predicate `pred`,
+    /// bi-temporally filtered by `as_of`. When `pred` is the empty string
+    /// `""`, scan across every predicate for the subject. `as_of = None`
+    /// returns the latest edge per object regardless of valid-time;
+    /// `as_of = Some(t)` keeps edges with `valid_from <= t` and drops any
+    /// whose `valid_to` is `Some(vt)` with `vt < t` (closed intervals).
+    /// Supersession: among surviving edges to the same object, the one
+    /// with the largest `valid_from` wins. Default impl returns `[]`.
+    async fn recall_edges(
+        &self,
+        _subj: &FactCid,
+        _pred: &str,
+        _as_of: Option<u64>,
+        _limit: usize,
+    ) -> Result<Vec<emem_fact::EdgeFact>, StorageError> {
+        Ok(Vec::new())
+    }
+
+    /// `true` when an edge with this CID has been persisted. Default impl
+    /// returns `false`.
+    async fn has_edge(&self, _cid: &emem_fact::EdgeCid) -> Result<bool, StorageError> {
+        Ok(false)
+    }
 }
 
 /// Storage errors.
@@ -484,6 +538,17 @@ impl Storage for MaterializingStorage {
                 tracing::warn!(error=%e, "attester reputation tracker error (ignored)");
             }
         }
+        // Persist any temporal knowledge-graph edges carried by this
+        // attestation. The signature already committed to them (the edge
+        // leaves were folded into the verified merkle root above), so
+        // persisting here is the canonical write path. Best-effort: an
+        // index-write error is logged but never fails the attestation —
+        // the facts are already durable.
+        if !att.edges.is_empty() {
+            if let Err(e) = self.add_edges(&att.edges).await {
+                tracing::warn!(error=%e, "edge persistence error (ignored)");
+            }
+        }
         Ok(cids)
     }
 
@@ -593,6 +658,240 @@ impl Storage for MaterializingStorage {
         })?;
         scan_multi_attester_tree(hot.db(), cell_prefix, limit)
     }
+
+    async fn add_edges(&self, edges: &[EdgeFact]) -> Result<Vec<EdgeCid>, StorageError> {
+        if edges.is_empty() {
+            return Ok(Vec::new());
+        }
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "add_edges requires a SledHotCache handle".into(),
+        })?;
+        add_edges_tree(hot.db(), edges)
+    }
+
+    async fn recall_edges(
+        &self,
+        subj: &FactCid,
+        pred: &str,
+        as_of: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<EdgeFact>, StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "recall_edges requires a SledHotCache handle".into(),
+        })?;
+        recall_edges_tree(hot.db(), subj, pred, as_of, limit)
+    }
+
+    async fn has_edge(&self, cid: &EdgeCid) -> Result<bool, StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "has_edge requires a SledHotCache handle".into(),
+        })?;
+        let tree = hot
+            .db()
+            .open_tree(TREE_EDGES)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(tree
+            .contains_key(cid.as_str().as_bytes())
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?)
+    }
+}
+
+/// Build the `(subj|obj) \0 pred \0 valid_from_be8 \0 edge_cid` index key.
+fn edge_index_key(anchor: &str, pred: &str, valid_from: u64, edge_cid: &str) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(anchor.len() + pred.len() + edge_cid.len() + 11);
+    buf.extend_from_slice(anchor.as_bytes());
+    buf.push(0u8);
+    buf.extend_from_slice(pred.as_bytes());
+    buf.push(0u8);
+    buf.extend_from_slice(&valid_from.to_be_bytes());
+    buf.push(0u8);
+    buf.extend_from_slice(edge_cid.as_bytes());
+    buf
+}
+
+/// Decode the `valid_from` (big-endian u64) and `edge_cid` out of a key
+/// emitted by [`edge_index_key`]. Returns `None` on a malformed key. The
+/// `pred` and `anchor` are already known by the caller (they prefix-scoped
+/// the scan), so only the trailing `valid_from \0 edge_cid` is recovered.
+fn decode_edge_spo_key(key: &[u8], anchor: &str, pred: &str) -> Option<(u64, String)> {
+    // Skip the `anchor \0 pred \0` prefix.
+    let prefix_len = anchor.len() + 1 + pred.len() + 1;
+    let rest = key.get(prefix_len..)?;
+    if rest.len() < 9 {
+        return None;
+    }
+    let mut vf = [0u8; 8];
+    vf.copy_from_slice(&rest[..8]);
+    let valid_from = u64::from_be_bytes(vf);
+    if rest[8] != 0u8 {
+        return None;
+    }
+    let cid = std::str::from_utf8(&rest[9..]).ok()?.to_string();
+    Some((valid_from, cid))
+}
+
+/// When `pred` is empty we cannot rely on a fixed-length prefix because the
+/// predicate bytes are part of the key. Decode `(pred, valid_from,
+/// edge_cid)` from a key scoped only by `anchor \0`. Splits on the NUL
+/// bytes: `anchor \0 pred \0 valid_from_be8 \0 edge_cid`.
+fn decode_edge_spo_key_anypred(key: &[u8], anchor: &str) -> Option<(String, u64, String)> {
+    let after_anchor = key.get(anchor.len() + 1..)?;
+    // Find the predicate terminator (first NUL).
+    let pred_end = after_anchor.iter().position(|b| *b == 0u8)?;
+    let pred = std::str::from_utf8(&after_anchor[..pred_end]).ok()?.to_string();
+    let rest = after_anchor.get(pred_end + 1..)?;
+    if rest.len() < 9 || rest[8] != 0u8 {
+        return None;
+    }
+    let mut vf = [0u8; 8];
+    vf.copy_from_slice(&rest[..8]);
+    let valid_from = u64::from_be_bytes(vf);
+    let cid = std::str::from_utf8(&rest[9..]).ok()?.to_string();
+    Some((pred, valid_from, cid))
+}
+
+/// Persist edges idempotently. Skips any edge whose CID already lives in
+/// [`TREE_EDGES`]. Writes the body to `TREE_EDGES`, a forward index row to
+/// `TREE_EDGE_SPO` (`subj \0 pred \0 vf_be8 \0 cid -> obj_cid`) and a
+/// reverse row to `TREE_EDGE_OPS` (`obj \0 pred \0 vf_be8 \0 cid ->
+/// subj_cid`).
+fn add_edges_tree(db: &sled::Db, edges: &[EdgeFact]) -> Result<Vec<EdgeCid>, StorageError> {
+    let bodies = db
+        .open_tree(TREE_EDGES)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    let spo = db
+        .open_tree(TREE_EDGE_SPO)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    let ops = db
+        .open_tree(TREE_EDGE_OPS)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    let mut out = Vec::with_capacity(edges.len());
+    for e in edges {
+        let cid = e.cid();
+        out.push(cid.clone());
+        // Idempotent: a re-submitted edge is a no-op.
+        if bodies
+            .contains_key(cid.as_str().as_bytes())
+            .map_err(|err| StorageError::Io(std::io::Error::other(err.to_string())))?
+        {
+            continue;
+        }
+        let body = e.to_canonical_cbor();
+        bodies
+            .insert(cid.as_str().as_bytes(), body)
+            .map_err(|err| StorageError::Io(std::io::Error::other(err.to_string())))?;
+        let fkey = edge_index_key(e.subj.as_str(), &e.pred, e.valid_from, cid.as_str());
+        spo.insert(fkey, e.obj.as_str().as_bytes())
+            .map_err(|err| StorageError::Io(std::io::Error::other(err.to_string())))?;
+        let rkey = edge_index_key(e.obj.as_str(), &e.pred, e.valid_from, cid.as_str());
+        ops.insert(rkey, e.subj.as_str().as_bytes())
+            .map_err(|err| StorageError::Io(std::io::Error::other(err.to_string())))?;
+    }
+    bodies
+        .flush()
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    spo.flush()
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    ops.flush()
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    Ok(out)
+}
+
+/// Recall edges from the forward index. See
+/// [`Storage::recall_edges`] for the bi-temporal + supersession contract.
+fn recall_edges_tree(
+    db: &sled::Db,
+    subj: &FactCid,
+    pred: &str,
+    as_of: Option<u64>,
+    limit: usize,
+) -> Result<Vec<EdgeFact>, StorageError> {
+    let bodies = db
+        .open_tree(TREE_EDGES)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    let spo = db
+        .open_tree(TREE_EDGE_SPO)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+
+    // Collect (obj, valid_from, edge_cid) candidates from the index.
+    let mut candidates: Vec<(String, u64, String)> = Vec::new();
+    if pred.is_empty() {
+        // Scan every predicate for this subject.
+        let mut prefix = Vec::with_capacity(subj.as_str().len() + 1);
+        prefix.extend_from_slice(subj.as_str().as_bytes());
+        prefix.push(0u8);
+        for row in spo.scan_prefix(prefix) {
+            let (k, _obj) =
+                row.map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+            if let Some((p, vf, cid)) = decode_edge_spo_key_anypred(&k, subj.as_str()) {
+                let _ = p;
+                candidates.push(("".into(), vf, cid));
+            }
+        }
+    } else {
+        let mut prefix = Vec::with_capacity(subj.as_str().len() + pred.len() + 2);
+        prefix.extend_from_slice(subj.as_str().as_bytes());
+        prefix.push(0u8);
+        prefix.extend_from_slice(pred.as_bytes());
+        prefix.push(0u8);
+        for row in spo.scan_prefix(prefix) {
+            let (k, _obj) =
+                row.map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+            if let Some((vf, cid)) = decode_edge_spo_key(&k, subj.as_str(), pred) {
+                candidates.push(("".into(), vf, cid));
+            }
+        }
+    }
+
+    // Hydrate bodies and apply the bi-temporal filter + supersession. We
+    // group by the object fact CID (read off the hydrated body so the
+    // any-predicate path groups correctly) and keep the edge with the
+    // largest valid_from that satisfies the as_of bound.
+    use std::collections::HashMap;
+    let mut best: HashMap<String, EdgeFact> = HashMap::new();
+    for (_obj_placeholder, _vf, cid) in candidates {
+        let body = match bodies
+            .get(cid.as_bytes())
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
+        {
+            Some(b) => b,
+            None => continue,
+        };
+        let edge: EdgeFact = ciborium::de::from_reader(&*body)
+            .map_err(|e| StorageError::Cbor(format!("edge decode: {e}")))?;
+        if let Some(t) = as_of {
+            // valid_from must be <= as_of.
+            if edge.valid_from > t {
+                continue;
+            }
+            // Drop edges already closed at as_of: valid_to Some(vt) with vt < as_of.
+            if let Some(vt) = edge.valid_to {
+                if vt < t {
+                    continue;
+                }
+            }
+        }
+        let group = format!("{}\0{}", edge.pred, edge.obj.as_str());
+        match best.get(&group) {
+            Some(existing) if existing.valid_from >= edge.valid_from => {}
+            _ => {
+                best.insert(group, edge);
+            }
+        }
+    }
+
+    let mut out: Vec<EdgeFact> = best.into_values().collect();
+    // Deterministic order: ascending valid_from, then object CID.
+    out.sort_by(|a, b| {
+        a.valid_from
+            .cmp(&b.valid_from)
+            .then_with(|| a.obj.as_str().cmp(b.obj.as_str()))
+    });
+    out.truncate(limit);
+    Ok(out)
 }
 
 /// Append every keyable fact's CID to the multi-attester index. CBOR
@@ -777,7 +1076,7 @@ fn persist_fact_proofs(
 ///    confirm the merkle root matches `att.batch_root`.
 /// 2. Verify the ed25519 signature over `blake3(batch_root || registry_cid_bytes || schema_cid_bytes)`.
 fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
-    let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(att.facts.len());
+    let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(att.facts.len() + att.edges.len());
     for f in &att.facts {
         let mut buf = Vec::new();
         ciborium::ser::into_writer(f, &mut buf)
@@ -786,6 +1085,14 @@ fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
         let mut a = [0u8; 32];
         a.copy_from_slice(h.as_bytes());
         leaves.push(a);
+    }
+    // v0.0.9 additive: fold each edge's blake3(canonical_cbor(edge)) into
+    // the leaf set BEFORE sorting, but ONLY when edges are present. An
+    // attestation with no edges produces the exact same leaf set, sort,
+    // and root as a pre-v0.0.9 attestation, so legacy attestations verify
+    // byte-identically.
+    for e in &att.edges {
+        leaves.push(e.blake3_digest());
     }
     leaves.sort();
     let root = emem_attest::merkle_root(&leaves);
@@ -865,6 +1172,7 @@ mod multi_attester_tests {
         sig_bytes.copy_from_slice(&sig.to_bytes());
         let att = Attestation {
             facts,
+            edges: vec![],
             batch_root: root,
             attester: AttesterKey(pk),
             attester_key_epoch: KeyEpoch(0),
@@ -1016,5 +1324,257 @@ mod multi_attester_tests {
 
         let all = storage.scan_multi_attester(None, 1024).await.unwrap();
         assert_eq!(all.len(), 2, "no prefix → both contradictions");
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    //! Temporal knowledge-graph edge persistence + bi-temporal recall,
+    //! plus the back-compat guarantees: an attestation with no edges
+    //! produces a byte-identical leaf set / root / signature, and edge
+    //! folding only changes the root when edges are present.
+
+    use super::*;
+    use blake3::Hasher;
+    use ed25519_dalek::{Signer, SigningKey};
+    use emem_attest::merkle_root;
+    use emem_core::{AttesterKey, KeyEpoch, Signature};
+    use emem_fact::{Attestation, EdgeFact, FactCid, RegistryCid, SchemaCid};
+
+    fn ephemeral() -> MaterializingStorage {
+        let bands = Arc::new(emem_core::bands::DEFAULT.clone());
+        let functions =
+            Arc::new(emem_core::FunctionRegistry::parse_default().expect("default functions"));
+        let sources =
+            Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
+        MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage")
+    }
+
+    fn mk_edge(subj: &str, pred: &str, obj: &str, vf: u64, vt: Option<u64>) -> EdgeFact {
+        EdgeFact {
+            subj: FactCid::new(subj),
+            pred: pred.into(),
+            obj: FactCid::new(obj),
+            valid_from: vf,
+            valid_to: vt,
+            confidence: 1.0,
+            signer: AttesterKey([3u8; 32]),
+            signed_at: "2026-05-29T00:00:00Z".into(),
+            schema_cid: None,
+            note: None,
+        }
+    }
+
+    /// Sign an attestation over the given facts AND edges, folding the
+    /// edge leaves into the merkle root exactly as the responder does.
+    fn build_signed_with_edges(
+        facts: Vec<Fact>,
+        edges: Vec<EdgeFact>,
+        secret: [u8; 32],
+    ) -> Attestation {
+        let registry_cid = "test-registry";
+        let schema_cid = "test-schema";
+        let signing = SigningKey::from_bytes(&secret);
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(signing.verifying_key().as_bytes());
+        let mut leaves: Vec<[u8; 32]> = facts
+            .iter()
+            .map(|f| {
+                let mut buf = Vec::new();
+                ciborium::ser::into_writer(f, &mut buf).unwrap();
+                *blake3::hash(&buf).as_bytes()
+            })
+            .collect();
+        for e in &edges {
+            leaves.push(e.blake3_digest());
+        }
+        leaves.sort();
+        let root = merkle_root(&leaves);
+        let mut h = Hasher::new();
+        h.update(&root);
+        h.update(registry_cid.as_bytes());
+        h.update(schema_cid.as_bytes());
+        let msg = h.finalize();
+        let sig = signing.sign(msg.as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&sig.to_bytes());
+        Attestation {
+            facts,
+            edges,
+            batch_root: root,
+            attester: AttesterKey(pk),
+            attester_key_epoch: KeyEpoch(0),
+            registry_cid: RegistryCid::new(registry_cid),
+            schema_cid: SchemaCid::new(schema_cid),
+            signature: Signature(sig_bytes),
+            attested_at: "2026-05-29T00:00:00Z".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn edge_round_trip() {
+        let storage = ephemeral();
+        let e = mk_edge("subj-a", "replaced_by", "obj-b", 10, None);
+        // CID stable across two encodings.
+        assert_eq!(e.cid(), e.cid());
+        let cids = storage.add_edges(&[e.clone()]).await.expect("add");
+        assert_eq!(cids.len(), 1);
+        assert_eq!(cids[0], e.cid());
+        assert!(storage.has_edge(&e.cid()).await.unwrap());
+        let got = storage
+            .recall_edges(&FactCid::new("subj-a"), "replaced_by", None, 100)
+            .await
+            .expect("recall");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], e);
+        // Empty-predicate scan finds it too.
+        let any = storage
+            .recall_edges(&FactCid::new("subj-a"), "", None, 100)
+            .await
+            .unwrap();
+        assert_eq!(any.len(), 1);
+        assert_eq!(any[0], e);
+    }
+
+    #[tokio::test]
+    async fn edge_supersession_as_of() {
+        let storage = ephemeral();
+        let early = mk_edge("subj-a", "state", "obj-x", 10, None);
+        let late = mk_edge("subj-a", "state", "obj-x", 20, None);
+        storage
+            .add_edges(&[early.clone(), late.clone()])
+            .await
+            .expect("add");
+
+        // as_of=15 → only the vf=10 edge is in-window → returns vf=10.
+        let at15 = storage
+            .recall_edges(&FactCid::new("subj-a"), "state", Some(15), 100)
+            .await
+            .unwrap();
+        assert_eq!(at15.len(), 1);
+        assert_eq!(at15[0].valid_from, 10);
+
+        // as_of=25 → both in-window, supersession keeps the newest vf=20.
+        let at25 = storage
+            .recall_edges(&FactCid::new("subj-a"), "state", Some(25), 100)
+            .await
+            .unwrap();
+        assert_eq!(at25.len(), 1);
+        assert_eq!(at25[0].valid_from, 20);
+
+        // Non-destructive: BOTH rows still live in the SPO index.
+        let spo = storage
+            .hot
+            .as_ref()
+            .unwrap()
+            .db()
+            .open_tree(TREE_EDGE_SPO)
+            .unwrap();
+        assert_eq!(spo.len(), 2, "supersession must not delete the older row");
+    }
+
+    #[tokio::test]
+    async fn edge_valid_to_closes() {
+        let storage = ephemeral();
+        let e = mk_edge("subj-a", "rel", "obj-y", 5, Some(18));
+        storage.add_edges(&[e]).await.expect("add");
+        // as_of=15 < valid_to=18 → included.
+        let at15 = storage
+            .recall_edges(&FactCid::new("subj-a"), "rel", Some(15), 100)
+            .await
+            .unwrap();
+        assert_eq!(at15.len(), 1);
+        // as_of=20 > valid_to=18 → closed → excluded.
+        let at20 = storage
+            .recall_edges(&FactCid::new("subj-a"), "rel", Some(20), 100)
+            .await
+            .unwrap();
+        assert!(at20.is_empty(), "edge closed at valid_to must drop out");
+    }
+
+    #[tokio::test]
+    async fn add_edges_is_idempotent() {
+        let storage = ephemeral();
+        let e = mk_edge("subj-a", "rel", "obj-z", 1, None);
+        storage.add_edges(&[e.clone()]).await.unwrap();
+        storage.add_edges(&[e.clone()]).await.unwrap();
+        let spo = storage
+            .hot
+            .as_ref()
+            .unwrap()
+            .db()
+            .open_tree(TREE_EDGE_SPO)
+            .unwrap();
+        assert_eq!(spo.len(), 1, "re-submitting the same edge is a no-op");
+    }
+
+    #[tokio::test]
+    async fn legacy_attestation_still_verifies() {
+        // An attestation with NO edges: its leaf set, root, and signature
+        // are computed exactly as a pre-v0.0.9 attestation. verify must
+        // pass and the JSON must round-trip without an `edges` key.
+        let storage = ephemeral();
+        let fact = mk_fact("damO.zb000.xUti.zde78", 1);
+        let att = build_signed_with_edges(vec![fact], vec![], [9u8; 32]);
+        // No edges → round-trips through canonical CBOR with edges == [].
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(&att, &mut buf).unwrap();
+        let back: Attestation = ciborium::de::from_reader(buf.as_slice()).unwrap();
+        assert!(back.edges.is_empty());
+        // verify_attestation passes (root + signature unchanged) for both
+        // the original and the round-tripped envelope.
+        storage.put_attestation(&att).await.expect("legacy verifies");
+        verify_attestation(&back).expect("round-tripped legacy verifies");
+    }
+
+    #[tokio::test]
+    async fn attestation_with_edges_verifies_and_persists() {
+        let storage = ephemeral();
+        let fact = mk_fact("damO.zb000.xUti.zde79", 2);
+        let edge = mk_edge("subj-e", "links", "obj-f", 7, None);
+        let att = build_signed_with_edges(vec![fact], vec![edge.clone()], [11u8; 32]);
+        storage
+            .put_attestation(&att)
+            .await
+            .expect("edge attestation verifies");
+        // The edge was persisted via the put_attestation hook.
+        assert!(storage.has_edge(&edge.cid()).await.unwrap());
+        let got = storage
+            .recall_edges(&FactCid::new("subj-e"), "links", None, 100)
+            .await
+            .unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], edge);
+    }
+
+    /// Helper: a minimal Primary fact for attestation tests.
+    fn mk_fact(cell: &str, tslot: u64) -> Fact {
+        use emem_fact::{Derivation, PrimaryFact, Source};
+        Fact::Primary(PrimaryFact {
+            cell: cell.into(),
+            band: "indices.ndvi".into(),
+            tslot,
+            value: ciborium::Value::Float(0.5),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "test".into(),
+                id: "x".into(),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new("test-schema"),
+            signer: AttesterKey([5u8; 32]),
+            signed_at: "2026-05-29T00:00:00Z".into(),
+            served_via: None,
+        })
     }
 }

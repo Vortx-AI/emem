@@ -31,3 +31,4 @@ cid_newtype!(
 );
 cid_newtype!(BatchCid, "CID of a Merkle batch of facts.");
 cid_newtype!(CoverageCid, "CID of a coverage manifest snapshot.");
+cid_newtype!(EdgeCid, "CID of an EdgeFact.");

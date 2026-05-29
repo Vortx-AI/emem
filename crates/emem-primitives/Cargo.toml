@@ -55,3 +55,5 @@ tokenizers      = { version = "0.22", default-features = false, features = ["oni
 tempfile     = "3"
 rand         = { workspace = true }
 tokio        = { workspace = true, features = ["macros", "rt-multi-thread"] }
+emem-attest  = { workspace = true }
+ed25519-dalek = { workspace = true }

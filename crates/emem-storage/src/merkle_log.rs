@@ -254,6 +254,7 @@ mod tests {
     fn sample_attestation() -> Attestation {
         Attestation {
             facts: vec![],
+            edges: vec![],
             batch_root: [9u8; 32],
             attester: AttesterKey([1u8; 32]),
             attester_key_epoch: KeyEpoch(0),

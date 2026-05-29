@@ -11,6 +11,7 @@ pub mod cbor_ops;
 pub mod compare;
 pub mod compare_bands;
 pub mod diff;
+pub mod edges;
 pub mod find_similar;
 pub mod lance_index;
 pub mod memory_acl;
@@ -29,6 +30,7 @@ pub mod verify;
 pub use compare::{compare, CompareReq, CompareResp};
 pub use compare_bands::{compare_bands, CompareBandsReq, CompareBandsResp};
 pub use diff::{diff, DiffReq, DiffResp};
+pub use edges::{edges_recall, EdgesRecallReq, EdgesRecallResp};
 pub use find_similar::{find_similar, FindSimilarReq, FindSimilarResp, Neighbor};
 pub use lance_index::{IndexStats, LanceIndex, PerDimStats};
 pub use memory_acl::{

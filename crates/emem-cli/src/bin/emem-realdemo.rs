@@ -254,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
 
     let att = Attestation {
         facts: real_facts,
+        edges: vec![],
         batch_root,
         attester: attester.pubkey,
         attester_key_epoch: KeyEpoch(0),

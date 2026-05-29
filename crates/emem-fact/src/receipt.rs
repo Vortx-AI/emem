@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::cid::{FactCid, RegistryCid, SchemaCid};
+use crate::cid::{EdgeCid, FactCid, RegistryCid, SchemaCid};
 use crate::scope::Scope;
 use emem_core::{AttesterKey, KeyEpoch, Signature};
 
@@ -58,6 +58,15 @@ pub struct Receipt {
     /// preimage rule did not include a scope segment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<Scope>,
+    /// Temporal knowledge-graph edge CIDs this response cited (v0.0.9).
+    /// When the responder served edges (via `/v1/edges/recall` or
+    /// `include:["edges"]` on a recall), their CIDs are recorded here and
+    /// `blake3(canonical_cbor(sorted_cid_strings))` enters the signature
+    /// preimage as a new optional segment. Omitted from JSON when empty —
+    /// back-compat for every pre-v0.0.9 receipt, whose preimage carried
+    /// no edge segment; those round-trip + verify byte-for-byte.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edge_cids: Vec<EdgeCid>,
 }
 
 /// Replay-able bi-temporal filter recorded in a [`Receipt`] when the

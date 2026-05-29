@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use emem_cache::CanonicalKey;
 use emem_core::ErrorCode;
-use emem_fact::{Fact, FactCid, Receipt, Scope};
+use emem_fact::{EdgeFact, Fact, FactCid, Receipt, Scope};
 use emem_storage::{AsOfBound, Server, StorageError};
 
 use crate::cbor_ops::parse_rfc3339_strict;
@@ -50,6 +50,14 @@ pub struct RecallReq {
     /// not yet a recall-time filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Scope>,
+    /// Optional response-expansion flags. When the list contains
+    /// `"edges"`, every returned fact's temporal knowledge-graph edges
+    /// (latest-per-object, honouring `as_of_tslot`) are attached to
+    /// `RecallResp.edges` and their CIDs enter the receipt signature
+    /// preimage. Absent / empty leaves the response + preimage byte-
+    /// identical to the pre-v0.0.9 recall path. (v0.0.9.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include: Option<Vec<String>>,
 }
 
 impl RecallReq {
@@ -151,6 +159,12 @@ pub struct RecallResp {
     /// off" so the agent can decide whether to relax the bound.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temporal_advice: Option<TemporalAdvice>,
+    /// Temporal knowledge-graph edges attached when the caller passed
+    /// `include:["edges"]`. `None` when edges were not requested (keeps
+    /// the wire byte-identical to the pre-v0.0.9 response); `Some(vec![])`
+    /// when requested but the returned facts have no edges. (v0.0.9.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edges: Option<Vec<EdgeFact>>,
 }
 
 /// Recall facts at a cell, optionally filtered by band and tslot.
@@ -281,7 +295,41 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         None
     };
 
-    let receipt = srv.sign_receipt_full(
+    // include:["edges"] — additive expansion. When requested, fetch each
+    // returned fact's edges (latest-per-object, honouring the as_of
+    // valid-time bound) and thread their CIDs into the receipt preimage.
+    // Bounded so a fact-heavy cell can't fan out unboundedly.
+    let want_edges = req
+        .include
+        .as_ref()
+        .is_some_and(|v| v.iter().any(|s| s == "edges"));
+    let (edges_out, edge_cids): (Option<Vec<EdgeFact>>, Vec<emem_fact::EdgeCid>) = if want_edges {
+        const PER_FACT_EDGE_LIMIT: usize = 32;
+        const TOTAL_EDGE_CAP: usize = 256;
+        let mut collected: Vec<EdgeFact> = Vec::new();
+        for fc in &cids {
+            if collected.len() >= TOTAL_EDGE_CAP {
+                break;
+            }
+            let remaining = TOTAL_EDGE_CAP - collected.len();
+            let lim = PER_FACT_EDGE_LIMIT.min(remaining);
+            let mut es = storage
+                .recall_edges(fc, "", bound.valid_time, lim)
+                .await
+                .unwrap_or_default();
+            collected.append(&mut es);
+        }
+        collected.truncate(TOTAL_EDGE_CAP);
+        let ecids: Vec<emem_fact::EdgeCid> = collected.iter().map(|e| e.cid()).collect();
+        (Some(collected), ecids)
+    } else {
+        (None, Vec::new())
+    };
+
+    // sign_receipt_with_edges collapses to sign_receipt_full when
+    // edge_cids is empty, so the no-include path is byte-identical to
+    // pre-v0.0.9 receipts.
+    let receipt = srv.sign_receipt_with_edges(
         "emem.recall",
         vec![req.cell.clone()],
         cids,
@@ -290,12 +338,14 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         None,
         req.scope.clone(),
         &bound,
+        &edge_cids,
     );
     Ok(RecallResp {
         facts,
         receipt,
         bands_already_attested_at_cell,
         temporal_advice,
+        edges: edges_out,
     })
 }
 
@@ -393,5 +443,168 @@ mod tests {
             "the legacy `bands_available` key must NOT silently populate \
              the new field — keeping the alias would defeat the rename"
         );
+    }
+}
+
+#[cfg(test)]
+mod include_edges_tests {
+    //! `include:["edges"]` threads each returned fact's edges into the
+    //! response + receipt, while the WITHOUT-include path stays byte-
+    //! identical to the pre-v0.0.9 recall receipt.
+
+    use super::*;
+    use std::sync::Arc;
+
+    use blake3::Hasher;
+    use ed25519_dalek::{Signer, SigningKey};
+    use emem_core::{AttesterKey, KeyEpoch, Signature};
+    use emem_fact::{
+        Attestation, Derivation, EdgeFact, Fact, PrimaryFact, RegistryCid, SchemaCid, Source,
+    };
+    use emem_storage::server::{ManifestCids, ResponderIdentity};
+    use emem_storage::{MaterializingStorage, Storage};
+
+    fn ephemeral_server() -> (Arc<MaterializingStorage>, Server) {
+        let bands = Arc::new(emem_core::bands::DEFAULT.clone());
+        let functions =
+            Arc::new(emem_core::FunctionRegistry::parse_default().expect("functions"));
+        let sources = Arc::new(emem_core::SourceRegistry::parse_default().expect("sources"));
+        let storage =
+            Arc::new(MaterializingStorage::ephemeral(bands, functions, sources).expect("storage"));
+        let srv = Server {
+            storage: storage.clone(),
+            identity: ResponderIdentity::fresh(),
+            manifests: ManifestCids {
+                registry_cid: RegistryCid::new("test-registry"),
+                schema_cid: SchemaCid::new("test-schema"),
+                bands_cid: "test-bands".into(),
+                sources_cid: "test-sources".into(),
+            },
+            started_at_unix_s: 0,
+        };
+        (storage, srv)
+    }
+
+    fn mk_fact(cell: &str, tslot: u64) -> Fact {
+        Fact::Primary(PrimaryFact {
+            cell: cell.into(),
+            band: "indices.ndvi".into(),
+            tslot,
+            value: ciborium::Value::Float(0.5),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "test".into(),
+                id: "x".into(),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new("test-schema"),
+            signer: AttesterKey([5u8; 32]),
+            signed_at: "2026-05-29T00:00:00Z".into(),
+            served_via: None,
+        })
+    }
+
+    fn sign(facts: Vec<Fact>, secret: [u8; 32]) -> Attestation {
+        let signing = SigningKey::from_bytes(&secret);
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(signing.verifying_key().as_bytes());
+        let mut leaves: Vec<[u8; 32]> = facts
+            .iter()
+            .map(|f| {
+                let mut buf = Vec::new();
+                ciborium::ser::into_writer(f, &mut buf).unwrap();
+                *blake3::hash(&buf).as_bytes()
+            })
+            .collect();
+        leaves.sort();
+        let root = emem_attest::merkle_root(&leaves);
+        let mut h = Hasher::new();
+        h.update(&root);
+        h.update(b"test-registry");
+        h.update(b"test-schema");
+        let sig = signing.sign(h.finalize().as_bytes());
+        let mut sb = [0u8; 64];
+        sb.copy_from_slice(&sig.to_bytes());
+        Attestation {
+            facts,
+            edges: vec![],
+            batch_root: root,
+            attester: AttesterKey(pk),
+            attester_key_epoch: KeyEpoch(0),
+            registry_cid: RegistryCid::new("test-registry"),
+            schema_cid: SchemaCid::new("test-schema"),
+            signature: Signature(sb),
+            attested_at: "2026-05-29T00:00:00Z".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn include_edges_threads_into_recall() {
+        let cell = "damO.zb000.xUti.zde78";
+        let (storage, srv) = ephemeral_server();
+
+        // Attest one fact and capture its CID.
+        let fact = mk_fact(cell, 12);
+        let att = sign(vec![fact], [9u8; 32]);
+        let cids = storage.put_attestation(&att).await.expect("attest");
+        let subj = cids[0].clone();
+
+        // Add an edge whose subject is that fact.
+        let edge = EdgeFact {
+            subj: subj.clone(),
+            pred: "related_to".into(),
+            obj: FactCid::new("obj-cid"),
+            valid_from: 0,
+            valid_to: None,
+            confidence: 1.0,
+            signer: AttesterKey([9u8; 32]),
+            signed_at: "2026-05-29T00:00:00Z".into(),
+            schema_cid: None,
+            note: None,
+        };
+        storage.add_edges(&[edge.clone()]).await.expect("add edge");
+
+        // WITHOUT include — baseline receipt; no edges field.
+        let base = recall(
+            &RecallReq {
+                cell: cell.into(),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall");
+        assert!(base.edges.is_none(), "no include → no edges attached");
+        assert!(
+            base.receipt.edge_cids.is_empty(),
+            "no include → receipt cites no edges"
+        );
+
+        // WITH include:["edges"] — edges attached + cited in the receipt.
+        let withe = recall(
+            &RecallReq {
+                cell: cell.into(),
+                include: Some(vec!["edges".into()]),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall+edges");
+        let edges = withe.edges.expect("edges attached");
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0], edge);
+        assert_eq!(withe.receipt.edge_cids.len(), 1);
+        assert_eq!(withe.receipt.edge_cids[0], edge.cid());
     }
 }

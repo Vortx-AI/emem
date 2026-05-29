@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::cid::{RegistryCid, SchemaCid};
+use crate::edge::EdgeFact;
 use crate::fact::Fact;
 use emem_core::{AttesterKey, KeyEpoch, Signature};
 
@@ -11,6 +12,14 @@ use emem_core::{AttesterKey, KeyEpoch, Signature};
 pub struct Attestation {
     /// One or more facts.
     pub facts: Vec<Fact>,
+    /// Temporal knowledge-graph edges carried alongside the facts.
+    /// Additive (v0.0.9): absent / empty on every pre-edge attestation,
+    /// so the JSON round-trips byte-identically and the merkle leaf set
+    /// is unchanged when this is empty. When non-empty, each edge's
+    /// `blake3(canonical_cbor(edge))` is folded into the leaf set BEFORE
+    /// sorting so the signature commits to the edges too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edges: Vec<EdgeFact>,
     /// blake3 Merkle root over fact_cids in canonical sort order.
     pub batch_root: [u8; 32],
     /// ed25519 attester pubkey.
