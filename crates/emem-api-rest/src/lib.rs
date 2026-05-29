@@ -32419,7 +32419,13 @@ fn verdict_label(code: u8) -> &'static str {
 /// Article 2(4) MMU: 0.5 ha forest minimum mapping unit. Each emem
 /// cell is ~9.55 m on a side ≈ 91 m². 0.5 ha = 5000 m² ≈ 55 cells.
 const EUDR_MMU_THRESHOLD_HA: f64 = 0.5;
-const EUDR_CELL_AREA_M2: f64 = 9.55 * 9.55;
+/// Per-cell area used by the EUDR `sampled_area_ha` disclosure. Single
+/// source of truth: the codec's [`emem_codec::CELL_PITCH_M_EQUATOR`]
+/// (~9.5546 m at the equator). The verdict does NOT depend on this
+/// constant — `failing_area_ha` is computed from
+/// `fail_fraction × polygon_area_ha` (see `mmu_demote` and commit
+/// `ce854af`); only the coverage-disclosure field flows through here.
+const EUDR_CELL_AREA_M2: f64 = emem_codec::CELL_PITCH_M_EQUATOR * emem_codec::CELL_PITCH_M_EQUATOR;
 
 /// Per-plot cell sample ceiling. Raised from 512 → 51,200 in the
 /// 2026-05-29 audit because the previous cap left a 12 kha plot at

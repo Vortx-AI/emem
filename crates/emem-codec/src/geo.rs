@@ -62,6 +62,34 @@ const GEO_LNG_MAX: u64 = (1u64 << GEO_LNG_BITS) - 1;
 const GEO_LAT_MASK: u64 = GEO_LAT_MAX;
 const GEO_LNG_MASK: u64 = GEO_LNG_MAX;
 
+/// Mean metres-per-degree at the WGS-84 equator. Matches the constant
+/// `MEMORY.md` codec primitives cite and is the single source the rest
+/// of the workspace uses for any "metres of a cell" computation.
+const METERS_PER_DEGREE_EQUATOR: f64 = 111_319.491;
+
+/// Canonical equator-aligned cell pitch in metres for the active cell64
+/// grid. Derived from the lat-axis quantisation (`180° / GEO_LAT_MAX`)
+/// projected to ground distance at the equator
+/// (`METERS_PER_DEGREE_EQUATOR`); the lng axis lands within float-noise
+/// of the same number because the bit budget was chosen specifically to
+/// produce square pixels at the equator (see this module's doc comment
+/// and the constants block above). The closed-form value is
+/// `9.554633…` m.
+///
+/// **Above the equator** the actual per-cell width narrows by
+/// `cos(lat)` — at lat 60° each cell is ~4.78 m wide on the lng axis
+/// even though the lat axis stays at the equator pitch. Use
+/// [`equal_area_weight_for`] when aggregating across latitudes.
+///
+/// **Single source of truth.** Every per-cell pitch in the workspace
+/// (heat solver, wave solver, EUDR cell-area disclosure, etc.) MUST
+/// derive from this constant. The audit on 2026-05-29 caught two
+/// divergent literals (`physics.rs` hard-coded `10.0` and `lib.rs`
+/// hard-coded `9.55 * 9.55`) drifting from the codec; see
+/// `MEMORY.md` codec primitives and
+/// `project_audit_2026_05_29_findings.md` P2.
+pub const CELL_PITCH_M_EQUATOR: f64 = 180.0 / GEO_LAT_MAX as f64 * METERS_PER_DEGREE_EQUATOR;
+
 /// Encoded resolution tag. Distinct from the older 16-bit encoding
 /// (`GEO_RES = 12`) so a legacy cell64 string fails `NotGeoCell`
 /// instead of silently decoding into wrong-sized buckets.
@@ -257,6 +285,35 @@ pub struct BboxDeg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The canonical cell pitch must stay within 0.01 m of the
+    /// documented 9.55 m. Hard-pins the closed-form value so a future
+    /// codec drift (e.g. an accidental `1u64 << GEO_LAT_BITS` instead
+    /// of `(1u64 << GEO_LAT_BITS) - 1`, or a different metres-per-deg
+    /// constant) doesn't silently re-introduce the 10.0/9.55 audit gap
+    /// the 2026-05-29 review caught.
+    #[test]
+    fn cell_pitch_at_equator_is_955m() {
+        let drift = (CELL_PITCH_M_EQUATOR - 9.55).abs();
+        assert!(
+            drift < 0.01,
+            "CELL_PITCH_M_EQUATOR drifted from 9.55 m: got {CELL_PITCH_M_EQUATOR} (|Δ|={drift})"
+        );
+        // Lng-axis ground distance at the equator (derived from
+        // `360° / GEO_LNG_MAX`) must agree to within float noise — the
+        // bit budget was chosen to make the pixel square at the
+        // equator, and any future drift between the two axes would
+        // mean the codec is no longer square here.
+        let lng_pitch = 360.0 / GEO_LNG_MAX as f64 * METERS_PER_DEGREE_EQUATOR;
+        let axis_drift = (CELL_PITCH_M_EQUATOR - lng_pitch).abs();
+        // The two axes use `2^21 - 1` and `2^22 - 1` respectively, so
+        // they sit about two parts per million apart (~2.3e-6 m at
+        // ~9.55 m); the square-at-equator commitment is sub-millimetre.
+        assert!(
+            axis_drift < 1e-4,
+            "lat pitch {CELL_PITCH_M_EQUATOR} != lng pitch {lng_pitch} at the equator"
+        );
+    }
 
     /// Round-trip a coordinate through encode → decode and back. The
     /// recovered lat/lng must land within one half-bucket on each axis.

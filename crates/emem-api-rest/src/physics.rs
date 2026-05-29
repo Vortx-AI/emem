@@ -246,15 +246,28 @@ const fn default_diffusivity() -> f64 {
     1.0e-6
 }
 
-/// Cell pitch used by every PDE solver in this module. The active cell64
-/// grid is ~10 m × ~10 m square at the equator (Sentinel-1/2 native
-/// pitch); see `crates/emem-codec/src/geo.rs`. A future H3 migration
-/// would change this constant.
-const CELL_PITCH_M: f64 = 10.0;
+/// Cell pitch used by every PDE solver in this module. Single source
+/// of truth: the cell64 codec's [`emem_codec::CELL_PITCH_M_EQUATOR`]
+/// derived from `180° / GEO_LAT_MAX × 111_319.491 m/deg` ≈ 9.5546 m
+/// (Sentinel-1/2 native pitch). Previously hard-coded as `10.0`,
+/// which over-stated Δx by `(10/9.5546)² ≈ 1.096` and shrank
+/// `α·Δt/Δx²` by the inverse — the 2026-05-29 audit P2.
+///
+/// Above the equator the actual per-cell width narrows by `cos(lat)`;
+/// the 3×3 stencil here uses the equator pitch as its representative Δx
+/// because (a) the stability bound is preserved either way at the
+/// `HEAT_CFL_SAFETY = 0.20` setting (see `cfl_factor` re-check in
+/// [`heat_choose_timestep`]) and (b) the 9 cells in a stencil span at
+/// most ~30 m so the cos(lat) drift across them is negligible.
+const CELL_PITCH_M: f64 = emem_codec::CELL_PITCH_M_EQUATOR;
 
 /// CFL safety factor — keeps the explicit-FD time step strictly inside
 /// the stability bound. 2-D heat eq requires `α·Δt/Δx² ≤ 0.25`; we run
 /// at 0.20 to leave headroom against round-off-driven instability.
+/// With the post-2026-05-29-audit canonical Δx = 9.5546 m (down from
+/// the divergent 10.0 m literal), the effective CFL number per step is
+/// `(10/9.5546)² ≈ 1.096×` larger than before — still safely inside
+/// the 0.25 absolute bound (0.20 × 1.096 ≈ 0.219 < 0.25).
 const HEAT_CFL_SAFETY: f64 = 0.20;
 
 /// Hard upper bound on the number of FD iterations in one solve call.
@@ -336,6 +349,13 @@ pub fn heat_step_2d(u: &[f64; 9], alpha: f64, dt_s: f64) -> f64 {
 /// the only honest thing to do is freeze the perimeter. A wider grid
 /// would let the boundary itself diffuse — that's the natural follow-up
 /// (`heat_equation_2d@2`).
+///
+/// **Cell pitch.** Δx is the canonical
+/// [`emem_codec::CELL_PITCH_M_EQUATOR`] (≈ 9.5546 m). CFL operating
+/// point is `HEAT_CFL_SAFETY × Δx² / α = 0.20 × 91.29 / α`; at
+/// α = 1e-6 m²/s that's `dt_max ≈ 1.83 × 10⁷ s` per step, so a 168 h
+/// horizon takes a single step. CFL margin against the 0.25 hard
+/// bound is `(0.25 − 0.20) / 0.25 = 20 %`.
 pub fn heat_solve_3x3_centre(u0: &[f64; 9], alpha: f64, dt_s: f64, n_steps: usize) -> f64 {
     let mut u = *u0;
     for _ in 0..n_steps {
@@ -369,7 +389,8 @@ fn heat_choose_timestep(alpha: f64, hours_ahead: f64) -> Result<(usize, f64), St
     let n_steps_f = (total_s / dt_max).ceil().max(1.0);
     if n_steps_f > HEAT_MAX_STEPS as f64 {
         return Err(format!(
-            "requested horizon ({hours_ahead} h) at α={alpha} m²/s on a 10 m grid would need \
+            "requested horizon ({hours_ahead} h) at α={alpha} m²/s on the \
+             ~{CELL_PITCH_M:.2} m cell grid would need \
              {n_steps_f:.0} explicit-FD steps (cap: {HEAT_MAX_STEPS}). \
              Pick a shorter horizon or a higher α (e.g. coarser surface)."
         ));
