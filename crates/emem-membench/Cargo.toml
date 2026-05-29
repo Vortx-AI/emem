@@ -1,0 +1,18 @@
+[package]
+name = "emem-membench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "emem-membench — MemoryAgentBench-style scorecard for a local emem responder"
+
+[[bin]]
+name = "emem-membench"
+path = "src/main.rs"
+
+[dependencies]
+clap        = { workspace = true }
+tokio       = { workspace = true }
+reqwest     = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+anyhow      = { workspace = true }
