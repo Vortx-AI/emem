@@ -5295,7 +5295,7 @@
       "primitive": "POST /v1/find_similar {key:<cell>, band:'geotessera', k:N} (for a single pair: k=2 and read off-diagonal)",
       "deterministic": true,
       "citation": "Salton & McGill 1983. Introduction to Modern Information Retrieval. McGraw-Hill.",
-      "documentation_only": true
+      "runtime_path": "/v1/compare"
     },
     {
       "key": "embedding_l2_distance@1",
@@ -5325,7 +5325,7 @@
       "primitive": "POST /v1/recall {bands:['geotessera']} for each cell \u2192 compute locally",
       "deterministic": true,
       "citation": "Standard Euclidean metric; relation d\u00b2=2(1-cos) holds for L2-normalised vectors.",
-      "documentation_only": true
+      "runtime_path": "/v1/state_diff"
     },
     {
       "key": "embedding_change_score@1",
@@ -5357,7 +5357,9 @@
       "primitive": "POST /v1/diff {cell, band:'geotessera', tslot_a:T0, tslot_b:T1}",
       "deterministic": true,
       "citation": "Geotessera v1 model card \u00a7multi-year-fusion; Tucker & Pinzon 2017.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/state_diff",
+      "partial_runtime": true
     },
     {
       "key": "embedding_novelty@1",
@@ -5388,7 +5390,7 @@
       "deterministic": false,
       "_deterministic_note": "Dependent on corpus state at request time.",
       "citation": "Lewis & Catlett 1994. Heterogeneous uncertainty sampling for supervised learning. ICML.",
-      "documentation_only": true
+      "runtime_path": "/v1/find_similar"
     },
     {
       "key": "embedding_neighborhood_consistency@1",
@@ -5504,7 +5506,7 @@
       "primitive": "POST /v1/recall_many {cells:[query, archetype_1, \u2026, archetype_N], bands:['geotessera']} \u2192 cosine of query against each archetype",
       "deterministic": true,
       "citation": "Conceptual analogue of nearest-prototype classifiers (Tibshirani et al. 2002. Diagnosis of multiple cancer types by shrunken centroids. PNAS 99(10):6567\u20136572). Archetype dictionary is editorial, declare in receipts.",
-      "documentation_only": true
+      "runtime_path": "/v1/compare"
     },
     {
       "key": "region_outlier_score@1",
@@ -5563,7 +5565,9 @@
       "primitive": "POST /v1/recall_many {cells:[r1,\u2026,rN], bands:['geotessera']} \u2192 adjacent cosines",
       "deterministic": true,
       "citation": "First-order Markov consistency over the embedding sequence; analogous to Tobler's First Law along a path (Tobler 1970).",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/compare",
+      "partial_runtime": true
     },
     {
       "key": "embedding_weighted_blend@1",
@@ -10201,7 +10205,7 @@
         "anchor_band": "geotessera",
         "fallback_strategy": "absence"
       },
-      "documentation_only": true
+      "runtime_path": "/v1/find_similar"
     },
     {
       "key": "bathymetry_stumpf_log_ratio@1",
@@ -10493,7 +10497,7 @@
         "anchor_band": "geotessera.multi_year",
         "fallback_strategy": "absence"
       },
-      "documentation_only": true
+      "runtime_path": "/v1/state_diff"
     },
     {
       "key": "multimodal_change_score@1",
@@ -11204,7 +11208,7 @@
         "anchor_band": "prithvi_eo2",
         "fallback_strategy": "absence"
       },
-      "documentation_only": true
+      "runtime_path": "/v1/find_similar"
     },
     {
       "key": "prithvi_temporal_change@1",
@@ -11259,7 +11263,7 @@
           }
         ]
       },
-      "documentation_only": true
+      "runtime_path": "/v1/state_diff"
     },
     {
       "key": "prithvi_tessera_ensemble_change@1",
@@ -11325,7 +11329,9 @@
           }
         ]
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/state_diff",
+      "partial_runtime": true
     },
     {
       "key": "clay_archetype_match@1",
@@ -11397,7 +11403,7 @@
         "fallback_strategy": "absence_with_reason",
         "required_extension": "clay-v1.5"
       },
-      "documentation_only": true
+      "runtime_path": "/v1/find_similar"
     },
     {
       "key": "clay_temporal_change@1",
@@ -11464,7 +11470,7 @@
           }
         ]
       },
-      "documentation_only": true
+      "runtime_path": "/v1/state_diff"
     },
     {
       "key": "clay_prithvi_tessera_triple_consensus@1",
@@ -11568,7 +11574,9 @@
           "source": "Healey, S. P. et al. 2018. Mapping forest change using stacked generalization: An ensemble approach. Remote Sensing of Environment 204:717-728."
         }
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/ask",
+      "partial_runtime": true
     },
     {
       "key": "deforestation_triple@1",
@@ -11684,7 +11692,9 @@
           "source": "Healey, S. P. et al. 2018. Remote Sensing of Environment 204:717-728."
         }
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/ask",
+      "partial_runtime": true
     },
     {
       "key": "wetland_change_triple@1",
@@ -11789,7 +11799,9 @@
           "source": "Pekel et al. 2016 + WOfS validation (Mueller et al. 2016)."
         }
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/ask",
+      "partial_runtime": true
     },
     {
       "key": "urban_expansion_triple@1",
@@ -11904,7 +11916,9 @@
           "source": "Goldblatt, R. et al. 2018. RSE 205:253-275."
         }
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/ask",
+      "partial_runtime": true
     },
     {
       "key": "disaster_anomaly_triple@1",
@@ -11987,7 +12001,9 @@
           "source": "Adams, R. P. & MacKay, D. J. C. 2007. arXiv:0710.3742."
         }
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/ask",
+      "partial_runtime": true
     },
     {
       "key": "climate_archetype_triple@1",
@@ -12076,7 +12092,9 @@
           "source": "Existing prithvi_archetype_match@1 (algorithms-v0.json:5375)."
         }
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/ask",
+      "partial_runtime": true
     },
     {
       "key": "coastal_erosion_triple@1",
@@ -12191,7 +12209,9 @@
           "source": "Luijendijk et al. 2018 + Vos et al. 2019 CoastSat shoreline benchmarks."
         }
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/ask",
+      "partial_runtime": true
     },
     {
       "key": "prithvi_canola_yield_frozen_encoder@1",
@@ -13259,7 +13279,7 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true
+      "runtime_path": "/v1/find_similar"
     },
     {
       "key": "forest_carbon_biomass_prithvi_regress@1",
