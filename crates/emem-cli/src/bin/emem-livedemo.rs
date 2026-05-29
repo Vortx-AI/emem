@@ -149,6 +149,7 @@ async fn main() -> anyhow::Result<()> {
         schema_cid: SchemaCid::new(schema_cid.clone()),
         signature: Signature(sig_bytes),
         attested_at: "2026-04-26T15:00:00Z".into(),
+        scope: None,
     };
 
     // POST attestation as canonical CBOR for byte-exact merkle agreement.

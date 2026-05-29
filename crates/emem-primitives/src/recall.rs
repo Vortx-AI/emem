@@ -41,13 +41,17 @@ pub struct RecallReq {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of_signed_at: Option<String>,
     /// Multi-tenant scope (`{user_id, agent_id, run_id, org_id}`). When
-    /// at least one field is `Some`, the returned receipt carries the
-    /// scope and the signature preimage includes
-    /// `blake3(canonical_cbor(scope))` so an offline verifier rebinds
-    /// the response to this caller. The fact-filter side of scope
-    /// (sled-tree `scope_index` + write-side tagging) lands in v0.0.9
-    /// — v0.0.8 ships scope as a receipt-binding + audit-log primitive,
-    /// not yet a recall-time filter.
+    /// at least one field is `Some`, two things happen (v0.0.8):
+    ///
+    /// 1. The returned receipt carries the scope and the signature
+    ///    preimage includes `blake3(canonical_cbor(scope))` so an offline
+    ///    verifier rebinds the response to this caller.
+    /// 2. The fact set is FILTERED to facts written under the same
+    ///    four-tuple via the `scope_index` sled tree — a recall scoped to
+    ///    `{user_id:"u1"}` returns only `u1`'s facts, never another
+    ///    tenant's and never globally-written (unscoped) facts. With no
+    ///    scope (or an empty one) the read is byte-identical to the
+    ///    pre-v0.0.8 global recall.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Scope>,
     /// Optional response-expansion flags. When the list contains
@@ -179,8 +183,15 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     let storage = srv.storage.as_ref();
     let bound = req.build_as_of_bound()?;
 
+    // When the caller pins a scope we read through the scope-aware scan
+    // (`scan_cell_in_scope`) so the result set is restricted to facts
+    // written under the same multi-tenant four-tuple. With no scope the
+    // `scope_filter` is `None` and every branch falls back to the global
+    // canonical index — byte-identical to the pre-v0.0.8 path.
+    let scope_filter: Option<&Scope> = req.scope.as_ref().filter(|s| !s.is_empty());
+
     let pairs: Vec<(CanonicalKey, FactCid)> = match (&req.bands, req.tslot) {
-        (Some(bands), Some(tslot)) => {
+        (Some(bands), Some(tslot)) if scope_filter.is_none() => {
             // Exact (cell, band, tslot) lookup — bound is honoured by
             // post-filtering the lookup result through `AsOfBound::fact_passes`
             // when transaction-time is set; the valid-time half is
@@ -215,28 +226,76 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
                 pairs
             }
         }
+        // Scoped exact (band, tslot): there is no batched scoped
+        // point-lookup, so range-scan the scope index at this cell+tslot
+        // and retain the requested bands. Equivalent result to the
+        // unscoped `lookup_canonical_many` branch, just tenant-filtered.
+        (Some(bands), Some(tslot)) => {
+            // scope_filter is Some here (the unscoped arm matched above).
+            let mut all = storage
+                .scan_cell_in_scope(&req.cell, Some(tslot), scope_filter)
+                .await?;
+            all.retain(|(k, _)| bands.iter().any(|b| b == &k.band));
+            if bound.transaction_time.is_some() {
+                all = retain_by_transaction_time(storage, all, &bound).await?;
+            }
+            all
+        }
         (None, t) => {
-            if bound.is_unbounded() {
-                storage.scan_cell(&req.cell, t).await?
-            } else {
-                let scanned = storage.scan_cell_as_of(&req.cell, t, &bound).await?;
-                // When no exact `tslot` was pinned we collapse to the
-                // latest fact per (cell, band) within the bound — same
-                // shape as the historical `scan_cell(None)` result, just
-                // pre-filtered. This is the core of "what did X look
-                // like as of date Y".
-                if t.is_none() {
-                    latest_per_band(scanned)
-                } else {
-                    scanned
+            let scanned = match scope_filter {
+                // Scoped: walk the scope index, then apply the as_of bound
+                // in-process (the scope tree is keyed by valid-time tslot,
+                // not signed_at, so the transaction-time half is a body
+                // filter — same as the unscoped as_of path does).
+                Some(_) => {
+                    let mut s = storage
+                        .scan_cell_in_scope(&req.cell, t, scope_filter)
+                        .await?;
+                    if !bound.is_unbounded() {
+                        s.retain(|(k, _)| match bound.valid_time {
+                            Some(vt) => k.tslot <= vt,
+                            None => true,
+                        });
+                        if bound.transaction_time.is_some() {
+                            s = retain_by_transaction_time(storage, s, &bound).await?;
+                        }
+                    }
+                    s
                 }
+                None if bound.is_unbounded() => storage.scan_cell(&req.cell, t).await?,
+                None => storage.scan_cell_as_of(&req.cell, t, &bound).await?,
+            };
+            // When no exact `tslot` was pinned AND an as_of bound is in
+            // play we collapse to the latest fact per (cell, band) within
+            // the bound — same shape as the historical `scan_cell(None)`
+            // result, just pre-filtered. This is the core of "what did X
+            // look like as of date Y". The unbounded path (scoped or not)
+            // returns every tslot, matching the global recall shape.
+            if t.is_none() && !bound.is_unbounded() {
+                latest_per_band(scanned)
+            } else {
+                scanned
             }
         }
         (Some(bands), None) => {
-            let mut all = if bound.is_unbounded() {
-                storage.scan_cell(&req.cell, None).await?
-            } else {
-                storage.scan_cell_as_of(&req.cell, None, &bound).await?
+            let mut all = match scope_filter {
+                Some(_) => {
+                    let mut s = storage
+                        .scan_cell_in_scope(&req.cell, None, scope_filter)
+                        .await?;
+                    if !bound.is_unbounded() {
+                        s.retain(|(k, _)| match bound.valid_time {
+                            Some(vt) => k.tslot <= vt,
+                            None => true,
+                        });
+                        if bound.transaction_time.is_some() {
+                            s = retain_by_transaction_time(storage, s, &bound).await?;
+                        }
+                    }
+                    s
+                }
+                None if bound.is_unbounded() => storage.scan_cell(&req.cell, None).await?,
+                None => storage.scan_cell_as_of(&req.cell, None, &bound).await?,
             };
             all.retain(|(k, _)| bands.iter().any(|b| b == &k.band));
             // Collapse to latest-per-band so the as_of semantics match
@@ -266,7 +325,12 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     //
     // Cost: one extra `scan_cell` per recall, which is the same call we
     // already do under sled (point-in-tree scan, ~tens of microseconds).
-    let unbounded_pairs = storage.scan_cell(&req.cell, None).await.unwrap_or_default();
+    // Scoped reads use the scope-aware scan so the "what else is here"
+    // hint never leaks another tenant's band names.
+    let unbounded_pairs = storage
+        .scan_cell_in_scope(&req.cell, None, scope_filter)
+        .await
+        .unwrap_or_default();
     let unbounded_count = unbounded_pairs.len();
     let bands_already_attested_at_cell = {
         let mut bands: Vec<String> = unbounded_pairs.into_iter().map(|(k, _)| k.band).collect();
@@ -347,6 +411,33 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         temporal_advice,
         edges: edges_out,
     })
+}
+
+/// Apply the transaction-time half of an [`AsOfBound`] to an already
+/// scope-/cell-filtered pair list by batch-loading the bodies and
+/// checking `signed_at`. The scope index is keyed by valid-time tslot
+/// (decidable from the key) but not by `signed_at`, so the
+/// transaction-time predicate needs the body — one `get_facts_many`
+/// round-trip keeps it O(1) calls.
+async fn retain_by_transaction_time(
+    storage: &dyn emem_storage::Storage,
+    pairs: Vec<(CanonicalKey, FactCid)>,
+    bound: &AsOfBound,
+) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+    if bound.transaction_time.is_none() || pairs.is_empty() {
+        return Ok(pairs);
+    }
+    let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
+    let facts = storage.get_facts_many(&cids).await?;
+    let mut kept: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
+    for ((k, c), fact) in pairs.into_iter().zip(facts) {
+        if let Some(f) = fact {
+            if bound.fact_passes(&f) {
+                kept.push((k, c));
+            }
+        }
+    }
+    Ok(kept)
 }
 
 /// Collapse the result of a per-cell scan to the latest fact per
@@ -545,6 +636,7 @@ mod include_edges_tests {
             schema_cid: SchemaCid::new("test-schema"),
             signature: Signature(sb),
             attested_at: "2026-05-29T00:00:00Z".into(),
+            scope: None,
         }
     }
 
@@ -572,7 +664,10 @@ mod include_edges_tests {
             schema_cid: None,
             note: None,
         };
-        storage.add_edges(&[edge.clone()]).await.expect("add edge");
+        storage
+            .add_edges(std::slice::from_ref(&edge))
+            .await
+            .expect("add edge");
 
         // WITHOUT include — baseline receipt; no edges field.
         let base = recall(
@@ -606,5 +701,123 @@ mod include_edges_tests {
         assert_eq!(edges[0], edge);
         assert_eq!(withe.receipt.edge_cids.len(), 1);
         assert_eq!(withe.receipt.edge_cids[0], edge.cid());
+    }
+
+    /// Sign the SAME attestation envelope as [`sign`] but tag it with a
+    /// multi-tenant scope so the storage layer writes scope-index rows.
+    /// The scope is NOT part of the signed preimage, so the signature is
+    /// byte-identical to the unscoped envelope over the same facts.
+    fn sign_scoped(facts: Vec<Fact>, secret: [u8; 32], scope: emem_fact::Scope) -> Attestation {
+        let mut att = sign(facts, secret);
+        att.scope = Some(scope);
+        att
+    }
+
+    fn scope_user(u: &str) -> emem_fact::Scope {
+        emem_fact::Scope {
+            user_id: Some(u.into()),
+            ..Default::default()
+        }
+    }
+
+    /// B1 scope_round_trip: a fact written under `{user_id:"u1"}` is
+    /// returned by an unfiltered recall and by a recall scoped to `u1`,
+    /// but a recall scoped to `u2` returns Absence (no facts).
+    #[tokio::test]
+    async fn scope_round_trip() {
+        let cell = "damO.zb000.xUti.zde78";
+        let (storage, srv) = ephemeral_server();
+        let att = sign_scoped(vec![mk_fact(cell, 7)], [11u8; 32], scope_user("u1"));
+        storage.put_attestation(&att).await.expect("attest");
+
+        // Unfiltered recall sees the fact (back-compat: scope index is an
+        // additive overlay; the canonical index still holds the fact).
+        let unfiltered = recall(
+            &RecallReq {
+                cell: cell.into(),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall");
+        assert_eq!(unfiltered.facts.len(), 1, "unscoped recall returns the fact");
+
+        // Scoped to the WRONG user → no facts (honest Absence, not a leak).
+        let wrong = recall(
+            &RecallReq {
+                cell: cell.into(),
+                scope: Some(scope_user("u2")),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall u2");
+        assert!(
+            wrong.facts.is_empty(),
+            "recall scoped to u2 must NOT see u1's fact; got {:?}",
+            wrong.facts
+        );
+        // The receipt still binds the (u2) scope the caller asked for.
+        assert!(wrong.receipt.scope.is_some(), "scoped recall binds scope");
+
+        // Scoped to the RIGHT user → the fact comes back.
+        let right = recall(
+            &RecallReq {
+                cell: cell.into(),
+                scope: Some(scope_user("u1")),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall u1");
+        assert_eq!(right.facts.len(), 1, "recall scoped to u1 returns u1's fact");
+    }
+
+    /// B1 legacy_no_scope_unchanged: a write with NO scope + a recall with
+    /// NO scope behaves exactly as before — the fact is returned and the
+    /// receipt carries no scope binding (the pre-v0.0.8 path).
+    #[tokio::test]
+    async fn legacy_no_scope_unchanged() {
+        let cell = "damO.zb000.xUti.zde78";
+        let (storage, srv) = ephemeral_server();
+        // Unscoped write (scope: None) — no scope-index rows are written.
+        let att = sign(vec![mk_fact(cell, 3)], [12u8; 32]);
+        storage.put_attestation(&att).await.expect("attest");
+
+        let resp = recall(
+            &RecallReq {
+                cell: cell.into(),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall");
+        assert_eq!(resp.facts.len(), 1, "legacy unscoped recall returns the fact");
+        assert!(
+            resp.receipt.scope.is_none(),
+            "legacy recall receipt carries no scope segment"
+        );
+
+        // And a scoped recall over an unscoped write returns NOTHING — an
+        // unscoped (global) fact is not visible under any tenant scope,
+        // by design: scope is opt-in on BOTH sides.
+        let scoped = recall(
+            &RecallReq {
+                cell: cell.into(),
+                scope: Some(scope_user("u1")),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("scoped recall");
+        assert!(
+            scoped.facts.is_empty(),
+            "an unscoped (global) fact is invisible to a tenant-scoped recall"
+        );
     }
 }

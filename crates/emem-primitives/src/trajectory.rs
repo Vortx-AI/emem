@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
-use emem_fact::{Fact, FactCid, Receipt};
+use emem_fact::{Fact, FactCid, Receipt, Scope};
 use emem_storage::{Server, StorageError};
 
 use crate::recall::{build_as_of_bound, TemporalAdvice};
@@ -32,6 +32,12 @@ pub struct TrajectoryReq {
     /// RFC 3339 instant. See [`crate::recall::RecallReq::as_of_signed_at`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8). When at least one field is set the
+    /// series is restricted to facts written under the same four-tuple
+    /// (via the scope index) and the receipt binds the scope. Omit for
+    /// the global series. See [`crate::recall::RecallReq::scope`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Scope>,
 }
 
 /// A single (tslot, value) point with its individual fact_cid so
@@ -94,7 +100,20 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     // signed_at. Reuse the shared validator.
     let bound = build_as_of_bound(None, req.as_of_tslot, req.as_of_signed_at.as_deref())?;
 
-    let pairs = if bound.is_unbounded() {
+    let scope_filter: Option<&Scope> = req.scope.as_ref().filter(|s| !s.is_empty());
+    let pairs = if let Some(_sc) = scope_filter {
+        // Scoped: walk the scope index, then apply the valid-time half
+        // of the bound in-process (the scope tree is keyed by tslot, so
+        // `tslot <= as_of_tslot` is decidable from the key). The
+        // transaction-time half is checked below via fact_passes.
+        let mut s = storage
+            .scan_cell_in_scope(&req.cell, None, scope_filter)
+            .await?;
+        if let Some(vt) = bound.valid_time {
+            s.retain(|(k, _)| k.tslot <= vt);
+        }
+        s
+    } else if bound.is_unbounded() {
         storage.scan_cell(&req.cell, None).await?
     } else {
         storage.scan_cell_as_of(&req.cell, None, &bound).await?
@@ -114,9 +133,17 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     let cids: Vec<FactCid> = filtered.iter().map(|(_, c)| c.clone()).collect();
     let facts = storage.get_facts_many(&cids).await?;
 
+    // For the scoped path the scope index is keyed by valid-time only,
+    // so a caller-set transaction-time bound is honoured here by checking
+    // `fact_passes` on each loaded fact (the unscoped path already pushed
+    // this into `scan_cell_as_of`).
+    let scoped_tx_filter = scope_filter.is_some() && bound.transaction_time.is_some();
     let mut series = Vec::with_capacity(filtered.len());
     for (idx, (tslot, _)) in filtered.iter().enumerate() {
         if let Some(Some(Fact::Primary(p))) = facts.get(idx) {
+            if scoped_tx_filter && !bound.fact_passes(&Fact::Primary(p.clone())) {
+                continue;
+            }
             series.push(Point {
                 tslot: *tslot,
                 value: p.value.clone(),
@@ -163,7 +190,10 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
     // are facts at this (cell, band) outside the bi-temporal bound that
     // would have answered without it.
     let temporal_advice = if series.is_empty() && !bound.is_unbounded() {
-        let unbounded = storage.scan_cell(&req.cell, None).await.unwrap_or_default();
+        let unbounded = storage
+            .scan_cell_in_scope(&req.cell, None, scope_filter)
+            .await
+            .unwrap_or_default();
         let unbounded_count = unbounded.iter().filter(|(k, _)| k.band == req.band).count();
         if unbounded_count > 0 {
             Some(TemporalAdvice {
@@ -184,13 +214,14 @@ pub async fn trajectory(req: &TrajectoryReq, srv: &Server) -> Result<TrajectoryR
         None
     };
 
-    let receipt = srv.sign_receipt_with_as_of(
+    let receipt = srv.sign_receipt_full(
         "emem.trajectory",
         vec![req.cell.clone()],
         cids,
         true,
         started,
         None,
+        req.scope.clone(),
         &bound,
     );
     Ok(TrajectoryResp {

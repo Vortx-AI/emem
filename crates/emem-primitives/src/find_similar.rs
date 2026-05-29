@@ -119,6 +119,17 @@ pub struct FindSimilarReq {
     /// `code: "invalid_signed_at_format"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8). When at least one field is set the
+    /// candidate pool is restricted to cells that have at least one fact
+    /// written under the same four-tuple under the scoring band, and the
+    /// receipt binds the scope. Because the corpus vector index (Lance
+    /// IVF_PQ + the binary Hamming sibling) has NO scope column, a scoped
+    /// `find_similar` bypasses every ANN fast-path and runs the
+    /// brute-force scan so the tenant filter is honoured truthfully —
+    /// exactly the same accuracy-over-speed trade the `filter:` and
+    /// `as_of_*` knobs already make. See [`crate::recall::RecallReq::scope`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<emem_fact::Scope>,
 }
 
 fn is_default_mode(m: &FindSimilarMode) -> bool {
@@ -352,6 +363,7 @@ pub async fn find_similar(
     let k = req.k.unwrap_or(10).min(1000) as usize;
     let band = req.band.clone().unwrap_or_else(|| "geotessera".into());
     let bound = build_as_of_bound(None, req.as_of_tslot, req.as_of_signed_at.as_deref())?;
+    let scope_filter: Option<&emem_fact::Scope> = req.scope.as_ref().filter(|s| !s.is_empty());
 
     // ── Binary fast path ───────────────────────────────────────────
     // Branch *before* loading the full vector — for `Hamming` we do
@@ -366,7 +378,10 @@ pub async fn find_similar(
     // Lance ANN paths skip the bi-temporal predicate (the index has no
     // signed_at column). When the caller has pinned either axis, fall
     // through to the brute-force scan so as_of is honoured truthfully.
-    if matches!(req.mode, FindSimilarMode::HammingThenRerank)
+    // A scoped query has no scope column in the ANN/binary indexes, so it
+    // must take the brute-force path (same as `filter:`/`as_of_*`).
+    if scope_filter.is_none()
+        && matches!(req.mode, FindSimilarMode::HammingThenRerank)
         && req.filter.is_none()
         && bound.is_unbounded()
     {
@@ -374,10 +389,12 @@ pub async fn find_similar(
             return Ok(resp);
         }
     }
-    if matches!(
-        req.mode,
-        FindSimilarMode::Hamming | FindSimilarMode::HammingThenRerank
-    ) {
+    if scope_filter.is_none()
+        && matches!(
+            req.mode,
+            FindSimilarMode::Hamming | FindSimilarMode::HammingThenRerank
+        )
+    {
         return find_similar_binary(req, srv, started, k, &band, &bound).await;
     }
 
@@ -395,7 +412,8 @@ pub async fn find_similar(
     // path), and a non-empty query vector. The path is strictly an
     // accelerator: any failure or empty result falls through to the
     // brute-force scan below.
-    if !query_vec.is_empty() && req.filter.is_none() && bound.is_unbounded() {
+    if scope_filter.is_none() && !query_vec.is_empty() && req.filter.is_none() && bound.is_unbounded()
+    {
         if let Some(resp) = try_lance_with_query(&query_vec, req, srv, started, k, &band).await? {
             return Ok(resp);
         }
@@ -458,12 +476,35 @@ pub async fn find_similar(
     // Memo per-cell bi-temporal verdicts — same shape as filter_memo,
     // populated only when `bound` actually constrains either axis.
     let mut as_of_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    // Memo per-cell scope membership — populated only when a scope is set.
+    // A cell passes when it has at least one fact under the scoring band
+    // written under the caller's exact four-tuple.
+    let mut scope_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
     for (key, cid) in entries {
         if key.band != band {
             continue;
         }
         if Some(key.cell.as_str()) == self_match {
             continue;
+        }
+        // Scope pre-filter: drop cells with no fact under this tenant's
+        // four-tuple at the scoring band. Undecidable → drop, same
+        // contract as the structured `filter:` claim.
+        if scope_filter.is_some() {
+            let pass = match scope_memo.get(&key.cell) {
+                Some(v) => *v,
+                None => {
+                    let scoped = storage
+                        .scan_cell_in_scope(&key.cell, None, scope_filter)
+                        .await?;
+                    let v = scoped.iter().any(|(k, _)| k.band == band);
+                    scope_memo.insert(key.cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
         }
         // Bi-temporal pre-filter: BEFORE cosine, drop cells that have no
         // fact within the as_of bound under the scoring band. A cell
@@ -529,13 +570,14 @@ pub async fn find_similar(
     let cells: Vec<String> = kept.iter().map(|n| n.cell.clone()).collect();
     let returned_k = kept.len() as u32;
     let interpretation = interpretation_for_band(&band);
-    let receipt = srv.sign_receipt_with_as_of(
+    let receipt = srv.sign_receipt_full(
         "emem.find_similar",
         cells,
         kept_cids,
         true,
         started,
         None,
+        req.scope.clone(),
         &bound,
     );
     Ok(FindSimilarResp {

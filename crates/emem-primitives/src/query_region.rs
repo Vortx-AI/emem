@@ -60,6 +60,12 @@ pub struct QueryRegionReq {
     /// [`crate::recall::RecallReq::as_of_signed_at`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8). When at least one field is set every
+    /// per-cell scan is restricted to facts written under the same
+    /// four-tuple (via the scope index) and the receipt binds the scope.
+    /// See [`crate::recall::RecallReq::scope`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<emem_fact::Scope>,
 }
 
 /// query_region response.
@@ -93,6 +99,7 @@ pub async fn query_region(
     let started = Instant::now();
     let storage = srv.storage.as_ref();
     let bound = build_as_of_bound(None, req.as_of_tslot, req.as_of_signed_at.as_deref())?;
+    let scope_filter: Option<&emem_fact::Scope> = req.scope.as_ref().filter(|s| !s.is_empty());
 
     let cells: Vec<String> = if let Some(rest) = req.geometry.strip_prefix("cells:") {
         let parsed: Vec<String> = rest
@@ -139,7 +146,20 @@ pub async fn query_region(
         if all_facts.len() >= MAX_REGION_FACTS {
             break;
         }
-        let entries = if bound.is_unbounded() {
+        let entries = if let Some(_sc) = scope_filter {
+            // Scoped per-cell scan. The scope index is keyed by valid-time
+            // tslot, so apply the valid-time half of the bound from the
+            // key; the transaction-time half is applied below on the
+            // loaded fact via `bound.fact_passes`.
+            let mut s = storage.scan_cell_in_scope(cell, None, scope_filter).await?;
+            if !bound.is_unbounded() {
+                unbounded_total += s.len();
+                if let Some(vt) = bound.valid_time {
+                    s.retain(|(k, _)| k.tslot <= vt);
+                }
+            }
+            s
+        } else if bound.is_unbounded() {
             storage.scan_cell(cell, None).await?
         } else {
             // Track the unbounded count for the temporal_advice diagnostic.
@@ -148,8 +168,15 @@ pub async fn query_region(
         };
         let cids: Vec<FactCid> = entries.into_iter().map(|(_, c)| c).collect();
         let fetched = storage.get_facts_many(&cids).await?;
+        let scoped_tx_filter =
+            scope_filter.is_some() && bound.transaction_time.is_some();
         for (cid, fact) in cids.iter().zip(fetched) {
             let Some(fact) = fact else { continue };
+            // Scoped path honours a transaction-time bound here (the scope
+            // index can't pre-filter on signed_at).
+            if scoped_tx_filter && !bound.fact_passes(&fact) {
+                continue;
+            }
             if let Some(filter) = &req.bands {
                 let band = match &fact {
                     Fact::Primary(p) => &p.band,
@@ -193,13 +220,14 @@ pub async fn query_region(
         None
     };
 
-    let receipt = srv.sign_receipt_with_as_of(
+    let receipt = srv.sign_receipt_full(
         "emem.query_region",
         cells,
         all_cids,
         true,
         started,
         None,
+        req.scope.clone(),
         &bound,
     );
     let cos_lat_weighting_applied = matches!(req.agg.as_deref(), Some("mean"));

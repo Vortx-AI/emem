@@ -48,6 +48,14 @@ pub enum MemoryKind {
     /// Generic durable scratchpad. Default TTL 90 d.
     #[default]
     Resource,
+    /// AEAD-sealed secret (v0.0.8). Stored encrypted in a dedicated
+    /// `emem.memory_vault` tree — NOT in the plaintext memory-file trees —
+    /// so it never reaches the BGE search indexer or the contradiction
+    /// scanner. `memory_view` of a Vault entry returns ciphertext-only
+    /// unless the caller presents a valid ed25519 capability over
+    /// `blake3("emem.vault_open|" || path || "|" || nonce)`. Default TTL
+    /// infinite: secrets don't expire on a timer.
+    Vault,
 }
 
 impl MemoryKind {
@@ -61,6 +69,7 @@ impl MemoryKind {
             "semantic" => Some(Self::Semantic),
             "procedural" => Some(Self::Procedural),
             "resource" => Some(Self::Resource),
+            "vault" => Some(Self::Vault),
             _ => None,
         }
     }
@@ -73,6 +82,7 @@ impl MemoryKind {
             Self::Semantic => "semantic",
             Self::Procedural => "procedural",
             Self::Resource => "resource",
+            Self::Vault => "vault",
         }
     }
 
@@ -85,6 +95,8 @@ impl MemoryKind {
             Self::Episodic => 30,
             Self::Semantic => 0,
             Self::Procedural => 0,
+            // Secrets don't expire on a timer — infinite by default.
+            Self::Vault => 0,
         }
     }
 
@@ -98,6 +110,10 @@ impl MemoryKind {
             Self::Semantic => 2,
             Self::Episodic => 3,
             Self::Resource => 4,
+            // Vault entries never appear in plaintext listings (they live
+            // in their own tree), but give them a deterministic order for
+            // any caller that sorts a mixed list — last, after resource.
+            Self::Vault => 5,
         }
     }
 }
@@ -121,6 +137,7 @@ pub fn ttl_days_for_kind(kind: MemoryKind) -> u64 {
         MemoryKind::Episodic => "EMEM_MEMORY_TTL_EPISODIC_DAYS",
         MemoryKind::Semantic => "EMEM_MEMORY_TTL_SEMANTIC_DAYS",
         MemoryKind::Procedural => "EMEM_MEMORY_TTL_PROCEDURAL_DAYS",
+        MemoryKind::Vault => "EMEM_MEMORY_TTL_VAULT_DAYS",
     };
     std::env::var(key)
         .ok()

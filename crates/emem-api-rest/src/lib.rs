@@ -52,6 +52,7 @@ mod jepa_v2;
 mod physics;
 mod prithvi_chip;
 pub mod topic_router;
+mod vault;
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -9153,6 +9154,11 @@ struct RecallPolygonReq {
     /// Bi-temporal transaction-time bound (RFC 3339).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8). Forwarded verbatim to every per-cell
+    /// recall in the fan-out, so the whole polygon read is restricted to
+    /// facts written under the same four-tuple. See `RecallReq::scope`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<emem_fact::Scope>,
     /// Cap on cells sampled from the polygon. Default 64; hard max 1024
     /// (raised from 256 in May 2026 — Katihar test showed a 2 km stride
     /// at 64 cells over a 100 km² PIN-code polygon misses sub-200 m
@@ -9662,6 +9668,7 @@ async fn post_recall_polygon(
         let tslot = req.tslot;
         let as_of_tslot = req.as_of_tslot;
         let as_of_signed_at = req.as_of_signed_at.clone();
+        let scope = req.scope.clone();
         let s_clone = s.clone();
         let sema = sema.clone();
         recall_set.spawn(async move {
@@ -9672,7 +9679,7 @@ async fn post_recall_polygon(
                 tslot,
                 as_of_tslot,
                 as_of_signed_at,
-                scope: None,
+                scope,
                 include: None,
             };
             (
@@ -9794,7 +9801,7 @@ async fn post_recall_polygon(
                 tslot: req.tslot,
                 as_of_tslot: req.as_of_tslot,
                 as_of_signed_at: req.as_of_signed_at.clone(),
-                scope: None,
+                scope: req.scope.clone(),
                 include: None,
             };
             match recall_with_auto_materialize(&r, &s).await {
@@ -10000,6 +10007,10 @@ struct QueryRegionRestReq {
     /// canonical primitive.
     #[serde(default)]
     as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8), forwarded to the canonical primitive
+    /// so every per-cell scan is restricted to this tenant's facts.
+    #[serde(default)]
+    scope: Option<emem_fact::Scope>,
 }
 
 async fn post_query_region(
@@ -10084,6 +10095,7 @@ async fn post_query_region(
         agg: req.agg,
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at,
+        scope: req.scope,
     };
     let resp = query_region(&inner, &s).await?;
     Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
@@ -12331,6 +12343,7 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
                 include_reserved: None,
                 as_of_tslot: None,
                 as_of_signed_at: None,
+                scope: None,
             };
             match state_view_cube(s.clone(), req).await {
                 Ok(Json(resp)) => {
@@ -13784,7 +13797,7 @@ async fn openapi() -> Json<JsonValue> {
         },
         "components": {
             "schemas": {
-                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}},
+                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}}}},
                 "QueryRegionReq":  {"type":"object","description":"Either `geometry` (cell64 or 'cells:c1,c2,...') or `bbox` ([west, south, east, north] WGS-84 degrees) is required. When `bbox` is given the responder samples it to up to `max_cells` cells (default 256, max 1024) and runs the canonical primitive over the cell list.","properties":{"geometry":{"type":"string","description":"cell64 or `cells:c1,c2,...`"},"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first)"},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":256,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied."},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
@@ -14522,6 +14535,12 @@ struct StateReq {
     /// responder know about this place as of system-date Y.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8). Forwarded to the underlying recall so
+    /// the encoder vector (and, for `view="cube"`, every per-band recall)
+    /// is read only from facts written under the same four-tuple. See
+    /// `RecallReq::scope`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<emem_fact::Scope>,
 }
 
 #[derive(Debug, Serialize)]
@@ -14697,7 +14716,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         tslot: req.tslot,
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
-        scope: None,
+        scope: req.scope.clone(),
         include: None,
     };
     let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
@@ -14814,6 +14833,11 @@ struct StateMultiReq {
     /// Bi-temporal transaction-time bound (RFC 3339).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     as_of_signed_at: Option<String>,
+    /// Multi-tenant scope (v0.0.8). Forwarded to every per-encoder
+    /// recall so the dense-state read is restricted to facts written
+    /// under the same four-tuple. See `RecallReq::scope`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<emem_fact::Scope>,
 }
 
 #[derive(Debug, Serialize)]
@@ -14861,7 +14885,7 @@ async fn post_state_multi(
             tslot: req.tslot,
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
-            scope: None,
+            scope: req.scope.clone(),
             include: None,
         };
         match recall_with_auto_materialize(&recall_req, &s).await {
@@ -15265,7 +15289,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         tslot: req.tslot,
         as_of_tslot: req.as_of_tslot,
         as_of_signed_at: req.as_of_signed_at.clone(),
-        scope: None,
+        scope: req.scope.clone(),
         include: None,
     };
 
@@ -15300,7 +15324,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
             tslot: req.tslot,
             as_of_tslot: req.as_of_tslot,
             as_of_signed_at: req.as_of_signed_at.clone(),
-            scope: None,
+            scope: req.scope.clone(),
             include: None,
         };
         match recall_with_auto_materialize(&warm_req, &s).await {
@@ -16210,7 +16234,7 @@ async fn post_memory_bundle(
             tslot: t.tslot,
             as_of_tslot: t.as_of_tslot,
             as_of_signed_at: t.as_of_signed_at.clone(),
-            scope: None,
+            scope: req.scope.clone(),
             include: None,
         };
         let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
@@ -17045,6 +17069,15 @@ struct MemoryViewReq {
     /// with `/`, only entries with this kind are returned.
     #[serde(default)]
     kind: Option<String>,
+    /// Optional Vault capability (v0.0.8): an ed25519 signature
+    /// (base32-nopad-lc) over `blake3("emem.vault_open|" || path ||
+    /// "|" || nonce_bytes)`, verifiable under the responder pubkey that
+    /// sealed the entry. When the path resolves to a Vault entry and this
+    /// capability verifies, `memory_view` returns the decrypted
+    /// plaintext; otherwise it returns ciphertext-only (a sealed marker).
+    /// Ignored for non-vault paths.
+    #[serde(default)]
+    vault_capability: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -17183,6 +17216,77 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         }));
     }
 
+    // Vault path: a sealed entry at this path is served encrypted-only
+    // UNLESS a valid capability is supplied. This branch runs before the
+    // plaintext file lookup so a vault secret can never be served as a
+    // plaintext file even if a stale path-index row existed.
+    if let Some(entry) = read_vault_entry(s, &path)? {
+        match req.vault_capability.as_deref() {
+            Some(cap) => {
+                match vault::open(&responder_secret_bytes(s), &entry, cap) {
+                    Ok(plaintext) => {
+                        let content = String::from_utf8(plaintext).map_err(|e| {
+                            ApiError(
+                                StatusCode::UNPROCESSABLE_ENTITY,
+                                ErrorBody {
+                                    code: ErrorCode::InvalidArgument,
+                                    message: format!("vault plaintext is not valid UTF-8: {e}"),
+                                    details: None,
+                                },
+                            )
+                        })?;
+                        return Ok(json!({
+                            "kind": "file",
+                            "memory_kind": "vault",
+                            "path": path,
+                            "sealed": false,
+                            "unsealed_with_capability": true,
+                            "content": content,
+                            "nonce_b32": entry.nonce_b32,
+                            "responder_pubkey_b32": entry.responder_pubkey_b32,
+                            "sealed_at": entry.sealed_at,
+                        }));
+                    }
+                    Err(e) => {
+                        // A supplied-but-invalid capability is a 403, not a
+                        // silent ciphertext fallback — the caller asked to
+                        // open and we tell them why it failed.
+                        return Err(ApiError(
+                            StatusCode::FORBIDDEN,
+                            ErrorBody {
+                                code: ErrorCode::BadSignature,
+                                message: format!(
+                                    "vault_capability did not authorise opening `{path}`: {e}"
+                                ),
+                                details: Some(json!({
+                                    "code": "vault_capability_invalid",
+                                    "preimage": "blake3(\"emem.vault_open|\"+path+\"|\"+nonce_bytes)",
+                                })),
+                            },
+                        ));
+                    }
+                }
+            }
+            None => {
+                // No capability → sealed marker + ciphertext only. Never
+                // any plaintext.
+                return Ok(json!({
+                    "kind": "file",
+                    "memory_kind": "vault",
+                    "path": path,
+                    "sealed": true,
+                    "ciphertext_b32": entry.ciphertext_b32,
+                    "nonce_b32": entry.nonce_b32,
+                    "aad": entry.aad,
+                    "plaintext_len": entry.plaintext_len,
+                    "responder_pubkey_b32": entry.responder_pubkey_b32,
+                    "sealed_at": entry.sealed_at,
+                    "how_to_open": "re-call memory_view with `vault_capability`: ed25519 sig (b32) over blake3(\"emem.vault_open|\"+path+\"|\"+nonce_bytes), signed by the responder key.",
+                }));
+            }
+        }
+    }
+
     let (bytes, meta) = read_memory_file(s, &path)?.ok_or_else(|| {
         ApiError(
             StatusCode::NOT_FOUND,
@@ -17238,6 +17342,111 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
     }))
 }
 
+/// The responder's 32-byte ed25519 secret — the IKM the vault KDF
+/// derives its AEAD key from. The `SigningKey` stores secret || pub
+/// internally; `to_bytes()` returns the 32-byte secret scalar seed.
+fn responder_secret_bytes(s: &AppState) -> [u8; 32] {
+    s.identity.signing.to_bytes()
+}
+
+/// Persist a Vault entry: seal the plaintext under the responder secret
+/// and write the sealed envelope to `TREE_MEMORY_VAULT` keyed by path.
+/// NOTHING goes to the plaintext memory-file trees, so the secret never
+/// reaches the search indexer or the contradiction scanner.
+fn persist_vault_write(s: &AppState, path: &str, plaintext: &[u8]) -> Result<vault::SealedVaultEntry, ApiError> {
+    let db = memory_db(s)?;
+    let sealed = vault::seal(
+        &responder_secret_bytes(s),
+        &s.identity.pubkey.0,
+        path,
+        plaintext,
+        emem_storage::server::iso8601_now(),
+    )
+    .map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("vault seal: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let tree = db.open_tree(emem_storage::TREE_MEMORY_VAULT).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_vault: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let mut buf = Vec::with_capacity(256);
+    ciborium::ser::into_writer(&sealed, &mut buf).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CanonicalEncodingDivergence,
+                message: format!("vault cbor: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    tree.insert(path.as_bytes(), buf).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("insert memory_vault: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let _ = tree.flush();
+    Ok(sealed)
+}
+
+/// Read a sealed Vault entry by path. `None` when there is no vault entry
+/// at this path (it may be a plaintext file instead, or nothing).
+fn read_vault_entry(s: &AppState, path: &str) -> Result<Option<vault::SealedVaultEntry>, ApiError> {
+    let db = memory_db(s)?;
+    let tree = db.open_tree(emem_storage::TREE_MEMORY_VAULT).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_vault: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let Some(bytes) = tree.get(path.as_bytes()).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("read memory_vault: {e}"),
+                details: None,
+            },
+        )
+    })?
+    else {
+        return Ok(None);
+    };
+    let entry: vault::SealedVaultEntry = ciborium::de::from_reader(&bytes[..]).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CanonicalEncodingDivergence,
+                message: format!("vault decode: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    Ok(Some(entry))
+}
+
 async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonValue, ApiError> {
     let path = validate_memory_path(&req.path, /*allow_directory=*/ false)?;
     let kind = req
@@ -17248,6 +17457,29 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
     let body = req.file_text.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("create", &path, &bh, req.attester.as_ref())?;
+
+    // Vault kind takes the sealed path: encrypt + store in the vault tree
+    // ONLY. It never touches the plaintext file trees, so it can never be
+    // indexed by memory_search or scanned for contradictions.
+    if kind == MemoryKind::Vault {
+        let sealed = persist_vault_write(s, &path, body)?;
+        let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+            .encode(&s.identity.pubkey.0)
+            .to_lowercase();
+        return Ok(json!({
+            "ok": true,
+            "verb": "create",
+            "path": path,
+            "memory_kind": "vault",
+            "sealed": true,
+            "nonce_b32": sealed.nonce_b32,
+            "plaintext_len": sealed.plaintext_len,
+            "responder_pubkey_b32": responder_pubkey_b32,
+            "sealed_at": sealed.sealed_at,
+            "how_to_open": "memory_view {path, vault_capability: ed25519_sig_b32 over blake3(\"emem.vault_open|\"+path+\"|\"+nonce_bytes), under the responder pubkey}. Without a valid capability, memory_view returns ciphertext only.",
+        }));
+    }
+
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let started = std::time::Instant::now();
     let meta = persist_memory_write(
@@ -17276,11 +17508,34 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
     }))
 }
 
+/// Reject an in-place edit verb on a sealed Vault path. Editing
+/// ciphertext in place is not meaningful (the responder would have to
+/// decrypt, which requires a per-call capability the edit verbs don't
+/// carry), so the honest answer is "recreate the vault entry with the
+/// new plaintext". Returns Ok(()) for non-vault paths so plaintext edits
+/// proceed unchanged.
+fn reject_if_vault(s: &AppState, path: &str, verb: &str) -> Result<(), ApiError> {
+    if read_vault_entry(s, path)?.is_some() {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_{verb}: `{path}` is a sealed Vault entry; in-place edits are not supported. Re-create it with memory_create {{kind:\"vault\", file_text:\"<new secret>\"}} (or memory_delete then memory_create)."
+                ),
+                details: Some(json!({"code": "vault_immutable", "path": path})),
+            },
+        ));
+    }
+    Ok(())
+}
+
 async fn memory_str_replace_inner(
     s: &AppState,
     req: MemoryStrReplaceReq,
 ) -> Result<JsonValue, ApiError> {
     let path = validate_memory_path(&req.path, false)?;
+    reject_if_vault(s, &path, "str_replace")?;
     if req.old_str.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -17383,6 +17638,7 @@ async fn memory_str_replace_inner(
 
 async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonValue, ApiError> {
     let path = validate_memory_path(&req.path, false)?;
+    reject_if_vault(s, &path, "insert")?;
     let (bytes, prev_meta) = read_memory_file(s, &path)?.ok_or_else(|| {
         ApiError(
             StatusCode::NOT_FOUND,
@@ -17488,6 +17744,34 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     let empty_bh = emem_primitives::body_hash(b"");
     validate_attester_binding("delete", &path, &empty_bh, req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
+
+    // Vault delete: a sealed entry lives only in the vault tree, so a
+    // single-file delete that hits a vault path is satisfied entirely
+    // here (no plaintext rows exist to clean up). Directory deletes fall
+    // through to also sweep any plaintext files under the prefix.
+    if !is_dir && read_vault_entry(s, &path)?.is_some() {
+        let db = memory_db(s)?;
+        let tree = db.open_tree(emem_storage::TREE_MEMORY_VAULT).map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_vault: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+        let _ = tree.remove(path.as_bytes());
+        let _ = tree.flush();
+        return Ok(json!({
+            "ok": true,
+            "verb": "delete",
+            "path": path,
+            "memory_kind": "vault",
+            "deleted": 1,
+        }));
+    }
+
     let db = memory_db(s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
         ApiError(
@@ -17675,6 +17959,12 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
             ));
         }
     }
+    // Vault rename: the AEAD AAD is bound to the path, so a sealed
+    // ciphertext can't simply move keys (it would no longer decrypt under
+    // the new path). Reject with guidance to recreate, mirroring the
+    // in-place-edit rule — keeps the AAD invariant honest.
+    reject_if_vault(s, &old_path, "rename")?;
+
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let db = memory_db(s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
@@ -18614,6 +18904,7 @@ pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), 
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.clone(),
+        scope: None,
     };
     // put_attestation verifies the root + signature, then folds the
     // edges into the merkle log and calls add_edges. Idempotent at the
@@ -20364,6 +20655,7 @@ async fn materialize_modis_ndvi_window(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at,
+        scope: None,
     };
 
     let cids = s
@@ -26966,6 +27258,7 @@ async fn sign_and_persist_many(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
+        scope: None,
     };
     let cids = s
         .storage
@@ -27225,6 +27518,7 @@ async fn sign_band_absence(
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
         signature: EmCoreSignature(sig_bytes),
         attested_at: signed_at.to_string(),
+        scope: None,
     };
 
     let cids = s
@@ -42899,6 +43193,7 @@ mod tests {
                 path: "/memories/notes.md".into(),
                 view_range: None,
                 kind: None,
+                vault_capability: None,
             },
         )
         .await
@@ -42936,6 +43231,7 @@ mod tests {
                 path: "/memories/notes.md".into(),
                 view_range: None,
                 kind: None,
+                vault_capability: None,
             },
         )
         .await
@@ -42966,6 +43262,7 @@ mod tests {
                 path: "/memories/notes.md".into(),
                 view_range: None,
                 kind: None,
+                vault_capability: None,
             },
         )
         .await
@@ -42998,6 +43295,7 @@ mod tests {
                 path: "/memories/notes.md".into(),
                 view_range: None,
                 kind: None,
+                vault_capability: None,
             },
         )
         .await;
@@ -43100,6 +43398,7 @@ mod tests {
                     path: p.clone(),
                     view_range: None,
                     kind: None,
+                    vault_capability: None,
                 },
             )
             .await
@@ -43126,6 +43425,126 @@ mod tests {
                 "expected exactly one file of kind {k}: {listing:?}"
             );
         }
+    }
+
+    /// B2 vault_round_trip_with_cap: a Vault entry returns ciphertext
+    /// only to an unauthorized viewer; with a valid signed capability it
+    /// decrypts to plaintext.
+    #[tokio::test]
+    async fn vault_round_trip_with_cap() {
+        let s = test_app_state();
+        let path = "/memories/secrets/openai.key";
+        let secret = "OPENAI_API_KEY=sk-test123";
+
+        // Create as Vault → sealed, no plaintext in the response.
+        let create = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: secret.into(),
+                kind: Some("vault".into()),
+                attester: None,
+            },
+        )
+        .await
+        .map_err(|e| format!("vault create: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(create.get("memory_kind").and_then(|v| v.as_str()), Some("vault"));
+        assert_eq!(create.get("sealed").and_then(|v| v.as_bool()), Some(true));
+        let create_str = create.to_string();
+        assert!(
+            !create_str.contains("sk-test123"),
+            "create response must not leak plaintext: {create_str}"
+        );
+
+        // Unauthorized view (no capability) → ciphertext-only, no plaintext.
+        let sealed = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: path.into(),
+                view_range: None,
+                kind: None,
+                vault_capability: None,
+            },
+        )
+        .await
+        .map_err(|e| format!("vault view sealed: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(sealed.get("sealed").and_then(|v| v.as_bool()), Some(true));
+        assert!(sealed.get("content").is_none(), "sealed view must carry no content");
+        let sealed_str = sealed.to_string();
+        assert!(
+            !sealed_str.contains("sk-test123"),
+            "sealed view must not leak plaintext: {sealed_str}"
+        );
+        let nonce_b32 = sealed
+            .get("nonce_b32")
+            .and_then(|v| v.as_str())
+            .expect("nonce_b32")
+            .to_string();
+
+        // Build a valid capability with the responder signing key.
+        let nonce = data_encoding::BASE32_NOPAD
+            .decode(nonce_b32.to_uppercase().as_bytes())
+            .expect("decode nonce");
+        let cap = vault::make_capability(&s.identity.signing, path, &nonce);
+
+        // Authorized view → plaintext returned.
+        let opened = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: path.into(),
+                view_range: None,
+                kind: None,
+                vault_capability: Some(cap),
+            },
+        )
+        .await
+        .map_err(|e| format!("vault view opened: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(opened.get("sealed").and_then(|v| v.as_bool()), Some(false));
+        assert_eq!(opened.get("content").and_then(|v| v.as_str()), Some(secret));
+    }
+
+    /// B2 vault_excluded_from_search: a Vault secret is never indexed, so
+    /// `memory_search` for a term in the secret returns zero hits. We
+    /// assert the structural invariant: the vault path is absent from the
+    /// plaintext file source the indexer scans (the BGE indexer can only
+    /// ever embed what `list_all` returns).
+    #[tokio::test]
+    async fn vault_excluded_from_search() {
+        let s = test_app_state();
+        let path = "/memories/secrets/key.txt";
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: "OPENAI_API_KEY=sk-test123".into(),
+                kind: Some("vault".into()),
+                attester: None,
+            },
+        )
+        .await
+        .map_err(|e| format!("vault create: {} {}", e.0, e.1.message))
+        .unwrap();
+
+        // The memory-file source the BGE indexer scans must NOT list the
+        // vault path — it only ever sees the plaintext file trees. If the
+        // indexer can't see it, it can never embed it, so a search can
+        // never surface it.
+        use emem_primitives::memory_search::MemoryFileSource as _;
+        let source = SledMemoryFileSource { state: s.clone() };
+        let listed = source.list_all().await.expect("list_all");
+        assert!(
+            listed.iter().all(|f| f.path != path),
+            "vault path must NOT appear in the searchable memory-file source; got {:?}",
+            listed.iter().map(|f| &f.path).collect::<Vec<_>>()
+        );
+        // And the plaintext is not retrievable as a normal file either.
+        assert!(
+            read_memory_file(&s, path).expect("read").is_none(),
+            "vault secret must not be readable as a plaintext memory file"
+        );
     }
 
     #[tokio::test]
@@ -43545,6 +43964,7 @@ mod tests {
                 as_of_signed_at: None,
             }],
             purpose: Some("test".into()),
+            scope: None,
         };
         let resp = post_memory_bundle(State(s.clone()), Json(req))
             .await
@@ -44312,6 +44732,7 @@ mod tests {
             schema_cid: SchemaCid::new("sch"),
             signature: EmCoreSignature(sig_bytes),
             attested_at: signed_at.into(),
+            scope: None,
         };
         let cids = s.storage.put_attestation(&att).await.expect("seed put");
         cids[0].as_str().to_string()

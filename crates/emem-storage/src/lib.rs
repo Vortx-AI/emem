@@ -83,6 +83,17 @@ pub const TREE_MEMORY_FILES_BY_KIND: &str = "emem.memory_files_by_kind";
 /// by CID — only the live path index forgets.
 pub const TREE_MEMORY_FILES_EXPIRED: &str = "emem.memory_files_expired";
 
+/// Sled tree for AEAD-sealed Vault memory entries (v0.0.8). Key: the
+/// memory path (UTF-8, e.g. `/memories/secrets/openai.key`). Value:
+/// canonical CBOR of the sealed envelope (ciphertext + nonce + aad +
+/// attester pubkey that derived the key). Vault entries live ONLY here —
+/// never in [`TREE_MEMORY_FILES`] / [`TREE_MEMORY_FILE_BLOBS`] /
+/// [`TREE_MEMORY_FILES_BY_KIND`] — so they are structurally invisible to
+/// the BGE search indexer (which scans the plaintext file trees) and to
+/// the contradiction scanner. Decryption requires a per-call ed25519
+/// capability; see the `emem-api-rest` vault module.
+pub const TREE_MEMORY_VAULT: &str = "emem.memory_vault";
+
 /// Sled tree mapping `edge_cid` (base32-nopad-lc) → canonical CBOR of the
 /// [`emem_fact::EdgeFact`] body. The content-addressed edge store; the SPO
 /// / OPS index trees point back here to hydrate bodies. (v0.0.9 temporal
@@ -111,6 +122,25 @@ pub const TREE_EDGE_OPS: &str = "emem.edge_ops";
 /// without re-signing or mutating the content-addressed fact. Idempotent
 /// overwrite-by-key. (v0.0.9 refinement loop.)
 pub const TREE_FACT_CONTESTED: &str = "emem.fact_contested";
+
+/// Sled tree indexing every scoped fact by its multi-tenant
+/// [`emem_fact::Scope`] so a scoped recall can range-scan a prefix
+/// without walking every fact at the cell. Populated by
+/// [`MaterializingStorage::put_attestation`] ONLY when the attestation
+/// carries a non-empty `scope` (additive serde-default field on
+/// [`Attestation`]). Without a scope no rows are written and recall
+/// falls back to the global canonical index — the pre-v0.0.8 behaviour
+/// is byte-identical.
+///
+/// Key layout (NUL-separated, empty-string sentinel for absent fields):
+/// `scope_user \0 scope_agent \0 scope_run \0 scope_org \0 cell64 \0 band \0 tslot_be8`.
+/// Value: `fact_cid` bytes (UTF-8 base32-nopad-lc). The four scope
+/// fields lead the key so `scan_prefix(user \0 agent \0 run \0 org \0)`
+/// walks exactly the facts visible to that tenant in O(matches). The
+/// `tslot_be8` suffix keeps multiple tslots at the same (cell, band)
+/// distinct so last-write-wins per (scope, cell, band, tslot) holds the
+/// same shape as the canonical index.
+pub const TREE_SCOPE_INDEX: &str = "emem.scope_index";
 
 /// Non-destructive overlay record marking a content-addressed fact as
 /// contested by a refinement-loop `disagrees_with` edge. Stored in
@@ -309,6 +339,31 @@ pub trait Storage: Send + Sync {
             }
         }
         Ok(filtered)
+    }
+
+    /// Scope-filtered sibling of [`Storage::scan_cell`] (v0.0.8). Returns
+    /// only the `(canonical_key, fact_cid)` pairs at `cell` (optionally
+    /// pinned to `tslot`) that were written under a [`Scope`] matching
+    /// `scope` exactly (field-for-field, with `None` matching only the
+    /// empty-string sentinel — i.e. a recall scoped to `{user_id:"u1"}`
+    /// sees only facts written under `{user_id:"u1"}`, not facts written
+    /// globally or under a different user).
+    ///
+    /// Default impl: when `scope` is `None` or empty, OR the backend has
+    /// no scope index, this delegates to [`Storage::scan_cell`] so every
+    /// existing call site compiles unchanged and unscoped reads keep the
+    /// pre-v0.0.8 behaviour. Only [`MaterializingStorage`] overrides this
+    /// to range-scan the dedicated scope-index tree.
+    async fn scan_cell_in_scope(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+        scope: Option<&emem_fact::Scope>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+        match scope {
+            Some(sc) if !sc.is_empty() => self.scan_cell(cell, tslot).await,
+            _ => self.scan_cell(cell, tslot).await,
+        }
     }
 
     /// Iterate every (canonical_key, fact_cid) in the index. Used by
@@ -583,6 +638,18 @@ impl Storage for MaterializingStorage {
             if let Err(e) = append_multi_attester(hot.db(), &att.facts, &cids) {
                 tracing::warn!(error=%e, "multi-attester index append error (ignored)");
             }
+            // Scope index (v0.0.8): when the attestation carries a
+            // non-empty multi-tenant scope, write one scope-index row per
+            // keyable fact so a later scoped recall can range-scan exactly
+            // this tenant's facts. Without a scope (or an empty one) NO
+            // rows are written and recall falls back to the global
+            // canonical index — the pre-v0.0.8 path is byte-identical.
+            // Best-effort: an index-write error never fails the write.
+            if let Some(scope) = att.scope.as_ref().filter(|sc| !sc.is_empty()) {
+                if let Err(e) = append_scope_index(hot.db(), scope, &att.facts, &cids) {
+                    tracing::warn!(error=%e, "scope index append error (ignored)");
+                }
+            }
         }
         if let Some(reg) = &self.attesters {
             if let Err(e) = reg.record_attestation(&att.attester.0, &att.facts) {
@@ -629,6 +696,26 @@ impl Storage for MaterializingStorage {
             message: "scan_cell requires a SledHotCache handle".into(),
         })?;
         Ok(hot.scan_cell(cell, tslot)?)
+    }
+
+    async fn scan_cell_in_scope(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+        scope: Option<&emem_fact::Scope>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+        // No scope (or an empty one) → identical to the global per-cell
+        // scan. This keeps an unscoped recall byte-for-byte the same as
+        // the pre-v0.0.8 path even on a backend that HAS the scope tree.
+        let scope = match scope {
+            Some(sc) if !sc.is_empty() => sc,
+            _ => return self.scan_cell(cell, tslot).await,
+        };
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "scan_cell_in_scope requires a SledHotCache handle".into(),
+        })?;
+        scan_scope_index(hot.db(), scope, cell, tslot)
     }
 
     async fn scan_cell_as_of(
@@ -1037,6 +1124,106 @@ fn append_multi_attester(
     Ok(())
 }
 
+/// Encode the four-field scope prefix for [`TREE_SCOPE_INDEX`] keys:
+/// `user \0 agent \0 run \0 org \0`. Absent fields use the empty-string
+/// sentinel (a bare NUL), consistent with how [`Scope`] canonicalises —
+/// a recall scoped to `{user_id:"u1"}` produces the prefix
+/// `u1 \0 \0 \0 \0` and range-scans exactly the facts written under that
+/// same four-tuple.
+fn scope_prefix_bytes(scope: &emem_fact::Scope) -> Vec<u8> {
+    let u = scope.user_id.as_deref().unwrap_or("");
+    let a = scope.agent_id.as_deref().unwrap_or("");
+    let r = scope.run_id.as_deref().unwrap_or("");
+    let o = scope.org_id.as_deref().unwrap_or("");
+    let mut buf = Vec::with_capacity(u.len() + a.len() + r.len() + o.len() + 4);
+    for part in [u, a, r, o] {
+        buf.extend_from_slice(part.as_bytes());
+        buf.push(0u8);
+    }
+    buf
+}
+
+/// Append one [`TREE_SCOPE_INDEX`] row per keyable fact:
+/// `scope_prefix || cell \0 band \0 tslot_be8 -> fact_cid`. Skips
+/// derivative facts (no canonical (cell, band, tslot) triple). Idempotent
+/// overwrite-by-key. The scope fields lead the key so a scoped recall can
+/// `scan_prefix(scope_prefix)` and walk only this tenant's facts.
+fn append_scope_index(
+    db: &sled::Db,
+    scope: &emem_fact::Scope,
+    facts: &[Fact],
+    cids: &[FactCid],
+) -> Result<(), StorageError> {
+    if facts.is_empty() || cids.len() != facts.len() {
+        return Ok(());
+    }
+    let tree = db
+        .open_tree(TREE_SCOPE_INDEX)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    let prefix = scope_prefix_bytes(scope);
+    for (f, cid) in facts.iter().zip(cids.iter()) {
+        let Some(triple) = fact_canonical_key_bytes(f) else {
+            continue; // derivative facts have no canonical key
+        };
+        let mut key = Vec::with_capacity(prefix.len() + triple.len());
+        key.extend_from_slice(&prefix);
+        key.extend_from_slice(&triple);
+        tree.insert(key, cid.as_str().as_bytes())
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    }
+    tree.flush()
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    Ok(())
+}
+
+/// Range-scan [`TREE_SCOPE_INDEX`] for every fact written under `scope`
+/// at `cell` (optionally pinned to `tslot`). The scope prefix selects the
+/// tenant; the `cell \0` segment then narrows to the cell. Returns the
+/// decoded `(CanonicalKey, FactCid)` pairs in index order — same shape as
+/// [`SledHotCache::scan_cell`] so callers are interchangeable.
+fn scan_scope_index(
+    db: &sled::Db,
+    scope: &emem_fact::Scope,
+    cell: &str,
+    tslot: Option<u64>,
+) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+    let tree = db
+        .open_tree(TREE_SCOPE_INDEX)
+        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    // Prefix = scope four-tuple || cell \0 — this pins both the tenant
+    // and the cell so the scan touches only matching rows.
+    let scope_prefix = scope_prefix_bytes(scope);
+    let scope_prefix_len = scope_prefix.len();
+    let mut prefix = scope_prefix;
+    prefix.extend_from_slice(cell.as_bytes());
+    prefix.push(0u8);
+    let mut out: Vec<(CanonicalKey, FactCid)> = Vec::new();
+    for kv in tree.scan_prefix(&prefix) {
+        let (k, v) = kv.map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        // Everything after the scope four-tuple is exactly the
+        // `cell \0 band \0 tslot_be8` triple `fact_canonical_key_bytes`
+        // emitted; decode it with the shared canonical-key decoder.
+        let triple = match k.get(scope_prefix_len..) {
+            Some(t) => t,
+            None => continue,
+        };
+        let Some(key) = decode_key_bytes(triple) else {
+            continue;
+        };
+        if let Some(t) = tslot {
+            if key.tslot != t {
+                continue;
+            }
+        }
+        let cid_s = match std::str::from_utf8(&v) {
+            Ok(s) => s.to_string(),
+            Err(_) => continue,
+        };
+        out.push((key, FactCid::new(cid_s)));
+    }
+    Ok(out)
+}
+
 /// Encode `(cell, band, tslot)` exactly as `emem-cache` does so the
 /// multi-attester index keys are bytewise-comparable with the canonical
 /// index for prefix scans by cell64.
@@ -1277,6 +1464,7 @@ mod multi_attester_tests {
             schema_cid: SchemaCid::new(schema_cid),
             signature: Signature(sig_bytes),
             attested_at: "2026-05-28T00:00:00Z".into(),
+            scope: None,
         };
         (att, pk)
     }
@@ -1505,6 +1693,7 @@ mod edge_tests {
             schema_cid: SchemaCid::new(schema_cid),
             signature: Signature(sig_bytes),
             attested_at: "2026-05-29T00:00:00Z".into(),
+            scope: None,
         }
     }
 

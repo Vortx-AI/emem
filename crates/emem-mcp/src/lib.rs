@@ -225,7 +225,8 @@ const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties"
 "bands":{"type":"array","items":{"type":"string"},"description":"optional band keys to filter, e.g. ['indices.ndvi','geotessera']"},
 "tslot":{"type":"integer","description":"optional time slot (band-tempo-relative integer offset from emem epoch)"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Returns the latest fact per (cell,band) whose tslot ≤ as_of_tslot — answers `what did this place look like AS OF date X`. Conflicts with an explicit `tslot` when as_of_tslot < tslot (rejected with code:`invalid_temporal_bound`)."},
-"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound. RFC 3339 string. Returns only facts whose `signed_at` ≤ as_of_signed_at — answers `what did emem KNOW as of system-date Y`. Malformed strings are rejected with code:`invalid_signed_at_format`."}
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound. RFC 3339 string. Returns only facts whose `signed_at` ≤ as_of_signed_at — answers `what did emem KNOW as of system-date Y`. Malformed strings are rejected with code:`invalid_signed_at_format`."},
+"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set, the recall is FILTERED to facts written under the same four-tuple (a recall scoped to {user_id:'u1'} sees only u1's facts, never another tenant's and never globally-written facts) AND the signed receipt binds the scope. Omit (or send {}) for the global, pre-v0.0.8 recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}}
 }}"#;
 
 const SCHEMA_QUERY_REGION: &str = r#"{"type":"object","required":["geometry"],"properties":{
@@ -379,13 +380,14 @@ const SCHEMA_MEMORY_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["toke
 const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","required":["path"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` for a file, or `/memories/<subdir>/` for a directory listing. Must stay under `/memories/`."},
 "view_range":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Optional [start_line, end_line] inclusive, 1-indexed. Lets the agent read part of a long file."},
-"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional kind filter when listing a directory. Restricts entries to one memory type (episodic|semantic|procedural|resource)."}
+"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional kind filter when listing a directory. Restricts entries to one memory type (episodic|semantic|procedural|resource)."},
+"vault_capability":{"type":"string","description":"Optional Vault capability: an ed25519 signature (base32-nopad-lc) over blake3(\"emem.vault_open|\"+path+\"|\"+nonce_bytes), verifiable under the responder pubkey that sealed the entry. When the path is a Vault entry and this verifies, memory_view returns decrypted plaintext; otherwise it returns ciphertext-only. Ignored for non-vault paths."}
 }}"#;
 
 const SCHEMA_MEMORY_CREATE: &str = r#"{"type":"object","required":["path","file_text"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` path. Overwrites if the file exists. Must stay under `/memories/`."},
 "file_text":{"type":"string","description":"Full file contents."},
-"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional memory typing tag. Default `resource`. `episodic` = observation; `semantic` = learned fact; `procedural` = playbook; `resource` = generic scratchpad."},
+"kind":{"type":"string","enum":["episodic","semantic","procedural","resource","vault"],"description":"Optional memory typing tag. Default `resource`. `episodic` = observation; `semantic` = learned fact; `procedural` = playbook; `resource` = generic scratchpad; `vault` = AEAD-sealed secret (stored encrypted; memory_view returns ciphertext-only unless a valid ed25519 capability over blake3(\"emem.vault_open|\"+path+\"|\"+nonce) is supplied; never indexed by memory_search)."},
 "attester":{"type":"object","description":"Optional ed25519 caller binding. Required for writes under `/memories/by_attester/<pubkey8>/...`. Shape: {pubkey_b32, sig_b32} where sig signs blake3(\"emem.memory_write|create|path|body_hash\").","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 

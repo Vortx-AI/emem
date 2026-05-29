@@ -127,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
         schema_cid: SchemaCid::new(schema_cid.clone()),
         signature: Signature(sig_bytes),
         attested_at: "2026-04-26T14:00:00Z".into(),
+        scope: None,
     };
 
     println!("== POST /v1/attest_cbor ==");

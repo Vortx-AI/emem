@@ -38,6 +38,15 @@ blake3          = { workspace = true }
 # Mozilla Observatory upgrades us from A to A+ once 'unsafe-inline'
 # is gone; security questionnaires also stop flagging it.
 sha2            = "0.10"
+# Vault memory kind (v0.0.8): AEAD-seal secrets at rest. ChaCha20-Poly1305
+# with a per-responder key derived via HKDF-SHA512 from the responder
+# ed25519 secret. Versions pinned to the RustCrypto 0.10/0.12 line that
+# matches the crypto-common 0.1 / generic-array 0.14 ecosystem already in
+# Cargo.lock (no shared-dep bump).
+chacha20poly1305 = "0.10"
+hkdf            = "0.12"
+# OsRng for the per-seal 96-bit nonce (vault).
+rand            = { workspace = true }
 tracing         = { workspace = true }
 sled            = { workspace = true }
 # PNG encoder for the multimodal RGB-scene tool

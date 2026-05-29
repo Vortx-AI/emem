@@ -438,6 +438,7 @@ async fn trajectory_respects_as_of_tslot() {
         window: [0, 1000],
         as_of_tslot: None,
         as_of_signed_at: None,
+        scope: None,
     };
     let r = trajectory(&req_unbounded, &srv).await.expect("ok");
     assert_eq!(r.series.len(), 3);
@@ -449,6 +450,7 @@ async fn trajectory_respects_as_of_tslot() {
         window: [0, 1000],
         as_of_tslot: Some(200),
         as_of_signed_at: None,
+        scope: None,
     };
     let r = trajectory(&req_capped, &srv).await.expect("ok");
     let tslots: Vec<u64> = r.series.iter().map(|p| p.tslot).collect();
@@ -505,6 +507,7 @@ async fn find_similar_prefilters_candidates_by_as_of() {
         mode: FindSimilarMode::Cosine,
         as_of_tslot: Some(150),
         as_of_signed_at: None,
+        scope: None,
     };
     let resp = find_similar(&req, &srv).await.expect("ok");
     let cells: Vec<&str> = resp.neighbors.iter().map(|n| n.cell.as_str()).collect();

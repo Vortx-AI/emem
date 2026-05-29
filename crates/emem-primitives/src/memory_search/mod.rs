@@ -48,6 +48,19 @@ pub const SNIPPET_WINDOW: usize = 200;
 
 /// Request shape — JSON-serialised as-is for `POST /v1/memory/search`
 /// and for the `emem_memory_search` MCP arm.
+///
+/// NOTE (v0.0.8 scope): `memory_search` deliberately carries NO `scope`
+/// field. The multi-tenant [`emem_fact::Scope`] (`user_id, agent_id,
+/// run_id, org_id`) indexes geospatial FACTS in the `scope_index` sled
+/// tree; it is orthogonal to the LLM memory-FILE corpus this primitive
+/// searches, which is addressed by `path` / `kind` / `attester_pubkey_b32`
+/// instead. There is no fact at all to range-scan by scope here, so a
+/// `scope` knob would accept-and-ignore — which the no-silent-fallback
+/// rule forbids. Per-tenant memory-file isolation is expressed through
+/// the `path_prefix` / `attester_pubkey_b32` filters below (e.g. a
+/// per-user `/memories/by_attester/<pubkey8>/...` namespace). Vault-kind
+/// entries are never indexed (they live in their own AEAD tree), so they
+/// can never surface here regardless of filter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemorySearchReq {
     /// Free-text query. Required, non-empty after trimming.

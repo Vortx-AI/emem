@@ -224,7 +224,7 @@ mod tests {
                 })
                 .cloned()
                 .collect();
-            out.sort_by(|a, b| a.valid_from.cmp(&b.valid_from));
+            out.sort_by_key(|a| a.valid_from);
             out.truncate(limit);
             Ok(out)
         }

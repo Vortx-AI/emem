@@ -81,6 +81,13 @@ pub struct BundleReq {
     /// so the same triples + different purposes produce distinct CIDs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
+    /// Multi-tenant scope (v0.0.8). Applied to EVERY triple's underlying
+    /// recall so the whole bundle cites only facts written under the same
+    /// four-tuple. A bundle is built by one caller acting for one tenant,
+    /// so the scope rides the request once rather than per-triple. See
+    /// [`crate::recall::RecallReq::scope`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<emem_fact::Scope>,
 }
 
 /// Response body for `POST /v1/memory_bundle` (and the resolve path).
