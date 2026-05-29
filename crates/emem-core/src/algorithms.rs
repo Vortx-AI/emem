@@ -2680,11 +2680,10 @@ mod tests {
         s.insert("hansen.tree_cover_2000".to_string(), 60.0);
 
         let r = &*DEFAULT;
+        // Runtime-evaluable keys: AST must produce a finite value.
         for key in [
             "construction_site_exposure@1",
             "wildfire_ignition_risk_lst_lfm@1",
-            "carbon.albedo_radiative_forcing@1",
-            "carbon.urban_canopy_cooling_potential@1",
             "carbon.drought_carbon_stress@1",
             "carbon.evi_npp_proxy@1",
             "carbon.npp_8day@1",
@@ -2701,20 +2700,16 @@ mod tests {
             "urban_heat_island_imhoff@1",
             "soil_salinity_index@1",
             "sdg.15_4_2.mountain_green_cover_index@1",
-            "gdd_phenology@1",
             "carbon.fire_emissions_co2_proxy@1",
-            "route_heat_exposure@1",
             "sar_coherence_change_proxy@1",
             "mining_extraction_footprint@1",
             "deforestation_alert_ndvi_drop@1",
             "flood_recession_sar_decline@1",
-            "weather_summary@1",
             "sdg.13_2_2.ghg_proxy_burned_area@1",
             "sdg.11_6_2.annual_pm25_mean@1",
             "sdg.14_1_1a.coastal_eutrophication_index@1",
             "population_ghsl_dasymetric@1",
             "urban_heat_island_lst_canopy@1",
-            "carbon.deforestation_alert_proxy@1",
             "residue_burn_multisensor@1",
         ] {
             let v = r
@@ -2724,6 +2719,24 @@ mod tests {
             assert!(
                 v.is_finite(),
                 "{key} produced non-finite value {v} from synthetic inputs"
+            );
+        }
+        // 2026-05-29 audit: these six keys retain an `evaluation` AST as
+        // a record of intended math, but were re-flagged documentation_only
+        // because the AST short-cuts the documented formula too far
+        // (phantom bands, single-cell substitutes for focal kernels, etc.).
+        // The dispatcher must refuse to quote a number — Ok(None), not Err.
+        for key in [
+            "carbon.albedo_radiative_forcing@1",
+            "carbon.urban_canopy_cooling_potential@1",
+            "gdd_phenology@1",
+            "route_heat_exposure@1",
+            "weather_summary@1",
+            "carbon.deforestation_alert_proxy@1",
+        ] {
+            assert!(
+                matches!(r.evaluate(key, &s), Ok(None)),
+                "{key} is documentation_only — dispatcher must return Ok(None), not a value"
             );
         }
     }
@@ -2785,15 +2798,20 @@ mod tests {
     }
 
     #[test]
-    fn weather_summary_class_table_picks_cloud_class() {
+    fn weather_summary_is_documentation_only_after_audit() {
+        // 2026-05-29 audit: the formula concatenates a 3-axis text
+        // summary (sky × precip × wind), but the AST evaluator is
+        // f64→f64 only and the shipped tree degenerates to a sky-only
+        // class table that silently drops precip + wind + temperature.
+        // Re-flagged documentation_only; the dispatcher must refuse to
+        // quote a number. Compose client-side from the four inputs.
         let mut s = std::collections::HashMap::new();
         let r = &*DEFAULT;
-        for (cloud, expected) in [(10.0_f64, 0.0_f64), (50.0, 1.0), (90.0, 2.0)] {
+        for cloud in [10.0_f64, 50.0, 90.0] {
             s.insert("weather.cloud_cover".to_string(), cloud);
-            let v = r.evaluate("weather_summary@1", &s).unwrap().unwrap();
             assert!(
-                (v - expected).abs() < 1e-9,
-                "cloud={cloud} expected class {expected} got {v}"
+                matches!(r.evaluate("weather_summary@1", &s), Ok(None)),
+                "weather_summary@1 is documentation_only — dispatcher must return Ok(None) at cloud={cloud}"
             );
         }
     }
@@ -2823,18 +2841,20 @@ mod tests {
     }
 
     #[test]
-    fn gdd_phenology_matches_mcmaster_wilhelm_at_warm_day() {
-        // T=22°C, T_base=10, T_upper=30:
-        // min(22,30)=22; max(22,10)=22; (22+22)/2 - 10 = 12
+    fn gdd_phenology_is_documentation_only_after_audit() {
+        // 2026-05-29 audit: the formula integrates daily Tmax + Tmin
+        // GDD from sowing through date_t, but the single-cell AST has
+        // only one weather.temperature_2m sample so Tmax and Tmin
+        // collapse to the same value and the McMaster-Wilhelm formula
+        // degenerates to `T - 10` clipped to [0,20]. Re-flagged
+        // documentation_only; the dispatcher must refuse to quote a
+        // number. Compose client-side via /v1/backfill over the
+        // sowing→date_t window.
         let mut s = std::collections::HashMap::new();
         s.insert("weather.temperature_2m".to_string(), 22.0);
-        let v = DEFAULT.evaluate("gdd_phenology@1", &s).unwrap().unwrap();
-        assert!(approx(v, 12.0, 1e-9));
-        // Cold day below T_base should clamp to 0.
+        assert!(matches!(DEFAULT.evaluate("gdd_phenology@1", &s), Ok(None)));
         s.insert("weather.temperature_2m".to_string(), 5.0);
-        let v_cold = DEFAULT.evaluate("gdd_phenology@1", &s).unwrap().unwrap();
-        // min(5,30)=5; max(5,10)=10; (5+10)/2 - 10 = -2.5 → max(0,-2.5) = 0
-        assert!(approx(v_cold, 0.0, 1e-9));
+        assert!(matches!(DEFAULT.evaluate("gdd_phenology@1", &s), Ok(None)));
     }
 
     #[test]

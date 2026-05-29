@@ -1120,13 +1120,26 @@ mod tests {
         .await
         .expect("ok");
         let r = &resp.receipt;
-        // Recompute the receipt preimage the same way Server::sign_receipt does.
+        // Recompute the receipt preimage the same way Server::sign_receipt
+        // does, including the v0.0.9 manifest_versions_blake3_hex segment
+        // when source_versions is non-empty (added 2026-05-29 audit F3).
         use blake3::Hasher;
+        let manifest_hex_opt = if r.source_versions.is_empty() {
+            None
+        } else {
+            let mut buf = Vec::with_capacity(128);
+            let _ = ciborium::into_writer(&r.source_versions, &mut buf);
+            Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
+        };
         let mut h = Hasher::new();
         h.update(r.request_id.as_bytes());
         h.update(b"|");
         h.update(r.served_at.as_bytes());
         h.update(b"|");
+        if let Some(ref mh) = manifest_hex_opt {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
         h.update(r.primitive.as_bytes());
         h.update(b"|");
         for c in &r.cells {
