@@ -1,12 +1,26 @@
-# emem — Earth memory protocol
+# emem — verifiable memory substrate for AI agents
 
-> Working memory of Earth, for AI agents. Every patch of ground has an address
-> (cell64, ~9.55 m). Every measurement there is a signed fact. Every read returns
-> a content-addressed receipt you verify offline. Same CID, same bytes, every replica.
+> Two layers, one trust surface. Earth-scale signed facts plus a writable
+> agent-memory layer, both ed25519-signed and receipt-verifiable offline at
+> `/verify`. Every patch of ground has a 64-bit address (cell64, ~9.55 m at
+> the equator); every measurement at that cell is a fact keyed by
+> `(cell, band, tslot)`, signed by the responder over the blake3 of its
+> canonical CBOR.
 >
-> Most runtimes ship per-session memory. emem is the layer underneath: persistent,
-> shared, cross-tenant. Calls are idempotent. The CID is how two agents settle
-> a number without trusting either one.
+> Above the spatial fact store sits the writable scratchpad the agent owns:
+> six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/
+> delete/rename), CoALA-typed files (episodic/semantic/procedural/resource/
+> core), capability-bound writes under `/memories/by_attester/`, BGE-768
+> semantic search, multi-attester contradiction scoring per band kind,
+> signed bundles (`memb:<bundle_cid>`), and bi-temporal recall
+> (`as_of_tslot` for valid time, `as_of_signed_at` for transaction time —
+> both threaded through every read).
+>
+> Most runtimes ship per-session memory. emem is the layer underneath:
+> persistent, content-addressed, cross-tenant when you supply a scope
+> (`{user_id, agent_id, run_id, org_id}`) and single-tenant when you don't.
+> The CID + the receipt are how two agents settle a number without trusting
+> either one.
 >
 > A cell64 addresses a place the way a token addresses text in an LLM —
 > a stable, hierarchical handle the pipeline can quote, share, and verify.

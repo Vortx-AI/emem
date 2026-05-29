@@ -31515,23 +31515,68 @@ async fn hunter_response(
         }
         _ => None,
     };
-    let bbox = match bbox {
-        Some(b) => b,
+    // Hunt-time fallback for point-resolved regions (e.g. /v1/locate
+    // resolved "Lake Erie" via the `pois` layer to a single lat/lng
+    // and no polygon). Without a polygon the scan can't fan out, but
+    // every meaningful event-hunt target has a sensible default radius
+    // around the point — algal blooms over named lakes, urban heat
+    // islands over downtowns, deforestation over named protected
+    // areas. We synthesise a square bbox of half-side
+    // `EMEM_HUNT_FALLBACK_HALF_DEG` (default 0.30° ≈ ±33 km at the
+    // equator) centred on the locate centroid and proceed; the
+    // response carries `region_resolution: "point_fallback_bbox"`
+    // so an agent knows the polygon was inferred rather than declared.
+    let (bbox, region_resolution) = match bbox {
+        Some(b) => (b, "polygon_bbox_from_locate"),
         None => {
-            return Ok(json!({
-                "schema":        "emem.ask.v1",
-                "status":        "hunter_region_unresolved",
-                "question":      q,
-                "event":         event_label,
-                "algorithm_key": algorithm_key,
-                "region_anchor": region,
-                "message":       format!("hunter: couldn't resolve a polygon for region '{region}'. Geocoder via was '{}'. Pass an explicit polygon_bbox or try a more specific name.",
-                    lresp.0.get("via").and_then(|v| v.as_str()).unwrap_or("unknown")),
-                "next_steps": [
-                    "call /v1/locate with the region name and inspect `polygon_bbox` / `via`",
-                    "call /v1/ask again with explicit lat/lng or cell",
-                ],
-            }));
+            let centre = lresp
+                .0
+                .get("centre")
+                .or_else(|| lresp.0.get("polygon_geojson"));
+            let centroid = centre.and_then(|c| {
+                let m = c.as_object()?;
+                let lat = m
+                    .get("lat_deg")
+                    .or_else(|| m.get("lat"))
+                    .and_then(|v| v.as_f64())?;
+                let lng = m
+                    .get("lng_deg")
+                    .or_else(|| m.get("lng"))
+                    .and_then(|v| v.as_f64())?;
+                Some((lat, lng))
+            });
+            match centroid {
+                Some((lat, lng)) => {
+                    let half = std::env::var("EMEM_HUNT_FALLBACK_HALF_DEG")
+                        .ok()
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .filter(|x| (0.01..=2.0).contains(x))
+                        .unwrap_or(0.30);
+                    let bbox = (
+                        (lat - half).max(-90.0),
+                        (lat + half).min(90.0),
+                        lng - half,
+                        lng + half,
+                    );
+                    (bbox, "point_fallback_bbox")
+                }
+                None => {
+                    return Ok(json!({
+                        "schema":        "emem.ask.v1",
+                        "status":        "hunter_region_unresolved",
+                        "question":      q,
+                        "event":         event_label,
+                        "algorithm_key": algorithm_key,
+                        "region_anchor": region,
+                        "message":       format!("hunter: couldn't resolve a polygon for region '{region}'. Geocoder via was '{}', and no centroid was returned either. Pass an explicit polygon_bbox or try a more specific name.",
+                            lresp.0.get("via").and_then(|v| v.as_str()).unwrap_or("unknown")),
+                        "next_steps": [
+                            "call /v1/locate with the region name and inspect `polygon_bbox` / `via`",
+                            "call /v1/ask again with explicit lat/lng or cell",
+                        ],
+                    }));
+                }
+            }
         }
     };
 
@@ -31690,6 +31735,13 @@ async fn hunter_response(
             "label":         place_label,
             "polygon_bbox":  polygon_bbox,
             "polygon_fallback_to_bbox": polygon_fallback_to_bbox,
+            // When the locate cascade returns no polygon (e.g. POI
+            // lookup of "Lake Erie" via gazetteer-points), the hunter
+            // synthesises a default-radius bbox around the centroid
+            // and flags it here so an agent can disclose the inferred
+            // boundary in its reply. `polygon_bbox_from_locate` means
+            // the locate cascade returned a real boundary.
+            "region_resolution": region_resolution,
             "via":           lresp.0.get("via").cloned().unwrap_or(JsonValue::Null),
             // Confidence triple propagated from /v1/locate so a
             // hunter caller can detect a low-confidence region match
@@ -35557,7 +35609,183 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             }));
         }
     }
+    // Deterministic answer synthesis. /v1/ask had been emitting the
+    // structured summaries (facts_summary / band_observations_summary /
+    // algorithm_outcomes_summary) without ever populating the `answer` or
+    // `answer_md` fields — a contract gap the live-agent audit caught.
+    // We compose a short natural-language summary from the same data that
+    // is already in `body`, so the agent doesn't have to read three
+    // nested arrays to know what the responder found. No LLM call: the
+    // synthesis is a pure projection of the structured response, with
+    // every cited number traceable back to a fact_cid in the receipt.
+    if let Some(map) = body.as_object_mut() {
+        if !map.contains_key("answer") || map.get("answer").map(|v| v.is_null()).unwrap_or(true) {
+            let synth = synthesise_ask_answer(map);
+            if !synth.is_empty() {
+                map.insert("answer".into(), JsonValue::String(synth.clone()));
+                if !map.contains_key("answer_md")
+                    || map
+                        .get("answer_md")
+                        .and_then(|v| v.as_str())
+                        .is_none_or(str::is_empty)
+                {
+                    map.insert("answer_md".into(), JsonValue::String(synth));
+                }
+            }
+        }
+    }
     Ok(body)
+}
+
+/// Build a 1-3 sentence answer from the structured `/v1/ask` body.
+///
+/// Reads `place_resolved.label`, `band_observations` (or its
+/// summary), and `algorithm_outcomes` (or its summary). Produces:
+///
+/// "At <place>: <band1> <value> <unit>, <band2> <value> <unit>.
+///  <algo>: <value>."
+///
+/// Pure projection — no LLM, no rounding heuristics beyond
+/// `format!("{:.2}")` on floats. Every value cited here is already
+/// present in the same response under `band_observations(_summary)`
+/// and `algorithm_outcomes(_summary)`, content-addressed via the
+/// receipt's fact_cids.
+fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
+    let place = body
+        .get("place_resolved")
+        .and_then(|v| v.get("label"))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            body.get("place_resolved")
+                .and_then(|v| v.get("input"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("the requested cell");
+
+    // Pull band observations (either the full array or the slim summary).
+    let bands: Vec<(String, JsonValue, Option<String>)> = body
+        .get("band_observations")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|o| {
+                    let m = o.as_object()?;
+                    let b = m.get("band")?.as_str()?.to_string();
+                    let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
+                    let u = m.get("unit").and_then(|x| x.as_str()).map(String::from);
+                    Some((b, v, u))
+                })
+                .collect()
+        })
+        .or_else(|| {
+            // Slim path: band_observations_summary has shape
+            // { bands: [{band, value, unit}], count: N }
+            body.get("band_observations_summary")
+                .and_then(|v| v.get("bands"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|o| {
+                            let m = o.as_object()?;
+                            let b = m.get("band")?.as_str()?.to_string();
+                            let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
+                            let u = m.get("unit").and_then(|x| x.as_str()).map(String::from);
+                            Some((b, v, u))
+                        })
+                        .collect()
+                })
+        })
+        .unwrap_or_default();
+
+    // Pull algorithm outcomes (full or summary).
+    let outcomes: Vec<(String, JsonValue)> = body
+        .get("algorithm_outcomes")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|o| {
+                    let m = o.as_object()?;
+                    let k = m
+                        .get("algorithm_key")
+                        .and_then(|x| x.as_str())
+                        .or_else(|| m.get("key").and_then(|x| x.as_str()))?
+                        .to_string();
+                    let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
+                    Some((k, v))
+                })
+                .collect()
+        })
+        .or_else(|| {
+            body.get("algorithm_outcomes_summary")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|o| {
+                            let m = o.as_object()?;
+                            let k = m
+                                .get("algorithm_key")
+                                .and_then(|x| x.as_str())
+                                .or_else(|| m.get("key").and_then(|x| x.as_str()))?
+                                .to_string();
+                            let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
+                            Some((k, v))
+                        })
+                        .collect()
+                })
+        })
+        .unwrap_or_default();
+
+    if bands.is_empty() && outcomes.is_empty() {
+        return String::new();
+    }
+
+    fn fmt_value(v: &JsonValue) -> String {
+        match v {
+            JsonValue::Null => "no value".into(),
+            JsonValue::Bool(b) => b.to_string(),
+            JsonValue::Number(n) => {
+                if let Some(f) = n.as_f64() {
+                    if f.fract().abs() < 1e-9 {
+                        format!("{f:.0}")
+                    } else {
+                        format!("{f:.2}")
+                    }
+                } else {
+                    n.to_string()
+                }
+            }
+            JsonValue::String(s) => s.clone(),
+            other => other.to_string(),
+        }
+    }
+
+    // Cap at 6 most-informative bands; same for outcomes. Keep the
+    // summary compact so the synthesis stays a snapshot, not a dump.
+    let band_phrases: Vec<String> = bands
+        .into_iter()
+        .take(6)
+        .map(|(band, value, unit)| match unit {
+            Some(u) if !u.is_empty() && u != "1" => {
+                format!("{band} {} {u}", fmt_value(&value))
+            }
+            _ => format!("{band} {}", fmt_value(&value)),
+        })
+        .collect();
+
+    let outcome_phrases: Vec<String> = outcomes
+        .into_iter()
+        .take(3)
+        .map(|(k, v)| format!("{k}: {}", fmt_value(&v)))
+        .collect();
+
+    let mut parts = Vec::new();
+    if !band_phrases.is_empty() {
+        parts.push(format!("At {place}: {}.", band_phrases.join(", ")));
+    }
+    if !outcome_phrases.is_empty() {
+        parts.push(outcome_phrases.join("; ") + ".");
+    }
+    parts.join(" ")
 }
 
 async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
