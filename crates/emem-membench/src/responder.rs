@@ -78,7 +78,10 @@ impl StubResponder {
     pub fn from_fixture() -> Self {
         let mut store = HashMap::new();
         for it in fixture::ITEMS {
-            store.insert((it.cell.to_string(), it.band.to_string()), it.value.to_string());
+            store.insert(
+                (it.cell.to_string(), it.band.to_string()),
+                it.value.to_string(),
+            );
         }
         Self { store }
     }
@@ -97,7 +100,10 @@ impl StubResponder {
 
 impl Responder for StubResponder {
     async fn recall(&self, cell: &str, band: &str) -> anyhow::Result<Option<String>> {
-        Ok(self.store.get(&(cell.to_string(), band.to_string())).cloned())
+        Ok(self
+            .store
+            .get(&(cell.to_string(), band.to_string()))
+            .cloned())
     }
 
     async fn learn_then_recall(
@@ -148,7 +154,10 @@ impl HttpResponder {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()?;
-        Ok(Self { base: base.into(), client })
+        Ok(Self {
+            base: base.into(),
+            client,
+        })
     }
 
     /// Extract a scalar value from a `/v1/recall` response. emem returns a
@@ -157,7 +166,9 @@ impl HttpResponder {
     fn extract_value(v: &serde_json::Value) -> Option<String> {
         let facts = v.pointer("/facts").or_else(|| v.get("facts"))?.as_array()?;
         let first = facts.first()?;
-        let val = first.get("value").or_else(|| first.pointer("/claim/value"))?;
+        let val = first
+            .get("value")
+            .or_else(|| first.pointer("/claim/value"))?;
         Some(match val {
             serde_json::Value::String(s) => s.clone(),
             other => other.to_string(),
@@ -215,7 +226,9 @@ impl Responder for HttpResponder {
         if !resp.status().is_success() {
             // Endpoint unavailable / errored: fall back to value compare so
             // the axis still reports something, labelled in the eprintln log.
-            return Ok(ConflictReport { conflict: normalise(value_a) != normalise(value_b) });
+            return Ok(ConflictReport {
+                conflict: normalise(value_a) != normalise(value_b),
+            });
         }
         let v: serde_json::Value = resp.json().await?;
         let conflict = v

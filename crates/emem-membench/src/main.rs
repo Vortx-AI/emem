@@ -193,7 +193,11 @@ mod tests {
         let ra = score::retrieval_accuracy(&stub).await.unwrap();
         assert_eq!(ra.items, 5);
         assert_eq!(ra.correct, 2);
-        assert!((ra.score - 0.4).abs() < 1e-9, "expected 0.4, got {}", ra.score);
+        assert!(
+            (ra.score - 0.4).abs() < 1e-9,
+            "expected 0.4, got {}",
+            ra.score
+        );
         assert!(ra.score > 0.0 && ra.score < 1.0);
     }
 
@@ -233,7 +237,10 @@ mod tests {
         let cr = score::conflict_resolution(&AlwaysConflict).await.unwrap();
         // Fixture has 2 should_conflict=true and 1 should_conflict=false.
         assert_eq!(cr.items, fixture::CONFLICT_CASES.len());
-        let expected_correct = fixture::CONFLICT_CASES.iter().filter(|c| c.should_conflict).count();
+        let expected_correct = fixture::CONFLICT_CASES
+            .iter()
+            .filter(|c| c.should_conflict)
+            .count();
         assert_eq!(cr.correct, expected_correct);
         assert!(cr.score > 0.0 && cr.score < 1.0);
     }

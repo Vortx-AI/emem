@@ -714,8 +714,9 @@ mod tests {
         let functions = std::sync::Arc::new(
             emem_core::FunctionRegistry::parse_default().expect("default functions"),
         );
-        let sources =
-            std::sync::Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
+        let sources = std::sync::Arc::new(
+            emem_core::SourceRegistry::parse_default().expect("default sources"),
+        );
         let storage = std::sync::Arc::new(
             MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral"),
         );

@@ -21,8 +21,16 @@ pub struct AxisScore {
 
 impl AxisScore {
     fn new(correct: usize, items: usize) -> Self {
-        let score = if items == 0 { 0.0 } else { correct as f64 / items as f64 };
-        Self { score, items, correct }
+        let score = if items == 0 {
+            0.0
+        } else {
+            correct as f64 / items as f64
+        };
+        Self {
+            score,
+            items,
+            correct,
+        }
     }
 }
 
@@ -45,7 +53,9 @@ pub async fn test_time_learning<R: Responder>(r: &R) -> anyhow::Result<AxisScore
     let eps = fixture::LEARNING_EPISODES;
     let mut correct = 0;
     for e in eps {
-        let Some(expected) = e.writes.last() else { continue };
+        let Some(expected) = e.writes.last() else {
+            continue;
+        };
         let got = r.learn_then_recall(e.cell, e.band, e.writes).await?;
         if got.as_deref().map(normalise) == Some(normalise(expected)) {
             correct += 1;
@@ -86,7 +96,9 @@ pub async fn conflict_resolution<R: Responder>(r: &R) -> anyhow::Result<AxisScor
     let cases = fixture::CONFLICT_CASES;
     let mut correct = 0;
     for c in cases {
-        let report = r.contradiction(c.cell, c.band, c.value_a, c.value_b).await?;
+        let report = r
+            .contradiction(c.cell, c.band, c.value_a, c.value_b)
+            .await?;
         if report.conflict == c.should_conflict {
             correct += 1;
         }

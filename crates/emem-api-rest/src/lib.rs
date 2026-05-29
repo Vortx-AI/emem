@@ -10427,7 +10427,11 @@ async fn post_edges_write(
             },
         ));
     }
-    let edge_cids: Vec<String> = att.edges.iter().map(|e| e.cid().as_str().to_string()).collect();
+    let edge_cids: Vec<String> = att
+        .edges
+        .iter()
+        .map(|e| e.cid().as_str().to_string())
+        .collect();
     match s.storage.put_attestation(&att).await {
         Ok(cids) => {
             metrics_inc(&ATTEST_TOTAL);
@@ -11671,7 +11675,10 @@ fn mcp_spawn_task(
 /// the synchronous `tools/call` path (multimodal `_mcp_content` escape hatch
 /// included) so an async result is byte-identical to the sync one.
 fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
-    let raw_content = inner.get("_mcp_content").and_then(|v| v.as_array()).cloned();
+    let raw_content = inner
+        .get("_mcp_content")
+        .and_then(|v| v.as_array())
+        .cloned();
     let raw_structured = inner.get("_mcp_structured").cloned();
     if let Some(content) = raw_content {
         json!({
@@ -12048,8 +12055,7 @@ async fn mcp_jsonrpc(
             // `tasks` server capability implemented below). All four share
             // the same wire shape for tools/list and tools/call; only
             // 2025-11-25 adds the optional task layer, which is additive.
-            const SUPPORTED: &[&str] =
-                &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+            const SUPPORTED: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
             const LATEST: &str = "2025-11-25";
             let requested = req
                 .params
@@ -12222,36 +12228,36 @@ async fn mcp_jsonrpc(
                     mcp_spawn_task(name, args, ttl, &s)
                 }
             } else {
-            match mcp_tool_call(name, args, &s).await {
-                Ok(inner) => {
-                    // Multimodal escape hatch. A tool that needs to emit
-                    // native MCP content blocks (image / resource /
-                    // multi-block) sets `_mcp_content` on the inner JSON
-                    // — that array becomes the literal `content` field
-                    // of the CallToolResult instead of the default
-                    // text-wrap. `_mcp_structured` (optional) carries
-                    // the structured-content sibling. This keeps the
-                    // dispatch signature uniform while letting
-                    // `emem_coverage_map` ship a real EmbeddedResource.
-                    Ok(mcp_wrap_call_tool_result(inner))
-                }
-                Err((code, msg)) => {
-                    // Unknown-method (-32601) is a protocol error, propagate
-                    // as JSON-RPC error. Everything else is a tool runtime
-                    // error and should land in CallToolResult with isError.
-                    if code == -32601 {
-                        Err((code, msg))
-                    } else {
-                        Ok(json!({
-                            "content": [{
-                                "type": "text",
-                                "text": format!("tool error ({}): {}", code, msg),
-                            }],
-                            "isError": true,
-                        }))
+                match mcp_tool_call(name, args, &s).await {
+                    Ok(inner) => {
+                        // Multimodal escape hatch. A tool that needs to emit
+                        // native MCP content blocks (image / resource /
+                        // multi-block) sets `_mcp_content` on the inner JSON
+                        // — that array becomes the literal `content` field
+                        // of the CallToolResult instead of the default
+                        // text-wrap. `_mcp_structured` (optional) carries
+                        // the structured-content sibling. This keeps the
+                        // dispatch signature uniform while letting
+                        // `emem_coverage_map` ship a real EmbeddedResource.
+                        Ok(mcp_wrap_call_tool_result(inner))
+                    }
+                    Err((code, msg)) => {
+                        // Unknown-method (-32601) is a protocol error, propagate
+                        // as JSON-RPC error. Everything else is a tool runtime
+                        // error and should land in CallToolResult with isError.
+                        if code == -32601 {
+                            Err((code, msg))
+                        } else {
+                            Ok(json!({
+                                "content": [{
+                                    "type": "text",
+                                    "text": format!("tool error ({}): {}", code, msg),
+                                }],
+                                "isError": true,
+                            }))
+                        }
                     }
                 }
-            }
             }
         }
         // ---- MCP task lifecycle (spec revision 2025-11-25) --------------
@@ -17801,7 +17807,11 @@ fn responder_secret_bytes(s: &AppState) -> [u8; 32] {
 /// and write the sealed envelope to `TREE_MEMORY_VAULT` keyed by path.
 /// NOTHING goes to the plaintext memory-file trees, so the secret never
 /// reaches the search indexer or the contradiction scanner.
-fn persist_vault_write(s: &AppState, path: &str, plaintext: &[u8]) -> Result<vault::SealedVaultEntry, ApiError> {
+fn persist_vault_write(
+    s: &AppState,
+    path: &str,
+    plaintext: &[u8],
+) -> Result<vault::SealedVaultEntry, ApiError> {
     let db = memory_db(s)?;
     let sealed = vault::seal(
         &responder_secret_bytes(s),
@@ -19213,7 +19223,9 @@ pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), 
         limit: Some(1000),
         min_severity: Some(min_severity),
     };
-    let resp = memory_contradictions(&req, s).await.map_err(ApiError::from)?;
+    let resp = memory_contradictions(&req, s)
+        .await
+        .map_err(ApiError::from)?;
     let contradictions_seen = resp.contradictions.len();
 
     let mut new_edges: Vec<EdgeFact> = Vec::new();
@@ -19246,7 +19258,11 @@ pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), 
 
         let n = by_conf.len();
         // `n / 2` is the maximum number of disjoint extreme-inward pairs.
-        let k = if n < 2 { 0 } else { max_pairs.min(n / 2).max(1) };
+        let k = if n < 2 {
+            0
+        } else {
+            max_pairs.min(n / 2).max(1)
+        };
         for i in 0..k {
             let lo = by_conf[i];
             let hi = by_conf[n - 1 - i];
@@ -43897,7 +43913,10 @@ mod tests {
         .await
         .map_err(|e| format!("vault create: {} {}", e.0, e.1.message))
         .unwrap();
-        assert_eq!(create.get("memory_kind").and_then(|v| v.as_str()), Some("vault"));
+        assert_eq!(
+            create.get("memory_kind").and_then(|v| v.as_str()),
+            Some("vault")
+        );
         assert_eq!(create.get("sealed").and_then(|v| v.as_bool()), Some(true));
         let create_str = create.to_string();
         assert!(
@@ -43919,7 +43938,10 @@ mod tests {
         .map_err(|e| format!("vault view sealed: {} {}", e.0, e.1.message))
         .unwrap();
         assert_eq!(sealed.get("sealed").and_then(|v| v.as_bool()), Some(true));
-        assert!(sealed.get("content").is_none(), "sealed view must carry no content");
+        assert!(
+            sealed.get("content").is_none(),
+            "sealed view must carry no content"
+        );
         let sealed_str = sealed.to_string();
         assert!(
             !sealed_str.contains("sk-test123"),
@@ -45280,8 +45302,26 @@ mod tests {
         let s = test_app_state();
         let cell = "alfa.zb000.aaaa.aaaa";
         let tslot = 7u64;
-        seed_ndvi_fact(&s, cell, tslot, [3u8; 32], 0.95, 1.0, "2026-05-01T12:00:00Z").await;
-        seed_ndvi_fact(&s, cell, tslot, [4u8; 32], -0.3, 0.8, "2026-05-02T12:00:00Z").await;
+        seed_ndvi_fact(
+            &s,
+            cell,
+            tslot,
+            [3u8; 32],
+            0.95,
+            1.0,
+            "2026-05-01T12:00:00Z",
+        )
+        .await;
+        seed_ndvi_fact(
+            &s,
+            cell,
+            tslot,
+            [4u8; 32],
+            -0.3,
+            0.8,
+            "2026-05-02T12:00:00Z",
+        )
+        .await;
 
         let (_seen1, emitted1) = run_refinement_pass(&s).await.expect("pass 1");
         assert_eq!(emitted1, 1, "first pass emits one edge");
@@ -45410,8 +45450,7 @@ mod tests {
 
         // Real, published MCP protocol revisions (schema dirs on the spec
         // repo). 2025-11-25 is the latest and the one that defines tasks.
-        const REAL_SUPPORTED: &[&str] =
-            &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+        const REAL_SUPPORTED: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
 
         async fn do_initialize(s: &AppState, requested: Option<&str>) -> JsonValue {
             let params = match requested {
@@ -45446,7 +45485,10 @@ mod tests {
             REAL_SUPPORTED.contains(&proto),
             "advertised protocolVersion `{proto}` must be a real published revision"
         );
-        assert_eq!(proto, "2025-11-25", "default must negotiate the latest real revision");
+        assert_eq!(
+            proto, "2025-11-25",
+            "default must negotiate the latest real revision"
+        );
 
         let caps = result.get("capabilities").expect("capabilities present");
         // Implemented capabilities.

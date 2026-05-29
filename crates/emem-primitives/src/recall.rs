@@ -557,8 +557,7 @@ mod include_edges_tests {
 
     fn ephemeral_server() -> (Arc<MaterializingStorage>, Server) {
         let bands = Arc::new(emem_core::bands::DEFAULT.clone());
-        let functions =
-            Arc::new(emem_core::FunctionRegistry::parse_default().expect("functions"));
+        let functions = Arc::new(emem_core::FunctionRegistry::parse_default().expect("functions"));
         let sources = Arc::new(emem_core::SourceRegistry::parse_default().expect("sources"));
         let storage =
             Arc::new(MaterializingStorage::ephemeral(bands, functions, sources).expect("storage"));
@@ -741,7 +740,11 @@ mod include_edges_tests {
         )
         .await
         .expect("recall");
-        assert_eq!(unfiltered.facts.len(), 1, "unscoped recall returns the fact");
+        assert_eq!(
+            unfiltered.facts.len(),
+            1,
+            "unscoped recall returns the fact"
+        );
 
         // Scoped to the WRONG user → no facts (honest Absence, not a leak).
         let wrong = recall(
@@ -773,7 +776,11 @@ mod include_edges_tests {
         )
         .await
         .expect("recall u1");
-        assert_eq!(right.facts.len(), 1, "recall scoped to u1 returns u1's fact");
+        assert_eq!(
+            right.facts.len(),
+            1,
+            "recall scoped to u1 returns u1's fact"
+        );
     }
 
     /// B1 legacy_no_scope_unchanged: a write with NO scope + a recall with
@@ -796,7 +803,11 @@ mod include_edges_tests {
         )
         .await
         .expect("recall");
-        assert_eq!(resp.facts.len(), 1, "legacy unscoped recall returns the fact");
+        assert_eq!(
+            resp.facts.len(),
+            1,
+            "legacy unscoped recall returns the fact"
+        );
         assert!(
             resp.receipt.scope.is_none(),
             "legacy recall receipt carries no scope segment"

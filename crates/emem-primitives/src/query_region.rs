@@ -168,8 +168,7 @@ pub async fn query_region(
         };
         let cids: Vec<FactCid> = entries.into_iter().map(|(_, c)| c).collect();
         let fetched = storage.get_facts_many(&cids).await?;
-        let scoped_tx_filter =
-            scope_filter.is_some() && bound.transaction_time.is_some();
+        let scoped_tx_filter = scope_filter.is_some() && bound.transaction_time.is_some();
         for (cid, fact) in cids.iter().zip(fetched) {
             let Some(fact) = fact else { continue };
             // Scoped path honours a transaction-time bound here (the scope

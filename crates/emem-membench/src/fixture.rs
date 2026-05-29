@@ -73,20 +73,64 @@ pub struct ConflictCase {
 /// The base "memory" the stub responder is seeded with for the retrieval
 /// and long-range axes.
 pub const ITEMS: &[MemoryItem] = &[
-    MemoryItem { cell: "defi.aa111.bbbb.cccc", band: "copdem30m.elevation_mean", value: "812.0" },
-    MemoryItem { cell: "defi.aa111.bbbb.cccc", band: "esa_worldcover.class",      value: "tree_cover" },
-    MemoryItem { cell: "defi.dd222.eeee.ffff", band: "s2.ndvi",                   value: "0.71" },
-    MemoryItem { cell: "defi.dd222.eeee.ffff", band: "jrc_gsw.occurrence",        value: "3" },
-    MemoryItem { cell: "defi.gg333.hhhh.iiii", band: "s2.ndvi",                   value: "0.18" },
-    MemoryItem { cell: "defi.gg333.hhhh.iiii", band: "copdem30m.elevation_mean", value: "4.0" },
+    MemoryItem {
+        cell: "defi.aa111.bbbb.cccc",
+        band: "copdem30m.elevation_mean",
+        value: "812.0",
+    },
+    MemoryItem {
+        cell: "defi.aa111.bbbb.cccc",
+        band: "esa_worldcover.class",
+        value: "tree_cover",
+    },
+    MemoryItem {
+        cell: "defi.dd222.eeee.ffff",
+        band: "s2.ndvi",
+        value: "0.71",
+    },
+    MemoryItem {
+        cell: "defi.dd222.eeee.ffff",
+        band: "jrc_gsw.occurrence",
+        value: "3",
+    },
+    MemoryItem {
+        cell: "defi.gg333.hhhh.iiii",
+        band: "s2.ndvi",
+        value: "0.18",
+    },
+    MemoryItem {
+        cell: "defi.gg333.hhhh.iiii",
+        band: "copdem30m.elevation_mean",
+        value: "4.0",
+    },
 ];
 
 pub const RETRIEVAL_QUERIES: &[RetrievalQuery] = &[
-    RetrievalQuery { cell: "defi.aa111.bbbb.cccc", band: "copdem30m.elevation_mean", expected: "812.0" },
-    RetrievalQuery { cell: "defi.aa111.bbbb.cccc", band: "esa_worldcover.class",      expected: "tree_cover" },
-    RetrievalQuery { cell: "defi.dd222.eeee.ffff", band: "s2.ndvi",                   expected: "0.71" },
-    RetrievalQuery { cell: "defi.dd222.eeee.ffff", band: "jrc_gsw.occurrence",        expected: "3" },
-    RetrievalQuery { cell: "defi.gg333.hhhh.iiii", band: "s2.ndvi",                   expected: "0.18" },
+    RetrievalQuery {
+        cell: "defi.aa111.bbbb.cccc",
+        band: "copdem30m.elevation_mean",
+        expected: "812.0",
+    },
+    RetrievalQuery {
+        cell: "defi.aa111.bbbb.cccc",
+        band: "esa_worldcover.class",
+        expected: "tree_cover",
+    },
+    RetrievalQuery {
+        cell: "defi.dd222.eeee.ffff",
+        band: "s2.ndvi",
+        expected: "0.71",
+    },
+    RetrievalQuery {
+        cell: "defi.dd222.eeee.ffff",
+        band: "jrc_gsw.occurrence",
+        expected: "3",
+    },
+    RetrievalQuery {
+        cell: "defi.gg333.hhhh.iiii",
+        band: "s2.ndvi",
+        expected: "0.18",
+    },
 ];
 
 pub const LEARNING_EPISODES: &[LearningEpisode] = &[
@@ -118,10 +162,30 @@ pub const LEARNING_EPISODES: &[LearningEpisode] = &[
 
 pub const LONG_RANGE_ITEMS: &[LongRangeItem] = &[
     // Planted early, queried late — the classic "needle near the front".
-    LongRangeItem { cell: "defi.aa111.bbbb.cccc", band: "copdem30m.elevation_mean", expected: "812.0", position: 0 },
-    LongRangeItem { cell: "defi.aa111.bbbb.cccc", band: "esa_worldcover.class",      expected: "tree_cover", position: 1 },
-    LongRangeItem { cell: "defi.gg333.hhhh.iiii", band: "copdem30m.elevation_mean", expected: "4.0", position: 5 },
-    LongRangeItem { cell: "defi.gg333.hhhh.iiii", band: "s2.ndvi",                   expected: "0.18", position: 12 },
+    LongRangeItem {
+        cell: "defi.aa111.bbbb.cccc",
+        band: "copdem30m.elevation_mean",
+        expected: "812.0",
+        position: 0,
+    },
+    LongRangeItem {
+        cell: "defi.aa111.bbbb.cccc",
+        band: "esa_worldcover.class",
+        expected: "tree_cover",
+        position: 1,
+    },
+    LongRangeItem {
+        cell: "defi.gg333.hhhh.iiii",
+        band: "copdem30m.elevation_mean",
+        expected: "4.0",
+        position: 5,
+    },
+    LongRangeItem {
+        cell: "defi.gg333.hhhh.iiii",
+        band: "s2.ndvi",
+        expected: "0.18",
+        position: 12,
+    },
 ];
 
 pub const CONFLICT_CASES: &[ConflictCase] = &[

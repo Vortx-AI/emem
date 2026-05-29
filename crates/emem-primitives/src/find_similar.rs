@@ -412,7 +412,10 @@ pub async fn find_similar(
     // path), and a non-empty query vector. The path is strictly an
     // accelerator: any failure or empty result falls through to the
     // brute-force scan below.
-    if scope_filter.is_none() && !query_vec.is_empty() && req.filter.is_none() && bound.is_unbounded()
+    if scope_filter.is_none()
+        && !query_vec.is_empty()
+        && req.filter.is_none()
+        && bound.is_unbounded()
     {
         if let Some(resp) = try_lance_with_query(&query_vec, req, srv, started, k, &band).await? {
             return Ok(resp);
