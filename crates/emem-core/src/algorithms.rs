@@ -1362,13 +1362,15 @@ mod tests {
     #[test]
     fn algorithm_evaluate_returns_ok_none_when_no_evaluation_field() {
         let r = &*DEFAULT;
-        // flood_risk@1 stays as a no-evaluation algorithm so the agent
-        // composes the formula itself; the dispatcher MUST return
-        // Ok(None), not an error.
+        // burn_severity_from_dnbr@1 stays as a no-evaluation algorithm
+        // (needs pre/post NBR pair plus class string mapping) so the
+        // agent composes the formula itself; the dispatcher MUST return
+        // Ok(None), not an error. flood_risk@1 used to fill this role
+        // but the 2026-05-29 bucket-A batch wired its AST.
         let samples = std::collections::HashMap::new();
         let v = r
-            .evaluate("flood_risk@1", &samples)
-            .expect("v1 has no evaluation but should not error");
+            .evaluate("burn_severity_from_dnbr@1", &samples)
+            .expect("doc-only algorithm should not error on missing inputs");
         assert!(v.is_none());
     }
 
@@ -1755,6 +1757,604 @@ mod tests {
         assert!(
             v_dry < 0.05,
             "expected low water prob at -5 dB, got {v_dry}"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Bucket A — 20 ASTs wired 2026-05-29 (registry-only, no Rust).
+    //
+    // Each test asserts that the AST shipped in algorithms-v0.json
+    // reproduces the documented formula at a representative input
+    // (within 1e-6) and exercises at least one boundary (a `Where`
+    // branch, a `Clamp` saturation, or a domain edge that gates the
+    // result). The shared `newly_ast_algorithms_evaluate_against_*`
+    // smoke test catches typos in `op` keys; these tests catch
+    // numeric-correctness regressions.
+    // ----------------------------------------------------------------
+
+    fn approx(a: f64, b: f64, tol: f64) -> bool {
+        (a - b).abs() < tol
+    }
+
+    #[test]
+    fn flood_risk_v1_matches_documented_formula() {
+        // 0.55*(rec/100) + 0.25*(relu(50-elev)/50) + 0.20*sigmoid((-15-vv)/2)
+        let mut s = std::collections::HashMap::new();
+        s.insert("surface_water.recurrence".to_string(), 40.0);
+        s.insert("copdem30m.elevation_mean".to_string(), 30.0);
+        s.insert("sentinel1_raw".to_string(), -18.0);
+        let v = DEFAULT.evaluate("flood_risk@1", &s).unwrap().unwrap();
+        // history: 0.55*0.4 = 0.22
+        // elev: 0.25 * relu(50-30)/50 = 0.25 * 0.4 = 0.10
+        // radar: 0.20 * sigmoid((-15-(-18))/2) = 0.20 * sigmoid(1.5) ≈ 0.20*0.81757 = 0.16351
+        let expected = 0.22 + 0.10 + 0.20 * (1.0 / (1.0 + (-1.5_f64).exp()));
+        assert!(
+            approx(v, expected, 1e-6),
+            "flood_risk@1: got {v}, expected {expected}"
+        );
+
+        // boundary: high elevation saturates the relu to 0 → mid-tier risk drops.
+        s.insert("copdem30m.elevation_mean".to_string(), 200.0);
+        let v_hi = DEFAULT.evaluate("flood_risk@1", &s).unwrap().unwrap();
+        assert!(v_hi < v, "raising elevation must lower flood risk");
+    }
+
+    #[test]
+    fn water_consensus_matches_three_sigmoid_weighted_sum() {
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndwi".to_string(), 0.30);
+        s.insert("indices.mndwi".to_string(), 0.50);
+        s.insert("sentinel1_raw".to_string(), -17.0);
+        let v = DEFAULT.evaluate("water_consensus@1", &s).unwrap().unwrap();
+        let sig = |x: f64| 1.0 / (1.0 + (-x).exp());
+        let expected =
+            0.30 * sig(8.0 * 0.30) + 0.40 * sig(8.0 * 0.50) + 0.30 * sig((-15.0 + 17.0) / 2.0);
+        assert!(
+            approx(v, expected, 1e-6),
+            "water_consensus@1: got {v}, expected {expected}"
+        );
+
+        // Boundary: drying out every signal collapses to ~0.
+        s.insert("indices.ndwi".to_string(), -0.8);
+        s.insert("indices.mndwi".to_string(), -0.8);
+        s.insert("sentinel1_raw".to_string(), 0.0);
+        let v_dry = DEFAULT.evaluate("water_consensus@1", &s).unwrap().unwrap();
+        assert!(
+            v_dry < 0.05,
+            "dry inputs should collapse water_consensus, got {v_dry}"
+        );
+    }
+
+    #[test]
+    fn agb_ndvi_powerlaw_baccini2008_at_calibration_envelope() {
+        // 505 * pow(clamp(ndvi, 0.40, 0.85), 2.04)
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndvi".to_string(), 0.65);
+        let v = DEFAULT
+            .evaluate("agb_ndvi_powerlaw@1", &s)
+            .unwrap()
+            .unwrap();
+        let expected = 505.0 * 0.65_f64.powf(2.04);
+        assert!(approx(v, expected, 1e-6));
+
+        // Boundary: ndvi above 0.85 clamps; below 0.40 also clamps.
+        s.insert("indices.ndvi".to_string(), 0.95);
+        let v_top = DEFAULT
+            .evaluate("agb_ndvi_powerlaw@1", &s)
+            .unwrap()
+            .unwrap();
+        let expected_top = 505.0 * 0.85_f64.powf(2.04);
+        assert!(
+            approx(v_top, expected_top, 1e-6),
+            "ndvi=0.95 should clamp to 0.85 saturation"
+        );
+
+        s.insert("indices.ndvi".to_string(), 0.10);
+        let v_low = DEFAULT
+            .evaluate("agb_ndvi_powerlaw@1", &s)
+            .unwrap()
+            .unwrap();
+        let expected_low = 505.0 * 0.40_f64.powf(2.04);
+        assert!(
+            approx(v_low, expected_low, 1e-6),
+            "ndvi=0.10 should clamp to 0.40 floor"
+        );
+    }
+
+    #[test]
+    fn lai_modified_simple_ratio_at_typical_canopy() {
+        // n=0.6 -> SR=4, MSR=(4-1)/(2+1)=1, LAI=0.69
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndvi".to_string(), 0.6);
+        let v = DEFAULT
+            .evaluate("lai_modified_simple_ratio_s2@1", &s)
+            .unwrap()
+            .unwrap();
+        let n = 0.6_f64;
+        let sr = (1.0 + n) / (1.0 - n);
+        let msr = (sr - 1.0) / (sr.sqrt() + 1.0);
+        let expected = (0.69 * msr).clamp(0.0, 8.0);
+        assert!(
+            approx(v, expected, 1e-6),
+            "lai: got {v}, expected {expected}"
+        );
+
+        // Boundary: ndvi=0.85 clamp → finite LAI; ndvi above clamps the same.
+        s.insert("indices.ndvi".to_string(), 0.95);
+        let v_top = DEFAULT
+            .evaluate("lai_modified_simple_ratio_s2@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(
+            v_top.is_finite() && v_top <= 8.0,
+            "saturated LAI must be finite ≤ 8"
+        );
+    }
+
+    #[test]
+    fn fapar_myneni_linear_with_bias_clamped() {
+        // fAPAR = clamp(1.24*ndvi - 0.168, 0, 1)
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndvi".to_string(), 0.50);
+        let v = DEFAULT
+            .evaluate("fapar_ndvi_myneni@1", &s)
+            .unwrap()
+            .unwrap();
+        let expected = (1.24_f64 * 0.50 - 0.168).clamp(0.0, 1.0);
+        assert!(approx(v, expected, 1e-6));
+
+        // Boundary: low ndvi saturates to 0 (the algorithm's documented floor).
+        s.insert("indices.ndvi".to_string(), 0.05);
+        let v_low = DEFAULT
+            .evaluate("fapar_ndvi_myneni@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_low, 0.0, "fapar should clamp to 0 at ndvi=0.05");
+        // Boundary: high ndvi saturates to 1.
+        s.insert("indices.ndvi".to_string(), 0.99);
+        let v_hi = DEFAULT
+            .evaluate("fapar_ndvi_myneni@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_hi, 1.0, "fapar should clamp to 1 at ndvi=0.99");
+    }
+
+    #[test]
+    fn canopy_chlorophyll_ndre_linear_with_inner_clamp() {
+        // CCC = clamp(50 * clamp(ndre, 0, 0.6), 0, 80)
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndre".to_string(), 0.3);
+        let v = DEFAULT
+            .evaluate("canopy_chlorophyll_ndre@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(approx(v, 15.0, 1e-6));
+
+        // Boundary: ndre above 0.6 clamps to 0.6 → 50*0.6 = 30 (NOT saturated 80).
+        s.insert("indices.ndre".to_string(), 0.9);
+        let v_top = DEFAULT
+            .evaluate("canopy_chlorophyll_ndre@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(approx(v_top, 30.0, 1e-6));
+        // Boundary: negative ndre clamps to 0.
+        s.insert("indices.ndre".to_string(), -0.2);
+        let v_neg = DEFAULT
+            .evaluate("canopy_chlorophyll_ndre@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_neg, 0.0);
+    }
+
+    #[test]
+    fn flood_extent_sar_threshold_at_dash_16_db() {
+        // water if vv < -16 (encoded as 1.0), else land (0.0).
+        let mut s = std::collections::HashMap::new();
+        s.insert("sentinel1_raw".to_string(), -20.0);
+        let v_wet = DEFAULT
+            .evaluate("flood_extent_sar_threshold@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_wet, 1.0);
+        s.insert("sentinel1_raw".to_string(), -5.0);
+        let v_dry = DEFAULT
+            .evaluate("flood_extent_sar_threshold@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_dry, 0.0);
+    }
+
+    #[test]
+    fn water_turbidity_red_band_saturates_near_singularity() {
+        // r = clamp(B04, 0, 0.49); turbidity = clamp(22.4*r/(1-2*r), 0, 1000)
+        let mut s = std::collections::HashMap::new();
+        s.insert("s2.B04".to_string(), 0.10);
+        let v = DEFAULT
+            .evaluate("water_turbidity_red_band@1", &s)
+            .unwrap()
+            .unwrap();
+        let expected = (22.4_f64 * 0.10 / (1.0 - 0.20)).clamp(0.0, 1000.0);
+        assert!(approx(v, expected, 1e-6));
+        // Boundary: r=0.6 clamps to 0.49 and turbidity is large but finite (singularity at 0.5 is avoided).
+        s.insert("s2.B04".to_string(), 0.60);
+        let v_top = DEFAULT
+            .evaluate("water_turbidity_red_band@1", &s)
+            .unwrap()
+            .unwrap();
+        let expected_top = (22.4_f64 * 0.49 / (1.0 - 0.98)).clamp(0.0, 1000.0);
+        assert!(approx(v_top, expected_top, 1e-6));
+        assert!(v_top.is_finite());
+    }
+
+    #[test]
+    fn cross_modal_consistency_score_is_one_when_signals_agree() {
+        // n=clamp((ndvi+1)/2), v=clamp((vv+25)/20); consistency = 1 - |n-v|
+        let mut s = std::collections::HashMap::new();
+        // Pick ndvi=0.0 → n=0.5; vv=-15 → v=(10)/20=0.5
+        s.insert("indices.ndvi".to_string(), 0.0);
+        s.insert("sentinel1_raw".to_string(), -15.0);
+        let v = DEFAULT
+            .evaluate("cross_modal_s1_s2_consistency@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(
+            approx(v, 1.0, 1e-6),
+            "agreeing channels should give consistency 1, got {v}"
+        );
+
+        // Boundary: maximal disagreement (ndvi=+1, vv=-25) gives 1-1 = 0.
+        s.insert("indices.ndvi".to_string(), 1.0);
+        s.insert("sentinel1_raw".to_string(), -25.0);
+        let v_disagree = DEFAULT
+            .evaluate("cross_modal_s1_s2_consistency@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(approx(v_disagree, 0.0, 1e-6));
+    }
+
+    #[test]
+    fn solar_pv_likelihood_is_product_of_three_sigmoids() {
+        let mut s = std::collections::HashMap::new();
+        s.insert("s2.B11".to_string(), 0.15);
+        s.insert("indices.ndvi".to_string(), 0.10);
+        s.insert("s2.B04".to_string(), 0.05);
+        let v = DEFAULT
+            .evaluate("solar_pv_likelihood@1", &s)
+            .unwrap()
+            .unwrap();
+        let sig = |x: f64| 1.0 / (1.0 + (-x).exp());
+        let expected =
+            sig(20.0 * (0.15 - 0.10)) * sig(8.0 * (0.20 - 0.10)) * sig(40.0 * (0.05 - 0.02));
+        assert!(approx(v, expected, 1e-6));
+
+        // Boundary: high NDVI (vegetated) collapses non_veg factor.
+        s.insert("indices.ndvi".to_string(), 0.80);
+        let v_veg = DEFAULT
+            .evaluate("solar_pv_likelihood@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(
+            v_veg < 0.01,
+            "vegetated cell should not score as PV, got {v_veg}"
+        );
+    }
+
+    #[test]
+    fn aquaculture_pond_proxy_is_product_of_three_gates() {
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndwi".to_string(), 0.60);
+        s.insert("sentinel1_raw".to_string(), -18.0);
+        s.insert("indices.ndvi".to_string(), 0.10);
+        let v = DEFAULT
+            .evaluate("aquaculture_pond_proxy@1", &s)
+            .unwrap()
+            .unwrap();
+        let sig = |x: f64| 1.0 / (1.0 + (-x).exp());
+        let expected =
+            sig(8.0 * (0.60 - 0.40)) * sig((-15.0 + 18.0) / 2.0) * sig(8.0 * (0.30 - 0.10));
+        assert!(approx(v, expected, 1e-6));
+
+        // Boundary: dry-radar collapses the score.
+        s.insert("sentinel1_raw".to_string(), -5.0);
+        let v_dry = DEFAULT
+            .evaluate("aquaculture_pond_proxy@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(v_dry < 0.05);
+    }
+
+    #[test]
+    fn methane_plume_swir_anomaly_proxy_clamps_at_one() {
+        // r12 = max(B11,0.001); r22 = max(B12,0.001); ratio=r22/r12
+        // signal = clamp(0.6 - ratio, 0, 0.6); proxy = clamp(signal/0.30, 0, 1)
+        let mut s = std::collections::HashMap::new();
+        s.insert("s2.B11".to_string(), 0.20);
+        s.insert("s2.B12".to_string(), 0.10);
+        let v = DEFAULT
+            .evaluate("methane_plume_swir_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        // ratio = 0.10/0.20 = 0.5 → signal = clamp(0.1, 0, 0.6) = 0.1 → proxy = 0.1/0.30 ≈ 0.333
+        assert!(approx(v, 0.1 / 0.30, 1e-6));
+
+        // Boundary: ratio > 0.6 → signal=0 → proxy=0
+        s.insert("s2.B11".to_string(), 0.10);
+        s.insert("s2.B12".to_string(), 0.30);
+        let v_no_plume = DEFAULT
+            .evaluate("methane_plume_swir_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_no_plume, 0.0);
+
+        // Boundary: very low ratio (≤ 0.3) → proxy clamps to 1.
+        s.insert("s2.B11".to_string(), 0.30);
+        s.insert("s2.B12".to_string(), 0.05);
+        let v_strong = DEFAULT
+            .evaluate("methane_plume_swir_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        // ratio = 0.05/0.30 ≈ 0.1667; signal = clamp(0.4333, 0, 0.6) = 0.4333; proxy = clamp(1.444, 0, 1) = 1.
+        assert!(approx(v_strong, 1.0, 1e-6));
+    }
+
+    #[test]
+    fn air_stagnation_wang_angell_surface_variant() {
+        // ASI = (wind<=3.2) * (precip≈0)
+        let mut s = std::collections::HashMap::new();
+        s.insert("weather.wind_speed_10m".to_string(), 1.0);
+        s.insert("weather.precipitation_mm".to_string(), 0.0);
+        let v = DEFAULT
+            .evaluate("air_stagnation_wang_angell@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v, 1.0);
+        // Boundary: wind above 3.2 → 0
+        s.insert("weather.wind_speed_10m".to_string(), 5.0);
+        let v_breezy = DEFAULT
+            .evaluate("air_stagnation_wang_angell@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_breezy, 0.0);
+        // Boundary: precip > ~0 → 0
+        s.insert("weather.wind_speed_10m".to_string(), 1.0);
+        s.insert("weather.precipitation_mm".to_string(), 2.0);
+        let v_rain = DEFAULT
+            .evaluate("air_stagnation_wang_angell@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_rain, 0.0);
+    }
+
+    #[test]
+    fn noise_exposure_proxy_combines_three_terms() {
+        let mut s = std::collections::HashMap::new();
+        s.insert("overture.transportation.road_length_m".to_string(), 26.0);
+        s.insert("overture.buildings.count".to_string(), 0.0);
+        s.insert("indices.ndvi".to_string(), 0.2);
+        // At road=26 the sigmoid arg is 0 → 0.5; bldg=0 → tanh(0)=0; ndvi=0.2 → clamp((0)/0.4)=0
+        let v = DEFAULT
+            .evaluate("noise_exposure_proxy@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(approx(v, 0.70 * 0.5, 1e-6));
+
+        // Boundary: leafy + quiet drives the score negative (toward the documented -0.1 floor).
+        s.insert("overture.transportation.road_length_m".to_string(), 0.0);
+        s.insert("overture.buildings.count".to_string(), 0.0);
+        s.insert("indices.ndvi".to_string(), 0.8);
+        let v_quiet = DEFAULT
+            .evaluate("noise_exposure_proxy@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(
+            v_quiet < 0.0,
+            "leafy quiet cell must have negative noise proxy, got {v_quiet}"
+        );
+    }
+
+    #[test]
+    fn surface_albedo_broadband_reproduces_published_coefficients() {
+        // 0.356*B02 + 0.130*B04 + 0.373*B08 + 0.085*B11 + 0.072*B12 - 0.0018
+        let mut s = std::collections::HashMap::new();
+        s.insert("s2.B02".to_string(), 0.10);
+        s.insert("s2.B04".to_string(), 0.12);
+        s.insert("s2.B08".to_string(), 0.30);
+        s.insert("s2.B11".to_string(), 0.20);
+        s.insert("s2.B12".to_string(), 0.15);
+        let v = DEFAULT
+            .evaluate("carbon.surface_albedo_broadband@1", &s)
+            .unwrap()
+            .unwrap();
+        let expected =
+            0.356 * 0.10 + 0.130 * 0.12 + 0.373 * 0.30 + 0.085 * 0.20 + 0.072 * 0.15 - 0.0018;
+        assert!(approx(v, expected, 1e-9));
+
+        // Boundary: a fresh-snow cell (all bands ≈ 0.9) should be > 0.8.
+        for k in ["s2.B02", "s2.B04", "s2.B08", "s2.B11", "s2.B12"] {
+            s.insert(k.to_string(), 0.9);
+        }
+        let v_snow = DEFAULT
+            .evaluate("carbon.surface_albedo_broadband@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(
+            v_snow > 0.8,
+            "fresh-snow cell should give bright broadband albedo, got {v_snow}"
+        );
+    }
+
+    #[test]
+    fn surface_water_extent_anomaly_matches_formula() {
+        // p_now = 0.5*sigmoid(8*mndwi) + 0.5*sigmoid((-15-vv)/2)
+        // p_hist = recurrence/100; anomaly = p_now - p_hist
+        let mut s = std::collections::HashMap::new();
+        s.insert("surface_water.recurrence".to_string(), 20.0);
+        s.insert("indices.mndwi".to_string(), 0.30);
+        s.insert("sentinel1_raw".to_string(), -20.0);
+        let v = DEFAULT
+            .evaluate("carbon.surface_water_extent_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        let sig = |x: f64| 1.0 / (1.0 + (-x).exp());
+        let p_now = 0.5 * sig(8.0 * 0.30) + 0.5 * sig((-15.0 + 20.0) / 2.0);
+        let expected = p_now - 0.20;
+        assert!(approx(v, expected, 1e-6));
+        // Boundary: bone-dry now vs always-wet history → strongly negative.
+        s.insert("surface_water.recurrence".to_string(), 90.0);
+        s.insert("indices.mndwi".to_string(), -0.5);
+        s.insert("sentinel1_raw".to_string(), 0.0);
+        let v_dry = DEFAULT
+            .evaluate("carbon.surface_water_extent_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(
+            v_dry < -0.5,
+            "history wet but current dry should be strongly negative, got {v_dry}"
+        );
+    }
+
+    #[test]
+    fn wetland_binary_classifies_open_water_and_upland() {
+        // open_water: wet_radar AND wet_optical AND NOT veg → class 2
+        let mut s = std::collections::HashMap::new();
+        s.insert("sentinel1_raw".to_string(), -20.0); // wet_radar
+        s.insert("indices.ndwi".to_string(), 0.50); // wet_optical
+        s.insert("indices.ndvi".to_string(), 0.05); // NOT veg (below 0.20)
+        s.insert("copdem30m.elevation_mean".to_string(), 100.0);
+        let v = DEFAULT
+            .evaluate("wetland_binary_s1_s2_dem@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v, 2.0, "open water class");
+
+        // upland: dry radar, dry optical, no veg, high elevation → 0
+        s.insert("sentinel1_raw".to_string(), -5.0);
+        s.insert("indices.ndwi".to_string(), -0.3);
+        s.insert("indices.ndvi".to_string(), 0.05);
+        s.insert("copdem30m.elevation_mean".to_string(), 500.0);
+        let v_up = DEFAULT
+            .evaluate("wetland_binary_s1_s2_dem@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_up, 0.0, "upland class");
+
+        // wet_soil_marsh: wet radar (or optical), veg present, low terrain → 1
+        s.insert("sentinel1_raw".to_string(), -20.0);
+        s.insert("indices.ndwi".to_string(), -0.2);
+        s.insert("indices.ndvi".to_string(), 0.40);
+        s.insert("copdem30m.elevation_mean".to_string(), 50.0);
+        let v_marsh = DEFAULT
+            .evaluate("wetland_binary_s1_s2_dem@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_marsh, 1.0, "wet soil / marsh class");
+    }
+
+    #[test]
+    fn heat_index_v2_matches_rothfusz_and_simple_branches() {
+        // Simple-form branch: T_F < 80 OR R < 40
+        let mut s = std::collections::HashMap::new();
+        s.insert("weather.temperature_2m".to_string(), 20.0); // 68 F
+        s.insert("weather.relative_humidity_2m".to_string(), 60.0);
+        let v_simple_c = DEFAULT.evaluate("heat_index@2", &s).unwrap().unwrap();
+        let t_f = 20.0 * 9.0 / 5.0 + 32.0;
+        let r = 60.0_f64;
+        let simple_f = 0.5 * (t_f + 61.0 + (t_f - 68.0) * 1.2 + r * 0.094);
+        let expected_c = (simple_f - 32.0) * 5.0 / 9.0;
+        assert!(
+            approx(v_simple_c, expected_c, 1e-6),
+            "simple branch HI_C: got {v_simple_c}, expected {expected_c}"
+        );
+
+        // Full-Rothfusz branch: T_F=90 (32.2°C), R=70%
+        s.insert("weather.temperature_2m".to_string(), 32.222222);
+        s.insert("weather.relative_humidity_2m".to_string(), 70.0);
+        let v_full_c = DEFAULT.evaluate("heat_index@2", &s).unwrap().unwrap();
+        let t = 32.222222_f64 * 9.0 / 5.0 + 32.0;
+        let r = 70.0_f64;
+        let t2 = t * t;
+        let r2 = r * r;
+        let full_f = -42.379 + 2.04901523 * t + 10.14333127 * r
+            - 0.22475541 * t * r
+            - 0.00683783 * t2
+            - 0.05481717 * r2
+            + 0.00122874 * t2 * r
+            + 0.00085282 * t * r2
+            - 0.00000199 * t2 * r2;
+        let expected_full_c = (full_f - 32.0) * 5.0 / 9.0;
+        assert!(
+            approx(v_full_c, expected_full_c, 1e-4),
+            "full Rothfusz HI_C: got {v_full_c}, expected {expected_full_c}"
+        );
+    }
+
+    #[test]
+    fn heat_health_risk_v2_classes_at_documented_thresholds() {
+        // <27°C HI → 0 safe; <32 → 1; <41 → 2; <54 → 3; ≥54 → 4
+        let mut s = std::collections::HashMap::new();
+
+        // mild day: T=20°C, RH=50% → simple-branch HI_C well under 27.
+        s.insert("weather.temperature_2m".to_string(), 20.0);
+        s.insert("weather.relative_humidity_2m".to_string(), 50.0);
+        let v_safe = DEFAULT.evaluate("heat_health_risk@2", &s).unwrap().unwrap();
+        assert_eq!(v_safe, 0.0, "mild day must classify as safe (0)");
+
+        // hot humid: pushes into full-Rothfusz; T=35°C, RH=80% gives HI ~ 60°C → 4 (extreme_danger).
+        s.insert("weather.temperature_2m".to_string(), 35.0);
+        s.insert("weather.relative_humidity_2m".to_string(), 80.0);
+        let v_danger = DEFAULT.evaluate("heat_health_risk@2", &s).unwrap().unwrap();
+        assert!(
+            v_danger == 4.0,
+            "T=35°C RH=80% should classify as extreme_danger (4), got {v_danger}"
+        );
+
+        // moderate: T=30°C, RH=60% → HI ~ 33°C → caution(1) or extreme_caution(2)
+        s.insert("weather.temperature_2m".to_string(), 30.0);
+        s.insert("weather.relative_humidity_2m".to_string(), 60.0);
+        let v_mod = DEFAULT.evaluate("heat_health_risk@2", &s).unwrap().unwrap();
+        assert!(
+            (1.0..=2.0).contains(&v_mod),
+            "moderate day class should be 1 or 2, got {v_mod}"
+        );
+    }
+
+    #[test]
+    fn sdg_water_extent_anomaly_classes_increase_stable_decrease() {
+        // Increase: p_now strongly positive vs ~zero history.
+        let mut s = std::collections::HashMap::new();
+        s.insert("surface_water.recurrence".to_string(), 5.0);
+        s.insert("indices.mndwi".to_string(), 0.8);
+        s.insert("sentinel1_raw".to_string(), -25.0);
+        let v_inc = DEFAULT
+            .evaluate("sdg.6_6_1.water_extent_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            v_inc, 2.0,
+            "strong inundation should classify as increase (2)"
+        );
+
+        // Decrease: history wet (recurrence=80), now dry.
+        s.insert("surface_water.recurrence".to_string(), 80.0);
+        s.insert("indices.mndwi".to_string(), -0.5);
+        s.insert("sentinel1_raw".to_string(), 0.0);
+        let v_dec = DEFAULT
+            .evaluate("sdg.6_6_1.water_extent_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_dec, 0.0, "drying lake should classify as decrease (0)");
+
+        // Stable: history matches current.
+        s.insert("surface_water.recurrence".to_string(), 50.0);
+        s.insert("indices.mndwi".to_string(), 0.0);
+        s.insert("sentinel1_raw".to_string(), -14.5);
+        let v_stab = DEFAULT
+            .evaluate("sdg.6_6_1.water_extent_anomaly@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            v_stab, 1.0,
+            "matched history/current should classify as stable (1)"
         );
     }
 }
