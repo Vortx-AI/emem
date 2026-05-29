@@ -925,7 +925,9 @@ fn decode_edge_spo_key_anypred(key: &[u8], anchor: &str) -> Option<(String, u64,
     let after_anchor = key.get(anchor.len() + 1..)?;
     // Find the predicate terminator (first NUL).
     let pred_end = after_anchor.iter().position(|b| *b == 0u8)?;
-    let pred = std::str::from_utf8(&after_anchor[..pred_end]).ok()?.to_string();
+    let pred = std::str::from_utf8(&after_anchor[..pred_end])
+        .ok()?
+        .to_string();
     let rest = after_anchor.get(pred_end + 1..)?;
     if rest.len() < 9 || rest[8] != 0u8 {
         return None;
@@ -1703,7 +1705,10 @@ mod edge_tests {
         let e = mk_edge("subj-a", "replaced_by", "obj-b", 10, None);
         // CID stable across two encodings.
         assert_eq!(e.cid(), e.cid());
-        let cids = storage.add_edges(&[e.clone()]).await.expect("add");
+        let cids = storage
+            .add_edges(std::slice::from_ref(&e))
+            .await
+            .expect("add");
         assert_eq!(cids.len(), 1);
         assert_eq!(cids[0], e.cid());
         assert!(storage.has_edge(&e.cid()).await.unwrap());
@@ -1782,8 +1787,8 @@ mod edge_tests {
     async fn add_edges_is_idempotent() {
         let storage = ephemeral();
         let e = mk_edge("subj-a", "rel", "obj-z", 1, None);
-        storage.add_edges(&[e.clone()]).await.unwrap();
-        storage.add_edges(&[e.clone()]).await.unwrap();
+        storage.add_edges(std::slice::from_ref(&e)).await.unwrap();
+        storage.add_edges(std::slice::from_ref(&e)).await.unwrap();
         let spo = storage
             .hot
             .as_ref()
@@ -1809,7 +1814,10 @@ mod edge_tests {
         assert!(back.edges.is_empty());
         // verify_attestation passes (root + signature unchanged) for both
         // the original and the round-tripped envelope.
-        storage.put_attestation(&att).await.expect("legacy verifies");
+        storage
+            .put_attestation(&att)
+            .await
+            .expect("legacy verifies");
         verify_attestation(&back).expect("round-tripped legacy verifies");
     }
 

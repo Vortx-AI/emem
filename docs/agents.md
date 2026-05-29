@@ -54,6 +54,27 @@ one parseable string an agent drops into any context, resolves to the
 same signed bytes on any replica forever (`memt:<cell64>:<fact_cid>`).
 Wiring is the wire; these are what flows on it.
 
+## First 5 minutes
+
+From zero to a signed, cite-able answer in three calls:
+
+1. **Ask in plain language.** `POST /v1/ask {"question":"what is the
+   NDVI near Mount Fuji?"}` (MCP tool `emem_ask`). The classifier routes
+   it to the right primitive and returns the answer with a signed
+   receipt. `POST /v1/intent` (`emem_intent`) is the structured
+   equivalent. This single call is the fastest path — use it first.
+2. **Want control instead?** `POST /v1/locate {"place":"Mount Fuji"}`
+   → `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` for the signed
+   facts (it auto-materialises on a miss, so any cell on Earth answers).
+3. **Cite it.** Every response carries a `receipt`. Verify it offline at
+   `/verify` or with `POST /v1/verify_receipt` — `{valid: true,
+   signer_pubkey_b32}` makes the answer portable across sessions and
+   audits. To hand a fact to another agent, compose a token with
+   `emem_memory_token` (`memt:<cell64>:<fact_cid>`) or
+   `emem_memory_bundle` (`memb:<bundle_cid>`) for several.
+
+That is the whole loop. Everything below is depth on each step.
+
 The endpoints map cleanly onto the vocabulary other agent-memory libraries
 use; if you arrive from mem0, Letta, LangGraph, or a custom retrieval
 stack, the mapping below is the rosetta-stone:
@@ -86,8 +107,31 @@ stack, the mapping below is the rosetta-stone:
 | list memory files by kind       | `memory_list_by_kind`| MCP tool                          |
 | semantic search over /memories/ | `memory_search`      | `POST /v1/memory/search`          |
 | detect attester disagreement    | `memory_contradictions` | `POST /v1/memory_contradictions` |
+| recall a fact's typed edges     | `edges_recall`       | `POST /v1/edges/recall`           |
+| write typed temporal edges      | (signed attestation) | `POST /v1/edges`                  |
+| attach a fact's edges to recall | `include:["edges"]`  | flag on `POST /v1/recall`         |
 | subscribe to memory writes      | `memory_sse`         | `GET /v1/memory/sse`              |
 | bi-temporal recall              | `as_of_tslot`, `as_of_signed_at` | flags on every read primitive |
+
+**The connectivity layer (v0.0.9) — connect & evolve.** A pile of facts
+is not yet a memory; a memory *connects* things and *gets better* as it
+learns. Two abilities sit on top of the fact store:
+
+- **Connect** — typed, time-bounded edges. `EdgeFact(subj, pred, obj,
+  valid_from, valid_to)` links two fact CIDs with a relation
+  (`disagrees_with`, `supersedes`, `observed_at`). Read them with
+  `emem_edges_recall` (bi-temporal: `as_of_tslot` keeps the newest edge
+  per object, older ones shadowed not deleted). Or add
+  `include:["edges"]` to a `/v1/recall` and a fact's edges ride back in
+  the same call, their CIDs threaded into the receipt signature.
+- **Evolve** — the opt-in refinement loop (`EMEM_REFINEMENT_ENABLED`).
+  When `memory_contradictions` finds two attesters signing disagreeing
+  values at the same `(cell, band, tslot)`, a scheduled pass records a
+  signed `disagrees_with` edge between the disputed CIDs and a
+  non-destructive `emem.fact_contested` marker. Originals are never
+  deleted, so an audit can replay exactly when a disagreement was
+  recorded and whether a later observation resolved it. End-to-end curl
+  walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 80+ paths under

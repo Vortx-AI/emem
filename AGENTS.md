@@ -7,6 +7,28 @@ and what's off-limits during autonomous runs. End users of the protocol
 should read [docs/agents.md](docs/agents.md) and [skills.md](web/skills.md)
 instead — those describe how to *use* emem from an agent.
 
+## First 5 minutes (using emem as an agent)
+
+If you only want to *call* emem (not edit its source), here is zero to a
+signed answer in three calls:
+
+1. **Ask.** `POST /v1/ask {"question":"what is the NDVI near Mount Fuji?"}`
+   (MCP tool `emem_ask`, or `emem_intent` / `POST /v1/intent` for a
+   structured single-shot). The classifier picks the primitive and
+   returns a signed receipt — this is the fastest path.
+2. **Or take control.** `POST /v1/locate {"place":"Mount Fuji"}` → a
+   `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` (auto-materialises
+   on a miss).
+3. **Cite it.** Verify the receipt offline at `/verify` or via
+   `POST /v1/verify_receipt`; hand other agents a `memt:` token from
+   `emem_memory_token` (or `emem_memory_bundle` for several).
+
+Newer "connect & evolve" surfaces (typed temporal edges, the
+contradiction-fed refinement loop) are walked end-to-end in
+[examples/connect-and-evolve.md](examples/connect-and-evolve.md). Full
+usage guide: [docs/agents.md](docs/agents.md). The rest of *this* file is
+for agents editing the source.
+
 ## Repo shape
 
 Rust workspace, 14 crates, version 0.0.8, MSRV 1.91. The bulk of the code

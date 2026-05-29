@@ -5322,6 +5322,29 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
         "purpose": "Agent-native, content-addressed memory of every place on Earth. Cite-able answers about places, signed receipts, token-economical addressing.",
+        // Read this FIRST. The fastest path from zero to a signed answer.
+        // `discover_first` below builds the full mental model; this block
+        // is the 3-call shortcut a fresh agent should try before anything
+        // else. Keep it machine-readable and small on purpose.
+        "getting_started": {
+            "tldr": "One question → one signed answer: POST /v1/ask (free text) or POST /v1/intent (structured). Want control? locate → recall → verify_receipt.",
+            "fastest_path": {
+                "one_shot": {
+                    "rest": "POST /v1/ask  {\"question\":\"what is the NDVI near Mount Fuji?\"}",
+                    "mcp_tool": "emem_ask",
+                    "also": "POST /v1/intent {\"intent\":\"...\"} (emem_intent) for a structured single-shot plan+answer",
+                    "why": "The classifier routes the question to recall / compare / diff / hunt and returns a signed receipt — no need to pick a primitive yourself."
+                },
+                "controlled_path": [
+                    { "n": 1, "rest": "POST /v1/locate {\"place\":\"Mount Fuji\"}", "mcp_tool": "emem_locate", "gives": "cell64 + neighborhood_cells" },
+                    { "n": 2, "rest": "POST /v1/recall {\"cell\":\"<cell64>\"}", "mcp_tool": "emem_recall", "gives": "signed facts + receipt (auto-materializes on a miss)" },
+                    { "n": 3, "rest": "POST /v1/verify_receipt {\"receipt\":{…}}", "mcp_tool": "emem_verify_receipt", "gives": "{valid, signer_pubkey_b32} — the answer is now cite-able" }
+                ]
+            },
+            "first_call": "emem_ask",
+            "to_cite_a_fact": "Hand another agent / audit a `memt:` token from emem_memory_token (cell + fact_cid), or emem_memory_bundle for many; anyone verifies it offline at /verify or via emem_verify_receipt.",
+            "full_mental_model": "Then walk `discover_first` (bands → materializers → algorithms → coverage_matrix → manifests)."
+        },
         "trigger_phrases": [
             "what is at <place>",
             "tell me about this cell",
@@ -5453,6 +5476,10 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "state_diff":       "/v1/state_diff",
             "memory_token":     "/v1/memory_token",
             "memory_token_resolve": "/v1/memory_token/resolve",
+            "memory_contradictions": "/v1/memory_contradictions",
+            "edges":            "/v1/edges",
+            "edges_recall":     "/v1/edges/recall",
+            "verify_receipt":   "/v1/verify_receipt",
             "stream":           "/v1/stream",
             "corpus_state_stats":"/v1/corpus_state_stats",
             "benchmark":        "/v1/benchmark",
@@ -5559,6 +5586,38 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "gateway_timeout_secs":      timeout_seconds(),
             "materializer_timeout_secs": materializer_timeout_secs(),
             "client_timeout_advice":     "Set your HTTP client read timeout to gateway_timeout_secs + 5 s. /v1/ask on a cold cell can fan out 8–24 parallel materialisations whose worst-case is bounded by materializer_timeout_secs; /v1/recall and /v1/locate complete in <2 s when warm. If you need a hard upper bound, request `cell` + a single concrete `band` to skip the temporal_recipe expansion.",
+        },
+        // How to make an answer portable across sessions, agents, and
+        // audits. A fact CID is content-addressed and a receipt is signed,
+        // so a citation verifies offline against the responder pubkey —
+        // no need to re-fetch or trust the relaying agent.
+        "cite_this_fact": {
+            "single_fact": "emem_memory_token (REST POST /v1/memory_token) → `memt:<cell64>:<fact_cid>`. Hand that string to another agent / log it in an audit.",
+            "many_facts":  "emem_memory_bundle (REST POST /v1/memory_bundle) → `memb:<bundle_cid>`. One signed handle citing N (cell, band, vintage) facts.",
+            "resolve":     "emem_memory_token_resolve / emem_memory_bundle_resolve dereference the handle back to the signed body on any responder that holds it.",
+            "verify_offline": "Paste the receipt at /verify (in-browser ed25519, no server trust) or call emem_verify_receipt (POST /v1/verify_receipt) for a server-side check. Either way the responder pubkey is the validator."
+        },
+        // The connectivity layer (v0.0.9): facts can LINK to each other
+        // through typed, time-bounded edges, and the corpus can EVOLVE by
+        // turning multi-attester disagreement into recorded edges + a
+        // non-destructive contested marker. Both are append-only and
+        // signed — a memory that improves never costs you the audit trail.
+        "connect_and_evolve": {
+            "edges": {
+                "what":   "EdgeFact(subj, pred, obj, valid_from, valid_to) — a signed, bi-temporal link between two fact CIDs (e.g. disagrees_with, supersedes, observed_at).",
+                "recall": "emem_edges_recall (POST /v1/edges/recall): the typed connections of a fact as of a point in time. Pass as_of_tslot so supersession keeps the newest edge per object.",
+                "write":  "POST /v1/edges: a signed Attestation whose edges[] fold into the merkle root.",
+                "attach": "Add include:[\"edges\"] to /v1/recall to ride a fact's edges back in the same call (CIDs thread into the receipt signature)."
+            },
+            "contradictions": {
+                "scan": "emem_memory_contradictions (GET/POST /v1/memory_contradictions): where two+ attesters signed disagreeing values at the same (cell, band, tslot), with a per-band-kind severity score — instead of silently picking one."
+            },
+            "refinement_loop": {
+                "opt_in_env": "EMEM_REFINEMENT_ENABLED",
+                "what":       "A scheduled, non-destructive pass that turns scored contradictions into signed `disagrees_with` edges between the disputed fact CIDs and a `emem.fact_contested` marker on the contested fact. Originals are never deleted.",
+                "see":        "POST /v1/edges/recall on a disputed subject CID to read the emitted edge once the pass has run."
+            },
+            "walkthrough": "examples/connect-and-evolve.md"
         },
         "tools": descriptors,
     }))
