@@ -10803,9 +10803,19 @@ struct VerifyReceiptReq {
     /// responder's receipt without trusting this server.
     #[serde(default)]
     pubkey_b32: Option<String>,
+    /// Optional currently-declared responder key epoch (from the
+    /// `/v1/manifests` endpoint of the responder you trust). When set,
+    /// the verifier surfaces a `key_epoch_advisory` string comparing the
+    /// receipt's `responder_key_epoch` against this value. The verifier
+    /// never rejects on epoch mismatch — the signal is advisory and lets
+    /// the caller decide what to do with a receipt signed under a
+    /// rotated-out key. Audit finding F5.
+    #[serde(default)]
+    current_responder_epoch: Option<u32>,
 }
 
 async fn post_verify_receipt(
+    State(s): State<AppState>,
     body: Result<Json<VerifyReceiptReq>, axum::extract::rejection::JsonRejection>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Friendly typed 400 instead of raw axum/serde rejection. The
@@ -10880,10 +10890,14 @@ async fn post_verify_receipt(
 
     // v0.0.8 — receipts that carry a non-empty `scope` block use an
     // extended preimage rule with the scope_blake3_hex segment inserted
-    // between `served_at` and `primitive`. Receipts without a scope
-    // field (every pre-v0.0.8 receipt + every v0.0.8 receipt where the
-    // caller passed no scope) use the legacy rule byte-for-byte.
+    // between `served_at` and `primitive`. v0.0.9 (audit F2) adds an
+    // `as_of_blake3_hex` segment after `[scope_blake3_hex|]` when the
+    // receipt carries a non-unbounded `as_of`. Receipts without either
+    // optional field (every pre-v0.0.8 receipt + every receipt where
+    // the caller passed no scope and no as_of) use the legacy rule
+    // byte-for-byte so old signers continue to verify.
     let scope_present = r.scope.as_ref().is_some_and(|s| !s.is_empty());
+    let as_of_present = r.as_of.as_ref().is_some_and(|a| !a.is_unbounded());
 
     let mut h = blake3::Hasher::new();
     h.update(r.request_id.as_bytes());
@@ -10893,6 +10907,11 @@ async fn post_verify_receipt(
     if scope_present {
         let scope_hex = r.scope.as_ref().expect("scope_present").blake3_hex();
         h.update(scope_hex.as_bytes());
+        h.update(b"|");
+    }
+    if as_of_present {
+        let as_of_hex = r.as_of.as_ref().expect("as_of_present").blake3_hex();
+        h.update(as_of_hex.as_bytes());
         h.update(b"|");
     }
     h.update(r.primitive.as_bytes());
@@ -10921,6 +10940,85 @@ async fn post_verify_receipt(
     let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
     let valid = pk.verify_strict(msg.as_bytes(), &sig).is_ok();
 
+    // ── F4: re-walk the merkle path the storage layer recorded for
+    // `fact_cids[0]` and confirm it terminates at the declared root.
+    // Leaf-hash convention follows `crates/emem-storage/src/lib.rs`
+    // `persist_fact_proofs` exactly: `blake3(canonical_cbor(Fact))`,
+    // then promoted via `self_hashed_layer` (blake3(leaf || leaf))
+    // before the path walk — see `crates/emem-attest/src/lib.rs`.
+    // The verifier still returns 200 on a mismatch and surfaces
+    // `merkle_proof_valid: false` so a downstream auditor can drop the
+    // receipt; on storage-side absence we surface
+    // `merkle_proof_error` and leave `merkle_proof_valid` unset (null).
+    let (merkle_proof_valid, merkle_proof_error): (Option<bool>, Option<String>) = match (
+        &r.merkle_proof,
+        r.fact_cids.first(),
+    ) {
+        (None, _) | (_, None) => (None, None),
+        (Some(proof), Some(first_cid)) => {
+            match s.storage.get_facts_many(std::slice::from_ref(first_cid)).await {
+                    Err(e) => (
+                        None,
+                        Some(format!("storage lookup failed: {e}")),
+                    ),
+                    Ok(facts) => match facts.into_iter().next().flatten() {
+                        None => (
+                            None,
+                            Some(format!(
+                                "fact {} not found locally; cannot recompute leaf hash for offline merkle re-walk",
+                                first_cid.as_str()
+                            )),
+                        ),
+                        Some(fact) => {
+                            let mut buf = Vec::new();
+                            if let Err(e) = ciborium::ser::into_writer(&fact, &mut buf) {
+                                (None, Some(format!("fact cbor encode failed: {e}")))
+                            } else {
+                                let mut leaf = [0u8; 32];
+                                leaf.copy_from_slice(blake3::hash(&buf).as_bytes());
+                                // Promote leaf through the self-hashed
+                                // layer the storage tree used before the
+                                // path walk — `emem-attest::self_hashed_layer`
+                                // applies `blake3(leaf || leaf)`.
+                                let promoted = {
+                                    let mut hh = blake3::Hasher::new();
+                                    hh.update(&leaf);
+                                    hh.update(&leaf);
+                                    let mut out = [0u8; 32];
+                                    out.copy_from_slice(hh.finalize().as_bytes());
+                                    out
+                                };
+                                let ok = emem_attest::verify_merkle_path(
+                                    &promoted,
+                                    proof.leaf_index as usize,
+                                    &proof.path,
+                                    &proof.root,
+                                );
+                                (Some(ok), None)
+                            }
+                        }
+                    },
+                }
+        }
+    };
+
+    // ── F5: surface the receipt's responder_key_epoch and an advisory
+    // string when the caller passed a `current_responder_epoch`.
+    // Honest-by-construction: the verifier never rejects on epoch
+    // mismatch — the signal is advisory and lets the caller decide
+    // whether to drop a receipt signed under a rotated-out key.
+    let key_epoch_seen: u32 = r.responder_key_epoch.0;
+    let key_epoch_advisory: Option<String> =
+        req.current_responder_epoch.map(|current| match key_epoch_seen.cmp(&current) {
+            std::cmp::Ordering::Equal => "current".to_string(),
+            std::cmp::Ordering::Less => format!(
+                "stale: receipt under key_epoch {key_epoch_seen}, current is {current}"
+            ),
+            std::cmp::Ordering::Greater => format!(
+                "future: receipt from key_epoch {key_epoch_seen} (later than current {current}) — clock skew or partial rollout"
+            ),
+        });
+
     Ok(Json(json!({
         "valid": valid,
         "signer_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&pk_bytes).to_lowercase(),
@@ -10929,6 +11027,11 @@ async fn post_verify_receipt(
         "served_at": r.served_at,
         "fact_cids_count": r.fact_cids.len(),
         "scope_bound": scope_present,
+        "as_of_bound": as_of_present,
+        "merkle_proof_valid": merkle_proof_valid,
+        "merkle_proof_error": merkle_proof_error,
+        "key_epoch_seen": key_epoch_seen,
+        "key_epoch_advisory": key_epoch_advisory,
     })))
 }
 
@@ -12790,7 +12893,7 @@ async fn mcp_tool_call(
         "emem_verify_receipt" => {
             let req: VerifyReceiptReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_verify_receipt(Ok(Json(req))).await {
+            match post_verify_receipt(State(s.clone()), Ok(Json(req))).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -42487,8 +42590,9 @@ mod tests {
         let req = VerifyReceiptReq {
             receipt,
             pubkey_b32: None,
+            current_responder_epoch: None,
         };
-        let v = post_verify_receipt(Ok(Json(req)))
+        let v = post_verify_receipt(State(s.clone()), Ok(Json(req)))
             .await
             .map_err(|e| format!("verify ok: {} {}", e.0, e.1.message))
             .unwrap();
@@ -43028,8 +43132,9 @@ mod tests {
         let vreq = VerifyReceiptReq {
             receipt: bundle.receipt.clone(),
             pubkey_b32: None,
+            current_responder_epoch: None,
         };
-        let v = post_verify_receipt(Ok(Json(vreq)))
+        let v = post_verify_receipt(State(s.clone()), Ok(Json(vreq)))
             .await
             .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
             .unwrap();
@@ -43203,10 +43308,14 @@ mod tests {
 
         // Round-trip through /v1/verify_receipt — the public offline
         // verifier path. Must return valid:true and primitive echo.
-        let v = post_verify_receipt(Ok(Json(VerifyReceiptReq {
-            receipt,
-            pubkey_b32: None,
-        })))
+        let v = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt,
+                pubkey_b32: None,
+                current_responder_epoch: None,
+            })),
+        )
         .await
         .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
         .unwrap();
@@ -43267,10 +43376,14 @@ mod tests {
 
         // verify_receipt must accept the scoped receipt and report
         // scope_bound=true so an agent can branch on it.
-        let v = post_verify_receipt(Ok(Json(VerifyReceiptReq {
-            receipt,
-            pubkey_b32: None,
-        })))
+        let v = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt,
+                pubkey_b32: None,
+                current_responder_epoch: None,
+            })),
+        )
         .await
         .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
         .unwrap();
@@ -43379,10 +43492,14 @@ mod tests {
         let receipt_json = body.get("receipt").cloned().expect("receipt present");
         let receipt: emem_fact::Receipt =
             serde_json::from_value(receipt_json).expect("receipt deserialises");
-        let v = post_verify_receipt(Ok(Json(VerifyReceiptReq {
-            receipt,
-            pubkey_b32: None,
-        })))
+        let v = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt,
+                pubkey_b32: None,
+                current_responder_epoch: None,
+            })),
+        )
         .await
         .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
         .unwrap();

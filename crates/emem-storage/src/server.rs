@@ -306,11 +306,24 @@ impl Server {
     }
 
     /// Composed signer that honours both `scope` (v0.0.8) and `bound`
-    /// (bi-temporal valid/transaction time). The preimage branches on
-    /// `scope` exactly as [`Server::sign_receipt_with_scope`]; the
-    /// `as_of` block is attached to the receipt body after signing —
-    /// it does not enter the signed bytes, matching the bi-temporal
-    /// design that already shipped.
+    /// (bi-temporal valid/transaction time). The preimage rule extends
+    /// the v0.0.8 scope rule with an `as_of_blake3_hex|` segment when
+    /// the bound is non-unbounded:
+    ///
+    /// ```text
+    /// <request_id>|<served_at>|[scope_blake3_hex|][as_of_blake3_hex|]<primitive>|<cells>,|<fact_cids>,
+    /// ```
+    ///
+    /// Both optional segments are independent: the scope segment is
+    /// emitted when `scope` is non-empty; the `as_of` segment is
+    /// emitted when `bound` is non-unbounded. When both are absent the
+    /// preimage is byte-identical to the legacy `sign_receipt` rule and
+    /// every pre-v0.0.8 receipt continues to verify.
+    ///
+    /// Until this commit (audit finding F2), the `as_of` field was
+    /// attached to the receipt body AFTER signing, so a malicious
+    /// responder could claim it honoured a bound it ignored and the
+    /// verifier would pass. The bound now enters the signed bytes.
     ///
     /// Existing call sites that only care about one axis call
     /// [`Server::sign_receipt_with_as_of`] (no scope) or
@@ -328,16 +341,93 @@ impl Server {
         scope: Option<emem_fact::Scope>,
         bound: &AsOfBound,
     ) -> Receipt {
-        let mut receipt = self.sign_receipt_with_scope(
-            primitive, cells, fact_cids, was_cached, started, intent, scope,
-        );
-        if !bound.is_unbounded() {
-            receipt.as_of = Some(AsOfReceipt {
-                valid_time: bound.valid_time,
-                transaction_time: bound.transaction_time.clone(),
-            });
+        // Honour the legacy preimage when neither axis applies — keeps
+        // every pre-v0.0.8 receipt verifiable byte-for-byte.
+        let scope_present = scope.as_ref().is_some_and(|s| !s.is_empty());
+        let bound_present = !bound.is_unbounded();
+        if !scope_present && !bound_present {
+            return self.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent);
         }
-        receipt
+        // Scope-only path stays byte-identical to v0.0.8 sign_receipt_with_scope.
+        if scope_present && !bound_present {
+            return self.sign_receipt_with_scope(
+                primitive, cells, fact_cids, was_cached, started, intent, scope,
+            );
+        }
+
+        let request_id = ulid::Ulid::new().to_string();
+        let served_at = iso8601_now();
+        let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+
+        // Build the AsOfReceipt block first so its canonical-CBOR
+        // digest enters the preimage exactly as a verifier reconstructs
+        // it from the same struct in the receipt body.
+        let as_of = AsOfReceipt {
+            valid_time: bound.valid_time,
+            transaction_time: bound.transaction_time.clone(),
+        };
+        let as_of_hex = as_of.blake3_hex();
+        let scope_hex_opt = scope
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.blake3_hex());
+
+        let mut h = Hasher::new();
+        h.update(request_id.as_bytes());
+        h.update(b"|");
+        h.update(served_at.as_bytes());
+        h.update(b"|");
+        if let Some(ref sh) = scope_hex_opt {
+            h.update(sh.as_bytes());
+            h.update(b"|");
+        }
+        h.update(as_of_hex.as_bytes());
+        h.update(b"|");
+        h.update(primitive.as_bytes());
+        h.update(b"|");
+        for c in &cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        let msg = h.finalize();
+
+        let dalek_sig = self.identity.signing.sign(msg.as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
+
+        let merkle_proof = fact_cids
+            .first()
+            .and_then(|c| self.storage.proof_for_cid(c));
+
+        Receipt {
+            request_id,
+            served_at,
+            primitive: primitive.into(),
+            intent,
+            cells,
+            fact_cids,
+            schema_cid: self.manifests.schema_cid.clone(),
+            merkle_proof,
+            responder: self.identity.pubkey,
+            responder_key_epoch: self.identity.epoch,
+            signature: Signature(sig_bytes),
+            source_versions: BTreeMap::new(),
+            registry_cid: self.manifests.registry_cid.clone(),
+            cost: Cost {
+                credits: 0,
+                latency_p50_ms: elapsed_ms,
+                latency_p99_ms: elapsed_ms,
+                source_freshness_s: 0,
+                was_cached,
+            },
+            as_of: Some(as_of),
+            scope: scope.filter(|s| !s.is_empty()),
+        }
     }
 }
 

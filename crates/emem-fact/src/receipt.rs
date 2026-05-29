@@ -67,7 +67,7 @@ pub struct Receipt {
 /// receipt; an "unbounded" caller skips emitting the struct entirely so
 /// existing offline verifiers continue to round-trip pre-bi-temporal
 /// receipts byte-for-byte.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct AsOfReceipt {
     /// Valid-time bound — only facts with `tslot <= valid_time` were
     /// considered. `None` means valid-time was unconstrained.
@@ -78,6 +78,47 @@ pub struct AsOfReceipt {
     /// the request's `as_of_signed_at`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_time: Option<String>,
+}
+
+impl AsOfReceipt {
+    /// `true` when both bounds are `None`. Such an `AsOfReceipt` has no
+    /// information to bind, and the receipt-signing path drops the
+    /// `as_of` segment from the preimage — keeps every pre-v0.0.8
+    /// receipt verifiable byte-for-byte. Callers should pass `None`
+    /// rather than constructing one of these, but it's safe if they do.
+    pub fn is_unbounded(&self) -> bool {
+        self.valid_time.is_none() && self.transaction_time.is_none()
+    }
+
+    /// Canonical CBOR encoding. Deterministic for a given `AsOfReceipt`
+    /// regardless of platform — `ciborium` encodes maps in declaration
+    /// order via serde's field-visit sequence, and
+    /// `skip_serializing_if = "Option::is_none"` keeps absent fields
+    /// out of the byte stream. The byte stream is what the signer
+    /// hashes into the preimage and what an offline verifier rebuilds.
+    pub fn to_canonical_cbor(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(32);
+        // ciborium::into_writer is infallible for AsOfReceipt
+        // (Option<u64> + Option<String> fields only); ignore the result
+        // to keep the helper total.
+        let _ = ciborium::into_writer(self, &mut buf);
+        buf
+    }
+
+    /// 32-byte blake3 of [`AsOfReceipt::to_canonical_cbor`]. The
+    /// preimage segment a responder hashes into the signed bytes when
+    /// the receipt carries a non-unbounded `as_of`.
+    pub fn blake3_digest(&self) -> [u8; 32] {
+        let bytes = self.to_canonical_cbor();
+        *blake3::hash(&bytes).as_bytes()
+    }
+
+    /// Lowercase hex of [`AsOfReceipt::blake3_digest`]. The wire form
+    /// that gets concatenated into the preimage byte stream between
+    /// `[scope_blake3_hex|]` (if any) and `primitive`.
+    pub fn blake3_hex(&self) -> String {
+        data_encoding::HEXLOWER.encode(&self.blake3_digest())
+    }
 }
 
 /// Empirical cost+latency+freshness self-declared in every receipt.
@@ -105,4 +146,76 @@ pub struct MerkleProof {
     pub path: Vec<[u8; 32]>,
     /// The expected batch root.
     pub root: [u8; 32],
+}
+
+#[cfg(test)]
+mod as_of_receipt_tests {
+    use super::*;
+
+    #[test]
+    fn unbounded_default_is_unbounded() {
+        assert!(AsOfReceipt::default().is_unbounded());
+    }
+
+    #[test]
+    fn any_bound_makes_it_bound() {
+        let v = AsOfReceipt {
+            valid_time: Some(1_700_000_000),
+            transaction_time: None,
+        };
+        assert!(!v.is_unbounded());
+        let t = AsOfReceipt {
+            valid_time: None,
+            transaction_time: Some("2026-05-29T00:00:00Z".into()),
+        };
+        assert!(!t.is_unbounded());
+    }
+
+    #[test]
+    fn canonical_cbor_is_deterministic() {
+        let a = AsOfReceipt {
+            valid_time: Some(1_700_000_000),
+            transaction_time: Some("2026-05-29T00:00:00Z".into()),
+        };
+        assert_eq!(a.to_canonical_cbor(), a.to_canonical_cbor());
+    }
+
+    #[test]
+    fn digest_changes_when_valid_time_flips_one_bit() {
+        let a = AsOfReceipt {
+            valid_time: Some(1_700_000_000),
+            transaction_time: None,
+        };
+        let b = AsOfReceipt {
+            valid_time: Some(1_700_000_001),
+            transaction_time: None,
+        };
+        assert_ne!(a.blake3_digest(), b.blake3_digest());
+    }
+
+    #[test]
+    fn blake3_hex_is_64_lowercase_chars() {
+        let a = AsOfReceipt {
+            valid_time: Some(42),
+            transaction_time: None,
+        };
+        let h = a.blake3_hex();
+        assert_eq!(h.len(), 64);
+        assert!(h
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase())));
+    }
+
+    #[test]
+    fn transaction_time_only_differs_from_valid_time_only() {
+        let v = AsOfReceipt {
+            valid_time: Some(1_700_000_000),
+            transaction_time: None,
+        };
+        let t = AsOfReceipt {
+            valid_time: None,
+            transaction_time: Some("2026-05-29T00:00:00Z".into()),
+        };
+        assert_ne!(v.blake3_digest(), t.blake3_digest());
+    }
 }
