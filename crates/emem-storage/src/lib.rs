@@ -102,6 +102,34 @@ pub const TREE_EDGE_SPO: &str = "emem.edge_spo";
 /// forward index.
 pub const TREE_EDGE_OPS: &str = "emem.edge_ops";
 
+/// Sled tree mapping `fact_cid` (base32-nopad-lc) → canonical CBOR of a
+/// [`FactContestedRecord`]. Written by the contradiction-fed refinement
+/// loop when a fact loses a `disagrees_with` pairing: it marks the
+/// lower-confidence fact as contested. The fact BODY is never touched —
+/// this is a non-destructive overlay row keyed by the fact's CID, so a
+/// recall path can surface "this observation is contested by edge X"
+/// without re-signing or mutating the content-addressed fact. Idempotent
+/// overwrite-by-key. (v0.0.9 refinement loop.)
+pub const TREE_FACT_CONTESTED: &str = "emem.fact_contested";
+
+/// Non-destructive overlay record marking a content-addressed fact as
+/// contested by a refinement-loop `disagrees_with` edge. Stored in
+/// [`TREE_FACT_CONTESTED`] keyed by the fact's CID; the fact body is
+/// never mutated. (v0.0.9 refinement loop.)
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FactContestedRecord {
+    /// Edge CID (base32-nopad-lc) of the `disagrees_with` edge that
+    /// contested this fact.
+    pub by_edge: String,
+    /// Severity of the contradiction in `[0, 1]` that produced the edge.
+    pub severity: f32,
+    /// ISO 8601 wall-clock when the marker was written.
+    pub marked_at: String,
+    /// `true` when this fact is the LOWER-confidence side of the
+    /// disagreeing pair (the side the refinement loop down-weights).
+    pub lower_confidence: bool,
+}
+
 pub mod attesters;
 pub mod merkle_log;
 pub mod server;
@@ -370,6 +398,29 @@ pub trait Storage: Send + Sync {
     /// returns `false`.
     async fn has_edge(&self, _cid: &emem_fact::EdgeCid) -> Result<bool, StorageError> {
         Ok(false)
+    }
+
+    /// Mark a content-addressed fact as contested by a refinement-loop
+    /// `disagrees_with` edge. Writes a [`FactContestedRecord`] into
+    /// [`TREE_FACT_CONTESTED`] keyed by `fact_cid`. The fact body is NEVER
+    /// mutated — this is a non-destructive overlay row. Idempotent:
+    /// overwrite-by-key is fine. Default impl is a no-op so in-memory
+    /// mocks and ephemeral backends keep compiling. (v0.0.9.)
+    async fn mark_fact_contested(
+        &self,
+        _fact_cid: &FactCid,
+        _record: &FactContestedRecord,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    /// Read the contested overlay record for a fact, if any was ever
+    /// written. Default impl returns `None`.
+    async fn get_fact_contested(
+        &self,
+        _fact_cid: &FactCid,
+    ) -> Result<Option<FactContestedRecord>, StorageError> {
+        Ok(None)
     }
 }
 
@@ -696,6 +747,52 @@ impl Storage for MaterializingStorage {
         Ok(tree
             .contains_key(cid.as_str().as_bytes())
             .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?)
+    }
+
+    async fn mark_fact_contested(
+        &self,
+        fact_cid: &FactCid,
+        record: &FactContestedRecord,
+    ) -> Result<(), StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "mark_fact_contested requires a SledHotCache handle".into(),
+        })?;
+        let tree = hot
+            .db()
+            .open_tree(TREE_FACT_CONTESTED)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        let mut buf = Vec::with_capacity(128);
+        ciborium::into_writer(record, &mut buf)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        // Idempotent overwrite-by-key: the fact body is untouched; only
+        // this overlay row is (re)written.
+        tree.insert(fact_cid.as_str().as_bytes(), buf)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(())
+    }
+
+    async fn get_fact_contested(
+        &self,
+        fact_cid: &FactCid,
+    ) -> Result<Option<FactContestedRecord>, StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "get_fact_contested requires a SledHotCache handle".into(),
+        })?;
+        let tree = hot
+            .db()
+            .open_tree(TREE_FACT_CONTESTED)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        let Some(bytes) = tree
+            .get(fact_cid.as_str().as_bytes())
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
+        else {
+            return Ok(None);
+        };
+        let rec: FactContestedRecord = ciborium::de::from_reader(&*bytes)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(Some(rec))
     }
 }
 

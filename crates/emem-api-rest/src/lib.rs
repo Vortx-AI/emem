@@ -18075,6 +18075,30 @@ fn spawn_memory_background_tasks(state: AppState) {
             }
         });
     }
+    if emem_primitives::memory_consolidation::refinement_enabled() {
+        let st = state.clone();
+        let interval_s = emem_primitives::memory_consolidation::refinement_interval_secs();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(interval_s));
+            loop {
+                tick.tick().await;
+                match run_refinement_pass(&st).await {
+                    Ok((contradictions_seen, edges_emitted)) => tracing::info!(
+                        target: "emem::refinement",
+                        contradictions_seen,
+                        edges_emitted,
+                        interval_s,
+                        "refinement pass complete"
+                    ),
+                    Err(e) => tracing::warn!(
+                        target: "emem::refinement",
+                        error = %e.1.message,
+                        "refinement pass failed"
+                    ),
+                }
+            }
+        });
+    }
 }
 
 /// Run one pass of the TTL sweep. Returns `(scanned, expired)`.
@@ -18398,6 +18422,224 @@ pub(crate) async fn run_memory_consolidation_pass(
     }
 
     Ok((total_groups_consolidated, total_files_consolidated))
+}
+
+// ── Contradiction-fed refinement loop (v0.0.9) ──────────────────────
+//
+// The refinement pass turns the *signal* produced by
+// `memory_contradictions` into durable, signed graph structure: for each
+// flagrant `(cell, band, tslot)` disagreement it emits a
+// `disagrees_with` temporal edge between the two disputed fact CIDs and
+// marks the lower-confidence fact as contested. It NEVER mutates a
+// content-addressed fact body — the loop is purely additive (edges +
+// overlay marker rows), so re-running it converges to a fixed point.
+//
+// IDEMPOTENCY: `EdgeFact.signed_at` is wall-clock, so the full edge CID
+// is NOT stable across ticks. We therefore dedupe on the LOGICAL key
+// `(subj, pred, obj, valid_from)` by recalling existing `disagrees_with`
+// edges out of `subj` and skipping any pair whose `(obj, valid_from)`
+// already has an edge. A second run thus emits ZERO new edges.
+
+/// Run one pass of the contradiction-fed refinement loop. Returns
+/// `(contradictions_seen, edges_emitted)`.
+///
+/// Pair-selection rule (deterministic): the attestations of each
+/// contradiction are sorted ascending by `fact_cid` (base32
+/// lexicographic). We then pick the top-K disagreeing pairs by
+/// **confidence spread** — the pairing of the lowest-confidence and
+/// highest-confidence attestations, then the next-widest spread, and so
+/// on — where K = `refinement_max_pairs_per_contradiction()` (default
+/// 1 → the single widest-spread pair). Within a pair, `subj` is the
+/// lexicographically-smaller fact CID and `obj` the larger, so the edge
+/// orientation is itself deterministic and independent of confidence.
+///
+/// Dedupe rule: before emitting `(subj, "disagrees_with", obj,
+/// valid_from=tslot)` we `recall_edges(subj, "disagrees_with", None, …)`
+/// and skip if any returned edge already has `obj == obj && valid_from
+/// == tslot`. This is what makes a re-run a no-op despite the varying
+/// `signed_at`.
+pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), ApiError> {
+    use emem_fact::{EdgeFact, FactCid};
+
+    let min_severity = emem_primitives::memory_consolidation::refinement_min_severity();
+    let max_pairs = emem_primitives::memory_consolidation::refinement_max_pairs_per_contradiction();
+    let cell_prefix = emem_primitives::memory_consolidation::refinement_cell_prefix();
+
+    let req = ContradictionsReq {
+        cell_prefix,
+        band: None,
+        window_unix_s: None,
+        // A generous cap: we want to act on every flagrant contradiction
+        // in one pass. The contradictions primitive itself clamps to
+        // MAX_LIMIT (1000).
+        limit: Some(1000),
+        min_severity: Some(min_severity),
+    };
+    let resp = memory_contradictions(&req, s).await.map_err(ApiError::from)?;
+    let contradictions_seen = resp.contradictions.len();
+
+    let mut new_edges: Vec<EdgeFact> = Vec::new();
+    // Defer contested-marker writes until after the edge CIDs are known
+    // (by_edge references the new edge's CID string).
+    let mut contested_marks: Vec<(FactCid, emem_storage::FactContestedRecord)> = Vec::new();
+    let signed_at = emem_storage::server::iso8601_now();
+
+    for c in &resp.contradictions {
+        if c.attestations.len() < 2 || c.severity < min_severity {
+            continue;
+        }
+        // Deterministic order: ascending by fact_cid (base32 lexicographic).
+        let mut atts = c.attestations.clone();
+        atts.sort_by(|a, b| a.fact_cid.cmp(&b.fact_cid));
+
+        // Build the top-K pairs by confidence spread. We sort a copy by
+        // confidence and pair the extremes inward: (lowest, highest),
+        // (2nd-lowest, 2nd-highest), … This yields the widest spreads
+        // first. Ties in confidence fall back to fact_cid order (atts is
+        // already cid-sorted, so `by_conf`'s stable sort preserves it).
+        let mut by_conf: Vec<&emem_primitives::memory_contradictions::AttesterDisagreement> =
+            atts.iter().collect();
+        by_conf.sort_by(|a, b| {
+            a.confidence
+                .partial_cmp(&b.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.fact_cid.cmp(&b.fact_cid))
+        });
+
+        let n = by_conf.len();
+        // `n / 2` is the maximum number of disjoint extreme-inward pairs.
+        let k = if n < 2 { 0 } else { max_pairs.min(n / 2).max(1) };
+        for i in 0..k {
+            let lo = by_conf[i];
+            let hi = by_conf[n - 1 - i];
+            if lo.fact_cid == hi.fact_cid {
+                continue;
+            }
+            // Deterministic orientation: subj = smaller CID, obj = larger.
+            let (subj_att, obj_att) = if lo.fact_cid <= hi.fact_cid {
+                (lo, hi)
+            } else {
+                (hi, lo)
+            };
+            let subj = FactCid::new(&subj_att.fact_cid);
+            let obj = FactCid::new(&obj_att.fact_cid);
+
+            // Dedupe on the logical key (subj, "disagrees_with", obj,
+            // valid_from=tslot) — NOT the edge CID (signed_at varies).
+            let existing = s
+                .storage
+                .recall_edges(&subj, "disagrees_with", None, 4096)
+                .await
+                .map_err(ApiError::from)?;
+            let already = existing
+                .iter()
+                .any(|e| e.obj.as_str() == obj.as_str() && e.valid_from == c.tslot);
+            if already {
+                continue;
+            }
+            // Guard against emitting the same pair twice WITHIN this pass
+            // (a contradiction can't, but be defensive across the K loop).
+            if new_edges
+                .iter()
+                .any(|e| e.subj == subj && e.obj == obj && e.valid_from == c.tslot)
+            {
+                continue;
+            }
+
+            let edge = EdgeFact {
+                subj: subj.clone(),
+                pred: "disagrees_with".into(),
+                obj: obj.clone(),
+                valid_from: c.tslot,
+                valid_to: None,
+                confidence: c.severity,
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                schema_cid: None,
+                note: Some(format!(
+                    "severity={:.3} kind={} band={}",
+                    c.severity, c.kind, c.band
+                )),
+            };
+            let edge_cid = edge.cid().as_str().to_string();
+            new_edges.push(edge);
+
+            // Mark the LOWER-confidence fact of the pair as contested.
+            let lower_fact_cid = if lo.confidence <= hi.confidence {
+                &lo.fact_cid
+            } else {
+                &hi.fact_cid
+            };
+            contested_marks.push((
+                FactCid::new(lower_fact_cid),
+                emem_storage::FactContestedRecord {
+                    by_edge: edge_cid,
+                    severity: c.severity,
+                    marked_at: signed_at.clone(),
+                    lower_confidence: true,
+                },
+            ));
+        }
+    }
+
+    let edges_emitted = new_edges.len();
+    if edges_emitted == 0 {
+        // Nothing new — a converged pass. Still honest: zero edges.
+        return Ok((contradictions_seen, 0));
+    }
+
+    // Sign ONE attestation over the new edges (no facts) under the
+    // responder identity, folding the edge leaves into the merkle root
+    // exactly as `verify_attestation` reconstructs it (facts first, then
+    // edges, then SORTED). With zero facts the leaf set is just the edge
+    // digests.
+    let mut leaves: Vec<[u8; 32]> = new_edges.iter().map(|e| e.blake3_digest()).collect();
+    leaves.sort();
+    let batch_root = emem_attest::merkle_root(&leaves);
+    let mut h = blake3::Hasher::new();
+    h.update(&batch_root);
+    h.update(s.manifests.registry_cid.as_str().as_bytes());
+    h.update(s.manifests.schema_cid.as_str().as_bytes());
+    let signed_digest = h.finalize();
+    let sig = s.identity.signing.sign(signed_digest.as_bytes());
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes.copy_from_slice(&sig.to_bytes());
+    let att = Attestation {
+        facts: vec![],
+        edges: new_edges,
+        batch_root,
+        attester: s.identity.pubkey,
+        attester_key_epoch: KeyEpoch(s.identity.epoch.0),
+        registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signature: EmCoreSignature(sig_bytes),
+        attested_at: signed_at.clone(),
+    };
+    // put_attestation verifies the root + signature, then folds the
+    // edges into the merkle log and calls add_edges. Idempotent at the
+    // storage layer (an edge whose CID already lives in TREE_EDGES is a
+    // no-op), but the logical dedupe above already guarantees we never
+    // hand it a duplicate across ticks.
+    s.storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+
+    // Write the contested overlay rows (non-destructive; idempotent
+    // overwrite-by-key). Best-effort per row: a marker failure must not
+    // unwind the durable edge write.
+    for (fact_cid, record) in &contested_marks {
+        if let Err(e) = s.storage.mark_fact_contested(fact_cid, record).await {
+            tracing::warn!(
+                target: "emem::refinement",
+                error = %e,
+                fact_cid = %fact_cid.as_str(),
+                "mark_fact_contested failed (ignored)"
+            );
+        }
+    }
+
+    Ok((contradictions_seen, edges_emitted))
 }
 
 // ── Memory-file semantic search (BGE + Lance) ────────────────────────────
@@ -43977,5 +44219,208 @@ mod tests {
             Some(true),
             "future-epoch advisory must not reject the receipt's signature"
         );
+    }
+
+    // ── Contradiction-fed refinement loop (v0.0.9) ──────────────────
+
+    /// Seed ONE Primary NDVI fact at `(cell, "indices.ndvi", tslot)`
+    /// signed by an arbitrary attester `secret`, persisted through the
+    /// real `put_attestation` path so the multi-attester index is
+    /// populated. Returns the resulting fact CID string.
+    async fn seed_ndvi_fact(
+        s: &AppState,
+        cell: &str,
+        tslot: u64,
+        secret: [u8; 32],
+        ndvi: f64,
+        confidence: f32,
+        signed_at: &str,
+    ) -> String {
+        use ed25519_dalek::{Signer, SigningKey};
+        let signing = SigningKey::from_bytes(&secret);
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(signing.verifying_key().as_bytes());
+        let fact = Fact::Primary(PrimaryFact {
+            cell: cell.into(),
+            band: "indices.ndvi".into(),
+            tslot,
+            value: ciborium::Value::Float(ndvi),
+            unit: None,
+            confidence,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "test".into(),
+                id: format!("seed-{cell}-{tslot}-{ndvi}"),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new("sch"),
+            signer: emem_core::AttesterKey(pk),
+            signed_at: signed_at.into(),
+            served_via: None,
+        });
+        // Single-fact attestation: one leaf, trivially sorted.
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(&fact, &mut buf).unwrap();
+        let mut leaf = [0u8; 32];
+        leaf.copy_from_slice(blake3::hash(&buf).as_bytes());
+        let batch_root = emem_attest::merkle_root(&[leaf]);
+        let mut h = blake3::Hasher::new();
+        h.update(&batch_root);
+        h.update(b"reg");
+        h.update(b"sch");
+        let sig = signing.sign(h.finalize().as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&sig.to_bytes());
+        let att = Attestation {
+            facts: vec![fact],
+            edges: vec![],
+            batch_root,
+            attester: emem_core::AttesterKey(pk),
+            attester_key_epoch: KeyEpoch(0),
+            registry_cid: RegistryCid::new("reg"),
+            schema_cid: SchemaCid::new("sch"),
+            signature: EmCoreSignature(sig_bytes),
+            attested_at: signed_at.into(),
+        };
+        let cids = s.storage.put_attestation(&att).await.expect("seed put");
+        cids[0].as_str().to_string()
+    }
+
+    /// Two attesters disagree on NDVI at the same key; one refinement
+    /// pass emits exactly ONE `disagrees_with` edge with
+    /// `valid_from == tslot`, `confidence == severity`, and marks the
+    /// lower-confidence fact as contested.
+    #[tokio::test]
+    async fn contradiction_emits_edge() {
+        let s = test_app_state();
+        let cell = "damO.zb000.xUti.zde78";
+        let tslot = 12u64;
+        // NDVI range is [-1, 1] (range 2.0). spread = 1.1 → severity
+        // 0.55 ≥ the 0.5 default refinement floor.
+        let cid_hi = seed_ndvi_fact(
+            &s,
+            cell,
+            tslot,
+            [1u8; 32],
+            0.9,
+            1.0, // higher confidence
+            "2026-05-01T12:00:00Z",
+        )
+        .await;
+        let cid_lo = seed_ndvi_fact(
+            &s,
+            cell,
+            tslot,
+            [2u8; 32],
+            -0.2,
+            0.4, // LOWER confidence → the contested side
+            "2026-05-02T12:00:00Z",
+        )
+        .await;
+
+        let (seen, emitted) = run_refinement_pass(&s).await.expect("refinement pass");
+        assert_eq!(seen, 1, "exactly one contradiction observed");
+        assert_eq!(emitted, 1, "exactly one disagrees_with edge emitted");
+
+        // The edge lives under the smaller fact CID (deterministic
+        // orientation). Recall across both candidate subjects.
+        use emem_fact::FactCid;
+        let mut found = Vec::new();
+        for subj in [&cid_hi, &cid_lo] {
+            let edges = s
+                .storage
+                .recall_edges(&FactCid::new(subj), "disagrees_with", None, 100)
+                .await
+                .unwrap();
+            found.extend(edges);
+        }
+        assert_eq!(found.len(), 1, "one disagrees_with edge total");
+        let edge = &found[0];
+        assert_eq!(edge.valid_from, tslot, "valid_from == contradiction tslot");
+        assert!(
+            (edge.confidence - 0.55).abs() < 0.02,
+            "edge confidence == severity (~0.55); got {}",
+            edge.confidence
+        );
+        // subj/obj are the two seeded CIDs, oriented by lexicographic order.
+        let (exp_subj, exp_obj) = if cid_hi <= cid_lo {
+            (&cid_hi, &cid_lo)
+        } else {
+            (&cid_lo, &cid_hi)
+        };
+        assert_eq!(edge.subj.as_str(), exp_subj.as_str());
+        assert_eq!(edge.obj.as_str(), exp_obj.as_str());
+
+        // The LOWER-confidence fact (cid_lo, confidence 0.4) is contested.
+        let mark = s
+            .storage
+            .get_fact_contested(&FactCid::new(&cid_lo))
+            .await
+            .unwrap()
+            .expect("lower-confidence fact must be marked contested");
+        assert!(mark.lower_confidence);
+        assert_eq!(mark.by_edge, edge.cid().as_str());
+        assert!((mark.severity - 0.55).abs() < 0.02);
+        // The higher-confidence fact is NOT contested.
+        assert!(
+            s.storage
+                .get_fact_contested(&FactCid::new(&cid_hi))
+                .await
+                .unwrap()
+                .is_none(),
+            "higher-confidence fact must not be marked contested"
+        );
+    }
+
+    /// KEY TEST: re-running the pass emits ZERO new edges. Proves the
+    /// `(subj, pred, obj, valid_from)` logical dedupe works despite the
+    /// wall-clock `signed_at` making the full edge CID vary tick-to-tick.
+    #[tokio::test]
+    async fn refinement_idempotent() {
+        let s = test_app_state();
+        let cell = "alfa.zb000.aaaa.aaaa";
+        let tslot = 7u64;
+        seed_ndvi_fact(&s, cell, tslot, [3u8; 32], 0.95, 1.0, "2026-05-01T12:00:00Z").await;
+        seed_ndvi_fact(&s, cell, tslot, [4u8; 32], -0.3, 0.8, "2026-05-02T12:00:00Z").await;
+
+        let (_seen1, emitted1) = run_refinement_pass(&s).await.expect("pass 1");
+        assert_eq!(emitted1, 1, "first pass emits one edge");
+
+        // Count edges in the SPO tree after pass 1.
+        let db = s.storage.hot_sled_db().expect("sled db");
+        let spo = db.open_tree(emem_storage::TREE_EDGE_SPO).unwrap();
+        let count_after_1 = spo.len();
+        assert_eq!(count_after_1, 1, "one SPO row after pass 1");
+
+        let (_seen2, emitted2) = run_refinement_pass(&s).await.expect("pass 2");
+        assert_eq!(emitted2, 0, "second pass emits ZERO new edges (converged)");
+        let count_after_2 = spo.len();
+        assert_eq!(
+            count_after_2, count_after_1,
+            "edge count unchanged on re-run despite varying signed_at"
+        );
+    }
+
+    /// With the env unset, `refinement_enabled()` is false so the
+    /// scheduler block is skipped.
+    #[test]
+    fn refinement_disabled_by_default() {
+        // The test harness does not set EMEM_REFINEMENT_ENABLED. Guard
+        // against a stray value from another process by asserting the
+        // helper's contract for the unset case explicitly.
+        if std::env::var("EMEM_REFINEMENT_ENABLED").is_err() {
+            assert!(
+                !emem_primitives::memory_consolidation::refinement_enabled(),
+                "refinement must be OFF by default"
+            );
+        }
     }
 }
