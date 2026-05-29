@@ -4908,11 +4908,11 @@ fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) 
         "when_to_use":   a.when_to_use,
         "fetch_url":     format!("/v1/algorithms/{}", a.key),
         // 2026-05-29 audit honesty: agents must know which algorithms
-        // have a runtime evaluator and which are formula-only. 140 of
-        // 159 entries today are documentation-only and the dispatcher
-        // silently skips them. Surfacing the flag here makes the
-        // "agent quotes an algorithm_key whose math never ran" trap
-        // impossible to fall into.
+        // have a runtime evaluator and which are formula-only. As of the
+        // post-audit landing 76 of 159 entries are documentation-only
+        // and the dispatcher silently skips them. Surfacing the flag
+        // here makes the "agent quotes an algorithm_key whose math
+        // never ran" trap impossible to fall into.
         "documentation_only": a.documentation_only,
         "runtime_evaluable":  (a.evaluation.is_some() || a.runtime_path.is_some()) && !a.documentation_only,
         "runtime_path":       a.runtime_path,
@@ -11045,6 +11045,7 @@ async fn post_verify_receipt(
         "fact_cids_count": r.fact_cids.len(),
         "scope_bound": scope_present,
         "as_of_bound": as_of_present,
+        "manifest_bound": manifest_hex_opt.is_some(),
         "merkle_proof_valid": merkle_proof_valid,
         "merkle_proof_error": merkle_proof_error,
         "key_epoch_seen": key_epoch_seen,
@@ -26367,6 +26368,20 @@ async fn materialize_algorithm_band_impl(
     let alg = algos
         .lookup(algorithm_key)
         .ok_or_else(|| format!("unknown algorithm key '{algorithm_key}'"))?;
+    // Mirror `registry.evaluate()`'s documentation_only short-circuit so
+    // the auto-materializer is honest the same way the typed AST
+    // dispatcher is. Audited 2026-05-29: the 6 ASTs re-flagged this
+    // session retain their `evaluation` field as a record of intended
+    // math, but the auto-materializer would otherwise still sign a
+    // Primary fact from them — defeats the whole point of the flag.
+    if alg.documentation_only {
+        return Err(format!(
+            "algorithm '{algorithm_key}' is flagged documentation_only — the registered \
+             AST is a record of intended math, not an executable evaluator at this \
+             responder. See /v1/algorithms/{algorithm_key} for the `honest_limits` \
+             explanation and compose the formula client-side."
+        ));
+    }
     let expr = alg.evaluation.as_ref().ok_or_else(|| {
         format!(
             "algorithm '{algorithm_key}' has no executable evaluation AST — formula is \
@@ -43597,9 +43612,19 @@ mod tests {
         let cells = vec!["defi.zb592.nemu.zEvE".to_string()];
         let fact_cids: Vec<emem_fact::FactCid> = vec![];
 
-        let unbounded = emem_storage::AsOfBound::unbounded();
-        let bounded = emem_storage::AsOfBound {
+        // Compare two BOUNDED receipts that differ only in the
+        // as_of.valid_time value. Previously this test compared
+        // unbounded vs bounded — but ulid + served_at are also
+        // different across those calls, so assert_ne! would pass for
+        // the WRONG reason if as_of was silently dropped from the
+        // preimage. Two bounded receipts have the same preimage shape;
+        // only the as_of_hex segment differs.
+        let bounded_a = emem_storage::AsOfBound {
             valid_time: Some(1_700_000_000),
+            transaction_time: None,
+        };
+        let bounded_b = emem_storage::AsOfBound {
+            valid_time: Some(1_800_000_000),
             transaction_time: None,
         };
 
@@ -43611,7 +43636,7 @@ mod tests {
             Instant::now(),
             None,
             None,
-            &unbounded,
+            &bounded_a,
         );
         let r2 = s.sign_receipt_full(
             "emem.recall",
@@ -43621,18 +43646,18 @@ mod tests {
             Instant::now(),
             None,
             None,
-            &bounded,
+            &bounded_b,
         );
 
         assert_ne!(
             r1.signature.0, r2.signature.0,
-            "as_of bound must enter the signed bytes: unbounded and bounded receipts cannot share a signature"
+            "as_of valid_time difference must enter the signed bytes"
         );
 
         // Each must independently verify against the responder pubkey
         // via the public /v1/verify_receipt path (covers the verifier's
         // own rebuild rule for both branches).
-        for r in [r1, r2] {
+        for r in [r1.clone(), r2] {
             let v = post_verify_receipt(
                 State(s.clone()),
                 Ok(Json(VerifyReceiptReq {
@@ -43650,6 +43675,32 @@ mod tests {
                 "each receipt must verify independently"
             );
         }
+
+        // Stronger guarantee — tamper the as_of bound in the receipt
+        // body and confirm verification breaks. Catches a future
+        // regression where as_of gets silently dropped from the
+        // preimage (in that case the tampered receipt would still
+        // verify, since the verifier would skip the as_of segment too).
+        let mut tampered = r1.clone();
+        tampered.as_of = Some(emem_fact::AsOfReceipt {
+            valid_time: Some(1_900_000_000),
+            transaction_time: None,
+        });
+        let v_bad = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: tampered,
+                pubkey_b32: None,
+                current_responder_epoch: None,
+            })),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            v_bad.0.get("valid").and_then(|x| x.as_bool()),
+            Some(false),
+            "tampered as_of must break the signature"
+        );
     }
 
     #[tokio::test]
@@ -43748,14 +43799,74 @@ mod tests {
             "same-epoch must not produce stale/future advisory, got: {adv_same:?}"
         );
 
-        // future epoch (signing_epoch + 1) → advisory must call this
-        // out so an agent knows the responder has rotated keys.
-        let v_future = post_verify_receipt(
+        // Stale branch: key_epoch_seen < current. test_app_state()
+        // uses ResponderIdentity::fresh() which sets epoch=0, so
+        // current=1 produces "stale".
+        let v_stale = post_verify_receipt(
             State(s.clone()),
             Ok(Json(VerifyReceiptReq {
-                receipt: r,
+                receipt: r.clone(),
                 pubkey_b32: None,
                 current_responder_epoch: Some(signing_epoch + 1),
+            })),
+        )
+        .await
+        .unwrap();
+        let adv_stale = v_stale
+            .0
+            .get("key_epoch_advisory")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        assert!(
+            adv_stale.starts_with("stale"),
+            "key_epoch_seen={signing_epoch} < current must produce stale advisory, got: {adv_stale:?}"
+        );
+        // Advisory does NOT flip valid — the signature still verifies.
+        assert_eq!(
+            v_stale.0.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "stale-epoch advisory must not reject the receipt's signature"
+        );
+
+        // Future branch: key_epoch_seen > current. Build a separate
+        // Server with epoch=10 so a current=9 makes the seen value
+        // strictly greater. This proves the verifier handles the
+        // partial-rollout / clock-skew case the docstring promises.
+        use emem_storage::server::{ManifestCids, ResponderIdentity};
+        use emem_storage::{MaterializingStorage, Server};
+        let bands = std::sync::Arc::new((*emem_core::bands::DEFAULT).clone());
+        let functions = std::sync::Arc::new((*emem_core::functions::DEFAULT).clone());
+        let sources = std::sync::Arc::new((*emem_core::sources::DEFAULT).clone());
+        let storage = MaterializingStorage::ephemeral(bands, functions, sources)
+            .expect("ephemeral storage");
+        let mut sec = [0u8; 32];
+        sec[0] = 0xa5; // deterministic so the pubkey is stable in CI
+        let identity = ResponderIdentity::from_secret(sec, 10);
+        let s2: AppState = std::sync::Arc::new(Server {
+            storage: std::sync::Arc::new(storage),
+            identity,
+            manifests: ManifestCids {
+                registry_cid: emem_fact::RegistryCid::new("reg".to_string()),
+                schema_cid: emem_fact::SchemaCid::new("sch".to_string()),
+                bands_cid: "bands".to_string(),
+                sources_cid: "sources".to_string(),
+            },
+            started_at_unix_s: 0,
+        });
+        let r10 = s2.sign_receipt(
+            "emem.recall",
+            vec!["defi.zb592.nemu.zEvE".to_string()],
+            vec![],
+            false,
+            Instant::now(),
+            None,
+        );
+        let v_future = post_verify_receipt(
+            State(s2.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: r10,
+                pubkey_b32: None,
+                current_responder_epoch: Some(9),
             })),
         )
         .await
@@ -43766,14 +43877,13 @@ mod tests {
             .and_then(|x| x.as_str())
             .unwrap_or("");
         assert!(
-            adv_future.starts_with("stale") || adv_future.starts_with("future"),
-            "future-epoch verify must produce stale/future advisory, got: {adv_future:?}"
+            adv_future.starts_with("future"),
+            "key_epoch_seen=10 > current=9 must produce future advisory, got: {adv_future:?}"
         );
-        // The receipt is still valid — advisory does NOT flip valid.
         assert_eq!(
             v_future.0.get("valid").and_then(|x| x.as_bool()),
             Some(true),
-            "advisory must not reject the receipt's signature"
+            "future-epoch advisory must not reject the receipt's signature"
         );
     }
 }
