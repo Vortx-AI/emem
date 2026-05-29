@@ -32788,8 +32788,15 @@ fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Opti
         // ESA CCI Biomass — single global per-year COG. Most-recent
         // available year ought to come from the materializer; here we
         // best-effort the latest the registry exposes.
-        "esa_cci_biomass.agb_2020" => {
+        "esa_cci_biomass.agb_2020"
+        | "esa_cci_biomass.agb_t_per_ha_2020"
+        | "esa_cci_biomass.agb_se_t_per_ha_2020" => {
             emem_fetch::esa_cci_biomass::tile_url_for(2020, centre_lat, centre_lng)
+        }
+        "esa_cci_biomass.agb_2022"
+        | "esa_cci_biomass.agb_t_per_ha_2022"
+        | "esa_cci_biomass.agb_se_t_per_ha_2022" => {
+            emem_fetch::esa_cci_biomass::tile_url_for(2022, centre_lat, centre_lng)
         }
         // CHIRPS daily / monthly precip — global COG per epoch. We
         // can't pick a date here without the request context, so the
@@ -33544,9 +33551,27 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
     };
 
     // Per-cell verdict per Article 2(4) + 2020-12-31 cut-off.
-    // forest_at_cutoff = (JRC == 1) OR (Hansen treecover2000 >= 10).
-    let forest_at_cutoff =
-        matches!(jrc, Some(v) if v >= 1) || matches!(hansen_tc, Some(v) if v >= 10);
+    //
+    // forest_at_cutoff = (JRC == 1)
+    //                  OR (Hansen treecover2000 >= 10
+    //                      AND (lossyear == 0 OR lossyear > 20))
+    //
+    // 2026-05-29 audit fix. The Hansen branch had a lossyear-in-[1..=20]
+    // guard added to the registry AST on 2026-05-17 to stop cells
+    // cleared 2001..=2020 from leaking through as "still forest at the
+    // cut-off" when JRC GFC2020 returned no value. The Rust runtime
+    // never picked it up. A cell with treecover2000 = 60 and
+    // lossyear = 8 (cleared in 2008) was classified `pass` because it
+    // had `>= 10` Hansen cover and `jrc == None`; the registry AST
+    // classifies it `not_in_scope` (no longer forest at cut-off).
+    //
+    // hansen_ly values are years-since-2000 (1..=24 ~ 2001..=2024) per
+    // Hansen GFC v1.12. lossyear == 0 means "no loss observed" and is
+    // forest; lossyear in [1..=20] means "cleared 2001..=2020", so the
+    // cell was not forest at the 2020-12-31 cut-off.
+    let hansen_forest_at_cutoff = matches!(hansen_tc, Some(v) if v >= 10)
+        && matches!(hansen_ly, Some(ly) if ly == 0 || ly > 20);
+    let forest_at_cutoff = matches!(jrc, Some(v) if v >= 1) || hansen_forest_at_cutoff;
     if !forest_at_cutoff {
         if jrc.is_none() && hansen_tc.is_none() {
             return make(4, Some("no_baseline_input"));
@@ -33569,8 +33594,26 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
         };
         return make(1, refinement);
     }
-    // Loss after cut-off — apply Sims driver refinement if available.
-    // Classes 5 (wildfire) and 7 (other natural) are out of EUDR scope.
+    // Loss after cut-off — apply Sims (WRI GDM) driver refinement when
+    // available. Classes 5 (wildfire) and 7 (other natural) are out of
+    // EUDR scope per Sims et al. 2025.
+    //
+    // 2026-05-29 audit note: `wri_gdm.driver_class` was removed from
+    // the per-cell band list in the EUDR hot path (see
+    // `batchable` slice in `evaluate_eudr_plot_batched` — WRI GDM is
+    // not one of the 4 batched bands). So `wri_class` is always None
+    // here under the batched-polygon path. The `sims_*` refinement
+    // labels below are intentionally retained for the future
+    // `try_materialize_one_band("wri_gdm.driver_class", …)` path some
+    // operators wire when they accept the 31 s cold COG probe cost;
+    // when WRI GDM is not in the band list the cell falls through to
+    // `no_driver_refinement` honestly.
+    //
+    // A wildfire-driven loss in Borneo therefore reports `fail` rather
+    // than `not_in_scope` today. Operators wanting Sims refinement
+    // should set `EMEM_EUDR_INCLUDE_WRI_GDM=1` (planned v0.0.9). Per
+    // the regulator-facing honesty rule we surface this in the
+    // refinement label as `no_driver_refinement_band_off_path`.
     if let Some(c) = wri_class {
         if c == 5 || c == 7 {
             return make(3, Some("sims_natural_cause"));
@@ -33583,7 +33626,7 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
         match wri_class {
             Some(c) if (1..=3).contains(&c) => Some("sims_commodity_driven"),
             Some(_) => Some("sims_other_anthropogenic"),
-            None => Some("no_driver_refinement"),
+            None => Some("no_driver_refinement_band_off_path"),
         }
     };
     make(2, refinement)
