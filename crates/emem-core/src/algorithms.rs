@@ -1286,6 +1286,16 @@ impl AlgorithmRegistry {
         let alg = self
             .lookup(key)
             .ok_or_else(|| format!("unknown algorithm: {key}"))?;
+        // documentation_only short-circuits before the AST runs — keeps
+        // the AST in the registry as a record of *intended* math while
+        // refusing to let the dispatcher quote a number from it. Audited
+        // 2026-05-29: six ASTs were re-flagged because they referenced
+        // phantom bands or substituted constants for unimplemented
+        // inputs, and silently evaluating to a wrong number would let
+        // agents trust an algorithm_key whose math is broken.
+        if alg.documentation_only {
+            return Ok(None);
+        }
         let Some(expr) = alg.evaluation.as_ref() else {
             return Ok(None);
         };

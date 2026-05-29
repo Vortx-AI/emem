@@ -5919,6 +5919,7 @@
       "primitive": "POST /v1/locate \u2192 neighborhood_cells + polygon_sample_cells; POST /v1/recall_many {bands:['indices.ndvi']}",
       "deterministic": true,
       "citation": "World Health Organization. 2017. Urban green spaces: a brief for action. Larondelle, N. & Haase, D. 2013. Urban ecosystem services assessment along a rural-urban gradient. Ecological Indicators 29:179\u2013190.",
+      "honest_limits": "Single-cell adaptation of a K3-ring focal kernel: the formula counts ndvi >= 0.4 over the 24-cell K3 neighborhood; the AST returns clamp01((ndvi - 0.2)/0.2) on the centre cell only. Matches existing single-cell shortcut pattern (cf. urban_heat_island_imhoff@1). Compose client-side via /v1/recall_many over the K3 ring when ring-aware composition lands. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -6155,6 +6156,7 @@
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.wind_speed_10m','indices.ndvi']}",
       "deterministic": true,
       "citation": "H\u00f6ppe, P. 1999. The physiological equivalent temperature, a universal index for the biometeorological assessment of the thermal environment. International Journal of Biometeorology 43(2):71\u201375. (Gaussian shape editorial; calibrated thermal-comfort indices like UTCI need humidity + radiation.)",
+      "honest_limits": "AST substitutes weather.temperature_2m for the formula's heat-index composition. Score peak is therefore at 22 °C dry-bulb rather than 22 °C HI; humid environments will over-claim comfort. Compose client-side by computing heat_index@2 first when humidity is available. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -6549,6 +6551,8 @@
       "primitive": "POST /v1/recall_many over route cells",
       "deterministic": true,
       "citation": "Steadman 1979 (heat index); Akbari, H. et al. 2001. Cool surfaces and shade trees to reduce energy use and improve air quality in urban areas. Solar Energy 70(3):295\u2013310. (3 \u00b0C shade discount approximates measured tree-shade reductions.)",
+      "honest_limits": "AST left in registry as a record of intended math, but flagged documentation_only on 2026-05-29: the single-cell AST substitutes dry-bulb T for the heat-index composition and has no max-over-cells aggregation. The dispatcher refuses to evaluate this key; compose client-side from heat_index@2 per cell plus a route-level max.",
+      "documentation_only": true,
       "evaluation": {
         "op": "sub",
         "a": {
@@ -7159,7 +7163,7 @@
           "explanation": "Mean annual precipitation in mm from TerraClimate 1991-2020 normals. IPCC 2019 Vol 4 Ch 11 splits the direct-N2O emission factor (EF1) into a wet-climate value (mean annual precipitation > 1000 mm, plus irrigated cropland) at 0.016 kg N2O-N per kg N applied, and a dry-climate value (< 1000 mm rainfed) at 0.005. The cell's terraclimate.precip_normal_mm is the rasterised proxy for that wet/dry dispatch; for irrigated drylands use the wet value regardless (irrigation pushes soil moisture into the wet regime)."
         }
       ],
-      "formula": "Two-zone IPCC 2019 Vol 4 Ch 11 Table 11.1 lookup for the direct-N2O emission factor EF1 (synthetic fertilizer applied to cropland), revised from the 2006 single-value default of 0.010 to the 2019 wet/dry disaggregation. Wet climate (mean annual precipitation > 1000 mm or irrigated): EF1 = 0.016 kg N2O-N per kg N input. Dry climate (\u2264 1000 mm rainfed): EF1 = 0.005. The basis is the Cui et al. 2021 (Glob Change Biol 27:5849) global meta-analysis of 1404 field-measurement records that the IPCC 2019 Refinement cites as the underpinning evidence. Returns the dimensionless EF1; the operator multiplies by their cell-level kg N applied (from Adalibieke et al. 2023 Sci Data 10:617 crop-specific N fertilizer maps, HYDE 3.4 gridded inputs, or farm records) to obtain kg N2O-N/ha. Multiply by 44/28 = 1.5714 to convert N2O-N to N2O molecular mass.",
+      "formula": "Two-zone IPCC 2019 Vol 4 Ch 11 Table 11.1 lookup for the direct-N2O emission factor EF1 (synthetic fertilizer applied to cropland), revised from the 2006 single-value default of 0.010 to the 2019 wet/dry disaggregation. Wet climate (mean annual precipitation > 1000 mm or irrigated): EF1 = 0.016 kg N2O-N per kg N input. Dry climate (\u2264 1000 mm rainfed): EF1 = 0.005. The basis is the Cui et al. 2021 (Nature Food 2:886) global meta-analysis of 1404 field-measurement records that the IPCC 2019 Refinement cites as the underpinning evidence. Returns the dimensionless EF1; the operator multiplies by their cell-level kg N applied (from Adalibieke et al. 2023 Sci Data 10:617 crop-specific N fertilizer maps, HYDE 3.4 gridded inputs, or farm records) to obtain kg N2O-N/ha. Multiply by 44/28 = 1.5714 to convert N2O-N to N2O molecular mass.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -7436,6 +7440,7 @@
       "primitive": "POST /v1/trajectory for NDVI / NDMI history; POST /v1/recall for current weather; compose",
       "deterministic": true,
       "citation": "Bolton, D.K. & Friedl, M.A. 2013. Forecasting crop yield using remotely sensed vegetation indices and crop phenology metrics. Agricultural and Forest Meteorology 173:74\u201384. Lobell, D.B. 2013. The use of satellite data for crop yield gap analysis. Field Crops Research 143:56\u201364.",
+      "honest_limits": "AST uses instantaneous bands (ndvi, ndmi, temperature_2m) where the formula calls for seasonal peak/avg/cumulative statistics. Substitutes a single-snapshot `(T-20)/8` for the documented GDD / precip-optimum z-score chain. Defensible scout signal, NOT a regulator-grade yield estimate. Compose client-side via /v1/backfill from sowing to harvest. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "add",
         "terms": [
@@ -8105,6 +8110,7 @@
       "primitive": "POST /v1/recall {bands:['modis.burned_area_monthly','indices.nbr']}",
       "deterministic": true,
       "citation": "Andreae, M.O. 2019. Emission of trace gases and aerosols from biomass burning \u2013 an updated assessment. Atmos. Chem. Phys. 19:8523\u20138546. IPCC 2019 Refinement to the 2006 Guidelines for National GHG Inventories, Vol 4 Ch 2. Key, C.H. & Benson, N.C. 2006. Landscape Assessment (LA) Sampling and Analysis Methods. USDA RMRS-GTR-164-CD.",
+      "honest_limits": "AST uses fixed 143 t CO2/ha global mean instead of the formula's biome-specific table (tropical=280, temperate=130, boreal=80, savanna=30, grassland=5, peat=10). True biome lookup needs a land-cover band gate; until that lands the constant 143 (≈ tropical+temperate average × 44/12) introduces ±30% bias relative to the documented per-biome lookup. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -8232,6 +8238,8 @@
       "primitive": "POST /v1/diff {cell, band:'s2.B02', t1, t2} \u2192 carbon.surface_albedo_broadband at each epoch \u2192 dRF",
       "deterministic": true,
       "citation": "Bright, R.M. 2015. Metrics for biogeophysical climate forcings from land use and land cover changes and their inclusion in life cycle assessment: a critical review. Environmental Science & Technology 49(6):3291\u20133303. Akbari, H. et al. 2009. Global cooling: increasing world-wide urban albedos to offset CO2. Climatic Change 94:275\u2013286.",
+      "honest_limits": "AST flagged documentation_only on 2026-05-29: dRF needs prior-epoch broadband albedo (5-band Liang sum at t1) which a single-cell AST cannot see. The shipped tree collapses 5 bands onto B02 with a hard-coded baseline 0.13, which is NOT the documented radiative forcing. Compose client-side via /v1/diff on carbon.surface_albedo_broadband at two epochs.",
+      "documentation_only": true,
       "evaluation": {
         "op": "mul",
         "terms": [
@@ -8399,6 +8407,8 @@
       "primitive": "POST /v1/recall {bands:['indices.urban_canopy_index','modis.lst_day_8day','modis.lst_night_8day']}",
       "deterministic": true,
       "citation": "Bowler, D.E. et al. 2010. Urban greening to cool towns and cities: A systematic review of the empirical evidence. Landscape and Urban Planning 97(3):147\u2013155. Akbari, H. & Kolokotsa, D. 2016. Three decades of urban heat islands and mitigation technologies research. Energy and Buildings 133:834\u2013842.",
+      "honest_limits": "AST flagged documentation_only on 2026-05-29: it references `indices.urban_canopy_index`, a phantom band that is not registered in bands-v0.json. Until a canopy-fraction band is wired (candidates: ESA WorldCover tree-canopy fraction, GLAD tree-canopy 2020, or a Tessera-derived canopy mask) the AST has no input to read. Compose client-side by substituting `1 - sigmoid(s2_ndvi)` as a canopy-density proxy.",
+      "documentation_only": true,
       "evaluation": {
         "op": "mul",
         "terms": [
@@ -8469,6 +8479,8 @@
       "citation": "Hansen, M.C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850\u2013853. Verra VT0007 (Unplanned Deforestation Allocation Tool, 2023). Reiche, J. et al. 2018. Combining satellite data for better tropical forest monitoring. Nature Climate Change 8:1119\u20131124.",
       "accuracy_band": "Editorial 50/50 split between NDVI drop (normalised by 0.30) and Tessera embedding divergence (normalised by 0.20); no published precision/recall against known deforestation, mining-encroachment, or oil-spill emission events for this exact composite. Use as a triage / scout signal, not for regulatory attribution. For cite-able attribution overlay Hansen GFC v1.10 annual loss (Hansen et al. 2013, Science 342:850) or RADD weekly tropical alerts (Reiche et al. 2021, Environ Res Lett 16:024005).",
       "pitfalls": "The 0.5 / 0.5 weighting between NDVI drop and Tessera-embedding cosine change is editorial and unjustified by any published validation; the two terms can disagree (e.g. selective logging that moves the embedding without dropping NDVI, or seasonal phenology that drops NDVI without structural change). Do not interpret `alert_score > 0.6` as a regulator-defensible deforestation event \u2014 confirm with Hansen GFC, RADD, or Sentinel-2 RGB before crediting decisions. The same composite, retargeted with mining-spectral or oil-slick bands, is sometimes called an 'emission anomaly' signal \u2014 it remains a scout-only triage proxy in either domain.",
+      "honest_limits": "AST flagged documentation_only on 2026-05-29: references the phantom band `modis.ndvi_mean` (not registered in bands-v0.json) AND drops the Tessera-embedding cosine-change term entirely (single-cell AST cannot compute multi-vintage cosine). Compose client-side by pulling `indices.ndvi` for two epochs via /v1/trajectory and applying the documented 0.5/0.5 weighting against a Tessera multi-year sample if available.",
+      "documentation_only": true,
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -8540,6 +8552,7 @@
       "primitive": "POST /v1/recall {bands:['indices.evi','power.allsky_sw','weather.temperature_2m']}",
       "deterministic": true,
       "citation": "Potter, C.S. et al. 1993. Terrestrial ecosystem production: a process model based on global satellite and surface data. Global Biogeochemical Cycles 7(4):811\u2013841. Sims, D.A. et al. 2006. On the use of MODIS EVI to assess gross primary productivity of North American ecosystems. JGR 111:G04015. Xiao, X. et al. 2004. Modeling gross primary production of temperate deciduous broadleaf forest using satellite images. Remote Sensing of Environment 91:256\u2013270.",
+      "honest_limits": "AST uses EVI directly in place of the formula's `fpar_proxy` (EVI-to-fAPAR mapping is omitted), and `power.allsky_sw` is a daily-mean W/m² value where the formula calls for daily PAR MJ (factor ~0.5 PAR/SW × ~0.0864 MJ/W/day → output units differ). Treat output as a relative NPP index, not g_C/m²/MJ. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "mul",
         "terms": [
@@ -9329,6 +9342,7 @@
       "primitive": "POST /v1/recall_polygon {place:<country>, bands:['modis.burned_area_monthly','indices.nbr']} \u2192 carbon.fire_emissions_co2_proxy@1 \u2192 sum",
       "deterministic": true,
       "citation": "UNFCCC SDG 13.2.2 metadata. IPCC 2019 Refinement Vol 4 Ch 2. GFED4s methodology, van der Werf et al. 2017. Earth System Science Data 9:697\u2013720.",
+      "honest_limits": "Same AST as carbon.fire_emissions_co2_proxy@1: fixed 143 t CO2/ha global mean substitutes for the biome-specific lookup. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -10327,6 +10341,8 @@
         "anchor_band": "weather.temperature_2m",
         "fallback_strategy": "absence"
       },
+      "honest_limits": "AST flagged documentation_only on 2026-05-29: the formula needs daily Tmax AND Tmin and integrates from sowing to date_t. The single-cell AST has only one weather.temperature_2m sample (instantaneous), so Tmax and Tmin collapse to the same value — the McMaster-Wilhelm formula degenerates to `T - 10` clipped to [0,20], NOT a real GDD. Compose client-side via /v1/backfill over the sowing→date_t window and accumulate.",
+      "documentation_only": true,
       "evaluation": {
         "op": "max",
         "terms": [
@@ -11248,6 +11264,8 @@
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.precipitation_mm','weather.wind_speed_10m']} \u2192 concatenate per formula",
       "deterministic": true,
       "citation": "Editorial. The cloud-cover thresholds follow the Met Office plain-language convention (`<25% clear, 25\u201375% partly cloudy, >75% overcast`); the precipitation classes follow the WMO convention used in METAR (`light <2.5 mm/h, moderate 2.5\u20137.5, heavy >7.5`); the wind threshold (17 m/s \u2248 Beaufort 8 'fresh gale') is when wind starts to become operationally noteworthy.",
+      "honest_limits": "AST flagged documentation_only on 2026-05-29: the formula concatenates a 3-axis text summary (sky \u00d7 precip \u00d7 wind + temperature suffix), but the registry AST evaluator is f64\u2192f64 only. The shipped class_table degenerates to a sky-only 0/1/2 code on cloud_cover and silently drops precipitation, wind, and temperature. Compose client-side by reading the four bands via /v1/recall and stringifying per the formula.",
+      "documentation_only": true,
       "evaluation": {
         "op": "class_table",
         "inner": {
@@ -13032,6 +13050,7 @@
           }
         ]
       },
+      "honest_limits": "AST substitutes a fixed `-15 dB` constant for the documented `lookback(sentinel1_raw, 30d)` (single-cell AST cannot see the 30-day prior). The output is `|sentinel1_raw + 15|`, NOT the documented coherence ΔVV. Compose client-side via /v1/trajectory over the 30-day window when used for change detection. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -15109,6 +15128,7 @@
       },
       "runtime_path": "/v1/hunt",
       "partial_runtime": true,
+      "honest_limits": "AST replaces the formula's vegetated-neighbor focal-mean reference (ndvi > 0.55 cells in the K3 ring) with a fixed 285 K baseline. The fixed reference systematically biases UHI estimates outside temperate climates. Compose client-side via /v1/recall_many over the ring when ring-aware composition lands. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -15214,6 +15234,7 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
+      "honest_limits": "AST drops the temporal `ndmi_7d_lag - ndmi_now` term, hard-codes sqrt(10) for sqrt(temp_range), and uses an instantaneous precipitation_mm sample for the 7-day sum. The result is a stress proxy, not the documented 7-day moisture-balance score. Compose client-side via /v1/trajectory over the trailing 7 days. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -15599,6 +15620,7 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
+      "honest_limits": "AST substitutes a fixed `0.5` constant for the formula's `ndvi_2y_ago` lookback, and the land-cover branch is a class_table on current LC only (any LC in [50,60] → 1.0) with no temporal comparison. Single-cell AST cannot do the documented temporal Δ; compose client-side via /v1/trajectory or /v1/diff. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -15759,6 +15781,7 @@
       },
       "runtime_path": "/v1/hunt",
       "partial_runtime": true,
+      "honest_limits": "AST gate reduces to `ndvi_now < 0.3` instead of the documented `(ndvi_60d - ndvi_now) > 0.20 AND ndvi_now < 0.5` (single-cell AST cannot see the 60-day baseline). True alert needs /v1/trajectory; this scalar is a conservative single-cell triage. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -15854,6 +15877,7 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
+      "honest_limits": "AST substitutes a fixed `-25 dB` constant for the documented `sigma0_event` lookback (single-cell AST cannot see the event tslot). Defensible as a generic open-water baseline; flagged so callers know it isn't event-anchored. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "where",
         "cond": {

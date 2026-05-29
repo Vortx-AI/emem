@@ -341,10 +341,15 @@ fn classify_cog_err(
     year: u16,
 ) -> WorldPopError {
     let s = e.to_string();
-    // Heuristic 404 / not-found mapping. The cog::http_range layer
-    // surfaces non-2xx as `Transport("status NNN for range ... on URL")`
-    // — substring match is the cheapest, dep-free way to classify.
-    if s.contains(" 404 ") || s.contains("status 404") || s.contains("Not Found") {
+    // Strict 404 mapping. The cog::http_range layer emits exactly
+    // `Transport("status 404 for range ... on URL")` for an upstream
+    // not-found; anything else (5xx body fragments that happen to
+    // contain "Not Found", transient proxy errors, decode failures)
+    // must NOT be classified as a confirmed coverage gap, otherwise
+    // materialize_population would sign a confirmed Absence instead of
+    // falling through to the stats-API. Honest-by-construction per
+    // feedback_no_silent_fallbacks.md. Tightened 2026-05-29.
+    if s.contains("status 404") {
         return WorldPopError::NoCogCoverage { lat, lng, year };
     }
     WorldPopError::CogFailure {

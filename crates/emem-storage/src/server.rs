@@ -140,6 +140,32 @@ impl Server {
         m
     }
 
+    /// Lowercase-hex blake3 of the canonical-CBOR encoding of a manifest
+    /// snapshot. `BTreeMap` is canonically ordered by key so the CBOR
+    /// encoding is deterministic across responders that share the same
+    /// manifest tree. Empty maps return `None` so the signer can skip
+    /// the segment and keep pre-f357568 receipts (which carried an empty
+    /// `source_versions` field) verifiable byte-for-byte.
+    ///
+    /// Audit 2026-05-29 follow-up to F3: the snapshot is now mixed into
+    /// the receipt preimage as a new optional segment, closing the
+    /// "body claims X, signature binds nothing" gap. The verifier
+    /// rebuilds the same digest when the receipt body carries a
+    /// non-empty `source_versions`.
+    pub(crate) fn manifest_versions_blake3_hex(
+        versions: &BTreeMap<String, String>,
+    ) -> Option<String> {
+        if versions.is_empty() {
+            return None;
+        }
+        let mut buf = Vec::with_capacity(128);
+        // BTreeMap<String, String> is canonically encodable as a CBOR
+        // map; ciborium emits keys in iteration order (BTreeMap is
+        // already sorted), giving determinism without ad-hoc sorting.
+        let _ = ciborium::into_writer(versions, &mut buf);
+        Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
+    }
+
     /// Build a signed [`Receipt`] for a primitive response. Signature
     /// covers the canonical `request_id || served_at || primitive ||
     /// cells || fact_cids` byte sequence so any client can offline-verify
@@ -157,11 +183,18 @@ impl Server {
         let served_at = iso8601_now();
         let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
 
+        let source_versions = self.manifest_versions_snapshot();
+        let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
+
         let mut h = Hasher::new();
         h.update(request_id.as_bytes());
         h.update(b"|");
         h.update(served_at.as_bytes());
         h.update(b"|");
+        if let Some(ref mh) = manifest_hex {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
         h.update(primitive.as_bytes());
         h.update(b"|");
         for c in &cells {
@@ -204,7 +237,7 @@ impl Server {
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),
-            source_versions: self.manifest_versions_snapshot(),
+            source_versions,
             registry_cid: self.manifests.registry_cid.clone(),
             cost: Cost {
                 credits: 0,
@@ -257,6 +290,9 @@ impl Server {
         let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
 
         let scope_hex = scope_inner.blake3_hex();
+        let source_versions = self.manifest_versions_snapshot();
+        let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
+
         let mut h = Hasher::new();
         h.update(request_id.as_bytes());
         h.update(b"|");
@@ -264,6 +300,10 @@ impl Server {
         h.update(b"|");
         h.update(scope_hex.as_bytes());
         h.update(b"|");
+        if let Some(ref mh) = manifest_hex {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
         h.update(primitive.as_bytes());
         h.update(b"|");
         for c in &cells {
@@ -297,7 +337,7 @@ impl Server {
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),
-            source_versions: self.manifest_versions_snapshot(),
+            source_versions,
             registry_cid: self.manifests.registry_cid.clone(),
             cost: Cost {
                 credits: 0,
@@ -399,6 +439,8 @@ impl Server {
             .as_ref()
             .filter(|s| !s.is_empty())
             .map(|s| s.blake3_hex());
+        let source_versions = self.manifest_versions_snapshot();
+        let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
 
         let mut h = Hasher::new();
         h.update(request_id.as_bytes());
@@ -411,6 +453,10 @@ impl Server {
         }
         h.update(as_of_hex.as_bytes());
         h.update(b"|");
+        if let Some(ref mh) = manifest_hex {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
         h.update(primitive.as_bytes());
         h.update(b"|");
         for c in &cells {
@@ -444,7 +490,7 @@ impl Server {
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),
-            source_versions: self.manifest_versions_snapshot(),
+            source_versions,
             registry_cid: self.manifests.registry_cid.clone(),
             cost: Cost {
                 credits: 0,

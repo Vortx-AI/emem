@@ -96,12 +96,25 @@ impl AsOfReceipt {
     /// `skip_serializing_if = "Option::is_none"` keeps absent fields
     /// out of the byte stream. The byte stream is what the signer
     /// hashes into the preimage and what an offline verifier rebuilds.
+    ///
+    /// The `transaction_time` field, when present, is normalised through
+    /// [`normalise_rfc3339_utc`] before CBOR-encoding so that the three
+    /// equivalent spellings `2026-05-29T00:00:00Z`,
+    /// `2026-05-29T00:00:00.000Z`, and `2026-05-29T00:00:00+00:00` all
+    /// hash to the same digest. Closes audit 2026-05-29 F-receipt-2.
     pub fn to_canonical_cbor(&self) -> Vec<u8> {
+        let normalised = AsOfReceipt {
+            valid_time: self.valid_time,
+            transaction_time: self
+                .transaction_time
+                .as_deref()
+                .map(|s| normalise_rfc3339_utc(s).unwrap_or_else(|| s.to_string())),
+        };
         let mut buf = Vec::with_capacity(32);
         // ciborium::into_writer is infallible for AsOfReceipt
         // (Option<u64> + Option<String> fields only); ignore the result
         // to keep the helper total.
-        let _ = ciborium::into_writer(self, &mut buf);
+        let _ = ciborium::into_writer(&normalised, &mut buf);
         buf
     }
 
@@ -146,6 +159,57 @@ pub struct MerkleProof {
     pub path: Vec<[u8; 32]>,
     /// The expected batch root.
     pub root: [u8; 32],
+}
+
+/// Normalise an RFC 3339 timestamp into the canonical form
+/// `YYYY-MM-DDTHH:MM:SSZ` so the AsOfReceipt preimage is byte-stable
+/// across equivalent spellings (`Z`, `+00:00`, fractional seconds).
+/// Returns `None` when the input is not RFC 3339 — the caller falls
+/// back to the raw string in that case so non-UTC offsets aren't
+/// silently dropped. Only UTC (`Z` / `+00:00` / `-00:00`) inputs are
+/// canonicalised; offset-bearing inputs are passed through unchanged
+/// so a verifier still rebuilds the same digest the signer wrote.
+pub fn normalise_rfc3339_utc(s: &str) -> Option<String> {
+    // Minimum: YYYY-MM-DDTHH:MM:SS (19 chars) + a trailing zone marker.
+    if s.len() < 20 {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    // Quick shape check on the date/time skeleton.
+    if bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || (bytes[10] != b'T' && bytes[10] != b' ')
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    for &i in &[0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18] {
+        if !bytes[i].is_ascii_digit() {
+            return None;
+        }
+    }
+    let date_time = &s[..19];
+    // Tail starts at byte 19. Accept optional `.NNN...` fractional
+    // seconds, then either `Z`, `+00:00`, `-00:00`, or a non-UTC
+    // offset. Only UTC variants normalise; others fall through.
+    let mut rest = &s[19..];
+    if rest.starts_with('.') {
+        // Skip the dot + N digits.
+        let frac_end = rest[1..]
+            .find(|c: char| !c.is_ascii_digit())
+            .map(|i| i + 1)
+            .unwrap_or(rest.len());
+        if frac_end <= 1 {
+            return None;
+        }
+        rest = &rest[frac_end..];
+    }
+    let is_utc = matches!(rest, "Z" | "+00:00" | "-00:00");
+    if !is_utc {
+        return None;
+    }
+    Some(format!("{}Z", date_time.replace(' ', "T")))
 }
 
 #[cfg(test)]
@@ -204,6 +268,47 @@ mod as_of_receipt_tests {
         assert!(h
             .chars()
             .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_lowercase())));
+    }
+
+    #[test]
+    fn transaction_time_equivalent_spellings_hash_same() {
+        // Z, +00:00, and fractional-seconds-with-Z must all hash to the
+        // same digest after normalisation. Pre-fix: each produced a
+        // different digest, so receipts wouldn't cross-verify.
+        let a = AsOfReceipt {
+            valid_time: None,
+            transaction_time: Some("2026-05-29T00:00:00Z".into()),
+        };
+        let b = AsOfReceipt {
+            valid_time: None,
+            transaction_time: Some("2026-05-29T00:00:00+00:00".into()),
+        };
+        let c = AsOfReceipt {
+            valid_time: None,
+            transaction_time: Some("2026-05-29T00:00:00.000Z".into()),
+        };
+        assert_eq!(a.blake3_digest(), b.blake3_digest());
+        assert_eq!(a.blake3_digest(), c.blake3_digest());
+    }
+
+    #[test]
+    fn normalise_rfc3339_utc_handles_common_variants() {
+        assert_eq!(
+            normalise_rfc3339_utc("2026-05-29T00:00:00Z"),
+            Some("2026-05-29T00:00:00Z".into())
+        );
+        assert_eq!(
+            normalise_rfc3339_utc("2026-05-29T00:00:00+00:00"),
+            Some("2026-05-29T00:00:00Z".into())
+        );
+        assert_eq!(
+            normalise_rfc3339_utc("2026-05-29T00:00:00.123Z"),
+            Some("2026-05-29T00:00:00Z".into())
+        );
+        // Non-UTC offset falls through to None so the raw input is kept.
+        assert_eq!(normalise_rfc3339_utc("2026-05-29T00:00:00+05:30"), None);
+        // Garbage falls through.
+        assert_eq!(normalise_rfc3339_utc("not a date"), None);
     }
 
     #[test]

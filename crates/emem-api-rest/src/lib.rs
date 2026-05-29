@@ -4914,7 +4914,7 @@ fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) 
         // "agent quotes an algorithm_key whose math never ran" trap
         // impossible to fall into.
         "documentation_only": a.documentation_only,
-        "runtime_evaluable":  a.evaluation.is_some() || a.runtime_path.is_some(),
+        "runtime_evaluable":  (a.evaluation.is_some() || a.runtime_path.is_some()) && !a.documentation_only,
         "runtime_path":       a.runtime_path,
         "partial_runtime":    a.partial_runtime,
         "summary":       true,
@@ -4955,7 +4955,7 @@ fn project_algorithm_for_question(
             "citation":         a.citation,
             "fetch_url":        format!("/v1/algorithms/{}", a.key),
             "documentation_only": a.documentation_only,
-            "runtime_evaluable":  a.evaluation.is_some() || a.runtime_path.is_some(),
+            "runtime_evaluable":  (a.evaluation.is_some() || a.runtime_path.is_some()) && !a.documentation_only,
             "runtime_path":       a.runtime_path,
             "partial_runtime":    a.partial_runtime,
         })
@@ -10894,12 +10894,23 @@ async fn post_verify_receipt(
     // extended preimage rule with the scope_blake3_hex segment inserted
     // between `served_at` and `primitive`. v0.0.9 (audit F2) adds an
     // `as_of_blake3_hex` segment after `[scope_blake3_hex|]` when the
-    // receipt carries a non-unbounded `as_of`. Receipts without either
-    // optional field (every pre-v0.0.8 receipt + every receipt where
-    // the caller passed no scope and no as_of) use the legacy rule
+    // receipt carries a non-unbounded `as_of`. v0.0.9 audit follow-up
+    // F3 binds a `manifest_versions_blake3_hex` segment when the
+    // receipt's `source_versions` field is non-empty — closes the
+    // "body claims X manifests, signature binds nothing" gap. Receipts
+    // without ANY optional field (every pre-v0.0.8 receipt + every
+    // receipt where the caller passed no scope, no as_of, and the
+    // responder published no source_versions) use the legacy rule
     // byte-for-byte so old signers continue to verify.
     let scope_present = r.scope.as_ref().is_some_and(|s| !s.is_empty());
     let as_of_present = r.as_of.as_ref().is_some_and(|a| !a.is_unbounded());
+    let manifest_hex_opt = if r.source_versions.is_empty() {
+        None
+    } else {
+        let mut buf = Vec::with_capacity(128);
+        let _ = ciborium::into_writer(&r.source_versions, &mut buf);
+        Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
+    };
 
     let mut h = blake3::Hasher::new();
     h.update(r.request_id.as_bytes());
@@ -10914,6 +10925,10 @@ async fn post_verify_receipt(
     if as_of_present {
         let as_of_hex = r.as_of.as_ref().expect("as_of_present").blake3_hex();
         h.update(as_of_hex.as_bytes());
+        h.update(b"|");
+    }
+    if let Some(ref mh) = manifest_hex_opt {
+        h.update(mh.as_bytes());
         h.update(b"|");
     }
     h.update(r.primitive.as_bytes());
@@ -19355,6 +19370,20 @@ fn reason_cid_for(reason: &str) -> ReasonCid {
 /// (weather, S2, MODIS, etc.) where the per-fact capture time is the
 /// correct value. Locking these dates in one place protects against
 /// silent drift back to `signed_at`.
+/// Bi-temporal anchor for a static-release band. Parses the YYYY-MM-DD
+/// prefix of [`static_release_date`] and routes through `tslot_at_band`
+/// so the slot quantisation matches the rest of the materialiser fleet.
+/// Returns `None` when the band has no static release recorded (the
+/// caller should fall back to the per-fact capture time).
+fn static_release_tslot(band: &str) -> Option<u64> {
+    let date = static_release_date(band)?;
+    // static_release_date strings are all `YYYY-MM-DDT...Z`; reuse the
+    // existing date-to-unix routine on the 10-char prefix.
+    let date_only = date.get(..10)?;
+    let unix = modis_calendar_to_unix(date_only)?;
+    Some(tslot_at_band(unix, band))
+}
+
 fn static_release_date(band: &str) -> Option<&'static str> {
     match band {
         // Cop-DEM GLO-30 v2021 public release.
@@ -19502,7 +19531,11 @@ async fn materialize_elevation_mean(
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "copdem30m.elevation_mean".into(),
-        tslot: 0,
+        // Cop-DEM GLO-30 v2021 release: 2021-04-30 (per static_release_date).
+        // Bi-temporal anchor is the public release date, not 0 — clears the
+        // 2026-05-29 audit gap where as_of_tslot < 2021-04-30 would have
+        // silently matched Cop-DEM facts that should have been excluded.
+        tslot: static_release_tslot("copdem30m.elevation_mean").unwrap_or(0),
         value: ciborium::Value::Float(elev_m),
         unit: Some("m".into()),
         confidence: 0.95,
@@ -43543,5 +43576,202 @@ mod tests {
         // default caps again.
         std::env::remove_var("EMEM_EUDR_RECEIPT_MAX_CELLS");
         std::env::remove_var("EMEM_EUDR_RECEIPT_MAX_FACTS");
+    }
+
+    // ── 2026-05-29 audit regression tests ────────────────────────────
+    // The receipt invariants the audit flagged as F2 (as_of binding),
+    // F3 (manifest_versions binding), F4 (merkle proof rewalk), and F5
+    // (key_epoch advisory). Each test pins one branch of the verifier so
+    // a future refactor that silently drops a segment fails CI.
+
+    #[tokio::test]
+    async fn as_of_bound_changes_preimage_and_signature() {
+        // F2: flipping the as_of bound must change the signed bytes.
+        // Pre-fix, the as_of field was attached to the receipt body
+        // AFTER signing, so a malicious responder could claim it
+        // honoured a bound it ignored and the verifier still passed.
+        use std::time::Instant;
+        let s = test_app_state();
+        let cells = vec!["defi.zb592.nemu.zEvE".to_string()];
+        let fact_cids: Vec<emem_fact::FactCid> = vec![];
+
+        let unbounded = emem_storage::AsOfBound::unbounded();
+        let bounded = emem_storage::AsOfBound {
+            valid_time: Some(1_700_000_000),
+            transaction_time: None,
+        };
+
+        let r1 = s.sign_receipt_full(
+            "emem.recall",
+            cells.clone(),
+            fact_cids.clone(),
+            false,
+            Instant::now(),
+            None,
+            None,
+            &unbounded,
+        );
+        let r2 = s.sign_receipt_full(
+            "emem.recall",
+            cells.clone(),
+            fact_cids.clone(),
+            false,
+            Instant::now(),
+            None,
+            None,
+            &bounded,
+        );
+
+        assert_ne!(
+            r1.signature.0, r2.signature.0,
+            "as_of bound must enter the signed bytes: unbounded and bounded receipts cannot share a signature"
+        );
+
+        // Each must independently verify against the responder pubkey
+        // via the public /v1/verify_receipt path (covers the verifier's
+        // own rebuild rule for both branches).
+        for r in [r1, r2] {
+            let v = post_verify_receipt(
+                State(s.clone()),
+                Ok(Json(VerifyReceiptReq {
+                    receipt: r,
+                    pubkey_b32: None,
+                    current_responder_epoch: None,
+                })),
+            )
+            .await
+            .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
+            .unwrap();
+            assert_eq!(
+                v.0.get("valid").and_then(|x| x.as_bool()),
+                Some(true),
+                "each receipt must verify independently"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn manifest_versions_bound_in_preimage() {
+        // F3: source_versions is now part of the signed bytes. A
+        // receipt whose body claims X manifests but signature was built
+        // for empty manifests must fail verification.
+        use std::time::Instant;
+        let s = test_app_state();
+        let mut r = s.sign_receipt(
+            "emem.recall",
+            vec!["defi.zb592.nemu.zEvE".to_string()],
+            vec![],
+            false,
+            Instant::now(),
+            None,
+        );
+
+        // Receipt must verify as-signed.
+        let v_ok = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: r.clone(),
+                pubkey_b32: None,
+                current_responder_epoch: None,
+            })),
+        )
+        .await
+        .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(
+            v_ok.0.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "fresh receipt must verify"
+        );
+
+        // Tamper: rewrite source_versions in the body to a different
+        // manifest set. Pre-fix this would still verify because the
+        // map wasn't signed; post-fix it must fail.
+        r.source_versions
+            .insert("registry_cid".into(), "tampered-registry-cid".into());
+
+        let v_bad = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: r,
+                pubkey_b32: None,
+                current_responder_epoch: None,
+            })),
+        )
+        .await
+        .map_err(|e| format!("verify: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(
+            v_bad.0.get("valid").and_then(|x| x.as_bool()),
+            Some(false),
+            "tampered source_versions must break the signature"
+        );
+    }
+
+    #[tokio::test]
+    async fn key_epoch_advisory_reports_stale_and_future() {
+        // F5: current_responder_epoch is advisory. The verifier never
+        // rejects on mismatch but surfaces a `key_epoch_advisory`
+        // string so an agent can branch on it.
+        use std::time::Instant;
+        let s = test_app_state();
+        let r = s.sign_receipt(
+            "emem.recall",
+            vec!["defi.zb592.nemu.zEvE".to_string()],
+            vec![],
+            false,
+            Instant::now(),
+            None,
+        );
+        let signing_epoch = r.responder_key_epoch.0;
+
+        // Same epoch → no advisory or "current"-class advisory.
+        let v_same = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: r.clone(),
+                pubkey_b32: None,
+                current_responder_epoch: Some(signing_epoch),
+            })),
+        )
+        .await
+        .unwrap();
+        let adv_same = v_same
+            .0
+            .get("key_epoch_advisory")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        assert!(
+            !adv_same.starts_with("stale") && !adv_same.starts_with("future"),
+            "same-epoch must not produce stale/future advisory, got: {adv_same:?}"
+        );
+
+        // future epoch (signing_epoch + 1) → advisory must call this
+        // out so an agent knows the responder has rotated keys.
+        let v_future = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: r,
+                pubkey_b32: None,
+                current_responder_epoch: Some(signing_epoch + 1),
+            })),
+        )
+        .await
+        .unwrap();
+        let adv_future = v_future
+            .0
+            .get("key_epoch_advisory")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        assert!(
+            adv_future.starts_with("stale") || adv_future.starts_with("future"),
+            "future-epoch verify must produce stale/future advisory, got: {adv_future:?}"
+        );
+        // The receipt is still valid — advisory does NOT flip valid.
+        assert_eq!(
+            v_future.0.get("valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "advisory must not reject the receipt's signature"
+        );
     }
 }
