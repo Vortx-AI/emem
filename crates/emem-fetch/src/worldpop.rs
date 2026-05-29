@@ -47,9 +47,41 @@
 //! ocean / unpopulated terrain. Callers must distinguish that from an
 //! upstream failure; this module surfaces a structured `EmptyAoi`
 //! variant so the caller can sign an Absence fact rather than a zero.
+//!
+//! ## Per-country COG path (`fetch_population_density_via_cog`)
+//!
+//! In addition to the legacy stats-API path the module exposes a
+//! **per-country COG** fetcher that range-reads the WorldPop per-country
+//! 1 km UN-adjusted rasters published at
+//!
+//! ```text
+//! https://data.worldpop.org/GIS/Population/Global_2000_2020_1km_UNadj/
+//!   {year}/{ISO3_upper}/{iso3_lower}_ppp_{year}_1km_Aggregated_UNadj.tif
+//! ```
+//!
+//! These per-country files DO honour `Range:` requests (unlike the
+//! global mosaic flagged above), so the standard `crate::cog` sampler
+//! works end-to-end. The win over the stats-API path is enormous: one
+//! COG profile + tile read per country amortises across every cell in
+//! that country (via `cog::PROFILE_CACHE` + `TILE_CACHE`), turning a
+//! 100-cell regional polygon recall from 100 rate-limited round-trips
+//! (~2 min, often 429s) into one HTTP range read (~1 s warm).
+//!
+//! The COG path requires a lat/lng → ISO-3 lookup; that lives in
+//! `crate::countries::iso3_lower_for_point`. Cells over open ocean / far
+//! from any populated place return `None` from that helper, which the
+//! materialiser surfaces as `EmptyAoi` (the same signed-Absence path
+//! the stats-API ocean case uses).
+//!
+//! The stats-API fetcher remains as a fallback for **transient COG
+//! errors only** — coverage gaps (the country COG isn't published,
+//! e.g. some tiny territories) stay honest via signed-Absence so a
+//! verifier doesn't see one responder pick the stats API while another
+//! signs an Absence for the same cell.
 
 use std::time::Duration;
 
+use reqwest::Client;
 use serde::Deserialize;
 
 /// Errors specific to the WorldPop fetcher.
@@ -72,6 +104,19 @@ pub enum WorldPopError {
     /// and unpopulated terrain this is the correct, non-Primary answer.
     #[error("empty aoi: total_population=0 for window centred on ({lat:.6},{lng:.6})")]
     EmptyAoi { lat: f64, lng: f64 },
+    /// No per-country COG covers this point. Either the lat/lng falls
+    /// far from any populated place (mid-ocean, polar interior) so no
+    /// ISO-3 resolves, or the resolved ISO-3 has no published COG for
+    /// the requested year. Materialiser signs an Absence fact, identical
+    /// to the `EmptyAoi` semantics — the cell genuinely has no WorldPop
+    /// coverage.
+    #[error("no per-country COG covers ({lat:.6},{lng:.6}) at year {year}")]
+    NoCogCoverage { lat: f64, lng: f64, year: u16 },
+    /// COG decode / range read failed for some reason other than a
+    /// coverage gap. Callers may retry the stats-API path on this
+    /// variant; persistent failures bubble up as a Transport error.
+    #[error("cog failure for {url}: {detail}")]
+    CogFailure { url: String, detail: String },
 }
 
 /// Response envelope returned by `/v1/services/stats` (sync mode).
@@ -162,6 +207,151 @@ pub const WORLDPOP_YEARS: std::ops::RangeInclusive<u16> = 2000..=2020;
 /// does not specify one. 2020 is the latest year the WorldPop Stats
 /// API serves for the `wpgppop` (100 m global per-country) product.
 pub const WORLDPOP_DEFAULT_YEAR: u16 = 2020;
+
+/// Per-country COG base path. WorldPop publishes the UN-adjusted 1 km
+/// aggregated population rasters one COG per ISO-3 country code per
+/// year, all under this prefix.
+///
+/// Reference URL (Bangladesh, 2020):
+/// `https://data.worldpop.org/GIS/Population/Global_2000_2020_1km_UNadj/2020/BGD/bgd_ppp_2020_1km_Aggregated_UNadj.tif`
+const WORLDPOP_COG_BASE: &str =
+    "https://data.worldpop.org/GIS/Population/Global_2000_2020_1km_UNadj";
+
+/// Compose the WorldPop per-country 1 km UN-adjusted aggregated COG
+/// URL for the given ISO-3 country code and vintage `year`.
+///
+/// Returns `None` when:
+/// - `year` falls outside [`WORLDPOP_YEARS`] (2000..=2020);
+/// - `iso3` is not exactly three ASCII letters (the WorldPop URL space
+///   is keyed strictly on ISO-3166 alpha-3).
+///
+/// Both the path segment and the filename are case-sensitive on the
+/// upstream Apache server; this helper normalises to upper-case for the
+/// directory segment and lower-case for the filename, matching
+/// WorldPop's published convention.
+///
+/// Pure — no I/O. Returned URL points at a tile that exists for every
+/// ISO-3 with published WorldPop coverage; a small handful of tiny
+/// territories return 404, which the materialiser surfaces as Absence.
+pub fn tile_url_for(iso3: &str, year: u16) -> Option<String> {
+    if !WORLDPOP_YEARS.contains(&year) {
+        return None;
+    }
+    let trimmed = iso3.trim();
+    if trimmed.len() != 3 || !trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let iso3_upper = trimmed.to_ascii_uppercase();
+    let iso3_lower = trimmed.to_ascii_lowercase();
+    Some(format!(
+        "{base}/{year}/{iso3_upper}/{iso3_lower}_ppp_{year}_1km_Aggregated_UNadj.tif",
+        base = WORLDPOP_COG_BASE,
+    ))
+}
+
+/// Fetch persons-per-square-kilometre for one (lat, lng) by sampling
+/// the WorldPop per-country 1 km UN-adjusted aggregated COG.
+///
+/// Path: resolve ISO-3 from the point via
+/// [`crate::countries::iso3_lower_for_point`], compose the per-country
+/// URL via [`tile_url_for`], open the COG profile (cached), and
+/// `cog::sample_pixel` the value. The returned `f64` is the WorldPop
+/// pixel value at the cell centre — already in persons · km⁻² for the
+/// 1 km Aggregated UNadj product.
+///
+/// Error semantics:
+/// - `NoCogCoverage` — point doesn't resolve into a published country
+///   COG (open ocean, polar, or country without coverage).
+/// - `EmptyAoi` — pixel value is 0 / NoData (preserves the same
+///   signed-Absence path the stats-API fetcher uses).
+/// - `CogFailure` — COG fetch / decode failed for non-coverage reasons;
+///   the caller may retry the legacy stats-API path.
+pub async fn fetch_population_density_via_cog(
+    client: &Client,
+    lat: f64,
+    lng: f64,
+    year: u16,
+) -> Result<WorldPopSample, WorldPopError> {
+    if !WORLDPOP_YEARS.contains(&year) {
+        return Err(WorldPopError::NoCogCoverage { lat, lng, year });
+    }
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+        return Err(WorldPopError::Upstream(format!(
+            "invalid lat/lng: ({lat},{lng})"
+        )));
+    }
+    let iso3 = match crate::countries::iso3_lower_for_point(lat, lng) {
+        Some(s) => s,
+        None => return Err(WorldPopError::NoCogCoverage { lat, lng, year }),
+    };
+    let url = tile_url_for(&iso3, year).ok_or(WorldPopError::NoCogCoverage { lat, lng, year })?;
+
+    let profile = crate::cog::open_profile(client, &url)
+        .await
+        .map_err(|e| classify_cog_err(e, &url, lat, lng, year))?;
+    // EPSG:4326 — WorldPop publishes WGS84 lat/lng-aligned COGs. The
+    // sampler reads `(world_x, world_y)` so we pass `(lng, lat)`.
+    let raw = crate::cog::sample_pixel(client, &url, &profile, lng, lat)
+        .await
+        .map_err(|e| classify_cog_err(e, &url, lat, lng, year))?;
+    if !raw.is_finite() {
+        return Err(WorldPopError::Malformed(format!(
+            "non-finite pixel value {raw} from {url}"
+        )));
+    }
+    // WorldPop's per-country UNadj 1 km rasters encode persons per
+    // pixel. The 1 km pixel area equals 1 km² at the WGS84 equator and
+    // ~cos(lat) · 1 km² further north/south; the product's published
+    // semantics are "persons per 1 km² grid cell", with WorldPop
+    // documenting the 1 km grid as the analytic unit. We surface the
+    // raw cell value as people · km⁻² to match the existing stats-API
+    // semantics (the stats-API integrates over a 1 km² AOI window and
+    // returns the same scalar).
+    let nodata_sentinel = profile
+        .nodata
+        .as_deref()
+        .and_then(|s| s.trim().parse::<f64>().ok());
+    let is_nodata = match nodata_sentinel {
+        Some(n) if n.is_finite() => (raw - n).abs() < 1e-3,
+        // WorldPop's typical NoData is `-99999`; honour it defensively
+        // even when the tag is missing or unparsable.
+        _ => raw <= -99_998.0,
+    };
+    if is_nodata || raw <= 0.0 {
+        return Err(WorldPopError::EmptyAoi { lat, lng });
+    }
+    Ok(WorldPopSample {
+        people_per_km2: raw,
+        upstream_url: url,
+        dataset: "wpgppop",
+        year,
+    })
+}
+
+/// Translate a `cog::CogError` into the appropriate `WorldPopError`
+/// variant. A 404 / range failure on the per-country path means
+/// "WorldPop doesn't publish a COG for this country/year" → coverage
+/// gap; everything else stays as a `CogFailure` so the caller can
+/// decide whether to retry the stats-API path.
+fn classify_cog_err(
+    e: crate::cog::CogError,
+    url: &str,
+    lat: f64,
+    lng: f64,
+    year: u16,
+) -> WorldPopError {
+    let s = e.to_string();
+    // Heuristic 404 / not-found mapping. The cog::http_range layer
+    // surfaces non-2xx as `Transport("status NNN for range ... on URL")`
+    // — substring match is the cheapest, dep-free way to classify.
+    if s.contains(" 404 ") || s.contains("status 404") || s.contains("Not Found") {
+        return WorldPopError::NoCogCoverage { lat, lng, year };
+    }
+    WorldPopError::CogFailure {
+        url: url.to_string(),
+        detail: s,
+    }
+}
 
 /// Fetch persons-per-square-kilometre for a single cell using the
 /// default vintage ([`WORLDPOP_DEFAULT_YEAR`]).
@@ -382,6 +572,61 @@ mod tests {
         // Header + footer present.
         assert!(geo.starts_with(r#"{"type":"Polygon","coordinates":[[["#));
         assert!(geo.ends_with("]]]}"));
+    }
+
+    /// `tile_url_for` returns the data.worldpop.org per-country COG URL
+    /// for a valid ISO-3 + supported year, with the directory segment
+    /// upper-cased and the filename segment lower-cased.
+    #[test]
+    fn tile_url_for_returns_data_worldpop_org_path() {
+        let url = tile_url_for("usa", 2020).expect("USA / 2020 must return a URL");
+        assert!(
+            url.starts_with("https://data.worldpop.org/"),
+            "URL must point at data.worldpop.org, got {url}"
+        );
+        assert!(
+            url.contains("/2020/USA/"),
+            "missing /YEAR/ISO3/ segment: {url}"
+        );
+        assert!(
+            url.contains("usa_ppp_2020_1km_Aggregated_UNadj.tif"),
+            "wrong filename: {url}"
+        );
+
+        // Upper-case ISO-3 input must round-trip to the same URL.
+        let upper = tile_url_for("USA", 2020).unwrap();
+        assert_eq!(upper, url, "case normalisation broken");
+
+        // Mixed case still works.
+        let mixed = tile_url_for("UsA", 2020).unwrap();
+        assert_eq!(mixed, url);
+    }
+
+    /// Years outside the 2000..=2020 WorldPop range must return `None`.
+    #[test]
+    fn tile_url_for_rejects_years_outside_supported_range() {
+        // Below the lower bound.
+        assert!(tile_url_for("USA", 1999).is_none());
+        // Above the upper bound.
+        assert!(tile_url_for("USA", 2021).is_none());
+        assert!(tile_url_for("USA", 2025).is_none());
+        // Endpoints inclusive — these MUST succeed.
+        assert!(tile_url_for("USA", 2000).is_some());
+        assert!(tile_url_for("USA", 2020).is_some());
+    }
+
+    /// Malformed ISO-3 inputs return `None` (defensive — caller mis-wire
+    /// would otherwise produce a bogus URL that 404s noisily).
+    #[test]
+    fn tile_url_for_rejects_malformed_iso3() {
+        // Empty.
+        assert!(tile_url_for("", 2020).is_none());
+        // Wrong length.
+        assert!(tile_url_for("US", 2020).is_none());
+        assert!(tile_url_for("USAA", 2020).is_none());
+        // Non-alphabetic.
+        assert!(tile_url_for("U2A", 2020).is_none());
+        assert!(tile_url_for("US ", 2020).is_none());
     }
 
     /// Network-gated end-to-end smoke test. Disabled by default

@@ -208,6 +208,24 @@
       "sources": [{ "scheme": "chirps.daily.v2", "tempo": "fast" }],
       "formula": "chirps_v2_0_daily_cog_pixel(lat,lng,year,month,day) → mm/day (Float32, NoData=-9999.0); ±50° latitude clip, 1981-01-01 → today−30d coverage",
       "deterministic": true
+    },
+    {
+      "key": "worldpop_wpgppop_v1_stats@1",
+      "kind": "primary",
+      "out_band": "population",
+      "out_unit": "people_per_km2",
+      "sources": [{ "scheme": "worldpop.global.1km", "tempo": "slow" }],
+      "formula": "worldpop_stats_api(dataset=wpgppop,year,geojson=aoi_polygon(lat,lng,1km²)) → data.total_population; persons integrated over the 1 km² window equals people·km⁻² for the AOI. Citation: WorldPop Global per-country 100 m, Tatem 2017 (DOI:10.1038/sdata.2017.4). Data licence: CC BY 4.0. Rate-limited fallback path; prefer worldpop_wpgppop_cog_pixel@1.",
+      "deterministic": true
+    },
+    {
+      "key": "worldpop_wpgppop_cog_pixel@1",
+      "kind": "primary",
+      "out_band": "population",
+      "out_unit": "people_per_km2",
+      "sources": [{ "scheme": "worldpop.global.1km", "tempo": "slow" }],
+      "formula": "cog_sample_pixel(data.worldpop.org/.../Global_2000_2020_1km_UNadj/{year}/{ISO3}/{iso3}_ppp_{year}_1km_Aggregated_UNadj.tif, lat, lng) → people·km⁻² (Float32, NoData≈-99999). ISO-3 resolved via countries::iso3_lower_for_point(lat,lng); years 2000..=2020. Citation: WorldPop Global per-country 100 m, Tatem 2017 (DOI:10.1038/sdata.2017.4). Data licence: CC BY 4.0.",
+      "deterministic": true
     }
   ]
 }

@@ -23656,31 +23656,116 @@ async fn materialize_koppen(cell64: &str, s: &AppState) -> Result<emem_fact::Fac
 // ---------------- WorldPop population materializer ----------------
 //
 // WorldPop's `wpgppop` 100 m global per-country product is the canonical
-// open-data answer to "how many people live here". We materialise via the
-// public anonymous REST endpoint at api.worldpop.org/v1/services/stats —
-// the static GeoTIFF mosaic on data.worldpop.org advertises Range support
-// but in practice returns the full ~870 MB body for every Range request,
-// so vsicurl COG sampling is unusable. The Stats API integrates over a
-// 1 km² AOI window centred on the cell and returns persons-per-km²;
-// see `emem_fetch::worldpop` for the AOI math.
+// open-data answer to "how many people live here". As of the per-country
+// COG migration we sample from the per-ISO3 1 km UN-adjusted aggregated
+// rasters at
+//
+//   data.worldpop.org/.../Global_2000_2020_1km_UNadj/{year}/{ISO3}/...
+//
+// which DO honour `Range:` requests (unlike the global mosaic) and so are
+// drivable via the standard `emem_fetch::cog` sampler. The win is large:
+// the legacy stats-API path was rate-limited at ~50 req/min, so a 100-cell
+// regional polygon recall triggered ~100 round-trips and tripped 429s. The
+// per-country COG path range-reads once per (ISO-3, year) — every other
+// cell in the same country lands in `cog::TILE_CACHE` for free.
+//
+// Fallback policy: on a transient COG-side failure (network blip, codec
+// surprise) we fall through to the legacy stats-API path so a single 5xx
+// from data.worldpop.org doesn't blank the band. Coverage gaps (the
+// lat/lng falls over open ocean, polar interior, or a country WorldPop
+// doesn't publish) stay honest via signed-Absence — both paths sign the
+// same NegativeFact shape there. Receipts signed under the legacy fn_key
+// `worldpop_wpgppop_v1_stats@1` continue to verify byte-identically; the
+// COG path emits a new `worldpop_wpgppop_cog_pixel@1` fn_key + new
+// source.scheme so an inspector can tell the paths apart.
 //
 // The signed `Fact` carries:
 //   - `value`     → people_per_km2 as CBOR Float (f64)
 //   - `unit`      → "people_per_km2"
-//   - `derivation` → ["worldpop_wpgppop_v1_stats@1", lat, lng, year]
-//   - `sources[0]` → fully-resolved REST URL the responder hit
+//   - `derivation` → ["worldpop_wpgppop_cog_pixel@1", lat, lng, year]  (COG path)
+//                  or ["worldpop_wpgppop_v1_stats@1", lat, lng, year]   (stats-API fallback)
+//   - `sources[0]` → fully-resolved upstream URL the responder hit
 //
-// `WorldPopError::EmptyAoi` (the API's documented "no people in this
-// 1 km² window" outcome — ocean, polar, uninhabited terrain) signs an
-// `Absence` with a structured `reason_cid` rather than a synthetic 0.
-// All other error variants return an honest transport error.
+// `WorldPopError::EmptyAoi` (the documented "no people here" outcome —
+// ocean, polar, uninhabited terrain) signs an `Absence` with a
+// structured `reason_cid` rather than a synthetic 0. All other error
+// variants return an honest transport error.
 async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let cli = s2_http_client();
     let signed_at = chrono_iso8601_utc();
+    let year = emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR;
 
+    // Try the per-country COG path first. This is the fast, non-rate-
+    // limited path; one upstream range read amortises across every cell
+    // in the same ISO-3 / year combination via `cog::TILE_CACHE`.
+    match emem_fetch::worldpop::fetch_population_density_via_cog(&cli, lat, lng, year).await {
+        Ok(sample) => {
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: "population".into(),
+                tslot: tslot_for_year(sample.year as i32, "population"),
+                value: ciborium::Value::Float(sample.people_per_km2),
+                unit: Some("people_per_km2".into()),
+                confidence: 0.85,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "worldpop.wpgppop.cog.v1".into(),
+                    id: sample.upstream_url.clone(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some(signed_at.clone()),
+                    url: Some(sample.upstream_url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "worldpop_wpgppop_cog_pixel@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((sample.year as i64).into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            return sign_and_persist(s, fact, &signed_at).await;
+        }
+        Err(
+            emem_fetch::worldpop::WorldPopError::EmptyAoi { lat, lng }
+            | emem_fetch::worldpop::WorldPopError::NoCogCoverage { lat, lng, year: _ },
+        ) => {
+            // Both variants are signed-Absence outcomes — the cell has
+            // no per-country COG coverage (open ocean / polar / no
+            // published country COG), or the resolved COG returned 0 /
+            // NoData for the pixel (genuinely uninhabited).
+            return sign_population_absence(s, cell64, lat, lng, year, &signed_at).await;
+        }
+        Err(emem_fetch::worldpop::WorldPopError::CogFailure { url: _, detail: _ }) => {
+            // Transient COG-side failure (network blip, codec surprise).
+            // Fall through to the stats-API path so a single 5xx from
+            // data.worldpop.org doesn't blank the band.
+            tracing::info!(
+                target: "emem::worldpop",
+                lat,
+                lng,
+                year,
+                "worldpop COG path failed; falling back to stats-API"
+            );
+        }
+        Err(e) => {
+            // Hard error from the COG path (malformed input, year out
+            // of range, …). These aren't transient — surface them.
+            return Err(format!("worldpop cog fetch failed: {e}"));
+        }
+    }
+
+    // Stats-API fallback — preserves byte-identical fact shape under the
+    // legacy fn_key so existing receipts continue to verify.
     match emem_fetch::worldpop::fetch_population_density(&cli, lat, lng).await {
         Ok(sample) => {
             let fact = Fact::Primary(PrimaryFact {
@@ -23716,46 +23801,54 @@ async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact:
             sign_and_persist(s, fact, &signed_at).await
         }
         Err(emem_fetch::worldpop::WorldPopError::EmptyAoi { lat, lng }) => {
-            let reason = format!(
-                "worldpop_empty_aoi: WorldPop wpgppop v1 (year {year}) returned \
-                 total_population=0 for the 1 km² AOI window centred on \
-                 ({lat:.6},{lng:.6}). This is the API's documented signal for \
-                 cells that fall over open ocean, polar interior, or genuinely \
-                 uninhabited terrain. Source: api.worldpop.org/v1/services/stats \
-                 wpgppop (WorldPop Global per-country 100 m, Tatem 2017).",
-                year = emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR,
-            );
-            let reason_cid = reason_cid_for(&reason);
-            let fact = Fact::Absence(NegativeFact {
-                cell: cell64.to_string(),
-                band: "population".into(),
-                tslot: tslot_for_year(
-                    emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR as i32,
-                    "population",
-                ),
-                reason_cid,
-                confidence: 1.0,
-                sources: vec![Source {
-                    scheme: "worldpop.wpgppop.v1".into(),
-                    id: format!(
-                        "api.worldpop.org/v1/services/stats wpgppop {} ({:.6},{:.6})",
-                        emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR,
-                        lat,
-                        lng
-                    ),
-                    cid: None,
-                    hash: None,
-                    captured_at: Some(signed_at.clone()),
-                    url: Some("https://api.worldpop.org/v1/services/stats".into()),
-                }],
-                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-                signer: s.identity.pubkey,
-                signed_at: signed_at.clone(),
-            });
-            sign_and_persist(s, fact, &signed_at).await
+            sign_population_absence(s, cell64, lat, lng, year, &signed_at).await
         }
         Err(e) => Err(format!("worldpop fetch failed: {e}")),
     }
+}
+
+/// Sign a `population` Absence fact with the canonical reason text.
+///
+/// Shared between the COG path (`NoCogCoverage` / `EmptyAoi`) and the
+/// stats-API fallback path so a cell that has no WorldPop coverage
+/// signs the same shape regardless of which fetcher returned first.
+async fn sign_population_absence(
+    s: &AppState,
+    cell64: &str,
+    lat: f64,
+    lng: f64,
+    year: u16,
+    signed_at: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let reason = format!(
+        "worldpop_empty_aoi: WorldPop wpgppop (year {year}) returned no \
+         positive value for the 1 km² window centred on ({lat:.6},{lng:.6}). \
+         This is the documented signal for cells that fall over open ocean, \
+         polar interior, or genuinely uninhabited terrain, or whose ISO-3 \
+         country has no published per-country COG for this year. Source: \
+         data.worldpop.org wpgppop (WorldPop Global per-country 100 m, \
+         Tatem 2017).",
+    );
+    let reason_cid = reason_cid_for(&reason);
+    let fact = Fact::Absence(NegativeFact {
+        cell: cell64.to_string(),
+        band: "population".into(),
+        tslot: tslot_for_year(year as i32, "population"),
+        reason_cid,
+        confidence: 1.0,
+        sources: vec![Source {
+            scheme: "worldpop.wpgppop.v1".into(),
+            id: format!("api.worldpop.org/v1/services/stats wpgppop {year} ({lat:.6},{lng:.6})",),
+            cid: None,
+            hash: None,
+            captured_at: Some(signed_at.to_string()),
+            url: Some("https://api.worldpop.org/v1/services/stats".into()),
+        }],
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.to_string(),
+    });
+    sign_and_persist(s, fact, signed_at).await
 }
 
 // ---------------- WDPA / protected-area materializer ----------------
@@ -32967,6 +33060,26 @@ fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Opti
         "copdem30m.elevation_mean" => Some(emem_fetch::copernicus_dem::tile_url_for(
             centre_lat, centre_lng,
         )),
+        // WorldPop per-country 1 km UN-adjusted aggregated population
+        // COG. The complication vs the other arms: WorldPop publishes
+        // one COG per ISO-3 country code, NOT per geographic bbox tile.
+        // For a polygon that spans multiple countries we can only
+        // prewarm ONE country's COG here — we resolve the bbox-centroid
+        // to its ISO-3 and warm that country's tile. Per-cell fan-out
+        // then pays the upstream cost on the per-country COGs for any
+        // other countries the polygon dips into. That's a net win on
+        // the common case (most user polygons lie within one country —
+        // EUDR plots are sub-hectare; hunt anchors stay sub-continental
+        // by construction) and a no-op-regression on multi-country
+        // polygons (per-cell path handles them unchanged).
+        //
+        // Returns None for points that don't reverse-geocode to any
+        // populated country within the geonames cap — mid-ocean / polar
+        // cells where the per-cell path will sign Absence anyway.
+        "population" => {
+            let iso3 = emem_fetch::countries::iso3_lower_for_point(centre_lat, centre_lng)?;
+            emem_fetch::worldpop::tile_url_for(&iso3, emem_fetch::worldpop::WORLDPOP_DEFAULT_YEAR)
+        }
         // CHIRPS daily / monthly precip — global COG per epoch. We
         // can't pick a date here without the request context, so the
         // prewarm declines; the per-cell materializer still handles it.

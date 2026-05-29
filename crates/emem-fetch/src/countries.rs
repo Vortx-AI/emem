@@ -269,6 +269,42 @@ pub fn lookup(query: &str) -> Option<&'static CountryRecord> {
     Some(&idx.records[*i])
 }
 
+/// Reverse-geocode a (lat, lng) to the ISO-3166 alpha-3 country code.
+///
+/// Strategy: defer to [`crate::geonames::nearest_label`] which scans the
+/// embedded cities1000 corpus for the closest populated place and reads
+/// its `country` (ISO-2). We then translate that ISO-2 to the ISO-3 the
+/// caller wants via the country lookup index.
+///
+/// Returns `None` when:
+/// - no populated place is within `max_km` (open ocean, polar interior,
+///   genuinely uninhabited terrain — exactly the cases where WorldPop
+///   itself has no per-country COG, so signed-Absence is the right
+///   downstream path);
+/// - the nearest populated place's ISO-2 doesn't resolve into the
+///   country index (rare; misaligned snapshots).
+///
+/// `max_km` caps the search radius. WorldPop ships per-country COGs;
+/// passing 1500 km gives every continent-attached cell a hit while still
+/// rejecting mid-ocean / polar cells whose nearest land is far enough
+/// that picking a country is more wrong than honest "no coverage".
+pub fn country_for_point(lat: f64, lng: f64, max_km: f64) -> Option<&'static CountryRecord> {
+    let (rec, _d) = crate::geonames::nearest_label(lat, lng, max_km)?;
+    if rec.country.is_empty() {
+        return None;
+    }
+    lookup(&rec.country)
+}
+
+/// Convenience helper specialised for "give me the ISO-3 code for this
+/// point if there is any land within ~1500 km".
+///
+/// Lower-cased, since the WorldPop per-country COG URL uses lower-case
+/// in the filename segment.
+pub fn iso3_lower_for_point(lat: f64, lng: f64) -> Option<String> {
+    country_for_point(lat, lng, 1500.0).map(|c| c.iso3.to_ascii_lowercase())
+}
+
 /// Indexed country count. Surfaced via `/v1/capabilities` so a
 /// federation peer can detect that two responders are serving
 /// different country-table vintages.
@@ -324,6 +360,32 @@ mod tests {
     fn unknown_returns_none() {
         assert!(lookup("zzqxgzqxg-not-a-country").is_none());
         assert!(lookup("").is_none());
+    }
+
+    #[test]
+    fn country_for_point_resolves_known_cities() {
+        // Dhaka, Bangladesh — must resolve to BGD.
+        let bd = country_for_point(23.8103, 90.4125, 1500.0).expect("Dhaka must hit a country");
+        assert_eq!(bd.iso3, "BGD");
+        // NYC, USA.
+        let us = country_for_point(40.7128, -74.0060, 1500.0).expect("NYC must hit a country");
+        assert_eq!(us.iso3, "USA");
+    }
+
+    #[test]
+    fn country_for_point_misses_remote_ocean() {
+        // Mid-Pacific gyre — no populated place within 500 km. The cap
+        // is intentionally tight here so the test asserts the bounding
+        // behaviour without depending on the cities1000 sparsity at
+        // 1500 km.
+        let r = country_for_point(30.0, -150.0, 500.0);
+        assert!(r.is_none(), "expected None over mid-Pacific, got {r:?}");
+    }
+
+    #[test]
+    fn iso3_lower_for_point_is_lower_case() {
+        let s = iso3_lower_for_point(40.7128, -74.0060).expect("NYC must resolve");
+        assert_eq!(s, "usa");
     }
 
     #[test]
