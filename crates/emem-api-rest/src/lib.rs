@@ -7819,6 +7819,11 @@ async fn boring_recall_aggregated(
         let n_missing = n_total.saturating_sub(n_present);
         // Split Primary vs Absence — only Primary feeds numeric stats.
         let mut primary_values: Vec<JsonValue> = Vec::with_capacity(entries.len());
+        // Parallel array of cell64 strings for every entry in `primary_values`.
+        // Used by `aggregate_band` to compute the cos(lat) equal-area weight
+        // per cell — see the helper in emem_codec::geo for the bias this
+        // removes.
+        let mut primary_cells: Vec<String> = Vec::with_capacity(entries.len());
         let mut fact_cids: Vec<String> = Vec::with_capacity(entries.len());
         let mut signed_ats: Vec<String> = Vec::with_capacity(entries.len());
         let mut absence_count = 0usize;
@@ -7850,6 +7855,7 @@ async fn boring_recall_aggregated(
             match &e.fact {
                 emem_fact::Fact::Primary(p) => {
                     primary_values.push(ciborium_to_json(&p.value));
+                    primary_cells.push(e.cell.clone());
                     if sample_unit.is_none() {
                         sample_unit = p.unit.clone();
                     }
@@ -7869,8 +7875,13 @@ async fn boring_recall_aggregated(
         total_missing += n_missing_eff;
         total_attempts += n_total;
 
-        let (aggregator, headline, stats, kind_str, extra) =
-            aggregate_band(kind, &primary_values, n_present, n_missing_eff);
+        let (aggregator, headline, stats, kind_str, extra) = aggregate_band(
+            kind,
+            &primary_cells,
+            &primary_values,
+            n_present,
+            n_missing_eff,
+        );
 
         let captured_at_range = if signed_ats.is_empty() {
             JsonValue::Null
@@ -7930,14 +7941,16 @@ async fn boring_recall_aggregated(
         if let Some(map) = block.as_object_mut() {
             for (k, v) in extra {
                 // For categorical bands, transform `class_distribution`
-                // from {"50":12} to {"50":{"label":"Built-up","count":12}}
+                // from {"50":0.245} to {"50":{"label":"Built-up","share":0.245}}
                 // so the LLM doesn't have to cross-reference class IDs
-                // with the band metadata to render a histogram.
+                // with the band metadata to render a histogram. Values
+                // are equal-area shares (Σ = 1.0) under the cos(lat)
+                // weighting introduced in `aggregate_band`.
                 if k == "class_distribution" && class_decode_for(band).is_some() {
                     if let Some(obj) = v.as_object() {
                         let decoded: serde_json::Map<String, JsonValue> = obj
                             .iter()
-                            .map(|(class_id_str, count)| {
+                            .map(|(class_id_str, share)| {
                                 let label = class_id_str
                                     .parse::<i64>()
                                     .ok()
@@ -7945,7 +7958,7 @@ async fn boring_recall_aggregated(
                                     .unwrap_or_else(|| "unknown".to_string());
                                 (
                                     class_id_str.clone(),
-                                    json!({"label": label, "count": count}),
+                                    json!({"label": label, "share": share}),
                                 )
                             })
                             .collect();
@@ -8190,8 +8203,17 @@ async fn boring_recall_aggregated(
 /// `(aggregator_name, headline_value, stats_block, kind_string, extra_kv)`.
 /// Extra fields (e.g. `class_distribution`) are merged into the band
 /// block; keeps the caller flat.
+///
+/// `cells` is a parallel array to `values` — cell64 string per primary
+/// fact. Used by NumericScalar and Categorical to compute the cos(lat)
+/// equal-area weight: a 60° N cell covers ~50% the m² of an equator
+/// cell, so weighting every cell equally (the old `sum / n` math) biases
+/// the headline mean and the class-share distribution toward polar
+/// cells. Order statistics (median/min/max) don't change under
+/// reweighting and stay count-based.
 fn aggregate_band(
     kind: AggKind,
+    cells: &[String],
     values: &[JsonValue],
     n_present: usize,
     n_missing_eff: usize,
@@ -8205,25 +8227,65 @@ fn aggregate_band(
     let mut extra: Vec<(String, JsonValue)> = Vec::new();
     match kind {
         AggKind::NumericScalar => {
-            let mut nums: Vec<f64> = values.iter().filter_map(|v| v.as_f64()).collect();
-            nums.retain(|x| x.is_finite());
-            if nums.is_empty() {
+            // Collect (weight, value) pairs so the cos(lat) reweighting
+            // can be applied to mean / variance below. Order statistics
+            // (median / min / max) are computed unweighted because they
+            // are invariant under monotone reweighting of samples.
+            let mut weighted: Vec<(f64, f64)> = Vec::with_capacity(values.len());
+            for (i, v) in values.iter().enumerate() {
+                let Some(x) = v.as_f64() else { continue };
+                if !x.is_finite() {
+                    continue;
+                }
+                // Cell may be missing if a future caller threads
+                // fewer cells than values; fall back to weight 1.0.
+                let w = cells
+                    .get(i)
+                    .map(|c| emem_codec::equal_area_weight_for(c))
+                    .unwrap_or(1.0);
+                weighted.push((w, x));
+            }
+            if weighted.is_empty() {
                 return (
                     "mean",
                     JsonValue::Null,
                     json!({
                         "mean":  null, "median": null, "min": null, "max": null,
                         "std":   null, "n": n_present, "n_missing": n_missing_eff,
+                        "cos_lat_weighting_applied": true,
                     }),
                     "numeric_scalar",
                     extra,
                 );
             }
-            let n = nums.len() as f64;
-            let mean = nums.iter().sum::<f64>() / n;
-            let var = nums.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+            // cos(lat) equal-area weighting: the sample cells are
+            // uniformly spaced in lat/lng degrees, so polar cells
+            // represent less real-world area per sample. Weighting by
+            // cos(centroid lat) removes the up-to-21% high-latitude
+            // bias on a 60°S–60°N polygon. See
+            // `emem_codec::equal_area_weight_for`.
+            let sum_w: f64 = weighted.iter().map(|(w, _)| *w).sum();
+            // sum_w is positive in practice (cos clamps to ≥0, and at
+            // least one finite sample exists). If it drops to 0 from a
+            // pole-only fan-out, degrade to unweighted rather than
+            // produce NaN — the caller still gets a usable headline.
+            let (mean, var) = if sum_w > 0.0 {
+                let m = weighted.iter().map(|(w, x)| w * x).sum::<f64>() / sum_w;
+                let v = weighted
+                    .iter()
+                    .map(|(w, x)| w * (x - m).powi(2))
+                    .sum::<f64>()
+                    / sum_w;
+                (m, v)
+            } else {
+                let n = weighted.len() as f64;
+                let m = weighted.iter().map(|(_, x)| *x).sum::<f64>() / n;
+                let v = weighted.iter().map(|(_, x)| (x - m).powi(2)).sum::<f64>() / n;
+                (m, v)
+            };
             let std = var.sqrt();
-            let mut sorted = nums.clone();
+            // Unweighted order statistics — see comment above.
+            let mut sorted: Vec<f64> = weighted.iter().map(|(_, x)| *x).collect();
             sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             let median = if sorted.len() % 2 == 1 {
                 sorted[sorted.len() / 2]
@@ -8237,7 +8299,8 @@ fn aggregate_band(
                 json!(mean),
                 json!({
                     "mean":  mean, "median": median, "min": min, "max": max,
-                    "std":   std, "n": nums.len(), "n_missing": n_missing_eff,
+                    "std":   std, "n": sorted.len(), "n_missing": n_missing_eff,
+                    "cos_lat_weighting_applied": true,
                 }),
                 "numeric_scalar",
                 extra,
@@ -8245,27 +8308,55 @@ fn aggregate_band(
         }
         AggKind::Categorical => {
             use std::collections::BTreeMap;
-            let mut hist: BTreeMap<i64, usize> = BTreeMap::new();
-            for v in values {
-                if let Some(i) = v.as_i64() {
-                    *hist.entry(i).or_insert(0) += 1;
-                } else if let Some(f) = v.as_f64() {
-                    *hist.entry(f as i64).or_insert(0) += 1;
-                }
+            // hist_count: raw cell counts per class (used for `n` and
+            // mode). hist_weight: cos(lat)-weighted area per class
+            // (used for class_distribution). Mode stays count-based so
+            // the headline class doesn't flip on a single polar pixel;
+            // class_distribution becomes an equal-area share so an
+            // agent computing % land-cover doesn't overstate polar
+            // classes (snow/ice/tundra) on a 60°S–60°N fan-out.
+            let mut hist_count: BTreeMap<i64, usize> = BTreeMap::new();
+            let mut hist_weight: BTreeMap<i64, f64> = BTreeMap::new();
+            for (i, v) in values.iter().enumerate() {
+                let class = if let Some(i) = v.as_i64() {
+                    Some(i)
+                } else {
+                    v.as_f64().map(|f| f as i64)
+                };
+                let Some(class) = class else { continue };
+                *hist_count.entry(class).or_insert(0) += 1;
+                let w = cells
+                    .get(i)
+                    .map(|c| emem_codec::equal_area_weight_for(c))
+                    .unwrap_or(1.0);
+                *hist_weight.entry(class).or_insert(0.0) += w;
             }
-            let mode = hist.iter().max_by_key(|(_, c)| **c).map(|(k, _)| *k);
-            let dist: serde_json::Map<String, JsonValue> = hist
-                .iter()
-                .map(|(k, v)| (k.to_string(), json!(v)))
-                .collect();
+            let mode = hist_count.iter().max_by_key(|(_, c)| **c).map(|(k, _)| *k);
+            // Normalise the weighted histogram so the distribution sums
+            // to 1.0 — share-of-area per class, not raw weight. Falls
+            // back to count-share if total weight is 0 (pole-only fan-out).
+            let total_w: f64 = hist_weight.values().sum();
+            let dist: serde_json::Map<String, JsonValue> = if total_w > 0.0 {
+                hist_weight
+                    .iter()
+                    .map(|(k, w)| (k.to_string(), json!(w / total_w)))
+                    .collect()
+            } else {
+                let total_c: usize = hist_count.values().sum();
+                hist_count
+                    .iter()
+                    .map(|(k, c)| (k.to_string(), json!(*c as f64 / total_c.max(1) as f64)))
+                    .collect()
+            };
             extra.push(("class_distribution".into(), JsonValue::Object(dist)));
-            let total: usize = hist.values().sum();
+            extra.push(("cos_lat_weighting_applied".into(), json!(true)));
+            let total: usize = hist_count.values().sum();
             (
                 "mode",
                 mode.map(|m| json!(m)).unwrap_or(JsonValue::Null),
                 json!({
                     "mode":      mode,
-                    "n_classes": hist.len(),
+                    "n_classes": hist_count.len(),
                     "n":         total,
                     "n_missing": n_missing_eff,
                 }),
@@ -41583,6 +41674,99 @@ mod tests {
         assert!(!hs_in_annex_i("500700"));
         // Outside Annex I — steel.
         assert!(!hs_in_annex_i("720449"));
+    }
+
+    #[test]
+    fn equal_area_weight_drops_to_zero_at_poles() {
+        // At the equator the weight must be ~1.0 — a unit-area cell
+        // contributes its full sample. At lat 89.99 the weight must be
+        // tiny (cos(89.99°) ≈ 1.7e-4) — a polar cell barely contributes
+        // to an equal-area mean. These are the contract the cos(lat)
+        // reweighting in `aggregate_band` relies on.
+        let equator = emem_codec::cell64_from_latlng(0.0, 0.0);
+        let pole = emem_codec::cell64_from_latlng(89.99, 0.0);
+        let w_eq = emem_codec::equal_area_weight_for(&equator);
+        let w_pole = emem_codec::equal_area_weight_for(&pole);
+        assert!(
+            (w_eq - 1.0).abs() < 1e-3,
+            "equator weight should be ≈ 1.0, got {w_eq}"
+        );
+        assert!(
+            w_pole < 1e-2,
+            "pole weight should drop to near 0, got {w_pole}"
+        );
+        // Unparseable cells fall back to 1.0 — no panic, no NaN.
+        assert!(
+            (emem_codec::equal_area_weight_for("not-a-cell64") - 1.0).abs() < 1e-12,
+            "decode failure must degrade silently to weight 1.0"
+        );
+    }
+
+    #[test]
+    fn aggregate_mean_drifts_toward_low_latitude_when_values_grow_with_latitude() {
+        // 100 cells from lat -60..+60 with value = lat. Symmetric in
+        // both reductions (unweighted mean = 0; cos(lat)-weighted mean
+        // also = 0 because weight is even in lat). Sanity that the
+        // reweighting doesn't break symmetric distributions.
+        let n: usize = 100;
+        let lats: Vec<f64> = (0..n)
+            .map(|i| -60.0 + 120.0 * (i as f64) / ((n - 1) as f64))
+            .collect();
+        let cells: Vec<String> = lats
+            .iter()
+            .enumerate()
+            .map(|(i, lat)| {
+                // Spread longitudes apart so cell64 quantisation doesn't
+                // collide neighbours into the same bucket.
+                emem_codec::cell64_from_latlng(*lat, -179.0 + 3.0 * i as f64)
+            })
+            .collect();
+        let signed_values: Vec<JsonValue> = lats.iter().map(|lat| json!(*lat)).collect();
+        let (_, headline, stats, _, _) =
+            aggregate_band(AggKind::NumericScalar, &cells, &signed_values, n, 0);
+        let mean = headline.as_f64().unwrap();
+        let unweighted_signed: f64 = lats.iter().sum::<f64>() / n as f64;
+        assert!(
+            mean.abs() < 0.5,
+            "symmetric signed-lat distribution should average to ~0, got {mean}"
+        );
+        assert!(
+            unweighted_signed.abs() < 0.5,
+            "unweighted reference mean also ~0, got {unweighted_signed}"
+        );
+        // `stats.cos_lat_weighting_applied` must be true so an agent
+        // can see the projection without re-reading docs.
+        assert_eq!(
+            stats
+                .get("cos_lat_weighting_applied")
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
+
+        // Now values = abs(lat). Unweighted mean ≈ 30 (mean of [0..60]
+        // mirrored); equal-area-weighted mean drifts down because the
+        // polar samples (where |lat| is large) get down-weighted by
+        // cos(lat). Analytical reference for the continuous case:
+        //   ∫₀^{π/3} (180/π)·u·cos(u) du / ∫₀^{π/3} cos(u) du
+        // resolves to ≈ 26.91°, which the discrete 100-cell sum
+        // approximates closely.
+        let abs_values: Vec<JsonValue> = lats.iter().map(|lat| json!(lat.abs())).collect();
+        let (_, headline_abs, _, _, _) =
+            aggregate_band(AggKind::NumericScalar, &cells, &abs_values, n, 0);
+        let mean_abs = headline_abs.as_f64().unwrap();
+        let unweighted_abs: f64 = lats.iter().map(|x| x.abs()).sum::<f64>() / n as f64;
+        assert!(
+            (unweighted_abs - 30.0).abs() < 1.0,
+            "unweighted reference mean of |lat| over -60..60 ≈ 30, got {unweighted_abs}"
+        );
+        assert!(
+            mean_abs < unweighted_abs,
+            "equal-area weighted mean must drift toward low |lat| ({mean_abs} >= {unweighted_abs})"
+        );
+        assert!(
+            (mean_abs - 26.91).abs() < 1.0,
+            "weighted mean of |lat| over -60..60 ≈ 26.9° analytically, got {mean_abs}"
+        );
     }
 
     #[test]

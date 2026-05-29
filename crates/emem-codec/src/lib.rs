@@ -24,6 +24,9 @@ pub mod vec64;
 
 pub use cell64::{from_cell64, is_cell64_shape, to_cell64};
 pub use cid64::{from_cid64, to_cid64};
-pub use geo::{cell64_from_latlng, cell_from_latlng, latlng_from_cell64, BboxDeg, LatLng};
+pub use geo::{
+    cell64_from_latlng, cell_from_latlng, equal_area_weight_for, latlng_from_cell64, BboxDeg,
+    LatLng,
+};
 pub use tslot_text::{from_tslot_text, to_tslot_text};
 pub use vec64::{to_vec64, vec64_to_cid};

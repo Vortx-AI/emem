@@ -52,6 +52,11 @@ pub struct VerifyResp {
     pub verdict: bool,
     /// CIDs of facts cited as evidence.
     pub evidence: Vec<FactCid>,
+    /// `true` when the claim's `agg=mean` path applied a cos(lat)
+    /// equal-area weight per cell. False for non-mean aggs (order
+    /// statistics aren't reweighted) or when no aggregation ran.
+    #[serde(default)]
+    pub cos_lat_weighting_applied: bool,
     /// Signed receipt.
     pub receipt: Receipt,
 }
@@ -118,17 +123,22 @@ pub async fn verify(req: &VerifyReq, srv: &Server) -> Result<VerifyResp, Storage
         .flatten()
         .collect();
 
-    let mut values: Vec<&ciborium::Value> = Vec::new();
+    // Carry the cell64 alongside each primary value so the `mean`
+    // aggregate path can apply a cos(lat) equal-area weight. Every
+    // scoped fact came from `req.cell`, so they all share the same
+    // cell — but threading it through evaluate() keeps the contract
+    // honest if a future multi-cell verify ships.
+    let mut value_pairs: Vec<(&str, &ciborium::Value)> = Vec::new();
     let mut absences = false;
     for f in &facts {
         match f {
-            Fact::Primary(p) => values.push(&p.value),
+            Fact::Primary(p) => value_pairs.push((req.cell.as_str(), &p.value)),
             Fact::Absence(_) => absences = true,
             Fact::Derivative(_) => {}
         }
     }
 
-    let verdict = evaluate(&req.claim, &values, absences);
+    let verdict = evaluate(&req.claim, &value_pairs, absences);
 
     let receipt = srv.sign_receipt(
         "emem.verify",
@@ -138,40 +148,70 @@ pub async fn verify(req: &VerifyReq, srv: &Server) -> Result<VerifyResp, Storage
         started,
         None,
     );
+    let cos_lat_weighting_applied = req.claim.agg.as_deref() == Some("mean");
     Ok(VerifyResp {
         verdict,
         evidence: cids,
+        cos_lat_weighting_applied,
         receipt,
     })
 }
 
-fn evaluate(claim: &Claim, values: &[&ciborium::Value], absences: bool) -> bool {
+fn evaluate(claim: &Claim, value_pairs: &[(&str, &ciborium::Value)], absences: bool) -> bool {
     if matches!(claim.op, Op::Exists) {
-        return !values.is_empty();
+        return !value_pairs.is_empty();
     }
     if matches!(claim.op, Op::Absent) {
         return absences;
     }
-    if values.is_empty() {
+    if value_pairs.is_empty() {
         return false;
     }
 
     let agg = claim.agg.as_deref().unwrap_or("any");
-    let per: Vec<bool> = values.iter().map(|v| eval_one(claim, v)).collect();
+    let per: Vec<bool> = value_pairs
+        .iter()
+        .map(|(_, v)| eval_one(claim, v))
+        .collect();
     match agg {
         "any" => per.iter().any(|x| *x),
         "all" => per.iter().all(|x| *x),
         // Numeric aggregates compare a fold of values to claim.value.
+        // `mean` is reweighted by cos(centroid_lat) so a multi-cell
+        // verify across a lat/lng-uniform sample doesn't over-weight
+        // polar cells — at lat 60° each cell covers half the area of
+        // an equator cell, so the unweighted mean overstates polar
+        // contributions. min/max are order statistics and don't change.
         "mean" | "min" | "max" => {
-            let nums: Vec<f64> = values
+            if agg == "mean" {
+                let weighted: Vec<(f64, f64)> = value_pairs
+                    .iter()
+                    .filter_map(|(cell, v)| {
+                        crate::cbor_ops::as_f64(v)
+                            .map(|x| (emem_codec::equal_area_weight_for(cell), x))
+                    })
+                    .collect();
+                if weighted.is_empty() {
+                    return false;
+                }
+                let sum_w: f64 = weighted.iter().map(|(w, _)| *w).sum();
+                let folded = if sum_w > 0.0 {
+                    weighted.iter().map(|(w, x)| w * x).sum::<f64>() / sum_w
+                } else {
+                    let n = weighted.len() as f64;
+                    weighted.iter().map(|(_, x)| *x).sum::<f64>() / n
+                };
+                let folded_v = ciborium::Value::Float(folded);
+                return eval_one(claim, &folded_v);
+            }
+            let nums: Vec<f64> = value_pairs
                 .iter()
-                .filter_map(|v| crate::cbor_ops::as_f64(v))
+                .filter_map(|(_, v)| crate::cbor_ops::as_f64(v))
                 .collect();
             if nums.is_empty() {
                 return false;
             }
             let folded = match agg {
-                "mean" => nums.iter().sum::<f64>() / nums.len() as f64,
                 "min" => nums.iter().cloned().fold(f64::INFINITY, f64::min),
                 "max" => nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
                 _ => unreachable!(),

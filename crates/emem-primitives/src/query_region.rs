@@ -74,6 +74,13 @@ pub struct QueryRegionResp {
     /// [`crate::recall::TemporalAdvice`] for the contract.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temporal_advice: Option<TemporalAdvice>,
+    /// `true` when `agg=mean` was reduced with a cos(lat) equal-area
+    /// weight per cell — i.e. the headline mean represents an
+    /// area-weighted average over the polygon rather than a sample-count
+    /// mean over the (lat/lng-uniform) cell grid. False when `agg` was
+    /// not `mean` or no aggregates were requested.
+    #[serde(default)]
+    pub cos_lat_weighting_applied: bool,
     /// Signed receipt.
     pub receipt: Receipt,
 }
@@ -123,6 +130,10 @@ pub async fn query_region(
 
     let mut all_facts: Vec<Fact> = Vec::new();
     let mut all_cids: Vec<FactCid> = Vec::new();
+    // Parallel to `all_facts` — the cell64 the fact was scanned from.
+    // Threaded into `aggregate` so the `mean` reducer can apply a
+    // cos(lat) equal-area weight per cell.
+    let mut all_fact_cells: Vec<String> = Vec::new();
     let mut unbounded_total: usize = 0;
     'outer: for cell in &cells {
         if all_facts.len() >= MAX_REGION_FACTS {
@@ -151,6 +162,7 @@ pub async fn query_region(
             }
             all_cids.push(cid.clone());
             all_facts.push(fact);
+            all_fact_cells.push(cell.clone());
             if all_facts.len() >= MAX_REGION_FACTS {
                 // Receipt cites only what actually contributed — the
                 // cap is honest, not a silent truncation, and the
@@ -162,7 +174,7 @@ pub async fn query_region(
 
     let aggregates = match req.agg.as_deref() {
         None => BTreeMap::new(),
-        Some(op) => aggregate(&all_facts, op)?,
+        Some(op) => aggregate(&all_facts, &all_fact_cells, op)?,
     };
 
     let temporal_advice = if all_facts.is_empty() && !bound.is_unbounded() && unbounded_total > 0 {
@@ -190,25 +202,39 @@ pub async fn query_region(
         None,
         &bound,
     );
+    let cos_lat_weighting_applied = matches!(req.agg.as_deref(), Some("mean"));
     Ok(QueryRegionResp {
         facts: all_facts,
         aggregates,
         temporal_advice,
+        cos_lat_weighting_applied,
         receipt,
     })
 }
 
-fn aggregate(facts: &[Fact], op: &str) -> Result<BTreeMap<String, ciborium::Value>, StorageError> {
-    let mut by_band: BTreeMap<String, Vec<&ciborium::Value>> = BTreeMap::new();
-    for f in facts {
+fn aggregate(
+    facts: &[Fact],
+    cells: &[String],
+    op: &str,
+) -> Result<BTreeMap<String, ciborium::Value>, StorageError> {
+    // Carry the cell64 alongside the value so the per-band mean can apply
+    // a cos(lat) equal-area weight. The cells vector is parallel to facts —
+    // see the caller. Non-Primary facts are skipped here, same as before;
+    // they don't contribute to numeric aggregates.
+    let mut by_band: BTreeMap<String, Vec<(&str, &ciborium::Value)>> = BTreeMap::new();
+    for (cell, f) in cells.iter().zip(facts.iter()) {
         if let Fact::Primary(p) = f {
-            by_band.entry(p.band.clone()).or_default().push(&p.value);
+            by_band
+                .entry(p.band.clone())
+                .or_default()
+                .push((cell.as_str(), &p.value));
         }
     }
     let mut out = BTreeMap::new();
-    for (band, values) in by_band {
+    for (band, pairs) in by_band {
+        let values: Vec<&ciborium::Value> = pairs.iter().map(|(_, v)| *v).collect();
         let agg = match op {
-            "mean" => agg_mean(&values),
+            "mean" => agg_mean(&pairs),
             "median" => agg_median(&values),
             "p90" => agg_percentile(&values, 0.90),
             "vector_centroid" => agg_vector_centroid(&values),
@@ -226,14 +252,29 @@ fn aggregate(facts: &[Fact], op: &str) -> Result<BTreeMap<String, ciborium::Valu
     Ok(out)
 }
 
-fn agg_mean(values: &[&ciborium::Value]) -> Option<ciborium::Value> {
-    let nums: Vec<f64> = values.iter().filter_map(|v| as_f64(v)).collect();
-    if nums.is_empty() {
+/// `mean` reducer for `query_region`. Applies a cos(lat) equal-area weight
+/// per cell so the headline isn't biased by the sample_cells fan-out
+/// over-representing polar latitudes — at lat 60° each cell covers ~50%
+/// the real-world area of an equator cell, so straight `Σv/n` overstates
+/// polar values by up to 21% on a 60°S–60°N polygon. Median / p90 don't
+/// need this because order statistics are invariant under reweighting.
+fn agg_mean(pairs: &[(&str, &ciborium::Value)]) -> Option<ciborium::Value> {
+    let weighted: Vec<(f64, f64)> = pairs
+        .iter()
+        .filter_map(|(cell, v)| as_f64(v).map(|x| (emem_codec::equal_area_weight_for(cell), x)))
+        .collect();
+    if weighted.is_empty() {
         return None;
     }
-    Some(ciborium::Value::Float(
-        nums.iter().sum::<f64>() / nums.len() as f64,
-    ))
+    let sum_w: f64 = weighted.iter().map(|(w, _)| *w).sum();
+    let mean = if sum_w > 0.0 {
+        weighted.iter().map(|(w, x)| w * x).sum::<f64>() / sum_w
+    } else {
+        // Pole-only fan-out — degrade to unweighted rather than NaN.
+        let n = weighted.len() as f64;
+        weighted.iter().map(|(_, x)| *x).sum::<f64>() / n
+    };
+    Some(ciborium::Value::Float(mean))
 }
 
 fn agg_median(values: &[&ciborium::Value]) -> Option<ciborium::Value> {

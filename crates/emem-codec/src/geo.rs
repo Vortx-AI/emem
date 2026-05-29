@@ -205,6 +205,35 @@ pub fn latlng_from_cell64(s: &str) -> Result<LatLng, CodecError> {
     })
 }
 
+/// Equal-area weight for a cell64 centre — `cos(lat_in_radians).max(0.0)`.
+///
+/// Cells in the cell64 grid are uniform in lat/lng *degrees*, not in real
+/// surface area. A cell at lat 60° covers ~50% the m² of an equator cell;
+/// a cell at lat 80° covers ~17%. Treating every cell as equal weight
+/// (e.g. a straight `Σvᵢ / n` mean over a midlat-to-polar polygon) biases
+/// the headline toward high-latitude cells by exactly the inverse of this
+/// factor.
+///
+/// Use this weight when aggregating any quantity across a set of cells
+/// whose positions came from a uniform lat/lng-degree grid (the
+/// `sample_cells_in_bbox` / `cells_from_bbox` fan-out). Multiply each
+/// per-cell contribution by `equal_area_weight_for(&cell)` and divide by
+/// `Σ wᵢ`, not `n`. Order statistics (min/median/percentile/max) don't
+/// change with the weighting and should NOT be weighted.
+///
+/// The `.max(0.0)` clamp guards against any future signed FP rounding on
+/// a near-pole cell — `cos(π/2)` is `~6.1e-17` today, not negative, but
+/// the clamp keeps the contract "weight is non-negative" robust.
+/// Unparseable cells fall back to `1.0` so a single decode failure
+/// inside a large fan-out can't crash the aggregation; that's a silent
+/// degradation back to count-weighted, never a panic.
+pub fn equal_area_weight_for(cell64: &str) -> f64 {
+    match latlng_from_cell64(cell64) {
+        Ok(ll) => ll.lat_deg.to_radians().cos().max(0.0),
+        Err(_) => 1.0,
+    }
+}
+
 /// Output of `latlng_from_cell64`: the bucket centre + its bbox in degrees.
 #[derive(Debug, Clone, Copy)]
 pub struct LatLng {
