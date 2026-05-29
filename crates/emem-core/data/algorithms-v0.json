@@ -1322,7 +1322,97 @@
       "primitive": "POST /v1/recall {bands:['overture.buildings.count','overture.buildings.area_m2','overture.buildings.height_mean','indices.ndbi']}",
       "deterministic": true,
       "citation": "Schiavina, M., Freire, S., MacManus, K. 2023. GHS-POP R2023A, GHS population grid multitemporal (1975-2030). European Commission JRC Publications JRC133292 (67 m\u00b2/person residential floor-space convention, Table 1). Florczyk, A.J. et al. 2019. GHSL Data Package 2019. JRC117104. Eurostat 2017 Housing Statistics: average European dwelling 87 m\u00b2 \u00f7 2.3 persons/household \u2248 37\u201367 m\u00b2/person.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "div",
+        "a": {
+          "op": "mul",
+          "terms": [
+            {
+              "op": "or_else",
+              "primary": {
+                "op": "band",
+                "band": "overture.buildings.area_m2"
+              },
+              "fallback": {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 100.0
+                  },
+                  {
+                    "op": "band",
+                    "band": "overture.buildings.count"
+                  }
+                ]
+              }
+            },
+            {
+              "op": "max",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 1.0
+                },
+                {
+                  "op": "div",
+                  "a": {
+                    "op": "or_else",
+                    "primary": {
+                      "op": "band",
+                      "band": "overture.buildings.height_mean"
+                    },
+                    "fallback": {
+                      "op": "const",
+                      "value": 7.5
+                    }
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 3.0
+                  }
+                }
+              ]
+            },
+            {
+              "op": "sub",
+              "a": {
+                "op": "const",
+                "value": 0.85
+              },
+              "b": {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 0.15
+                  },
+                  {
+                    "op": "sigmoid",
+                    "inner": {
+                      "op": "mul",
+                      "terms": [
+                        {
+                          "op": "const",
+                          "value": 10.0
+                        },
+                        {
+                          "op": "band",
+                          "band": "indices.ndbi"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "b": {
+          "op": "const",
+          "value": 67.0
+        }
+      }
     },
     {
       "key": "heat_index@2",
@@ -5751,9 +5841,58 @@
       "citation": "Imhoff, M.L., Zhang, P., Wolfe, R.E., Bounoua, L. 2010. Remote sensing of the urban heat island effect across biomes in the continental USA. Remote Sensing of Environment 114(3):504\u2013513 (Figure 6: \u221241 K per unit-NDVI summer slope).",
       "pitfalls": "The NDBI \u2192 ISA conversion `clamp01((ndbi + 0.1) / 0.4)` is an emem editorial proxy, NOT Imhoff et al. 2010 \u2014 Imhoff's UHI-vs-ISA relationship was fit against 30 m Landsat-derived ISA from Elvidge et al. 2007 (Int J Remote Sens 28:2645), not Sentinel-2 NDBI. The Imhoff citation pertains to the 41 K LST-anomaly coefficient only. For comparable accuracy, materialise ghsl.built_surface_m2 (GHSL Built Surface, 100 m, Pesaresi et al. 2019, EUR 29788) and use built_surface_fraction = ghsl.built_surface_m2 / cell_area_m2 as the ISA term.",
       "accuracy_band": "The NDBI proxy adds an estimated \u00b115 % to the Imhoff UHI prediction over what the ground-truth ISA would yield; treat output magnitudes as relative rankings, not absolute LST anomaly K. The 41 K Imhoff coefficient itself is a continental-US summer-day slope and degrades outside CONUS biomes.",
-      "documentation_only": true,
       "runtime_path": "/v1/hunt",
-      "partial_runtime": true
+      "partial_runtime": true,
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "const",
+            "value": 41.0
+          },
+          {
+            "op": "clamp",
+            "inner": {
+              "op": "sub",
+              "a": {
+                "op": "const",
+                "value": 0.45
+              },
+              "b": {
+                "op": "band",
+                "band": "indices.ndvi"
+              }
+            },
+            "lo": 0.0,
+            "hi": 1.0
+          },
+          {
+            "op": "clamp",
+            "inner": {
+              "op": "div",
+              "a": {
+                "op": "add",
+                "terms": [
+                  {
+                    "op": "band",
+                    "band": "indices.ndbi"
+                  },
+                  {
+                    "op": "const",
+                    "value": 0.1
+                  }
+                ]
+              },
+              "b": {
+                "op": "const",
+                "value": 0.4
+              }
+            },
+            "lo": 0.0,
+            "hi": 1.0
+          }
+        ]
+      }
     },
     {
       "key": "green_space_access@1",
@@ -5780,7 +5919,29 @@
       "primitive": "POST /v1/locate \u2192 neighborhood_cells + polygon_sample_cells; POST /v1/recall_many {bands:['indices.ndvi']}",
       "deterministic": true,
       "citation": "World Health Organization. 2017. Urban green spaces: a brief for action. Larondelle, N. & Haase, D. 2013. Urban ecosystem services assessment along a rural-urban gradient. Ecological Indicators 29:179\u2013190.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "div",
+          "a": {
+            "op": "sub",
+            "a": {
+              "op": "band",
+              "band": "indices.ndvi"
+            },
+            "b": {
+              "op": "const",
+              "value": 0.2
+            }
+          },
+          "b": {
+            "op": "const",
+            "value": 0.2
+          }
+        },
+        "lo": 0.0,
+        "hi": 1.0
+      }
     },
     {
       "key": "ghi_clearsky_haurwitz@1",
@@ -5994,7 +6155,144 @@
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.wind_speed_10m','indices.ndvi']}",
       "deterministic": true,
       "citation": "H\u00f6ppe, P. 1999. The physiological equivalent temperature, a universal index for the biometeorological assessment of the thermal environment. International Journal of Biometeorology 43(2):71\u201375. (Gaussian shape editorial; calibrated thermal-comfort indices like UTCI need humidity + radiation.)",
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "add",
+          "terms": [
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.55
+                },
+                {
+                  "op": "exp",
+                  "inner": {
+                    "op": "div",
+                    "a": {
+                      "op": "mul",
+                      "terms": [
+                        {
+                          "op": "sub",
+                          "a": {
+                            "op": "band",
+                            "band": "weather.temperature_2m"
+                          },
+                          "b": {
+                            "op": "const",
+                            "value": 22.0
+                          }
+                        },
+                        {
+                          "op": "sub",
+                          "a": {
+                            "op": "band",
+                            "band": "weather.temperature_2m"
+                          },
+                          "b": {
+                            "op": "const",
+                            "value": 22.0
+                          }
+                        }
+                      ]
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": -200.0
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.3
+                },
+                {
+                  "op": "sub",
+                  "a": {
+                    "op": "const",
+                    "value": 1.0
+                  },
+                  "b": {
+                    "op": "tanh",
+                    "inner": {
+                      "op": "div",
+                      "a": {
+                        "op": "max",
+                        "terms": [
+                          {
+                            "op": "sub",
+                            "a": {
+                              "op": "band",
+                              "band": "weather.wind_speed_10m"
+                            },
+                            "b": {
+                              "op": "const",
+                              "value": 6.0
+                            }
+                          },
+                          {
+                            "op": "const",
+                            "value": 0.0
+                          }
+                        ]
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 4.0
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "op": "const",
+              "value": 0.15
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.1
+                },
+                {
+                  "op": "clamp",
+                  "inner": {
+                    "op": "div",
+                    "a": {
+                      "op": "sub",
+                      "a": {
+                        "op": "band",
+                        "band": "indices.ndvi"
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 0.2
+                      }
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 0.4
+                    }
+                  },
+                  "lo": 0.0,
+                  "hi": 1.0
+                }
+              ]
+            }
+          ]
+        },
+        "lo": 0.0,
+        "hi": 1.0
+      }
     },
     {
       "key": "construction_site_exposure@1",
@@ -6046,7 +6344,143 @@
       "primitive": "POST /v1/recall_many for K-ring + same-cell weather",
       "deterministic": true,
       "citation": "Construction industry standard exposure-checklists (e.g. UK CDM 2015 risk register categories): flood, slope, soils, heat, wind. Weights editorial.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "add",
+        "terms": [
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.4
+              },
+              {
+                "op": "div",
+                "a": {
+                  "op": "band",
+                  "band": "surface_water.recurrence"
+                },
+                "b": {
+                  "op": "const",
+                  "value": 100.0
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.25
+              },
+              {
+                "op": "clamp",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "band",
+                    "band": "copdem30m.elevation_mean"
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 1000.0
+                  }
+                },
+                "lo": 0.0,
+                "hi": 1.0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.15
+              },
+              {
+                "op": "clamp",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "add",
+                    "terms": [
+                      {
+                        "op": "band",
+                        "band": "indices.bsi"
+                      },
+                      {
+                        "op": "const",
+                        "value": 0.05
+                      }
+                    ]
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 0.2
+                  }
+                },
+                "lo": 0.0,
+                "hi": 1.0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.1
+              },
+              {
+                "op": "sigmoid",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "sub",
+                    "a": {
+                      "op": "band",
+                      "band": "weather.temperature_2m"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 30.0
+                    }
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 4.0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.1
+              },
+              {
+                "op": "tanh",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "band",
+                    "band": "weather.wind_speed_10m"
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 12.0
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "key": "route_flood_exposure@1",
@@ -6115,7 +6549,45 @@
       "primitive": "POST /v1/recall_many over route cells",
       "deterministic": true,
       "citation": "Steadman 1979 (heat index); Akbari, H. et al. 2001. Cool surfaces and shade trees to reduce energy use and improve air quality in urban areas. Solar Energy 70(3):295\u2013310. (3 \u00b0C shade discount approximates measured tree-shade reductions.)",
-      "documentation_only": true
+      "evaluation": {
+        "op": "sub",
+        "a": {
+          "op": "band",
+          "band": "weather.temperature_2m"
+        },
+        "b": {
+          "op": "mul",
+          "terms": [
+            {
+              "op": "const",
+              "value": 3.0
+            },
+            {
+              "op": "clamp",
+              "inner": {
+                "op": "div",
+                "a": {
+                  "op": "sub",
+                  "a": {
+                    "op": "band",
+                    "band": "indices.ndvi"
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 0.2
+                  }
+                },
+                "b": {
+                  "op": "const",
+                  "value": 0.4
+                }
+              },
+              "lo": 0.0,
+              "hi": 1.0
+            }
+          ]
+        }
+      }
     },
     {
       "key": "livability_index@1",
@@ -6964,7 +7436,118 @@
       "primitive": "POST /v1/trajectory for NDVI / NDMI history; POST /v1/recall for current weather; compose",
       "deterministic": true,
       "citation": "Bolton, D.K. & Friedl, M.A. 2013. Forecasting crop yield using remotely sensed vegetation indices and crop phenology metrics. Agricultural and Forest Meteorology 173:74\u201384. Lobell, D.B. 2013. The use of satellite data for crop yield gap analysis. Field Crops Research 143:56\u201364.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "add",
+        "terms": [
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.4
+              },
+              {
+                "op": "band",
+                "band": "indices.ndvi"
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.25
+              },
+              {
+                "op": "clamp",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "add",
+                    "terms": [
+                      {
+                        "op": "band",
+                        "band": "indices.ndmi"
+                      },
+                      {
+                        "op": "const",
+                        "value": 1.0
+                      }
+                    ]
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 2.0
+                  }
+                },
+                "lo": 0.0,
+                "hi": 1.0
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.2
+              },
+              {
+                "op": "sigmoid",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "sub",
+                    "a": {
+                      "op": "band",
+                      "band": "weather.temperature_2m"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 20.0
+                    }
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 8.0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.15
+              },
+              {
+                "op": "sigmoid",
+                "inner": {
+                  "op": "div",
+                  "a": {
+                    "op": "sub",
+                    "a": {
+                      "op": "band",
+                      "band": "weather.precipitation_mm"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 2.0
+                    }
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 2.0
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "key": "vineyard_terroir_score@1",
@@ -7058,7 +7641,71 @@
       "primitive": "POST /v1/recall {bands:['weather.wind_speed_10m','weather.air_pressure_msl','weather.temperature_2m']}",
       "deterministic": true,
       "citation": "International Electrotechnical Commission. 2017. IEC 61400-12-1:2017 Wind energy generation systems, Part 12-1: Power performance measurements of electricity producing wind turbines, Annex G. Hellmann, G. 1915. \u00dcber die Bewegung der Luft in den untersten Schichten der Atmosph\u00e4re. Meteorologische Zeitschrift.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "const",
+            "value": 0.5
+          },
+          {
+            "op": "div",
+            "a": {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "or_else",
+                  "primary": {
+                    "op": "band",
+                    "band": "weather.air_pressure_msl"
+                  },
+                  "fallback": {
+                    "op": "const",
+                    "value": 1013.25
+                  }
+                },
+                {
+                  "op": "const",
+                  "value": 100.0
+                }
+              ]
+            },
+            "b": {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 287.058
+                },
+                {
+                  "op": "add",
+                  "terms": [
+                    {
+                      "op": "band",
+                      "band": "weather.temperature_2m"
+                    },
+                    {
+                      "op": "const",
+                      "value": 273.15
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "op": "pow",
+            "base": {
+              "op": "band",
+              "band": "weather.wind_speed_10m"
+            },
+            "exp": {
+              "op": "const",
+              "value": 3.0
+            }
+          }
+        ]
+      }
     },
     {
       "key": "hydro_theoretical_power@1",
@@ -7386,7 +8033,19 @@
       "primitive": "POST /v1/recall {bands:['modis.gpp_8day']}",
       "deterministic": true,
       "citation": "Running, S.W. et al. 2004. A continuous satellite-derived measure of global terrestrial primary production. BioScience 54(6):547\u2013560. Zhao, M. & Running, S.W. 2010. Drought-induced reduction in global terrestrial NPP from 2000 through 2009. Science 329:940\u2013943.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "band",
+            "band": "modis.gpp_8day"
+          },
+          {
+            "op": "const",
+            "value": 0.5
+          }
+        ]
+      }
     },
     {
       "key": "carbon.gpp_anomaly_zscore@1",
@@ -7446,7 +8105,50 @@
       "primitive": "POST /v1/recall {bands:['modis.burned_area_monthly','indices.nbr']}",
       "deterministic": true,
       "citation": "Andreae, M.O. 2019. Emission of trace gases and aerosols from biomass burning \u2013 an updated assessment. Atmos. Chem. Phys. 19:8523\u20138546. IPCC 2019 Refinement to the 2006 Guidelines for National GHG Inventories, Vol 4 Ch 2. Key, C.H. & Benson, N.C. 2006. Landscape Assessment (LA) Sampling and Analysis Methods. USDA RMRS-GTR-164-CD.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "modis.burned_area_monthly"
+        },
+        "gt": 0.0,
+        "then_": {
+          "op": "mul",
+          "terms": [
+            {
+              "op": "const",
+              "value": 143.0
+            },
+            {
+              "op": "clamp",
+              "inner": {
+                "op": "div",
+                "a": {
+                  "op": "sub",
+                  "a": {
+                    "op": "const",
+                    "value": 0.5
+                  },
+                  "b": {
+                    "op": "band",
+                    "band": "indices.nbr"
+                  }
+                },
+                "b": {
+                  "op": "const",
+                  "value": 0.5
+                }
+              },
+              "lo": 0.0,
+              "hi": 1.0
+            }
+          ]
+        },
+        "else_": {
+          "op": "const",
+          "value": 0.0
+        }
+      }
     },
     {
       "key": "carbon.surface_albedo_broadband@1",
@@ -7530,7 +8232,26 @@
       "primitive": "POST /v1/diff {cell, band:'s2.B02', t1, t2} \u2192 carbon.surface_albedo_broadband at each epoch \u2192 dRF",
       "deterministic": true,
       "citation": "Bright, R.M. 2015. Metrics for biogeophysical climate forcings from land use and land cover changes and their inclusion in life cycle assessment: a critical review. Environmental Science & Technology 49(6):3291\u20133303. Akbari, H. et al. 2009. Global cooling: increasing world-wide urban albedos to offset CO2. Climatic Change 94:275\u2013286.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "const",
+            "value": -992.5990759999999
+          },
+          {
+            "op": "sub",
+            "a": {
+              "op": "band",
+              "band": "s2.B02"
+            },
+            "b": {
+              "op": "const",
+              "value": 0.13
+            }
+          }
+        ]
+      }
     },
     {
       "key": "carbon.surface_water_extent_anomaly@1",
@@ -7678,7 +8399,38 @@
       "primitive": "POST /v1/recall {bands:['indices.urban_canopy_index','modis.lst_day_8day','modis.lst_night_8day']}",
       "deterministic": true,
       "citation": "Bowler, D.E. et al. 2010. Urban greening to cool towns and cities: A systematic review of the empirical evidence. Landscape and Urban Planning 97(3):147\u2013155. Akbari, H. & Kolokotsa, D. 2016. Three decades of urban heat islands and mitigation technologies research. Energy and Buildings 133:834\u2013842.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "sub",
+            "a": {
+              "op": "band",
+              "band": "modis.lst_day_8day"
+            },
+            "b": {
+              "op": "band",
+              "band": "modis.lst_night_8day"
+            }
+          },
+          {
+            "op": "sub",
+            "a": {
+              "op": "const",
+              "value": 1.0
+            },
+            "b": {
+              "op": "clamp",
+              "inner": {
+                "op": "band",
+                "band": "indices.urban_canopy_index"
+              },
+              "lo": 0.0,
+              "hi": 1.0
+            }
+          }
+        ]
+      }
     },
     {
       "key": "carbon.deforestation_alert_proxy@1",
@@ -7717,7 +8469,38 @@
       "citation": "Hansen, M.C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850\u2013853. Verra VT0007 (Unplanned Deforestation Allocation Tool, 2023). Reiche, J. et al. 2018. Combining satellite data for better tropical forest monitoring. Nature Climate Change 8:1119\u20131124.",
       "accuracy_band": "Editorial 50/50 split between NDVI drop (normalised by 0.30) and Tessera embedding divergence (normalised by 0.20); no published precision/recall against known deforestation, mining-encroachment, or oil-spill emission events for this exact composite. Use as a triage / scout signal, not for regulatory attribution. For cite-able attribution overlay Hansen GFC v1.10 annual loss (Hansen et al. 2013, Science 342:850) or RADD weekly tropical alerts (Reiche et al. 2021, Environ Res Lett 16:024005).",
       "pitfalls": "The 0.5 / 0.5 weighting between NDVI drop and Tessera-embedding cosine change is editorial and unjustified by any published validation; the two terms can disagree (e.g. selective logging that moves the embedding without dropping NDVI, or seasonal phenology that drops NDVI without structural change). Do not interpret `alert_score > 0.6` as a regulator-defensible deforestation event \u2014 confirm with Hansen GFC, RADD, or Sentinel-2 RGB before crediting decisions. The same composite, retargeted with mining-spectral or oil-slick bands, is sometimes called an 'emission anomaly' signal \u2014 it remains a scout-only triage proxy in either domain.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "div",
+          "a": {
+            "op": "max",
+            "terms": [
+              {
+                "op": "sub",
+                "a": {
+                  "op": "band",
+                  "band": "modis.ndvi_mean"
+                },
+                "b": {
+                  "op": "band",
+                  "band": "indices.ndvi"
+                }
+              },
+              {
+                "op": "const",
+                "value": 0.0
+              }
+            ]
+          },
+          "b": {
+            "op": "const",
+            "value": 0.2
+          }
+        },
+        "lo": 0.0,
+        "hi": 1.0
+      }
     },
     {
       "key": "carbon.evi_npp_proxy@1",
@@ -7757,7 +8540,60 @@
       "primitive": "POST /v1/recall {bands:['indices.evi','power.allsky_sw','weather.temperature_2m']}",
       "deterministic": true,
       "citation": "Potter, C.S. et al. 1993. Terrestrial ecosystem production: a process model based on global satellite and surface data. Global Biogeochemical Cycles 7(4):811\u2013841. Sims, D.A. et al. 2006. On the use of MODIS EVI to assess gross primary productivity of North American ecosystems. JGR 111:G04015. Xiao, X. et al. 2004. Modeling gross primary production of temperate deciduous broadleaf forest using satellite images. Remote Sensing of Environment 91:256\u2013270.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "const",
+            "value": 0.55
+          },
+          {
+            "op": "band",
+            "band": "indices.evi"
+          },
+          {
+            "op": "band",
+            "band": "power.allsky_sw"
+          },
+          {
+            "op": "exp",
+            "inner": {
+              "op": "div",
+              "a": {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "sub",
+                    "a": {
+                      "op": "band",
+                      "band": "weather.temperature_2m"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 20.0
+                    }
+                  },
+                  {
+                    "op": "sub",
+                    "a": {
+                      "op": "band",
+                      "band": "weather.temperature_2m"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 20.0
+                    }
+                  }
+                ]
+              },
+              "b": {
+                "op": "const",
+                "value": -200.0
+              }
+            }
+          }
+        ]
+      }
     },
     {
       "key": "carbon.drought_carbon_stress@1",
@@ -7800,7 +8636,132 @@
       "primitive": "POST /v1/recall {bands:['indices.ndmi','modis.lst_day_8day','modis.gpp_8day','era5.precip']}",
       "deterministic": true,
       "citation": "Vicente-Serrano, S.M. et al. 2010. A multiscalar drought index sensitive to global warming: the SPEI. Journal of Climate 23(7):1696\u20131718. Ciais, P. et al. 2005. Europe-wide reduction in primary productivity caused by the heat and drought in 2003. Nature 437:529\u2013533.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "clamp",
+            "inner": {
+              "op": "add",
+              "terms": [
+                {
+                  "op": "mul",
+                  "terms": [
+                    {
+                      "op": "const",
+                      "value": 0.4
+                    },
+                    {
+                      "op": "sub",
+                      "a": {
+                        "op": "const",
+                        "value": 1.0
+                      },
+                      "b": {
+                        "op": "clamp",
+                        "inner": {
+                          "op": "div",
+                          "a": {
+                            "op": "add",
+                            "terms": [
+                              {
+                                "op": "band",
+                                "band": "indices.ndmi"
+                              },
+                              {
+                                "op": "const",
+                                "value": 0.4
+                              }
+                            ]
+                          },
+                          "b": {
+                            "op": "const",
+                            "value": 0.8
+                          }
+                        },
+                        "lo": 0.0,
+                        "hi": 1.0
+                      }
+                    }
+                  ]
+                },
+                {
+                  "op": "mul",
+                  "terms": [
+                    {
+                      "op": "const",
+                      "value": 0.3
+                    },
+                    {
+                      "op": "clamp",
+                      "inner": {
+                        "op": "div",
+                        "a": {
+                          "op": "sub",
+                          "a": {
+                            "op": "band",
+                            "band": "modis.lst_day_8day"
+                          },
+                          "b": {
+                            "op": "const",
+                            "value": 285.0
+                          }
+                        },
+                        "b": {
+                          "op": "const",
+                          "value": 30.0
+                        }
+                      },
+                      "lo": 0.0,
+                      "hi": 1.0
+                    }
+                  ]
+                },
+                {
+                  "op": "mul",
+                  "terms": [
+                    {
+                      "op": "const",
+                      "value": 0.3
+                    },
+                    {
+                      "op": "sub",
+                      "a": {
+                        "op": "const",
+                        "value": 1.0
+                      },
+                      "b": {
+                        "op": "clamp",
+                        "inner": {
+                          "op": "mul",
+                          "terms": [
+                            {
+                              "op": "band",
+                              "band": "era5.precip"
+                            },
+                            {
+                              "op": "const",
+                              "value": 4.0
+                            }
+                          ]
+                        },
+                        "lo": 0.0,
+                        "hi": 1.0
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "lo": 0.0,
+            "hi": 1.0
+          },
+          {
+            "op": "band",
+            "band": "modis.gpp_8day"
+          }
+        ]
+      }
     },
     {
       "key": "sdg.6_6_1.water_extent_anomaly@1",
@@ -8109,7 +9070,34 @@
       "primitive": "POST /v1/recall_polygon {place:<mountain_region>, bands:['copdem30m.elevation_mean','indices.ndvi']} \u2192 Kapos classification + threshold + ratio",
       "deterministic": true,
       "citation": "FAO 2020. Mountain Green Cover Index, SDG indicator 15.4.2 metadata. Kapos, V. et al. 2000. Developing a map of the world's mountain forests. In Forests in Sustainable Mountain Development.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "copdem30m.elevation_mean"
+        },
+        "gt": 1000.0,
+        "then_": {
+          "op": "where",
+          "cond": {
+            "op": "band",
+            "band": "indices.ndvi"
+          },
+          "gt": 0.3,
+          "then_": {
+            "op": "const",
+            "value": 100.0
+          },
+          "else_": {
+            "op": "const",
+            "value": 0.0
+          }
+        },
+        "else_": {
+          "op": "const",
+          "value": 0.0
+        }
+      }
     },
     {
       "key": "sdg.11_6_2.annual_pm25_mean@1",
@@ -8136,7 +9124,36 @@
       "primitive": "POST /v1/backfill {cell, band:'cams.pm25', from, to} \u2192 mean \u2192 classify",
       "deterministic": true,
       "citation": "WHO 2021. WHO global air quality guidelines: PM2.5/PM10/O3/NO2/SO2/CO. UNEP 2022 SDG 11.6.2 metadata. van Donkelaar, A. et al. 2021. Monthly Global Estimates of Fine Particulate Matter. Environ. Sci. Technol. 55:15287\u201315300.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "class_table",
+        "inner": {
+          "op": "band",
+          "band": "cams.pm25"
+        },
+        "classes": [
+          [
+            5.0,
+            0.0
+          ],
+          [
+            10.0,
+            1.0
+          ],
+          [
+            15.0,
+            2.0
+          ],
+          [
+            25.0,
+            3.0
+          ],
+          [
+            35.0,
+            4.0
+          ]
+        ],
+        "default": 5.0
+      }
     },
     {
       "key": "sdg.14_1_1a.coastal_eutrophication_index@1",
@@ -8176,7 +9193,112 @@
       "primitive": "POST /v1/recall {bands:['indices.fai','indices.gndvi','indices.tss','marine.sst']}",
       "deterministic": true,
       "citation": "Hu, C. 2009. A novel ocean color index to detect floating algae in the global oceans. Remote Sensing of Environment 113(10):2118\u20132129. Mishra, S. & Mishra, D.R. 2012. Normalized difference chlorophyll index: A novel model for remote estimation of chlorophyll-a concentration in turbid productive waters. RSE 117:394\u2013406. UNEP 2018. SDG 14.1.1a metadata.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "add",
+            "terms": [
+              {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 0.5
+                  },
+                  {
+                    "op": "clamp",
+                    "inner": {
+                      "op": "div",
+                      "a": {
+                        "op": "band",
+                        "band": "indices.fai"
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 0.05
+                      }
+                    },
+                    "lo": 0.0,
+                    "hi": 1.0
+                  }
+                ]
+              },
+              {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 0.3
+                  },
+                  {
+                    "op": "clamp",
+                    "inner": {
+                      "op": "div",
+                      "a": {
+                        "op": "sub",
+                        "a": {
+                          "op": "band",
+                          "band": "indices.gndvi"
+                        },
+                        "b": {
+                          "op": "const",
+                          "value": 0.1
+                        }
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 0.4
+                      }
+                    },
+                    "lo": 0.0,
+                    "hi": 1.0
+                  }
+                ]
+              },
+              {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 0.2
+                  },
+                  {
+                    "op": "clamp",
+                    "inner": {
+                      "op": "band",
+                      "band": "indices.tss"
+                    },
+                    "lo": 0.0,
+                    "hi": 1.0
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "sigmoid",
+            "inner": {
+              "op": "div",
+              "a": {
+                "op": "sub",
+                "a": {
+                  "op": "band",
+                  "band": "marine.sst"
+                },
+                "b": {
+                  "op": "const",
+                  "value": 24.0
+                }
+              },
+              "b": {
+                "op": "const",
+                "value": 2.0
+              }
+            }
+          }
+        ]
+      }
     },
     {
       "key": "sdg.13_2_2.ghg_proxy_burned_area@1",
@@ -8207,7 +9329,50 @@
       "primitive": "POST /v1/recall_polygon {place:<country>, bands:['modis.burned_area_monthly','indices.nbr']} \u2192 carbon.fire_emissions_co2_proxy@1 \u2192 sum",
       "deterministic": true,
       "citation": "UNFCCC SDG 13.2.2 metadata. IPCC 2019 Refinement Vol 4 Ch 2. GFED4s methodology, van der Werf et al. 2017. Earth System Science Data 9:697\u2013720.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "modis.burned_area_monthly"
+        },
+        "gt": 0.0,
+        "then_": {
+          "op": "mul",
+          "terms": [
+            {
+              "op": "const",
+              "value": 143.0
+            },
+            {
+              "op": "clamp",
+              "inner": {
+                "op": "div",
+                "a": {
+                  "op": "sub",
+                  "a": {
+                    "op": "const",
+                    "value": 0.5
+                  },
+                  "b": {
+                    "op": "band",
+                    "band": "indices.nbr"
+                  }
+                },
+                "b": {
+                  "op": "const",
+                  "value": 0.5
+                }
+              },
+              "lo": 0.0,
+              "hi": 1.0
+            }
+          ]
+        },
+        "else_": {
+          "op": "const",
+          "value": 0.0
+        }
+      }
     },
     {
       "key": "soil_moisture_sar@1",
@@ -8534,7 +9699,58 @@
         "anchor_band": "indices.ndre",
         "fallback_strategy": "tier_demote"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "indices.ndvi"
+        },
+        "gt": 0.3,
+        "then_": {
+          "op": "mul",
+          "terms": [
+            {
+              "op": "clamp",
+              "inner": {
+                "op": "add",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 0.5
+                  },
+                  {
+                    "op": "mul",
+                    "terms": [
+                      {
+                        "op": "const",
+                        "value": 4.5
+                      },
+                      {
+                        "op": "band",
+                        "band": "indices.ndre"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "lo": 1.0,
+              "hi": 5.5
+            },
+            {
+              "op": "band",
+              "band": "modis.lai_8day"
+            },
+            {
+              "op": "const",
+              "value": 5.0
+            }
+          ]
+        },
+        "else_": {
+          "op": "const",
+          "value": 0.0
+        }
+      }
     },
     {
       "key": "eudr_compliance@1",
@@ -8884,7 +10100,116 @@
         "anchor_band": "indices.nbr",
         "fallback_strategy": "tier_demote"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "class_table",
+        "inner": {
+          "op": "add",
+          "terms": [
+            {
+              "op": "where",
+              "cond": {
+                "op": "sub",
+                "a": {
+                  "op": "const",
+                  "value": -0.1
+                },
+                "b": {
+                  "op": "band",
+                  "band": "indices.nbr"
+                }
+              },
+              "gt": 0.0,
+              "then_": {
+                "op": "const",
+                "value": 1.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 0.0
+              }
+            },
+            {
+              "op": "where",
+              "cond": {
+                "op": "band",
+                "band": "indices.ndti"
+              },
+              "gt": 0.1,
+              "then_": {
+                "op": "const",
+                "value": 1.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 0.0
+              }
+            },
+            {
+              "op": "where",
+              "cond": {
+                "op": "band",
+                "band": "modis.burned_area_monthly"
+              },
+              "gt": 0.5,
+              "then_": {
+                "op": "const",
+                "value": 1.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 0.0
+              }
+            },
+            {
+              "op": "where",
+              "cond": {
+                "op": "band",
+                "band": "cams.aod_550"
+              },
+              "gt": 0.5,
+              "then_": {
+                "op": "const",
+                "value": 1.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 0.0
+              }
+            },
+            {
+              "op": "where",
+              "cond": {
+                "op": "band",
+                "band": "cams.pm25"
+              },
+              "gt": 75.0,
+              "then_": {
+                "op": "const",
+                "value": 1.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 0.0
+              }
+            }
+          ]
+        },
+        "classes": [
+          [
+            1.0,
+            0.0
+          ],
+          [
+            2.0,
+            1.0
+          ],
+          [
+            3.0,
+            2.0
+          ]
+        ],
+        "default": 3.0
+      }
     },
     {
       "key": "rice_methane_awd_modeled@1",
@@ -9002,7 +10327,60 @@
         "anchor_band": "weather.temperature_2m",
         "fallback_strategy": "absence"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "max",
+        "terms": [
+          {
+            "op": "sub",
+            "a": {
+              "op": "div",
+              "a": {
+                "op": "add",
+                "terms": [
+                  {
+                    "op": "min",
+                    "terms": [
+                      {
+                        "op": "band",
+                        "band": "weather.temperature_2m"
+                      },
+                      {
+                        "op": "const",
+                        "value": 30.0
+                      }
+                    ]
+                  },
+                  {
+                    "op": "max",
+                    "terms": [
+                      {
+                        "op": "band",
+                        "band": "weather.temperature_2m"
+                      },
+                      {
+                        "op": "const",
+                        "value": 10.0
+                      }
+                    ]
+                  }
+                ]
+              },
+              "b": {
+                "op": "const",
+                "value": 2.0
+              }
+            },
+            "b": {
+              "op": "const",
+              "value": 10.0
+            }
+          },
+          {
+            "op": "const",
+            "value": 0.0
+          }
+        ]
+      }
     },
     {
       "key": "rusle_soil_erosion@1",
@@ -9159,9 +10537,180 @@
         "anchor_band": "s2.B11",
         "fallback_strategy": "absence"
       },
-      "documentation_only": true,
       "runtime_path": "/v1/hunt",
-      "partial_runtime": true
+      "partial_runtime": true,
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "indices.bsi"
+        },
+        "gt": 0.05,
+        "then_": {
+          "op": "where",
+          "cond": {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 100.0
+              },
+              {
+                "op": "sqrt",
+                "inner": {
+                  "op": "mul",
+                  "terms": [
+                    {
+                      "op": "band",
+                      "band": "s2.B04"
+                    },
+                    {
+                      "op": "band",
+                      "band": "s2.B11"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "gt": 18.0,
+          "then_": {
+            "op": "where",
+            "cond": {
+              "op": "div",
+              "a": {
+                "op": "band",
+                "band": "s2.B11"
+              },
+              "b": {
+                "op": "band",
+                "band": "s2.B12"
+              }
+            },
+            "gt": 1.05,
+            "then_": {
+              "op": "where",
+              "cond": {
+                "op": "sub",
+                "a": {
+                  "op": "const",
+                  "value": 8.0
+                },
+                "b": {
+                  "op": "band",
+                  "band": "soilgrids.soc_0_30cm"
+                }
+              },
+              "gt": 0.0,
+              "then_": {
+                "op": "const",
+                "value": 3.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 2.0
+              }
+            },
+            "else_": {
+              "op": "const",
+              "value": 2.0
+            }
+          },
+          "else_": {
+            "op": "where",
+            "cond": {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 100.0
+                },
+                {
+                  "op": "sqrt",
+                  "inner": {
+                    "op": "mul",
+                    "terms": [
+                      {
+                        "op": "band",
+                        "band": "s2.B04"
+                      },
+                      {
+                        "op": "band",
+                        "band": "s2.B11"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "gt": 12.0,
+            "then_": {
+              "op": "where",
+              "cond": {
+                "op": "div",
+                "a": {
+                  "op": "band",
+                  "band": "s2.B11"
+                },
+                "b": {
+                  "op": "band",
+                  "band": "s2.B12"
+                }
+              },
+              "gt": 1.02,
+              "then_": {
+                "op": "const",
+                "value": 2.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 1.0
+              }
+            },
+            "else_": {
+              "op": "where",
+              "cond": {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 100.0
+                  },
+                  {
+                    "op": "sqrt",
+                    "inner": {
+                      "op": "mul",
+                      "terms": [
+                        {
+                          "op": "band",
+                          "band": "s2.B04"
+                        },
+                        {
+                          "op": "band",
+                          "band": "s2.B11"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "gt": 8.0,
+              "then_": {
+                "op": "const",
+                "value": 1.0
+              },
+              "else_": {
+                "op": "const",
+                "value": 0.0
+              }
+            }
+          }
+        },
+        "else_": {
+          "op": "const",
+          "value": 4.0
+        }
+      }
     },
     {
       "key": "sowing_date_detection@1",
@@ -9699,7 +11248,24 @@
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.precipitation_mm','weather.wind_speed_10m']} \u2192 concatenate per formula",
       "deterministic": true,
       "citation": "Editorial. The cloud-cover thresholds follow the Met Office plain-language convention (`<25% clear, 25\u201375% partly cloudy, >75% overcast`); the precipitation classes follow the WMO convention used in METAR (`light <2.5 mm/h, moderate 2.5\u20137.5, heavy >7.5`); the wind threshold (17 m/s \u2248 Beaufort 8 'fresh gale') is when wind starts to become operationally noteworthy.",
-      "documentation_only": true
+      "evaluation": {
+        "op": "class_table",
+        "inner": {
+          "op": "band",
+          "band": "weather.cloud_cover"
+        },
+        "classes": [
+          [
+            25.0,
+            0.0
+          ],
+          [
+            75.0,
+            1.0
+          ]
+        ],
+        "default": 2.0
+      }
     },
     {
       "key": "heat_equation_2d@1",
@@ -10155,7 +11721,143 @@
           }
         ]
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "mul",
+        "terms": [
+          {
+            "op": "sigmoid",
+            "inner": {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 8.0
+                },
+                {
+                  "op": "sub",
+                  "a": {
+                    "op": "band",
+                    "band": "indices.ndvi"
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 0.25
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "op": "clamp",
+            "inner": {
+              "op": "sub",
+              "a": {
+                "op": "const",
+                "value": 1.0
+              },
+              "b": {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "clamp",
+                    "inner": {
+                      "op": "div",
+                      "a": {
+                        "op": "band",
+                        "band": "indices.ndmi"
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 0.4
+                      }
+                    },
+                    "lo": 0.0,
+                    "hi": 1.0
+                  },
+                  {
+                    "op": "sub",
+                    "a": {
+                      "op": "const",
+                      "value": 1.0
+                    },
+                    "b": {
+                      "op": "add",
+                      "terms": [
+                        {
+                          "op": "mul",
+                          "terms": [
+                            {
+                              "op": "const",
+                              "value": 0.5
+                            },
+                            {
+                              "op": "clamp",
+                              "inner": {
+                                "op": "div",
+                                "a": {
+                                  "op": "sub",
+                                  "a": {
+                                    "op": "band",
+                                    "band": "weather.temperature_2m"
+                                  },
+                                  "b": {
+                                    "op": "const",
+                                    "value": 30.0
+                                  }
+                                },
+                                "b": {
+                                  "op": "const",
+                                  "value": 10.0
+                                }
+                              },
+                              "lo": 0.0,
+                              "hi": 1.0
+                            }
+                          ]
+                        },
+                        {
+                          "op": "mul",
+                          "terms": [
+                            {
+                              "op": "const",
+                              "value": 0.3
+                            },
+                            {
+                              "op": "sub",
+                              "a": {
+                                "op": "const",
+                                "value": 1.0
+                              },
+                              "b": {
+                                "op": "clamp",
+                                "inner": {
+                                  "op": "div",
+                                  "a": {
+                                    "op": "band",
+                                    "band": "weather.relative_humidity"
+                                  },
+                                  "b": {
+                                    "op": "const",
+                                    "value": 100.0
+                                  }
+                                },
+                                "lo": 0.0,
+                                "hi": 1.0
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "lo": 0.0,
+            "hi": 1.0
+          }
+        ]
+      }
     },
     {
       "key": "crop_archetype_embedding_match@1",
@@ -10255,7 +11957,80 @@
         "anchor_band": "s2.B02",
         "fallback_strategy": "absence"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "sub",
+          "a": {
+            "op": "mul",
+            "terms": [
+              {
+                "op": "const",
+                "value": 2300.0
+              },
+              {
+                "op": "div",
+                "a": {
+                  "op": "log",
+                  "inner": {
+                    "op": "mul",
+                    "terms": [
+                      {
+                        "op": "const",
+                        "value": 1000.0
+                      },
+                      {
+                        "op": "max",
+                        "terms": [
+                          {
+                            "op": "band",
+                            "band": "s2.B02"
+                          },
+                          {
+                            "op": "const",
+                            "value": 0.001
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "b": {
+                  "op": "log",
+                  "inner": {
+                    "op": "mul",
+                    "terms": [
+                      {
+                        "op": "const",
+                        "value": 1000.0
+                      },
+                      {
+                        "op": "max",
+                        "terms": [
+                          {
+                            "op": "band",
+                            "band": "s2.B03"
+                          },
+                          {
+                            "op": "const",
+                            "value": 0.001
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "b": {
+            "op": "const",
+            "value": 0.5
+          }
+        },
+        "lo": 0.0,
+        "hi": 25.0
+      }
     },
     {
       "key": "water_chl_proxy_blue_green@1",
@@ -10305,7 +12080,116 @@
         "anchor_band": "s2.B03",
         "fallback_strategy": "absence"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "pow",
+          "base": {
+            "op": "const",
+            "value": 10.0
+          },
+          "exp": {
+            "op": "add",
+            "terms": [
+              {
+                "op": "const",
+                "value": 0.4
+              },
+              {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": -3.3
+                  },
+                  {
+                    "op": "log",
+                    "inner": {
+                      "op": "div",
+                      "a": {
+                        "op": "max",
+                        "terms": [
+                          {
+                            "op": "band",
+                            "band": "s2.B03"
+                          },
+                          {
+                            "op": "const",
+                            "value": 0.001
+                          }
+                        ]
+                      },
+                      "b": {
+                        "op": "max",
+                        "terms": [
+                          {
+                            "op": "band",
+                            "band": "s2.B02"
+                          },
+                          {
+                            "op": "const",
+                            "value": 0.001
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "op": "mul",
+                "terms": [
+                  {
+                    "op": "const",
+                    "value": 1.5
+                  },
+                  {
+                    "op": "pow",
+                    "base": {
+                      "op": "log",
+                      "inner": {
+                        "op": "div",
+                        "a": {
+                          "op": "max",
+                          "terms": [
+                            {
+                              "op": "band",
+                              "band": "s2.B03"
+                            },
+                            {
+                              "op": "const",
+                              "value": 0.001
+                            }
+                          ]
+                        },
+                        "b": {
+                          "op": "max",
+                          "terms": [
+                            {
+                              "op": "band",
+                              "band": "s2.B02"
+                            },
+                            {
+                              "op": "const",
+                              "value": 0.001
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "exp": {
+                      "op": "const",
+                      "value": 2.0
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "lo": 0.01,
+        "hi": 100.0
+      }
     },
     {
       "key": "water_turbidity_red_band@1",
@@ -11148,7 +13032,39 @@
           }
         ]
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "div",
+          "a": {
+            "op": "sub",
+            "a": {
+              "op": "abs",
+              "inner": {
+                "op": "sub",
+                "a": {
+                  "op": "band",
+                  "band": "sentinel1_raw"
+                },
+                "b": {
+                  "op": "const",
+                  "value": -15.0
+                }
+              }
+            },
+            "b": {
+              "op": "const",
+              "value": 3.0
+            }
+          },
+          "b": {
+            "op": "const",
+            "value": 3.0
+          }
+        },
+        "lo": 0.0,
+        "hi": 1.0
+      }
     },
     {
       "key": "prithvi_archetype_match@1",
@@ -12970,7 +14886,168 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "sigmoid",
+        "inner": {
+          "op": "add",
+          "terms": [
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.4
+                },
+                {
+                  "op": "div",
+                  "a": {
+                    "op": "sub",
+                    "a": {
+                      "op": "band",
+                      "band": "modis.lst_day_8day"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 285.0
+                    }
+                  },
+                  "b": {
+                    "op": "const",
+                    "value": 30.0
+                  }
+                }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.4
+                },
+                {
+                  "op": "clamp",
+                  "inner": {
+                    "op": "sub",
+                    "a": {
+                      "op": "const",
+                      "value": 1.0
+                    },
+                    "b": {
+                      "op": "div",
+                      "a": {
+                        "op": "add",
+                        "terms": [
+                          {
+                            "op": "band",
+                            "band": "indices.ndmi"
+                          },
+                          {
+                            "op": "const",
+                            "value": 0.4
+                          }
+                        ]
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 0.8
+                      }
+                    }
+                  },
+                  "lo": 0.0,
+                  "hi": 1.0
+                }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.15
+                },
+                {
+                  "op": "clamp",
+                  "inner": {
+                    "op": "sub",
+                    "a": {
+                      "op": "const",
+                      "value": 1.0
+                    },
+                    "b": {
+                      "op": "div",
+                      "a": {
+                        "op": "band",
+                        "band": "weather.relative_humidity_2m"
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 100.0
+                      }
+                    }
+                  },
+                  "lo": 0.0,
+                  "hi": 1.0
+                }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.05
+                },
+                {
+                  "op": "clamp",
+                  "inner": {
+                    "op": "div",
+                    "a": {
+                      "op": "band",
+                      "band": "weather.wind_speed_10m"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 15.0
+                    }
+                  },
+                  "lo": 0.0,
+                  "hi": 1.0
+                }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.1
+                },
+                {
+                  "op": "clamp",
+                  "inner": {
+                    "op": "div",
+                    "a": {
+                      "op": "band",
+                      "band": "copdem30m.elevation_mean"
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 1000.0
+                    }
+                  },
+                  "lo": 0.0,
+                  "hi": 1.0
+                }
+              ]
+            },
+            {
+              "op": "const",
+              "value": -1.2
+            }
+          ]
+        }
+      }
     },
     {
       "key": "urban_heat_island_lst_canopy@1",
@@ -13030,9 +15107,50 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true,
       "runtime_path": "/v1/hunt",
-      "partial_runtime": true
+      "partial_runtime": true,
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "esa_worldcover.lc_2021"
+        },
+        "gt": 49.5,
+        "then_": {
+          "op": "where",
+          "cond": {
+            "op": "sub",
+            "a": {
+              "op": "const",
+              "value": 50.5
+            },
+            "b": {
+              "op": "band",
+              "band": "esa_worldcover.lc_2021"
+            }
+          },
+          "gt": 0.0,
+          "then_": {
+            "op": "sub",
+            "a": {
+              "op": "band",
+              "band": "modis.lst_day_8day"
+            },
+            "b": {
+              "op": "const",
+              "value": 285.0
+            }
+          },
+          "else_": {
+            "op": "const",
+            "value": 0.0
+          }
+        },
+        "else_": {
+          "op": "const",
+          "value": 0.0
+        }
+      }
     },
     {
       "key": "water_stress_7d_ndmi_et0@1",
@@ -13096,7 +15214,87 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "add",
+          "terms": [
+            {
+              "op": "const",
+              "value": 0.45
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": -0.5
+                },
+                {
+                  "op": "band",
+                  "band": "indices.ndmi"
+                }
+              ]
+            },
+            {
+              "op": "div",
+              "a": {
+                "op": "max",
+                "terms": [
+                  {
+                    "op": "sub",
+                    "a": {
+                      "op": "mul",
+                      "terms": [
+                        {
+                          "op": "const",
+                          "value": 0.0023
+                        },
+                        {
+                          "op": "sub",
+                          "a": {
+                            "op": "band",
+                            "band": "modis.lst_day_8day"
+                          },
+                          "b": {
+                            "op": "const",
+                            "value": 255.35
+                          }
+                        },
+                        {
+                          "op": "sqrt",
+                          "inner": {
+                            "op": "const",
+                            "value": 10.0
+                          }
+                        },
+                        {
+                          "op": "const",
+                          "value": 2.856
+                        }
+                      ]
+                    },
+                    "b": {
+                      "op": "band",
+                      "band": "weather.precipitation_mm"
+                    }
+                  },
+                  {
+                    "op": "const",
+                    "value": 0.0
+                  }
+                ]
+              },
+              "b": {
+                "op": "const",
+                "value": 30.0
+              }
+            }
+          ]
+        },
+        "lo": 0.0,
+        "hi": 1.0
+      }
     },
     {
       "key": "soil_organic_carbon_clay_probe@1",
@@ -13401,7 +15599,104 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "clamp",
+        "inner": {
+          "op": "add",
+          "terms": [
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.5
+                },
+                {
+                  "op": "max",
+                  "terms": [
+                    {
+                      "op": "sub",
+                      "a": {
+                        "op": "const",
+                        "value": 0.5
+                      },
+                      "b": {
+                        "op": "band",
+                        "band": "indices.ndvi"
+                      }
+                    },
+                    {
+                      "op": "const",
+                      "value": 0.0
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.3
+                },
+                {
+                  "op": "clamp",
+                  "inner": {
+                    "op": "div",
+                    "a": {
+                      "op": "sub",
+                      "a": {
+                        "op": "band",
+                        "band": "indices.bsi"
+                      },
+                      "b": {
+                        "op": "const",
+                        "value": 0.1
+                      }
+                    },
+                    "b": {
+                      "op": "const",
+                      "value": 0.4
+                    }
+                  },
+                  "lo": 0.0,
+                  "hi": 1.0
+                }
+              ]
+            },
+            {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 0.2
+                },
+                {
+                  "op": "class_table",
+                  "inner": {
+                    "op": "band",
+                    "band": "esa_worldcover.lc_2021"
+                  },
+                  "classes": [
+                    [
+                      49.5,
+                      0.0
+                    ],
+                    [
+                      60.5,
+                      1.0
+                    ]
+                  ],
+                  "default": 0.0
+                }
+              ]
+            }
+          ]
+        },
+        "lo": 0.0,
+        "hi": 1.0
+      }
     },
     {
       "key": "deforestation_alert_ndvi_drop@1",
@@ -13462,9 +15757,43 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true,
       "runtime_path": "/v1/hunt",
-      "partial_runtime": true
+      "partial_runtime": true,
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "hansen.tree_cover_2000"
+        },
+        "gt": 30.0,
+        "then_": {
+          "op": "where",
+          "cond": {
+            "op": "sub",
+            "a": {
+              "op": "const",
+              "value": 0.5
+            },
+            "b": {
+              "op": "band",
+              "band": "indices.ndvi"
+            }
+          },
+          "gt": 0.2,
+          "then_": {
+            "op": "const",
+            "value": 1.0
+          },
+          "else_": {
+            "op": "const",
+            "value": 0.0
+          }
+        },
+        "else_": {
+          "op": "const",
+          "value": 0.0
+        }
+      }
     },
     {
       "key": "flood_recession_sar_decline@1",
@@ -13525,7 +15854,41 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "surface_water.recurrence"
+        },
+        "gt": 50.0,
+        "then_": {
+          "op": "const",
+          "value": 0.0
+        },
+        "else_": {
+          "op": "clamp",
+          "inner": {
+            "op": "div",
+            "a": {
+              "op": "sub",
+              "a": {
+                "op": "band",
+                "band": "sentinel1_raw"
+              },
+              "b": {
+                "op": "const",
+                "value": -25.0
+              }
+            },
+            "b": {
+              "op": "const",
+              "value": 8.0
+            }
+          },
+          "lo": 0.0,
+          "hi": 1.0
+        }
+      }
     },
     {
       "key": "satclip_geo_signature@1",
@@ -13627,9 +15990,54 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "documentation_only": true,
       "runtime_path": "/v1/hunt",
-      "partial_runtime": true
+      "partial_runtime": true,
+      "evaluation": {
+        "op": "where",
+        "cond": {
+          "op": "band",
+          "band": "indices.ndwi"
+        },
+        "gt": 0.0,
+        "then_": {
+          "op": "clamp",
+          "inner": {
+            "op": "sub",
+            "a": {
+              "op": "mul",
+              "terms": [
+                {
+                  "op": "const",
+                  "value": 70.0
+                },
+                {
+                  "op": "max",
+                  "terms": [
+                    {
+                      "op": "band",
+                      "band": "indices.ndvi"
+                    },
+                    {
+                      "op": "const",
+                      "value": 0.0
+                    }
+                  ]
+                }
+              ]
+            },
+            "b": {
+              "op": "const",
+              "value": 5.0
+            }
+          },
+          "lo": 0.0,
+          "hi": 200.0
+        },
+        "else_": {
+          "op": "const",
+          "value": 0.0
+        }
+      }
     }
   ]
 }

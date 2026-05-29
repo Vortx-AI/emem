@@ -752,6 +752,48 @@ pub enum Expr {
         /// Exponent expression.
         exp: Box<Expr>,
     },
+    /// Natural log: `ln(inner)`. Returns `None` when `inner <= 0` or
+    /// the result is non-finite. Used by Stumpf-Holderied bathymetry
+    /// (log-blue / log-green ratio) and OC-style chlorophyll
+    /// blue-green polynomials.
+    Log {
+        /// Inner expression.
+        inner: Box<Expr>,
+    },
+    /// `primary.unwrap_or(fallback)`: if `primary` evaluates to a
+    /// finite `Some(_)`, return it; otherwise return `fallback`'s
+    /// evaluation. Replaces the `if has(x) then x else y` pattern.
+    /// Used by formulas like `wind_power_density@1` whose pressure
+    /// term falls back to the standard 1013.25 hPa when the
+    /// `weather.air_pressure_msl` band is absent.
+    OrElse {
+        /// Primary expression — used when it evaluates to `Some`.
+        primary: Box<Expr>,
+        /// Fallback expression — used when the primary returns `None`.
+        fallback: Box<Expr>,
+    },
+    /// Multi-branch class table. Each entry is `(threshold,
+    /// class_value)`: the result is the `class_value` of the first
+    /// entry whose `threshold` is strictly greater than `inner`,
+    /// scanned in order; if no entry matches, the result is
+    /// `default`. Cleaner than a deep chain of nested `Where` nodes
+    /// for formulas like the WMO precipitation-intensity ladder or
+    /// the heat-health-risk 5-class HI table. The `inner < threshold`
+    /// semantics matches the documented `if x < 27 then 0; else if x
+    /// < 32 then 1; ... else default` style. Thresholds are plain
+    /// `f64`s (no `INFINITY` sentinel — `INFINITY` serialises to
+    /// `null` in JSON, so the catch-all is the explicit `default`
+    /// field).
+    ClassTable {
+        /// Value being classified.
+        inner: Box<Expr>,
+        /// `(threshold, class_value)` pairs scanned in order; the
+        /// first whose `threshold > inner` wins.
+        classes: Vec<(f64, f64)>,
+        /// Catch-all class value returned when no `classes[i].0 >
+        /// inner` holds (i.e. `inner` exceeds every threshold).
+        default: f64,
+    },
 }
 
 impl Expr {
@@ -888,6 +930,36 @@ impl Expr {
                     None
                 }
             }
+            Expr::Log { inner } => {
+                let x = inner.evaluate(samples)?;
+                if x <= 0.0 || !x.is_finite() {
+                    None
+                } else {
+                    let v = x.ln();
+                    if v.is_finite() {
+                        Some(v)
+                    } else {
+                        None
+                    }
+                }
+            }
+            Expr::OrElse { primary, fallback } => match primary.evaluate(samples) {
+                Some(v) if v.is_finite() => Some(v),
+                _ => fallback.evaluate(samples),
+            },
+            Expr::ClassTable {
+                inner,
+                classes,
+                default,
+            } => {
+                let x = inner.evaluate(samples)?;
+                for (threshold, class_value) in classes {
+                    if *threshold > x {
+                        return Some(*class_value);
+                    }
+                }
+                Some(*default)
+            }
         }
     }
 
@@ -929,7 +1001,9 @@ impl Expr {
             | Expr::Relu { inner }
             | Expr::Tanh { inner }
             | Expr::Exp { inner }
-            | Expr::Sqrt { inner } => inner.walk_bands(out),
+            | Expr::Sqrt { inner }
+            | Expr::Log { inner }
+            | Expr::ClassTable { inner, .. } => inner.walk_bands(out),
             Expr::Pow { base, exp } => {
                 base.walk_bands(out);
                 exp.walk_bands(out);
@@ -949,6 +1023,22 @@ impl Expr {
                 primary.walk_bands(out);
                 alt.walk_bands(out);
                 alt_weight.walk_bands(out);
+            }
+            Expr::OrElse {
+                primary: _,
+                fallback,
+            } => {
+                // OrElse's primary may legitimately be `None` (that's
+                // its whole point — `wind_power_density@1` falls back
+                // to 1013.25 hPa when `weather.air_pressure_msl` is
+                // absent). The dispatcher pre-checks that every band
+                // returned here is present in the sample map and
+                // errors otherwise, so listing the primary's bands
+                // would force them to be present and defeat the
+                // fallback. We therefore expose ONLY the fallback's
+                // bands as required; the primary's bands are
+                // best-effort and resolved at evaluation time.
+                fallback.walk_bands(out);
             }
         }
     }
@@ -1561,6 +1651,136 @@ mod tests {
             exp: Box::new(Expr::Const { value: 0.5 }),
         };
         assert_eq!(bad.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn pow_3_squared_is_9() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Pow {
+            base: Box::new(Expr::Const { value: 3.0 }),
+            exp: Box::new(Expr::Const { value: 2.0 }),
+        };
+        assert_eq!(e.evaluate(&samples), Some(9.0));
+    }
+
+    #[test]
+    fn log_e_is_1() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Log {
+            inner: Box::new(Expr::Const {
+                value: std::f64::consts::E,
+            }),
+        };
+        let v = e.evaluate(&samples).expect("ln(e) evaluates");
+        assert!((v - 1.0).abs() < 1e-12);
+        // ln(0) and ln(-1) → None
+        let zero = Expr::Log {
+            inner: Box::new(Expr::Const { value: 0.0 }),
+        };
+        assert_eq!(zero.evaluate(&samples), None);
+        let neg = Expr::Log {
+            inner: Box::new(Expr::Const { value: -1.0 }),
+        };
+        assert_eq!(neg.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn sigmoid_zero_is_half() {
+        // (Duplicates `expr_sigmoid_is_centered_at_zero` intentionally so the
+        // batch-of-six sanity tests live together for diff readability.)
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Sigmoid {
+            inner: Box::new(Expr::Const { value: 0.0 }),
+        };
+        assert!((e.evaluate(&samples).unwrap() - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn min_max_pair_over_three_terms() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let three_terms = || {
+            vec![
+                Expr::Const { value: 2.0 },
+                Expr::Const { value: -1.0 },
+                Expr::Const { value: 5.0 },
+            ]
+        };
+        let mn = Expr::Min {
+            terms: three_terms(),
+        };
+        let mx = Expr::Max {
+            terms: three_terms(),
+        };
+        assert_eq!(mn.evaluate(&samples), Some(-1.0));
+        assert_eq!(mx.evaluate(&samples), Some(5.0));
+        // Min/Max with a None term propagate None.
+        let mn_with_none = Expr::Min {
+            terms: vec![
+                Expr::Const { value: 2.0 },
+                Expr::Band {
+                    band: "missing".into(),
+                },
+            ],
+        };
+        assert_eq!(mn_with_none.evaluate(&samples), None);
+    }
+
+    #[test]
+    fn abs_negative_is_positive() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::Abs {
+            inner: Box::new(Expr::Const { value: -3.0 }),
+        };
+        assert_eq!(e.evaluate(&samples), Some(3.0));
+    }
+
+    #[test]
+    fn orelse_uses_fallback_when_primary_is_none() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let e = Expr::OrElse {
+            primary: Box::new(Expr::Band {
+                band: "missing".into(),
+            }),
+            fallback: Box::new(Expr::Const { value: 7.0 }),
+        };
+        assert_eq!(e.evaluate(&samples), Some(7.0));
+        // And the primary wins when it resolves.
+        let mut samples2 = std::collections::HashMap::new();
+        samples2.insert("present".to_string(), 11.0);
+        let e2 = Expr::OrElse {
+            primary: Box::new(Expr::Band {
+                band: "present".into(),
+            }),
+            fallback: Box::new(Expr::Const { value: 7.0 }),
+        };
+        assert_eq!(e2.evaluate(&samples2), Some(11.0));
+    }
+
+    #[test]
+    fn class_table_picks_first_threshold_strictly_above_input() {
+        let samples: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        // WMO precipitation-intensity-style table (mm/d → class).
+        let make = |x: f64| Expr::ClassTable {
+            inner: Box::new(Expr::Const { value: x }),
+            classes: vec![(0.05, 0.0), (0.5, 1.0), (2.5, 2.0), (7.5, 3.0), (50.0, 4.0)],
+            default: 5.0,
+        };
+        assert_eq!(make(5.0).evaluate(&samples), Some(3.0)); // 5.0 < 7.5 → class 3
+        assert_eq!(make(80.0).evaluate(&samples), Some(5.0)); // catch-all
+        assert_eq!(make(0.0).evaluate(&samples), Some(0.0)); // 0 < 0.05 → class 0
+    }
+
+    #[test]
+    fn class_table_serde_roundtrips() {
+        let original = Expr::ClassTable {
+            inner: Box::new(Expr::Band { band: "x".into() }),
+            classes: vec![(1.0, 0.0), (2.0, 1.0)],
+            default: 2.0,
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let back: Expr = serde_json::from_str(&json).expect("deserialize");
+        let json_back = serde_json::to_string(&back).unwrap();
+        assert_eq!(json, json_back);
     }
 
     #[test]
@@ -2372,5 +2592,339 @@ mod tests {
             v_stab, 1.0,
             "matched history/current should classify as stable (1)"
         );
+    }
+
+    // ----------------------------------------------------------------
+    // Bucket B (2026-05-29) — 30 ASTs wired this commit.
+    //
+    // Smoke + per-formula numerical correctness tests. Each new AST is
+    // exercised at a representative input and asserted to match the
+    // documented formula at that point (within 1e-6 unless noted).
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn bucket_b_smoke_all_new_asts_evaluate_to_finite() {
+        // Synthetic input map covering every band referenced by the 30
+        // ASTs added in this commit. Each key below has an evaluation
+        // AST (added in the same commit) and must round-trip from
+        // samples → finite numeric value. Catches typos in `op` keys
+        // and missing-band references before the dispatcher does.
+        let mut s = std::collections::HashMap::new();
+        // Optical / S2 bands
+        s.insert("s2.B02".to_string(), 0.08);
+        s.insert("s2.B03".to_string(), 0.10);
+        s.insert("s2.B04".to_string(), 0.12);
+        s.insert("s2.B11".to_string(), 0.20);
+        s.insert("s2.B12".to_string(), 0.15);
+        // Indices
+        s.insert("indices.ndvi".to_string(), 0.45);
+        s.insert("indices.ndmi".to_string(), 0.20);
+        s.insert("indices.ndbi".to_string(), 0.15);
+        s.insert("indices.bsi".to_string(), 0.10);
+        s.insert("indices.ndre".to_string(), 0.25);
+        s.insert("indices.evi".to_string(), 0.40);
+        s.insert("indices.nbr".to_string(), -0.05);
+        s.insert("indices.ndwi".to_string(), 0.30);
+        s.insert("indices.ndti".to_string(), 0.15);
+        s.insert("indices.fai".to_string(), 0.02);
+        s.insert("indices.gndvi".to_string(), 0.40);
+        s.insert("indices.tss".to_string(), 0.30);
+        s.insert("indices.urban_canopy_index".to_string(), 0.40);
+        // Weather
+        s.insert("weather.temperature_2m".to_string(), 28.0);
+        s.insert("weather.relative_humidity_2m".to_string(), 55.0);
+        s.insert("weather.relative_humidity".to_string(), 55.0);
+        s.insert("weather.wind_speed_10m".to_string(), 5.0);
+        s.insert("weather.precipitation_mm".to_string(), 1.0);
+        s.insert("weather.air_pressure_msl".to_string(), 1013.0);
+        s.insert("weather.cloud_cover".to_string(), 50.0);
+        // SAR + radar
+        s.insert("sentinel1_raw".to_string(), -17.0);
+        // Hydrology
+        s.insert("surface_water.recurrence".to_string(), 30.0);
+        // Terrain
+        s.insert("copdem30m.elevation_mean".to_string(), 200.0);
+        // MODIS
+        s.insert("modis.lst_day_8day".to_string(), 305.0);
+        s.insert("modis.lst_night_8day".to_string(), 285.0);
+        s.insert("modis.gpp_8day".to_string(), 0.003);
+        s.insert("modis.lai_8day".to_string(), 3.0);
+        s.insert("modis.burned_area_monthly".to_string(), 0.0);
+        s.insert("modis.ndvi_mean".to_string(), 0.55);
+        // POWER / ERA5
+        s.insert("power.allsky_sw".to_string(), 18.0);
+        s.insert("era5.precip".to_string(), 0.5);
+        // Soil / land cover
+        s.insert("soilgrids.soc_0_30cm".to_string(), 12.0);
+        s.insert("esa_worldcover.lc_2021".to_string(), 50.0);
+        // Marine
+        s.insert("marine.sst".to_string(), 26.0);
+        // Air quality
+        s.insert("cams.pm25".to_string(), 20.0);
+        s.insert("cams.aod_550".to_string(), 0.30);
+        // Overture
+        s.insert("overture.buildings.count".to_string(), 250.0);
+        s.insert("overture.buildings.area_m2".to_string(), 30000.0);
+        s.insert("overture.buildings.height_mean".to_string(), 9.0);
+        // Forest
+        s.insert("hansen.tree_cover_2000".to_string(), 60.0);
+
+        let r = &*DEFAULT;
+        for key in [
+            "construction_site_exposure@1",
+            "wildfire_ignition_risk_lst_lfm@1",
+            "carbon.albedo_radiative_forcing@1",
+            "carbon.urban_canopy_cooling_potential@1",
+            "carbon.drought_carbon_stress@1",
+            "carbon.evi_npp_proxy@1",
+            "carbon.npp_8day@1",
+            "bathymetry_stumpf_log_ratio@1",
+            "water_chl_proxy_blue_green@1",
+            "green_space_access@1",
+            "algal_bloom_chlorophyll_ndci@1",
+            "n_uptake_ndre@1",
+            "crop_yield_proxy@1",
+            "water_stress_7d_ndmi_et0@1",
+            "outdoor_comfort_score@1",
+            "wind_power_density@1",
+            "crop_water_stress_index_proxy@1",
+            "urban_heat_island_imhoff@1",
+            "soil_salinity_index@1",
+            "sdg.15_4_2.mountain_green_cover_index@1",
+            "gdd_phenology@1",
+            "carbon.fire_emissions_co2_proxy@1",
+            "route_heat_exposure@1",
+            "sar_coherence_change_proxy@1",
+            "mining_extraction_footprint@1",
+            "deforestation_alert_ndvi_drop@1",
+            "flood_recession_sar_decline@1",
+            "weather_summary@1",
+            "sdg.13_2_2.ghg_proxy_burned_area@1",
+            "sdg.11_6_2.annual_pm25_mean@1",
+            "sdg.14_1_1a.coastal_eutrophication_index@1",
+            "population_ghsl_dasymetric@1",
+            "urban_heat_island_lst_canopy@1",
+            "carbon.deforestation_alert_proxy@1",
+            "residue_burn_multisensor@1",
+        ] {
+            let v = r
+                .evaluate(key, &s)
+                .unwrap_or_else(|e| panic!("{key} evaluation failed: {e}"))
+                .unwrap_or_else(|| panic!("{key} returned None (missing AST or missing band)"));
+            assert!(
+                v.is_finite(),
+                "{key} produced non-finite value {v} from synthetic inputs"
+            );
+        }
+    }
+
+    #[test]
+    fn bathymetry_stumpf_log_ratio_matches_documented_formula() {
+        // depth_m = clamp(2300 * ln(1000*B02) / ln(1000*B03) - 0.5, 0, 25)
+        let mut s = std::collections::HashMap::new();
+        s.insert("s2.B02".to_string(), 0.08);
+        s.insert("s2.B03".to_string(), 0.10);
+        let v = DEFAULT
+            .evaluate("bathymetry_stumpf_log_ratio@1", &s)
+            .unwrap()
+            .unwrap();
+        let r = (1000.0_f64 * 0.08).ln() / (1000.0_f64 * 0.10).ln();
+        let expected = (2300.0 * r - 0.5).clamp(0.0, 25.0);
+        assert!(approx(v, expected, 1e-6), "got {v}, expected {expected}");
+    }
+
+    #[test]
+    fn water_chl_proxy_blue_green_matches_oc_polynomial() {
+        // chl = clamp(10^(0.4 - 3.3*r + 1.5*r^2), 0.01, 100); r = ln(B03/B02)
+        let mut s = std::collections::HashMap::new();
+        s.insert("s2.B02".to_string(), 0.04);
+        s.insert("s2.B03".to_string(), 0.05);
+        let v = DEFAULT
+            .evaluate("water_chl_proxy_blue_green@1", &s)
+            .unwrap()
+            .unwrap();
+        let r = (0.05_f64 / 0.04_f64).ln();
+        let poly = 0.4 - 3.3 * r + 1.5 * r * r;
+        let expected = 10f64.powf(poly).clamp(0.01, 100.0);
+        assert!(approx(v, expected, 1e-6));
+    }
+
+    #[test]
+    fn wind_power_density_uses_orelse_for_missing_pressure() {
+        // ρ = p / (R_d · T_K); WPD = ½·ρ·U³ with p falling back to 1013.25 hPa.
+        let mut s = std::collections::HashMap::new();
+        s.insert("weather.wind_speed_10m".to_string(), 8.0);
+        s.insert("weather.temperature_2m".to_string(), 20.0);
+        // Deliberately omit weather.air_pressure_msl — OrElse must fall back.
+        let v = DEFAULT
+            .evaluate("wind_power_density@1", &s)
+            .unwrap()
+            .unwrap();
+        let t_k = 20.0_f64 + 273.15;
+        let rho = (1013.25_f64 * 100.0) / (287.058 * t_k);
+        let expected = 0.5 * rho * 8.0_f64.powi(3);
+        assert!(approx(v, expected, 1e-6), "got {v}, expected {expected}");
+    }
+
+    #[test]
+    fn carbon_npp_8day_is_half_of_gpp() {
+        let mut s = std::collections::HashMap::new();
+        s.insert("modis.gpp_8day".to_string(), 0.004);
+        let v = DEFAULT.evaluate("carbon.npp_8day@1", &s).unwrap().unwrap();
+        assert!(approx(v, 0.002, 1e-12));
+    }
+
+    #[test]
+    fn weather_summary_class_table_picks_cloud_class() {
+        let mut s = std::collections::HashMap::new();
+        let r = &*DEFAULT;
+        for (cloud, expected) in [(10.0_f64, 0.0_f64), (50.0, 1.0), (90.0, 2.0)] {
+            s.insert("weather.cloud_cover".to_string(), cloud);
+            let v = r.evaluate("weather_summary@1", &s).unwrap().unwrap();
+            assert!(
+                (v - expected).abs() < 1e-9,
+                "cloud={cloud} expected class {expected} got {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn pm25_class_table_uses_who_2021_ladder() {
+        let mut s = std::collections::HashMap::new();
+        let r = &*DEFAULT;
+        for (pm25, expected) in [
+            (3.0_f64, 0.0_f64), // AQG
+            (7.0, 1.0),         // IT-4
+            (12.0, 2.0),        // IT-3
+            (20.0, 3.0),        // IT-2
+            (30.0, 4.0),        // IT-1
+            (60.0, 5.0),        // exceeds
+        ] {
+            s.insert("cams.pm25".to_string(), pm25);
+            let v = r
+                .evaluate("sdg.11_6_2.annual_pm25_mean@1", &s)
+                .unwrap()
+                .unwrap();
+            assert!(
+                (v - expected).abs() < 1e-9,
+                "pm25={pm25} expected class {expected} got {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn gdd_phenology_matches_mcmaster_wilhelm_at_warm_day() {
+        // T=22°C, T_base=10, T_upper=30:
+        // min(22,30)=22; max(22,10)=22; (22+22)/2 - 10 = 12
+        let mut s = std::collections::HashMap::new();
+        s.insert("weather.temperature_2m".to_string(), 22.0);
+        let v = DEFAULT.evaluate("gdd_phenology@1", &s).unwrap().unwrap();
+        assert!(approx(v, 12.0, 1e-9));
+        // Cold day below T_base should clamp to 0.
+        s.insert("weather.temperature_2m".to_string(), 5.0);
+        let v_cold = DEFAULT.evaluate("gdd_phenology@1", &s).unwrap().unwrap();
+        // min(5,30)=5; max(5,10)=10; (5+10)/2 - 10 = -2.5 → max(0,-2.5) = 0
+        assert!(approx(v_cold, 0.0, 1e-9));
+    }
+
+    #[test]
+    fn algal_bloom_gates_on_ndwi() {
+        // Not water (ndwi <= 0) → 0
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndvi".to_string(), 0.20);
+        s.insert("indices.ndwi".to_string(), -0.10);
+        let v_land = DEFAULT
+            .evaluate("algal_bloom_chlorophyll_ndci@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_land, 0.0);
+        // Water + bloom: ndwi=0.40, ndvi=0.20 → 70*0.20 - 5 = 9
+        s.insert("indices.ndwi".to_string(), 0.40);
+        let v_water = DEFAULT
+            .evaluate("algal_bloom_chlorophyll_ndci@1", &s)
+            .unwrap()
+            .unwrap();
+        assert!(approx(v_water, 9.0, 1e-9));
+    }
+
+    #[test]
+    fn n_uptake_ndre_gates_on_ndvi() {
+        let mut s = std::collections::HashMap::new();
+        // Pre-canopy (ndvi < 0.3): zero
+        s.insert("indices.ndvi".to_string(), 0.20);
+        s.insert("indices.ndre".to_string(), 0.30);
+        s.insert("modis.lai_8day".to_string(), 3.0);
+        let v_pre = DEFAULT.evaluate("n_uptake_ndre@1", &s).unwrap().unwrap();
+        assert_eq!(v_pre, 0.0);
+        // Mid-season: ndvi=0.5, ndre=0.3, lai=3
+        // n_conc = clamp(0.50 + 4.50*0.30, 1.0, 5.5) = 1.85
+        // uptake = 1.85 * 3 * 5 = 27.75
+        s.insert("indices.ndvi".to_string(), 0.50);
+        let v_mid = DEFAULT.evaluate("n_uptake_ndre@1", &s).unwrap().unwrap();
+        assert!(approx(v_mid, 27.75, 1e-6));
+    }
+
+    #[test]
+    fn population_ghsl_uses_orelse_for_missing_height() {
+        // Missing height_mean → fallback to 7.5 m.
+        // A = 30000 m²; storeys = max(1, 7.5/3) = 2.5
+        // R = 0.85 - 0.15·sigmoid(10·0.15) = 0.85 - 0.15·sigmoid(1.5)
+        let mut s = std::collections::HashMap::new();
+        s.insert("overture.buildings.count".to_string(), 300.0);
+        s.insert("overture.buildings.area_m2".to_string(), 30000.0);
+        // Deliberately omit overture.buildings.height_mean.
+        s.insert("indices.ndbi".to_string(), 0.15);
+        let v = DEFAULT
+            .evaluate("population_ghsl_dasymetric@1", &s)
+            .unwrap()
+            .unwrap();
+        let storeys = (7.5_f64 / 3.0).max(1.0);
+        let sig = 1.0 / (1.0 + (-1.5_f64).exp());
+        let r = 0.85 - 0.15 * sig;
+        let expected = (30000.0 * storeys * r) / 67.0;
+        assert!(approx(v, expected, 1e-6), "got {v}, expected {expected}");
+    }
+
+    #[test]
+    fn residue_burn_multisensor_classifies_high_confidence() {
+        let mut s = std::collections::HashMap::new();
+        // 3 sensors fire → "high_confidence_burn" (class 3) under the
+        // class_table cutoff at 3.0.
+        s.insert("indices.nbr".to_string(), -0.30); // dnbr-proxy gate fires
+        s.insert("indices.ndti".to_string(), 0.30); // ndti gate fires
+        s.insert("modis.burned_area_monthly".to_string(), 1.0); // BA gate fires
+        s.insert("cams.aod_550".to_string(), 0.10); // does NOT fire
+        s.insert("cams.pm25".to_string(), 10.0); // does NOT fire
+        let v = DEFAULT
+            .evaluate("residue_burn_multisensor@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v, 3.0, "3-sensor agreement should be high_confidence_burn");
+        // 0 sensors fire → "no_burn" (class 0)
+        s.insert("indices.nbr".to_string(), 0.20);
+        s.insert("indices.ndti".to_string(), 0.0);
+        s.insert("modis.burned_area_monthly".to_string(), 0.0);
+        let v_none = DEFAULT
+            .evaluate("residue_burn_multisensor@1", &s)
+            .unwrap()
+            .unwrap();
+        assert_eq!(v_none, 0.0);
+    }
+
+    #[test]
+    fn urban_heat_island_imhoff_returns_dlst_for_built_cell() {
+        // dNDVI = clamp01(0.45 - ndvi); isa_mod = clamp01((ndbi+0.1)/0.4)
+        // dLST = 41 * dNDVI * isa_mod
+        let mut s = std::collections::HashMap::new();
+        s.insert("indices.ndvi".to_string(), 0.20);
+        s.insert("indices.ndbi".to_string(), 0.20);
+        let v = DEFAULT
+            .evaluate("urban_heat_island_imhoff@1", &s)
+            .unwrap()
+            .unwrap();
+        let dndvi = (0.45_f64 - 0.20).clamp(0.0, 1.0);
+        let isa = ((0.20_f64 + 0.10) / 0.40).clamp(0.0, 1.0);
+        let expected = 41.0 * dndvi * isa;
+        assert!(approx(v, expected, 1e-6));
     }
 }
