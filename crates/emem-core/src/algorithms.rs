@@ -368,6 +368,22 @@ pub struct Algorithm {
     /// audit follow-up (Agent C's bucket B recommendation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_path: Option<String>,
+    /// Some algorithms (notably the 11 hunter events) execute a
+    /// *partial* version of their documented formula: the per-cell
+    /// fan-out ranks cells by the algorithm's `primary_band` value but
+    /// does NOT apply the formula's specific thresholds, class tables,
+    /// or multi-band gates. Agents that quote the algorithm_key in a
+    /// receipt need to know they're citing a ranking, not the full
+    /// math. `partial_runtime: true` makes the gap honest.
+    ///
+    /// Always paired with `runtime_path`. When `partial_runtime` is
+    /// true the algorithm STILL counts as `runtime_evaluable` because
+    /// there IS a Rust path that produces a per-cell number, just not
+    /// the documented one. Agents that need the full formula must
+    /// compose against the `formula` prose client-side. Added
+    /// 2026-05-29 from Agent C's audit recommendation.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub partial_runtime: bool,
     /// Optional inference-tier declaration — see [`InferenceTier`]. When
     /// present, the dispatcher consults the sidecar's `/health.extensions`
     /// at planning time and filters algorithms whose required hardware is

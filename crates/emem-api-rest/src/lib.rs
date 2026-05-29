@@ -4916,6 +4916,7 @@ fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) 
         "documentation_only": a.documentation_only,
         "runtime_evaluable":  a.evaluation.is_some() || a.runtime_path.is_some(),
         "runtime_path":       a.runtime_path,
+        "partial_runtime":    a.partial_runtime,
         "summary":       true,
     })
 }
@@ -4956,6 +4957,7 @@ fn project_algorithm_for_question(
             "documentation_only": a.documentation_only,
             "runtime_evaluable":  a.evaluation.is_some() || a.runtime_path.is_some(),
             "runtime_path":       a.runtime_path,
+            "partial_runtime":    a.partial_runtime,
         })
     }
 }
@@ -23806,7 +23808,35 @@ async fn materialize_population(cell64: &str, s: &AppState) -> Result<emem_fact:
     // Try the per-country COG path first. This is the fast, non-rate-
     // limited path; one upstream range read amortises across every cell
     // in the same ISO-3 / year combination via `cog::TILE_CACHE`.
-    match emem_fetch::worldpop::fetch_population_density_via_cog(&cli, lat, lng, year).await {
+    //
+    // 2026-05-29 audit: the COG try previously ran without an outer
+    // timeout, so a slow `cog::open_profile` against the per-country
+    // UNadj 1 km COG could burn the full `materializer_timeout_secs()`
+    // budget (~42 s observed for rural-India cells) before falling
+    // through to the stats-API path. We now cap the COG try at
+    // `EMEM_WORLDPOP_COG_TIMEOUT_SECS` (default 8 s, clamped 1..=60)
+    // so a slow upstream flips to the stats-API path fast. Honest
+    // signed-Absence outcomes (NoCogCoverage, EmptyAoi) still come
+    // back from the COG path even when fast.
+    let worldpop_cog_timeout_secs = std::env::var("EMEM_WORLDPOP_COG_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(8)
+        .clamp(1, 60);
+    let cog_result = tokio::time::timeout(
+        std::time::Duration::from_secs(worldpop_cog_timeout_secs),
+        emem_fetch::worldpop::fetch_population_density_via_cog(&cli, lat, lng, year),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(emem_fetch::worldpop::WorldPopError::CogFailure {
+            url: format!("worldpop wpgppop/{year}"),
+            detail: format!(
+                "cog path exceeded {worldpop_cog_timeout_secs}s — fallback to stats-API"
+            ),
+        })
+    });
+    match cog_result {
         Ok(sample) => {
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell64.to_string(),

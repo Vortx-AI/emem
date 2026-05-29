@@ -112,6 +112,34 @@ impl Server {
         self.storage.attesters()
     }
 
+    /// Snapshot of the active manifest CIDs for the receipt's
+    /// `source_versions` field. Honest provenance per the spec: the
+    /// receipt names the exact registry / schema / bands / sources
+    /// CIDs in force at the moment the responder signed. An offline
+    /// auditor reading a receipt months later can pull those CIDs and
+    /// know which registry version produced the verdict.
+    ///
+    /// Audit 2026-05-29 finding F3: previously the field was
+    /// hard-coded to `BTreeMap::new()` so the manifest provenance was
+    /// signed-receipt theatre. Now populated; the verifier doesn't
+    /// validate the entries against the preimage today (the map is
+    /// outside the v0.0.8 preimage rule), but downstream auditors can
+    /// at minimum see what the responder claimed it was using.
+    fn manifest_versions_snapshot(&self) -> BTreeMap<String, String> {
+        let mut m = BTreeMap::new();
+        m.insert(
+            "registry_cid".into(),
+            self.manifests.registry_cid.as_str().to_string(),
+        );
+        m.insert(
+            "schema_cid".into(),
+            self.manifests.schema_cid.as_str().to_string(),
+        );
+        m.insert("bands_cid".into(), self.manifests.bands_cid.clone());
+        m.insert("sources_cid".into(), self.manifests.sources_cid.clone());
+        m
+    }
+
     /// Build a signed [`Receipt`] for a primitive response. Signature
     /// covers the canonical `request_id || served_at || primitive ||
     /// cells || fact_cids` byte sequence so any client can offline-verify
@@ -176,7 +204,7 @@ impl Server {
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),
-            source_versions: BTreeMap::new(),
+            source_versions: self.manifest_versions_snapshot(),
             registry_cid: self.manifests.registry_cid.clone(),
             cost: Cost {
                 credits: 0,
@@ -269,7 +297,7 @@ impl Server {
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),
-            source_versions: BTreeMap::new(),
+            source_versions: self.manifest_versions_snapshot(),
             registry_cid: self.manifests.registry_cid.clone(),
             cost: Cost {
                 credits: 0,
@@ -416,7 +444,7 @@ impl Server {
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),
-            source_versions: BTreeMap::new(),
+            source_versions: self.manifest_versions_snapshot(),
             registry_cid: self.manifests.registry_cid.clone(),
             cost: Cost {
                 credits: 0,
