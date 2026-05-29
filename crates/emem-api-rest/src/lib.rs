@@ -7712,6 +7712,21 @@ async fn boring_recall_aggregated(
         return boring_recall_at(state, target.lat, target.lng, bands, tslot).await;
     }
 
+    // Polygon-bbox tile prewarm — fire ONE `cog::sample_window` per
+    // static-COG band over the polygon bbox so each later per-cell
+    // `sample_pixel` is a `TILE_CACHE` byte-hit + decompress instead
+    // of a fresh HTTP range read. Hansen treecover / lossyear / gain,
+    // JRC GFC2020, ESA CCI Biomass, ESA WorldCover, and JRC GSW
+    // recurrence currently benefit; STAC-driven and per-point JSON-
+    // API bands (Open-Meteo, met.no, MODIS, S2/S1) silently no-op
+    // here and pay the per-cell cost they would have paid anyway.
+    // Same shape `/v1/recall_polygon` and `/v1/hunt`'s
+    // `fan_out_and_rank` already use. Best-effort: tile-open failures
+    // do not break the per-cell path.
+    if !bands.is_empty() {
+        prewarm_polygon_static_cog_bands(bands, polygon.bbox).await;
+    }
+
     // Fan out per-cell recalls concurrently. Without this a 16-cell
     // cold polygon = 16 sequential Open-Meteo / met.no fetches → 8-15s
     // per request. Mirrors commit 29f02e6 (parallel temporal recipes).
@@ -18904,6 +18919,14 @@ async fn elevation_coherent_polygon(
         .iter()
         .map(|s| s.to_string())
         .collect();
+    // Polygon-bbox tile prewarm — same shape as boring_recall_aggregated
+    // and fan_out_and_rank. Only `esa_worldcover.lc_2021` of the three
+    // ELEVATION_COHERENCE_BANDS routes through a static COG today
+    // (Cop-DEM and GMRT use per-point JSON APIs); that single tile-
+    // window read replaces N per-cell HTTP range reads against the
+    // 3°×3° WorldCover tile. Cop-DEM and GMRT silently no-op in the
+    // prewarm; their per-cell path is unchanged.
+    prewarm_polygon_static_cog_bands(&bands, polygon.bbox).await;
     for cell in &cells {
         let req = RecallReq {
             cell: cell.clone(),
@@ -23111,24 +23134,13 @@ async fn materialize_jrc_gsw_recurrence(
     let lng = info.lng_deg;
 
     // 10° tile grid: lon_left = floor(lng/10)*10 with E/W suffix; lat_top
-    // = ceil(lat/10)*10 with N/S suffix. Matches emem_core::Bbox helpers
-    // and the URL pattern verified live (recurrence_80E_30Nv1_4_2021.tif
-    // → 200 OK at storage.googleapis.com).
-    let lon_edge = (lng / 10.0).floor() as i32 * 10;
-    let lon_left = if lon_edge >= 0 {
-        format!("{}E", lon_edge)
-    } else {
-        format!("{}W", lon_edge.abs())
-    };
-    let lat_edge = (lat / 10.0).ceil() as i32 * 10;
-    let lat_top = if lat_edge >= 0 {
-        format!("{}N", lat_edge)
-    } else {
-        format!("{}S", lat_edge.abs())
-    };
-    let url = format!(
-        "https://storage.googleapis.com/global-surface-water/downloads2021/recurrence/recurrence_{lon_left}_{lat_top}v1_4_2021.tif",
-    );
+    // = ceil(lat/10)*10 with N/S suffix. URL builder lives in
+    // `emem_fetch::jrc_gsw` so the polygon prewarm path and this
+    // materializer always reach for the exact same tile (any drift
+    // would break `TILE_CACHE` hits). Verified live:
+    // recurrence_80E_30Nv1_4_2021.tif → 200 OK at storage.googleapis.com.
+    let (lon_left, lat_top) = emem_fetch::jrc_gsw::tile_corner_tags(lat, lng);
+    let url = emem_fetch::jrc_gsw::recurrence_tile_url_for(lat, lng);
 
     let cli = s2_http_client();
     let prof = emem_fetch::cog::open_profile(&cli, &url)
@@ -23421,22 +23433,12 @@ async fn materialize_esa_worldcover_2021(
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
-    // SW-corner naming on a 3° grid; lat is N/S, lng is E/W.
-    let lat_floor = (lat / 3.0).floor() as i32 * 3;
-    let lng_floor = (lng / 3.0).floor() as i32 * 3;
-    let lat_tag = if lat_floor >= 0 {
-        format!("N{:02}", lat_floor)
-    } else {
-        format!("S{:02}", lat_floor.abs())
-    };
-    let lng_tag = if lng_floor >= 0 {
-        format!("E{:03}", lng_floor)
-    } else {
-        format!("W{:03}", lng_floor.abs())
-    };
-    let url = format!(
-        "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{lat_tag}{lng_tag}_Map.tif",
-    );
+    // SW-corner naming on a 3° grid; lat is N/S, lng is E/W. URL
+    // builder lives in `emem_fetch::esa_worldcover` so the polygon
+    // prewarm path and this materializer always reach for the exact
+    // same tile (any drift would break `TILE_CACHE` hits).
+    let (lat_tag, lng_tag) = emem_fetch::esa_worldcover::tile_corner_tags(lat, lng);
+    let url = emem_fetch::esa_worldcover::tile_url_for(lat, lng);
 
     let cli = s2_http_client();
     let signed_at = chrono_iso8601_utc();
@@ -32943,6 +32945,22 @@ fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Opti
         | "esa_cci_biomass.agb_se_t_per_ha_2022" => {
             emem_fetch::esa_cci_biomass::tile_url_for(2022, centre_lat, centre_lng)
         }
+        // ESA WorldCover 2021 v200 — 3°×3° SW-corner-named tiles
+        // (anonymous S3, CC BY 4.0). The polygon prewarm fires one
+        // window read against the tile covering the bbox centre; the
+        // per-cell `sample_pixel` calls then hit `TILE_CACHE`. Polygons
+        // straddling a 3° edge will silently miss the prewarm on the
+        // far-side tile and pay the per-cell network cost there — no
+        // regression vs the legacy path.
+        "esa_worldcover.lc_2021" => Some(emem_fetch::esa_worldcover::tile_url_for(
+            centre_lat, centre_lng,
+        )),
+        // JRC Global Surface Water v1.4 recurrence — 10°×10° NW-corner
+        // tiles on `storage.googleapis.com/global-surface-water/...`.
+        // Same prewarm + per-cell handshake as WorldCover.
+        "surface_water.recurrence" => Some(emem_fetch::jrc_gsw::recurrence_tile_url_for(
+            centre_lat, centre_lng,
+        )),
         // CHIRPS daily / monthly precip — global COG per epoch. We
         // can't pick a date here without the request context, so the
         // prewarm declines; the per-cell materializer still handles it.
