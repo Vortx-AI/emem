@@ -32936,7 +32936,6 @@ fn verdict_label(code: u8) -> &'static str {
         2 => "fail",
         3 => "not_in_scope",
         4 => "indeterminate",
-        5 => "fail_below_de_minimis",
         6 => "below_mmu",
         _ => "unknown",
     }
@@ -42636,6 +42635,30 @@ mod tests {
             v3.failing_area_ha > 500.0,
             "12 kha plot at 4.3% should report >500 ha failing"
         );
+    }
+
+    #[test]
+    fn verdict_label_has_no_de_minimis_variant() {
+        // Strict EUDR has no de-minimis fail-fraction tolerance; the only
+        // area floor is the Article 2(4) 0.5 ha MMU (code 6 = below_mmu).
+        // Code 5 was a dead `fail_below_de_minimis` variant never emitted
+        // by any code path — it must not resolve to a label.
+        assert_eq!(verdict_label(1), "pass");
+        assert_eq!(verdict_label(2), "fail");
+        assert_eq!(verdict_label(3), "not_in_scope");
+        assert_eq!(verdict_label(4), "indeterminate");
+        assert_eq!(verdict_label(6), "below_mmu");
+        assert_eq!(verdict_label(5), "unknown");
+
+        // Every verdict code the aggregation/MMU logic can actually emit
+        // resolves to a real, non-"unknown" label.
+        for code in [1u8, 2, 3, 4, 6] {
+            assert_ne!(
+                verdict_label(code),
+                "unknown",
+                "emittable verdict code {code} must have a label"
+            );
+        }
     }
 
     #[test]
