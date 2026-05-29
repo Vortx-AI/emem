@@ -2561,6 +2561,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "emem-membench"
+version = "0.0.8"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "emem-primitives"
 version = "0.0.8"
 dependencies = [
