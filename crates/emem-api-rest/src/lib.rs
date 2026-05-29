@@ -9447,6 +9447,17 @@ async fn post_recall_polygon(
         ));
     }
 
+    // Polygon-bbox tile prewarm: ONE `cog::sample_window` per static-COG
+    // band populates TILE_CACHE before the per-cell fan-out runs, so
+    // every later `sample_pixel` is a byte-cache hit + decompress
+    // instead of an HTTP range read. Same shape as the EUDR
+    // batched-polygon path, applied opportunistically here. Bands
+    // that are STAC-driven (S2/S1/MODIS) no-op silently; the per-cell
+    // path still handles them.
+    if let Some(req_bands) = req.bands.as_ref() {
+        prewarm_polygon_static_cog_bands(req_bands, (bbox.0, bbox.1, bbox.2, bbox.3)).await;
+    }
+
     // Fan out CONCURRENTLY with a bounded semaphore. Reuse the same
     // lazy-materialize helper as POST /v1/recall so a cell that hasn't
     // been seeded for a requested band still picks up a fresh signed
@@ -31168,6 +31179,39 @@ async fn fan_out_and_rank(s: &AppState, cells: &[String], spec: RankingSpec) -> 
     if let Some(g) = spec.gate.as_ref() {
         bands.push(g.band.to_string());
     }
+    // Polygon-bbox tile prewarm for hunt's static-COG-backed bands.
+    // Derive a bbox from the cells (each cell64 has lat/lng); fire ONE
+    // `cog::sample_window` per static-COG band so the per-cell
+    // sample_pixel calls hit TILE_CACHE bytes instead of opening a
+    // separate HTTP range read each. STAC-driven bands (S2 indices,
+    // sentinel1_raw, MODIS LST) silently no-op. Hunt events that route
+    // through static COGs today: any future configuration that maps
+    // primary or gate to Hansen / JRC / ESA CCI Biomass.
+    if !cells.is_empty() {
+        let mut min_lat = f64::INFINITY;
+        let mut max_lat = f64::NEG_INFINITY;
+        let mut min_lng = f64::INFINITY;
+        let mut max_lng = f64::NEG_INFINITY;
+        for c in cells {
+            if let Ok(p) = emem_codec::latlng_from_cell64(c) {
+                if p.lat_deg < min_lat {
+                    min_lat = p.lat_deg;
+                }
+                if p.lat_deg > max_lat {
+                    max_lat = p.lat_deg;
+                }
+                if p.lng_deg < min_lng {
+                    min_lng = p.lng_deg;
+                }
+                if p.lng_deg > max_lng {
+                    max_lng = p.lng_deg;
+                }
+            }
+        }
+        if min_lat.is_finite() {
+            prewarm_polygon_static_cog_bands(&bands, (min_lat, max_lat, min_lng, max_lng)).await;
+        }
+    }
     for cell in cells {
         let cell_owned = cell.clone();
         let s_clone = s.clone();
@@ -32705,6 +32749,117 @@ async fn build_eudr_band_fact(
 /// 2026-05-25 cell_cc=16 thundering herd.
 ///
 /// Returns per-cell [`EudrBandResult`] in input order. Cell-level
+/// Map a band name to its single static-global COG URL, if any.
+///
+/// Used by [`prewarm_polygon_static_cog_bands`] so the polygon-aware
+/// endpoints (`/v1/recall_polygon`, `/v1/hunt`, downstream of
+/// `/v1/ask`) can fire ONE `cog::sample_window` over the polygon bbox
+/// and populate `TILE_CACHE` *before* the per-cell materializer fan-out
+/// runs. After that prewarm, every per-cell `cog::sample_pixel` call
+/// for the same band lands in the byte cache and skips the network
+/// round-trip — turning N HTTP reads into N memcpy + decompress.
+///
+/// Bands whose source is a per-tile STAC catalog (Sentinel-2 / -1,
+/// MODIS, anything that resolves to a different URL per acquisition)
+/// return `None` here. They still work through the per-cell path; the
+/// polygon-batched cascade for STAC bands is its own design pass.
+fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Option<String> {
+    match band {
+        "jrc_gfc2020.forest_2020" => Some(emem_fetch::jrc_gfc2020::cog_url().to_string()),
+        "forest_change.treecover2000" | "hansen.tree_cover_2000" => {
+            Some(emem_fetch::hansen_gfc::tile_url_for(
+                centre_lat,
+                centre_lng,
+                emem_fetch::hansen_gfc::LAYER_TREECOVER_2000,
+            ))
+        }
+        "forest_change.lossyear" | "hansen.loss_year" => {
+            Some(emem_fetch::hansen_gfc::tile_url_for(
+                centre_lat,
+                centre_lng,
+                emem_fetch::hansen_gfc::LAYER_LOSSYEAR,
+            ))
+        }
+        "forest_change.gain" | "hansen.gain" => Some(emem_fetch::hansen_gfc::tile_url_for(
+            centre_lat,
+            centre_lng,
+            emem_fetch::hansen_gfc::LAYER_GAIN,
+        )),
+        // ESA CCI Biomass — single global per-year COG. Most-recent
+        // available year ought to come from the materializer; here we
+        // best-effort the latest the registry exposes.
+        "esa_cci_biomass.agb_2020" => {
+            emem_fetch::esa_cci_biomass::tile_url_for(2020, centre_lat, centre_lng)
+        }
+        // CHIRPS daily / monthly precip — global COG per epoch. We
+        // can't pick a date here without the request context, so the
+        // prewarm declines; the per-cell materializer still handles it.
+        _ => None,
+    }
+}
+
+/// Polygon-bbox tile prewarm — fire ONE `cog::sample_window` per
+/// requested static-COG band covering the polygon bbox so that every
+/// later per-cell `cog::sample_pixel` for the same band lands in
+/// `TILE_CACHE`.
+///
+/// Net effect for a polygon-shaped request: per-cell HTTP fan-out
+/// collapses to per-cell decompress on the bytes already in memory —
+/// the same shape the EUDR batched path uses internally. Net cost: one
+/// upstream tile range-read per band. For a 16-cell polygon recall
+/// across Hansen treecover + lossyear, that's 2 HTTP reads instead of
+/// 32.
+///
+/// Best-effort: any band that has no static-global COG URL (Sentinel-2
+/// derived indices, MODIS, sentinel1_raw, etc.) silently no-ops here.
+/// Tile fetch failures do not break the per-cell path; they only mean
+/// the cache stays cold for that band and the per-cell materializer
+/// pays the network cost it would have paid anyway.
+async fn prewarm_polygon_static_cog_bands(
+    bands: &[String],
+    bbox: (f64, f64, f64, f64), // (min_lat, max_lat, min_lng, max_lng)
+) {
+    let (min_lat, max_lat, min_lng, max_lng) = bbox;
+    let centre_lat = (min_lat + max_lat) * 0.5;
+    let centre_lng = (min_lng + max_lng) * 0.5;
+    // Collect the URL set per band before await — empty when no bands
+    // map to a static COG (most STAC-driven hunt events).
+    let urls: Vec<String> = bands
+        .iter()
+        .filter_map(|b| static_cog_url_for_band(b, centre_lat, centre_lng))
+        .collect();
+    if urls.is_empty() {
+        return;
+    }
+    let cli = s2_http_client();
+    let prewarm_futs = urls.into_iter().map(|url| {
+        let cli = cli.clone();
+        async move {
+            // Open the profile (cached). If it fails, skip — the
+            // per-cell path will handle it.
+            let Ok(profile) = emem_fetch::cog::open_profile(&cli, &url).await else {
+                return;
+            };
+            // Window in pixel coords spans the polygon bbox. EPSG:4326
+            // here is the same convention used by batch_build_facts_via_window.
+            let (pix_min_col, pix_min_row) = profile.world_to_pixel(min_lng, max_lat);
+            let (pix_max_col, pix_max_row) = profile.world_to_pixel(max_lng, min_lat);
+            let win_w = ((pix_max_col - pix_min_col).abs() + 3).max(3) as u32;
+            let win_h = ((pix_max_row - pix_min_row).abs() + 3).max(3) as u32;
+            // Same 30 s ceiling the EUDR window uses — keeps a slow
+            // upstream from holding the per-cell fan-out hostage.
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                emem_fetch::cog::sample_window(
+                    &cli, &url, &profile, centre_lng, centre_lat, win_w, win_h,
+                ),
+            )
+            .await;
+        }
+    });
+    futures_util::future::join_all(prewarm_futs).await;
+}
+
 /// errors (geometry decode, upstream fetch failure) ride through
 /// the `Result`'s `Err` variant; the successful facts in the same
 /// batch are unaffected. If the batched persist itself fails, every
