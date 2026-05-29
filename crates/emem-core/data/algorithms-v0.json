@@ -5657,7 +5657,7 @@
         "anchor_band": "jrc_gfc2020.forest_2020",
         "fallback_strategy": "tier_demote"
       },
-      "documentation_only": true
+      "runtime_path": "/v1/eudr_dds"
     },
     {
       "key": "residue_burn_multisensor@1",
@@ -6572,7 +6572,7 @@
       "citation": "Crank, J. & Nicolson, P. 1947. A practical method for numerical evaluation of solutions of partial differential equations of the heat-conduction type. Proc. Camb. Philos. Soc. 43:50\u201367. Oke, T.R. 2017. Urban Climates \u00a72.3 (urban surface diffusivity \u22481\u00d710\u207b\u2076 m\u00b2/s). Courant, Friedrichs & Lewy 1928 (the 0.25 CFL bound for 2-D explicit FTCS).",
       "frequency_of_calculation": "On demand \u2014 the 8-day MODIS composite refreshes every 8 days, so a re-call after the next composite drops gives an updated initial condition.",
       "accuracy_band": "First-order in time, second-order in space. Forecast skill drops with horizon; sub-hour horizons are well-resolved, multi-day horizons depend on whether the surface diffusivity assumption (urban vs vegetation vs water) matches the local cover.",
-      "documentation_only": true
+      "runtime_path": "/v1/heat_solve"
     },
     {
       "key": "wave_equation_1d@1",
@@ -6602,7 +6602,7 @@
       "citation": "Lighthill, J. 1978. Waves in Fluids \u00a73.1 (linear shallow-water wave). Holthuijsen, L.H. 2007. Waves in Oceanic and Coastal Waters \u00a75.3 (refraction-free 1-D propagation). Courant, Friedrichs & Lewy 1928 (the c\u00b7\u0394t/\u0394x \u2264 1 bound for explicit CTCS).",
       "frequency_of_calculation": "On demand \u2014 GMRT depths are static, so the only inputs that change between calls are H_s and T from the user's offshore forcing. A typical operational use re-runs the solver each time a new offshore buoy report drops.",
       "accuracy_band": "Linear shallow-water approximation \u2014 reliable for h \u226b H_s (deep-water limit) and breaks down in the surf zone where wave breaking + steepening dominate. The 1-D refraction-free assumption ignores cross-shore refraction; for that, the @2 version will sample a 2-D bathymetric patch.",
-      "documentation_only": true
+      "runtime_path": "/v1/wave_solve"
     },
     {
       "key": "jepa_temporal_predictor@1",
@@ -6632,7 +6632,7 @@
       "citation": "Assran, M. et al. 2023. Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture (JEPA). CVPR. Pettorelli, N. et al. 2005. Using the satellite-derived NDVI to assess ecological responses to environmental change. Trends Ecol. Evol. 20:503\u2013510. Tucker, C.J. 1979. Red and photographic infrared linear combinations for monitoring vegetation. Remote Sens. Environ. 8:127\u2013150. The \u03b1=0.6, \u03b2=0.3, \u03b3=0.1 weights are editorial v1 \u2014 they reflect the seasonal-dominance, short-term-trend, and long-term-mean structure that the agricultural-NDVI literature consistently reports.",
       "frequency_of_calculation": "Monthly \u2014 there is one new NDVI tslot per calendar month in the active Tempo::Medium grid, so a re-call after the next monthly composite drops gives an updated forecast.",
       "accuracy_band": "Closed-form AR(2) with seasonal lag has been the baseline for NDVI forecasting for two decades; reported skill scores in the literature land in the \u03c1=0.65\u20130.85 range over agricultural cropland with adequate lookback (\u226518 months). Below 6 months of lookback the lag-12 term is unavailable and skill drops to \u03c1\u22480.5 \u2014 surface this honestly via `lag_12_used`.",
-      "documentation_only": true
+      "runtime_path": "/v1/jepa_predict_v2"
     },
     {
       "key": "lai_modified_simple_ratio_s2@1",

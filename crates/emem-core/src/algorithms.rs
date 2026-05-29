@@ -356,6 +356,18 @@ pub struct Algorithm {
     /// trust a missing number.
     #[serde(default, skip_serializing_if = "is_false")]
     pub documentation_only: bool,
+    /// REST endpoint that runs this algorithm at the responder, when
+    /// it's evaluated by a dedicated Rust route rather than by the
+    /// generic AST evaluator. Set on algorithms whose math is expensive
+    /// enough to deserve its own endpoint (e.g. the EUDR aggregator,
+    /// the FTCS heat-equation solver, the JEPA temporal predictor) —
+    /// agents calling `/v1/algorithms` see `runtime_path:
+    /// "/v1/heat_solve"` next to `runtime_evaluable: true` and know
+    /// the canonical way to invoke the math is the named endpoint, not
+    /// the AST evaluator. Added 2026-05-29 via the parallel-agent
+    /// audit follow-up (Agent C's bucket B recommendation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_path: Option<String>,
     /// Optional inference-tier declaration — see [`InferenceTier`]. When
     /// present, the dispatcher consults the sidecar's `/health.extensions`
     /// at planning time and filters algorithms whose required hardware is

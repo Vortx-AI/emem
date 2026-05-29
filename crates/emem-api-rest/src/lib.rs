@@ -4914,7 +4914,8 @@ fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) 
         // "agent quotes an algorithm_key whose math never ran" trap
         // impossible to fall into.
         "documentation_only": a.documentation_only,
-        "runtime_evaluable":  a.evaluation.is_some(),
+        "runtime_evaluable":  a.evaluation.is_some() || a.runtime_path.is_some(),
+        "runtime_path":       a.runtime_path,
         "summary":       true,
     })
 }
@@ -4953,7 +4954,8 @@ fn project_algorithm_for_question(
             "citation":         a.citation,
             "fetch_url":        format!("/v1/algorithms/{}", a.key),
             "documentation_only": a.documentation_only,
-            "runtime_evaluable":  a.evaluation.is_some(),
+            "runtime_evaluable":  a.evaluation.is_some() || a.runtime_path.is_some(),
+            "runtime_path":       a.runtime_path,
         })
     }
 }
