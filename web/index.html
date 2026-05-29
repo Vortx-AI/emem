@@ -329,6 +329,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .tryit-suggest{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
 .tryit-suggest .sug{font-size:var(--t-xs);padding:.2rem .5rem;border:1px solid var(--rule);background:var(--paper);cursor:pointer;color:var(--ink-2)}
 .tryit-suggest .sug:hover{background:var(--paper-3);color:var(--ink)}
+/* Compact try-it lifted into the hero: tighter body, smaller min-height so
+   it sits in the first screenful without dominating the H1. */
+.hero-tryit{margin:1.6rem 0 0}
+.hero-tryit .tryit-body{padding:.8rem 1rem}
+.hero-tryit .tryit-input{margin-bottom:.8rem}
+.hero-tryit .tryit-result{min-height:0;padding-top:.8rem}
 
 /* footer */
 .foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
@@ -366,6 +372,42 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .substrate-grid .lane .endpoint{font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);word-break:break-all}
 .substrate-grid .lane .desc{font-size:var(--t-xs);color:var(--mute);line-height:1.5}
 @media (max-width:720px){.substrate-grid{grid-template-columns:1fr}.substrate-grid .lane{border-right:0;border-bottom:1px solid var(--rule)}.substrate-grid .lane:last-child{border-bottom:0}}
+
+/* connect-and-evolve diagram: facts → typed edges → refinement loop.
+   Pure CSS/HTML + one inline SVG, no external assets. */
+.cev{border:1px solid var(--rule-strong);background:var(--paper-2);margin:1.5rem 0}
+.cev-head{border-bottom:1px solid var(--rule);background:var(--paper-3);padding:.5rem .9rem;font-size:var(--t-xs);color:var(--mute);display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.cev-head .label{color:var(--ink);font-weight:700}
+.cev svg{display:block;width:100%;height:auto}
+.cev svg .node{fill:var(--paper);stroke:var(--rule-strong)}
+.cev svg .node-out{fill:var(--accent-bg);stroke:var(--accent)}
+.cev svg .node-warn{fill:var(--absent-bg);stroke:var(--absent)}
+.cev svg text{font-family:var(--mono);fill:var(--ink)}
+.cev svg .t-mute{fill:var(--mute)}
+.cev svg .t-accent{fill:var(--accent)}
+.cev svg .t-absent{fill:var(--absent)}
+.cev svg .edge{stroke:var(--rule-strong);fill:none}
+.cev svg .edge-accent{stroke:var(--accent);fill:none}
+.cev svg .edge-absent{stroke:var(--absent);fill:none}
+.cev svg .arrowhead{fill:var(--rule-strong);stroke:none}
+.cev-legend{border-top:1px solid var(--rule);padding:.7rem .9rem;font-size:var(--t-xs);color:var(--mute);display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+.cev-legend .e{display:flex;flex-direction:column;gap:.15rem}
+.cev-legend .e b{color:var(--ink);font-weight:700}
+.cev-legend code{color:var(--accent);background:var(--paper);padding:0 .25em;border:1px solid var(--rule)}
+@media (max-width:560px){.cev-legend{grid-template-columns:1fr}}
+
+/* peer comparison: feature matrix vs adjacent memory systems */
+.peer{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm);border:1px solid var(--rule)}
+.peer th,.peer td{padding:.55rem .7rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+.peer thead th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700;border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+.peer thead th.emem{color:var(--accent)}
+.peer tbody th{font-weight:700;color:var(--ink);font-size:var(--t-xs);width:11rem;border-right:1px solid var(--rule);background:var(--paper-2)}
+.peer td{color:var(--ink-2);font-size:var(--t-xs);line-height:1.5}
+.peer td.emem{background:var(--accent-bg);color:var(--ink);border-left:1px solid var(--accent);border-right:1px solid var(--accent)}
+.peer tr:hover td:not(.emem){background:var(--paper-2)}
+.peer .yes{color:var(--accent);font-weight:700}
+.peer .no{color:var(--mute)}
+.peer-note{font-size:var(--t-xs);color:var(--mute);margin-top:.6rem;line-height:1.5}
 
 /* live stream ticker + operator attestation */
 .live-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2);font-size:var(--t-sm)}
@@ -434,6 +476,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div class="statusbar-inner">
     <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
     <a href="#grounding" class="nav-sec">grounding</a>
+    <a href="#connect-evolve" class="nav-sec">connect &amp; evolve</a>
+    <a href="#peers" class="nav-sec">peers</a>
     <a href="#first-call" class="nav-sec">first call</a>
     <a href="#daily-two" class="nav-sec">daily two</a>
     <a href="#connect" class="nav-sec">connect</a>
@@ -472,6 +516,33 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="hero-cta">
       <a class="btn" href="/docs/quickstart.html">Quickstart (60 s)</a>
       <a class="btn ghost" href="/demos/signed-answer">See a signed answer &rarr;</a>
+    </div>
+
+    <!--
+      Compact try-it, lifted into the first screenful. A visitor types a
+      place and gets the byte-identical cell64 + signed elevation fact that
+      the live responder returns, without scrolling. It shares the same
+      cached responses and the same run() handler as the full console in
+      §03; the IDs below are wired to that handler at the bottom of the page.
+      The full try-it (with the JSON envelope + locate→recall framing) stays
+      below for visitors who want the whole motion.
+    -->
+    <div class="tryit hero-tryit" id="tryit-hero">
+      <div class="tryit-head">
+        <span class="dot"></span>
+        <span class="url">POST&nbsp;/v1/recall</span>
+        <span style="margin-left:auto;color:var(--mute)">try it &mdash; signed fact, cached in-page</span>
+      </div>
+      <div class="tryit-body">
+        <div class="tryit-input">
+          <span class="prefix">place</span>
+          <input id="tryit-hero-place" type="text" aria-label="Place name to try" value="South Mumbai" placeholder="e.g. Bengaluru">
+          <button id="tryit-hero-go">recall</button>
+        </div>
+        <div class="tryit-result empty" id="tryit-hero-result">
+          Type a place &rarr; <span class="band">recall</span> returns a signed elevation fact with its <span class="band">fact_cid</span>. Two are cached here (South Mumbai, Bengaluru); the full motion is at <a href="#first-call">&sect;03</a>.
+        </div>
+      </div>
     </div>
 
     <p class="hero-trust">open &middot; no keys &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
@@ -546,6 +617,162 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
+<section class="section page" id="connect-evolve">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">00b</span><span class="idx-label">Connect &amp; evolve</span></div>
+    <dl>
+      <dt>connect</dt><dd>signed facts grouped into one envelope</dd>
+      <dt>cite</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">memb:&lt;cid&gt;</span></dd>
+      <dt>disagree</dt><dd>POST&nbsp;/v1/memory_contradictions</dd>
+      <dt>tool</dt><dd>emem_memory_contradictions</dd>
+      <dt>supersede</dt><dd>as_of_signed_at (transaction time)</dd>
+      <dt>reflect</dt><dd>POST&nbsp;/v1/reviews</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">00b</span>Memory that connects facts &mdash; and gets better over time</h2>
+    <p class="lede">emem doesn&rsquo;t just store facts. It links them, and when two sources disagree it <em>records the disagreement</em> instead of silently picking one. A later attestation supersedes an earlier one on the transaction-time axis without erasing it &mdash; the old bytes stay replayable. That is how the memory evolves: contradictions become signed, queryable evidence; nothing is overwritten in the dark.</p>
+
+    <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
+      <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
+      <svg viewBox="0 0 760 300" role="img" preserveAspectRatio="xMidYMid meet">
+        <!-- column 1: three facts at one (cell, band) -->
+        <text x="20" y="26" class="t-mute" font-size="11">FACTS · one (cell, band, tslot)</text>
+        <rect class="node" x="20" y="40" width="190" height="40" rx="3"/>
+        <text x="32" y="58" font-size="12">attester A &middot; NDVI 0.61</text>
+        <text x="32" y="73" class="t-accent" font-size="10">fact_cid tc54…aeesh</text>
+        <rect class="node" x="20" y="92" width="190" height="40" rx="3"/>
+        <text x="32" y="110" font-size="12">attester B &middot; NDVI 0.58</text>
+        <text x="32" y="125" class="t-accent" font-size="10">fact_cid wbqy…6m5q</text>
+        <rect class="node" x="20" y="144" width="190" height="40" rx="3"/>
+        <text x="32" y="162" font-size="12">attester C &middot; NDVI 0.19</text>
+        <text x="32" y="177" class="t-absent" font-size="10">fact_cid cxji…h5bq · outlier</text>
+
+        <!-- edges into the bundle / contradiction node -->
+        <path class="edge-accent" d="M210 60 C 270 60, 280 80, 330 95" stroke-width="1.5"/>
+        <path class="edge-accent" d="M210 112 H 330" stroke-width="1.5"/>
+        <path class="edge-absent" d="M210 164 C 270 164, 280 140, 330 125" stroke-width="1.5"/>
+        <text x="232" y="48" class="t-mute" font-size="10">co_located</text>
+        <text x="232" y="200" class="t-absent" font-size="10">disagrees_with</text>
+
+        <!-- column 2: connect (bundle) + record disagreement -->
+        <rect class="node-out" x="330" y="70" width="190" height="36" rx="3"/>
+        <text x="342" y="86" font-size="12" font-weight="bold">CONNECT &middot; memory_bundle</text>
+        <text x="342" y="100" class="t-accent" font-size="10">memb:&lt;bundle_cid&gt; (one signed envelope)</text>
+        <rect class="node-warn" x="330" y="116" width="190" height="50" rx="3"/>
+        <text x="342" y="134" font-size="12" font-weight="bold">RECORD &middot; contradiction</text>
+        <text x="342" y="149" class="t-absent" font-size="10">severity 0.71 · both fact_cids kept</text>
+        <text x="342" y="162" class="t-mute" font-size="10">/v1/memory_contradictions</text>
+
+        <!-- edge to refinement -->
+        <path class="edge" d="M520 141 C 590 141, 600 200, 560 215" stroke-width="1.5"/>
+        <!-- column 3: refinement loop -->
+        <rect class="node" x="540" y="200" width="200" height="56" rx="3"/>
+        <text x="552" y="220" font-size="12" font-weight="bold">REFINE</text>
+        <text x="552" y="235" class="t-mute" font-size="10">flag re-attestation · /v1/reviews</text>
+        <text x="552" y="248" class="t-mute" font-size="10">supersede via as_of_signed_at</text>
+        <!-- loop arrow back to facts -->
+        <path class="edge" d="M540 228 C 360 270, 120 270, 115 188" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="250" y="285" class="t-mute" font-size="10">re-attestation appends a new fact &mdash; the old one stays replayable</text>
+        <polygon class="arrowhead" points="115,188 110,198 120,198"/>
+      </svg>
+      <div class="cev-legend">
+        <div class="e"><b>connect</b><span><code>/v1/memory_bundle</code> groups N signed facts into one <code>memb:&lt;cid&gt;</code> envelope an agent cites as a unit.</span></div>
+        <div class="e"><b>disagree</b><span><code>/v1/memory_contradictions</code> scores per-band spread and keeps every conflicting <code>fact_cid</code> &mdash; no last-writer-wins.</span></div>
+        <div class="e"><b>evolve</b><span>A new attestation supersedes on <code>as_of_signed_at</code>; <code>/v1/reviews</code> records the task outcome. The earlier bytes never vanish.</span></div>
+      </div>
+    </div>
+
+    <p>The loop is honest by construction. A scalar disagreement is scored by normalised spread against the band&rsquo;s documented physical range; a vector disagreement by 1&nbsp;&minus;&nbsp;mean cosine; a categorical one by 1&nbsp;&minus;&nbsp;mode-share. The contradiction is itself addressable, so two agents settle a number by reading the same scored evidence rather than trusting either one. <a href="#substrate">&sect;05</a> documents the substrate; <a href="#memory-cases">&sect;05b</a> shows the production shapes this solves.</p>
+  </div>
+</section>
+
+<section class="section page" id="peers">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">00c</span><span class="idx-label">Peers</span></div>
+    <dl>
+      <dt>compared</dt><dd>Mem0 · Letta · Zep · Anthropic memory tool</dd>
+      <dt>emem adds</dt><dd>signed receipts, verify offline</dd>
+      <dt>plus</dt><dd>bi-temporal recall</dd>
+      <dt>plus</dt><dd>typed connections between facts</dd>
+      <dt>plus</dt><dd>Earth-grounded, content-addressed</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">00c</span>How emem sits next to other agent memory</h2>
+    <p class="lede">Each of these is good at something real. emem is not a replacement for chat-memory inference or a stateful agent runtime &mdash; it is the verifiable layer underneath, where the trust surface and the spatial / temporal grounding live. Here is the honest map.</p>
+
+    <div class="scroll-x">
+    <table class="peer">
+      <thead>
+        <tr>
+          <th>&nbsp;</th>
+          <th>Mem0</th>
+          <th>Letta</th>
+          <th>Zep / Graphiti</th>
+          <th>Anthropic memory tool</th>
+          <th class="emem">emem</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>Good at</th>
+          <td>chat-memory extraction &amp; recall</td>
+          <td>stateful agent runtime, editable memory blocks</td>
+          <td>temporal knowledge graph over conversations</td>
+          <td>tight Claude-loop file memory</td>
+          <td class="emem">verifiable spatial / temporal fact store with memory ergonomics</td>
+        </tr>
+        <tr>
+          <th>Signed receipts (verify offline)</th>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="emem"><span class="yes">yes</span> &mdash; ed25519 over BLAKE3, recompute without a callback</td>
+        </tr>
+        <tr>
+          <th>Bi-temporal recall</th>
+          <td class="no">timestamped, not valid/transaction split</td>
+          <td class="no">no</td>
+          <td><span class="yes">yes</span> (valid + transaction time)</td>
+          <td class="no">no</td>
+          <td class="emem"><span class="yes">yes</span> &mdash; <span class="band">as_of_tslot</span> + <span class="band">as_of_signed_at</span> on every read</td>
+        </tr>
+        <tr>
+          <th>Typed connections between facts</th>
+          <td class="no">scoped writes</td>
+          <td class="no">shared blocks</td>
+          <td><span class="yes">graph edges</span> over chat entities</td>
+          <td class="no">plain files</td>
+          <td class="emem"><span class="yes">yes</span> &mdash; bundles group facts; contradictions record disagreement with both CIDs</td>
+        </tr>
+        <tr>
+          <th>Content-addressed (CID-stable)</th>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="emem"><span class="yes">yes</span> &mdash; identical fact &rarr; identical CID on any responder</td>
+        </tr>
+        <tr>
+          <th>Earth-grounded</th>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="no">no</td>
+          <td class="emem"><span class="yes">yes</span> &mdash; every fact keyed to a cell64 (~9.55 m square)</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p class="peer-note">Sources for the vendor read: <a href="https://mem0.ai/blog/state-of-ai-agent-memory-2026">Mem0</a> on chat-memory inference, <a href="https://www.letta.com/blog/agent-memory">Letta</a> on stateful runtimes, <a href="https://arxiv.org/html/2501.13956v1">Zep / Graphiti</a> on temporal graph memory, <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool">Anthropic&rsquo;s memory tool</a> on the Claude loop. emem&rsquo;s distinguishing row is the combination: <strong>signed receipts you verify offline, bi-temporal recall, typed connections between facts, Earth-grounded, content-addressed</strong>. Pick the tool that fits the job &mdash; reach for emem when an answer has to be auditable, point-in-time, and tied to a place.</p>
+  </div>
+</section>
+
 <section class="section page" id="corpus">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">01</span><span class="idx-label">Corpus</span></div>
@@ -566,7 +793,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="stat"><div class="n">72<span class="small">/ REST</span></div><div class="lbl">OpenAPI /v1 paths</div></div>
       <div class="stat"><div class="n">58<span class="small">/ MCP</span></div><div class="lbl">read-only tools</div></div>
       <div class="stat"><div class="n">159</div><div class="lbl">algorithms registered</div></div>
-      <div class="stat"><div class="n">41<span class="small">/ 43</span></div><div class="lbl">bands / upstream sources</div></div>
+      <div class="stat"><div class="n">41<span class="small">/ 46</span></div><div class="lbl">bands / upstream sources</div></div>
     </div>
 
     <div class="coverage">
@@ -644,7 +871,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="step"><div class="n">01</div><div class="verb">discover</div><div class="desc">/v1/agent_card or /v1/discover once per session. Cache it.</div></div>
       <div class="step"><div class="n">02</div><div class="verb">locate</div><div class="desc">Place name (or lat/lng) → cell64. Geocoder cascade reports which layer answered.</div></div>
       <div class="step"><div class="n">03</div><div class="verb">recall</div><div class="desc">Cell × bands → signed facts. Materialises on miss; warm reads under 10 ms.</div></div>
-      <div class="step"><div class="n">04</div><div class="verb">reason</div><div class="desc">find_similar, compare, trajectory, query_region. Stay inside the protocol.</div></div>
+      <div class="step"><div class="n">04</div><div class="verb">reason</div><div class="desc">find_similar, compare, trajectory, query_region. Connect facts with memory_bundle; surface disagreement with /v1/memory_contradictions. Stay inside the protocol.</div></div>
       <div class="step"><div class="n">05</div><div class="verb">verify</div><div class="desc">Quote the fact_cid back to the user. They can verify offline at /verify.</div></div>
     </div>
   </div>
@@ -657,7 +884,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <dt>cold latency</dt><dd>~180 ms</dd>
       <dt>warm latency</dt><dd>~10 ms</dd>
       <dt>materialisers</dt><dd>20 wired</dd>
-      <dt>sources</dt><dd>43 schemes</dd>
+      <dt>sources</dt><dd>46 schemes</dd>
     </dl>
   </aside>
 
@@ -1642,6 +1869,28 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   if (go) go.addEventListener('click', run);
   if (input) input.addEventListener('keydown', function(e){ if (e.key === 'Enter') run(); });
   sugs.forEach(function(s){ s.addEventListener('click', function(){ input.value = s.dataset.place; run(); }); });
+
+  // Compact hero try-it: same cached responses, a leaner single-line result.
+  var hInput = document.getElementById('tryit-hero-place');
+  var hGo = document.getElementById('tryit-hero-go');
+  var hOut = document.getElementById('tryit-hero-result');
+  function runHero () {
+    if (!hInput || !hOut) return;
+    var q = hInput.value.trim();
+    var r = responses[q];
+    hOut.classList.remove('empty');
+    if (!r) {
+      hOut.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> Only South Mumbai and Bengaluru are inlined (no fabricated fact_cids). Run the full motion at <a href="#first-call">&sect;03</a> or against <span class="band">/v1/recall</span>.';
+      return;
+    }
+    hOut.innerHTML =
+      '<span class="ok">200 OK</span> &middot; <span class="cell">'+r.cell+'</span> &middot; ' +
+      '<span class="band">'+r.band+'</span> = <b>'+r.value+'&nbsp;'+r.unit+'</b><br>' +
+      '<span style="color:var(--mute)">fact_cid</span> <span class="cid">'+r.cid+'</span> &middot; ' +
+      'verify at <a href="/verify/'+r.cid+'">/verify</a>';
+  }
+  if (hGo) hGo.addEventListener('click', runHero);
+  if (hInput) hInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') runHero(); });
 
   // Copy MCP config button (hero CTA).
   var copyMcpBtn = document.getElementById('copy-mcp');
