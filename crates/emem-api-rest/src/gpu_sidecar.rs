@@ -175,6 +175,18 @@ pub async fn predict_prithvi_eo2_embed(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GalileoRequest {
     pub s2_chip: Vec<Vec<Vec<Vec<f32>>>>,
+    /// Optional Sentinel-1 RTC chip `[T=1, H=8, W=8, 2]` (VV, VH γ0 dB).
+    /// When present the sidecar populates the S1 group mask to 0 (seen)
+    /// and applies the per-modality (mean-2σ)/(4σ) normalization. NaN
+    /// pixels (water mask / nodata) are zeroed post-normalization so they
+    /// contribute the modality mean. When absent, S1 stays masked-absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s1_chip: Option<Vec<Vec<Vec<Vec<f32>>>>>,
+    /// Optional Copernicus-DEM chip `[H=8, W=8, 2]` (elevation m, slope deg)
+    /// for Galileo's SRTM space-group. When present the SRTM group mask is
+    /// set to 0 (seen). When absent, SRTM stays masked-absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub srtm_chip: Option<Vec<Vec<Vec<f32>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub month: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]

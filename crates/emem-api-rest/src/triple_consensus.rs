@@ -114,15 +114,14 @@ pub struct TripleConsensusReq {
     pub consensus_threshold: Option<f64>,
 }
 
-/// Pull the two most-recent distinct-tslot Primary vectors for `band` at
-/// `cell`. Returns `(now, prev, [cid_now, cid_prev])`. `Err(reason)` when
-/// the band is unavailable (e.g. GPU encoder + sidecar down) or fewer
-/// than two distinct vintages exist.
-async fn two_vintages(
+/// Collect the distinct-tslot Primary vectors for `band` at `cell`,
+/// most-recent first. Recalls (auto-materializing the latest if cold) and
+/// dedups by tslot.
+async fn distinct_vintages(
     cell: &str,
     band: &str,
     s: &AppState,
-) -> Result<(Vec<f32>, Vec<f32>, Vec<String>), String> {
+) -> Result<Vec<(u64, Vec<f32>, String)>, String> {
     let req = RecallReq {
         cell: cell.to_string(),
         bands: Some(vec![band.to_string()]),
@@ -161,9 +160,71 @@ async fn two_vintages(
     // Most-recent first, dedup by tslot.
     rows.sort_by_key(|r| std::cmp::Reverse(r.0));
     rows.dedup_by_key(|r| r.0);
+    Ok(rows)
+}
+
+/// Materialize a PRIOR vintage of a single-vintage GPU encoder
+/// (`clay_v1` / `prithvi_eo2`) ~one year before `latest_tslot`, so a
+/// year-over-year change becomes computable on a cell that only had the
+/// latest. The materializer-at-tslot path is keyed by the Slow tslot the
+/// chosen scene resolves to. Returns Ok when a distinct prior vintage was
+/// signed; Err with a typed reason (no prior S2 scene, GPU absent, …).
+async fn materialize_prior_vintage(
+    cell: &str,
+    band: &str,
+    latest_tslot: u64,
+    s: &AppState,
+) -> Result<(), String> {
+    // Slow tslot → unix seconds (Tempo::Slow is annual-cadence). Step back
+    // ~370 days so the prior-year scene search lands in a different annual
+    // bucket even with a few weeks of scene-date jitter.
+    let latest_unix =
+        emem_core::tslot::Tslot(latest_tslot).to_unix_start(emem_core::tslot::Tempo::Slow);
+    let prior_unix = latest_unix - 370 * 86_400;
+    if prior_unix <= 0 {
+        return Err("prior vintage would predate the epoch".to_string());
+    }
+    let new_cid = match band {
+        "clay_v1" => crate::materialize_clay_v1_at(cell, s, Some(prior_unix)).await?,
+        "prithvi_eo2" => crate::materialize_prithvi_eo2_at(cell, s, Some(prior_unix)).await?,
+        other => return Err(format!("no prior-vintage materializer for `{other}`")),
+    };
+    let _ = new_cid; // the fact is persisted; the caller re-recalls to read it
+    Ok(())
+}
+
+/// Pull the two most-recent distinct-tslot Primary vectors for `band` at
+/// `cell`. Returns `(now, prev, [cid_now, cid_prev])`. When only one
+/// vintage exists for a single-vintage GPU encoder we materialize a prior
+/// vintage on demand (one extra scene fetch) so year-over-year change is
+/// computable instead of degrading to inconclusive. `Err(reason)` when the
+/// band is unavailable (GPU down / cold cell) or a second distinct vintage
+/// genuinely can't be obtained (e.g. only one S2 scene in the archive).
+async fn two_vintages(
+    cell: &str,
+    band: &str,
+    s: &AppState,
+) -> Result<(Vec<f32>, Vec<f32>, Vec<String>), String> {
+    let mut rows = distinct_vintages(cell, band, s).await?;
+    if rows.len() < 2 {
+        // Only the latest vintage exists. Materialize a prior one (~1 yr
+        // back) and re-recall. This is the path that lets triple_consensus
+        // actually use Clay/Prithvi instead of leaving Tessera to carry it.
+        let latest_tslot = rows[0].0;
+        match materialize_prior_vintage(cell, band, latest_tslot, s).await {
+            Ok(()) => {
+                rows = distinct_vintages(cell, band, s).await?;
+            }
+            Err(e) => {
+                return Err(format!(
+                    "only one vintage of `{band}` at this cell and a prior vintage could not be materialized ({e}); year-over-year change needs two distinct vintages"
+                ));
+            }
+        }
+    }
     if rows.len() < 2 {
         return Err(format!(
-            "only one vintage of `{band}` exists at this cell; year-over-year change needs two distinct vintages (materializer produces the latest only — sign a prior vintage to enable)"
+            "only one distinct vintage of `{band}` is obtainable at this cell (the prior-vintage scene resolved to the same annual tslot); year-over-year change needs two"
         ));
     }
     let now = rows[0].clone();
@@ -730,6 +791,51 @@ mod tests {
         // Half-and-half composite with an embedding term of 0.5:
         let alert = 0.5 * term + 0.5 * 0.5;
         assert!((alert - 0.75).abs() < 1e-9, "got {alert}");
+    }
+
+    /// MULTI-VINTAGE (Priority 2): when two distinct Clay vintages exist
+    /// at a cell — which the prior-vintage materialization path now
+    /// makes obtainable instead of leaving Tessera to carry it alone — the
+    /// Clay change component is a real number, and fusing it with a Tessera
+    /// component yields a COMPUTED ensemble, NOT inconclusive. This is the
+    /// pure-math core of the triple_consensus change ensemble; the live
+    /// path differs only in that the two Clay vectors come from
+    /// `two_vintages` (recall + on-demand prior-vintage materialize).
+    #[test]
+    fn two_clay_vintages_compute_real_change_not_inconclusive() {
+        // Two distinct Clay vintages (last year vs this year). Not identical
+        // and not orthogonal → a change strictly in (0, 1).
+        let clay_now = vintage(0.30, 1024);
+        let clay_prev = vintage(0.55, 1024);
+        let clay_change = change_component(&clay_now, &clay_prev)
+            .expect("two finite Clay vintages produce a change component");
+        assert!(
+            clay_change > 0.0 && clay_change < 1.0,
+            "distinct vintages → a real change in (0,1), got {clay_change}"
+        );
+
+        // A Tessera component alongside it. With consensus_min_models=2,
+        // the two-encoder ensemble is COMPUTED (available=true), not the
+        // inconclusive single-encoder degradation.
+        let tessera_change = 0.22_f64;
+        let (ensemble, agreement, available) = fuse(&[clay_change, tessera_change], 3, 0.15, 2);
+        assert!(
+            available,
+            "two encoders (Clay + Tessera) clear consensus_min_models=2 → computed"
+        );
+        let ens = ensemble.expect("computed ensemble carries a number");
+        // L2-mean of the two components.
+        let expected = ((clay_change * clay_change + tessera_change * tessera_change) / 2.0).sqrt();
+        assert!(
+            (ens - expected).abs() < 1e-9,
+            "ensemble {ens} != {expected}"
+        );
+        assert_ne!(agreement, "insufficient_encoders");
+
+        // Contrast: Clay degraded to a single vintage (Tessera only) is
+        // inconclusive — proving the multi-vintage path is what flips it.
+        let (e1, a1, avail1) = fuse(&[tessera_change], 3, 0.15, 2);
+        assert!(!avail1 && e1.is_none() && a1 == "insufficient_encoders");
     }
 
     #[test]

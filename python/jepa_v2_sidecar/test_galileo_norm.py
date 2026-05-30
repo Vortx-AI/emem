@@ -51,8 +51,14 @@ try:
 
     import server  # noqa: WPS433 — the sidecar module under test
     from server import (
+        GALILEO_S1_MEAN,
+        GALILEO_S1_STD,
         GALILEO_S2_MEAN,
         GALILEO_S2_STD,
+        GALILEO_SRTM_MEAN,
+        GALILEO_SRTM_STD,
+        GalileoRequest,
+        _galileo_modality_shift_div,
         _galileo_s2_shift_div,
     )
 
@@ -125,6 +131,47 @@ def test_chip_gsd_is_30m() -> None:
     assert server.GALILEO_CHIP_GSD_M == 30
 
 
+@pytest.mark.skipif(not HAVE_SERVER, reason=f"server import failed: {IMPORT_ERR}")
+def test_s1_srtm_modality_shift_div() -> None:
+    """S1 (VV,VH) and SRTM (elevation,slope) are both in Galileo's
+    Normalizer `std_bands` set, so each uses (mean-2σ)/(4σ) — same scheme
+    as S2, different per-modality stats (config/normalization.json keys
+    "13" S1 indices 0,1 and "16" SRTM indices 0,1; verified 2026-05-30)."""
+    for mean, std in ((GALILEO_S1_MEAN, GALILEO_S1_STD), (GALILEO_SRTM_MEAN, GALILEO_SRTM_STD)):
+        m = np.asarray(mean, dtype=np.float32)
+        sd = np.asarray(std, dtype=np.float32)
+        shift, div = _galileo_modality_shift_div(mean, std)
+        assert np.allclose(shift, m - 2.0 * sd), "shift must be mean - 2σ"
+        assert np.allclose(div, 4.0 * sd), "div must be 4σ"
+    # Pin the exact S1 VV stat so a refactor can't silently swap it.
+    assert abs(GALILEO_S1_MEAN[0] - (-11.728724389184965)) < 1e-9
+    assert abs(GALILEO_S1_STD[0] - 4.887145774840316) < 1e-9
+    # SRTM slope is in degrees (ee.Terrain.slope), mean ≈ 5.93°.
+    assert abs(GALILEO_SRTM_MEAN[1] - 5.930092668915115) < 1e-9
+
+
+@pytest.mark.skipif(not HAVE_SERVER, reason=f"server import failed: {IMPORT_ERR}")
+def test_request_accepts_optional_s1_srtm_and_validates_shape() -> None:
+    """The multimodal request fields are optional (S2-only still valid) and
+    enforce the [T,H,W,2] / [H,W,2] shapes."""
+    s2 = [[[[0.0] * 10 for _ in range(8)] for _ in range(8)]]
+    # S2-only: s1/srtm default to None.
+    r = GalileoRequest(s2_chip=s2)
+    assert r.s1_chip is None and r.srtm_chip is None
+    # Full multimodal: correct shapes accepted.
+    s1 = [[[[0.0, 0.0] for _ in range(8)] for _ in range(8)]]
+    srtm = [[[0.0, 0.0] for _ in range(8)] for _ in range(8)]
+    r2 = GalileoRequest(s2_chip=s2, s1_chip=s1, srtm_chip=srtm)
+    assert r2.s1_chip is not None and r2.srtm_chip is not None
+    # Wrong S1 band count rejected.
+    bad_s1 = [[[[0.0] for _ in range(8)] for _ in range(8)]]
+    try:
+        GalileoRequest(s2_chip=s2, s1_chip=bad_s1)
+        raise AssertionError("expected validation error for 1-band S1")
+    except Exception as e:  # noqa: BLE001
+        assert "2 bands" in str(e) or "VV" in str(e)
+
+
 if __name__ == "__main__":
     if not HAVE_SERVER:
         print(f"[galileo] server import failed; skipping ({IMPORT_ERR})")
@@ -136,4 +183,6 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         test_normalization_prefers_on_disk_json(Path(td))
     test_chip_gsd_is_30m()
+    test_s1_srtm_modality_shift_div()
+    test_request_accepts_optional_s1_srtm_and_validates_shape()
     print("[galileo] all normalization tests passed")

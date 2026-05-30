@@ -112,6 +112,25 @@ GALILEO_S2_STD: list[float] = [
     1145.9774063078878,
     980.2429840007796,
 ]
+# S1 + SRTM normalization stats for the multimodal path. Same upstream
+# Normalizer scheme as S2 (std=True, std_multiplier=2): both S1 (VV,VH)
+# and SRTM (elevation,slope) are in the Normalizer's `std_bands` set, so
+# x_norm = (x - (mean - 2σ)) / (4σ). Stats are the computed mean/std from
+# Galileo's `config/normalization.json` (keyed by band-group length): the
+# "13"-vector (S1[2] + S2[10] + NDVI[1]) gives S1 at indices 0,1; the
+# "16"-vector (SRTM[2] + DW[9] + WC[5]) gives SRTM at indices 0,1.
+# Verified against nasaharvest/galileo @ main on 2026-05-30
+# (config/normalization.json + src/data/earthengine/{s1,srtm}.py).
+# arXiv:2502.09356.
+#   S1 VV: mean -11.728724389184965, std 4.887145774840316  (γ0 dB)
+#   S1 VH: mean -18.85558188024017,  std 5.730270320384293  (γ0 dB)
+GALILEO_S1_MEAN: list[float] = [-11.728724389184965, -18.85558188024017]
+GALILEO_S1_STD: list[float] = [4.887145774840316, 5.730270320384293]
+#   SRTM elevation: mean 673.0152819503361, std 983.0697298296237  (m)
+#   SRTM slope:     mean 5.930092668915115, std 8.167406789813247  (degrees)
+GALILEO_SRTM_MEAN: list[float] = [673.0152819503361, 5.930092668915115]
+GALILEO_SRTM_STD: list[float] = [983.0697298296237, 8.167406789813247]
+
 # Galileo (base) chip shape — 8×8 pixels sampled at 30 m = 240 m extent
 # centred on the cell. Patch_size=2 → 4×4 token grid (16 tokens per
 # step). T=1 (single timestep). Fits Galileo's training distribution
@@ -290,6 +309,23 @@ def _galileo_s2_shift_div(
         computed_div,
         "computed (mean-2σ)/(4σ) from GALILEO_S2_MEAN/STD (no normalization.json in snapshot)",
     )
+
+
+def _galileo_modality_shift_div(
+    mean: list[float], std: list[float]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Galileo's upstream Normalizer shift/div for a `std_bands` modality
+    (std=True, std_multiplier=2): `shift = mean - 2σ`, `div = 4σ`. Used for
+    S1 (VV,VH) and SRTM (elevation,slope), both of which are in the
+    Normalizer's `std_bands` set (galileo/src/data/dataset.py Normalizer).
+    The released snapshot ships no normalization.json (verified on-disk
+    2026-05-30), so these computed values from config/normalization.json
+    are the authoritative path. arXiv:2502.09356."""
+    m = np.asarray(mean, dtype=np.float32)
+    s = np.asarray(std, dtype=np.float32)
+    return m - 2.0 * s, 4.0 * s
+
+
 # Clay v1.5's S2 L2A platform expects 10 bands at 10 m, in this order
 # (verbatim from configs/metadata.yaml). Per-band mean/std + wavelength
 # (µm) come from the metadata file; the loader reads them at startup so
@@ -915,7 +951,7 @@ class PrithviResponse(BaseModel):
 
 
 class GalileoRequest(BaseModel):
-    """Per-cell Galileo S2-only embedding request.
+    """Per-cell Galileo multimodal embedding request.
 
     `s2_chip` is the 10-band S2 reflectance window in Galileo's
     S2_BANDS order (B2/B3/B4/B5/B6/B7/B8/B8A/B11/B12). Reflectance
@@ -923,9 +959,30 @@ class GalileoRequest(BaseModel):
     handles per-band normalization with the Galileo pretraining
     stats. Shape: `[T, H, W, 10]` where T must equal
     `GALILEO_CHIP_T` (1) and H, W must equal `GALILEO_CHIP_H/W` (8).
+
+    `s1_chip` (optional) is the Sentinel-1 RTC VV+VH γ0 dB window,
+    shape `[T=1, H=8, W=8, 2]` (VV, VH). When present the S1 group
+    mask is set to seen and S1's per-modality (mean-2σ)/(4σ) norm is
+    applied. NaN pixels (water mask / nodata) are normalized then
+    zeroed so they contribute the modality mean rather than NaN.
+
+    `srtm_chip` (optional) is the Copernicus-DEM elevation+slope
+    window, shape `[H=8, W=8, 2]` (elevation m, slope degrees) — the
+    space tensor has no time dimension. When present the SRTM group
+    mask is set to seen.
+
+    Modalities not provided stay zero-filled + masked-absent (the
+    encoder is robust to this — it was trained with the full mask
+    schedule). This keeps the S2-only path working unchanged.
     """
     s2_chip: list[list[list[list[float]]]] = Field(
         ..., description="reflectance chip, shape [T=1, H=8, W=8, 10]"
+    )
+    s1_chip: list[list[list[list[float]]]] | None = Field(
+        default=None, description="S1 VV+VH γ0 dB chip, shape [T=1, H=8, W=8, 2]"
+    )
+    srtm_chip: list[list[list[float]]] | None = Field(
+        default=None, description="DEM elevation+slope chip, shape [H=8, W=8, 2]"
     )
     month: int | None = Field(
         default=None, ge=1, le=12, description="month-of-year 1..12"
@@ -955,6 +1012,45 @@ class GalileoRequest(BaseModel):
                         raise ValueError(
                             f"s2_chip[{ti}][{hi}][{wi}] must have 10 bands (got {len(px)})"
                         )
+        return v
+
+    @field_validator("s1_chip")
+    @classmethod
+    def check_s1_shape(
+        cls, v: list[list[list[list[float]]]] | None
+    ) -> list[list[list[list[float]]]] | None:
+        if v is None:
+            return v
+        if len(v) != GALILEO_CHIP_T:
+            raise ValueError(f"s1_chip outer (T) must be {GALILEO_CHIP_T} (got {len(v)})")
+        for plane in v:
+            if len(plane) != GALILEO_CHIP_H:
+                raise ValueError(f"s1_chip H must be {GALILEO_CHIP_H} (got {len(plane)})")
+            for row in plane:
+                if len(row) != GALILEO_CHIP_W:
+                    raise ValueError(f"s1_chip W must be {GALILEO_CHIP_W} (got {len(row)})")
+                for px in row:
+                    if len(px) != 2:
+                        raise ValueError(f"s1_chip must have 2 bands VV,VH (got {len(px)})")
+        return v
+
+    @field_validator("srtm_chip")
+    @classmethod
+    def check_srtm_shape(
+        cls, v: list[list[list[float]]] | None
+    ) -> list[list[list[float]]] | None:
+        if v is None:
+            return v
+        if len(v) != GALILEO_CHIP_H:
+            raise ValueError(f"srtm_chip H must be {GALILEO_CHIP_H} (got {len(v)})")
+        for row in v:
+            if len(row) != GALILEO_CHIP_W:
+                raise ValueError(f"srtm_chip W must be {GALILEO_CHIP_W} (got {len(row)})")
+            for px in row:
+                if len(px) != 2:
+                    raise ValueError(
+                        f"srtm_chip must have 2 bands elevation,slope (got {len(px)})"
+                    )
         return v
 
 
@@ -1385,19 +1481,22 @@ def predict_prithvi_eo2_embed(req: PrithviRequest) -> PrithviResponse:
 
 @app.post("/predict/galileo_embed")
 def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
-    """Compute the per-cell Galileo embedding from an S2-only chip.
+    """Compute the per-cell Galileo embedding (multimodal-capable).
 
     Variant (tiny | base | nano) is determined by EMEM_GALILEO_VARIANT
     at sidecar startup; the response carries `model.model_id` so callers
     know which variant produced the embedding.
 
-    All other Galileo modalities (S1, ERA5, TC, VIIRS, SRTM, DW, WC,
-    LandScan, location) are passed as zeros + masked-as-absent. The
-    encoder is robust to this configuration — it was trained with the
-    full mask-ratio schedule. Returns the average-pooled token output
-    (768-D for the base variant; config.json embedding_size) which
-    matches the canonical Galileo embedding extraction recipe (cf.
-    visualizing_embeddings.py upstream).
+    S2 is always fed. S1 (VV,VH γ0 dB) and SRTM (elevation, slope) are
+    fed when `s1_chip` / `srtm_chip` are present in the request — their
+    group masks flip to 0 (seen) and each gets its per-modality
+    (mean-2σ)/(4σ) normalization (Galileo's upstream Normalizer scheme,
+    std=True; arXiv:2502.09356). Modalities not supplied (and ERA5, TC,
+    VIIRS, DW, WC, LandScan, location which emem doesn't yet wire) stay
+    zero-filled + masked-absent. The encoder is robust to this — it was
+    trained with the full mask schedule. Returns the average-pooled token
+    output (768-D base; config.json embedding_size) per the canonical
+    Galileo embedding recipe (cf. visualizing_embeddings.py upstream).
     """
     try:
         encoder, meta = _REG.load_galileo()
@@ -1406,10 +1505,12 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
 
     sys.path.insert(0, str(Path(__file__).parent))
     from single_file_galileo import (  # noqa: WPS433
+        S1_BANDS,
         SPACE_BANDS,
         SPACE_BAND_GROUPS_IDX,
         SPACE_TIME_BANDS,
         SPACE_TIME_BANDS_GROUPS_IDX,
+        SRTM_BANDS,
         STATIC_BANDS,
         STATIC_BAND_GROUPS_IDX,
         S2_BANDS,
@@ -1429,9 +1530,9 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
     # Reorder to [H, W, T, 10] which is what construct_galileo_input expects.
     s2_t = torch.from_numpy(s2_n).permute(1, 2, 0, 3).contiguous().to(device)
 
-    # Build the masked-output tuple inline (S2-only mode). The other
-    # modalities are zero-filled and their group masks stay at 1
-    # (= "not seen by the encoder").
+    # Build the masked-output tuple inline. S2 is always seen; S1 + SRTM
+    # are seen only when provided. The remaining modalities are zero-filled
+    # and their group masks stay at 1 (= "not seen by the encoder").
     h, w, t, _ = s2_t.shape
     s_t_x = torch.zeros(
         (h, w, t, len(SPACE_TIME_BANDS)), dtype=torch.float, device=device
@@ -1445,10 +1546,53 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
         i for i, k in enumerate(SPACE_TIME_BANDS_GROUPS_IDX) if k.startswith("S2_")
     ]
     s_t_m[:, :, :, s2_groups] = 0  # 0 = seen by encoder
+
+    modality_subset = ["s2"]
+
+    # ── S1 (VV, VH) into the space-time tensor when provided ────────────
+    if req.s1_chip is not None:
+        s1_arr = np.asarray(req.s1_chip, dtype=np.float32)  # [T, H, W, 2]
+        s1_shift, s1_div = _galileo_modality_shift_div(
+            GALILEO_S1_MEAN, GALILEO_S1_STD
+        )
+        s1_n = (s1_arr - s1_shift) / s1_div
+        # NaN pixels (water mask / nodata, marked NaN by the Rust fetcher)
+        # → 0 after normalization. 0 in normalized space ≈ the modality
+        # mean (since shift centres near the mean), the least-biased fill,
+        # and the patch's other pixels still carry signal. The S1 group is
+        # still marked seen — Galileo has no per-pixel mask, only per-group.
+        s1_n = np.nan_to_num(s1_n, nan=0.0, posinf=0.0, neginf=0.0)
+        s1_t = torch.from_numpy(s1_n).permute(1, 2, 0, 3).contiguous().to(device)
+        s1_indices = [SPACE_TIME_BANDS.index(b) for b in S1_BANDS]
+        s_t_x[:, :, :, s1_indices] = s1_t
+        s1_group = [
+            i for i, k in enumerate(SPACE_TIME_BANDS_GROUPS_IDX) if k == "S1"
+        ]
+        s_t_m[:, :, :, s1_group] = 0  # seen
+        modality_subset.append("s1")
+
     sp_x = torch.zeros((h, w, len(SPACE_BANDS)), dtype=torch.float, device=device)
     sp_m = torch.ones(
         (h, w, len(SPACE_BAND_GROUPS_IDX)), dtype=torch.float, device=device
     )
+
+    # ── SRTM (elevation, slope) into the space tensor when provided ─────
+    if req.srtm_chip is not None:
+        srtm_arr = np.asarray(req.srtm_chip, dtype=np.float32)  # [H, W, 2]
+        srtm_shift, srtm_div = _galileo_modality_shift_div(
+            GALILEO_SRTM_MEAN, GALILEO_SRTM_STD
+        )
+        srtm_n = (srtm_arr - srtm_shift) / srtm_div
+        srtm_n = np.nan_to_num(srtm_n, nan=0.0, posinf=0.0, neginf=0.0)
+        srtm_t = torch.from_numpy(srtm_n).contiguous().to(device)  # [H, W, 2]
+        srtm_indices = [SPACE_BANDS.index(b) for b in SRTM_BANDS]
+        sp_x[:, :, srtm_indices] = srtm_t
+        srtm_group = [
+            i for i, k in enumerate(SPACE_BAND_GROUPS_IDX) if k == "SRTM"
+        ]
+        sp_m[:, :, srtm_group] = 0  # seen
+        modality_subset.append("srtm")
+
     t_x = torch.zeros((t, len(TIME_BANDS)), dtype=torch.float, device=device)
     t_m = torch.ones((t, len(TIME_BAND_GROUPS_IDX)), dtype=torch.float, device=device)
     st_x = torch.zeros((len(STATIC_BANDS),), dtype=torch.float, device=device)
@@ -1475,10 +1619,11 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
 
     t0 = time.perf_counter_ns()
     with torch.inference_mode():
-        # The recipe per visualizing_embeddings.py: pass S2 modality
-        # masks unmasked, set time/static masks all-ones (forces
-        # average_tokens to ignore them in the pool), call forward, then
-        # average over unmasked tokens.
+        # The recipe per visualizing_embeddings.py: pass the seen-modality
+        # masks (S2 always; S1 in s_t_m, SRTM in sp_m when provided), force
+        # the time + static masks all-ones (no ERA5/TC/VIIRS/LandScan/loc
+        # wired here, so they're excluded from the token pool), call
+        # forward, then average over unmasked tokens.
         model_output = encoder(
             s_t_x.float(),
             sp_x.float(),
@@ -1519,21 +1664,54 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
             "via": "python_sidecar",
             "source": meta["source"],
             "paper": meta["paper"],
-            "config": {**meta["config"], "normalization_source": norm_source},
-            "honesty_warnings": [
-                f"normalization_source: {norm_source}",
-                "frozen_pretrained_encoder: this is a per-cell forward "
-                "pass through the frozen Galileo encoder using "
-                "the S2-only modality (S1/ERA5/TC/VIIRS/SRTM/DW/WC/"
-                "LandScan/location all zero-masked). The full multimodal "
-                "embedding would carry richer context — this responder "
-                "ships S2-only as the lowest-friction mode that uses "
-                "data already wired here."
-            ],
+            "config": {
+                **meta["config"],
+                "normalization_source": norm_source,
+                "modality_subset": modality_subset,
+            },
+            "honesty_warnings": _galileo_honesty_warnings(
+                norm_source, modality_subset
+            ),
         },
         inference_us=dt_us,
         device=str(device),
     )
+
+
+def _galileo_honesty_warnings(
+    norm_source: str, modality_subset: list[str]
+) -> list[str]:
+    """Honest disclosure of which Galileo modalities were fed vs masked.
+
+    S2 is always present; S1 + SRTM are present only when the caller
+    supplied the chips. The remaining modalities (ERA5/TC/VIIRS/DW/WC/
+    LandScan/location) are not wired in emem and are always masked-absent.
+    """
+    fed = ", ".join(modality_subset)
+    all_galileo = {"s2", "s1", "srtm"}
+    not_fed = sorted(all_galileo - set(modality_subset))
+    warns = [
+        f"normalization_source: S2={norm_source}; S1/SRTM use computed "
+        "(mean-2σ)/(4σ) from config/normalization.json (galileo @ main, "
+        "verified 2026-05-30)",
+        f"modality_subset: [{fed}] fed to the encoder; per-modality "
+        "(mean-2σ)/(4σ) normalization applied to each",
+    ]
+    if not_fed:
+        warns.append(
+            "frozen_pretrained_encoder: per-cell forward through the frozen "
+            f"Galileo encoder. Wired but not provided at this cell: "
+            f"[{', '.join(not_fed)}]; never-wired in emem: "
+            "[ERA5, TC, VIIRS, DW, WC, LandScan, location] — all "
+            "zero-filled + masked-absent (not zero-filled-and-claimed)."
+        )
+    else:
+        warns.append(
+            "frozen_pretrained_encoder: per-cell forward through the frozen "
+            "Galileo encoder with S2+S1+SRTM all fed. Never-wired in emem: "
+            "[ERA5, TC, VIIRS, DW, WC, LandScan, location] — masked-absent."
+        )
+    return warns
 
 
 @app.post("/predict/clay_embed")

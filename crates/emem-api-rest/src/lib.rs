@@ -3843,13 +3843,13 @@ async fn materializers(
                 "coverage":          "global terrestrial; 0.1° tile grid; v1 vintage 2024",
                 "upstream_scheme":   "geotessera",
                 "upstream_endpoint": "https://dl2.geotessera.org/v1/global_0.1_degree_representation",
-                "derivation_fn_key": "geotessera_v1@1",
+                "derivation_fn_key": "geotessera_v1@2",
                 "confidence":        0.85,
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
                 "fetch_strategy":    "https_range",
                 "fetch_bytes_per_cell": 640,
-                "notes":             "Tessera 128-D foundation embedding (Cambridge/Clay-style; quantized int8 + float32 scales). Per-cell HTTPS range reads against the public bucket — ~640 B downloaded per recall instead of the full 91 MB tile. Native CRS is per-tile UTM; we sample by linear (lat,lng)→(row,col) within the 0.1° tile so corner samples have ~1–2 px UTM-vs-EPSG:4326 skew that's recorded in derivation.args. Default vintage 2024; use geotessera.YYYY for an explicit year, or geotessera.multi_year for the 8-year stack."
+                "notes":             "Tessera 128-D foundation embedding (Cambridge/Clay-style; quantized int8 + float32 scales). Per-cell HTTPS range reads against the public bucket — ~640 B downloaded per recall instead of the full 91 MB tile. Native CRS is per-tile UTM; we project (lat,lng) into the tile's UTM CRS (tessera_row_col) to pick the exact pixel — the @2 fn_key marks this UTM-correct mapping (@1 used a linear-in-degrees row/col that mis-sampled by ~1–2 px near tile corners). Default vintage 2024; use geotessera.YYYY for an explicit year, or geotessera.multi_year for the 8-year stack."
             },
             {
                 "band":              "geotessera.multi_year",
@@ -3859,7 +3859,7 @@ async fn materializers(
                 "coverage":          "global terrestrial; 0.1° tile grid; 8-year stack 2017-2024",
                 "upstream_scheme":   "geotessera",
                 "upstream_endpoint": "https://dl2.geotessera.org/v1/global_0.1_degree_representation",
-                "derivation_fn_key": "geotessera_multi_year@1",
+                "derivation_fn_key": "geotessera_multi_year@2",
                 "confidence":        0.85,
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
@@ -21487,7 +21487,10 @@ async fn materialize_geotessera_multi_year(
             url: None,
         }],
         derivation: Derivation {
-            fn_key: "geotessera_multi_year@1".into(),
+            // @2 — see geotessera_v1@2: every per-vintage slice in this
+            // stack is sampled via the UTM-correct tessera_row_col, so the
+            // fused vector differs from @1. Bumped in lockstep.
+            fn_key: "geotessera_multi_year@2".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -21601,13 +21604,27 @@ fn args_with_honesty(
 }
 
 async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    materialize_prithvi_eo2_at(cell64, s, None).await
+}
+
+/// Prithvi-EO-2.0 embedding at an optional target time. `target_unix =
+/// None` materializes the latest scene; `Some(t)` materializes the scene
+/// nearest `t` so triple_consensus can recall a PRIOR vintage on demand and
+/// compute a real year-over-year change (rather than degrading to
+/// inconclusive). The Slow tslot derived from the chosen scene keys each
+/// vintage distinctly (so two materializations don't collide at tslot=0).
+async fn materialize_prithvi_eo2_at(
+    cell64: &str,
+    s: &AppState,
+    target_unix: Option<i64>,
+) -> Result<emem_fact::FactCid, String> {
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
     // Fetch the 6×224×224 chip at 30 m equivalent. Up to ~5 MB of COG
     // tile range reads spread across 6 assets; ~3-6 s on a fresh cell.
-    let chip = prithvi_chip::fetch_prithvi_chip(cell64, s, None).await?;
+    let chip = prithvi_chip::fetch_prithvi_chip(cell64, s, target_unix).await?;
 
     // Year + julian_day from the scene capture time engages the
     // model's temporal-encoder branch. ISO unix → DOY 1..366.
@@ -21748,11 +21765,23 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
 /// (different kernel-order accumulation). The recall path catches
 /// this and signs an Absence with `gpu_unavailable` reason.
 async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
+    materialize_clay_v1_at(cell64, s, None).await
+}
+
+/// Clay v1.5 embedding at an optional target time. `None` = latest scene;
+/// `Some(t)` = scene nearest `t`, so triple_consensus can recall a PRIOR
+/// vintage on demand (see `materialize_prithvi_eo2_at`). The Slow tslot
+/// from the chosen scene keys each vintage distinctly.
+async fn materialize_clay_v1_at(
+    cell64: &str,
+    s: &AppState,
+    target_unix: Option<i64>,
+) -> Result<emem_fact::FactCid, String> {
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
-    let chip = clay_chip::fetch_clay_chip(cell64, s, None).await?;
+    let chip = clay_chip::fetch_clay_chip(cell64, s, target_unix).await?;
     let scene_unix = if chip.scene_unix > 0 {
         chip.scene_unix
     } else {
@@ -21864,17 +21893,27 @@ async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::Fa
     sign_and_persist(s, fact, &signed_at).await
 }
 
-/// Phase 4 — Galileo per-cell foundation embedding.
+/// Phase 4 — Galileo per-cell foundation embedding (multimodal).
 ///
-/// Pulls a 10-band S2 L2A chip (8×8 at 30 m equiv) via
-/// `galileo_chip::fetch_galileo_chip`, sends it to the GPU sidecar at
-/// `/predict/galileo_embed` (variant-agnostic; sidecar's
-/// `EMEM_GALILEO_VARIANT` selects Base = 768-D, Tiny = 192-D, …),
-/// signs the returned embedding under the `galileo` band.
+/// Galileo is a multimodal model (arXiv:2502.09356). We feed it the three
+/// modalities emem already ships co-registered at the same cell+time:
+///   * **S2** — 10-band L2A chip (8×8 @ 30 m) in the space-time tensor.
+///   * **S1** — Sentinel-1 RTC VV+VH γ0 dB (8×8 @ 30 m) in space-time.
+///   * **DEM** — Copernicus-DEM elevation + finite-difference slope (deg)
+///     (8×8 @ 30 m) in the SRTM space-group.
+///
+/// The chip assembly mirrors the eudr_dds parallel S2+S1 fetch pattern:
+/// S1 and DEM are fetched concurrently with the (already-resolved) S2
+/// scene. When S1 or DEM cannot be fetched at the cell, we DEGRADE
+/// HONESTLY — drop that modality, mask it absent in the sidecar, and sign
+/// under the S2-only fn_key (`galileo_v1_s2_embed@2`) rather than zero-fill
+/// and claim multimodal. The full S2+S1+DEM embedding is a DIFFERENT
+/// computation and signs under `galileo_v1_s2s1dem_embed@1`. The
+/// `modality_subset` honesty warning records exactly which were present.
+///
 /// Embedding dim is read from the sidecar response — the band key is
 /// variant-agnostic so a deployment switching `EMEM_GALILEO_VARIANT`
 /// from Base to Tiny doesn't need to rewrite agent recall calls.
-/// S2-only mode — Galileo accepts the other modalities zero-masked.
 async fn materialize_galileo_base(
     cell64: &str,
     s: &AppState,
@@ -21900,8 +21939,47 @@ async fn materialize_galileo_base(
         7
     };
 
+    // Fetch S1 (near the S2 scene time) and DEM concurrently — same
+    // join_all pattern eudr_dds uses for parallel S2+S1. Each is
+    // best-effort: a failure degrades the embedding honestly rather than
+    // failing the whole materialization. S1 is anchored to the S2 scene
+    // time so the two co-register temporally.
+    let s1_target = if scene_unix > 0 {
+        Some(scene_unix)
+    } else {
+        None
+    };
+    let (s1_res, dem_res) = tokio::join!(
+        galileo_chip::fetch_galileo_s1_chip(cell64, s1_target),
+        galileo_chip::fetch_galileo_dem_chip(cell64),
+    );
+    let s1 = s1_res
+        .map_err(|e| {
+            tracing::debug!("galileo S1 modality unavailable at {cell64}: {e}");
+            e
+        })
+        .ok();
+    let dem = dem_res
+        .map_err(|e| {
+            tracing::debug!("galileo DEM modality unavailable at {cell64}: {e}");
+            e
+        })
+        .ok();
+
+    // modality_subset is the honest list of what we actually fed.
+    let mut modality_subset: Vec<&'static str> = vec!["s2"];
+    if s1.is_some() {
+        modality_subset.push("s1");
+    }
+    if dem.is_some() {
+        modality_subset.push("srtm");
+    }
+    let multimodal = s1.is_some() || dem.is_some();
+
     let req = gpu_sidecar::GalileoRequest {
         s2_chip: chip.as_4d(),
+        s1_chip: s1.as_ref().map(|c| c.as_4d()),
+        srtm_chip: dem.as_ref().map(|c| c.as_3d()),
         month: Some(month),
         lng: Some(lng),
         lat: Some(lat),
@@ -21921,7 +21999,7 @@ async fn materialize_galileo_base(
             .collect(),
     );
 
-    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 1);
+    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 4);
     for url in &chip.asset_urls {
         sources.push(Source {
             scheme: "sentinel-2-l2a.cog".into(),
@@ -21930,6 +22008,28 @@ async fn materialize_galileo_base(
             hash: None,
             captured_at: Some(chip.scene_iso.clone()),
             url: Some(url.clone()),
+        });
+    }
+    if let Some(s1c) = &s1 {
+        for url in &s1c.asset_urls {
+            sources.push(Source {
+                scheme: "sentinel-1-rtc.cog".into(),
+                id: url.clone(),
+                cid: None,
+                hash: None,
+                captured_at: Some(s1c.scene_iso.clone()),
+                url: Some(url.clone()),
+            });
+        }
+    }
+    if let Some(demc) = &dem {
+        sources.push(Source {
+            scheme: "copernicus-dem-glo30.cog".into(),
+            id: demc.asset_url.clone(),
+            cid: None,
+            hash: None,
+            captured_at: Some(emem_fetch::copernicus_dem::COPDEM_VERSION_TAG.to_string()),
+            url: Some(demc.asset_url.clone()),
         });
     }
     let model_blake2b = resp
@@ -21954,9 +22054,61 @@ async fn materialize_galileo_base(
         .and_then(|v| v.as_str())
         .unwrap_or("galileo_v1")
         .to_string();
+
+    // The multimodal embedding is a DIFFERENT computation than the S2-only
+    // one, so it carries a distinct fn_key. The S2-only path bumps to @2
+    // (R1 corrected the normalization+resolution; old @1 facts live under a
+    // distinguishable provenance string).
+    let fn_key = if multimodal {
+        "galileo_v1_s2s1dem_embed@1"
+    } else {
+        "galileo_v1_s2_embed@2"
+    };
+
+    // Honesty warnings: sidecar-declared + Rust-side truth about which
+    // modalities were actually fed vs masked-absent.
+    let mut warnings = sidecar_honesty_warnings(&resp.model);
+    warnings.push(format!("modality_subset: [{}]", modality_subset.join(",")));
+    if multimodal {
+        let mut absent: Vec<&str> = Vec::new();
+        if s1.is_none() {
+            absent.push("s1");
+        }
+        if dem.is_none() {
+            absent.push("srtm");
+        }
+        if !absent.is_empty() {
+            warnings.push(format!(
+                "partial_multimodal: [{}] fetched, [{}] unavailable at this cell and masked-absent (not zero-filled)",
+                modality_subset.join(","),
+                absent.join(",")
+            ));
+        }
+    } else {
+        warnings.push(
+            "s2_only_modalities_zero_masked: S1 + DEM could not be fetched at this cell; signed under the S2-only fn_key, every other Galileo modality masked-absent".into(),
+        );
+    }
+
     // Tslot at scene-acquisition tempo so successive vintages of the
     // same cell don't collide at tslot=0 — mirror the prithvi_eo2
     // / clay_v1 pattern (Tempo::Slow keys to annual cadence).
+    let mut args = vec![
+        ciborium::Value::Float(lat),
+        ciborium::Value::Float(lng),
+        ciborium::Value::Text(chip.scene_id.clone()),
+        ciborium::Value::Integer((scene_unix).into()),
+        ciborium::Value::Integer((doy as i64).into()),
+        ciborium::Value::Text(model_blake2b.clone()),
+    ];
+    // Record the S1 scene id when present so a verifier can re-fetch the
+    // exact SAR scene the multimodal embedding was conditioned on.
+    if let Some(s1c) = &s1 {
+        args.push(ciborium::Value::Text(format!("s1:{}", s1c.scene_id)));
+    }
+    if let Some(demc) = &dem {
+        args.push(ciborium::Value::Text(format!("dem:{}", demc.asset_url)));
+    }
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "galileo".into(),
@@ -21967,25 +22119,8 @@ async fn materialize_galileo_base(
         uncertainty: None,
         sources,
         derivation: Derivation {
-            fn_key: "galileo_v1_s2_embed@1".into(),
-            args: Some(args_with_honesty(
-                vec![
-                    ciborium::Value::Float(lat),
-                    ciborium::Value::Float(lng),
-                    ciborium::Value::Text(chip.scene_id.clone()),
-                    ciborium::Value::Integer((scene_unix).into()),
-                    ciborium::Value::Integer((doy as i64).into()),
-                    ciborium::Value::Text(model_blake2b.clone()),
-                ],
-                {
-                    // Sidecar's declared modality-subset warning(s) PLUS the
-                    // Rust-side truth that we only feed S2 with every other
-                    // Galileo modality (SAR/climate/DEM) zero-masked.
-                    let mut w = sidecar_honesty_warnings(&resp.model);
-                    w.push("s2_only_modalities_zero_masked".into());
-                    w
-                },
-            )),
+            fn_key: fn_key.into(),
+            args: Some(args_with_honesty(args, warnings)),
         },
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -22338,7 +22473,14 @@ async fn materialize_geotessera_for_year(
             url: None,
         }],
         derivation: Derivation {
-            fn_key: "geotessera_v1@1".into(),
+            // @2 = UTM-correct pixel mapping (R2 fix: tessera_row_col
+            // projects (lat,lng) into the tile's UTM CRS instead of the
+            // old linear-in-degrees row/col, which mis-sampled corner
+            // pixels by 1–2 px). @1 facts were signed under the wrong
+            // pixel → a distinct embedding value; the version bump keeps
+            // old vs corrected distinguishable in provenance so consumers
+            // can prefer @2 and find_similar/state never mix manifolds.
+            fn_key: "geotessera_v1@2".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -28945,15 +29087,18 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
         "galileo" => MaterializerMeta {
             // Galileo (NASA Harvest, MIT) — Base variant by default
             // (86.5 M params, 768-D embedding) / Tiny (~22 MB, 192-D)
-            // selected by the sidecar's `EMEM_GALILEO_VARIANT`. Per-cell
-            // embedding from a 10-band S2 chip 8×8 at 30 m equiv. Tempo +
-            // history mirror S2.
+            // selected by the sidecar's `EMEM_GALILEO_VARIANT`. Multimodal:
+            // S2 (10-band, always) + S1 RTC (VV,VH γ0 dB, when fetchable) +
+            // Cop-DEM (elevation, slope, when fetchable), all 8×8 @ 30 m
+            // co-registered. Multimodal signs galileo_v1_s2s1dem_embed@1;
+            // S2-only fallback signs galileo_v1_s2_embed@2. Tempo + history
+            // mirror S2.
             tempo: Tempo::Medium,
             kind: BandKind::TimeSeries,
             history_from_unix: Some(s2_l2a_start),
             history_to_unix: None,
             wire_path:
-                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/03/04/05/06/07/08/8A/11/12, 8×8 @ 30m equiv) → emem-jepa-sidecar /predict/galileo_embed (CUDA, variant-agnostic — Base = 768-D / Tiny = 192-D avg-pooled tokens; variant set by EMEM_GALILEO_VARIANT)",
+                "Element84/MPC S2 L2A 10-band + S1 RTC VV/VH + Cop-DEM elevation/slope (8×8 @ 30m equiv, co-registered) → emem-jepa-sidecar /predict/galileo_embed (CUDA, variant-agnostic — Base = 768-D / Tiny = 192-D avg-pooled tokens; S1/DEM masked-absent + S2-only fn_key when either can't be fetched)",
         },
         _ => return None,
     };
