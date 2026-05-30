@@ -180,9 +180,7 @@ impl ModelMetadata {
     /// trainer has written the skill numbers to either block across
     /// versions). Returns the first present value.
     fn val_or_train(&self, key: &str) -> Option<&serde_json::Value> {
-        self.validation
-            .get(key)
-            .or_else(|| self.training.get(key))
+        self.validation.get(key).or_else(|| self.training.get(key))
     }
 
     /// Skill of the learned model vs the persistence baseline on real
@@ -222,7 +220,9 @@ impl ModelMetadata {
         {
             return b;
         }
-        self.skill_vs_persistence().map(|s| s > 0.0).unwrap_or(false)
+        self.skill_vs_persistence()
+            .map(|s| s > 0.0)
+            .unwrap_or(false)
     }
 
     /// Per-band (min, max) physical clamp applied after denormalisation.
@@ -728,12 +728,18 @@ mod tests {
         }))
         .expect("parse");
         assert!((neg.skill_vs_persistence().unwrap() - (-0.5)).abs() < 1e-9);
-        assert!(!neg.beats_persistence(), "negative skill must not beat persistence");
+        assert!(
+            !neg.beats_persistence(),
+            "negative skill must not beat persistence"
+        );
 
         // Neither present → None, and beats_persistence defaults FALSE.
         let m2 = trained_meta();
         assert!(m2.skill_vs_persistence().is_none());
-        assert!(!m2.beats_persistence(), "no skill evidence → fail-safe false");
+        assert!(
+            !m2.beats_persistence(),
+            "no skill evidence → fail-safe false"
+        );
     }
 
     /// A trained model with NEGATIVE skill must emit a loud
@@ -763,7 +769,12 @@ mod tests {
             .get("skill_vs_persistence")
             .expect("skill_vs_persistence block present");
         assert!(
-            (skill.get("skill_vs_persistence").and_then(|v| v.as_f64()).unwrap() - (-0.5)).abs()
+            (skill
+                .get("skill_vs_persistence")
+                .and_then(|v| v.as_f64())
+                .unwrap()
+                - (-0.5))
+                .abs()
                 < 1e-9
         );
         assert_eq!(

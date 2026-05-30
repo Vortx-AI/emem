@@ -21595,9 +21595,7 @@ fn args_with_honesty(
         ),
         (
             ciborium::Value::Text("honesty_warnings".into()),
-            ciborium::Value::Array(
-                warnings.into_iter().map(ciborium::Value::Text).collect(),
-            ),
+            ciborium::Value::Array(warnings.into_iter().map(ciborium::Value::Text).collect()),
         ),
     ])
 }
@@ -22174,8 +22172,7 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
 
     // (lat,lng) → (row,col) in the tile's UTM CRS (NOT linear in degrees).
     // Use the canonical rounded tile centre (matches the grid_ tile name).
-    let (row, col, _epsg, _min_e, _max_n) =
-        tessera_row_col(lat, lng, tile_lat_r, tile_lon_r, h, w);
+    let (row, col, _epsg, _min_e, _max_n) = tessera_row_col(lat, lng, tile_lat_r, tile_lon_r, h, w);
     let pixel_idx = row * w + col;
 
     let emb_off = emb_data_off + pixel_idx * 128;
@@ -33391,8 +33388,7 @@ async fn tessera_rerank(
                     // any NaN-bearing vector through the NaN-aware
                     // `cosine_finite` so it scores over its finite overlap.
                     if v.iter().any(|x| !x.is_finite()) {
-                        emem_primitives::cbor_ops::cosine_finite(&v, &centroid_f32)
-                            .unwrap_or(0.0)
+                        emem_primitives::cbor_ops::cosine_finite(&v, &centroid_f32).unwrap_or(0.0)
                     } else {
                         cosine(&v, &centroid_f32)
                     }
@@ -46690,7 +46686,10 @@ mod tests {
         // column is NOT the west edge.
         let (r_nw, _c_nw, ..) =
             tessera_row_col(tile_lat + 0.05, tile_lon - 0.05, tile_lat, tile_lon, h, w);
-        assert!(r_nw <= 2, "NW corner row {r_nw} should be ~0 (max northing)");
+        assert!(
+            r_nw <= 2,
+            "NW corner row {r_nw} should be ~0 (max northing)"
+        );
 
         // SW corner → west edge (col ~0, min easting).
         let (_r_sw, c_sw, ..) =
@@ -46817,8 +46816,6 @@ mod tests {
         // Absent → empty.
         assert!(sidecar_honesty_warnings(&serde_json::json!({})).is_empty());
         // Wrong type → empty (defensive).
-        assert!(
-            sidecar_honesty_warnings(&serde_json::json!({"honesty_warnings": 5})).is_empty()
-        );
+        assert!(sidecar_honesty_warnings(&serde_json::json!({"honesty_warnings": 5})).is_empty());
     }
 }

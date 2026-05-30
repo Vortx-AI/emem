@@ -1687,7 +1687,15 @@ mod tests {
             .iter()
             .find(|n| n.cell == "nanny")
             .expect("nanny present");
-        assert!(nanny.score.is_finite(), "score must be finite, got {}", nanny.score);
-        assert!(nanny.score > 0.9, "finite-overlap cosine should be high, got {}", nanny.score);
+        assert!(
+            nanny.score.is_finite(),
+            "score must be finite, got {}",
+            nanny.score
+        );
+        assert!(
+            nanny.score > 0.9,
+            "finite-overlap cosine should be high, got {}",
+            nanny.score
+        );
     }
 }

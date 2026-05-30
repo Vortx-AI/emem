@@ -1861,7 +1861,10 @@ mod tests {
 
         let via = apply_persistence_fallback(true, &mut preds, &last);
         // Bands with a real lag → prediction == that lag, tagged persistence.
-        assert_eq!(preds[0], 0.42, "ndvi prediction should equal the last real lag");
+        assert_eq!(
+            preds[0], 0.42,
+            "ndvi prediction should equal the last real lag"
+        );
         assert_eq!(preds[1], 290.0);
         assert_eq!(preds[3], 12.0);
         assert_eq!(

@@ -294,7 +294,10 @@ mod tests {
         let b = [1.0f32, 5.0, 1.0, 0.0];
         assert!(cosine(&a, &b).is_nan(), "plain cosine propagates NaN");
         let c = cosine_finite(&a, &b).expect("finite overlap exists");
-        assert!((c - 1.0).abs() < 1e-6, "cosine over [1,1,0] vs [1,1,0]=1; got {c}");
+        assert!(
+            (c - 1.0).abs() < 1e-6,
+            "cosine over [1,1,0] vs [1,1,0]=1; got {c}"
+        );
     }
 
     #[test]
