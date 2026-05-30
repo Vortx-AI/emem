@@ -22548,82 +22548,226 @@ fn tessera_row_col(
     (row, col, epsg, min_e, max_n)
 }
 
-/// Per-year Tessera pixel fetch — pure HTTP-range NumPy reader against the
-/// public dl2.geotessera.org bucket. Returns the 128-D dequantised
-/// embedding for the exact (lat, lng) tile pixel, or an error string.
-async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64>, String> {
+/// Parsed, tile-invariant geometry of a Tessera `.npy` pair. Everything
+/// in here depends only on `(year, tile)` — NOT on the pixel within the
+/// tile — so it is shared by every cell that falls inside the same
+/// 0.1°×0.1° tile. A tile is ~11 km on a side = thousands of cell64
+/// pixels, so without this the npy headers were re-fetched (two extra
+/// `bytes=0-511` round-trips) once per cell.
+#[derive(Clone)]
+struct TesseraTileHeader {
+    /// Resolved embedding `.npy` URL (`{base}/{grid}.npy`).
+    emb_url: String,
+    /// Resolved scales `.npy` URL (`{base}/{grid}_scales.npy`).
+    scales_url: String,
+    /// Tile height in pixels (npy shape[0]).
+    h: usize,
+    /// Tile width in pixels (npy shape[1]).
+    w: usize,
+    /// Byte offset of the first embedding element in the emb `.npy`.
+    emb_data_off: usize,
+    /// Byte offset of the first scale element in the scales `.npy`.
+    sc_data_off: usize,
+    /// 1 (per-pixel scalar scale) or 128 (per-channel scales).
+    scales_per_pixel: usize,
+    /// Canonical rounded tile centre latitude (matches the `grid_` name).
+    tile_lat_r: f64,
+    /// Canonical rounded tile centre longitude (matches the `grid_` name).
+    tile_lon_r: f64,
+}
+
+/// One slot in the Tessera tile-header cache: a shared `OnceCell` that
+/// holds the parsed [`TesseraTileHeader`] once the first caller finishes
+/// the two `bytes=0-511` probes. Concurrent callers for the same
+/// `(year, tile)` park on this cell (single-flight) so exactly ONE pair
+/// of header probes hits dl2.geotessera.org per tile.
+type TesseraHeaderSlot = Arc<tokio::sync::OnceCell<TesseraTileHeader>>;
+
+/// `(year, grid_name)` cache key. The npy headers are immutable upstream
+/// for a published tile, so caching per key for the process lifetime is
+/// always correct: the cached shape/dtype/data-offset are byte-for-byte
+/// what a fresh probe would parse.
+type TesseraHeaderKey = (i32, String);
+
+/// Process-wide cache of parsed Tessera tile headers, single-flighted via
+/// per-slot `OnceCell` (mirrors the COG `PROFILE_CACHE`/`TILE_CACHE`
+/// pattern in `emem_fetch::cog`). Bounded by
+/// [`tessera_header_cache_cap`]; on overflow the map is cleared wholesale
+/// (one mutex round-trip, no per-entry LRU bookkeeping) — a header is
+/// tiny (~120 B) so the cap can be large with a trivial memory ceiling,
+/// and a re-fetch on the rare overflow is just two cheap range probes.
+static TESSERA_HEADER_CACHE: LazyLock<
+    tokio::sync::Mutex<std::collections::HashMap<TesseraHeaderKey, TesseraHeaderSlot>>,
+> = LazyLock::new(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn tessera_header_cache_cap() -> usize {
+    std::env::var("EMEM_TESSERA_HEADER_CACHE_CAP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(4096)
+        .max(1)
+}
+
+/// Canonical Tessera tile grid name for a `(lat, lng)`. This is the
+/// single-flight cache key's spatial component: every cell64 pixel inside
+/// the same 0.1°×0.1° tile maps to the SAME `grid_<lon>_<lat>` string, so
+/// they collapse onto one cached [`TesseraTileHeader`] (one pair of header
+/// probes per tile, not per cell). Lifted out so the collapse is unit-
+/// testable without touching the network.
+fn tessera_grid_name(lat: f64, lng: f64) -> String {
     let tile_lon = (lng * 10.0).floor() / 10.0 + 0.05;
     let tile_lat = (lat * 10.0).floor() / 10.0 + 0.05;
     let tile_lon_r = (tile_lon * 100.0).round() / 100.0;
     let tile_lat_r = (tile_lat * 100.0).round() / 100.0;
-    let grid_name = format!("grid_{:.2}_{:.2}", tile_lon_r, tile_lat_r);
-    let base = format!(
-        "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/{grid_name}"
-    );
-    let emb_url = format!("{base}/{grid_name}.npy");
-    let scales_url = format!("{base}/{grid_name}_scales.npy");
+    format!("grid_{:.2}_{:.2}", tile_lon_r, tile_lat_r)
+}
+
+/// Fetch (or share an in-flight fetch of) the parsed npy header for the
+/// `(year, tile)` that contains `(lat, lng)`. Single-flighted: N cells in
+/// the same tile share one pair of `bytes=0-511` probes. The returned
+/// header is identical to what a fresh per-cell parse produced, so cached
+/// and uncached pixel reads are byte-identical.
+async fn get_or_fetch_tessera_header(
+    lat: f64,
+    lng: f64,
+    year: i32,
+) -> Result<TesseraTileHeader, String> {
+    let tile_lon = (lng * 10.0).floor() / 10.0 + 0.05;
+    let tile_lat = (lat * 10.0).floor() / 10.0 + 0.05;
+    let tile_lon_r = (tile_lon * 100.0).round() / 100.0;
+    let tile_lat_r = (tile_lat * 100.0).round() / 100.0;
+    let grid_name = tessera_grid_name(lat, lng);
+
+    let key: TesseraHeaderKey = (year, grid_name.clone());
+    let cell = {
+        let mut guard = TESSERA_HEADER_CACHE.lock().await;
+        if guard.len() >= tessera_header_cache_cap() && !guard.contains_key(&key) {
+            tracing::info!(
+                target: "emem::geotessera::cache",
+                tessera_header_cache_hit = guard.len(),
+                "tessera header cache full; wholesale evict"
+            );
+            guard.clear();
+        }
+        guard
+            .entry(key)
+            .or_insert_with(|| Arc::new(tokio::sync::OnceCell::new()))
+            .clone()
+    };
+
+    let hdr = cell
+        .get_or_try_init(|| async {
+            let base = format!(
+                "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/{grid_name}"
+            );
+            let emb_url = format!("{base}/{grid_name}.npy");
+            let scales_url = format!("{base}/{grid_name}_scales.npy");
+            let cli = reqwest_client();
+
+            // The two header probes are independent — fetch them
+            // concurrently instead of paying two sequential round-trips.
+            let emb_fut = async {
+                let resp = cli
+                    .get(&emb_url)
+                    .header("range", "bytes=0-511")
+                    .send()
+                    .await
+                    .map_err(|e| format!("emb head https: {e}"))?;
+                if !(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT
+                    || resp.status() == reqwest::StatusCode::OK)
+                {
+                    return Err(format!("emb head status {} for year {year}", resp.status()));
+                }
+                resp.bytes()
+                    .await
+                    .map_err(|e| format!("emb head body: {e}"))
+            };
+            let sc_fut = async {
+                let resp = cli
+                    .get(&scales_url)
+                    .header("range", "bytes=0-511")
+                    .send()
+                    .await
+                    .map_err(|e| format!("scales head https: {e}"))?;
+                if !(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT
+                    || resp.status() == reqwest::StatusCode::OK)
+                {
+                    return Err(format!(
+                        "scales head status {} for year {year}",
+                        resp.status()
+                    ));
+                }
+                resp.bytes()
+                    .await
+                    .map_err(|e| format!("scales head body: {e}"))
+            };
+            let (emb_hdr_bytes, sc_hdr_bytes) = tokio::try_join!(emb_fut, sc_fut)?;
+
+            let (emb_shape, emb_dtype, emb_data_off) =
+                parse_npy_header(&emb_hdr_bytes).map_err(|e| format!("emb npy: {e}"))?;
+            if emb_shape.len() != 3 || emb_shape[2] != 128 || emb_dtype != "|i1" {
+                return Err(format!(
+                    "emb shape/dtype unexpected {emb_shape:?} {emb_dtype:?}"
+                ));
+            }
+            let h = emb_shape[0];
+            let w = emb_shape[1];
+
+            let (sc_shape, sc_dtype, sc_data_off) =
+                parse_npy_header(&sc_hdr_bytes).map_err(|e| format!("scales npy: {e}"))?;
+            if sc_dtype != "<f4" {
+                return Err(format!("scales dtype unexpected {sc_dtype:?}"));
+            }
+            let scales_per_pixel: usize = match sc_shape.len() {
+                2 if sc_shape[0] == h && sc_shape[1] == w => 1,
+                3 if sc_shape[0] == h && sc_shape[1] == w && sc_shape[2] == 128 => 128,
+                _ => {
+                    return Err(format!(
+                        "scales shape mismatch {sc_shape:?} vs {emb_shape:?}"
+                    ))
+                }
+            };
+
+            Ok::<_, String>(TesseraTileHeader {
+                emb_url,
+                scales_url,
+                h,
+                w,
+                emb_data_off,
+                sc_data_off,
+                scales_per_pixel,
+                tile_lat_r,
+                tile_lon_r,
+            })
+        })
+        .await?;
+    Ok(hdr.clone())
+}
+
+/// Per-year Tessera pixel fetch — pure HTTP-range NumPy reader against the
+/// public dl2.geotessera.org bucket. Returns the 128-D dequantised
+/// embedding for the exact (lat, lng) tile pixel, or an error string.
+///
+/// The tile-invariant npy header (shape/dtype/data-offset) is resolved
+/// once per `(year, tile)` and shared via [`get_or_fetch_tessera_header`]
+/// (single-flight, process-cached), so the only per-cell upstream work is
+/// the two small pixel range reads — and those run concurrently. The
+/// dequantised value is byte-identical to the pre-cache path.
+async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64>, String> {
+    let hdr = get_or_fetch_tessera_header(lat, lng, year).await?;
+    let TesseraTileHeader {
+        emb_url,
+        scales_url,
+        h,
+        w,
+        emb_data_off,
+        sc_data_off,
+        scales_per_pixel,
+        tile_lat_r,
+        tile_lon_r,
+    } = hdr;
 
     let cli = reqwest_client();
-    let emb_hdr = cli
-        .get(&emb_url)
-        .header("range", "bytes=0-511")
-        .send()
-        .await
-        .map_err(|e| format!("emb head https: {e}"))?;
-    if !(emb_hdr.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        || emb_hdr.status() == reqwest::StatusCode::OK)
-    {
-        return Err(format!(
-            "emb head status {} for year {year}",
-            emb_hdr.status()
-        ));
-    }
-    let emb_hdr_bytes = emb_hdr
-        .bytes()
-        .await
-        .map_err(|e| format!("emb head body: {e}"))?;
-    let (emb_shape, emb_dtype, emb_data_off) =
-        parse_npy_header(&emb_hdr_bytes).map_err(|e| format!("emb npy: {e}"))?;
-    if emb_shape.len() != 3 || emb_shape[2] != 128 || emb_dtype != "|i1" {
-        return Err(format!(
-            "emb shape/dtype unexpected {emb_shape:?} {emb_dtype:?}"
-        ));
-    }
-    let h = emb_shape[0];
-    let w = emb_shape[1];
-
-    let sc_hdr = cli
-        .get(&scales_url)
-        .header("range", "bytes=0-511")
-        .send()
-        .await
-        .map_err(|e| format!("scales head https: {e}"))?;
-    if !(sc_hdr.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        || sc_hdr.status() == reqwest::StatusCode::OK)
-    {
-        return Err(format!(
-            "scales head status {} for year {year}",
-            sc_hdr.status()
-        ));
-    }
-    let sc_hdr_bytes = sc_hdr
-        .bytes()
-        .await
-        .map_err(|e| format!("scales head body: {e}"))?;
-    let (sc_shape, sc_dtype, sc_data_off) =
-        parse_npy_header(&sc_hdr_bytes).map_err(|e| format!("scales npy: {e}"))?;
-    if sc_dtype != "<f4" {
-        return Err(format!("scales dtype unexpected {sc_dtype:?}"));
-    }
-    let scales_per_pixel: usize = match sc_shape.len() {
-        2 if sc_shape[0] == h && sc_shape[1] == w => 1,
-        3 if sc_shape[0] == h && sc_shape[1] == w && sc_shape[2] == 128 => 128,
-        _ => {
-            return Err(format!(
-                "scales shape mismatch {sc_shape:?} vs {emb_shape:?}"
-            ))
-        }
-    };
 
     // (lat,lng) → (row,col) in the tile's UTM CRS (NOT linear in degrees).
     // Use the canonical rounded tile centre (matches the grid_ tile name).
@@ -22631,35 +22775,40 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
     let pixel_idx = row * w + col;
 
     let emb_off = emb_data_off + pixel_idx * 128;
-    let emb_resp = cli
-        .get(&emb_url)
-        .header("range", format!("bytes={}-{}", emb_off, emb_off + 127))
-        .send()
-        .await
-        .map_err(|e| format!("emb pixel https: {e}"))?;
-    let emb_pixel = emb_resp
-        .bytes()
-        .await
-        .map_err(|e| format!("emb pixel body: {e}"))?;
+    let scale_bytes_n = scales_per_pixel * 4;
+    let sc_off = sc_data_off + pixel_idx * scale_bytes_n;
+
+    // The two per-pixel range reads are independent — fetch concurrently.
+    let emb_fut = async {
+        let resp = cli
+            .get(&emb_url)
+            .header("range", format!("bytes={}-{}", emb_off, emb_off + 127))
+            .send()
+            .await
+            .map_err(|e| format!("emb pixel https: {e}"))?;
+        resp.bytes()
+            .await
+            .map_err(|e| format!("emb pixel body: {e}"))
+    };
+    let sc_fut = async {
+        let resp = cli
+            .get(&scales_url)
+            .header(
+                "range",
+                format!("bytes={}-{}", sc_off, sc_off + scale_bytes_n - 1),
+            )
+            .send()
+            .await
+            .map_err(|e| format!("scale pixel https: {e}"))?;
+        resp.bytes()
+            .await
+            .map_err(|e| format!("scale pixel body: {e}"))
+    };
+    let (emb_pixel, sc_bytes) = tokio::try_join!(emb_fut, sc_fut)?;
+
     if emb_pixel.len() != 128 {
         return Err(format!("emb pixel got {} bytes", emb_pixel.len()));
     }
-
-    let scale_bytes_n = scales_per_pixel * 4;
-    let sc_off = sc_data_off + pixel_idx * scale_bytes_n;
-    let sc_resp = cli
-        .get(&scales_url)
-        .header(
-            "range",
-            format!("bytes={}-{}", sc_off, sc_off + scale_bytes_n - 1),
-        )
-        .send()
-        .await
-        .map_err(|e| format!("scale pixel https: {e}"))?;
-    let sc_bytes = sc_resp
-        .bytes()
-        .await
-        .map_err(|e| format!("scale pixel body: {e}"))?;
     if sc_bytes.len() != scale_bytes_n {
         return Err(format!("scale got {} bytes", sc_bytes.len()));
     }
@@ -47243,6 +47392,36 @@ mod tests {
     /// to the four array corners — none of which the old linear-degree
     /// mapping got right (it would have used the lat fraction for the row,
     /// ignoring that the array is UTM-northing-indexed).
+    /// The tile-header single-flight cache keys on `(year, grid_name)`.
+    /// Every cell64 pixel inside the same 0.1°×0.1° tile must collapse to
+    /// the SAME grid name so they share one header fetch (the fix for the
+    /// ~100 s cold recall: was two redundant `bytes=0-511` probes per
+    /// cell). Cells in a different 0.1° tile must NOT collapse, or we'd
+    /// serve the wrong tile's offsets.
+    #[test]
+    fn tessera_grid_name_collapses_same_tile_distinct_tiles_differ() {
+        // Three points inside the same 0.1° tile [0.1,0.2)×[109.8,109.9):
+        // tile corner, mid, and other corner all share one grid name.
+        let g_a = tessera_grid_name(0.15, 109.85);
+        let g_same1 = tessera_grid_name(0.16, 109.86);
+        let g_same2 = tessera_grid_name(0.12, 109.82);
+        assert_eq!(g_a, g_same1, "same-tile cells must share the grid name");
+        assert_eq!(g_a, g_same2, "same-tile cells must share the grid name");
+        assert_eq!(g_a, "grid_109.85_0.15", "canonical rounded tile centre");
+
+        // A cell two tiles north is a different tile → different key.
+        let g_other = tessera_grid_name(0.35, 109.85);
+        assert_ne!(g_a, g_other, "different 0.1° tiles must NOT collapse");
+        assert_eq!(g_other, "grid_109.85_0.35");
+
+        // Crossing the 0.1° boundary (0.199 vs 0.201) splits tiles.
+        assert_ne!(
+            tessera_grid_name(0.199, 109.85),
+            tessera_grid_name(0.201, 109.85),
+            "0.1° tile boundary must split the cache key"
+        );
+    }
+
     #[test]
     fn tessera_row_col_utm_grid_0_15_52_05() {
         let (tile_lat, tile_lon) = (52.05_f64, 0.15_f64);
