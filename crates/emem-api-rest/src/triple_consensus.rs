@@ -52,7 +52,7 @@ use emem_fact::{Fact, FactCid};
 use emem_primitives::cbor_ops::{as_f64, as_vec_f32, cosine_finite};
 use emem_primitives::RecallReq;
 
-use crate::{recall_with_auto_materialize, ApiError, AppState, ErrorBody};
+use crate::{recall_with_auto_materialize, ApiError, AppState, EmemJson, ErrorBody};
 
 /// Width of one GeoTessera vintage inside the `geotessera.multi_year`
 /// stack: 128-D per year, 8 years (2017..=2024) → 1024-D flat array,
@@ -475,7 +475,7 @@ pub async fn triple_consensus(
 
 pub async fn post_triple_consensus(
     State(s): State<AppState>,
-    Json(req): Json<TripleConsensusReq>,
+    EmemJson(req): EmemJson<TripleConsensusReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     Ok(Json(triple_consensus(req, &s).await?))
 }
@@ -672,7 +672,7 @@ pub async fn deforestation_alert(
 
 pub async fn post_deforestation_alert(
     State(s): State<AppState>,
-    Json(req): Json<DeforestationAlertReq>,
+    EmemJson(req): EmemJson<DeforestationAlertReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if req.cell.trim().is_empty() {
         return Err(bad_request(

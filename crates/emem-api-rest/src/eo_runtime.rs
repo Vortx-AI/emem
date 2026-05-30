@@ -47,7 +47,7 @@ use emem_fact::FactCid;
 use emem_primitives::cbor_ops::as_f64;
 use emem_primitives::trajectory::{trajectory, TrajectoryReq};
 
-use crate::{ApiError, AppState, ErrorBody};
+use crate::{ApiError, AppState, EmemJson, ErrorBody};
 
 fn pubkey_b32(state: &AppState) -> String {
     data_encoding::BASE32_NOPAD
@@ -594,7 +594,7 @@ pub async fn spi(req: SpiReq, s: &AppState) -> Result<JsonValue, ApiError> {
 
 pub async fn post_spi(
     State(s): State<AppState>,
-    Json(req): Json<SpiReq>,
+    EmemJson(req): EmemJson<SpiReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if req.cell.trim().is_empty() {
         return Err(bad_request("spi requires a non-empty `cell`"));
@@ -742,7 +742,7 @@ pub async fn burn_severity(req: BurnSeverityReq, s: &AppState) -> Result<JsonVal
 
 pub async fn post_burn_severity(
     State(s): State<AppState>,
-    Json(req): Json<BurnSeverityReq>,
+    EmemJson(req): EmemJson<BurnSeverityReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if req.cell.trim().is_empty() {
         return Err(bad_request("burn_severity requires a non-empty `cell`"));
@@ -929,7 +929,7 @@ pub async fn rice_ch4(req: RiceCh4Req, s: &AppState) -> Result<JsonValue, ApiErr
 
 pub async fn post_rice_ch4(
     State(s): State<AppState>,
-    Json(req): Json<RiceCh4Req>,
+    EmemJson(req): EmemJson<RiceCh4Req>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if req.cell.trim().is_empty() {
         return Err(bad_request("rice_ch4 requires a non-empty `cell`"));

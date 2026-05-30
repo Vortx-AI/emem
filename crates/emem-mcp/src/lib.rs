@@ -290,7 +290,7 @@ const SCHEMA_VERIFY: &str = r#"{"type":"object","required":["claim","cell"],"pro
 }}"#;
 
 const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],"properties":{
-"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm"]},
+"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},
 "description":{"type":"string"},
 "cell":{"type":"string"},
 "a":{"type":"string"},"b":{"type":"string"},
@@ -650,7 +650,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_ask",
         title: "Ask a free-text question about a place",
         description: "Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope.",
-        when_to_use: "Use when the question concerns a specific real-world place and a packaged, citation-bearing answer is preferable to manual primitive composition. Forward the user's question verbatim as `q` plus the location as `place` (free text), `cell` (cell64), or `lat`+`lng`. The server resolves the location, classifies the question to a topic, recalls every relevant band (auto-materializing Sentinel-2 / Sentinel-1 / Cop-DEM / JRC GSW / Overture / weather on miss), surfaces the algorithm recipes that compose those bands into named scores, and returns a single envelope with `topic_routing`, `facts`, `algorithms_for_question`, an optional Sentinel-2 RGB scene URL, and a `caveats` block (grid resolution, revisit cadence). All facts are signed by the responder; the receipt's `fact_cids` are content-addressed and citable. Set `include_image: true` to bundle the latest cloud-free Sentinel-2 thumbnail. Out-of-scope questions return `topic_routing.matched_topic: null` plus the full inventory so the caller can route elsewhere.",
+        when_to_use: "Use when the question concerns a specific real-world place and a packaged, citation-bearing answer is preferable to manual primitive composition. Forward the user's question verbatim as `q` plus the location as `place` (free text), `cell` (cell64), or `lat`+`lng`. The server resolves the location, classifies the question to a topic, recalls every relevant band (auto-materializing Sentinel-2 / Sentinel-1 / Cop-DEM / JRC GSW / Overture / weather on miss), surfaces the algorithm recipes that compose those bands into named scores, and returns a single envelope with `topic_routing`, `facts`, `algorithms_for_question`, an optional Sentinel-2 RGB scene URL, and a `caveats` block (grid resolution, revisit cadence). All facts are signed by the responder; the signed `receipt` (and its content-addressed `fact_cids`) is surfaced at the envelope ROOT — `response.receipt` / `response.fact_cids` — exactly like every other primitive, and is also mirrored under `facts_summary.receipt` for back-compat. Set `include_image: true` to bundle the latest cloud-free Sentinel-2 thumbnail. Out-of-scope questions return `topic_routing.matched_topic: null` plus the full inventory so the caller can route elsewhere.",
         input_schema: SCHEMA_ASK,
         example_args: r#"{"q":"is this neighbourhood flood-prone for a flat purchase","place":"Ashok Nagar, Ranchi"}"#,
         level: "L0", category: ToolCategory::Read,

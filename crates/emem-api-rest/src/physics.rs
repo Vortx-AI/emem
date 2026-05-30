@@ -44,7 +44,7 @@ use emem_core::ErrorCode;
 use emem_fact::{Fact, FactCid, PrimaryFact};
 use emem_primitives::RecallReq;
 
-use crate::{recall_with_auto_materialize, ApiError, AppState, ErrorBody};
+use crate::{recall_with_auto_materialize, ApiError, AppState, EmemJson, ErrorBody};
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -1378,21 +1378,21 @@ pub async fn jepa_predict(
 
 pub async fn post_heat_solve(
     State(state): State<AppState>,
-    Json(req): Json<HeatSolveReq>,
+    EmemJson(req): EmemJson<HeatSolveReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     Ok(Json(heat_solve(req, &state).await?))
 }
 
 pub async fn post_wave_solve(
     State(state): State<AppState>,
-    Json(req): Json<WaveSolveReq>,
+    EmemJson(req): EmemJson<WaveSolveReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     Ok(Json(wave_solve(req, &state).await?))
 }
 
 pub async fn post_jepa_predict(
     State(state): State<AppState>,
-    Json(req): Json<JepaPredictReq>,
+    EmemJson(req): EmemJson<JepaPredictReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     Ok(Json(jepa_predict(req, &state).await?))
 }
@@ -1836,7 +1836,7 @@ pub async fn jepa_predict_v2(
 
 pub async fn post_jepa_predict_v2(
     State(state): State<AppState>,
-    Json(req): Json<JepaPredictV2Req>,
+    EmemJson(req): EmemJson<JepaPredictV2Req>,
 ) -> Result<Json<JsonValue>, ApiError> {
     Ok(Json(jepa_predict_v2(req, &state).await?))
 }

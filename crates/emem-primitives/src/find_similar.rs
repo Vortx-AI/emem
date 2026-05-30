@@ -87,6 +87,8 @@ pub enum FindSimilarMode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FindSimilarReq {
     /// `cell64` (e.g. `"damO.zb000.xUti.zde78"`) or `inline:[x,y,...]` vector literal.
+    /// Accepts `cell`/`cell64` aliases for agent callers; `key` is canonical.
+    #[serde(alias = "cell", alias = "cell64")]
     pub key: String,
     /// Number of neighbors (default 10, max 1000).
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1954,7 +1954,71 @@ pub(crate) struct ApiError(StatusCode, ErrorBody);
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.0, Json(self.1)).into_response()
+        let ApiError(status, body) = self;
+        // Serialize the typed body, then stamp the `schema` discriminator
+        // that `docs/errors.md` promises on every error response. Done at
+        // serialization time (rather than as a struct field) so the ~195
+        // `ErrorBody { .. }` literals across the workspace stay untouched
+        // and always emit the documented `emem.error.v1` envelope. A
+        // `path`, when the constructor captured one, is surfaced too.
+        let mut v = serde_json::to_value(&body).unwrap_or_else(
+            |_| json!({ "code": "internal", "message": "error body failed to serialize" }),
+        );
+        if let Some(obj) = v.as_object_mut() {
+            obj.entry("schema")
+                .or_insert_with(|| JsonValue::String("emem.error.v1".to_string()));
+        }
+        (status, Json(v)).into_response()
+    }
+}
+
+/// Build an `emem.error.v1` `invalid_argument` envelope from a failed JSON
+/// body deserialization. `path` is the request path (so the envelope's
+/// `path` field is populated per `docs/errors.md`); `detail` is the raw
+/// axum/serde rejection text, which names the offending field
+/// (e.g. "missing field `q`"). The detail is woven into both the
+/// human-readable `message` and the structured `details` so an LLM can
+/// self-correct on the next turn.
+pub(crate) fn json_rejection_error(path: &str, detail: String) -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: format!("request body did not match the expected shape for {path}. {detail}"),
+            details: Some(json!({
+                "path": path,
+                "schema": "emem.error.v1",
+                "deserializer_error": detail,
+                "hint": "Send a JSON object whose fields match this endpoint's request schema. See GET /openapi.json for the request shape, or GET /v1/agent_card for worked examples.",
+            })),
+        },
+    )
+}
+
+/// Drop-in replacement for axum's [`Json`] body extractor that, on a
+/// deserialization/`JsonRejection` failure, returns the structured
+/// `emem.error.v1` envelope (`code: invalid_argument`, a `message` that
+/// names the offending field, plus `path`/`schema`) instead of axum's
+/// bare `text/plain 422`. Behaves identically to `Json<T>` on success.
+///
+/// Used on every POST handler so malformed/missing-field requests match
+/// the failure contract documented in `docs/errors.md`.
+pub(crate) struct EmemJson<T>(pub T);
+
+#[async_trait::async_trait]
+impl<S, T> axum::extract::FromRequest<S> for EmemJson<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let path = req.uri().path().to_string();
+        match axum::Json::<T>::from_request(req, state).await {
+            Ok(axum::Json(value)) => Ok(EmemJson(value)),
+            Err(rej) => Err(json_rejection_error(&path, rej.body_text())),
+        }
     }
 }
 
@@ -5372,9 +5436,9 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "tldr": "One question → one signed answer: POST /v1/ask (free text) or POST /v1/intent (structured). Want control? locate → recall → verify_receipt.",
             "fastest_path": {
                 "one_shot": {
-                    "rest": "POST /v1/ask  {\"question\":\"what is the NDVI near Mount Fuji?\"}",
+                    "rest": "POST /v1/ask  {\"q\":\"what is the NDVI near Mount Fuji?\"}",
                     "mcp_tool": "emem_ask",
-                    "also": "POST /v1/intent {\"intent\":\"...\"} (emem_intent) for a structured single-shot plan+answer",
+                    "also": "POST /v1/intent {\"type\":\"what_is_here\",\"place\":\"Mount Fuji\"} (emem_intent) for a structured single-shot plan+answer; `type` is one of where_is | what_is_here | is_like | did_change | find_like | confirm | ask",
                     "why": "The classifier routes the question to recall / compare / diff / hunt and returns a signed receipt — no need to pick a primitive yourself."
                 },
                 "controlled_path": [
@@ -5824,6 +5888,24 @@ async fn recall_with_auto_materialize(
     s: &AppState,
 ) -> Result<(RecallResp, Vec<JsonValue>), ApiError> {
     use std::collections::HashSet;
+    // Canonicalize bare short-name bands (e.g. `elevation` →
+    // `copdem30m.elevation_mean`) before either the recall fact-match or
+    // the auto-materializer runs, so both agree on the resolved key.
+    // Qualified/known names pass through untouched. (Audit user/dev lens.)
+    let canonical_req: RecallReq = match req.bands.as_ref() {
+        Some(bands)
+            if bands
+                .iter()
+                .any(|b| resolve_band_name(b).as_str() != b.as_str()) =>
+        {
+            RecallReq {
+                bands: Some(bands.iter().map(|b| resolve_band_name(b)).collect()),
+                ..req.clone()
+            }
+        }
+        _ => req.clone(),
+    };
+    let req = &canonical_req;
     let mut resp = recall(req, s).await?;
     let mut materialize_notes: Vec<JsonValue> = Vec::new();
 
@@ -5987,7 +6069,7 @@ impl From<RecallApiReq> for RecallReq {
 async fn post_recall(
     State(s): State<AppState>,
     headers: HeaderMap,
-    Json(api_req): Json<RecallApiReq>,
+    EmemJson(api_req): EmemJson<RecallApiReq>,
 ) -> Result<Response, ApiError> {
     metrics_inc(&RECALL_TOTAL);
     let mut req: RecallReq = api_req.into();
@@ -8922,7 +9004,7 @@ async fn get_v1_weather(
 
 async fn post_v1_at(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // /v1/at multi-band default: point (n_cells=1). Multi-band ×
     // multi-cell explodes the upstream fetch count and /v1/at is the
@@ -8961,28 +9043,28 @@ async fn post_v1_at(
 
 async fn post_v1_ndvi(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     boring_named(&s, q, &["indices.ndvi"]).await
 }
 
 async fn post_v1_air(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     boring_named(&s, q, &["cams.pm25", "cams.no2", "cams.o3"]).await
 }
 
 async fn post_v1_lst(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     boring_named(&s, q, &["modis.lst_day_8day", "modis.lst_night_8day"]).await
 }
 
 async fn post_v1_soil(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // See get_v1_soil: SoilGrids per-POINT API → cap the fan-out.
     boring_named_capped(
@@ -9003,14 +9085,14 @@ async fn post_v1_soil(
 
 async fn post_v1_water(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     boring_named(&s, q, &["surface_water.recurrence", "sentinel1_raw"]).await
 }
 
 async fn post_v1_forest(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     boring_named(
         &s,
@@ -9026,7 +9108,7 @@ async fn post_v1_forest(
 
 async fn post_v1_weather(
     State(s): State<AppState>,
-    Json(q): Json<LatLngQ>,
+    EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
     boring_named(
         &s,
@@ -9139,7 +9221,7 @@ struct RecallManyReq {
 /// cell64; each entry has the same shape as `/v1/recall`.
 async fn post_recall_many(
     State(s): State<AppState>,
-    Json(mut req): Json<RecallManyReq>,
+    EmemJson(mut req): EmemJson<RecallManyReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if req.cells.is_empty() {
         return Err(ApiError(
@@ -9417,7 +9499,7 @@ struct FieldBoundariesReq {
 /// "facts at every cell inside the farm + the field polygons" call
 /// recall_polygon with the include flag.
 async fn post_field_boundaries(
-    Json(req): Json<FieldBoundariesReq>,
+    EmemJson(req): EmemJson<FieldBoundariesReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Resolve bbox: explicit → place → soft 200 with `needs_location`.
     let (bbox, place_label, via): ((f64, f64, f64, f64), Option<String>, &'static str) =
@@ -9542,7 +9624,7 @@ async fn post_field_boundaries(
 
 async fn post_recall_polygon(
     State(s): State<AppState>,
-    Json(req): Json<RecallPolygonReq>,
+    EmemJson(req): EmemJson<RecallPolygonReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Polygon geometry, when known. Pulled from the request first
     // (caller already has it from a prior /v1/locate), or — when the
@@ -10175,7 +10257,7 @@ struct QueryRegionRestReq {
 
 async fn post_query_region(
     State(s): State<AppState>,
-    Json(req): Json<QueryRegionRestReq>,
+    EmemJson(req): EmemJson<QueryRegionRestReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Convert the loose REST shape into the canonical primitive shape.
     let geometry = if let Some(g) = req.geometry.as_deref().filter(|s| !s.is_empty()) {
@@ -10345,7 +10427,7 @@ fn inject_confidence_from_locate(place_resolved: &mut JsonValue, locate_body: &J
 
 async fn post_compare(
     State(s): State<AppState>,
-    Json(mut req): Json<CompareReq>,
+    EmemJson(mut req): EmemJson<CompareReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Accept place names in either side. `compare {a:"Tokyo", b:"Mumbai"}`
     // now works without the agent having to call `emem_locate` twice first.
@@ -10363,7 +10445,7 @@ async fn post_compare(
 
 async fn post_compare_bands(
     State(s): State<AppState>,
-    Json(mut req): Json<CompareBandsReq>,
+    EmemJson(mut req): EmemJson<CompareBandsReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
@@ -10377,7 +10459,7 @@ async fn post_compare_bands(
 
 async fn post_find_similar(
     State(s): State<AppState>,
-    Json(mut req): Json<FindSimilarReq>,
+    EmemJson(mut req): EmemJson<FindSimilarReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // `key` may be `inline:[...]`, a cell64, or a place name. Only the
     // last needs resolution. Inline literals carry their own vector.
@@ -10464,7 +10546,7 @@ fn enrich_find_similar_response(body: &mut JsonValue, mode_str: &str, band_used:
 
 async fn post_diff(
     State(s): State<AppState>,
-    Json(mut req): Json<DiffReq>,
+    EmemJson(mut req): EmemJson<DiffReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
@@ -10478,7 +10560,7 @@ async fn post_diff(
 
 async fn post_trajectory(
     State(s): State<AppState>,
-    Json(mut req): Json<TrajectoryReq>,
+    EmemJson(mut req): EmemJson<TrajectoryReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
@@ -10498,7 +10580,7 @@ async fn post_trajectory(
 /// range), vector (1 - mean cosine), categorical (1 - mode share).
 async fn post_memory_contradictions(
     State(s): State<AppState>,
-    Json(req): Json<ContradictionsReq>,
+    EmemJson(req): EmemJson<ContradictionsReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     emem_primitives::memory_contradictions::validate_request(&req)?;
     let resp = memory_contradictions(&req, &s).await?;
@@ -10512,7 +10594,7 @@ async fn post_memory_contradictions(
 /// them to the edge index. Mirrors [`post_attest`].
 async fn post_edges_write(
     State(s): State<AppState>,
-    Json(att): Json<Attestation>,
+    EmemJson(att): EmemJson<Attestation>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if att.edges.is_empty() {
         return Err(ApiError(
@@ -10553,7 +10635,7 @@ async fn post_edges_write(
 /// preimage.
 async fn post_edges_recall(
     State(s): State<AppState>,
-    Json(req): Json<EdgesRecallReq>,
+    EmemJson(req): EmemJson<EdgesRecallReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Validation (exactly one of subj/obj consistent with direction, no
     // ambiguous/empty) lives in the primitive's `resolve()` so the REST and
@@ -10621,7 +10703,7 @@ struct BackfillReq {
 
 async fn post_backfill(
     State(s): State<AppState>,
-    Json(mut req): Json<BackfillReq>,
+    EmemJson(mut req): EmemJson<BackfillReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
@@ -10792,7 +10874,7 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
 
 async fn post_verify(
     State(s): State<AppState>,
-    Json(mut req): Json<VerifyReq>,
+    EmemJson(mut req): EmemJson<VerifyReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
@@ -10804,7 +10886,10 @@ async fn post_verify(
     )))
 }
 
-async fn post_intent(State(s): State<AppState>, Json(intent): Json<Intent>) -> Json<JsonValue> {
+async fn post_intent(
+    State(s): State<AppState>,
+    EmemJson(intent): EmemJson<Intent>,
+) -> Result<Json<JsonValue>, ApiError> {
     // The planner maps each Intent variant to a sequence of primitive
     // ToolCalls; we then execute every call in order and return both the
     // plan and the per-step results so the agent has everything in one
@@ -10830,11 +10915,11 @@ async fn post_intent(State(s): State<AppState>, Json(intent): Json<Intent>) -> J
             })),
         }
     }
-    Json(json!({
+    Ok(Json(json!({
         "plan": serde_json::to_value(&plan).unwrap_or(json!({})),
         "results": results,
         "composite_suggestions": suggest_algorithms_for_intent(&intent),
-    }))
+    })))
 }
 
 /// Variant-aware algorithm hints. The planner emits raw primitive
@@ -10995,7 +11080,7 @@ fn ciborium_to_json(v: &ciborium::Value) -> JsonValue {
 
 async fn post_attest(
     State(s): State<AppState>,
-    Json(att): Json<Attestation>,
+    EmemJson(att): EmemJson<Attestation>,
 ) -> Result<Json<JsonValue>, ApiError> {
     match s.storage.put_attestation(&att).await {
         Ok(cids) => {
@@ -11401,7 +11486,7 @@ struct FetchReq {
 /// fetched fact so the agent can cite it.
 async fn post_fetch(
     State(s): State<AppState>,
-    Json(req): Json<FetchReq>,
+    EmemJson(req): EmemJson<FetchReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if let Some(cid_in) = req.cid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         // Shape 1: resolve by CID. Same shape-validation as MCP
@@ -13402,7 +13487,7 @@ async fn mcp_tool_call(
             // Useful when the agent already knows the event and doesn't
             // want to roll the discovery prompt through /v1/ask NLU.
             let req: HuntReq = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_hunt(State(s.clone()), Json(req)).await {
+            match post_hunt(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13412,7 +13497,7 @@ async fn mcp_tool_call(
             // Annex II envelope out. Mirrors POST /v1/eudr_dds.
             let req: EudrDdsReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_eudr_dds(State(s.clone()), Json(req)).await {
+            match post_eudr_dds(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13424,7 +13509,7 @@ async fn mcp_tool_call(
         "emem_spi" => {
             let req: eo_runtime::SpiReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match eo_runtime::post_spi(State(s.clone()), Json(req)).await {
+            match eo_runtime::post_spi(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13432,7 +13517,7 @@ async fn mcp_tool_call(
         "emem_burn_severity" => {
             let req: eo_runtime::BurnSeverityReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match eo_runtime::post_burn_severity(State(s.clone()), Json(req)).await {
+            match eo_runtime::post_burn_severity(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13440,7 +13525,7 @@ async fn mcp_tool_call(
         "emem_rice_ch4" => {
             let req: eo_runtime::RiceCh4Req =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match eo_runtime::post_rice_ch4(State(s.clone()), Json(req)).await {
+            match eo_runtime::post_rice_ch4(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13448,7 +13533,8 @@ async fn mcp_tool_call(
         "emem_deforestation_alert" => {
             let req: triple_consensus::DeforestationAlertReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match triple_consensus::post_deforestation_alert(State(s.clone()), Json(req)).await {
+            match triple_consensus::post_deforestation_alert(State(s.clone()), EmemJson(req)).await
+            {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13456,7 +13542,7 @@ async fn mcp_tool_call(
         "emem_triple_consensus" => {
             let req: triple_consensus::TripleConsensusReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match triple_consensus::post_triple_consensus(State(s.clone()), Json(req)).await {
+            match triple_consensus::post_triple_consensus(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13464,7 +13550,7 @@ async fn mcp_tool_call(
         "emem_recall_polygon" => {
             let req: RecallPolygonReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_recall_polygon(State(s.clone()), Json(req)).await {
+            match post_recall_polygon(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13472,7 +13558,7 @@ async fn mcp_tool_call(
         "emem_field_boundaries" => {
             let req: FieldBoundariesReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_field_boundaries(Json(req)).await {
+            match post_field_boundaries(EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13522,7 +13608,7 @@ async fn mcp_tool_call(
         "emem_state" => {
             let req: StateReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_state(State(s.clone()), Json(req)).await {
+            match post_state(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13530,7 +13616,7 @@ async fn mcp_tool_call(
         "emem_state_multi" => {
             let req: StateMultiReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_state_multi(State(s.clone()), Json(req)).await {
+            match post_state_multi(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13538,7 +13624,7 @@ async fn mcp_tool_call(
         "emem_state_diff" => {
             let req: StateDiffReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_state_diff(State(s.clone()), Json(req)).await {
+            match post_state_diff(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13546,7 +13632,7 @@ async fn mcp_tool_call(
         "emem_memory_token" => {
             let req: MemoryTokenReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_memory_token(Json(req)).await {
+            match post_memory_token(EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13554,7 +13640,7 @@ async fn mcp_tool_call(
         "emem_memory_token_resolve" => {
             let req: MemoryTokenResolveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_memory_token_resolve(State(s.clone()), Json(req)).await {
+            match post_memory_token_resolve(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13562,7 +13648,7 @@ async fn mcp_tool_call(
         "emem_memory_bundle" => {
             let req: emem_primitives::memory_bundle::BundleReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_memory_bundle(State(s.clone()), Json(req)).await {
+            match post_memory_bundle(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13633,7 +13719,7 @@ async fn mcp_tool_call(
         "emem_memory_search" => {
             let req: MemorySearchReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_memory_search(State(s.clone()), Json(req)).await {
+            match post_memory_search(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13708,7 +13794,7 @@ async fn mcp_tool_call(
         "emem_recall_many" => {
             let req: RecallManyReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_recall_many(State(s.clone()), Json(req)).await {
+            match post_recall_many(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13716,7 +13802,7 @@ async fn mcp_tool_call(
         "emem_elevation" => {
             let req: ElevationReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_elevation_coherent(State(s.clone()), Json(req)).await {
+            match post_elevation_coherent(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13725,7 +13811,7 @@ async fn mcp_tool_call(
         "emem_temporal_route" => {
             let req: TemporalRouteReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_temporal_route(State(s.clone()), Json(req)).await {
+            match post_temporal_route(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -13741,56 +13827,56 @@ async fn mcp_tool_call(
         // ── Domain shortcuts (one-shot locate → recall → aggregate) ──
         "emem_at" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_at(State(s.clone()), Json(req)).await {
+            match post_v1_at(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_ndvi" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_ndvi(State(s.clone()), Json(req)).await {
+            match post_v1_ndvi(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_air" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_air(State(s.clone()), Json(req)).await {
+            match post_v1_air(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_lst" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_lst(State(s.clone()), Json(req)).await {
+            match post_v1_lst(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_soil" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_soil(State(s.clone()), Json(req)).await {
+            match post_v1_soil(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_water" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_water(State(s.clone()), Json(req)).await {
+            match post_v1_water(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_forest" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_forest(State(s.clone()), Json(req)).await {
+            match post_v1_forest(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
         "emem_weather" => {
             let req: LatLngQ = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_v1_weather(State(s.clone()), Json(req)).await {
+            match post_v1_weather(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -14318,6 +14404,49 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
     }
 }
 
+/// Add the shared `emem.error.v1` `ErrorEnvelope` as a `default` response on
+/// every operation that carries a `requestBody` (i.e. the POST handlers).
+/// Documents the failure contract `docs/errors.md` promises — a malformed /
+/// missing-field body returns the structured envelope, not a bare text 422.
+/// `default` covers all non-200 statuses without enumerating each one.
+fn enrich_openapi_post_error_responses(spec: &mut JsonValue) {
+    let err_response = json!({
+        "description": "error — the emem.error.v1 envelope. Branch on the stable `code` (see GET /v1/errors), not the message. A malformed or missing-field request body returns `code: invalid_argument` with the offending field named in `message`.",
+        "content": {
+            "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorEnvelope" }
+            }
+        }
+    });
+    let Some(paths) = spec.get_mut("paths").and_then(|v| v.as_object_mut()) else {
+        return;
+    };
+    for methods in paths.values_mut() {
+        let Some(m) = methods.as_object_mut() else {
+            continue;
+        };
+        for (method, op) in m.iter_mut() {
+            if !matches!(method.as_str(), "post" | "put" | "patch") {
+                continue;
+            }
+            let Some(opo) = op.as_object_mut() else {
+                continue;
+            };
+            // Only the body-taking ops (those with a requestBody) — that's
+            // exactly the set now guarded by the EmemJson extractor.
+            if !opo.contains_key("requestBody") {
+                continue;
+            }
+            let Some(responses) = opo.get_mut("responses").and_then(|v| v.as_object_mut()) else {
+                continue;
+            };
+            responses
+                .entry("default")
+                .or_insert_with(|| err_response.clone());
+        }
+    }
+}
+
 async fn openapi() -> Json<JsonValue> {
     // OpenAI Custom GPTs and several other platforms refuse a tool spec
     // without an absolute base URL. Emit `public_origin()` (driven by
@@ -14591,7 +14720,8 @@ async fn openapi() -> Json<JsonValue> {
                 "VerifyReceiptResp":{"type":"object","description":"Response of /v1/verify_receipt. `valid` is the ed25519 signature check; `signer` is the responder pubkey the signature was checked against; `preimage_b64` is the canonical preimage that was hashed and signed, for reproduction in any other ed25519 implementation.","required":["valid","signer"],"properties":{"valid":{"type":"boolean"},"signer":{"$ref":"#/components/schemas/PubKey"},"preimage_b64":{"type":"string"},"errors":{"type":"array","items":{"type":"string"}}}},
                 "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"foundation_embeddings":{"type":"object","description":"Per-encoder neighbour lists and consensus voting. Populated when the intent matches `find places like` / `what changed`."},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "FieldBoundariesResp":{"type":"object","description":"Response of /v1/field_boundaries. `fields` is an array of per-field GeoJSON-Polygon features from Fields of The World (CC-BY-4.0). `attribution` and `license` must be surfaced with any rendered map.","required":["fields","license","attribution"],"properties":{"fields":{"type":"array","items":{"type":"object","properties":{"geometry":{"type":"object","description":"GeoJSON Polygon."},"area_ha":{"type":"number"},"country":{"type":"string"},"confidence":{"type":"number"}}}},"license":{"type":"string","example":"CC-BY-4.0"},"attribution":{"type":"string","example":"Fields of The World / Taylor Geospatial Institute"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
-                "Error":           {"type":"object","required":["code","message"],"properties":{"code":{"type":"string","example":"invalid_argument"},"message":{"type":"string"},"details":{"type":"object"}}}
+                "Error":           {"type":"object","required":["code","message"],"properties":{"code":{"type":"string","example":"invalid_argument"},"message":{"type":"string"},"details":{"type":"object"}}},
+                "ErrorEnvelope":   {"type":"object","description":"The `emem.error.v1` failure envelope returned by every endpoint on a 4xx/5xx. Branch on the stable `code` (not the human `message`). See GET /v1/errors for the full code catalog.","required":["code","message","schema"],"properties":{"code":{"type":"string","example":"invalid_argument","description":"Stable machine-readable error code. One of the codes in GET /v1/errors."},"message":{"type":"string","description":"Human-readable detail. For invalid_argument this names the offending field (e.g. \"missing field `q`\")."},"path":{"type":"string","description":"Request path that produced the error.","example":"/v1/ask"},"schema":{"type":"string","const":"emem.error.v1"},"details":{"type":"object","description":"Optional structured recovery hints; present on errors that ship machine-readable next-steps."}}}
             }
         }
     });
@@ -14600,6 +14730,7 @@ async fn openapi() -> Json<JsonValue> {
     // schemas on high-traffic endpoints with concrete `$ref`s.
     enrich_openapi_op_descriptions(&mut spec);
     enrich_openapi_response_schemas(&mut spec);
+    enrich_openapi_post_error_responses(&mut spec);
     Json(spec)
 }
 
@@ -15401,7 +15532,7 @@ struct StateResp {
 
 async fn post_state(
     State(s): State<AppState>,
-    Json(req): Json<StateReq>,
+    EmemJson(req): EmemJson<StateReq>,
 ) -> Result<Json<StateResp>, ApiError> {
     let view = req
         .view
@@ -15605,7 +15736,7 @@ struct StateMultiResp {
 
 async fn post_state_multi(
     State(s): State<AppState>,
-    Json(req): Json<StateMultiReq>,
+    EmemJson(req): EmemJson<StateMultiReq>,
 ) -> Result<Json<StateMultiResp>, ApiError> {
     let (cell, resolved) = resolve_cell_field(&req.cell).await?;
     let encoders: Vec<String> = req
@@ -15720,7 +15851,7 @@ struct StateDiffResp {
 
 async fn post_state_diff(
     State(s): State<AppState>,
-    Json(req): Json<StateDiffReq>,
+    EmemJson(req): EmemJson<StateDiffReq>,
 ) -> Result<Json<StateDiffResp>, ApiError> {
     // Budget: 2 × per-materializer timeout + overhead. Tunable via
     // EMEM_STATE_DIFF_TIMEOUT_SECS (clamped 10..=180). When the cell
@@ -15736,7 +15867,7 @@ async fn post_state_diff(
     let tb = req.tslot_b;
     match tokio::time::timeout(
         std::time::Duration::from_secs(budget),
-        post_state_diff_inner(State(s), Json(req)),
+        post_state_diff_inner(State(s), EmemJson(req)),
     )
     .await
     {
@@ -15756,7 +15887,7 @@ async fn post_state_diff(
 
 async fn post_state_diff_inner(
     State(s): State<AppState>,
-    Json(req): Json<StateDiffReq>,
+    EmemJson(req): EmemJson<StateDiffReq>,
 ) -> Result<Json<StateDiffResp>, ApiError> {
     if req.tslot_a == req.tslot_b {
         return Err(ApiError(
@@ -16744,7 +16875,7 @@ async fn post_benchmark_grade(Json(req): Json<BenchmarkGradeReq>) -> Json<Benchm
 }
 
 async fn post_memory_token(
-    Json(req): Json<MemoryTokenReq>,
+    EmemJson(req): EmemJson<MemoryTokenReq>,
 ) -> Result<Json<MemoryTokenResp>, ApiError> {
     let cell = req.cell.trim();
     let cid = req.fact_cid.trim();
@@ -16856,7 +16987,7 @@ struct MemoryTokenResolveResp {
 /// parsing the token + chaining `GET /v1/facts/<cid>`.
 async fn post_memory_token_resolve(
     State(s): State<AppState>,
-    Json(req): Json<MemoryTokenResolveReq>,
+    EmemJson(req): EmemJson<MemoryTokenResolveReq>,
 ) -> Result<Json<MemoryTokenResolveResp>, ApiError> {
     let (cell, cid) = parse_memory_token(&req.token).map_err(|message| {
         ApiError(
@@ -16927,7 +17058,7 @@ async fn post_memory_token_resolve(
 
 async fn post_memory_bundle(
     State(s): State<AppState>,
-    Json(req): Json<emem_primitives::memory_bundle::BundleReq>,
+    EmemJson(req): EmemJson<emem_primitives::memory_bundle::BundleReq>,
 ) -> Result<Json<emem_primitives::memory_bundle::BundleResp>, ApiError> {
     use emem_primitives::memory_bundle::{
         compute_bundle_cid, dedupe_first, BundleCitation, BundleResp, BUNDLES_TREE,
@@ -19804,7 +19935,7 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
 /// surfaces stay byte-identical.
 async fn post_memory_search(
     State(s): State<AppState>,
-    Json(req): Json<MemorySearchReq>,
+    EmemJson(req): EmemJson<MemorySearchReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     match emem_primitives::memory_search::memory_search(&req, &s).await {
         Ok(resp) => {
@@ -19952,6 +20083,30 @@ pub enum ResolvedRef {
 /// emits 404/`no_geocoder_match` for "place not found" and 502/
 /// `source_fetch_failed` for transport failures, so the caller sees the
 /// honest status without this wrapper rewriting the code.
+/// Detect a string that contains a `.` and is structured like a (mistyped /
+/// truncated) cell64 identifier rather than a place name, so it should be
+/// rejected as `invalid_cell` instead of fed to the fuzzy geocoder.
+///
+/// `emem_codec::looks_like_cell64` only catches the exact 4-token shape; this
+/// extends the guard to 1-/2-/3-/5+-token dotted junk like `not.a.cell` or
+/// `defi.zb412.joyO`, which previously slipped through to the geocoder and
+/// returned a CONFIDENT wrong place. A string qualifies as cell-junk when it
+/// contains at least one `.`, has no whitespace, and every dot-separated part
+/// is a non-empty short (≤5 char) ASCII-alphanumeric token — exactly the
+/// alphabet shape of a bigram. Real place names that contain dots
+/// (`"St. Louis"`, `"U.S.A. capital"`) carry spaces or longer tokens and so
+/// are NOT flagged; a single bare word with no dot (`"not-a-cell"`,
+/// `"Mount Fuji"`) is never flagged here and still reaches the geocoder.
+fn is_dotted_cell_junk(s: &str) -> bool {
+    if !s.contains('.') || s.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let parts: Vec<&str> = s.split('.').collect();
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
 pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef), ApiError> {
     if emem_codec::is_cell64_shape(s) {
         return Ok((s.to_string(), ResolvedRef::Cell));
@@ -19962,17 +20117,18 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
     // cell ID. Feeding such junk to the geocoder confidently resolves it
     // to a random place ("not-a-cell" → some football club). Reject it as
     // a typed error so a malformed cell ID never silently becomes a place.
-    if emem_codec::looks_like_cell64(s) {
+    if emem_codec::looks_like_cell64(s) || is_dotted_cell_junk(s) {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
                 code: ErrorCode::InvalidCell,
                 message: format!(
-                    "'{s}' is shaped like a cell64 (4 dot-separated tokens) but is not a \
-                     valid cell64 — at least one bigram is outside the alphabet. This was \
-                     NOT geocoded as a place name to avoid resolving a typo'd cell ID to a \
-                     random location. Pass a valid cell64, a recognisable place name, or \
-                     lat+lng directly."
+                    "'{s}' contains a '.' and is shaped like a cell64 identifier but is not a \
+                     valid cell64 (a cell64 is exactly 4 dot-separated bigrams from the \
+                     alphabet — e.g. `defi.zb4d9.pefa.zf619`). This was NOT geocoded as a \
+                     place name to avoid resolving a typo'd / malformed cell ID to a random \
+                     location. Pass a valid cell64, a recognisable place name, or lat+lng \
+                     directly."
                 ),
                 details: None,
             },
@@ -20170,7 +20326,7 @@ struct ElevationReq {
 /// indistinguishable from an honest 0 m above sea level.
 async fn post_elevation_coherent(
     State(s): State<AppState>,
-    Json(req): Json<ElevationReq>,
+    EmemJson(req): EmemJson<ElevationReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let q = LatLngQ {
         lat: req.lat,
@@ -29361,6 +29517,52 @@ fn all_materializable_bands() -> Vec<String> {
     out
 }
 
+/// Short-name → canonical band-key alias map. Agents (and humans) reach
+/// for the bare noun `"elevation"` before discovering the qualified
+/// `copdem30m.elevation_mean` that the materializer registry actually
+/// keys on — and the bare form silently returned empty with a
+/// `no_auto_materializer_registered` skip. Each entry here is an
+/// UNAMBIGUOUS mapping from a bare short name to the single canonical
+/// band a caller obviously meant. Qualified band keys (anything already
+/// containing a `.`, or any key in `all_materializable_bands()`) are
+/// never rewritten — this only rescues the bare-noun first-call shape.
+fn band_short_name_alias(name: &str) -> Option<&'static str> {
+    match name {
+        "elevation" => Some("copdem30m.elevation_mean"),
+        "ndvi" => Some("indices.ndvi"),
+        "ndwi" => Some("indices.ndwi"),
+        "temperature" | "temperature_2m" => Some("weather.temperature_2m"),
+        "precipitation" => Some("weather.precipitation_mm"),
+        "population" => Some("population"),
+        _ => None,
+    }
+}
+
+/// Resolve a caller-supplied band name to its canonical key, applying the
+/// short-name alias map. Already-qualified or already-canonical names
+/// pass through untouched, so existing qualified-band calls never change.
+pub(crate) fn resolve_band_name(name: &str) -> String {
+    // Never rewrite a name that already resolves to a real band.
+    if band_is_known(name) {
+        return name.to_string();
+    }
+    band_short_name_alias(name)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// True when `name` is a band this responder knows how to materialize or
+/// recall — i.e. it's enumerated in `all_materializable_bands()`. Used to
+/// distinguish "unknown band (not in registry)" from "known band, no data
+/// here" in the materialize skip notes. `temporal_diff:<inner>:<window>`
+/// is parametric, so any well-formed instance counts as known.
+pub(crate) fn band_is_known(name: &str) -> bool {
+    if name.starts_with("temporal_diff:") {
+        return name.split(':').count() == 3;
+    }
+    all_materializable_bands().iter().any(|b| b == name)
+}
+
 /// Tslot Unix range covered by the calendar year `y` (inclusive lo, exclusive hi).
 fn year_unix_range(y: i32) -> (i64, i64) {
     (jan1_unix(y), jan1_unix(y + 1))
@@ -31136,8 +31338,15 @@ async fn try_materialize_bands(
                         all = topic_bands.join(", "),
                         sug = suggestions.join(", "),
                     )
+                } else if !band_is_known(b) {
+                    // The band is not in this responder's registry at all —
+                    // a genuinely unknown key (typo, wrong namespace, or a
+                    // band that simply doesn't exist). Distinct from a known
+                    // band that just has no data/connector here. (Audit
+                    // user/dev lens: the two used to look identical.)
+                    format!("unknown_band: '{b}' is not in the band registry at this responder. This is NOT 'no data here' — the band key itself is unrecognized (check for a typo or missing namespace, e.g. `copdem30m.elevation_mean` not `elevation_mean`). See GET /v1/bands for the canonical list.")
                 } else {
-                    format!("no_auto_materializer_registered: no upstream connector wired for band={b}; submit a signed Attestation via /v1/attest_cbor to seed it. Call GET /v1/bands to see all known band keys.")
+                    format!("no_auto_materializer_registered: '{b}' is a known band but no upstream connector is wired at this responder, so there is no data here yet; submit a signed Attestation via /v1/attest_cbor to seed it. Call GET /v1/bands to see all known band keys.")
                 };
                 out.push(MaterializeOutcome {
                     band: b.clone(),
@@ -31966,7 +32175,9 @@ fn matched_keywords(q: &str) -> Vec<JsonValue> {
 
 #[derive(Deserialize)]
 struct AskReq {
-    /// User's natural-language question.
+    /// User's natural-language question. Accepts `question`/`query` aliases
+    /// for hand-written and agent callers; `q` stays the canonical field.
+    #[serde(alias = "question", alias = "query")]
     q: String,
     /// Free-text place name (resolved via /v1/locate). One of `place`,
     /// `cell`, or both `lat`+`lng` is required.
@@ -32004,7 +32215,7 @@ struct AskReq {
 
 async fn post_ask(
     State(s): State<AppState>,
-    Json(req): Json<AskReq>,
+    EmemJson(req): EmemJson<AskReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Overall request budget — bounds the four-classifier fan-out so a
     // single slow downstream (LST 8-day, MODIS, met.no) doesn't drag the
@@ -32054,7 +32265,9 @@ struct HuntReq {
     /// `wildfire_burn_severity`, `urban_heat_island`, `methane_plume`,
     /// `landslide`, `drought`, `soil_salinity`, `crop_stress`,
     /// `water_turbidity`, `oil_slick`. Aliases accepted: bare nouns
-    /// like `"bloom"`, `"fire"`, `"flood"`, `"heat"`.
+    /// like `"bloom"`, `"fire"`, `"flood"`, `"heat"`. Accepts the
+    /// `event_type` alias; `event` stays canonical.
+    #[serde(alias = "event_type")]
     event: String,
     /// Free-text region — passed to /v1/locate to recover a polygon.
     /// One of `region` or `polygon_bbox` is required.
@@ -32090,7 +32303,7 @@ fn parse_event_keyword(s: &str) -> Option<ask_foundation::HunterKind> {
 
 async fn post_hunt(
     State(s): State<AppState>,
-    Json(req): Json<HuntReq>,
+    EmemJson(req): EmemJson<HuntReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let kind = match parse_event_keyword(&req.event) {
         Some(k) => k,
@@ -36151,7 +36364,7 @@ fn build_producer_geojson(
 
 async fn post_eudr_dds(
     State(s): State<AppState>,
-    Json(req): Json<EudrDdsReq>,
+    EmemJson(req): EmemJson<EudrDdsReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Budget: EUDR fan-out runs eudr_compliance@1 per cell across every
     // plot (default 16 cells/plot, max 256/plot). With JRC GFC2020 +
@@ -36190,7 +36403,7 @@ async fn post_eudr_dds(
     let n_plots = req.plots.len();
     match tokio::time::timeout(
         std::time::Duration::from_secs(budget),
-        post_eudr_dds_inner(State(s), Json(req)),
+        post_eudr_dds_inner(State(s), EmemJson(req)),
     )
     .await
     {
@@ -36215,7 +36428,7 @@ async fn post_eudr_dds(
 
 async fn post_eudr_dds_inner(
     State(s): State<AppState>,
-    Json(req): Json<EudrDdsReq>,
+    EmemJson(req): EmemJson<EudrDdsReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Captured for the latency block on the signed receipt the responder
     // mints just before returning. Carried through to `sign_receipt_full`
@@ -38188,6 +38401,19 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             map.insert("facts".into(), facts_json.clone());
         }
         map.insert("facts_summary".into(), facts_summary);
+
+        // Top-level `receipt` + `fact_cids` (audit AI-lens P1-1). Every
+        // other primitive surfaces the signed receipt at the envelope
+        // root; /v1/ask historically only nested it under
+        // `facts_summary.receipt` (and `facts.receipt` when verbose),
+        // which broke the uniform "citable" contract agents rely on.
+        // Additive: the nested copies are kept untouched for back-compat.
+        if let Some(receipt) = facts_json.get("receipt").filter(|r| !r.is_null()) {
+            map.insert("receipt".into(), receipt.clone());
+            if let Some(cids) = receipt.get("fact_cids").filter(|c| c.is_array()) {
+                map.insert("fact_cids".into(), cids.clone());
+            }
+        }
 
         if has("algorithm_outcomes") {
             map.insert(
@@ -41757,7 +41983,7 @@ async fn temporal_route_inner(
 
 async fn post_temporal_route(
     State(s): State<AppState>,
-    Json(req): Json<TemporalRouteReq>,
+    EmemJson(req): EmemJson<TemporalRouteReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     temporal_route_inner(State(s), req).await
 }
@@ -41949,7 +42175,7 @@ struct ReviewIn {
 
 async fn post_review(
     State(s): State<AppState>,
-    Json(req): Json<ReviewIn>,
+    EmemJson(req): EmemJson<ReviewIn>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if !known_subject_kind(&req.subject_kind) {
         return Err(ApiError(StatusCode::BAD_REQUEST, ErrorBody {
@@ -45083,7 +45309,7 @@ mod tests {
             purpose: Some("test".into()),
             scope: None,
         };
-        let resp = post_memory_bundle(State(s.clone()), Json(req))
+        let resp = post_memory_bundle(State(s.clone()), EmemJson(req))
             .await
             .map_err(|e| format!("bundle: {} {}", e.0, e.1.message))
             .unwrap();
@@ -45255,7 +45481,7 @@ mod tests {
 
         let s = test_app_state();
         let req = make_point_eudr_req(-3.4653, -62.2159, None);
-        let resp = post_eudr_dds_inner(State(s.clone()), Json(req))
+        let resp = post_eudr_dds_inner(State(s.clone()), EmemJson(req))
             .await
             .map_err(|e| format!("eudr_dds: {} {}", e.0, e.1.message))
             .unwrap();
@@ -45326,7 +45552,7 @@ mod tests {
             org_id: Some("org-eu-compliance".into()),
         };
         let req = make_point_eudr_req(-3.4653, -62.2159, Some(scope.clone()));
-        let resp = post_eudr_dds_inner(State(s.clone()), Json(req))
+        let resp = post_eudr_dds_inner(State(s.clone()), EmemJson(req))
             .await
             .map_err(|e| format!("eudr_dds: {} {}", e.0, e.1.message))
             .unwrap();
@@ -45436,7 +45662,7 @@ mod tests {
             scope: None,
         };
 
-        let resp = post_eudr_dds_inner(State(s.clone()), Json(req))
+        let resp = post_eudr_dds_inner(State(s.clone()), EmemJson(req))
             .await
             .map_err(|e| format!("eudr_dds: {} {}", e.0, e.1.message))
             .unwrap();
@@ -47016,5 +47242,172 @@ mod tests {
         assert!(sidecar_honesty_warnings(&serde_json::json!({})).is_empty());
         // Wrong type → empty (defensive).
         assert!(sidecar_honesty_warnings(&serde_json::json!({"honesty_warnings": 5})).is_empty());
+    }
+
+    /// The shared `EmemJson<T>` extractor returns the structured
+    /// `emem.error.v1` envelope (code: invalid_argument, message naming the
+    /// missing field, plus path) on a missing-field body — NOT axum's bare
+    /// text/plain 422. This is the contract `docs/errors.md` promises on
+    /// every POST handler. (Audit item 1.)
+    #[tokio::test]
+    async fn emem_json_returns_error_envelope_on_missing_field() {
+        use axum::extract::FromRequest;
+        // AskReq requires `q`; send a body that omits it.
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/ask")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"place":"Mount Fuji"}"#))
+            .unwrap();
+        let rej = match EmemJson::<AskReq>::from_request(req, &()).await {
+            Ok(_) => panic!("missing required field `q` must reject"),
+            Err(e) => e,
+        };
+        assert_eq!(rej.0, StatusCode::BAD_REQUEST);
+        assert!(
+            matches!(rej.1.code, ErrorCode::InvalidArgument),
+            "missing-field maps to invalid_argument, got {:?}",
+            rej.1.code
+        );
+        // The deserializer message (which names the field) is woven in.
+        assert!(
+            rej.1.message.contains('q') || rej.1.message.to_lowercase().contains("missing"),
+            "message should name the offending field; got {:?}",
+            rej.1.message
+        );
+        // Render through IntoResponse and confirm the wire JSON carries the
+        // `schema` discriminator and a structured `path`.
+        let details = rej.1.details.clone().expect("details present");
+        assert_eq!(
+            details.get("schema").and_then(|v| v.as_str()),
+            Some("emem.error.v1")
+        );
+        assert_eq!(
+            details.get("path").and_then(|v| v.as_str()),
+            Some("/v1/ask")
+        );
+    }
+
+    /// A well-formed body deserializes through `EmemJson` exactly like the
+    /// bare `Json` extractor would. (Audit item 1 — success path.)
+    #[tokio::test]
+    async fn emem_json_passes_through_valid_body() {
+        use axum::extract::FromRequest;
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/ask")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                r#"{"q":"what is the NDVI near Mount Fuji?"}"#,
+            ))
+            .unwrap();
+        let EmemJson(ask) = match EmemJson::<AskReq>::from_request(req, &()).await {
+            Ok(v) => v,
+            Err(e) => panic!("valid body must deserialize, got {:?}", e),
+        };
+        assert_eq!(ask.q, "what is the NDVI near Mount Fuji?");
+    }
+
+    /// The `q` field accepts the `question` and `query` aliases (audit item
+    /// 2) while the canonical `q` stays primary. An agent that wrote the
+    /// pre-fix `{"question": ...}` agent_card example now succeeds.
+    #[test]
+    fn ask_req_accepts_q_aliases() {
+        let from_q: AskReq = serde_json::from_str(r#"{"q":"x"}"#).expect("q");
+        assert_eq!(from_q.q, "x");
+        let from_question: AskReq =
+            serde_json::from_str(r#"{"question":"x"}"#).expect("question alias");
+        assert_eq!(from_question.q, "x");
+        let from_query: AskReq = serde_json::from_str(r#"{"query":"x"}"#).expect("query alias");
+        assert_eq!(from_query.q, "x");
+    }
+
+    /// `FindSimilarReq.key` accepts `cell`/`cell64` aliases; `HuntReq.event`
+    /// accepts `event_type`. (Audit item 2.)
+    #[test]
+    fn find_similar_and_hunt_aliases() {
+        let fs: FindSimilarReq =
+            serde_json::from_str(r#"{"cell":"defi.zb4d9.pefa.zf619"}"#).expect("cell alias");
+        assert_eq!(fs.key, "defi.zb4d9.pefa.zf619");
+        let fs2: FindSimilarReq =
+            serde_json::from_str(r#"{"cell64":"defi.zb4d9.pefa.zf619"}"#).expect("cell64 alias");
+        assert_eq!(fs2.key, "defi.zb4d9.pefa.zf619");
+        let h: HuntReq =
+            serde_json::from_str(r#"{"event_type":"deforestation"}"#).expect("event_type alias");
+        assert_eq!(h.event, "deforestation");
+    }
+
+    /// The bare short-name band `elevation` resolves to the canonical
+    /// `copdem30m.elevation_mean`; qualified/known bands pass through
+    /// untouched and genuine unknowns are reported as unknown. (Audit item 6.)
+    #[test]
+    fn band_short_name_resolution() {
+        assert_eq!(resolve_band_name("elevation"), "copdem30m.elevation_mean");
+        assert_eq!(resolve_band_name("ndvi"), "indices.ndvi");
+        // A known canonical band is unchanged.
+        assert_eq!(
+            resolve_band_name("copdem30m.elevation_mean"),
+            "copdem30m.elevation_mean"
+        );
+        // A genuinely unknown band is left as-is (so the unknown_band note
+        // fires downstream) and reports not-known.
+        assert_eq!(
+            resolve_band_name("totally_made_up_band"),
+            "totally_made_up_band"
+        );
+        assert!(band_is_known("copdem30m.elevation_mean"));
+        assert!(band_is_known("indices.ndvi"));
+        assert!(!band_is_known("totally_made_up_band"));
+        assert!(!band_is_known("elevation_mean")); // missing namespace
+        assert!(band_is_known("temporal_diff:indices.ndvi:1y")); // parametric
+    }
+
+    /// The cell-field guard rejects dotted cell-shaped junk of ANY token
+    /// count (1/2/3/5+, not just the exact 4) as `invalid_cell` instead of
+    /// feeding it to the geocoder, while plain place names with dots+spaces
+    /// (`"St. Louis"`) and bare words still route to the geocoder. (Audit
+    /// item 7.)
+    #[test]
+    fn dotted_cell_junk_detection() {
+        // 3-token dotted alnum junk — the audit's `defi.zb412.joyO` shape.
+        assert!(is_dotted_cell_junk("defi.zb412.joyO"));
+        // 1-/2-token dotted junk.
+        assert!(is_dotted_cell_junk("not.cell"));
+        assert!(is_dotted_cell_junk("a.b.c.d.e"));
+        // Real place names with dots are NOT flagged (they carry spaces or
+        // long tokens).
+        assert!(!is_dotted_cell_junk("St. Louis"));
+        assert!(!is_dotted_cell_junk("U.S.A. capital"));
+        // A bare word with no dot is never flagged here (routes to geocoder).
+        assert!(!is_dotted_cell_junk("not-a-cell"));
+        assert!(!is_dotted_cell_junk("Mount Fuji"));
+        // A token longer than a bigram (>5 chars) means it's not cell-shaped.
+        assert!(!is_dotted_cell_junk("longword.x"));
+    }
+
+    /// End-to-end: the cell-field guard surfaces dotted junk as a typed
+    /// `invalid_cell` error rather than a geocode. (Audit item 7.)
+    #[tokio::test]
+    async fn resolve_cell_field_rejects_dotted_junk() {
+        let err = resolve_cell_field("defi.zb412.joyO")
+            .await
+            .expect_err("3-token dotted junk must be a typed error, not a geocode");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(matches!(err.1.code, ErrorCode::InvalidCell));
+    }
+
+    /// The /v1/intent example shipped in /v1/agent_card must be a REAL,
+    /// parseable `Intent` (the handler wants the tagged-enum form). The
+    /// old `{"intent":"..."}` example 422'd. (Audit item 3.)
+    #[test]
+    fn agent_card_intent_example_parses() {
+        let ex = r#"{"type":"what_is_here","place":"Mount Fuji"}"#;
+        let parsed: Intent =
+            serde_json::from_str(ex).expect("agent_card intent example must parse");
+        assert!(matches!(parsed, Intent::WhatIsHere { .. }));
+        // The MCP enum now advertises `ask`, which the handler accepts.
+        let ask: Intent = serde_json::from_str(r#"{"type":"ask","description":"x"}"#)
+            .expect("ask variant must parse");
+        assert!(matches!(ask, Intent::Ask { .. }));
     }
 }
