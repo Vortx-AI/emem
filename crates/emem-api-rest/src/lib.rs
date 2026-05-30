@@ -31466,14 +31466,15 @@ async fn get_cell_scene_png(
     // Microsoft Planetary Computer (the upstream open-data host). The
     // per-minute rate limit lets one IP burn ~1 800 PC fetches per
     // minute via this single endpoint — being rude to PC even when
-    // emem itself is fine. A per-IP daily cap of 200 keeps the
-    // amplifier sane for legitimate exploration (200 scenes ≈ a few
-    // hours of casual browsing) while shutting down sustained
-    // scraping. Operators tune via EMEM_SCENE_DAILY_QUOTA.
+    // emem itself is fine. A generous per-IP daily cap of 60_000 gives
+    // legitimate consumers (interactive browsing, a downstream service
+    // rendering many scenes) ample headroom while still shutting down
+    // unbounded scraping. The earlier 200/day default was too low — real
+    // usage hit it. Operators tune via EMEM_SCENE_DAILY_QUOTA.
     let max_per_day = std::env::var("EMEM_SCENE_DAILY_QUOTA")
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
-        .unwrap_or(200);
+        .unwrap_or(60_000);
     let ip = client_ip(&req).unwrap_or_else(|| "unknown".to_string());
     if !check_daily_quota(&ip, "scene_png", max_per_day) {
         return (
