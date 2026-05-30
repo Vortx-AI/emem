@@ -588,7 +588,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
-    <p>The right-hand column is the unlock. A receipt-bearing fact survives the session, survives the model, survives the responder. Quote the <span class="band">fact_cid</span> in a chat and your colleague can pull byte-identical bytes from any replica and verify the signature in their browser at <a href="/verify">/verify</a> &mdash; no callback to the issuer.</p>
+    <p>The right-hand column is what makes the answer durable. A receipt-bearing fact survives the session, survives the model, survives the responder. Quote the <span class="band">fact_cid</span> in a chat and your colleague can pull byte-identical bytes from any replica and verify the signature in their browser at <a href="/verify">/verify</a> &mdash; no callback to the issuer.</p>
 
     <p style="font-weight:700;color:var(--ink);margin-top:1.8rem">Four things every agent currently lacks. emem provides each at the protocol layer.</p>
 
@@ -791,12 +791,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p class="lede">Every cell with at least one signed fact, on a plate-carrée projection. The dots cluster where the lazy materialiser has been busy. Every miss anywhere on the globe extends the map forward by one cell.</p>
 
     <div class="stats">
-      <div class="stat"><div class="n">87<span class="small">/ REST</span></div><div class="lbl">OpenAPI /v1 paths</div></div>
-      <div class="stat"><div class="n">75<span class="small">/ MCP</span></div><div class="lbl">tools (10 advertised by default; fetch the rest via the <code>tier:extended</code> cursor)</div></div>
+      <div class="stat"><div class="n">92<span class="small">/ REST</span></div><div class="lbl">documented <code>/v1</code> paths (95 in OpenAPI)</div></div>
+      <div class="stat"><div class="n">80<span class="small">/ MCP</span></div><div class="lbl">tools (10 advertised by default; fetch the rest via the <code>tier:extended</code> cursor)</div></div>
       <div class="stat"><div class="n">159</div><div class="lbl">algorithms registered</div></div>
       <div class="stat"><div class="n">42<span class="small">/ 46</span></div><div class="lbl">cube slots / upstream sources</div></div>
     </div>
-    <p style="font-size:var(--t-sm);color:var(--mute);margin:.6rem 0 0">Four band counts measure different things, like the agent_card's <code>band_taxonomy</code> reconciles them: <b>42</b> cube slots (top-level keys in the 1792-D voxel layout), <b>122</b> materializer-wired band names (auto-fetched on a recall miss), <b>159</b> algorithm recipes, and <b>75</b> MCP/REST tools. An MCP client that shows only 10 tools is seeing the core tier — all 75 are callable; pass <code>{"tier":"all"}</code> or follow the <code>tier:extended</code> cursor for the full catalogue.</p>
+    <p style="font-size:var(--t-sm);color:var(--mute);margin:.6rem 0 0">Four band counts measure different things, like the agent_card's <code>band_taxonomy</code> reconciles them: <b>42</b> cube slots (top-level keys in the 1792-D voxel layout), <b>122</b> materializer-wired band names (auto-fetched on a recall miss), <b>159</b> algorithm recipes, and <b>80</b> MCP tools (10 core / 70 extended). An MCP client that shows only 10 tools is seeing the core tier — all 80 are callable; pass <code>{"tier":"all"}</code> or follow the <code>tier:extended</code> cursor for the full catalogue.</p>
 
     <div class="coverage">
       <div class="coverage-head">
@@ -1522,6 +1522,31 @@ POST /v1/memory_bundle  { triples, purpose: "policy POL-1234 bind evidence" }   
     </table>
     </div>
 
+    <p style="font-weight:700;color:var(--ink);margin-top:2rem">Forecasting and physics, signed and honest about their limits.</p>
+    <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients &mdash; deterministic, reproducible, no black box. <span class="band">/v1/jepa_predict_v2</span> runs Tessera-embedding dynamics; the head is trained on synthetic pairs only, so when it cannot improve on the last observed vintage it short-circuits to that identity baseline and the receipt carries <span class="band">untrained_baseline</span>. The forecast is never dressed up as a learned prediction. Two physics solvers run on the same signed grid: <span class="band">/v1/heat_solve</span> integrates 2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil (CFL-stable, e.g. urban-heat spread), and <span class="band">/v1/wave_solve</span> integrates a 1-D shallow-water equation along a seaward bathymetry gradient (e.g. coastal swell). Both return the field plus the source <span class="band">fact_cid</span>s their initial condition was built from.</p>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:2rem">One of the 159 algorithm recipes, end to end.</p>
+    <p>Each registered algorithm carries a formula, its input bands, a citation, an accuracy band, and a <span class="band">learned_from</span> provenance line. <span class="band">clay_prithvi_tessera_triple_consensus@1</span> asks three independent foundation encoders (Tessera, Clay, and Prithvi) to score how much a cell changed across its two most-recent distinct vintages, then gates the ensemble against the registry threshold. The receipt pins the algorithms manifest CID and every input fact CID, so a third party can re-run the exact recipe and reproduce the number rather than trust it.</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">recipe · /v1/triple_consensus</span><span class="spacer"></span><button class="copy" data-copy-target="#code-triple">copy</button></div>
+<pre id="code-triple"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/triple_consensus</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"Rondônia"}'</span>   <span class="tok-c"># cell64 or a place name</span>
+
+<span class="tok-p">{</span>
+  <span class="tok-key">"algorithm_key"</span>: <span class="tok-s">"clay_prithvi_tessera_triple_consensus@1"</span>,
+  <span class="tok-key">"formula"</span>: <span class="tok-s">"d_e = clamp(1 - cos(v_now, v_prev), 0, 1); ensemble = sqrt(mean(d_e^2))"</span>,
+  <span class="tok-key">"encoders_used"</span>: <span class="tok-p">[</span>
+    <span class="tok-p">{</span> <span class="tok-key">"encoder"</span>: <span class="tok-s">"geotessera.multi_year"</span>, <span class="tok-key">"change"</span>: <span class="tok-n">0.173</span>, <span class="tok-key">"over_gate"</span>: <span class="tok-n">true</span>  <span class="tok-p">}</span>,
+    <span class="tok-p">{</span> <span class="tok-key">"encoder"</span>: <span class="tok-s">"clay_v1"</span>,               <span class="tok-key">"change"</span>: <span class="tok-n">0.201</span>, <span class="tok-key">"over_gate"</span>: <span class="tok-n">true</span>  <span class="tok-p">}</span>,
+    <span class="tok-p">{</span> <span class="tok-key">"encoder"</span>: <span class="tok-s">"prithvi_eo2"</span>,           <span class="tok-key">"change"</span>: <span class="tok-n">0.001</span>, <span class="tok-key">"over_gate"</span>: <span class="tok-n">false</span> <span class="tok-p">}</span>
+  <span class="tok-p">]</span>,
+  <span class="tok-key">"ensemble"</span>: <span class="tok-n">0.153</span>, <span class="tok-key">"consensus_threshold"</span>: <span class="tok-n">0.15</span>, <span class="tok-key">"agreement"</span>: <span class="tok-s">"two_of_three"</span>,
+  <span class="tok-key">"input_fact_cids"</span>: [<span class="tok-s">"ysktauvm…"</span>, <span class="tok-s">"qv4jqlcx…"</span>, <span class="tok-s">"65u7rgmy…"</span>],  <span class="tok-c">// every input, content-addressed</span>
+  <span class="tok-key">"receipt"</span>: <span class="tok-p">{</span> <span class="tok-key">"alg"</span>: <span class="tok-s">"ed25519"</span>, <span class="tok-key">"signature"</span>: <span class="tok-s">"…"</span> <span class="tok-p">}</span>   <span class="tok-c">// verifiable offline at /verify</span>
+<span class="tok-p">}</span></code></pre>
+    </div>
+
     <p style="font-weight:700;color:var(--ink);margin-top:2rem">Nine one-shot domain tools that wrap locate → recall → aggregate.</p>
     <p>For agents that already know what they want to ask, these collapse the loop into a single MCP call with just <span class="band">{place}</span> or <span class="band">{lat, lng}</span>. Same signed receipts, same fact_cids; the work happens on the responder.</p>
 
@@ -1669,6 +1694,28 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     <p>The stream preimage carries <span class="band">version</span>, <span class="band">key_epoch</span>, <span class="band">served_at</span>, <span class="band">registry_cid</span>, and the <span class="band">distinct_cells</span> count, so a long-lived subscriber detects manifest drift the instant a registry CID rolls. The attestation preimage adds <span class="band">binary_blake3</span> + <span class="band">git_commit</span> + <span class="band">build_timestamp</span>; <span class="band">tee_quote</span> is null on this responder and stays null until the operator deploys behind an Intel SGX / AMD SEV-SNP enclave that populates it. Whitepaper &sect;20 names the remaining open items.</p>
 
     <p style="font-size:var(--t-xs);color:var(--mute)">Both panes are populated by JavaScript that calls the live responder when the page loads. If your browser blocks the call, the placeholders stay as <code>&hellip;</code>; no fallback value is fabricated.</p>
+  </div>
+</section>
+
+<section class="section page" id="direction">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">&rarr;</span><span class="idx-label">Direction</span></div>
+    <dl>
+      <dt>ships in 0.0.9</dt><dd>content addressing, signed receipts</dd>
+      <dt></dt><dd>typed temporal edges</dd>
+      <dt></dt><dd>multi-attester contradiction scoring</dd>
+      <dt></dt><dd>deterministic refinement loop</dd>
+      <dt>design target</dt><dd>federation of independent responders</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2>Where this is going</h2>
+    <p class="lede">Forward-looking. Everything below the line ships in 0.0.9; the federation routing does not.</p>
+
+    <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other&rsquo;s attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it.</p>
+
+    <p>None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.</p>
   </div>
 </section>
 

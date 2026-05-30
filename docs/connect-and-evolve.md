@@ -1,14 +1,16 @@
 # Connect & evolve
 
-> **Status: v0.0.9 connectivity layer.** This is the layer being built
-> now. The shapes below are the design; the page will tighten as the
-> code lands. Everything here is signed and non-destructive by design.
+> **Status: ships in v0.0.9.** Typed temporal edges
+> (`emem_edges_recall`), multi-attester contradiction scoring
+> (`memory_contradictions`), and the deterministic refinement loop
+> (`EMEM_REFINEMENT_ENABLED`) are live on the running responder.
+> Everything here is signed and non-destructive by design.
 
 A pile of facts is not yet a memory. A memory connects things and gets
-better as it learns. This layer adds two abilities: facts can **link**
-to each other through typed, time-bounded edges, and the corpus can
-**evolve** by turning disagreement into recorded links and re-checks —
-without ever deleting what it had before.
+better as it learns. This layer adds two abilities: facts **link** to
+each other through typed, time-bounded edges, and the corpus **evolves**
+by turning disagreement into recorded links and re-checks — without ever
+deleting what it had before.
 
 ## Typed temporal edges
 
@@ -90,3 +92,16 @@ that converts multi-attester disagreement into recorded edges and
 re-attestation flags). Both are append-only and signed, so a memory that
 improves over time never costs you the ability to audit what it used to
 believe.
+
+## Where this is going
+
+The edges and the refinement loop run inside one responder today. Because
+every edge and every contradiction is itself a content-addressed, signed
+fact, the same machinery extends to a federation of independent
+responders: nodes that resolve the same content ids byte-for-byte could
+cross-cite each other's attestations and record where they disagree
+across hosts, so the disagreement graph spans the network rather than one
+store. The multi-host routing that would make that automatic does not
+ship in 0.0.9. What ships today is the substrate it builds on — signed
+typed edges, multi-attester contradiction scoring, and the deterministic
+refinement loop, all on a single responder.

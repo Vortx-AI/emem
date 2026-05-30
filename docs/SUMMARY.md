@@ -1,5 +1,11 @@
 # Summary
 
+<!-- Reading map: pitch (Introduction → Why an agent benefits → What only emem
+     does) → differentiators (Connect & evolve) → math (Whitepaper, Protocol) →
+     surfaces (Agents, Memory substrate, Registries) → ops (Errors, Self-host,
+     Architecture, Operating). Start at the top; each section assumes the one
+     before it. -->
+
 [Introduction](./intro.md)
 [Why an agent benefits from emem](./why-agents.md)
 [Quickstart (60 seconds)](./quickstart.md)

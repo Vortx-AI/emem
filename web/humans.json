@@ -14,16 +14,14 @@
   },
   "counts": {
     "_live_pointer":             "GET /v1/agent_card for the live snapshot; numbers below are publish-time only",
-    "mcp_tools":                 49,
-    "algorithms":                155,
-    "rest_paths_openapi":        71,
-    "rest_paths_v1_openapi":     68,
-    "rest_routes_total_in_axum": 169,
-    "band_cube_slots":           35,
-    "materializer_wired_names":  118,
-    "source_schemes":            43,
-    "topics_declared":           26,
-    "data_connectors_modules":   12
+    "mcp_tools":                 80,
+    "algorithms":                159,
+    "rest_paths_openapi":        95,
+    "rest_paths_v1_openapi":     92,
+    "band_cube_slots":           42,
+    "materializer_wired_names":  122,
+    "source_schemes":            46,
+    "topics_declared":           27
   },
   "foundation_encoders": {
     "_purpose": "Four GPU encoders co-resident on a 20 GB VRAM budget; surfaced as their own bands AND woven into algorithm consensus voting.",

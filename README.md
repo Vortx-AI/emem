@@ -155,13 +155,14 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 
 ## Primitives
 
-75 MCP tools (10 core, 65 extended), 87 documented REST paths under `/v1/*`, surfaced through `/openapi.json`. Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). Tier-based progressive disclosure: `tools/list` returns 10 core tools by default; pass `{"tier":"all"}` for the full catalog. Tools remain callable via `tools/call` regardless of tier.
+80 MCP tools (10 core, 70 extended), 92 documented REST paths under `/v1/*`, surfaced through `/openapi.json`. Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). Tier-based progressive disclosure: `tools/list` returns 10 core tools by default; pass `{"tier":"all"}` for the full catalog. Tools remain callable via `tools/call` regardless of tier.
 
 - **Locate:** name or lat/lng → `cell64`. Five-layer cascade: wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim. Polygon geometry from Overture `divisions/division_area`. District-level queries reroute through Overture when Nominatim returns a POI courthouse.
 - **Memory substrate** (state + tokens + bundles + memory files + search + contradictions + SSE): `POST /v1/state` returns a signed dense per-place embedding (`view=encoder` default 128-D, `view=cube` full 1792-D). `POST /v1/state_multi` fans across `geotessera` + `clay_v1` + `prithvi_eo2` + `galileo`. `POST /v1/state_diff` returns residual + L2 + cosine between two vintages. `POST /v1/memory_token` composes `memt:<cell64>:<fact_cid>`. `POST /v1/memory_bundle` composes a signed envelope `memb:<bundle_cid>` over N (cell, band, tslot) triples. Six MCP file-op verbs (`memory_view`, `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`) conform to Anthropic's memory-tool spec; every write is ed25519-signed and content-addressed. Paths under `/memories/by_attester/<pubkey>/...` enforce capability binding (ed25519 signature over `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`). Each file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`). `POST /v1/memory/search` does BGE-768 semantic search over file contents via a LanceDB IVF_PQ partition. `POST /v1/memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind (scalar / vector / categorical). `GET /v1/memory/sse?path_prefix=&kind=&attester=` streams write events with server-side filter. Every read primitive accepts `as_of_tslot` + `as_of_signed_at` for bi-temporal queries (valid-time + transaction-time); the receipt carries an `as_of` block when set. See [`docs/memory.md`](docs/memory.md) for the full reference.
-- **Recall / recall_many / recall_polygon:** 42 bands answer recall (118 materializer-wired band names across 35 cube slots, of which 42 are user-callable today). Auto-fetch on miss; signed Absence on out-of-coverage.
+- **Recall / recall_many / recall_polygon:** 122 materializer-wired band names across 42 cube slots. Recall answers any wired band, auto-fetching on a cold miss and signing the result. Signed Absence on out-of-coverage.
 - **Find similar:** k-NN over any vector band. Hamming fast path (sign-bit pop-count) auto-derives from the cosine band when the binary sibling is absent. Mode `hamming_then_rerank` triages with Hamming then re-orders by cosine; the over-sampling factor is EWMA-adaptive.
 - **Compare / compare_bands / diff / trajectory:** pairwise and time-series.
+- **Connect & evolve:** typed temporal edges (`emem_edges_recall` reads a fact's signed connections — `disagrees_with`, `supersedes`, `relates_to` — with a valid-time bound), multi-attester contradiction scoring (`memory_contradictions`, per band kind), and a deterministic refinement loop that re-derives a fact when a newer attestation or a `disagrees_with` edge lands. All three ship in 0.0.9.
 - **Verify:** structured claim against attested facts; returns signed verdict + evidence CIDs.
 - **Physics:** `/v1/heat_solve` (2-D explicit FTCS heat, MODIS LST stencil), `/v1/wave_solve` (1-D shallow-water along seaward bathymetry gradient), `/v1/jepa_predict` (closed-form NDVI AR(2) seasonal), `/v1/jepa_predict_v2` (Tessera embedding dynamics; short-circuits to last-vintage identity baseline while the trained head is pending, receipt carries `untrained_baseline`).
 - **Ask:** free-text question with topic routing. The classifier covers three intent families: place-anchored topical questions (the topic router fan-out), foundation-embedding intents on `find places like` / `what changed` / `deforestation` / `anomaly` (cross-encoder consensus over Clay + Prithvi + Tessera), corpus-meta intents on `where do you have data` / `how fresh is your corpus` (redirect to coverage surfaces), and hunter-mode discovery on `find <event> in <region>` (routes to `/v1/hunt`).
@@ -194,7 +195,7 @@ Designed for agents to read, not for humans to remember:
 ```
 GET /openapi.json                  — OpenAPI 3.1 of every REST route
 GET /v1/agent_card                 — live capability snapshot + manifest CIDs
-GET /v1/tools                      — 75 MCP tools (10 core, 65 extended) with when_to_use + annotations
+GET /v1/tools                      — 80 MCP tools (10 core, 70 extended) with when_to_use + annotations
 GET /v1/algorithms?summary=true    — 159 algorithm keys + categories
 GET /v1/topics                     — 27 topic-grouped bands + algorithms (router brain)
 GET /v1/manifests                  — bands_cid, algorithms_cid, sources_cid, schema_cid
@@ -247,7 +248,7 @@ The active grid is ~9.54 m × ~9.55 m at the equator (lat 21 bits × lng 22 bits
 
 ```
 emem/
-├── crates/                       # 14 workspace crates, MSRV 1.91, version 0.0.9
+├── crates/                       # 16 workspace crates, MSRV 1.91, version 0.0.9
 │   ├── emem-core/                # bands, algorithms, functions, sources, topics, schema
 │   ├── emem-codec/               # cell64, cid64, vec64, hilbert, geo, alphabet
 │   ├── emem-fact/                # canonical CBOR; fact, receipt, attestation
@@ -261,7 +262,9 @@ emem/
 │   ├── emem-intent/              # rule-based intent → plan planner
 │   ├── emem-mcp/                 # 50-tool MCP descriptor registry
 │   ├── emem-api-rest/            # axum router, physics solvers, foundation fan-out
-│   └── emem-cli/                 # binaries: emem-server, emem-livedemo, emem-realdemo, emem-demo, emem-ask-eval
+│   ├── emem-cli/                 # binaries: emem-server, emem-livedemo, emem-realdemo, emem-demo, emem-ask-eval
+│   ├── emem-membench/            # memory-substrate benchmark harness
+│   └── emem-sleep-agent/         # offline refinement loop over contradictions + edges
 ├── sdks/
 │   ├── emem-py/                  # Python client (httpx, sync + async)
 │   └── emem-ts/                  # TypeScript client (zero runtime deps, native fetch)
@@ -271,7 +274,7 @@ emem/
 └── web/                          # SSR HTML, humans, verify, llms.txt, agent.json
 ```
 
-The 16 data connectors back **46 declared source schemes** and **118 live materializer registrations**. Five of the 46 schemes are declared-but-unwired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`); they return a typed Absence, not data. Most wired schemes route through `cog.rs`, the universal STAC + COG sampler, plus bespoke modules for `chirps` (rainfall), `dmsp_ols` (nightlights), `esa_cci_biomass` (above-ground biomass, CEDA), `firms` (active fire), `ftw` (Fields of The World), `geonames` (gazetteer), `gmrt` (topobathymetry, PointServer + GridServer), `hansen_gfc` (forest change), `jrc_gfc2020` (EUDR forest baseline, JEODPP single-COG), `jrc_tmf` (tropical moist forest, pull-and-cache), `koppen` (climate classification), `overture` (places / buildings / divisions), `radd_alerts` (Sentinel-1 disturbance), `terraclimate` (climate), `wdpa` (protected areas), `worldpop` (population), `wri_gdm_drivers` (Sims et al. 2025 driver attribution).
+The 16 data connectors back **46 declared source schemes** and **122 live materializer registrations**. Five of the 46 schemes are declared-but-unwired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`); they return a typed Absence, not data. Most wired schemes route through `cog.rs`, the universal STAC + COG sampler, plus bespoke modules for `chirps` (rainfall), `dmsp_ols` (nightlights), `esa_cci_biomass` (above-ground biomass, CEDA), `firms` (active fire), `ftw` (Fields of The World), `geonames` (gazetteer), `gmrt` (topobathymetry, PointServer + GridServer), `hansen_gfc` (forest change), `jrc_gfc2020` (EUDR forest baseline, JEODPP single-COG), `jrc_tmf` (tropical moist forest, pull-and-cache), `koppen` (climate classification), `overture` (places / buildings / divisions), `radd_alerts` (Sentinel-1 disturbance), `terraclimate` (climate), `wdpa` (protected areas), `worldpop` (population), `wri_gdm_drivers` (Sims et al. 2025 driver attribution).
 
 ## Inference
 
@@ -284,13 +287,17 @@ The GPU sidecar (Python FastAPI over Unix domain socket) co-resides four encoder
 
 Sidecar crash does not cascade. The REST router degrades to scalar bands and signs the GPU-anchored algorithms as Absence with `gpu_unavailable`. See [docs/developers/inference.md](docs/developers/inference.md).
 
+## Where this is going
+
+emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
+
 ## Honest limits
 
 - **No commercial sub-meter imagery.** Sentinel-2 (10 m), Landsat (30 m), HLS. For Planet Pelican (50 cm) or Maxar bring your own connector.
 - **No edge / onboard inference.** Sidecar runs on a single host.
 - **Single-host deployment.** No federation, no global routing, no SOC 2.
 - **JEPA v2 is untrained today.** The endpoint exists and signs honestly; predictions equal the last attested vintage until the dynamics head is trained.
-- **16 data connectors, 118 live materializer registrations.** Catalog-by-count is not the pitch; every wired band is auto-fetchable, signed, and content-addressed. Bands without a wired materializer are listed under `declared_but_no_materializer_at_this_responder`.
+- **16 data connectors, 122 live materializer registrations.** Catalog-by-count is not the pitch; every wired band is auto-fetchable, signed, and content-addressed. Bands without a wired materializer are listed under `declared_but_no_materializer_at_this_responder`.
 - **Foundation-encoder materializers are uneven.** `geotessera` (Tessera 128-D) has a wired materializer and auto-fetches on miss. `clay_v1` and `prithvi_eo2` are seed-only at this responder — the GPU sidecar runs both models, but the auto-materialise path that fans out to upstream tile archives is not wired today. Recall against either returns whatever has already been signed; the hunter-mode envelope discloses this per request under `materializer_status[]`.
 - **Tessera is upstream-rate-limited.** `dl2.geotessera.org` reliably serves 2024 vintages today; historical backfill across all eight vintages (2017–2024) is partial. The Tessera-coherence rerank in hunter mode gracefully degrades to primary-scalar order when the upstream is unreachable, surfacing the reason under `embedding_rerank.reason`.
 - **MODIS LST is rate-limited.** `modis.lst_day_8day` materialises through the NASA/ORNL REST API at roughly 30 s per cell. Hunter mode caps the per-region fan-out for the LST family to 8 cells (env override `EMEM_HUNTER_SLOW_BAND_CAP`) so urban-heat queries return inside the gateway timeout.

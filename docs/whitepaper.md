@@ -517,11 +517,11 @@ upstream call.
 
 ## 7. Bands — the 1792-D voxel
 
-The band ontology loads from `bands-v0.json`. **Forty-one band
+The band ontology loads from `bands-v0.json`. **Forty-two band
 cube slots** sum to exactly **1792 dims**. Offsets are contiguous;
 reserved slots leave room for new bands without breaking existing
-offsets. **118 materializer-wired band names** answer recall today;
-the gap between 41 cube slots and 118 names is the parametric
+offsets. **122 materializer-wired band names** answer recall today;
+the gap between 42 cube slots and 122 names is the parametric
 expansion (every Sentinel-2 reflectance band, every spectral index,
 every Tessera vintage, every Open-Meteo variant) under a fixed
 underlying slot.
@@ -535,7 +535,7 @@ underlying slot.
      199   505  _reserved_512      reserved     static  public
      704    10  sentinel2_raw      optical      fast    public
      ...   ...  ...                ...          ...     ...
-                                                        (35 slots)
+                                                        (42 slots)
                                                         total = 1792
 ```
 
@@ -1237,8 +1237,8 @@ the provenance:
 ## 15. Agent-discoverable surface
 
 `emem-server` serves both HTTP/REST and MCP JSON-RPC on one port
-(default `0.0.0.0:5051`). **169 REST routes** total, **79 under
-`/v1/*`**, **75 MCP tools (10 core, 65 extended)**. Discovery chain on first contact:
+(default `0.0.0.0:5051`). **92 documented REST paths under
+`/v1/*`** (95 total in OpenAPI), **80 MCP tools (10 core, 70 extended)**. Discovery chain on first contact:
 
 ```text
   1. GET  /.well-known/emem.json         responder pubkey + capabilities
@@ -1267,16 +1267,16 @@ produce byte-identical CIDs over the manifest set at
 
 ```text
   bands_cid        BLAKE3 over canonical_cbor(BandsManifest)
-                   (1792 dims, 41 cube slots)
+                   (1792 dims, 42 cube slots)
   algorithms_cid   BLAKE3 over canonical_cbor(AlgorithmsManifest)
                    (159 entries)
   sources_cid      BLAKE3 over canonical_cbor(SourcesManifest)
-                   (43 schemes)
+                   (46 schemes)
   topics_cid       BLAKE3 over canonical_cbor(TopicsManifest)
                    (27 topics)
   schema_cid       BLAKE3 over canonical_cbor(SchemaBundle)
   registry_cid     BLAKE3 over canonical_cbor(FunctionRegistry)
-                   (17 primary / 2 derivative / 1 negative)
+                   (20 primary / 2 derivative / 1 negative)
 ```
 
 A receipt binds `schema_cid` and `registry_cid` as struct fields.

@@ -40,10 +40,10 @@ startup.
 
 | Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
 |-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
-| `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 35 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
+| `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 42 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
 | `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 159         | composition recipes (solo / combined / embedding)           |
-| `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 20          | derivation functions (primary / derivative / negative)      |
-| `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 43 schemes  | ordered providers per scheme                                |
+| `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 23          | derivation functions (primary / derivative / negative)      |
+| `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 46 schemes  | ordered providers per scheme                                |
 | `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 27 topics   | `/v1/ask` routing (description + aliases + bands)           |
 | `emem-schema`           | `data/schema-v0.json`                      | `schema::SchemaRegistry`            | 8 fragments | CDDL fragments + pinned hash/sig/cid encoding               |
 | `emem-lcv1`             | `src/taxonomy.rs`                          | `taxonomy::Lcv1` + `LcvFamily`      | 64 leaves   | 8 families x 8 leaves land-cover taxonomy, u8 encoded       |
@@ -54,7 +54,7 @@ The first six are JSON+struct pairs validated against `crate::manifest::Manifest
 
 ## emem-bands (bands-v0.json)
 
-The 1792-D voxel layout. 35 bands sum to exactly 1792 dims, validated at
+The 1792-D voxel layout. 42 bands sum to exactly 1792 dims, validated at
 load. Each band declares an `offset` and `dims`; the validator at
 `bands.rs` rejects any manifest where
 `bands[i].offset != sum(bands[0..i].dims)` or the total deviates from
@@ -114,9 +114,9 @@ The 4 `PrivacyClass` variants:
 
 ### Cube vs materializer surface
 
-The 35 cube slots are the byte-stable layout pinned by `total_dims = 1792`.
+The 42 cube slots are the byte-stable layout pinned by `total_dims = 1792`.
 Materializer-wired band names — what shows up under `/v1/coverage_matrix`
-and `/v1/materializers` — are denser: 118 distinct keys today, because
+and `/v1/materializers` — are denser: 122 distinct keys today, because
 multi-dim cube slots fan out to several materializable subkeys (the
 `indices` slot expands to `indices.ndvi`, `indices.ndwi`, `indices.evi`,
 and so on; `geotessera` expands to per-year vintages plus `bin128` and
@@ -133,7 +133,7 @@ removed when its no-key path closed.
 | Kind        | Count | What it composes                                                       |
 |-------------|-------|------------------------------------------------------------------------|
 | `solo`      | 23    | single band -> derived classification or scalar                        |
-| `combined`  | 107   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
+| `combined`  | 111   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
 | `embedding` | 25    | operations on a foundation embedding (cosine, novelty, change)         |
 
 ### Per-algorithm fields
@@ -290,7 +290,7 @@ The `for_band` rules (string-prefix matching):
 
 ## emem-functions (functions-v0.json)
 
-20 derivation functions (17 primary, 2 derivative, 1 negative). Each
+23 derivation functions (20 primary, 2 derivative, 1 negative). Each
 declares which upstream sources it requires (by canonical scheme), how to
 derive the band value (formula, deterministically), and which band/index
 it writes.
@@ -299,7 +299,7 @@ Three kinds (`functions.rs`):
 
 | Kind         | Count | What it produces                                                 |
 |--------------|-------|------------------------------------------------------------------|
-| `primary`    | 17    | A `PrimaryFact` directly from upstream sources                   |
+| `primary`    | 20    | A `PrimaryFact` directly from upstream sources                   |
 | `derivative` | 2     | A `DerivativeFact` from N parent fact CIDs (`op` in delta\|trend\|...)|
 | `negative`   | 1     | A `NegativeFact` (signed Absence with reason)                    |
 
@@ -506,16 +506,16 @@ consonant/vowel string constants in the same file.
 
 | Manifest                 | Count today  | Invariant the validator enforces                                  |
 |--------------------------|--------------|-------------------------------------------------------------------|
-| `emem-bands`             | 35 slots     | sum of `dims` == 1792; offsets contiguous; no dup keys            |
+| `emem-bands`             | 42 slots     | sum of `dims` == 1792; offsets contiguous; no dup keys            |
 | `emem-algorithms`        | 159          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
-| `emem-functions`         | 20           | no dup keys; `deterministic == true` always; sources non-empty for primary/negative |
-| `emem-sources`           | 43 schemes   | no dup schemes; `providers[]` non-empty                           |
+| `emem-functions`         | 23           | no dup keys; `deterministic == true` always; sources non-empty for primary/negative |
+| `emem-sources`           | 46 schemes   | no dup schemes; `providers[]` non-empty                           |
 | `emem-topics`            | 27 topics    | no dup keys                                                       |
 | `emem-schema`            | 8 fragments  | `hash == "blake3"` and `signature == "ed25519"`                   |
 | `emem-lcv1`              | 64 leaves    | 8 families x 8 leaves; u8 encoding                                |
 | `emem-cell64-alphabet`   | 65 536       | in-code CVCV builder, deterministic                               |
 
-For materializer surface (118 distinct band names), see
+For materializer surface (122 distinct band names), see
 `/v1/coverage_matrix` and `/v1/materializers` on a running responder.
 
 ## Publishing a new manifest

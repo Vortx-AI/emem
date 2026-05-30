@@ -22,6 +22,10 @@
 > The CID + the receipt are how two agents settle a number without trusting
 > either one.
 >
+> Every fact is content-addressed and signed, so any conformant responder
+> returns byte-identical bytes for the same content id and any client
+> verifies the receipt offline — emem is a protocol, not a single endpoint.
+>
 > A cell64 addresses a place the way a token addresses text in an LLM —
 > a stable, hierarchical handle the pipeline can quote, share, and verify.
 >
