@@ -187,6 +187,13 @@ pub struct GalileoRequest {
     /// set to 0 (seen). When absent, SRTM stays masked-absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub srtm_chip: Option<Vec<Vec<Vec<f32>>>>,
+    /// Optional TerraClimate chip `[T=1, C=3]` (def, soil, aet as raw GEE
+    /// DN) for Galileo's TIME group. When present the TC group mask is set
+    /// to 0 (seen) and TC's per-modality (mean-2σ)/(4σ) normalization is
+    /// applied (Galileo `TIME_BANDS` indices 2,3,4). ERA5+VIIRS stay
+    /// masked-absent. When absent, the whole TIME group stays masked-absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tc_chip: Option<Vec<Vec<f32>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub month: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]

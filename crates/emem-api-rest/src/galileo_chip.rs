@@ -277,6 +277,84 @@ impl GalileoDemChip {
     }
 }
 
+// ── Galileo multimodal: TerraClimate TIME group (def, soil, aet) ──────────
+//
+// Galileo's TIME tensor (single-pixel per timestep, no spatial dimension —
+// `t_x` is `[T, C]`) carries `TIME_BANDS = ERA5(2) + TC(3) + VIIRS(1)`. We
+// wire the TerraClimate group: `def` (climate water deficit), `soil` (soil
+// moisture), `aet` (actual evapotranspiration). emem doesn't yet have ERA5
+// or VIIRS, so those stay masked-absent — the TC group flips to seen only.
+//
+// Galileo ingests the **raw Google Earth Engine band value** (the GEE DN =
+// physical_mm / 0.1, since both GEE and the THREDDS NetCDF pack these as
+// int16 with scale_factor 0.1). emem's terraclimate connector fetches via
+// THREDDS NCSS; `fetch_terraclimate_monthly_dn` returns the climatological
+// monthly-mean DN, so we feed the value in the exact scale Galileo's
+// normalizer was fit on. When TerraClimate can't be fetched the modality
+// stays absent and the caller signs the S2(+S1+DEM)-only embedding — never
+// zero-fill-and-claim.
+
+/// TerraClimate TIME-group chip: the three Galileo TC bands `[def, soil,
+/// aet]` as raw GEE DN, for a single timestep (T=1). No spatial dimension —
+/// Galileo's TIME tensor is per-timestep scalar-per-band.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GalileoTcChip {
+    /// `[def, soil, aet]` in raw GEE DN (= physical mm / 0.1), in
+    /// Galileo's `TC_BANDS` order.
+    pub def_soil_aet: [f32; 3],
+    /// Upstream NCSS URLs hit (def, soil, aet) — pinned in the receipt so a
+    /// verifier can replay each query.
+    pub asset_urls: Vec<String>,
+    /// Calendar month (1..=12) the climatological value was taken for —
+    /// co-registered with the S2 scene month.
+    pub month: u8,
+}
+
+impl GalileoTcChip {
+    /// `[T=1][C=3]` (def, soil, aet) for the sidecar's `tc_chip` field —
+    /// the TIME tensor has no spatial dimension.
+    pub fn as_time_2d(&self) -> Vec<Vec<f32>> {
+        vec![self.def_soil_aet.to_vec()]
+    }
+}
+
+/// Fetch the Galileo TerraClimate TIME-group chip (`def`, `soil`, `aet` as
+/// raw GEE DN) for `cell64` at calendar `month`. Uses the climatological
+/// monthly mean over the WMO 1991–2020 normal window (TerraClimate's NCSS
+/// service serves the monthly series; the per-month climatology is the
+/// deterministic, verifier-replayable value that co-registers with the S2
+/// scene's month). The three variables are fetched concurrently. If ANY of
+/// the three can't be fetched the whole TC modality is treated as absent
+/// (Galileo's TC group is a single mask entry — partial TC would mislead
+/// the encoder), so we return an error and the caller masks TIME absent.
+pub async fn fetch_galileo_tc_chip(
+    cell64: &str,
+    month: u8,
+    timeout: std::time::Duration,
+) -> Result<GalileoTcChip, String> {
+    use emem_fetch::terraclimate as tc;
+
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let win = tc::NORMAL_WINDOW;
+
+    let (def_res, soil_res, aet_res) = tokio::join!(
+        tc::fetch_terraclimate_monthly_dn(&tc::DEF, lat, lng, month, win, timeout),
+        tc::fetch_terraclimate_monthly_dn(&tc::SOIL, lat, lng, month, win, timeout),
+        tc::fetch_terraclimate_monthly_dn(&tc::AET, lat, lng, month, win, timeout),
+    );
+    let def = def_res.map_err(|e| format!("terraclimate def: {e}"))?;
+    let soil = soil_res.map_err(|e| format!("terraclimate soil: {e}"))?;
+    let aet = aet_res.map_err(|e| format!("terraclimate aet: {e}"))?;
+
+    Ok(GalileoTcChip {
+        def_soil_aet: [def.value as f32, soil.value as f32, aet.value as f32],
+        asset_urls: vec![def.url, soil.url, aet.url],
+        month,
+    })
+}
+
 /// Fetch the 8×8 / 30 m Sentinel-1 RTC chip (VV + VH γ0 dB) for `cell64`
 /// near `target_unix`. Reuses the same `s1_search_with_fallback` ladder
 /// the scalar `sentinel1_raw` materializer uses (15→30→60 d). VH is
@@ -555,6 +633,25 @@ mod tests {
         assert_eq!(four_d[0].len(), h);
         assert_eq!(four_d[0][0].len(), w);
         assert_eq!(four_d[0][0][0], vec![0.0_f32, 1.0]); // [VV, VH]
+    }
+
+    /// TC chip `as_time_2d` produces the `[T=1][C=3]` (def, soil, aet) TIME
+    /// tensor the sidecar's `tc_chip` field expects — no spatial dim.
+    #[test]
+    fn galileo_tc_chip_as_time_2d_layout() {
+        let chip = GalileoTcChip {
+            def_soil_aet: [657.0, 692.0, 562.0],
+            asset_urls: vec![
+                "https://example/def".into(),
+                "https://example/soil".into(),
+                "https://example/aet".into(),
+            ],
+            month: 7,
+        };
+        let t2 = chip.as_time_2d();
+        assert_eq!(t2.len(), 1); // T=1
+        assert_eq!(t2[0].len(), 3); // [def, soil, aet]
+        assert_eq!(t2[0], vec![657.0_f32, 692.0, 562.0]);
     }
 
     /// DEM chip `as_3d` transposes the band-major [elev, slope] flat buffer

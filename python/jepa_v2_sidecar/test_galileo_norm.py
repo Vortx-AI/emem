@@ -57,6 +57,8 @@ try:
         GALILEO_S2_STD,
         GALILEO_SRTM_MEAN,
         GALILEO_SRTM_STD,
+        GALILEO_TC_MEAN,
+        GALILEO_TC_STD,
         GalileoRequest,
         _galileo_modality_shift_div,
         _galileo_s2_shift_div,
@@ -148,6 +150,58 @@ def test_s1_srtm_modality_shift_div() -> None:
     assert abs(GALILEO_S1_STD[0] - 4.887145774840316) < 1e-9
     # SRTM slope is in degrees (ee.Terrain.slope), mean ≈ 5.93°.
     assert abs(GALILEO_SRTM_MEAN[1] - 5.930092668915115) < 1e-9
+
+
+@pytest.mark.skipif(not HAVE_SERVER, reason=f"server import failed: {IMPORT_ERR}")
+def test_tc_modality_shift_div_and_golden() -> None:
+    """TerraClimate (def, soil, aet) is Galileo's TIME modality and is in
+    the Normalizer's `std_bands` set (std_bands[len(TIME_BANDS)] =
+    TIME_BANDS), so each band uses (mean-2σ)/(4σ). Stats from
+    config/normalization.json key "6" (TIME_BANDS, len 6) at indices 2,3,4
+    (def, soil, aet). Verified against nasaharvest/galileo @ main 2026-05-30.
+
+    Golden: def band has mean=657.3181260091111, std=704.0008695557707, so
+        shift = mean - 2σ = -750.6836131024303
+        div   = 4σ        =  2816.0034782230828
+        x=1000 (GEE DN) → (1000 - shift)/div ≈ 0.6216908560805909
+    The values are raw GEE DN (physical mm / 0.1); x=mean → exactly 0.5."""
+    m = np.asarray(GALILEO_TC_MEAN, dtype=np.float32)
+    sd = np.asarray(GALILEO_TC_STD, dtype=np.float32)
+    shift, div = _galileo_modality_shift_div(GALILEO_TC_MEAN, GALILEO_TC_STD)
+    assert np.allclose(shift, m - 2.0 * sd), "shift must be mean - 2σ"
+    assert np.allclose(div, 4.0 * sd), "div must be 4σ"
+    # Pin the exact def/soil/aet stats so a refactor can't silently swap them.
+    assert abs(GALILEO_TC_MEAN[0] - 657.3181260091111) < 1e-9  # def
+    assert abs(GALILEO_TC_STD[0] - 704.0008695557707) < 1e-9
+    assert abs(GALILEO_TC_MEAN[1] - 692.1291795806885) < 1e-9  # soil
+    assert abs(GALILEO_TC_MEAN[2] - 562.781331880633) < 1e-9   # aet
+    # Load-bearing golden: def band, x=1000 GEE DN.
+    got = float((1000.0 - shift[0]) / div[0])
+    assert abs(got - 0.6216908560805909) < 1e-6, f"TC def norm drifted: {got}"
+    # x == mean maps to the midpoint 0.5 (defining property of the scheme).
+    mid = float((GALILEO_TC_MEAN[0] - shift[0]) / div[0])
+    assert abs(mid - 0.5) < 1e-6, f"x=mean must map to 0.5, got {mid}"
+
+
+@pytest.mark.skipif(not HAVE_SERVER, reason=f"server import failed: {IMPORT_ERR}")
+def test_request_accepts_optional_tc_and_validates_shape() -> None:
+    """`tc_chip` is optional (S2-only / s2s1dem still valid) and enforces
+    the [T=1, C=3] (def, soil, aet) shape."""
+    s2 = [[[[0.0] * 10 for _ in range(8)] for _ in range(8)]]
+    # S2-only: tc defaults to None.
+    r = GalileoRequest(s2_chip=s2)
+    assert r.tc_chip is None
+    # TC fed: correct [T=1, 3] shape accepted.
+    tc = [[657.0, 692.0, 562.0]]
+    r2 = GalileoRequest(s2_chip=s2, tc_chip=tc)
+    assert r2.tc_chip is not None and len(r2.tc_chip[0]) == 3
+    # Wrong TC band count rejected.
+    bad_tc = [[657.0, 692.0]]
+    try:
+        GalileoRequest(s2_chip=s2, tc_chip=bad_tc)
+        raise AssertionError("expected validation error for 2-band TC")
+    except Exception as e:  # noqa: BLE001
+        assert "3 bands" in str(e) or "def,soil,aet" in str(e)
 
 
 @pytest.mark.skipif(not HAVE_SERVER, reason=f"server import failed: {IMPORT_ERR}")
@@ -305,6 +359,8 @@ if __name__ == "__main__":
         test_normalization_prefers_on_disk_json(Path(td))
     test_chip_gsd_is_30m()
     test_s1_srtm_modality_shift_div()
+    test_tc_modality_shift_div_and_golden()
+    test_request_accepts_optional_tc_and_validates_shape()
     test_request_accepts_optional_s1_srtm_and_validates_shape()
     if _galileo_weights_dir() is not None:
         test_average_tokens_arity_real_forward()

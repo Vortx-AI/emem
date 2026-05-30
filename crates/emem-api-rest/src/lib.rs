@@ -22259,9 +22259,15 @@ async fn materialize_galileo_base(
     } else {
         None
     };
-    let (s1_res, dem_res) = tokio::join!(
+    // TerraClimate (def/soil/aet) is Galileo's TIME modality. It's a
+    // climatological monthly value, so it co-registers with the S2 scene's
+    // `month` rather than the exact scene time. Fetch concurrently with S1
+    // + DEM; best-effort like the others.
+    let tc_timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    let (s1_res, dem_res, tc_res) = tokio::join!(
         galileo_chip::fetch_galileo_s1_chip(cell64, s1_target),
         galileo_chip::fetch_galileo_dem_chip(cell64),
+        galileo_chip::fetch_galileo_tc_chip(cell64, month, tc_timeout),
     );
     let s1 = s1_res
         .map_err(|e| {
@@ -22275,6 +22281,12 @@ async fn materialize_galileo_base(
             e
         })
         .ok();
+    let tc = tc_res
+        .map_err(|e| {
+            tracing::debug!("galileo TerraClimate modality unavailable at {cell64}: {e}");
+            e
+        })
+        .ok();
 
     // modality_subset is the honest list of what we actually fed.
     let mut modality_subset: Vec<&'static str> = vec!["s2"];
@@ -22284,12 +22296,16 @@ async fn materialize_galileo_base(
     if dem.is_some() {
         modality_subset.push("srtm");
     }
-    let multimodal = s1.is_some() || dem.is_some();
+    if tc.is_some() {
+        modality_subset.push("tc");
+    }
+    let multimodal = s1.is_some() || dem.is_some() || tc.is_some();
 
     let req = gpu_sidecar::GalileoRequest {
         s2_chip: chip.as_4d(),
         s1_chip: s1.as_ref().map(|c| c.as_4d()),
         srtm_chip: dem.as_ref().map(|c| c.as_3d()),
+        tc_chip: tc.as_ref().map(|c| c.as_time_2d()),
         month: Some(month),
         lng: Some(lng),
         lat: Some(lat),
@@ -22342,6 +22358,18 @@ async fn materialize_galileo_base(
             url: Some(demc.asset_url.clone()),
         });
     }
+    if let Some(tcc) = &tc {
+        for url in &tcc.asset_urls {
+            sources.push(Source {
+                scheme: "terraclimate_ncss".into(),
+                id: url.clone(),
+                cid: None,
+                hash: None,
+                captured_at: static_release_date("terraclimate.aet_normal_mm").map(str::to_string),
+                url: Some(url.clone()),
+            });
+        }
+    }
     let model_blake2b = resp
         .model
         .get("blake2b_hex")
@@ -22368,11 +22396,17 @@ async fn materialize_galileo_base(
     // The multimodal embedding is a DIFFERENT computation than the S2-only
     // one, so it carries a distinct fn_key. The S2-only path bumps to @2
     // (R1 corrected the normalization+resolution; old @1 facts live under a
-    // distinguishable provenance string).
-    let fn_key = if multimodal {
-        "galileo_v1_s2s1dem_embed@1"
-    } else {
-        "galileo_v1_s2_embed@2"
+    // distinguishable provenance string). Feeding TerraClimate (def/soil/aet)
+    // as the TIME modality is again a different computation, so it extends
+    // the key to `…s2s1demtc…` — a verifier can tell from the fn_key alone
+    // exactly which modalities were fed. Back-compat: the s1/dem-only combos
+    // keep the existing `galileo_v1_s2s1dem_embed@1` string so previously
+    // signed facts still re-verify under the same key.
+    let fn_key = match (s1.is_some() || dem.is_some(), tc.is_some()) {
+        (true, true) => "galileo_v1_s2s1demtc_embed@1",
+        (false, true) => "galileo_v1_s2tc_embed@1",
+        (true, false) => "galileo_v1_s2s1dem_embed@1",
+        (false, false) => "galileo_v1_s2_embed@2",
     };
 
     // Honesty warnings: sidecar-declared + Rust-side truth about which
@@ -22396,6 +22430,9 @@ async fn materialize_galileo_base(
         }
         if dem.is_none() {
             absent.push("srtm");
+        }
+        if tc.is_none() {
+            absent.push("tc");
         }
         if !absent.is_empty() {
             warnings.push(format!(
@@ -22428,6 +22465,15 @@ async fn materialize_galileo_base(
     }
     if let Some(demc) = &dem {
         args.push(ciborium::Value::Text(format!("dem:{}", demc.asset_url)));
+    }
+    // Pin the TerraClimate climatology month + the three DN values so a
+    // verifier can re-run the exact TIME-modality contribution. The
+    // 1991–2020 normal window is fixed by `terraclimate::NORMAL_WINDOW`.
+    if let Some(tcc) = &tc {
+        args.push(ciborium::Value::Text(format!(
+            "tc:def_soil_aet_dn@m{}={:.1},{:.1},{:.1}",
+            tcc.month, tcc.def_soil_aet[0], tcc.def_soil_aet[1], tcc.def_soil_aet[2]
+        )));
     }
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),

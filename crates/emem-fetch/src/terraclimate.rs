@@ -218,6 +218,37 @@ pub const AET: VariableSpec = VariableSpec {
     unit: "mm",
 };
 
+/// Variable spec for TerraClimate monthly **climate water deficit** (`def`,
+/// mm/month) — PET minus AET, the unmet atmospheric water demand. NetCDF
+/// packing: int16, `scale_factor=0.1`, `add_offset=0`, `_FillValue=-32768`
+/// (same as `aet`). GEE's `IDAHO_EPSCOR/TERRACLIMATE` documents this band as
+/// scale 0.1, units mm, valid range 0–4548. This is one of Galileo's three
+/// TerraClimate TIME-modality bands (`TC_BANDS = ["def","soil","aet"]`).
+pub const DEF: VariableSpec = VariableSpec {
+    var: "def",
+    packed: PackedScale {
+        scale: 0.1,
+        offset: 0.0,
+        fill: -32_768,
+    },
+    unit: "mm",
+};
+
+/// Variable spec for TerraClimate monthly **soil moisture** (`soil`,
+/// mm/month) — column soil-water content at month end. NetCDF packing:
+/// int16, `scale_factor=0.1`, `add_offset=0`, `_FillValue=-32768`. GEE
+/// documents scale 0.1, units mm, valid range 0–8882. Galileo's second
+/// TerraClimate TIME-modality band.
+pub const SOIL: VariableSpec = VariableSpec {
+    var: "soil",
+    packed: PackedScale {
+        scale: 0.1,
+        offset: 0.0,
+        fill: -32_768,
+    },
+    unit: "mm",
+};
+
 /// Build the NCSS URL for a single variable + point + year range against
 /// the primary mirror. Pure function — exposed so the unit tests can pin
 /// the URL shape without a network round-trip and so the responder can
@@ -412,6 +443,103 @@ pub fn monthly_mean_normal(rows: &[TerraRow], window: (i32, i32)) -> Result<f64,
         )));
     }
     Ok(in_win.iter().sum::<f64>() / in_win.len() as f64)
+}
+
+/// Compute the **climatological monthly-mean packed DN** for one calendar
+/// month across the supplied rows in the window.
+///
+/// Galileo's TerraClimate TIME modality ingests the **raw Google Earth
+/// Engine band value** (`IDAHO_EPSCOR/TERRACLIMATE`, `select(TC_BANDS)`
+/// then `toDouble()` with NO scale applied — see galileo
+/// `src/data/earthengine/terraclimate.py`). That GEE DN equals the NetCDF
+/// **stored integer** (= physical_mm / 0.1), since both GEE and the THREDDS
+/// NetCDF pack `def`/`soil`/`aet` as int16 with `scale_factor=0.1`. So we
+/// return the packed DN (`physical / scale`), NOT the physical mm value, to
+/// match the distribution Galileo's normalizer was fit on (mean def≈657,
+/// soil≈692, aet≈562 — verified against config/normalization.json key "6").
+///
+/// We average the DN across all years in `window` for the requested
+/// `month` (1..=12), giving a deterministic climatological monthly value
+/// that co-registers with the S2 scene's month. Returns `Err` if no row
+/// for that month survives in the window (off-grid / fully masked cell) —
+/// never fabricates a 0.
+pub fn monthly_climatology_dn(
+    rows: &[TerraRow],
+    month: u8,
+    window: (i32, i32),
+    packed: &PackedScale,
+) -> Result<f64, FetchError> {
+    let (sy, ey) = window;
+    // `rows` carry physical (unpacked) values; convert back to the packed
+    // DN Galileo expects. `value = stored * scale + offset` ⇒
+    // `stored = (value - offset) / scale`.
+    let dns: Vec<f64> = rows
+        .iter()
+        .filter(|r| r.month == month && r.year >= sy && r.year <= ey)
+        .map(|r| (r.value - packed.offset) / packed.scale)
+        .collect();
+    if dns.is_empty() {
+        return Err(FetchError::Transport(format!(
+            "terraclimate: no row for month {month} in {sy}..={ey} window (got {} rows total)",
+            rows.len()
+        )));
+    }
+    Ok(dns.iter().sum::<f64>() / dns.len() as f64)
+}
+
+/// Fetch the climatological monthly-mean **GEE DN** for one TerraClimate
+/// variable at `(lat, lng)` for calendar `month`, over `window`. This is
+/// the Galileo-TIME-modality fetch: the returned value is in the raw GEE
+/// band scale (packed DN), ready to feed straight into Galileo's
+/// `(mean-2σ)/(4σ)` normalizer. Reuses the NCSS mirror failover +
+/// CSV parser the scalar normals use.
+pub async fn fetch_terraclimate_monthly_dn(
+    spec: &VariableSpec,
+    lat: f64,
+    lng: f64,
+    month: u8,
+    window: (i32, i32),
+    timeout: Duration,
+) -> Result<NormalSample, FetchError> {
+    let mut last_err: Option<FetchError> = None;
+    let mut url = ncss_url(spec, lat, lng, window.0, window.1);
+    let mut body_bytes: Option<Bytes> = None;
+    for base in NCSS_BASES {
+        let try_url = ncss_url_for_base(base, spec, lat, lng, window.0, window.1);
+        match ncss_get(&try_url, timeout).await {
+            Ok(b) => {
+                url = try_url;
+                body_bytes = Some(b);
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let body = match body_bytes {
+        Some(b) => b,
+        None => {
+            return Err(last_err.unwrap_or_else(|| {
+                FetchError::Transport("terraclimate: no NCSS mirror configured".into())
+            }))
+        }
+    };
+    let body_str = std::str::from_utf8(&body)
+        .map_err(|e| FetchError::Transport(format!("terraclimate body utf8: {e}")))?;
+    let rows = parse_ncss_csv(body_str, &spec.packed)?;
+    let dn = monthly_climatology_dn(&rows, month, window, &spec.packed)?;
+    let n = rows
+        .iter()
+        .filter(|r| r.month == month && r.year >= window.0 && r.year <= window.1)
+        .count();
+    Ok(NormalSample {
+        variable: spec.var,
+        value: dn,
+        // The value is in raw GEE-DN scale, not a physical unit — make that
+        // explicit so a downstream consumer never mistakes it for mm.
+        unit: "gee_dn",
+        url,
+        n_samples: n,
+    })
 }
 
 /// Inner HTTP plumbing: GET the NCSS endpoint, return the response body
@@ -817,6 +945,76 @@ mod tests {
             "got {}",
             rows[0].value
         );
+    }
+
+    /// `def`/`soil`/`aet` all share int16 scale 0.1 / offset 0 / fill
+    /// -32768 packing — pin it so a future edit can't silently desync the
+    /// Galileo TIME modality from the documented GEE/NetCDF scale.
+    #[test]
+    fn galileo_tc_specs_packing() {
+        for spec in [DEF, SOIL, AET] {
+            assert!(
+                (spec.packed.scale - 0.1).abs() < 1e-12,
+                "{} scale",
+                spec.var
+            );
+            assert_eq!(spec.packed.offset, 0.0, "{} offset", spec.var);
+            assert_eq!(spec.packed.fill, -32_768, "{} fill", spec.var);
+        }
+        assert_eq!(DEF.var, "def");
+        assert_eq!(SOIL.var, "soil");
+        assert_eq!(AET.var, "aet");
+    }
+
+    /// `monthly_climatology_dn` returns the GEE DN (= physical / scale)
+    /// averaged across years for one month — NOT the physical mm value.
+    /// Golden: two Julys of physical AET 56.2 and 56.4 mm (scale 0.1) →
+    /// DNs 562 and 564 → mean 563 DN. Other months / years are ignored.
+    #[test]
+    fn monthly_climatology_dn_returns_gee_dn() {
+        let rows = vec![
+            // July 1991: 56.2 mm physical → 562 DN.
+            TerraRow {
+                year: 1991,
+                month: 7,
+                value: 56.2,
+            },
+            // July 1992: 56.4 mm physical → 564 DN.
+            TerraRow {
+                year: 1992,
+                month: 7,
+                value: 56.4,
+            },
+            // June 1991: wrong month, ignored.
+            TerraRow {
+                year: 1991,
+                month: 6,
+                value: 999.0,
+            },
+            // July 2099: outside window, ignored.
+            TerraRow {
+                year: 2099,
+                month: 7,
+                value: 999.0,
+            },
+        ];
+        let dn = monthly_climatology_dn(&rows, 7, (1991, 2020), &AET.packed).unwrap();
+        // (562 + 564) / 2 = 563 DN — and crucially this is ~10× the
+        // physical mm, proving we feed Galileo the GEE-scale value.
+        assert!((dn - 563.0).abs() < 1e-9, "got {dn}");
+    }
+
+    /// No row for the requested month must surface an error, never a
+    /// fabricated 0 DN (honest Absence at the API layer).
+    #[test]
+    fn monthly_climatology_dn_empty_month_errors() {
+        let rows = vec![TerraRow {
+            year: 1991,
+            month: 1,
+            value: 10.0,
+        }];
+        let err = monthly_climatology_dn(&rows, 7, (1991, 2020), &DEF.packed).unwrap_err();
+        assert!(err.to_string().contains("no row for month 7"), "{err}");
     }
 
     /// Live integration smoke: hits THREDDS NCSS for Singapore precip
