@@ -15,6 +15,7 @@ members = [
     "crates/emem-mcp",
     "crates/emem-api-rest",
     "crates/emem-cli",
+    "crates/emem-sleep-agent",
 ]
 
 [workspace.package]

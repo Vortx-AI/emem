@@ -2595,6 +2595,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "emem-sleep-agent"
+version = "0.0.8"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "emem-storage"
 version = "0.0.8"
 dependencies = [
