@@ -316,7 +316,7 @@ const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"propert
 
 const SCHEMA_STATE_MULTI: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string"},
-"encoders":{"type":"array","items":{"type":"string"},"description":"Optional explicit list; defaults to all wired foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`)."},
+"encoders":{"type":"array","items":{"type":"string","enum":["geotessera","clay_v1","prithvi_eo2","galileo"]},"description":"Optional explicit list; defaults to all wired foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`)."},
 "tslot":{"type":"integer"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound — forwarded to every per-encoder recall."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
@@ -661,7 +661,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_state_multi",
         title: "Multi-encoder state at one cell (foundation fan-out)",
-        description: "Get the place's fingerprint from several AI models at once (`geotessera`, `clay_v1`, `prithvi_eo2`) in one call, returned as a per-model map. Each model is tried independently; any that can't produce a vector here show up under `missing` with a reason instead of failing the whole request.",
+        description: "Get the place's fingerprint from several AI models at once (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`) in one call, returned as a per-model map. Each model is tried independently; any that can't produce a vector here show up under `missing` with a reason instead of failing the whole request.",
         when_to_use: "Call this when the user wants a second (or third) opinion on what a place looks like — 'do the different models agree this is forest / urban / water?', 'which model has the freshest read here?', or when you want all the embeddings concatenated for a stronger downstream classifier. Use the single-model `emem_state` instead when one embedding is enough. Pass `encoders: [...]` to narrow the set.",
         input_schema: SCHEMA_STATE_MULTI,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
@@ -911,7 +911,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_find_similar",
         title: "k-NN over the corpus by embedding",
         description: "k-NN over the corpus by cell embedding or inline vector.",
-        when_to_use: "Call when the user asks 'find places like X', 'where else looks like this', or hands an embedding to find neighbours. `key` is either a cell64 or `inline:[x,y,...]`. Default band is `geotessera` (128-D Tessera foundation embedding); pass `band: \"geotessera.multi_year\"` for the 1024-D 8-vintage fusion.",
+        when_to_use: "Call when the user asks 'find places like X', 'where else looks like this', or hands an embedding to find neighbours. `key` is either a cell64 or `inline:[x,y,...]`. Default band is `geotessera` (128-D Tessera foundation embedding); pass `band: \"geotessera.multi_year\"` for the 1152-D 9-vintage (2017–2025) fusion.",
         input_schema: SCHEMA_FIND_SIMILAR,
         example_args: r#"{"key":"damO.zb000.xUti.zde78","k":10}"#,
         level: "L0", category: ToolCategory::Read,
@@ -1021,9 +1021,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "emem_jepa_predict_v2",
-        title: "Learned dynamics head over Tessera embeddings (jepa_temporal_predictor@2)",
-        description: "Predict the next-vintage 128-D Tessera embedding at a cell using a small learned dynamics MLP. Reads the K=3 most-recent attested `geotessera.YYYY` vintages, runs them through an ONNX dynamics head (~200k params, CPU-fast), returns the predicted next-year embedding. The receipt's `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, and `honesty_warnings` flagging `untrained_baseline` when the artifact is the zero-init sentinel. Distinct from v1 (`emem_jepa_predict`) — v1 returns an NDVI scalar via closed-form coefficients; v2 returns a 128-D embedding from a learned model.",
-        when_to_use: "Use when you want a forecast in EMBEDDING space rather than NDVI scalar — e.g. to find next-year analogs via `emem_find_similar` against the prediction, or to feed any algorithm in `algorithms_for_topic.foundation_embedding`. Returns 422 with a `/v1/backfill` hint when the cell has fewer than 3 consecutive Tessera vintages cached. Always read the receipt's `model.honesty_warnings` array — when it contains `untrained_baseline`, the prediction is the trivial 'predict last vintage' baseline (treat as no-op).",
+        title: "Learned multi-band-scalar dynamics head (jepa_temporal_predictor@2)",
+        description: "Predict the next-step value of 4 environmental scalars at a cell — `indices.ndvi`, `modis.lst_day_8day`, `modis.lst_night_8day`, `cams.pm25` — using a small learned dynamics MLP. Reads up to K=6 most-recent attested lags per band, runs them through an ONNX dynamics head (~200k params, CPU-fast), and returns a per-band {value, confidence, n_real_lags, via}. The receipt's `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, a top-level `skill_vs_persistence` block, and `honesty_warnings` — flagging `untrained_baseline` when the artifact is the zero-init sentinel and `NEGATIVE_SKILL` when the learned model is worse than persistence on real held-out NDVI. When the model does not beat persistence, bands with a real lag are returned from that lag tagged `via:persistence_fallback_negative_skill` (bands with no real lag fall back to labelled climatology). Distinct from v1 (`emem_jepa_predict`) which returns a single NDVI scalar via closed-form coefficients.",
+        when_to_use: "Use when you want a short-horizon forecast of NDVI / land-surface temperature / PM2.5 at a cell grounded in its attested history. Returns 422 with a `/v1/backfill` hint when the cell lacks enough cached lags. Always read the receipt's `model.honesty_warnings` — `untrained_baseline` means the trivial 'predict last vintage' baseline (treat as no-op), and `NEGATIVE_SKILL` means the served values are the persistence fallback, not a learned improvement. Check each band's `via` field to see whether its value came from the learned model, persistence, or climatology.",
         input_schema: SCHEMA_JEPA_PREDICT_V2,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78"}"#,
         level: "L0", category: ToolCategory::Read,

@@ -26,7 +26,7 @@ use emem_storage::{AsOfBound, Server, StorageError};
 use crate::binary_embedding::{
     hamming_distance, hamming_score, pack_bin128_slice, BIN_BYTES, BIN_DIMS,
 };
-use crate::cbor_ops::{as_vec_f32, cosine, eq, lt};
+use crate::cbor_ops::{as_vec_f32, cosine, cosine_finite, eq, lt};
 use crate::lance_index::{lance_disabled, LanceIndex};
 use crate::recall::build_as_of_bound;
 
@@ -483,6 +483,12 @@ pub async fn find_similar(
     // A cell passes when it has at least one fact under the scoring band
     // written under the caller's exact four-tuple.
     let mut scope_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    // `geotessera.multi_year` NaN-masks 404 vintages, so a plain cosine
+    // propagates NaN and the cell is silently dropped at the retain()
+    // below. Score those with the NaN-aware `cosine_finite` over the
+    // finite overlap. Single-vintage geotessera has no NaN — leave it on
+    // the faster plain-cosine path.
+    let multi_year = band.starts_with("geotessera.multi_year");
     for (key, cid) in entries {
         if key.band != band {
             continue;
@@ -559,7 +565,17 @@ pub async fn find_similar(
         }
         if let Fact::Primary(p) = fact {
             if let Some(vec) = as_vec_f32(&p.value) {
-                let score = cosine(&query_vec, &vec);
+                let score = if multi_year {
+                    // None = no finite overlap → unusable, skip the cell
+                    // (not the same as a low score; it has no comparable
+                    // dims at all).
+                    match cosine_finite(&query_vec, &vec) {
+                        Some(s) => s,
+                        None => continue,
+                    }
+                } else {
+                    cosine(&query_vec, &vec)
+                };
                 scored.push((make_neighbor(key.cell, score), cid));
             }
         }
@@ -1628,5 +1644,50 @@ mod tests {
         );
         assert_eq!(kept[1].cell, "b");
         assert_eq!(kept_cids[1], cid_b);
+    }
+
+    /// `geotessera.multi_year` NaN-masks 404 vintages. A candidate whose
+    /// vector carries a NaN-masked slice MUST still be ranked (scored over
+    /// its finite overlap), NOT silently dropped by a NaN-propagating
+    /// cosine. Regression guard for the silent-cell-drop bug.
+    #[tokio::test]
+    async fn multi_year_nan_masked_candidate_is_ranked_not_dropped() {
+        let storage = Arc::new(MockStorage::new());
+        let band = "geotessera.multi_year";
+        // Query: two 4-D "vintages" both fully finite.
+        storage.insert_vector("q", band, 0, vec![1.0, 0.0, 1.0, 0.0]);
+        // Candidate `nanny`: first vintage finite, second vintage masked
+        // (NaN). Under plain cosine this scores NaN → dropped. Under the
+        // NaN-aware path it scores over dims [0,1] only.
+        storage.insert_vector("nanny", band, 0, vec![0.99, 0.02, f32::NAN, f32::NAN]);
+        // A fully-finite candidate so the result list isn't trivially
+        // single-element.
+        storage.insert_vector("solid", band, 0, vec![0.1, 0.9, 0.1, 0.9]);
+
+        let srv = test_server(storage);
+        let req = FindSimilarReq {
+            key: "q".into(),
+            k: Some(8),
+            band: Some(band.into()),
+            filter: None,
+            mode: FindSimilarMode::Cosine,
+            ..Default::default()
+        };
+        let resp = find_similar(&req, &srv).await.expect("find_similar ok");
+
+        let cells: Vec<&str> = resp.neighbors.iter().map(|n| n.cell.as_str()).collect();
+        assert!(
+            cells.contains(&"nanny"),
+            "NaN-masked candidate must be ranked, not dropped; got {cells:?}"
+        );
+        // Its score must be finite and high (the finite dims [0.99,0.02]
+        // align with the query's [1.0,0.0]).
+        let nanny = resp
+            .neighbors
+            .iter()
+            .find(|n| n.cell == "nanny")
+            .expect("nanny present");
+        assert!(nanny.score.is_finite(), "score must be finite, got {}", nanny.score);
+        assert!(nanny.score > 0.9, "finite-overlap cosine should be high, got {}", nanny.score);
     }
 }
