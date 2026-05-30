@@ -71,12 +71,12 @@ When a band genuinely has no data at a cell (the encoder is offline, the place i
 curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
   -d '{"q":"Bengaluru"}' | jq .cell64
-# "defi.zb493.xoso.zcb6a"
+# "defi.zb493.xuqA.zcb5f"   # (geocoder result — may drift)
 
 # Recall a band at that cell (auto-fetched if cold).
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xoso.zcb6a","bands":["weather.temperature_2m"]}' \
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["weather.temperature_2m"]}' \
   | jq '.facts[0]'
 
 # Ask a free-text question; the foundation-embedding fan-out fires
@@ -84,7 +84,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 curl -s -X POST https://emem.dev/v1/ask \
   -H 'content-type: application/json' \
   -d '{"q":"find places like Yellowstone","place":"Yellowstone National Park"}' \
-  | jq '.foundation_embeddings'
+  | jq '.answer'
 
 # Hunter mode: discover event hotspots over a named region. The same
 # classifier reads "find <event> in <region>" from /v1/ask and routes
@@ -110,7 +110,7 @@ CELL=$(curl -s -X POST https://emem.dev/v1/locate \
 # 2. Recall a band and capture the receipt envelope.
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d "{\"cell\":\"$CELL\",\"band\":\"indices.ndvi\"}" > /tmp/recall.json
+  -d "{\"cell\":\"$CELL\",\"bands\":[\"indices.ndvi\"]}" > /tmp/recall.json
 
 jq '.receipt | {primitive, served_at, responder_pubkey_b32, fact_cids, merkle_proof: .merkle_proof.root}' \
   /tmp/recall.json
@@ -155,7 +155,7 @@ Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending
 
 ## Primitives
 
-70 MCP tools (10 core, 60 extended), 90+ documented REST paths under `/v1/*`, surfaced through `/openapi.json`. Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). Tier-based progressive disclosure: `tools/list` returns 10 core tools by default; pass `{"tier":"all"}` for the full catalog. Tools remain callable via `tools/call` regardless of tier.
+75 MCP tools (10 core, 65 extended), 87 documented REST paths under `/v1/*`, surfaced through `/openapi.json`. Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). Tier-based progressive disclosure: `tools/list` returns 10 core tools by default; pass `{"tier":"all"}` for the full catalog. Tools remain callable via `tools/call` regardless of tier.
 
 - **Locate:** name or lat/lng → `cell64`. Five-layer cascade: wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim. Polygon geometry from Overture `divisions/division_area`. District-level queries reroute through Overture when Nominatim returns a POI courthouse.
 - **Memory substrate** (state + tokens + bundles + memory files + search + contradictions + SSE): `POST /v1/state` returns a signed dense per-place embedding (`view=encoder` default 128-D, `view=cube` full 1792-D). `POST /v1/state_multi` fans across `geotessera` + `clay_v1` + `prithvi_eo2` + `galileo`. `POST /v1/state_diff` returns residual + L2 + cosine between two vintages. `POST /v1/memory_token` composes `memt:<cell64>:<fact_cid>`. `POST /v1/memory_bundle` composes a signed envelope `memb:<bundle_cid>` over N (cell, band, tslot) triples. Six MCP file-op verbs (`memory_view`, `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`) conform to Anthropic's memory-tool spec; every write is ed25519-signed and content-addressed. Paths under `/memories/by_attester/<pubkey>/...` enforce capability binding (ed25519 signature over `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`). Each file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`). `POST /v1/memory/search` does BGE-768 semantic search over file contents via a LanceDB IVF_PQ partition. `POST /v1/memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind (scalar / vector / categorical). `GET /v1/memory/sse?path_prefix=&kind=&attester=` streams write events with server-side filter. Every read primitive accepts `as_of_tslot` + `as_of_signed_at` for bi-temporal queries (valid-time + transaction-time); the receipt carries an `as_of` block when set. See [`docs/memory.md`](docs/memory.md) for the full reference.
@@ -194,7 +194,7 @@ Designed for agents to read, not for humans to remember:
 ```
 GET /openapi.json                  — OpenAPI 3.1 of every REST route
 GET /v1/agent_card                 — live capability snapshot + manifest CIDs
-GET /v1/tools                      — 70 MCP tools (10 core, 60 extended) with when_to_use + annotations
+GET /v1/tools                      — 75 MCP tools (10 core, 65 extended) with when_to_use + annotations
 GET /v1/algorithms?summary=true    — 159 algorithm keys + categories
 GET /v1/topics                     — 27 topic-grouped bands + algorithms (router brain)
 GET /v1/manifests                  — bands_cid, algorithms_cid, sources_cid, schema_cid
@@ -236,7 +236,7 @@ No required env vars. `EMEM_BIND` overrides the listener (default `0.0.0.0:5051`
 
 | field   | bits         | wire form                        | example                    |
 |---------|--------------|----------------------------------|----------------------------|
-| `cell`  | 64           | four base-1024 bigrams, dot-sep  | `defi.zb493.xoso.zcb6a`    |
+| `cell`  | 64           | four base-1024 bigrams, dot-sep  | `defi.zb493.xuqA.zcb5f`    |
 | `tslot` | 64           | base32-nopad-leb128, `t.` prefix | `t.aaaaagy`                |
 | `cid`   | 32 B BLAKE3  | base32-nopad-lowercase, 26 chars | `qi3jo4sqcg…l2hgjtwm`      |
 | `vec`   | 1792-D fp16  | 12-byte prefix in receipts       | full vector via `recall`   |

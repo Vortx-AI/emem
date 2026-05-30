@@ -554,7 +554,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="idx"><span class="idx-num">00</span><span class="idx-label">Grounding</span></div>
     <dl>
       <dt>tokens for text</dt><dd>"the brown fox" &rarr; [47891, 14127, 31206]</dd>
-      <dt>tokens for Earth</dt><dd>19.07&deg;N 72.87&deg;E &rarr; <span class="cell">defi.zb4d9.pefa.zf619</span></dd>
+      <dt>tokens for Earth</dt><dd>18.98&deg;N 72.82&deg;E &rarr; <span class="cell">defi.zb4d7.ze56c.zf24c</span></dd>
       <dt>both</dt><dd>compact, content-addressed, model-agnostic</dd>
       <dt>diff</dt><dd>text tokens are private to one model; Earth tokens are shared across every agent</dd>
     </dl>
@@ -577,9 +577,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="memt-body">
 <pre style="font-family:var(--mono);font-size:var(--t-sm);line-height:1.5;margin:0;color:var(--ink-2);overflow-x:auto;white-space:pre">  TEXT TOKENS                          EARTH TOKENS (cell64)
   &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;                          &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;
-  &quot;the brown fox&quot;                      19.07&deg;N  72.87&deg;E
+  &quot;the brown fox&quot;                      18.98&deg;N  72.82&deg;E
         &darr;  tokeniser                          &darr;  cell_from_latlng
-  [47891, 14127, 31206]                defi.zb4d9.pefa.zf619
+  [47891, 14127, 31206]                defi.zb4d7.ze56c.zf24c
         &darr;  embedding (private)                &darr;  recall (signed)
   1024-D vector,                       { band, value, fact_cid,
   model-specific,                        ed25519 signature,
@@ -791,11 +791,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p class="lede">Every cell with at least one signed fact, on a plate-carrée projection. The dots cluster where the lazy materialiser has been busy. Every miss anywhere on the globe extends the map forward by one cell.</p>
 
     <div class="stats">
-      <div class="stat"><div class="n">72<span class="small">/ REST</span></div><div class="lbl">OpenAPI /v1 paths</div></div>
-      <div class="stat"><div class="n">65<span class="small">/ MCP</span></div><div class="lbl">read-only tools</div></div>
+      <div class="stat"><div class="n">87<span class="small">/ REST</span></div><div class="lbl">OpenAPI /v1 paths</div></div>
+      <div class="stat"><div class="n">75<span class="small">/ MCP</span></div><div class="lbl">tools (10 advertised by default; fetch the rest via the <code>tier:extended</code> cursor)</div></div>
       <div class="stat"><div class="n">159</div><div class="lbl">algorithms registered</div></div>
-      <div class="stat"><div class="n">42<span class="small">/ 46</span></div><div class="lbl">bands / upstream sources</div></div>
+      <div class="stat"><div class="n">42<span class="small">/ 46</span></div><div class="lbl">cube slots / upstream sources</div></div>
     </div>
+    <p style="font-size:var(--t-sm);color:var(--mute);margin:.6rem 0 0">Four band counts measure different things, like the agent_card's <code>band_taxonomy</code> reconciles them: <b>42</b> cube slots (top-level keys in the 1792-D voxel layout), <b>122</b> materializer-wired band names (auto-fetched on a recall miss), <b>159</b> algorithm recipes, and <b>75</b> MCP/REST tools. An MCP client that shows only 10 tools is seeing the core tier — all 75 are callable; pass <code>{"tier":"all"}</code> or follow the <code>tier:extended</code> cursor for the full catalogue.</p>
 
     <div class="coverage">
       <div class="coverage-head">
@@ -898,14 +899,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <pre id="code-locate"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/locate</span> \
     <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
     <span class="tok-flag">-d</span> <span class="tok-s">'{"q":"South Mumbai"}'</span> | <span class="tok-k">jq</span> .cell64
-<span class="tok-s">"defi.zb4d9.pefa.zf619"</span></code></pre>
+<span class="tok-s">"defi.zb4d7.ze56c.zf24c"</span></code></pre>
     </div>
 
     <div class="code">
       <div class="code-head"><span class="lang">SH</span><span class="tab">step 2 · recall</span><span class="spacer"></span><button class="copy" data-copy-target="#code-recall">copy</button></div>
 <pre id="code-recall"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \
     <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d9.pefa.zf619",
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d7.ze56c.zf24c",
          "bands":["copdem30m.elevation_mean"]}'</span></code></pre>
     </div>
 
@@ -918,7 +919,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <span class="tok-k">with</span> Client() <span class="tok-k">as</span> em:
     cell  = em.locate(<span class="tok-s">"South Mumbai"</span>)[<span class="tok-s">"cell64"</span>]
     facts = em.recall(cell, bands=[<span class="tok-s">"copdem30m.elevation_mean"</span>])
-    <span class="tok-k">print</span>(facts[<span class="tok-s">"facts"</span>][<span class="tok-cmd">0</span>][<span class="tok-s">"value"</span>])  <span class="tok-cmd"># 6.0</span></code></pre>
+    <span class="tok-k">print</span>(facts[<span class="tok-s">"facts"</span>][<span class="tok-cmd">0</span>][<span class="tok-s">"value"</span>])  <span class="tok-cmd"># 10.0</span></code></pre>
     </div>
 
     <div class="code">
@@ -928,7 +929,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <span class="tok-k">const</span> em    = <span class="tok-k">new</span> Client();
 <span class="tok-k">const</span> loc   = <span class="tok-k">await</span> em.locate({ place: <span class="tok-s">"South Mumbai"</span> });
 <span class="tok-k">const</span> facts = <span class="tok-k">await</span> em.recall({ cell: loc.cell64, bands: [<span class="tok-s">"copdem30m.elevation_mean"</span>] });
-<span class="tok-k">console</span>.log(facts.facts[<span class="tok-cmd">0</span>].value);  <span class="tok-cmd">// 6.0</span></code></pre>
+<span class="tok-k">console</span>.log(facts.facts[<span class="tok-cmd">0</span>].value);  <span class="tok-cmd">// 10.0</span></code></pre>
     </div>
 
     <p>The same response, parsed for the human eye:</p>
@@ -936,21 +937,21 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="fact">
       <div class="fact-head">
         <span class="signed">SIGNED · ed25519</span><span>·</span>
-        <span class="ts">2026-05-15T11:17:00Z</span><span>·</span>
+        <span class="ts">2026-05-16T18:58:04Z</span><span>·</span>
         <span>via copdem30m</span>
       </div>
       <div class="fact-grid">
-        <span class="k">value</span><span class="v big">6.0<span class="unit">m above mean sea level</span></span>
-        <span class="k">cell64</span><span class="v">defi.zb4d9.pefa.zf619</span>
+        <span class="k">value</span><span class="v big">10.0<span class="unit">m above mean sea level</span></span>
+        <span class="k">cell64</span><span class="v">defi.zb4d7.ze56c.zf24c</span>
         <span class="k">band</span><span class="v">copdem30m.elevation_mean</span>
         <span class="k">tslot</span><span class="v">0&nbsp;<span style="color:var(--mute)">(static)</span></span>
-        <span class="k">fact_cid</span><span class="v cid">wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</span>
+        <span class="k">fact_cid</span><span class="v cid">4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</span>
         <span class="k">signed_by</span><span class="v cid">777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka</span>
       </div>
       <div class="fact-verify">
         <span class="check">verified</span>
         <span>Signature recomputable offline against the responder pubkey.</span>
-        <a href="/verify/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q" style="margin-left:auto">/verify</a>
+        <a href="/verify/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma" style="margin-left:auto">/verify</a>
       </div>
     </div>
 
@@ -963,13 +964,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="code">
       <div class="code-head"><span class="lang">SH</span><span class="tab">find_similar · cosine over 128-D Tessera</span><span class="spacer"></span><button class="copy" data-copy-target="#code-similar">copy</button></div>
 <pre id="code-similar"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/find_similar</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"key":"defi.zb493.xoso.zcb6a","k":3}'</span></code></pre>
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"key":"defi.zb493.xuqA.zcb5f","k":3}'</span></code></pre>
     </div>
 
     <div class="fact">
       <div class="fact-head">
         <span class="signed">NEIGHBOURS · cosine</span><span>·</span>
-        <span>seed defi.zb493.xoso.zcb6a (Bengaluru)</span>
+        <span>seed defi.zb493.xuqA.zcb5f (Bengaluru)</span>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:var(--t-sm)">
         <thead>
@@ -1057,10 +1058,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
       <div class="memt-body">
         <div class="memt-grammar"><b>format:</b> <code>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</code></div>
-        <div class="memt-example">memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q</div>
+        <div class="memt-example">memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</div>
         <div class="memt-parts">
-          <span class="k">cell</span><span><code>defi.zb4d9.pefa.zf619</code> &nbsp;(South Mumbai, 18.95&deg;N 72.83&deg;E)</span>
-          <span class="k">fact</span><span><code>copdem30m.elevation_mean = 6.0 m</code> via Copernicus DEM, signed</span>
+          <span class="k">cell</span><span><code>defi.zb4d7.ze56c.zf24c</code> &nbsp;(South Mumbai, 18.98&deg;N 72.82&deg;E)</span>
+          <span class="k">fact</span><span><code>copdem30m.elevation_mean = 10.0 m</code> via Copernicus DEM, signed</span>
           <span class="k">resolve</span><span><code>GET /v1/facts/&lt;fact_cid&gt;</code> returns the same bytes on any responder, forever</span>
           <span class="k">compose</span><span><code>POST /v1/memory_token {"cell":"&hellip;","fact_cid":"&hellip;"}</code></span>
         </div>
@@ -1077,7 +1078,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
       <div class="memt-body">
         <div class="memt-grammar"><b>endpoint:</b> <code>POST /v1/state {"cell":"&lt;place|cell64&gt;","encoder":"geotessera"}</code></div>
-        <div class="memt-example">{"cell":"defi.zb4d9.pefa.zf619","encoder":"geotessera","dim":128,"vector":[0.043,-0.115,&hellip;],"l2_norm":3.71,"fact_cid":"&hellip;","memory_token":"memt:&hellip;","receipt":{&hellip;}}</div>
+        <div class="memt-example">{"cell":"defi.zb4d7.ze56c.zf24c","encoder":"geotessera","dim":128,"vector":[0.043,-0.115,&hellip;],"l2_norm":3.71,"fact_cid":"&hellip;","memory_token":"memt:&hellip;","receipt":{&hellip;}}</div>
         <div class="memt-parts">
           <span class="k">read</span><span>the dense state for any cell on Earth in one round-trip, signed and content-addressed</span>
           <span class="k">steer</span><span>drop the vector into your LLM's context, or feed it to <code>/v1/find_similar</code> to ask "what looks like this place?"</span>
@@ -1250,7 +1251,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
     <p style="margin-top:1.5rem">
       <a class="btn" href="https://eudr.dev">Open eudr.dev &rarr;</a>
-      <a class="btn ghost" href="/v1/eudr_dds">/v1/eudr_dds</a>
+      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/eudr_dds</code>
       <a class="btn ghost" href="/v1/schemas/eudr_dds.json">Annex II JSON Schema</a>
     </p>
 
@@ -1283,6 +1284,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <a class="btn ghost" href="/v1/soil?place=Mato+Grosso">/v1/soil</a>
       <a class="btn ghost" href="/v1/ndvi?place=Mato+Grosso">/v1/ndvi</a>
     </p>
+    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.4rem">These open raw JSON in the browser &mdash; up to ~30&nbsp;s on a cold cell while the materialiser fetches upstream, then ~10&nbsp;ms warm.</p>
   </div>
 </section>
 
@@ -1335,7 +1337,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
     <p style="margin-top:1.5rem">
       <a class="btn" href="/v1/locate?place=Chikmagalur+Karnataka">/v1/locate &rarr;</a>
-      <a class="btn ghost" href="/v1/recall">/v1/recall</a>
+      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/recall</code>
       <a class="btn ghost" href="/verify">/verify</a>
     </p>
   </div>
@@ -1401,10 +1403,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="code">
       <div class="code-head"><span class="lang">SH</span><span class="tab">compose · /v1/memory_token</span><span class="spacer"></span><button class="copy" data-copy-target="#code-memt">copy</button></div>
 <pre id="code-memt"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/memory_token</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d9.pefa.zf619",
-         "fact_cid":"wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q"}'</span>
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d7.ze56c.zf24c",
+         "fact_cid":"4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma"}'</span>
 
-<span class="tok-p">{</span> <span class="tok-key">"memory_token"</span>: <span class="tok-s">"memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr…m5q"</span>,
+<span class="tok-p">{</span> <span class="tok-key">"memory_token"</span>: <span class="tok-s">"memt:defi.zb4d7.ze56c.zf24c:4qakixs4xc…k5ma"</span>,
   <span class="tok-key">"grammar"</span>: <span class="tok-s">"memt:&lt;cell64&gt;:&lt;fact_cid&gt;"</span>,
   <span class="tok-key">"docs"</span>: <span class="tok-s">"/whitepaper.md#195-memory-token-format"</span> <span class="tok-p">}</span></code></pre>
     </div>
@@ -1801,7 +1803,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     'gemini':         { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">gemini</span> extensions install \\\n    <span class="tok-u">https://emem.dev/gemini-extension.json</span>' },
     'openai':         { file: 'GPT builder', body: '<span class="tok-c"># Custom GPT, Actions, Import from URL</span>\n<span class="tok-u">https://emem.dev/openapi.action.json</span>\n\n<span class="tok-c"># No API key. Reads are open.</span>' },
     'stdio':          { file: 'shell', body: '<span class="tok-c"># For runtimes without native Streamable-HTTP MCP</span>\n<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"command"</span><span class="tok-p">:</span> <span class="tok-s">"npx"</span><span class="tok-p">,</span>\n      <span class="tok-key">"args"</span><span class="tok-p">:</span> [<span class="tok-s">"-y"</span><span class="tok-p">,</span> <span class="tok-s">"mcp-remote"</span><span class="tok-p">,</span> <span class="tok-s">"https://emem.dev/mcp"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
-    'rest':           { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \\\n    <span class="tok-flag">-H</span> <span class="tok-s">\'content-type: application/json\'</span> \\\n    <span class="tok-flag">-d</span> <span class="tok-s">\'{"cell":"defi.zb4d9.pefa.zf619",\n         "bands":["copdem30m.elevation_mean"]}\'</span>' }
+    'rest':           { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \\\n    <span class="tok-flag">-H</span> <span class="tok-s">\'content-type: application/json\'</span> \\\n    <span class="tok-flag">-d</span> <span class="tok-s">\'{"cell":"defi.zb4d7.ze56c.zf24c",\n         "bands":["copdem30m.elevation_mean"]}\'</span>' }
   };
   tabs.forEach(function(tab){
     tab.addEventListener('click', function(){
@@ -1833,8 +1835,8 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
   // Try-it console. Only entries with verified CIDs and values from docs/agents.md and the homepage. No fabricated CIDs.
   var responses = {
-    'South Mumbai': { cell: 'defi.zb4d9.pefa.zf619', lat: 18.95, lng: 72.83, band: 'copdem30m.elevation_mean', value: 6.0, unit: 'm', cid: 'wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q' },
-    'Bengaluru':    { cell: 'defi.zb493.xoso.zcb6a', lat: 12.971641, lng: 77.594609, band: 'copdem30m.elevation_mean', value: 910.0, unit: 'm', cid: 'cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq' }
+    'South Mumbai': { cell: 'defi.zb4d7.ze56c.zf24c', lat: 18.975243, lng: 72.823966, band: 'copdem30m.elevation_mean', value: 10.0, unit: 'm', cid: '4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma' },
+    'Bengaluru':    { cell: 'defi.zb493.xuqA.zcb5f', lat: 12.971899, lng: 77.593665, band: 'copdem30m.elevation_mean', value: 918.0, unit: 'm', cid: 'yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala' }
   };
   var input = document.getElementById('tryit-place');
   var go = document.getElementById('tryit-go');

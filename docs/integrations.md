@@ -27,14 +27,14 @@ Response shape:
 
 ```json
 {
-  "cell":         "defi.zb4d9.pefa.zf619",
+  "cell":         "defi.zb4d7.ze56c.zf24c",
   "encoder":      "geotessera",
   "dim":          128,
   "vector":       [0.043, -0.115, 0.298, ... ],
   "l2_norm":      3.7146,
   "tslot":        54,
   "fact_cid":     "<26 chars base32-nopad-lowercase>",
-  "memory_token": "memt:defi.zb4d9.pefa.zf619:<fact_cid>",
+  "memory_token": "memt:defi.zb4d7.ze56c.zf24c:<fact_cid>",
   "receipt":      { /* signed ed25519 over canonical blake3 preimage */ }
 }
 ```
@@ -76,7 +76,7 @@ A canonical token, copy-pasteable, resolves to the South Mumbai
 elevation example used throughout this site:
 
 ```
-memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
+memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 ```
 
 ### Compose
@@ -85,8 +85,8 @@ memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
 curl -sX POST https://emem.dev/v1/memory_token \
   -H 'content-type: application/json' \
   -d '{
-    "cell":     "defi.zb4d9.pefa.zf619",
-    "fact_cid": "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q"
+    "cell":     "defi.zb4d7.ze56c.zf24c",
+    "fact_cid": "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma"
   }'
 ```
 
@@ -94,9 +94,9 @@ Response:
 
 ```json
 {
-  "memory_token": "memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
-  "cell":         "defi.zb4d9.pefa.zf619",
-  "fact_cid":     "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
+  "memory_token": "memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
+  "cell":         "defi.zb4d7.ze56c.zf24c",
+  "fact_cid":     "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
   "grammar":      "memt:<cell64>:<fact_cid>",
   "docs":         "/whitepaper.md#194-memory-tokens"
 }
@@ -111,7 +111,7 @@ convenience round-trip.
 The third segment of a token is the fact CID. To pull the signed bytes:
 
 ```bash
-curl -sS https://emem.dev/v1/facts/wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
+curl -sS https://emem.dev/v1/facts/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 ```
 
 That returns the canonical CBOR (or JSON when you ask for it) of the
@@ -148,7 +148,7 @@ long_term_memory.set(user_intent, token)
 # next session: same byte-identical fact.
 token = long_term_memory.get(user_intent)
 fact  = client.resolve_memory_token(token)  # GET /v1/facts/<cid>
-print(fact["value"], fact["unit"])  # 6.0 m above mean sea level
+print(fact["value"], fact["unit"])  # 10.0 m above mean sea level
 ```
 
 The contract: the token survives the conversation that minted it. Two
@@ -182,9 +182,9 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
   -H 'content-type: application/json' \
   -d '{
     "triples": [
-      {"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},
-      {"cell":"defi.zb4d9.pefa.zf619","band":"surface_water.recurrence"},
-      {"cell":"defi.zb4d9.pefa.zf619","band":"hansen.loss_year"}
+      {"cell":"defi.zb4d7.ze56c.zf24c","band":"copdem30m.elevation_mean"},
+      {"cell":"defi.zb4d7.ze56c.zf24c","band":"surface_water.recurrence"},
+      {"cell":"defi.zb4d7.ze56c.zf24c","band":"hansen.loss_year"}
     ],
     "purpose":"flood-risk site assessment 2026-05"
   }' | jq '.bundle_token'
@@ -269,7 +269,7 @@ auditor in year *t+k* replays a year-*t* query byte-for-byte:
 
 ```bash
 curl -sX POST https://emem.dev/v1/recall \
-  -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["copdem30m.elevation_mean"],"as_of_signed_at":"2026-05-01T00:00:00Z"}' \
+  -d '{"cell":"defi.zb4d7.ze56c.zf24c","bands":["copdem30m.elevation_mean"],"as_of_signed_at":"2026-05-01T00:00:00Z"}' \
   | jq '.receipt.as_of'
 # {"transaction_time":"2026-05-01T00:00:00Z"}
 ```

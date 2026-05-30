@@ -12,13 +12,13 @@ The same call, five ways. Pick the one that matches your stack.
 curl -sX POST https://emem.dev/v1/locate \
     -H 'content-type: application/json' \
     -d '{"q":"South Mumbai"}' | jq .cell64
-# "defi.zb4d9.pefa.zf619"
+# "defi.zb4d7.ze56c.zf24c"   # (geocoder result — may drift)
 
 curl -sX POST https://emem.dev/v1/recall \
     -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb4d9.pefa.zf619",
+    -d '{"cell":"defi.zb4d7.ze56c.zf24c",
          "bands":["copdem30m.elevation_mean"]}' | jq '.facts[0].value'
-# 6.0
+# 10.0
 ```
 
 ### Python
@@ -29,7 +29,7 @@ from emem import Client
 with Client() as em:
     cell  = em.locate("South Mumbai")["cell64"]
     facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
-    print(facts["facts"][0]["value"])   # 6.0
+    print(facts["facts"][0]["value"])   # 10.0
 ```
 
 Install from the repo while the PyPI release is in flight:
@@ -46,7 +46,7 @@ import { Client } from "@emem/client";
 const em    = new Client();
 const loc   = await em.locate({ place: "South Mumbai" });
 const facts = await em.recall({ cell: loc.cell64, bands: ["copdem30m.elevation_mean"] });
-console.log(facts.facts[0].value);   // 6.0
+console.log(facts.facts[0].value);   // 10.0
 ```
 
 Until the npm release lands, install from the repo:
@@ -87,7 +87,7 @@ func main() {
         "cell":  loc["cell64"],
         "bands": []string{"copdem30m.elevation_mean"},
     })
-    fmt.Println(facts["facts"].([]any)[0].(map[string]any)["value"])  // 6
+    fmt.Println(facts["facts"].([]any)[0].(map[string]any)["value"])  // 10
 }
 ```
 
@@ -106,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
             "cell":  loc["cell64"],
             "bands": ["copdem30m.elevation_mean"],
         })).send().await?.json().await?;
-    println!("{}", facts["facts"][0]["value"]);  // 6.0
+    println!("{}", facts["facts"][0]["value"]);  // 10.0
     Ok(())
 }
 ```
@@ -132,7 +132,7 @@ back to emem.dev:
 # Get a receipt
 curl -sX POST https://emem.dev/v1/recall \
     -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb4d9.pefa.zf619",
+    -d '{"cell":"defi.zb4d7.ze56c.zf24c",
          "bands":["copdem30m.elevation_mean"]}' > out.json
 
 # Verify it (server endpoint, but the math is reproducible client-side)

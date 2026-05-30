@@ -78,7 +78,7 @@ print("fact_cid:", rec["receipt"]["fact_cids"][0])
 ```json
 { "jsonrpc": "2.0", "id": 2, "method": "tools/call",
   "params": { "name": "emem_recall",
-              "arguments": {"cell": "defi.zb493.xoso.zcb6a",
+              "arguments": {"cell": "defi.zb493.xuqA.zcb5f",
                             "bands": ["weather.temperature_2m"]} } }
 ```
 
@@ -242,7 +242,7 @@ call means verifying each cell's receipt independently.
 BASE=https://emem.dev
 curl -sf -X POST $BASE/v1/recall_many -H 'content-type: application/json' \
   -d '{
-    "cells": ["defi.zb493.xoso.zcb6a", "defi.zb5cf.nura.zd83c",
+    "cells": ["defi.zb493.xuqA.zcb5f", "defi.zb5cf.nura.zd83c",
               "defi.zb0ff.bdne.zb73e"],
     "bands": ["weather.temperature_2m", "indices.ndvi"]
   }' | jq '.by_cell | to_entries[] | {cell: .key, facts: (.value.facts|length)}'
@@ -311,7 +311,7 @@ agent demos.
 BASE=https://emem.dev
 curl -sf -X POST $BASE/v1/heat_solve -H 'content-type: application/json' \
   -d '{
-    "cell": "defi.zb493.xoso.zcb6a",
+    "cell": "defi.zb493.xuqA.zcb5f",
     "horizon_hours": 24,
     "step_seconds": 3600
   }' | jq '{steps, max_temp_k: .max_temp_k, avg_temp_k: .avg_temp_k}'
@@ -350,7 +350,7 @@ verification, or similarity in a Claude Code session. See each
 - `https://emem.dev/agents.md` — consumer-agent ontology + recipes
 - `https://emem.dev/humans` — interactive console where every `/v1/*`
   call prints in a live log pane
-- `https://emem.dev/mcp` — JSON-RPC 2.0 MCP endpoint (70 tools — 10 core, 60 extended)
+- `https://emem.dev/mcp` — JSON-RPC 2.0 MCP endpoint (75 tools — 10 core, 65 extended)
 
 ## License
 

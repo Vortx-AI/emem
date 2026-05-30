@@ -17,7 +17,7 @@
   <!-- chart: 14-day temperature curve, threshold line, trigger event -->
   <g transform="translate(160,240)">
     <text x="0" y="0" font-size="14" fill="#9aa3b8" letter-spacing="2">2 M AIR TEMPERATURE · BENGALURU · 14 DAYS · °C</text>
-    <text x="1600" y="0" text-anchor="end" font-size="13" fill="#6c7396">band: weather.temperature_2m · cell: defi.zb493.xoso.zcb6a</text>
+    <text x="1600" y="0" text-anchor="end" font-size="13" fill="#6c7396">band: weather.temperature_2m · cell: defi.zb493.xuqA.zcb5f</text>
 
     <!-- axes -->
     <g stroke="#2a335f" stroke-width="1">
