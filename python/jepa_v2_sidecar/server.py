@@ -130,6 +130,33 @@ GALILEO_S1_STD: list[float] = [4.887145774840316, 5.730270320384293]
 #   SRTM slope:     mean 5.930092668915115, std 8.167406789813247  (degrees)
 GALILEO_SRTM_MEAN: list[float] = [673.0152819503361, 5.930092668915115]
 GALILEO_SRTM_STD: list[float] = [983.0697298296237, 8.167406789813247]
+# TerraClimate (def, soil, aet) — Galileo's TIME modality. Same upstream
+# Normalizer scheme (std=True, std_multiplier=2): all TIME_BANDS are in the
+# Normalizer's `std_bands` set (galileo/src/data/dataset.py Normalizer,
+# `std_bands[len(TIME_BANDS)] = TIME_BANDS`), so x_norm = (x - (mean-2σ))/(4σ).
+# Stats are the mean/std from Galileo's config/normalization.json keyed by
+# band-group length: the TIME-group vector has length len(TIME_BANDS)=6, so
+# it lives under JSON key "6" (TIME_BANDS = ERA5[2] + TC[3] + VIIRS[1]).
+# TerraClimate occupies indices 2,3,4 (def, soil, aet) — verified against
+# single_file_galileo.py `TC_BANDS = ["def","soil","aet"]` and
+# `TIME_BANDS.index` for each. Values are in raw Google Earth Engine band
+# scale (DN = physical_mm / 0.1), matching the upstream ingest
+# (galileo/src/data/earthengine/terraclimate.py: select(TC_BANDS).toDouble(),
+# no scale applied). Verified against nasaharvest/galileo @ main 2026-05-30.
+# arXiv:2502.09356.
+#   TC def (idx 2): mean 657.3181260091111, std 704.0008695557707  (GEE DN)
+#   TC soil (idx 3): mean 692.1291795806885, std 925.0116126406431 (GEE DN)
+#   TC aet (idx 4): mean 562.781331880633,  std 453.2434022278578  (GEE DN)
+GALILEO_TC_MEAN: list[float] = [
+    657.3181260091111,
+    692.1291795806885,
+    562.781331880633,
+]
+GALILEO_TC_STD: list[float] = [
+    704.0008695557707,
+    925.0116126406431,
+    453.2434022278578,
+]
 
 # Galileo (base) chip shape — 8×8 pixels sampled at 30 m = 240 m extent
 # centred on the cell. Patch_size=2 → 4×4 token grid (16 tokens per
@@ -986,6 +1013,10 @@ class GalileoRequest(BaseModel):
     srtm_chip: list[list[list[float]]] | None = Field(
         default=None, description="DEM elevation+slope chip, shape [H=8, W=8, 2]"
     )
+    tc_chip: list[list[float]] | None = Field(
+        default=None,
+        description="TerraClimate def+soil+aet chip (raw GEE DN), shape [T=1, C=3]",
+    )
     month: int | None = Field(
         default=None, ge=1, le=12, description="month-of-year 1..12"
     )
@@ -1053,6 +1084,22 @@ class GalileoRequest(BaseModel):
                     raise ValueError(
                         f"srtm_chip must have 2 bands elevation,slope (got {len(px)})"
                     )
+        return v
+
+    @field_validator("tc_chip")
+    @classmethod
+    def check_tc_shape(
+        cls, v: list[list[float]] | None
+    ) -> list[list[float]] | None:
+        if v is None:
+            return v
+        if len(v) != GALILEO_CHIP_T:
+            raise ValueError(f"tc_chip outer (T) must be {GALILEO_CHIP_T} (got {len(v)})")
+        for step in v:
+            if len(step) != 3:
+                raise ValueError(
+                    f"tc_chip must have 3 bands def,soil,aet (got {len(step)})"
+                )
         return v
 
 
@@ -1489,13 +1536,14 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
     at sidecar startup; the response carries `model.model_id` so callers
     know which variant produced the embedding.
 
-    S2 is always fed. S1 (VV,VH γ0 dB) and SRTM (elevation, slope) are
-    fed when `s1_chip` / `srtm_chip` are present in the request — their
-    group masks flip to 0 (seen) and each gets its per-modality
-    (mean-2σ)/(4σ) normalization (Galileo's upstream Normalizer scheme,
-    std=True; arXiv:2502.09356). Modalities not supplied (and ERA5, TC,
-    VIIRS, DW, WC, LandScan, location which emem doesn't yet wire) stay
-    zero-filled + masked-absent. The encoder is robust to this — it was
+    S2 is always fed. S1 (VV,VH γ0 dB), SRTM (elevation, slope) and TC
+    (TerraClimate def/soil/aet, the TIME group) are fed when `s1_chip` /
+    `srtm_chip` / `tc_chip` are present in the request — their group masks
+    flip to 0 (seen) and each gets its per-modality (mean-2σ)/(4σ)
+    normalization (Galileo's upstream Normalizer scheme, std=True;
+    arXiv:2502.09356). Modalities not supplied (and ERA5, VIIRS, DW, WC,
+    LandScan, location which emem doesn't yet wire) stay zero-filled +
+    masked-absent. The encoder is robust to this — it was
     trained with the full mask schedule. Returns the average-pooled token
     output (768-D base; config.json embedding_size) per the canonical
     Galileo embedding recipe (cf. visualizing_embeddings.py upstream).
@@ -1602,6 +1650,27 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
         (len(STATIC_BAND_GROUPS_IDX),), dtype=torch.float, device=device
     )
 
+    # ── TerraClimate (def, soil, aet) into the TIME tensor when provided ─
+    # The TIME tensor has no spatial dimension (`t_x` is [T, len(TIME_BANDS)]).
+    # We fill the three TC band slots and flip the TC group mask to seen;
+    # ERA5 + VIIRS stay masked-absent (emem doesn't wire them). Same upstream
+    # Normalizer scheme as the other std_bands: x_norm = (x - (mean-2σ))/(4σ).
+    tc_fed = False
+    if req.tc_chip is not None:
+        from single_file_galileo import TC_BANDS  # noqa: WPS433
+
+        tc_arr = np.asarray(req.tc_chip, dtype=np.float32)  # [T, 3] (def,soil,aet)
+        tc_shift, tc_div = _galileo_modality_shift_div(GALILEO_TC_MEAN, GALILEO_TC_STD)
+        tc_n = (tc_arr - tc_shift) / tc_div
+        tc_n = np.nan_to_num(tc_n, nan=0.0, posinf=0.0, neginf=0.0)
+        tc_t = torch.from_numpy(tc_n).contiguous().to(device)  # [T, 3]
+        tc_indices = [TIME_BANDS.index(b) for b in TC_BANDS]  # [2, 3, 4]
+        t_x[:, tc_indices] = tc_t
+        tc_group = [i for i, k in enumerate(TIME_BAND_GROUPS_IDX) if k == "TC"]
+        t_m[:, tc_group] = 0  # seen
+        modality_subset.append("tc")
+        tc_fed = True
+
     month = int(req.month) if req.month is not None else 7  # July default
     months = torch.full((t,), month, dtype=torch.long, device=device)
 
@@ -1619,13 +1688,18 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
     st_m = st_m.unsqueeze(0)
     months = months.unsqueeze(0)
 
+    # Time mask: when TerraClimate is fed, `t_m` already has the TC group
+    # flipped to seen (0) with ERA5/VIIRS still masked-absent (1), so pass
+    # it through. When no TIME modality is fed, force all-ones so the whole
+    # time group is excluded from the token pool (the historical behaviour).
+    time_mask = t_m if tc_fed else torch.ones_like(t_m)
+
     t0 = time.perf_counter_ns()
     with torch.inference_mode():
         # The recipe per visualizing_embeddings.py: pass the seen-modality
-        # masks (S2 always; S1 in s_t_m, SRTM in sp_m when provided), force
-        # the time + static masks all-ones (no ERA5/TC/VIIRS/LandScan/loc
-        # wired here, so they're excluded from the token pool), call
-        # forward, then average over unmasked tokens.
+        # masks (S2 always; S1 in s_t_m, SRTM in sp_m, TC in t_m when
+        # provided), keep the static mask all-ones (no LandScan/location
+        # wired here), call forward, then average over unmasked tokens.
         model_output = encoder(
             s_t_x.float(),
             sp_x.float(),
@@ -1633,7 +1707,7 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
             st_x.float(),
             s_t_m,
             sp_m,
-            torch.ones_like(t_m),
+            time_mask,
             torch.ones_like(st_m),
             months.long(),
             patch_size=GALILEO_PATCH_SIZE,
@@ -1685,15 +1759,17 @@ def _galileo_honesty_warnings(
 ) -> list[str]:
     """Honest disclosure of which Galileo modalities were fed vs masked.
 
-    S2 is always present; S1 + SRTM are present only when the caller
-    supplied the chips. The remaining modalities (ERA5/TC/VIIRS/DW/WC/
-    LandScan/location) are not wired in emem and are always masked-absent.
+    S2 is always present; S1 + SRTM + TC (TerraClimate def/soil/aet) are
+    present only when the caller supplied the chips. The remaining
+    modalities (ERA5/VIIRS/DW/WC/LandScan/location) are not wired in emem
+    and are always masked-absent. TC fills Galileo's TIME group; ERA5 and
+    VIIRS (the other two TIME-group members) stay masked-absent.
     """
     fed = ", ".join(modality_subset)
-    all_galileo = {"s2", "s1", "srtm"}
+    all_galileo = {"s2", "s1", "srtm", "tc"}
     not_fed = sorted(all_galileo - set(modality_subset))
     warns = [
-        f"normalization_source: S2={norm_source}; S1/SRTM use computed "
+        f"normalization_source: S2={norm_source}; S1/SRTM/TC use computed "
         "(mean-2σ)/(4σ) from config/normalization.json (galileo @ main, "
         "verified 2026-05-30)",
         f"modality_subset: [{fed}] fed to the encoder; per-modality "
@@ -1704,14 +1780,14 @@ def _galileo_honesty_warnings(
             "frozen_pretrained_encoder: per-cell forward through the frozen "
             f"Galileo encoder. Wired but not provided at this cell: "
             f"[{', '.join(not_fed)}]; never-wired in emem: "
-            "[ERA5, TC, VIIRS, DW, WC, LandScan, location] — all "
+            "[ERA5, VIIRS, DW, WC, LandScan, location] — all "
             "zero-filled + masked-absent (not zero-filled-and-claimed)."
         )
     else:
         warns.append(
             "frozen_pretrained_encoder: per-cell forward through the frozen "
-            "Galileo encoder with S2+S1+SRTM all fed. Never-wired in emem: "
-            "[ERA5, TC, VIIRS, DW, WC, LandScan, location] — masked-absent."
+            "Galileo encoder with S2+S1+SRTM+TC all fed. Never-wired in emem: "
+            "[ERA5, VIIRS, DW, WC, LandScan, location] — masked-absent."
         )
     return warns
 
