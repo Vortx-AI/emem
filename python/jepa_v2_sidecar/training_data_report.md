@@ -162,12 +162,67 @@ gap.
 ## What to do next to improve
 
 1. **Densify the corpus** -- run `/v1/backfill` for MODIS LST, Open-Meteo
-   weather, CAMS air-quality on the same 96 NDVI-deep cells.
+   weather, CAMS air-quality on the same NDVI-deep cells.
 2. **Expose `cell64 -> lat/lng` from Python** so the real-NDVI eval can
-   use real coordinates instead of (0, 0). Likely ~20 % NDVI MSE
-   improvement on the real slice.
+   use real coordinates instead of (0, 0). *(Done 2026-05-30 -- ported
+   to `latlng_from_cell64()`; 0 cells now fall back to Null Island.)*
 3. **Add a hold-one-cell-out cross-validation pass** once the real
-   corpus has enough multi-tslot quadruples (target: N_real >= 500
-   pairs).
+   corpus has enough multi-tslot quadruples. *(Done 2026-05-30 -- the
+   `--ndvi-only` path runs grouped cell-wise K-fold; see below.)*
 4. **Replace the AR(1) synthetic with an MJO/ENSO-aware climatology**
-   to cover tropical NDVI variability. Out of scope for this PR.
+   to cover tropical NDVI variability. Out of scope.
+
+## NDVI-only real retrain (2026-05-30)
+
+The refreshed audit dump (corpus snapshot 2026-05-30) is materially
+deeper than the 2026-05-28 snapshot above:
+
+```
+indices.ndvi  facts=12,316  cells=7,045  tslots=173
+  depth (distinct tslots/cell): 1t->5884c 2t->127c 3t->13c 4t->133c
+                                5t->651c 6t->33c 7t->18c 8t->1c 9t->1c 68t->1c
+```
+
+Cells with >= 4 distinct tslots: **838** (vs ~96 before). The dump
+wrote 10,373 scalar NDVI rows (1,943 skipped as non-scalar embedding
+facts).
+
+**Critical caveat about cadence.** The deep cells are *annual* peak-
+season composites, NOT monthly: the median inter-observation gap is
+**365 days** and the values cluster in July (N. hemisphere). Example
+cell tslots: 2020-07-26, 2021-06-21, 2022-07-31, 2023-07-21,
+2024-07-05, 2025-07-10, 2026-05-11. Exactly one cell (`defi.zb552...`)
+has true sub-seasonal (~5-day) cadence. So the only honest real-data
+model here is a **one-step-ahead ANNUAL** NDVI predictor.
+
+`train_dynamics_v2.py --ndvi-only` trains a single-band (`n_bands=1`)
+version of the same Transformer with a configurable lag K, builds real
+lag->target windows directly from each cell's sorted (tslot, ndvi)
+series, runs **grouped cell-wise 5-fold CV** (no cell leaks
+train->eval), and computes `skill = 1 - MSE_model / MSE_persistence`
+ONLY on held-out real windows.
+
+| config                      | n_windows | model MSE | persist MSE | real skill |
+| --------------------------- | --------- | --------- | ----------- | ---------- |
+| K=3, real-only              | 1,671     | 0.01707   | 0.03763     | **+0.546** |
+| K=3, +4k synthetic aug      | 1,671     | 0.01934   | 0.03763     | +0.486     |
+| K=4, +4k synthetic aug      | 833       | 0.03235   | 0.05343     | +0.394     |
+
+All five folds are positive in every config; the candidate shipped to
+`/tmp/jepa_ndvi_retrain/` is the **K=3 real-only** run (+0.546).
+
+**Why this beats persistence (honesty).** Annual peak-NDVI is
+mean-reverting: mean within-cell variance (0.0115) is far below the
+persistence error (0.0376). A trivial "predict the prior-year mean"
+baseline already scores +0.31 skill vs predict-last-value. The model
+captures that mean-reversion plus a little cell-specific trend, hence
++0.55. Persistence is simply a *weak* baseline on noisy annual data --
+the win is real but not magic. Exact-duplicate series across cells are
+negligible (58 cells / 29 pairs of 838), so the CV skill is not a
+spatial-duplication leak.
+
+The candidate is `candidate_only: true` and is NOT deployed: the live
+sidecar reconstructs a hard-coded 4-band `DynamicsModel`, so loading a
+1-band checkpoint requires a loader change first (see the deploy notes
+in the retrain report). The shipped 4-band model continues to fail-safe
+to persistence.
