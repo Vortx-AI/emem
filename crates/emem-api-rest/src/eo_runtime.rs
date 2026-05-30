@@ -89,9 +89,7 @@ fn ln_gamma(x: f64) -> f64 {
     ];
     if x < 0.5 {
         // Reflection formula.
-        std::f64::consts::PI.ln()
-            - (std::f64::consts::PI * x).sin().ln()
-            - ln_gamma(1.0 - x)
+        std::f64::consts::PI.ln() - (std::f64::consts::PI * x).sin().ln() - ln_gamma(1.0 - x)
     } else {
         let x = x - 1.0;
         let mut a = C[0];
@@ -245,7 +243,10 @@ pub(crate) fn fit_spi(history: &[f64], x: f64, min_positive: usize) -> Option<Sp
     if n_pos < min_positive {
         return None;
     }
-    let n_zero = history.iter().filter(|v| v.is_finite() && **v <= 0.0).count();
+    let n_zero = history
+        .iter()
+        .filter(|v| v.is_finite() && **v <= 0.0)
+        .count();
     let n_finite = n_pos + n_zero;
     if n_finite == 0 {
         return None;
@@ -271,7 +272,11 @@ pub(crate) fn fit_spi(history: &[f64], x: f64, min_positive: usize) -> Option<Sp
     }
 
     // Mixed CDF: H(x) = q + (1-q)·G(x), with G the gamma CDF = P(α, x/β).
-    let g = if x <= 0.0 { 0.0 } else { gamma_p(alpha, x / beta) };
+    let g = if x <= 0.0 {
+        0.0
+    } else {
+        gamma_p(alpha, x / beta)
+    };
     let mut h = q_zero + (1.0 - q_zero) * g;
     // Clamp away from the open-interval endpoints so the probit is finite;
     // ±3.09 ≈ p=0.001/0.999, beyond the McKee categorical ladder anyway.
@@ -433,11 +438,7 @@ pub struct SpiReq {
 
 /// Pure computation core so the gamma fit + degradation are unit-testable
 /// without an `AppState`. Returns the JSON body fields (minus receipt).
-pub(crate) fn compute_spi_body(
-    history: &[f64],
-    current: f64,
-    window_days: u64,
-) -> JsonValue {
+pub(crate) fn compute_spi_body(history: &[f64], current: f64, window_days: u64) -> JsonValue {
     let n = history.len();
     if n < SPI_MIN_SAMPLES {
         return json!({
@@ -569,7 +570,9 @@ pub async fn spi(req: SpiReq, s: &AppState) -> Result<JsonValue, ApiError> {
     }
 
     let mut body = compute_spi_body(&history, current, window_days);
-    let obj = body.as_object_mut().expect("compute_spi_body returns object");
+    let obj = body
+        .as_object_mut()
+        .expect("compute_spi_body returns object");
     obj.insert("schema".into(), json!("emem.spi.v1"));
     obj.insert(
         "algorithm_key".into(),
@@ -656,7 +659,11 @@ pub async fn burn_severity(req: BurnSeverityReq, s: &AppState) -> Result<JsonVal
             let mut pts: Vec<(u64, f64, String)> = tr
                 .series
                 .iter()
-                .filter_map(|p| as_f64(&p.value).filter(|v| v.is_finite()).map(|v| (p.tslot, v, p.fact_cid.clone())))
+                .filter_map(|p| {
+                    as_f64(&p.value)
+                        .filter(|v| v.is_finite())
+                        .map(|v| (p.tslot, v, p.fact_cid.clone()))
+                })
                 .collect();
             pts.sort_by_key(|r| r.0);
             if pts.len() >= 2 {
@@ -971,11 +978,23 @@ mod tests {
         let mean = history.iter().sum::<f64>() / history.len() as f64;
         // Accumulation at the mean → SPI near 0 (within ±0.5 for a skewed dist).
         let r_mid = fit_spi(&history, mean, SPI_MIN_POSITIVE).expect("fit");
-        assert!(r_mid.spi.abs() < 0.6, "mid SPI should be ~0, got {}", r_mid.spi);
+        assert!(
+            r_mid.spi.abs() < 0.6,
+            "mid SPI should be ~0, got {}",
+            r_mid.spi
+        );
         // A very dry window (10 mm) → strongly negative SPI (drought).
         let r_dry = fit_spi(&history, 10.0, SPI_MIN_POSITIVE).expect("fit");
-        assert!(r_dry.spi < -1.0, "dry SPI should be < -1, got {}", r_dry.spi);
-        assert!(spi_class(r_dry.spi).contains("drought"), "class {}", spi_class(r_dry.spi));
+        assert!(
+            r_dry.spi < -1.0,
+            "dry SPI should be < -1, got {}",
+            r_dry.spi
+        );
+        assert!(
+            spi_class(r_dry.spi).contains("drought"),
+            "class {}",
+            spi_class(r_dry.spi)
+        );
         // A very wet window (220 mm) → strongly positive SPI.
         let r_wet = fit_spi(&history, 220.0, SPI_MIN_POSITIVE).expect("fit");
         assert!(r_wet.spi > 1.0, "wet SPI should be > 1, got {}", r_wet.spi);
@@ -988,7 +1007,10 @@ mod tests {
         let body = compute_spi_body(&[80.0, 120.0], 50.0, 90);
         assert_eq!(body["verdict"], "inconclusive");
         assert_eq!(body["available"], false);
-        assert!(body["spi"].is_null(), "no SPI may be fabricated from 2 points");
+        assert!(
+            body["spi"].is_null(),
+            "no SPI may be fabricated from 2 points"
+        );
         assert_eq!(body["n_samples"], 2);
     }
 
@@ -1057,7 +1079,14 @@ mod tests {
     /// of that = 36.0672.
     #[test]
     fn rice_ch4_ipcc_known_value() {
-        let cont = rice_ch4_kg_ha_season(0.85, sfw_for_regime("continuous_flood"), 0.68, 1.0, 120.0, None);
+        let cont = rice_ch4_kg_ha_season(
+            0.85,
+            sfw_for_regime("continuous_flood"),
+            0.68,
+            1.0,
+            120.0,
+            None,
+        );
         assert!((cont - 69.36).abs() < 1e-6, "got {cont}");
         let awd = rice_ch4_kg_ha_season(0.85, sfw_for_regime("AWD"), 0.68, 1.0, 120.0, None);
         assert!((awd - 36.0672).abs() < 1e-6, "got {awd}");

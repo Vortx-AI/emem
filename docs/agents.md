@@ -139,7 +139,7 @@ port 5051. The live surface ships 80+ paths under
 resources + 8 URI templates, 159 algorithms in the content-addressed
 registry, 42 bands in the manifest, 46 source schemes, and 16 data
 connectors + 13 utility modules.
-Version 0.0.8, MSRV Rust 1.91. No API keys; the MCP surface is read-only
+Version 0.0.9, MSRV Rust 1.91. No API keys; the MCP surface is read-only
 because writes need an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
@@ -172,7 +172,7 @@ log. See "Watching humans use the API" below.
 | Source schemes | 46 |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
-| Version | 0.0.8 |
+| Version | 0.0.9 |
 
 ---
 
@@ -473,6 +473,24 @@ coefficients. `jepa_predict_v2` is **untrained today**; a metadata-only
 baseline. The receipt carries `via: short_circuit_untrained` and
 `untrained_baseline`. Read `model.honesty_warnings` from the response
 before relying on the output.
+
+   #### Runtime algorithm endpoints
+
+Five algorithms the registry carries as `documentation_only` — their
+formula needs a multi-year series or a two-scene pair the scalar
+evaluation-AST can't express — have runnable surfaces here. Each signs
+its result and returns `verdict: "inconclusive"` (with no fabricated
+number) when its inputs aren't materializable. The registry entry keeps
+its `documentation_only` formula plus a `runtime_path` pointer to the
+endpoint.
+
+| Method | Path | Body shape | Algorithm + citation |
+|---|---|---|---|
+| POST | `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy` — `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`; each half degrades independently |
+| POST | `/v1/triple_consensus` | `{cell, consensus_threshold?}` | `clay_prithvi_tessera` change-ensemble; degrades to inconclusive without the GPU sidecar or two distinct vintages |
+| POST | `/v1/spi` | `{cell, window_days?, precip_history_mm?, current_accumulation_mm?}` | Standardized Precipitation Index (McKee et al. 1993; WMO-1090) |
+| POST | `/v1/burn_severity` | `{cell, nbr_pre?, nbr_post?}` | dNBR burn severity (Key & Benson 2006) |
+| POST | `/v1/rice_ch4` | `{cell, cultivation_period_days, efc_kg_ch4_ha_day, ndwi_series?, sfp?, sfo?, t_paddy_c?}` | Rice-cultivation CH4 (IPCC 2019 Tier 2, Eq 5.1) |
 
    #### Verification and attestation
 

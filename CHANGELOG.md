@@ -7,11 +7,13 @@ to verify.
 
 ## [Unreleased]
 
-_Branch `feat/connect-and-evolve`. Finishes the remaining v0.0.8 items and
-lands the v0.0.9 "memory that connects & evolves" feature set. Every change is
-additive — v0.0.6/v0.0.7/v0.0.8 receipts and attestations still verify
-byte-identically (regression-tested). Version bump to 0.0.9 + tag intentionally
-left for a release decision; `Cargo.toml` stays at 0.0.8._
+_Nothing pending._
+
+## [0.0.9] — 2026-05-30
+
+_Finishes the remaining v0.0.8 items and lands the v0.0.9 "memory that connects
+& evolves" feature set. Every change is additive — v0.0.6/v0.0.7/v0.0.8 receipts
+and attestations still verify byte-identically (regression-tested)._
 
 ### Audit + hardening round (after a 5-lens recon sweep; all gates green, 684 tests)
 
@@ -129,6 +131,27 @@ and contradiction detection.
 - Agent surfaces: `agent_card` "first 5 minutes" + cite-this-fact blocks;
   de-jargoned `emem_state` / `state_multi` / `temporal_route` /
   `memory_contradictions`; `examples/connect-and-evolve.md` runnable walkthrough.
+
+### Runtime algorithm endpoints
+
+Five algorithms that the registry previously carried as `documentation_only`
+(their formula needs a multi-year series or a two-scene pair that the scalar
+evaluation-AST cannot express) now have runnable surfaces. Each signs its
+result and returns an honest `inconclusive` verdict — no fabricated number —
+when its inputs aren't materializable. The registry entries stay
+`documentation_only` with a `runtime_path` pointer at the new endpoint.
+
+- `POST /v1/deforestation_alert` — `carbon.deforestation_alert_proxy`: the full
+  NDVI-drop + Tessera embedding-change composite, each half degrading
+  independently.
+- `POST /v1/triple_consensus` — `clay_prithvi_tessera` change-ensemble; degrades
+  to a signed `inconclusive` without the GPU sidecar or two distinct vintages.
+- `POST /v1/spi` — McKee-1993 Standardized Precipitation Index drought metric.
+- `POST /v1/burn_severity` — Key & Benson dNBR burn severity.
+- `POST /v1/rice_ch4` — IPCC-2019 Tier-2 rice-cultivation CH4 (Eq 5.1).
+
+Added to the `/openapi.json` spec builder, the `/v1/agent_card` `surfaces` map,
+and `docs/agents.md`.
 
 ## [0.0.8] — 2026-05-28
 

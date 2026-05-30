@@ -174,9 +174,7 @@ async fn two_vintages(
             }
         }
     }
-    if resp.facts.iter().all(|f| !matches!(f, Fact::Primary(_)))
-        || rows.is_empty()
-    {
+    if resp.facts.iter().all(|f| !matches!(f, Fact::Primary(_))) || rows.is_empty() {
         return Err(format!(
             "no embedding vector for `{band}` at this cell (GPU encoder absent / sidecar down, or cell cold)"
         ));
@@ -234,7 +232,10 @@ pub(crate) fn fuse(
     (Some(ensemble), agreement, true)
 }
 
-pub async fn triple_consensus(req: TripleConsensusReq, s: &AppState) -> Result<JsonValue, ApiError> {
+pub async fn triple_consensus(
+    req: TripleConsensusReq,
+    s: &AppState,
+) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
 
@@ -328,7 +329,11 @@ pub async fn triple_consensus(req: TripleConsensusReq, s: &AppState) -> Result<J
                         }
                     }
                     components.push(Component {
-                        encoder: if band == "clay_v1" { "clay_v1" } else { "prithvi_eo2" },
+                        encoder: if band == "clay_v1" {
+                            "clay_v1"
+                        } else {
+                            "prithvi_eo2"
+                        },
                         change: d,
                         cids,
                     });
@@ -630,7 +635,9 @@ pub async fn post_deforestation_alert(
     Json(req): Json<DeforestationAlertReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     if req.cell.trim().is_empty() {
-        return Err(bad_request("deforestation_alert requires a non-empty `cell`"));
+        return Err(bad_request(
+            "deforestation_alert requires a non-empty `cell`",
+        ));
     }
     Ok(Json(deforestation_alert(req, &s).await?))
 }
@@ -751,6 +758,9 @@ mod tests {
         // Greening: ndvi_now > baseline → drop=0 → term=0.
         let drop = (0.40_f64 - 0.60).max(0.0);
         let term = (drop / 0.30).clamp(0.0, 1.0);
-        assert!(term.abs() < 1e-12, "greening must not raise an alert, got {term}");
+        assert!(
+            term.abs() < 1e-12,
+            "greening must not raise an alert, got {term}"
+        );
     }
 }

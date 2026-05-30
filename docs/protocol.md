@@ -1,4 +1,4 @@
-# emem protocol (v0.0.8)
+# emem protocol (v0.0.9)
 
 ## What this document promises
 
@@ -1067,7 +1067,7 @@ attestation cites these CIDs.
 ## 13. Test vectors
 
 The directory `spec/test_vectors/` is the conformance fixture root.
-0.0.8 ships the directory framework only; populating each
+0.0.9 ships the directory framework only; populating each
 sub-directory with JSON-per-vector fixtures (extracted from the
 existing crate tests) is coming soon:
 

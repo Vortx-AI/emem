@@ -1,6 +1,6 @@
 {
   "schema_version": "v1",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "name_for_human": "emem \u00b7 Earth Memory Protocol",
   "name_for_model": "emem",
   "description_for_human": "Verifiable memory substrate for AI agents. Earth-scale signed facts + writable agent memory, both ed25519-signed and receipt-verifiable.",

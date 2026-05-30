@@ -1,6 +1,6 @@
 # emem: a content-addressed protocol for verifiable agent memory
 
-**Version 0.0.8 / 2026-05-28**
+**Version 0.0.9 / 2026-05-30**
 
 ---
 
@@ -55,8 +55,8 @@ across all three. Consensus across the three is strong signal;
 one-or-none flags receptive-field aliasing rather than land-surface
 change.
 
-This document specifies the math and architecture that 0.0.8 ships.
-Items not in 0.0.8 are listed under "Honest limits" and not discussed
+This document specifies the math and architecture that 0.0.9 ships.
+Items not in 0.0.9 are listed under "Honest limits" and not discussed
 elsewhere.
 
 ![emem architecture — one Rust binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
@@ -162,7 +162,7 @@ The asymmetric bit count (21 lat × 22 lng) keeps cells square at the
 equator: `Δlat ≈ Δlng ≈ 8.583e-5°`, equator extent ~9.55 m. Poleward
 the lng pixel narrows by cos(lat); cells become taller than wide.
 The eventual migration target is an H3-style hex DGGS at resolution
-13 (~3.4 m equal-area cells); cell64 is the active grid in 0.0.8.
+13 (~3.4 m equal-area cells); cell64 is the active grid in 0.0.9.
 
 ### 2.3 Why a square 10 m grid
 
@@ -497,7 +497,7 @@ key. The `u32` key epoch bumps on rotation.
 "We don't have this here" is a citable receipt, not a 404. A
 NegativeFact carries the same `(cell, band, tslot)` key as a
 PrimaryFact would, plus a `ReasonCid` pointing at the upstream
-evidence that confirmed the absence. Typed reasons in 0.0.8:
+evidence that confirmed the absence. Typed reasons in 0.0.9:
 
 | reason                       | meaning                                            |
 |------------------------------|----------------------------------------------------|
@@ -616,7 +616,7 @@ array on `/v1/ask`.
 
 ### 8.2 Triple-encoder consensus
 
-The differentiator of 0.0.8 is `clay_prithvi_tessera_triple_consensus@1`
+The differentiator of 0.0.9 is `clay_prithvi_tessera_triple_consensus@1`
 plus six domain variants. Three foundation encoders with independent
 receptive fields vote on a per-cell change index over a 365-day
 window.
@@ -835,7 +835,7 @@ tslot, no single-point window) cannot pick a target tslot, so they
 fall back to Fast over whatever is already in the index.
 
 `Mode::Zk` was removed in 0.0.4 — Rust enum, MCP schema, OpenAPI
-VerifyReq schema. It returned 500 on every call. ZK is not in 0.0.8.
+VerifyReq schema. It returned 500 on every call. ZK is not in 0.0.9.
 
 ### 9.5 compare / compare_bands
 
@@ -1148,7 +1148,7 @@ JEPA v2 architecture: 3 × 128-D lags → flatten `[B, 384]` → 128-D
 projection → 4 pre-LN residual blocks → zero-init head → `last_vintage
 + delta`. With delta starting at zero the baseline is identity. The
 v2 handler short-circuits ONNX/sidecar inference when
-`is_trained() == false` (which it is in 0.0.8) and returns
+`is_trained() == false` (which it is in 0.0.9) and returns
 `last_input_vintage` directly, attaching `untrained_baseline` and
 `upstream_geotessera_single_vintage` honesty warnings on the receipt.
 
@@ -1196,7 +1196,7 @@ subset answers recall today.
   vector         FTW field polygons (~3.17 B fields), OSM Overpass
                  (WDPA fallback)
   embeddings     Tessera annual vintages (2017-2024 + multi_year + bin128)
-  * declared, materialiser not wired in 0.0.8
+  * declared, materialiser not wired in 0.0.9
 ```
 
 Utility modules: `cog` (universal pure-Rust COG range sampler —

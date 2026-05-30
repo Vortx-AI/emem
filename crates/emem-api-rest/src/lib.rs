@@ -46,8 +46,8 @@ use std::sync::{Arc, LazyLock};
 
 mod ask_foundation;
 mod clay_chip;
-mod galileo_chip;
 mod eo_runtime;
+mod galileo_chip;
 mod gpu_sidecar;
 mod jepa_v2;
 mod physics;
@@ -5521,6 +5521,15 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "memory_contradictions": "/v1/memory_contradictions",
             "edges":            "/v1/edges",
             "edges_recall":     "/v1/edges/recall",
+            // Runtime algorithm endpoints — documentation-only registry
+            // algorithms made computable; each signs its result and
+            // returns an honest `inconclusive` when inputs aren't
+            // materializable.
+            "triple_consensus": "/v1/triple_consensus",
+            "deforestation_alert": "/v1/deforestation_alert",
+            "spi":              "/v1/spi",
+            "burn_severity":    "/v1/burn_severity",
+            "rice_ch4":         "/v1/rice_ch4",
             "verify_receipt":   "/v1/verify_receipt",
             "stream":           "/v1/stream",
             "corpus_state_stats":"/v1/corpus_state_stats",
@@ -14350,6 +14359,15 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/wave_solve":        {"post":{"summary":"1-D explicit-FD shallow-water wave-equation solver (propagate offshore swell to the coast along a bathymetric profile)","operationId":"emem_wave_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WaveSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/jepa_predict":      {"post":{"summary":"constrained JEPA-pattern AR(2) seasonal NDVI predictor (closed-form coefficients, NOT a learned MLP)","operationId":"emem_jepa_predict","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/JepaPredictReq"}}}},"responses":{"200":json_ok}}},
             "/v1/jepa_predict_v2":   {"post":{"summary":"learned dynamics head over Tessera embeddings: predicts the next-vintage 128-D embedding from the K most-recent attested vintages. Receipt carries model_cid + training/validation provenance; honesty_warnings flags `untrained_baseline` when the artifact is the zero-init sentinel.","operationId":"emem_jepa_predict_v2","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
+            // Runtime algorithm endpoints: make five documentation-only
+            // registry algorithms actually computable. Each signs its
+            // result and returns an honest `inconclusive` verdict (no
+            // fabricated number) when the inputs are not materializable.
+            "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently — a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/burn_severity":     {"post":{"summary":"Key & Benson dNBR burn severity: dNBR = nbr_pre − nbr_post, mapped to USGS severity classes. Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) or omit to use the two most-recent stored `indices.nbr` scenes.","operationId":"emem_burn_severity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"nbr_pre":{"type":"number","description":"Pre-fire NBR."},"nbr_post":{"type":"number","description":"Post-fire NBR."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/rice_ch4":          {"post":{"summary":"IPCC-2019 Tier-2 rice-cultivation CH4 (Eq 5.1): integrates the daily emission factor over the cultivation period with water-regime (SFp/SFo) and optional Yan-2005 Q10 temperature scaling. `cultivation_period_days` and the regional `efc_kg_ch4_ha_day` (Table 5.11) are REQUIRED — no defensible global default.","operationId":"emem_rice_ch4","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","cultivation_period_days","efc_kg_ch4_ha_day"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"cultivation_period_days":{"type":"number","description":"Cultivation-period length in days (typically 110–150)."},"efc_kg_ch4_ha_day":{"type":"number","description":"Regional baseline EFc (kg CH4/ha/day) from IPCC 2019 Table 5.11."},"ndwi_series":{"type":"array","items":{"type":"number"},"description":"Optional explicit NDWI series across the cultivation period."},"sfp":{"type":"number","description":"Pre-season water-regime scaling factor SFp (Table 5.13); default 0.68."},"sfo":{"type":"number","description":"Organic-amendment scaling factor SFo (Table 5.14); default 1.00."},"t_paddy_c":{"type":"number","description":"Mean paddy-water temperature (°C) for the Yan-2005 Q10 modifier; omit to disable."}}}}}},"responses":{"200":json_ok}}},
             "/v1/schema":            {"get":{"summary":"active CDDL/JSON schema bundle (REST mirror of emem_schema)","operationId":"emem_schema","responses":{"200":json_ok}}},
             // Single canonical /v1/facts/{cid} — earlier we listed it twice
             // with different operationIds (emem_fetch and emem_get_fact);

@@ -31,7 +31,7 @@ for agents editing the source.
 
 ## Repo shape
 
-Rust workspace, 14 crates, version 0.0.8, MSRV 1.91. The bulk of the code
+Rust workspace, 14 crates, version 0.0.9, MSRV 1.91. The bulk of the code
 lives in `crates/emem-api-rest/src/lib.rs` (~29 k lines: HTTP/MCP router
 plus every inline materializer plus the foundation-embedding fan-out for
 `/v1/ask`) and `crates/emem-fetch/src/*.rs` (18 data connectors + 5
