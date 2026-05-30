@@ -571,8 +571,15 @@ pub async fn post_embedding_diversity(
 
 #[derive(Debug, Deserialize)]
 pub struct NeighborhoodConsistencyReq {
-    /// Target cell64 or place name.
-    pub cell: String,
+    /// Target cell64 OR a place name (alias `place`/`q`). Omit when
+    /// supplying `lat`+`lng` instead.
+    #[serde(default, alias = "place", alias = "q")]
+    pub cell: Option<String>,
+    /// Explicit coordinates, used when `cell`/`place` is absent.
+    #[serde(default)]
+    pub lat: Option<f64>,
+    #[serde(default)]
+    pub lng: Option<f64>,
 }
 
 pub async fn neighborhood_consistency(
@@ -580,7 +587,7 @@ pub async fn neighborhood_consistency(
     s: &AppState,
 ) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
-    let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
+    let (cell, resolved) = crate::resolve_cell_input(req.cell.as_deref(), req.lat, req.lng).await?;
     // Reuse the terrain neighbourhood generator for the 8 immediate spatial
     // neighbours — step 1, matching /v1/locate.neighborhood_cells, which is
     // exactly the set the registry formula references.
@@ -654,11 +661,6 @@ pub async fn post_neighborhood_consistency(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<NeighborhoodConsistencyReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    if req.cell.trim().is_empty() {
-        return Err(bad_request(
-            "neighborhood_consistency requires a non-empty `cell`",
-        ));
-    }
     Ok(Json(neighborhood_consistency(req, &s).await?))
 }
 

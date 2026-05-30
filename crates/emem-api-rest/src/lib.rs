@@ -20291,6 +20291,38 @@ pub(crate) async fn resolve_cell_only(s: &str) -> Result<String, ApiError> {
     Ok(resolve_cell_field(s).await?.0)
 }
 
+/// Resolve a single-cell endpoint's location input from any accepted
+/// form — a `cell`/`place` string (cell64 OR a place name, via
+/// [`resolve_cell_field`]) or an explicit `lat`+`lng` pair — to a
+/// canonical `(cell64, ResolvedRef)`. Lets the single-cell algorithm
+/// endpoints (terrain, neighborhood_consistency) accept the same
+/// `{cell|place|lat,lng}` shapes the rest of the API does instead of
+/// 400-ing when a caller sends `place` or coordinates.
+pub(crate) async fn resolve_cell_input(
+    cell_or_place: Option<&str>,
+    lat: Option<f64>,
+    lng: Option<f64>,
+) -> Result<(String, ResolvedRef), ApiError> {
+    if let Some(s) = cell_or_place.map(str::trim).filter(|s| !s.is_empty()) {
+        return resolve_cell_field(s).await;
+    }
+    match (lat, lng) {
+        (Some(la), Some(ln)) if (-90.0..=90.0).contains(&la) && (-180.0..=180.0).contains(&ln) => {
+            Ok((emem_codec::cell64_from_latlng(la, ln), ResolvedRef::Cell))
+        }
+        _ => Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message:
+                    "provide `cell`/`place` (a cell64 or a place name) or `lat`+`lng` coordinates"
+                        .into(),
+                details: None,
+            },
+        )),
+    }
+}
+
 async fn get_locate(
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<JsonValue>, ApiError> {

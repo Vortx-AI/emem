@@ -199,9 +199,16 @@ pub(crate) fn tpi_class(tpi_m: f64) -> &'static str {
 
 #[derive(Debug, Deserialize)]
 pub struct TerrainReq {
-    /// cell64 or place name. The 8 neighbour cell64s are derived by
-    /// perturbing the decoded lat/lng `step_cells` pitches per axis.
-    pub cell: String,
+    /// cell64 OR a place name (alias `place`/`q`). The 8 neighbour cell64s
+    /// are derived by perturbing the decoded lat/lng `step_cells` pitches
+    /// per axis. Omit when supplying `lat`+`lng` instead.
+    #[serde(default, alias = "place", alias = "q")]
+    pub cell: Option<String>,
+    /// Explicit coordinates, used when `cell`/`place` is absent.
+    #[serde(default)]
+    pub lat: Option<f64>,
+    #[serde(default)]
+    pub lng: Option<f64>,
     /// Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the
     /// ~30 m Copernicus DEM native resolution so the Horn finite difference
     /// straddles distinct source pixels). Raise it to measure slope at a
@@ -245,7 +252,7 @@ async fn recall_elevation(cell: &str, s: &AppState) -> (Option<f64>, Option<Stri
 
 pub async fn terrain(req: TerrainReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
-    let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
+    let (cell, resolved) = crate::resolve_cell_input(req.cell.as_deref(), req.lat, req.lng).await?;
     let step_cells = req.step_cells.unwrap_or(DEM_STEP_CELLS).max(1);
     let (centre_cell, neighbours, cell_w_m, cell_h_m) = neighbourhood(&cell, step_cells)?;
 
@@ -412,15 +419,27 @@ pub async fn post_terrain(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<TerrainReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    if req.cell.trim().is_empty() {
-        return Err(bad_request("terrain requires a non-empty `cell`"));
-    }
     Ok(Json(terrain(req, &s).await?))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The request accepts `cell`, the `place`/`q` alias, and a bare
+    /// `lat`+`lng` pair — so a caller isn't forced to pre-resolve a cell64.
+    #[test]
+    fn terrain_req_accepts_cell_place_and_latlng() {
+        let by_cell: TerrainReq =
+            serde_json::from_str(r#"{"cell":"defi.zb60b.fozI.piwo"}"#).unwrap();
+        assert_eq!(by_cell.cell.as_deref(), Some("defi.zb60b.fozI.piwo"));
+        let by_place: TerrainReq = serde_json::from_str(r#"{"place":"Matterhorn"}"#).unwrap();
+        assert_eq!(by_place.cell.as_deref(), Some("Matterhorn"));
+        let by_latlng: TerrainReq = serde_json::from_str(r#"{"lat":45.97,"lng":7.66}"#).unwrap();
+        assert!(by_latlng.cell.is_none());
+        assert_eq!(by_latlng.lat, Some(45.97));
+        assert_eq!(by_latlng.lng, Some(7.66));
+    }
 
     /// A synthetic 3×3 DEM tilted purely east-west: elevation rises 10 m
     /// per cell to the east. With cell_w = cell_h = 10 m, dz/dx = 1.0,
