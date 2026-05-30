@@ -13,6 +13,40 @@ additive — v0.0.6/v0.0.7/v0.0.8 receipts and attestations still verify
 byte-identically (regression-tested). Version bump to 0.0.9 + tag intentionally
 left for a release decision; `Cargo.toml` stays at 0.0.8._
 
+### Audit + hardening round (after a 5-lens recon sweep; all gates green, 684 tests)
+
+- **Edges reverse lookup** (`obj→subj`): `/v1/edges/recall` + `emem_edges_recall`
+  gain `obj` + `direction:"in"`; the forward/reverse filters share one
+  bi-temporal helper so they can't drift. Ambiguous requests error (no silent
+  empty).
+- **Contested marker surfaced in recall**: the refinement loop's
+  `emem.fact_contested` flag now rides recall responses as advisory metadata —
+  kept *outside* the signed fact CID / receipt preimage (byte-identical when
+  absent).
+- **`emem-membench` live mode**: `--live --dataset <jsonl>` loads a corpus into a
+  responder and computes the four axes + topline from real responder output
+  (committed 16-item sample; full-dataset instructions in `docs/benchmarks.md`).
+  Honestly labels the lexical-fallback read path when no embedder is loaded.
+- **`emem-sleep-agent` crate** (opt-in `EMEM_SLEEP_AGENT=1`): the LLM rewrite/merge
+  loop layered on the deterministic refinement — picks contradicted/high-churn
+  memory, asks a configurable LLM to reconcile, writes a superseding (non-
+  destructive) memory. Real LLM path; `--dry-run` works offline and refuses to
+  fabricate when no key is configured.
+- **Fixes**: removed the dead `fail_below_de_minimis` from the eudr tool prose;
+  corrected `/v1/attest` OpenAPI (`batch_root` byte-array, required `kind`);
+  malformed `cell` IDs no longer fuzzy-resolve to a confident wrong place
+  (cell64-shaped-but-invalid → typed error; weak geocoder matches report
+  `is_high_confidence:false`); MCP async-task TTL/result-writeback hardened +
+  a `mcp_tasks_lock()` helper; **MCP task id now folds a monotonic counter** so
+  concurrent same-tool spawns can't collide (was a real ~1-in-4 flake); `/v1/soil`
+  per-cell cap (`EMEM_SOIL_MAX_CELLS`, default 64) with honest `coverage_capped`.
+- **Surface counts** reconciled to the real **70 tools (10 core / 60 extended)**
+  and 65 read-only across README/docs/web/json discovery files.
+- **Test coverage** added for the real `recall_edges_tree` bi-temporal boundary
+  (`valid_to == as_of` is inclusive), MCP task capacity/eviction, scope's
+  exact-four-tuple miss, the refinement severity floor + pair cap, and edge
+  self-loops; replaced the no-op `refinement_disabled_by_default`.
+
 ### v0.0.9 — connectivity layer (the headline)
 
 **Temporal knowledge-graph edges** (commit `d369948`):
