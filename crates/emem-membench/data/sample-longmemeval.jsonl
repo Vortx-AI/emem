@@ -1,0 +1,21 @@
+# emem-membench SAMPLE dataset (LongMemEval-S / MemoryAgentBench schema).
+# ~15 honest items. This is NOT the published benchmark — see docs/benchmarks.md
+# for how to point --dataset at the full LongMemEval-S corpus.
+# Lines beginning with '#' and blank lines are ignored.
+# Schema: {id, content, query, expected_answer, [update, update_answer], [conflicts_with]}
+{"id":"loc-capital-fr","content":"During trip planning, the user noted that Paris is the capital of France and home to the Louvre.","query":"What is the capital of France?","expected_answer":"Paris"}
+{"id":"loc-capital-jp","content":"The user mentioned their flight lands in Tokyo, the capital of Japan.","query":"What is the capital of Japan?","expected_answer":"Tokyo"}
+{"id":"pref-coffee","content":"The user said they prefer their coffee black with no sugar.","query":"How does the user take their coffee?","expected_answer":"black"}
+{"id":"pet-name","content":"The user introduced their golden retriever named Biscuit early in the conversation.","query":"What is the name of the user's dog?","expected_answer":"Biscuit"}
+{"id":"car-model","content":"The user drives a 2019 Toyota Corolla in dark blue.","query":"What car does the user drive?","expected_answer":"Corolla"}
+{"id":"allergy","content":"The user disclosed a peanut allergy when discussing restaurant options.","query":"What food is the user allergic to?","expected_answer":"peanut"}
+{"id":"birthday","content":"The user's birthday is on the 14th of March.","query":"When is the user's birthday?","expected_answer":"March"}
+{"id":"job-title","content":"The user works as a structural engineer at a bridge-design firm.","query":"What is the user's job?","expected_answer":"structural engineer"}
+{"id":"home-city","content":"The user lives in Lisbon and commutes by tram.","query":"Which city does the user live in?","expected_answer":"Lisbon"}
+{"id":"book-current","content":"The user is currently reading Dune by Frank Herbert.","query":"What book is the user reading?","expected_answer":"Dune"}
+{"id":"gym-days","content":"The user goes to the gym on Tuesdays and Thursdays.","query":"Which days does the user go to the gym?","expected_answer":"Tuesday"}
+{"id":"sibling","content":"The user has one younger sister named Clara who studies medicine.","query":"What is the user's sister's name?","expected_answer":"Clara"}
+{"id":"meeting-room","content":"The standup happens daily at 9am in the Orion meeting room.","query":"Where does the daily standup happen?","expected_answer":"Orion","update":"The standup was permanently moved to the Vega meeting room starting this sprint.","update_answer":"Vega"}
+{"id":"deadline","content":"The project deadline was set for the end of Q2.","query":"When is the project deadline?","expected_answer":"Q2","update":"The deadline has been pushed to the end of Q3 after the scope change.","update_answer":"Q3"}
+{"id":"server-region","content":"Operations agent A reports the primary database is hosted in the us-east-1 region.","query":"Which region hosts the primary database?","expected_answer":"us-east-1","conflicts_with":"Operations agent B reports the primary database is hosted in the eu-west-1 region."}
+{"id":"budget-figure","content":"Finance agent A recorded the marketing budget as 50000 dollars for the quarter.","query":"What is the marketing budget?","expected_answer":"50000","conflicts_with":"Finance agent B recorded the marketing budget as 80000 dollars for the quarter."}
