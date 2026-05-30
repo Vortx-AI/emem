@@ -881,8 +881,482 @@ def write_metadata(out_dir: Path, stats: Dict) -> None:
     print(f"[train] wrote metadata to {meta_path}")
 
 
+# ════════════════════════════════════════════════════════════════════
+# NDVI-ONLY mode (audit 2026-05-30): train a single-band dynamics head
+# on the REAL corpus and gate purely on beating persistence on held-out
+# REAL NDVI.
+#
+# WHY a separate path: the 4-band joint model above can't train on real
+# data (LST/PM25/weather are ~1 tslot/cell on this responder). NDVI is
+# the only band with temporal depth. The refreshed 2026-05-30 audit dump
+# shows the deep cells are *annual* peak-NDVI series (median inter-obs
+# gap ≈ 365 days; the 798-cell spike is one July observation per year,
+# 2020..2026) — NOT monthly. So this path:
+#   • models n_bands=1 (NDVI), K configurable (default 3 admits the most
+#     cells; 4 is the conservative middle),
+#   • treats each cell's sorted (tslot, ndvi) series as the lag window
+#     directly (annual cadence; we do NOT fabricate monthly structure),
+#   • uses a grouped K-fold over CELLS so no cell leaks between the
+#     real-train and the real-eval slice (hold-cells-out CV),
+#   • computes skill = 1 - MSE_model / MSE_persistence ONLY on held-out
+#     REAL NDVI windows. Synthetic series are optional augmentation in
+#     the train split; they never enter the eval.
+#
+# Persistence = predict-last-value. On annual peak-NDVI this is a very
+# strong baseline (summer greenness is stable year-to-year), so a
+# negative skill here is the *expected* honest outcome unless the model
+# genuinely learns cell-specific trend/recovery dynamics.
+# ════════════════════════════════════════════════════════════════════
+
+NDVI_NORM = BAND_NORM["indices.ndvi"]            # (mean, std) = (0.30, 0.30)
+NDVI_RANGE = BAND_PHYSICAL_RANGES["indices.ndvi"]  # (-1.0, 1.0)
+
+
+def _ndvi_norm(v: np.ndarray) -> np.ndarray:
+    return (v - NDVI_NORM[0]) / NDVI_NORM[1]
+
+
+def _ndvi_denorm(v: np.ndarray) -> np.ndarray:
+    return v * NDVI_NORM[1] + NDVI_NORM[0]
+
+
+class NdviDynamics(nn.Module):
+    """Single-band (NDVI) one-step-ahead dynamics head.
+
+    Same Transformer backbone as `DynamicsV2` but with `n_bands=1` and a
+    configurable lag count `k`. Input is flat `[B, k + N_CONTEXT]`:
+    normalised NDVI lags ‖ (lat_norm, lng_sin, lng_cos, month_sin,
+    month_cos). Output is `[B, 2]` = (mean, log_var) for next-step NDVI
+    (z-scored). Parameter count ≈ 10–12k.
+    """
+
+    def __init__(self, k: int, d_model: int = D_MODEL) -> None:
+        super().__init__()
+        self.k = k
+        self.band_proj = nn.Linear(1, d_model)
+        self.lag_pos = nn.Parameter(torch.zeros(k, d_model))
+        self.cls = nn.Parameter(torch.zeros(1, d_model))
+        nn.init.normal_(self.lag_pos, std=0.02)
+        nn.init.normal_(self.cls, std=0.02)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=N_HEADS,
+            dim_feedforward=4 * d_model,
+            dropout=DROPOUT,
+            batch_first=True,
+            norm_first=True,
+            activation="gelu",
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=N_LAYERS)
+        self.ctx_proj = nn.Linear(N_CONTEXT, d_model)
+        self.head = nn.Sequential(
+            nn.Linear(2 * d_model, d_model),
+            nn.GELU(),
+            nn.Linear(d_model, 2),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B = x.shape[0]
+        lags = x[:, : self.k].reshape(B, self.k, 1)
+        ctx = x[:, self.k :]
+        h = self.band_proj(lags) + self.lag_pos.unsqueeze(0)
+        cls = self.cls.expand(B, -1).unsqueeze(1)
+        h = torch.cat([cls, h], dim=1)
+        h = self.encoder(h)
+        cls_out = h[:, 0, :]
+        ctx_h = F.gelu(self.ctx_proj(ctx))
+        combined = torch.cat([cls_out, ctx_h], dim=-1)
+        return self.head(combined)
+
+
+def _ndvi_gaussian_nll(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    mean, log_var = pred[:, 0:1], pred[:, 1:2]
+    log_var = log_var.clamp(min=-6.0, max=4.0)
+    inv_var = torch.exp(-log_var)
+    return 0.5 * (log_var + (target - mean) ** 2 * inv_var).mean()
+
+
+def harvest_real_ndvi_windows(
+    audit_dump: Path, k: int, *, drop_zero_tslot: bool = True
+) -> List[Dict]:
+    """Build real NDVI lag→target windows from the audit dump.
+
+    Each cell's observations are sorted by tslot (de-duplicated, keeping
+    the mean value per tslot). A cell with N distinct tslots yields N-k
+    sliding windows of (k lags → 1 target). The cell's real (lat, lng)
+    is decoded from its cell64 key; cells whose key is not a decodable
+    geo cell fall back to (0, 0) and are counted.
+
+    Returns a list of per-cell dicts:
+        {"cell", "lat", "lng", "fell_back", "windows": [(lags[k], target)]}
+    in PHYSICAL NDVI units (caller normalises).
+    """
+    csv_path = audit_dump / "indices_ndvi.csv"
+    if not csv_path.exists():
+        print(f"[ndvi] {csv_path} missing; no real windows")
+        return []
+    by_cell: Dict[str, Dict[int, List[float]]] = {}
+    with csv_path.open() as fh:
+        for r in csv.DictReader(fh):
+            try:
+                cell = r["cell"]
+                t = int(r["tslot"])
+                v = float(r["value"])
+            except (KeyError, ValueError):
+                continue
+            if drop_zero_tslot and t == 0:
+                continue
+            if not math.isfinite(v):
+                continue
+            by_cell.setdefault(cell, {}).setdefault(t, []).append(v)
+    out: List[Dict] = []
+    n_fell_back = 0
+    for cell, tmap in by_cell.items():
+        series = [(t, float(np.mean(vs))) for t, vs in sorted(tmap.items())]
+        if len(series) < k + 1:
+            continue
+        latlng = latlng_from_cell64(cell)
+        if latlng is None:
+            lat, lng = 0.0, 0.0
+            fell_back = True
+            n_fell_back += 1
+        else:
+            lat, lng = latlng
+            fell_back = False
+        windows: List[Tuple[np.ndarray, float, int]] = []
+        for i in range(k, len(series)):
+            lags = np.asarray([v for _, v in series[i - k : i]], dtype=np.float32)
+            target = float(series[i][1])
+            # The cell's observations are ~annual and clustered in the
+            # growing-season month; use a coarse month-of-year proxy from
+            # the tslot (Unix-epoch days) so the calendar context isn't
+            # constant. (t % 365) / 365 * 12.
+            target_month = int(((series[i][0] % 365) / 365.0) * 12) % 12
+            windows.append((lags, target, target_month))
+        out.append(
+            {"cell": cell, "lat": lat, "lng": lng, "fell_back": fell_back, "windows": windows}
+        )
+    n_windows = sum(len(c["windows"]) for c in out)
+    print(
+        f"[ndvi] real windows (k={k}): {len(out)} cells, {n_windows} windows, "
+        f"{n_fell_back} cells fell back to (0,0)"
+    )
+    return out
+
+
+def _windows_to_tensors(
+    cells: List[Dict], k: int
+) -> Tuple[torch.Tensor, torch.Tensor, np.ndarray]:
+    """Flatten per-cell windows to (X[N, k+N_CONTEXT], y[N,1], persistence[N])."""
+    xs, ys, persist = [], [], []
+    for c in cells:
+        for lags, target, month in c["windows"]:
+            lags_norm = _ndvi_norm(lags)
+            ctx = _build_context(c["lat"], c["lng"], month)
+            xs.append(np.concatenate([lags_norm, ctx]).astype(np.float32))
+            ys.append([float(_ndvi_norm(np.asarray(target))[()])])
+            persist.append(float(lags[-1]))  # physical predict-last-value
+    if not xs:
+        return (
+            torch.zeros((0, k + N_CONTEXT), dtype=torch.float32),
+            torch.zeros((0, 1), dtype=torch.float32),
+            np.zeros((0,), dtype=np.float32),
+        )
+    return (
+        torch.from_numpy(np.stack(xs)).float(),
+        torch.from_numpy(np.asarray(ys, dtype=np.float32)),
+        np.asarray(persist, dtype=np.float32),
+    )
+
+
+def _gen_synthetic_ndvi_windows(
+    n_series: int, k: int, rng: np.random.Generator
+) -> List[Dict]:
+    """Annual-cadence synthetic NDVI windows for optional augmentation.
+
+    Each series samples one observation per year in a fixed growing-
+    season month (matching the real corpus, which is peak-season annual),
+    with AR(1) baseline drift + observation noise. Returns the same
+    per-"cell" dict shape as `harvest_real_ndvi_windows` so the two can
+    be concatenated for the train split.
+    """
+    out: List[Dict] = []
+    for _ in range(n_series):
+        lat = float(rng.uniform(-70.0, 70.0))
+        lng = float(rng.uniform(-180.0, 180.0))
+        n_years = k + 1 + int(rng.integers(0, 3))
+        peak_month = 7 if lat >= 0 else 1
+        ndvi_base = float(np.clip(0.55 - 0.40 * (abs(lat) / 90.0) + rng.normal(0, 0.08), -0.1, 0.85))
+        drift = ndvi_base
+        vals = []
+        for _y in range(n_years):
+            drift = 0.9 * drift + 0.1 * ndvi_base + rng.normal(0.0, 0.02)
+            v = _ndvi_seasonal(lat, peak_month, drift) + rng.normal(0.0, 0.03)
+            vals.append(float(np.clip(v, *NDVI_RANGE)))
+        windows = []
+        for i in range(k, len(vals)):
+            lags = np.asarray(vals[i - k : i], dtype=np.float32)
+            windows.append((lags, float(vals[i]), peak_month % 12))
+        out.append({"cell": "synthetic", "lat": lat, "lng": lng, "fell_back": False, "windows": windows})
+    return out
+
+
+def _train_one_ndvi(
+    train_x: torch.Tensor,
+    train_y: torch.Tensor,
+    k: int,
+    *,
+    n_epochs: int,
+    batch_size: int,
+    seed: int = SEED,
+) -> NdviDynamics:
+    torch.manual_seed(seed)
+    model = NdviDynamics(k)
+    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=n_epochs)
+    n = train_x.shape[0]
+    for _epoch in range(n_epochs):
+        model.train()
+        idx = torch.randperm(n)
+        for s in range(0, n, batch_size):
+            b = idx[s : s + batch_size]
+            pred = model(train_x[b])
+            loss = _ndvi_gaussian_nll(pred, train_y[b])
+            opt.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+        sched.step()
+    return model
+
+
+def _eval_ndvi_skill(
+    model: NdviDynamics, eval_x: torch.Tensor, eval_y: torch.Tensor, persist: np.ndarray
+) -> Tuple[float, float, int]:
+    """Return (model_mse, persistence_mse, n) in PHYSICAL NDVI units."""
+    if eval_x.shape[0] == 0:
+        return 0.0, 0.0, 0
+    model.eval()
+    with torch.no_grad():
+        pred_norm = model(eval_x)[:, 0].numpy()
+    pred_phys = _ndvi_denorm(pred_norm)
+    pred_phys = np.clip(pred_phys, *NDVI_RANGE)
+    tgt_phys = _ndvi_denorm(eval_y[:, 0].numpy())
+    mse_model = float(np.mean((pred_phys - tgt_phys) ** 2))
+    mse_persist = float(np.mean((persist - tgt_phys) ** 2))
+    return mse_model, mse_persist, int(eval_x.shape[0])
+
+
+def train_ndvi_only(
+    *,
+    audit_dump: Path,
+    out_dir: Path,
+    k: int = 3,
+    n_folds: int = 5,
+    n_synthetic: int = 4000,
+    use_synthetic: bool = True,
+    n_epochs: int = 40,
+    batch_size: int = 256,
+    verbose: bool = True,
+) -> Dict:
+    """Hold-cells-out CV NDVI dynamics training. Gates on REAL skill."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(SEED)
+    real_cells = harvest_real_ndvi_windows(audit_dump, k)
+    if not real_cells:
+        raise SystemExit("no real NDVI windows; refresh the audit dump first")
+    n_real_windows = sum(len(c["windows"]) for c in real_cells)
+    n_fell_back = sum(1 for c in real_cells if c["fell_back"])
+
+    # Grouped K-fold over cells (deterministic shuffle).
+    order = list(range(len(real_cells)))
+    random.Random(SEED).shuffle(order)
+    folds: List[List[int]] = [order[i::n_folds] for i in range(n_folds)]
+
+    syn_cells = _gen_synthetic_ndvi_windows(n_synthetic, k, rng) if use_synthetic else []
+    n_syn_windows = sum(len(c["windows"]) for c in syn_cells)
+
+    fold_model_mse: List[float] = []
+    fold_persist_mse: List[float] = []
+    fold_n: List[int] = []
+    agg_err_model = 0.0
+    agg_err_persist = 0.0
+    agg_n = 0
+    for fi in range(n_folds):
+        eval_idx = set(folds[fi])
+        eval_cells = [real_cells[i] for i in eval_idx]
+        train_real = [real_cells[i] for i in range(len(real_cells)) if i not in eval_idx]
+        train_cells = train_real + syn_cells
+        tx, ty, _ = _windows_to_tensors(train_cells, k)
+        ex, ey, ep = _windows_to_tensors(eval_cells, k)
+        if tx.shape[0] == 0 or ex.shape[0] == 0:
+            continue
+        model = _train_one_ndvi(
+            tx, ty, k, n_epochs=n_epochs, batch_size=batch_size, seed=SEED + fi
+        )
+        m_mse, p_mse, n = _eval_ndvi_skill(model, ex, ey, ep)
+        fold_model_mse.append(m_mse)
+        fold_persist_mse.append(p_mse)
+        fold_n.append(n)
+        # Pooled (window-weighted) accumulation for the headline number.
+        agg_err_model += m_mse * n
+        agg_err_persist += p_mse * n
+        agg_n += n
+        if verbose:
+            sk = compute_skill_score(m_mse, p_mse)
+            print(
+                f"[ndvi] fold {fi}: n_eval={n:>4} model_mse={m_mse:.5f} "
+                f"persist_mse={p_mse:.5f} skill={sk:+.4f}"
+            )
+
+    pooled_model_mse = agg_err_model / agg_n if agg_n else None
+    pooled_persist_mse = agg_err_persist / agg_n if agg_n else None
+    skill = compute_skill_score(pooled_model_mse, pooled_persist_mse)
+    beats = skill is not None and skill > 0.0
+    if verbose:
+        print(
+            f"\n[ndvi] POOLED across {n_folds} folds: n={agg_n} "
+            f"model_mse={pooled_model_mse:.5f} persist_mse={pooled_persist_mse:.5f}\n"
+            f"[ndvi] REAL skill vs persistence = {skill:+.4f}  "
+            f"({'BEATS' if beats else 'does NOT beat'} persistence)"
+        )
+
+    # Train a FINAL model on ALL real (+ synthetic) windows for the
+    # candidate checkpoint. Its skill is the CV estimate above (the final
+    # model has seen all cells, so it cannot be honestly self-evaluated).
+    all_cells = real_cells + syn_cells
+    ax, ay, _ = _windows_to_tensors(all_cells, k)
+    final_model = _train_one_ndvi(
+        ax, ay, k, n_epochs=n_epochs, batch_size=batch_size, seed=SEED
+    )
+    n_params = sum(p.numel() for p in final_model.parameters())
+
+    # Export ONNX + state_dict.
+    input_dim = k + N_CONTEXT
+    onnx_path = out_dir / "dynamics_ndvi.onnx"
+    state_dict_path = out_dir / "dynamics_ndvi.state_dict.pt"
+    torch.save(final_model.state_dict(), state_dict_path)
+    final_model.eval()
+    dummy = torch.zeros(1, input_dim, dtype=torch.float32)
+    torch.onnx.export(
+        final_model,
+        (dummy,),
+        str(onnx_path),
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+        opset_version=17,
+        dynamo=False,
+    )
+    onnx_bytes = onnx_path.read_bytes()
+    artifact_blake2b = hashlib.blake2b(onnx_bytes, digest_size=32).hexdigest()
+    ckpt_blake2b = hashlib.blake2b(state_dict_path.read_bytes(), digest_size=32).hexdigest()
+
+    synthetic_fraction = (
+        n_syn_windows / (n_syn_windows + n_real_windows)
+        if (n_syn_windows + n_real_windows)
+        else 0.0
+    )
+    return {
+        "k": k,
+        "n_folds": n_folds,
+        "n_real_cells": len(real_cells),
+        "n_real_windows": n_real_windows,
+        "n_real_cells_fell_back_to_null_island": n_fell_back,
+        "n_synthetic_windows": n_syn_windows,
+        "use_synthetic_augmentation": use_synthetic,
+        "synthetic_fraction": synthetic_fraction,
+        "n_params": n_params,
+        "input_dim": input_dim,
+        "fold_model_mse": fold_model_mse,
+        "fold_persist_mse": fold_persist_mse,
+        "fold_n": fold_n,
+        "real_ndvi_mse_model": pooled_model_mse,
+        "real_ndvi_mse_persistence": pooled_persist_mse,
+        "real_ndvi_skill_score": skill,
+        "beats_persistence": beats,
+        "onnx_path": str(onnx_path),
+        "state_dict_path": str(state_dict_path),
+        "onnx_size_bytes": len(onnx_bytes),
+        "artifact_blake2b": artifact_blake2b,
+        "checkpoint_blake2b": ckpt_blake2b,
+    }
+
+
+def write_ndvi_metadata(out_dir: Path, stats: Dict) -> None:
+    meta = {
+        "model_id": "jepa_temporal_predictor@2.ndvi_scalar",
+        "version": "0.0.1-candidate-ndvi-only-real-cv",
+        "trained_at_unix": int(time.time()),
+        "trained_at_iso": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "candidate_only": True,
+        "do_not_deploy_unless_beats_persistence": True,
+        "architecture": {
+            "kind": "transformer_encoder",
+            "n_bands": 1,
+            "band_keys": ["indices.ndvi"],
+            "input_lags": stats["k"],
+            "n_context": N_CONTEXT,
+            "context_keys": ["lat_norm", "lng_sin", "lng_cos", "month_sin", "month_cos"],
+            "input_dim": stats["input_dim"],
+            "output_dim": 2,
+            "d_model": D_MODEL,
+            "n_heads": N_HEADS,
+            "n_layers": N_LAYERS,
+            "dropout": DROPOUT,
+            "n_parameters": stats["n_params"],
+        },
+        "normalisation": {
+            "band_norm": {"indices.ndvi": list(NDVI_NORM)},
+            "physical_ranges": {"indices.ndvi": list(NDVI_RANGE)},
+        },
+        "training": {
+            "trained": True,
+            "mode": "ndvi_only_real_corpus_grouped_cv",
+            "cadence": "annual_peak_ndvi (median inter-obs gap ~365 days on this corpus)",
+            "n_folds": stats["n_folds"],
+            "cv_scheme": "grouped K-fold over cells (hold-cells-out; no cell leaks train->eval)",
+            "n_real_cells": stats["n_real_cells"],
+            "n_real_windows": stats["n_real_windows"],
+            "n_real_cells_fell_back_to_null_island": stats["n_real_cells_fell_back_to_null_island"],
+            "n_synthetic_windows": stats["n_synthetic_windows"],
+            "use_synthetic_augmentation": stats["use_synthetic_augmentation"],
+            "synthetic_fraction": stats["synthetic_fraction"],
+            "n_epochs": N_EPOCHS,
+            "loss": "gaussian_negative_log_likelihood",
+            "skill_reference": "predict-last-value (persistence / Markov-1)",
+            "real_ndvi_mse_model": stats["real_ndvi_mse_model"],
+            "real_ndvi_mse_persistence": stats["real_ndvi_mse_persistence"],
+            "real_ndvi_skill_score": stats["real_ndvi_skill_score"],
+            "beats_persistence": stats["beats_persistence"],
+            "fold_model_mse": stats["fold_model_mse"],
+            "fold_persist_mse": stats["fold_persist_mse"],
+            "fold_n": stats["fold_n"],
+            "checkpoint_blake2b_hex": stats["checkpoint_blake2b"],
+            "honesty_caveats": [
+                "skill computed ONLY on held-out REAL NDVI windows via "
+                "grouped cell-wise K-fold; synthetic series (if used) are "
+                "train-split augmentation and never enter the eval.",
+                "the corpus deep cells are annual peak-season NDVI; "
+                "persistence (last-year ~ next-year) is a strong baseline, "
+                "so skill <= 0 is an honest and expected outcome absent more "
+                "(sub-annual / multi-decade) ground truth.",
+            ],
+        },
+        "artifact": {
+            "filename": "dynamics_ndvi.onnx",
+            "size_bytes": stats["onnx_size_bytes"],
+            "blake2b_hex": stats["artifact_blake2b"],
+            "onnx_opset": 17,
+        },
+    }
+    meta_path = out_dir / "dynamics_ndvi.metadata.json"
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n")
+    print(f"[ndvi] wrote metadata to {meta_path}")
+
+
 def main() -> None:
-    p = argparse.ArgumentParser(description="Train jepa_v2 multi-band scalar dynamics head")
+    p = argparse.ArgumentParser(description="Train jepa_v2 scalar dynamics head")
     p.add_argument(
         "--out-dir",
         default=os.environ.get("EMEM_JEPA_V2_DIR")
@@ -890,9 +1364,50 @@ def main() -> None:
     )
     p.add_argument("--audit-dump", default=str(DEFAULT_AUDIT_DUMP))
     p.add_argument("--quiet", action="store_true")
+    p.add_argument(
+        "--ndvi-only",
+        action="store_true",
+        help="train the single-band NDVI dynamics head on real corpus with "
+        "hold-cells-out CV; gate on beating persistence on held-out real NDVI",
+    )
+    p.add_argument("--k", type=int, default=3, help="lag window (NDVI-only mode)")
+    p.add_argument("--n-folds", type=int, default=5)
+    p.add_argument("--n-synthetic", type=int, default=4000)
+    p.add_argument(
+        "--no-synthetic",
+        action="store_true",
+        help="NDVI-only: train on real windows ALONE (no synthetic augmentation)",
+    )
     args = p.parse_args()
     out_dir = Path(args.out_dir)
     audit_dump = Path(args.audit_dump)
+
+    if args.ndvi_only:
+        stats = train_ndvi_only(
+            audit_dump=audit_dump,
+            out_dir=out_dir,
+            k=args.k,
+            n_folds=args.n_folds,
+            n_synthetic=args.n_synthetic,
+            use_synthetic=not args.no_synthetic,
+            verbose=not args.quiet,
+        )
+        write_ndvi_metadata(out_dir, stats)
+        sk = stats["real_ndvi_skill_score"]
+        print(
+            f"\n=== NDVI-ONLY DONE ===\n"
+            f"  k                 : {stats['k']}\n"
+            f"  real cells        : {stats['n_real_cells']}\n"
+            f"  real windows      : {stats['n_real_windows']}\n"
+            f"  synthetic frac    : {stats['synthetic_fraction']:.3f}\n"
+            f"  model MSE (real)  : {stats['real_ndvi_mse_model']:.5f}\n"
+            f"  persist MSE (real): {stats['real_ndvi_mse_persistence']:.5f}\n"
+            f"  REAL SKILL        : {sk:+.4f}  "
+            f"({'BEATS persistence — DEPLOYABLE' if stats['beats_persistence'] else 'does NOT beat persistence — KEEP FAIL-SAFE'})\n"
+            f"  ONNX              : {stats['onnx_path']}  ({stats['onnx_size_bytes']} bytes)\n"
+        )
+        return
+
     stats = train(audit_dump=audit_dump, out_dir=out_dir, verbose=not args.quiet)
     write_metadata(out_dir, stats)
     print(
