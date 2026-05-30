@@ -134,8 +134,8 @@ learns. Two abilities sit on top of the fact store:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 80+ paths under
-`/v1/*`, 70 MCP tools (10 core, 60 extended), 18 static MCP
+port 5051. The live surface ships 87 paths under
+`/v1/*`, 75 MCP tools (10 core, 65 extended), 18 static MCP
 resources + 8 URI templates, 159 algorithms in the content-addressed
 registry, 42 bands in the manifest, 46 source schemes, and 16 data
 connectors + 13 utility modules.
@@ -163,12 +163,12 @@ log. See "Watching humans use the API" below.
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 80+ documented, 70+ under `/v1/*` |
-| MCP tools | 70 (10 core / 60 extended) |
+| REST paths (OpenAPI) | 90 documented, 87 under `/v1/*` |
+| MCP tools | 75 (10 core / 65 extended) |
 | Algorithms (composition recipes) | 159 |
-| Band-cube slots | 35 |
+| Band-cube slots | 42 |
 | MCP resources | 18 static + 8 URI templates |
-| Materializer-wired band names | 118 |
+| Materializer-wired band names | 122 |
 | Source schemes | 46 |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
@@ -232,8 +232,8 @@ curl -s -X POST https://emem.dev/v1/locate \
 
 ```json
 {
-  "cell64": "defi.zb493.xoso.zcb6a",
-  "centre": {"lat_deg": 12.971641, "lng_deg": 77.594609},
+  "cell64": "defi.zb493.xuqA.zcb5f",
+  "centre": {"lat_deg": 12.971899, "lng_deg": 77.593665},
   "polygon_bbox": {"min_lat": 12.83, "max_lat": 13.14,
                    "min_lng": 77.46, "max_lng": 77.78,
                    "source": "nominatim_boundingbox"},
@@ -258,15 +258,15 @@ curl -s -X POST https://emem.dev/v1/locate \
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xoso.zcb6a","bands":["copdem30m.elevation_mean"]}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["copdem30m.elevation_mean"]}'
 ```
 
 ```json
 {
   "facts": [{
-    "band": "copdem30m.elevation_mean", "cell": "defi.zb493.xoso.zcb6a",
-    "tslot": 0, "value": 910.0, "unit": "m", "confidence": 0.95,
-    "derivation": {"fn_key": "copernicus_dem_30m_aws_pixel@1", "args": [12.971641, 77.594609]},
+    "band": "copdem30m.elevation_mean", "cell": "defi.zb493.xuqA.zcb5f",
+    "tslot": 0, "value": 918.0, "unit": "m", "confidence": 0.95,
+    "derivation": {"fn_key": "copernicus_dem_30m_aws_pixel@1", "args": [12.971899, 77.593665]},
     "sources": [{"scheme": "copernicus.dem.30m.aws",
                  "id": "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_N12_00_E077_00_DEM/Copernicus_DSM_COG_10_N12_00_E077_00_DEM.tif",
                  "captured_at": "2021-04-30T00:00:00Z"}],
@@ -277,8 +277,8 @@ curl -s -X POST https://emem.dev/v1/recall \
   "receipt": {
     "request_id": "01KR39HY37333FD3C9PBV0F67B",
     "primitive": "emem.recall", "served_at": "2026-05-08T07:59:08Z",
-    "cells": ["defi.zb493.xoso.zcb6a"],
-    "fact_cids": ["cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"],
+    "cells": ["defi.zb493.xuqA.zcb5f"],
+    "fact_cids": ["yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"],
     "responder_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
     "responder_key_epoch": 0,
     "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
@@ -305,7 +305,7 @@ Key fields:
 ```bash
 curl -s -X POST https://emem.dev/v1/find_similar \
   -H 'content-type: application/json' \
-  -d '{"key":"defi.zb493.xoso.zcb6a","k":3}'
+  -d '{"key":"defi.zb493.xuqA.zcb5f","k":3}'
 ```
 
 ```json
@@ -340,13 +340,13 @@ inline from cosine via a TurboQuant rotation (seed
 ```bash
 curl -s -X POST https://emem.dev/v1/verify \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xoso.zcb6a","claim":{"band":"copdem30m.elevation_mean","op":"gt","value":500}}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","claim":{"band":"copdem30m.elevation_mean","op":"gt","value":500}}'
 ```
 
 ```json
 {
   "verdict": true,
-  "evidence": ["cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"],
+  "evidence": ["yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"],
   "receipt": {"primitive": "emem.verify"}
 }
 ```
@@ -677,7 +677,7 @@ The response carries a top-level `foundation_embeddings` envelope:
       "geotessera": {"neighbors": ["..."]}
     },
     "consensus": {
-      "all_three": ["defi.zb493.xoso.zcb6a", "..."],
+      "all_three": ["defi.zb493.xuqA.zcb5f", "..."],
       "two_of_three": ["..."],
       "one_or_none": ["..."]
     },
@@ -775,7 +775,7 @@ next.
 ```bash
 curl -s -X POST https://emem.dev/v1/verify \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xoso.zcb6a","claim":{"band":"modis.ndvi_mean","op":"gt","value":0.3,"window":[1700000000,1735689600],"agg":"mean"}}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","claim":{"band":"modis.ndvi_mean","op":"gt","value":0.3,"window":[1700000000,1735689600],"agg":"mean"}}'
 ```
 
 `op` is one of `eq | ne | lt | le | gt | ge | in | ni | exists | absent`.
@@ -788,7 +788,7 @@ Quote `evidence` CIDs in your reply.
 ```bash
 curl -s -X POST https://emem.dev/v1/diff \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi","tslot_a":0,"tslot_b":1}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","tslot_a":0,"tslot_b":1}'
 ```
 
 When both tslots exist, returns a signed
@@ -796,7 +796,7 @@ When both tslots exist, returns a signed
 is attested:
 
 ```json
-{"code":"cid_not_found","message":"CidNotFound: no fact at tslot_b=1 for (defi.zb493.xoso.zcb6a,indices.ndvi)"}
+{"code":"cid_not_found","message":"CidNotFound: no fact at tslot_b=1 for (defi.zb493.xuqA.zcb5f,indices.ndvi)"}
 ```
 
 Seed history with `/v1/backfill` first. Diff rejects `tslot_a == tslot_b`
@@ -807,7 +807,7 @@ Seed history with `/v1/backfill` first. Diff rejects `tslot_a == tslot_b`
 ```bash
 curl -s -X POST https://emem.dev/v1/query_region \
   -H 'content-type: application/json' \
-  -d '{"geometry":"cells:defi.zb493.xoso.zcb6a,defi.zb493.xozI.zcb6a","bands":["copdem30m.elevation_mean"],"agg":"mean"}'
+  -d '{"geometry":"cells:defi.zb493.xuqA.zcb5f,defi.zb493.xozI.zcb6a","bands":["copdem30m.elevation_mean"],"agg":"mean"}'
 ```
 
 `geometry` accepts `cell64` or `cells:c1,c2,c3,...`. `agg` is one of
@@ -820,7 +820,7 @@ bbox-area-derived `[64, 1024]`.
 ```bash
 curl -s -X POST https://emem.dev/v1/backfill \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xoso.zcb6a","band":"weather.temperature_2m","max_facts":2}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"weather.temperature_2m","max_facts":2}'
 ```
 
 Each step carries `status` (`cached | materialized | present_only |
@@ -832,7 +832,7 @@ answers, but the upstream is now-only. For bands with real history
    ### 5. Sentinel-2 thumbnail
 
 ```bash
-curl -s "https://emem.dev/v1/cells/defi.zb493.xoso.zcb6a/scene.png?max_cloud=80" \
+curl -s "https://emem.dev/v1/cells/defi.zb493.xuqA.zcb5f/scene.png?max_cloud=80" \
   --output bengaluru.png
 ```
 
@@ -855,7 +855,7 @@ cloudy regions.
 ```bash
 curl -s -X POST https://emem.dev/v1/intent \
   -H 'content-type: application/json' \
-  -d '{"kind":"verify","claim":{"algorithm":"deforestation_triple@1","cell":"defi.zb493.xoso.zcb6a","window":["2020-12-31","2024-12-31"]}}'
+  -d '{"kind":"verify","claim":{"algorithm":"deforestation_triple@1","cell":"defi.zb493.xuqA.zcb5f","window":["2020-12-31","2024-12-31"]}}'
 ```
 
 Returns the triple-consensus verdict, the Hansen GFC mask uplift, and a
@@ -898,7 +898,7 @@ def b32_nopad_decode_lower(s: str) -> bytes:
     return base64.b32decode(s + "=" * pad)
 
 resp = requests.post(f"{EMEM}/v1/recall",
-                     json={"cell": "defi.zb493.xoso.zcb6a",
+                     json={"cell": "defi.zb493.xuqA.zcb5f",
                            "bands": ["copdem30m.elevation_mean"]},
                      timeout=30).json()
 r = resp["receipt"]
@@ -991,7 +991,7 @@ trust-chain anchor — always cite from the per-cell branch.
 
 The active codec is `cell64-geo-21x22`: 21 lat bits, 22 lng bits, packed
 to a u64 and base-1024 bigram-encoded as four `.`-joined groups (e.g.
-`defi.zb493.xoso.zcb6a`). `GET /v1/grid_info` reports the actual ground
+`defi.zb493.xuqA.zcb5f`). `GET /v1/grid_info` reports the actual ground
 resolution: `lat_axis_metres_at_equator: 9.54`,
 `lng_axis_metres_at_equator: 9.55`, `lng_axis_metres_at_lat_60: 4.77`.
 Latitude pitch is uniform; longitude pitch narrows with cos(lat) so
@@ -1070,7 +1070,7 @@ Every visible cell, fact, manifest CID, pubkey, and interactive control
 carries `data-emem-*` attributes:
 
 ```html
-<div class=fact data-emem-cell="defi.zb493.xoso.zcb6a"
+<div class=fact data-emem-cell="defi.zb493.xuqA.zcb5f"
                 data-emem-band="weather.temperature_2m"
                 data-emem-fact-cid="qi3jo4sqcg...l2hgjtwm"
                 data-emem-tslot="1778237046"

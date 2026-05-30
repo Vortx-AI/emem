@@ -36,7 +36,7 @@
     <g font-size="14" fill="#cfd9ff">
       <text x="20" y="116">{</text>
       <text x="40" y="142">"band":   "weather.temperature_2m",</text>
-      <text x="40" y="166">"cell":   "defi.zb493.xoso.zcb6a",</text>
+      <text x="40" y="166">"cell":   "defi.zb493.xuqA.zcb5f",</text>
       <text x="40" y="190">"tslot":  "t.aaaaagy",</text>
       <text x="40" y="214">"value":  30.9,</text>
       <text x="40" y="238">"unit":   "degC",</text>
@@ -70,7 +70,7 @@
       <text x="20" y="282">TOOL emem.recall →</text>
       <text x="40" y="304">band: weather.temperature_2m</text>
       <text x="40" y="324">value: 30.9 °C</text>
-      <text x="40" y="344">cell: defi.zb493.xoso.zcb6a</text>
+      <text x="40" y="344">cell: defi.zb493.xuqA.zcb5f</text>
       <text x="40" y="364">cid:  qi3jo4sqcg…l2hgjt</text>
 
       <text x="20" y="404">ASSISTANT</text>
@@ -140,7 +140,7 @@
       <text x="24" y="92">Two runs return different numbers; both feel confident; both are unfalsifiable.</text>
 
       <text x="900" y="38" fill="#62f5a3">with emem</text>
-      <text x="900" y="64">30.9 °C @ defi.zb493.xoso.zcb6a / t.aaaaagy / cid qi3jo4sqcg…</text>
+      <text x="900" y="64">30.9 °C @ defi.zb493.xuqA.zcb5f / t.aaaaagy / cid qi3jo4sqcg…</text>
       <text x="900" y="92">Re-runnable, attributable to met.no, signature checks against published pubkey.</text>
     </g>
   </g>

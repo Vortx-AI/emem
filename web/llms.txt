@@ -45,7 +45,7 @@ The dense state for a place, signed, content-addressed. One endpoint, two views:
 returns
 
     {
-      "cell":         "defi.zb4d9.pefa.zf619",
+      "cell":         "defi.zb4d7.ze56c.zf24c",
       "view":         "encoder",
       "encoder":      "geotessera",
       "dim":          128,
@@ -67,7 +67,7 @@ attested-zero from not-yet-materialised:
 returns
 
     {
-      "cell":         "defi.zb4d9.pefa.zf619",
+      "cell":         "defi.zb4d7.ze56c.zf24c",
       "view":         "cube",
       "dim":          1792,
       "vector":       [ ... 1792 floats ... ],
@@ -101,7 +101,7 @@ tool-call argument, log line, agent-to-agent message):
 
 Example:
 
-    memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
+    memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 
 Compose offline by string concat, or via:
 

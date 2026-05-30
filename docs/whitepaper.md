@@ -1238,7 +1238,7 @@ the provenance:
 
 `emem-server` serves both HTTP/REST and MCP JSON-RPC on one port
 (default `0.0.0.0:5051`). **169 REST routes** total, **79 under
-`/v1/*`**, **70 MCP tools (10 core, 60 extended)**. Discovery chain on first contact:
+`/v1/*`**, **75 MCP tools (10 core, 65 extended)**. Discovery chain on first contact:
 
 ```text
   1. GET  /.well-known/emem.json         responder pubkey + capabilities
@@ -1395,7 +1395,7 @@ failure modes directly:
 |-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | *Integration complexity*    | Single Streamable-HTTP MCP endpoint plus mirrored REST. No SDK install, no auth, no per-tenant provisioning. Idempotent reads.                                                                                               |
 | *Backbone misalignment*     | emem does not return embeddings the backbone has to fuse. It returns typed scalar facts in named units with a content-addressed CID. The agent paraphrases at its own attention; emem's contract ends at the bytes.          |
-| *Retrieval drift / noise*   | The address is the place, not a similarity query. Two agents asking for `copdem30m.elevation_mean @ defi.zb4d9.pefa.zf619` get byte-identical CBOR back. No fuzzy ranking, no recall@k surprise.                              |
+| *Retrieval drift / noise*   | The address is the place, not a similarity query. Two agents asking for `copdem30m.elevation_mean @ defi.zb4d7.ze56c.zf24c` get byte-identical CBOR back. No fuzzy ranking, no recall@k surprise.                              |
 | *Per-session / per-tenant*  | emem's state is the planet, persisted on disk and content-addressed. A receipt minted by responder A in 2026-05 verifies offline against the same pubkey in 2030, on a self-hosted replica B that never spoke to A.          |
 | *Silent empty*              | A missing band at a cell returns a signed `Absence` fact with a typed reason, not an empty array. The absence itself is content-addressed and citable as evidence.                                                            |
 
@@ -1563,7 +1563,7 @@ separator is reserved.
 A canonical token therefore looks like:
 
 ```
-    memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q
+    memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 ```
 
 That is roughly 57 characters, well within typical LLM-token budgets
@@ -1603,8 +1603,8 @@ A memory token may appear:
 
 ```json
 {
-  "cell":     "defi.zb4d9.pefa.zf619",
-  "fact_cid": "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q"
+  "cell":     "defi.zb4d7.ze56c.zf24c",
+  "fact_cid": "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma"
 }
 ```
 
@@ -1612,9 +1612,9 @@ returns
 
 ```json
 {
-  "memory_token": "memt:defi.zb4d9.pefa.zf619:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
-  "cell":         "defi.zb4d9.pefa.zf619",
-  "fact_cid":     "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
+  "memory_token": "memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
+  "cell":         "defi.zb4d7.ze56c.zf24c",
+  "fact_cid":     "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
   "grammar":      "memt:<cell64>:<fact_cid>",
   "docs":         "/whitepaper.md#194-memory-tokens"
 }
