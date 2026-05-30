@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -31,10 +32,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # ── Hard VRAM budget ──────────────────────────────────────────────────────
-# Operator instruction: keep this sidecar under 10 GB on the shared
+# Operator instruction: keep this sidecar under 20 GB on the shared
 # A100 so geoqa-models and intruder don't get OOM'd. Each model
 # allocates a slice and clamps via set_per_process_memory_fraction.
-TOTAL_BUDGET_GB = float(os.environ.get("EMEM_SIDECAR_VRAM_BUDGET_GB", "10"))
+TOTAL_BUDGET_GB = float(os.environ.get("EMEM_SIDECAR_VRAM_BUDGET_GB", "20"))
 DYNAMICS_BUDGET_GB = 0.1                    # tiny MLP
 V_JEPA_2_BUDGET_GB = 3.0                    # ViT-L on 256x256x64 frames
 PRITHVI_BUDGET_GB = 3.0
@@ -59,14 +60,34 @@ PRITHVI_CFG_FILENAME = "config.json"
 
 # Phase 4 — Galileo multimodal encoder (NASA Harvest, MIT). Same
 # offline-first resolver pattern as Prithvi. Variant defaults to base
-# (86.5 M params, 330 MB ckpt, 768-D embedding); override
-# EMEM_GALILEO_VARIANT to swap to tiny / nano. EMEM_GALILEO_SNAPSHOT
-# pins an explicit folder path for air-gapped deployments.
+# (config.json: embedding_size=768, depth=12, num_heads=12; ~86.5 M
+# params, 330 MB ckpt, 768-D embedding); override EMEM_GALILEO_VARIANT
+# to swap to tiny / nano. EMEM_GALILEO_SNAPSHOT pins an explicit folder
+# path for air-gapped deployments.
 GALILEO_REPO = "nasaharvest/galileo"
 GALILEO_VARIANT = os.environ.get("EMEM_GALILEO_VARIANT", "base")
 # S2-band normalization stats from the Galileo pretraining "13"
 # normalizing_dict (S1 + S2 + NDVI). We slice out the 10 S2 entries
 # in S2_BANDS order (B2/B3/B4/B5/B6/B7/B8/B8A/B11/B12).
+#
+# NORMALIZATION SCHEME (audit 2026-05-30, HIGH fix). Galileo's upstream
+# `Normalizer` (galileo/src/data/dataset.py, std=True path) does NOT
+# z-score. It maps each band to roughly [-1, 1] via shift/divide:
+#     min_value = mean - std_multiplier * std   (std_multiplier=2 default)
+#     max_value = mean + std_multiplier * std
+#     shift = min_value = mean - 2*std
+#     div   = max_value - min_value = 4*std
+#     x_norm = (x - shift) / div
+# The released model snapshot
+# (`models--nasaharvest--galileo/.../models/<variant>/`) ships only
+# encoder.pt/decoder.pt/config.json — there is NO `normalization.json`
+# in the snapshot (verified on-disk 2026-05-30). The upstream Normalizer
+# derives shift/div from hardcoded mean/std arrays, so the (mean-2σ)/(4σ)
+# computation below IS the authoritative path. `_galileo_s2_shift_div`
+# will still prefer an on-disk `normalization.json` if a future snapshot
+# or operator pin provides one.
+# Spec: arXiv:2502.09356 (Galileo) + upstream src/data/dataset.py
+# Normalizer; config.json "normalization": "std".
 GALILEO_S2_MEAN: list[float] = [
     1395.3408730676722,
     1338.4026921784578,
@@ -91,14 +112,23 @@ GALILEO_S2_STD: list[float] = [
     1145.9774063078878,
     980.2429840007796,
 ]
-# Galileo-Tiny chip shape — 8×8 spatial tokens at 30 m = 240 m extent
+# Galileo (base) chip shape — 8×8 pixels sampled at 30 m = 240 m extent
 # centred on the cell. Patch_size=2 → 4×4 token grid (16 tokens per
 # step). T=1 (single timestep). Fits Galileo's training distribution
-# (shape_time_combinations include sizes 4–12).
+# (config.json shape_time_combinations include sizes 4–12).
 GALILEO_CHIP_H: int = 8
 GALILEO_CHIP_W: int = 8
 GALILEO_CHIP_T: int = 1
 GALILEO_PATCH_SIZE: int = 2
+# Ground sample distance (m) of the chip the Rust side samples. The
+# encoder's positional encoding uses gsd_ratio = token_res / BASE_GSD
+# where token_res = input_resolution_m * patch_size (single_file_galileo.py
+# ~line 711). Omitting input_resolution_m defaults it to BASE_GSD=10,
+# which for a 30 m chip yields gsd_ratio = 10*2/10 = 2 instead of the
+# correct 30*2/10 = 6 — i.e. wrong positional encoding. Pass this to the
+# forward (audit 2026-05-30, HIGH fix #2). MUST agree with the Rust
+# chip's sampling resolution.
+GALILEO_CHIP_GSD_M: int = 30
 
 # Phase 5 — Clay Foundation Model v1.5 (Made With Clay, Apache-2.0).
 # ViT-L/8 MAE + DINOv2 teacher; 311 M params encoder, 1024-D CLS token,
@@ -202,6 +232,64 @@ def _resolve_galileo_dir() -> Path | None:
         GALILEO_REPO, f"models/{GALILEO_VARIANT}/encoder.pt"
     )
     return encoder.parent if encoder is not None else None
+
+
+def _galileo_s2_shift_div(
+    galileo_dir: Path | None,
+) -> tuple[np.ndarray, np.ndarray, str]:
+    """Return (shift, div, source) for the 10 S2 bands per Galileo's
+    upstream `Normalizer` (std=True): `x_norm = (x - shift) / div` with
+    `shift = mean - 2*std`, `div = 4*std` (std_multiplier=2; see
+    galileo/src/data/dataset.py Normalizer; arXiv:2502.09356).
+
+    PREFERS an on-disk `normalization.json` in the resolved model dir if
+    present (a future snapshot / operator pin may ship one). The released
+    `nasaharvest/galileo` snapshot does NOT contain it (verified on-disk
+    2026-05-30), so the computed (mean-2σ)/(4σ) path is the authoritative
+    default. If a normalization.json is found it must carry explicit
+    `shift`/`div` (10-vectors in S2_BANDS order) or `mean`/`std`; anything
+    else falls back to the computed values rather than guessing.
+    """
+    mean = np.asarray(GALILEO_S2_MEAN, dtype=np.float32)
+    std = np.asarray(GALILEO_S2_STD, dtype=np.float32)
+    computed_shift = mean - 2.0 * std
+    computed_div = 4.0 * std
+    if galileo_dir is not None:
+        nj = galileo_dir / "normalization.json"
+        if nj.exists():
+            try:
+                blob = json.loads(nj.read_text())
+                if (
+                    isinstance(blob.get("shift"), list)
+                    and isinstance(blob.get("div"), list)
+                    and len(blob["shift"]) == 10
+                    and len(blob["div"]) == 10
+                ):
+                    return (
+                        np.asarray(blob["shift"], dtype=np.float32),
+                        np.asarray(blob["div"], dtype=np.float32),
+                        f"normalization.json (shift/div) @ {nj}",
+                    )
+                if (
+                    isinstance(blob.get("mean"), list)
+                    and isinstance(blob.get("std"), list)
+                    and len(blob["mean"]) == 10
+                    and len(blob["std"]) == 10
+                ):
+                    m = np.asarray(blob["mean"], dtype=np.float32)
+                    s = np.asarray(blob["std"], dtype=np.float32)
+                    return (
+                        m - 2.0 * s,
+                        4.0 * s,
+                        f"normalization.json (mean/std → mean-2σ/4σ) @ {nj}",
+                    )
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                pass  # fall through to computed
+    return (
+        computed_shift,
+        computed_div,
+        "computed (mean-2σ)/(4σ) from GALILEO_S2_MEAN/STD (no normalization.json in snapshot)",
+    )
 # Clay v1.5's S2 L2A platform expects 10 bands at 10 m, in this order
 # (verbatim from configs/metadata.yaml). Per-band mean/std + wavelength
 # (µm) come from the metadata file; the loader reads them at startup so
@@ -487,7 +575,25 @@ class _Registry:
         for k in list(sd):
             if "pos_embed" in k:
                 del sd[k]
-        model.load_state_dict(sd, strict=False)
+        # strict=False is REQUIRED because we deleted the pos_embed buffers
+        # (rebuilt deterministically at forward for num_frames=1). But a
+        # checkpoint rename / architecture drift could otherwise silently
+        # leave real weight tensors un-loaded and we'd sign an embedding
+        # from random init. Assert the ONLY missing/unexpected keys are
+        # pos_embed buffers (audit 2026-05-30 fix #3).
+        incompatible = model.load_state_dict(sd, strict=False)
+        bad = [
+            k
+            for k in (*incompatible.missing_keys, *incompatible.unexpected_keys)
+            if "pos_embed" not in k
+        ]
+        if bad:
+            raise RuntimeError(
+                "Prithvi checkpoint load_state_dict mismatch on non-pos_embed "
+                f"keys (refusing to sign a partially-random embedding): {bad}. "
+                f"missing={list(incompatible.missing_keys)} "
+                f"unexpected={list(incompatible.unexpected_keys)}"
+            )
         model.eval().to(self.device)
         # Hash the .pt for the model_cid in the receipt — same blake2b-256
         # convention the protocol uses for fact CIDs.
@@ -526,10 +632,12 @@ class _Registry:
         return self.prithvi
 
     def load_galileo(self) -> tuple[Any, dict[str, Any]]:
-        """Load Galileo-Tiny (NASA Harvest, MIT) from the pinned local
-        snapshot. Single-file model code is vendored at
-        `python/jepa_v2_sidecar/single_file_galileo.py`. Tiny variant:
-        5.7 M params, 22 MB checkpoint, 192-D embedding.
+        """Load Galileo (NASA Harvest, MIT) from the pinned local
+        snapshot for the variant in EMEM_GALILEO_VARIANT (default base).
+        Single-file model code is vendored at
+        `python/jepa_v2_sidecar/single_file_galileo.py`. Base variant
+        (config.json): embedding_size=768, depth=12, ~86.5 M params,
+        ~330 MB checkpoint, 768-D embedding.
         """
         if self.galileo is not None:
             return self.galileo
@@ -574,6 +682,8 @@ class _Registry:
                 "s2_bands_in_order": ["B2","B3","B4","B5","B6","B7","B8","B8A","B11","B12"],
                 "s2_mean": GALILEO_S2_MEAN,
                 "s2_std": GALILEO_S2_STD,
+                "normalization": "shift_divide (x-shift)/div; shift=mean-2σ, div=4σ (upstream Normalizer std=True)",
+                "input_resolution_m": GALILEO_CHIP_GSD_M,
             },
         }
         self.galileo = (encoder, meta)
@@ -743,6 +853,10 @@ class DynamicsResponse(BaseModel):
     model: dict[str, Any]
     inference_us: int
     device: str
+    # Additive (audit 2026-05-30 HIGH #5): held-out skill vs the
+    # predict-last-value baseline on REAL NDVI, sourced from the training
+    # metadata. None when the trained model didn't carry a real-NDVI eval.
+    skill_vs_persistence: dict[str, Any] | None = None
 
 
 class PrithviRequest(BaseModel):
@@ -801,7 +915,7 @@ class PrithviResponse(BaseModel):
 
 
 class GalileoRequest(BaseModel):
-    """Per-cell Galileo-Tiny S2-only embedding request.
+    """Per-cell Galileo S2-only embedding request.
 
     `s2_chip` is the 10-band S2 reflectance window in Galileo's
     S2_BANDS order (B2/B3/B4/B5/B6/B7/B8/B8A/B11/B12). Reflectance
@@ -883,11 +997,94 @@ class ClayResponse(BaseModel):
 
 
 # ── App ───────────────────────────────────────────────────────────────────
+def _warm_load_resolvable_models() -> dict[str, str]:
+    """Load every model whose checkpoint is resolvable in the local cache,
+    once, at startup, inside the 20 GB VRAM budget (audit 2026-05-30 #6).
+
+    /health previously advertised a model as available the instant its
+    checkpoint was cache-resolvable — before any load — so the first cold
+    /predict could exceed the caller's timeout. Warming here makes
+    `models_loaded[]` honest: a model in that list has actually paid its
+    cold-start. Returns {model: "loaded" | "skipped:<reason>"} for logging.
+    Set EMEM_SIDECAR_WARM_ON_STARTUP=0 to fall back to lazy load (the
+    /health `warming[]` split still keeps callers honest in that mode).
+    """
+    results: dict[str, str] = {}
+    loaders = (
+        ("dynamics_v2", _REG.load_dynamics),
+        ("prithvi_eo_v2_300m_tl", _REG.load_prithvi),
+        (f"galileo_{GALILEO_VARIANT}_v1", _REG.load_galileo),
+        ("clay_v1_5", _REG.load_clay),
+    )
+    for name, loader in loaders:
+        try:
+            loader()
+            results[name] = "loaded"
+        except FileNotFoundError as e:
+            results[name] = f"skipped:not_resolvable ({e})"
+        except Exception as e:  # noqa: BLE001 — warm-load must never crash boot
+            results[name] = f"skipped:error ({type(e).__name__}: {e})"
+    return results
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Warm-load resolvable models at startup so /health's models_loaded[]
+    is honest and the first cold /predict doesn't blow the caller timeout
+    (audit 2026-05-30 #6). Set EMEM_SIDECAR_WARM_ON_STARTUP=0 to keep the
+    old lazy behaviour (the /health loaded[] vs warming[] split still tells
+    callers which models are cold)."""
+    if os.environ.get("EMEM_SIDECAR_WARM_ON_STARTUP", "1") == "1":
+        print(
+            "[sidecar] warm-loading resolvable models on startup…",
+            file=sys.stderr,
+            flush=True,
+        )
+        for name, status in _warm_load_resolvable_models().items():
+            print(f"[sidecar]   {name}: {status}", file=sys.stderr, flush=True)
+    else:
+        print(
+            "[sidecar] EMEM_SIDECAR_WARM_ON_STARTUP=0 → lazy load; "
+            "/health splits loaded[] vs warming[]",
+            file=sys.stderr,
+            flush=True,
+        )
+    yield
+
+
 app = FastAPI(
     title="emem-jepa-sidecar",
     description="GPU inference sidecar for emem-server",
     version="0.0.1",
+    lifespan=_lifespan,
 )
+
+
+def _resolvable_model_tags() -> list[str]:
+    """Model capability tags whose checkpoints are resolvable in the local
+    cache (independent of whether they're loaded yet)."""
+    tags: list[str] = []
+    cuda_available = _REG.device.type == "cuda"
+    # dynamics is CPU-or-GPU and always resolvable when its artifacts exist.
+    if (DYNAMICS_DIR / "dynamics_v2.onnx").exists() or (
+        DYNAMICS_DIR / "dynamics_v2.state_dict.pt"
+    ).exists():
+        tags.append("dynamics_v2")
+    prithvi_ckpt, prithvi_cfg = _resolve_prithvi_files()
+    if (
+        prithvi_ckpt is not None
+        and prithvi_cfg is not None
+        and prithvi_ckpt.exists()
+        and prithvi_cfg.exists()
+    ):
+        tags.append("prithvi_eo_v2_300m_tl")
+    galileo_dir = _resolve_galileo_dir()
+    if galileo_dir is not None and (galileo_dir / "encoder.pt").exists():
+        tags.append(f"galileo_{GALILEO_VARIANT}_v1")
+    clay_ckpt = _resolve_clay_ckpt()
+    if clay_ckpt is not None and clay_ckpt.exists() and CLAY_METADATA_PATH.exists():
+        tags.append("clay_v1_5")
+    return tags
 
 
 @app.get("/health")
@@ -956,6 +1153,13 @@ def health() -> dict[str, Any]:
             and CLAY_METADATA_PATH.exists()
         ):
             extensions.append("clay-v1.5")
+    # Honest loaded-vs-warming split (audit 2026-05-30 #6). `models_loaded`
+    # / `models[]` are models that have ACTUALLY completed a load (warm).
+    # `warming[]` are resolvable-but-not-yet-loaded — the first /predict
+    # on one pays the cold-start, so callers should budget for it. With the
+    # default EMEM_SIDECAR_WARM_ON_STARTUP=1 this list is normally empty
+    # because the startup hook warm-loads everything resolvable.
+    warming = [t for t in _resolvable_model_tags() if t not in models]
     return {
         # Legacy shape — older Rust clients depend on `status` and
         # `models_loaded`. Keep these.
@@ -970,6 +1174,8 @@ def health() -> dict[str, Any]:
         "ready": cuda_available or len(models) > 0,
         "version": app.version,
         "extensions": extensions,
+        # Additive: resolvable-but-cold models (cold-start budget hint).
+        "warming": warming,
         "name": "emem-jepa-sidecar",
     }
 
@@ -1065,6 +1271,26 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
             "agents should fall back to other signals or wait for more lags."
         )
 
+    # Skill vs persistence (predict-last-value) on real NDVI, surfaced from
+    # the training metadata (audit 2026-05-30 HIGH #5). When skill < 0 the
+    # trained head is WORSE than "tomorrow looks like today" on real ground
+    # truth — emit a loud honesty warning so callers prefer persistence.
+    training_meta = meta.get("training", {})
+    skill_vs_persistence: dict[str, Any] | None = None
+    real_skill = training_meta.get("real_ndvi_skill_score")
+    if real_skill is not None:
+        beats = bool(training_meta.get("beats_persistence_on_real_ndvi", real_skill > 0.0))
+        skill_vs_persistence = {
+            "real_ndvi": float(real_skill),
+            "beats_persistence": beats,
+            "reference": "predict-last-value",
+        }
+        if real_skill < 0.0:
+            honesty_warnings.append(
+                f"NEGATIVE_SKILL: worse than predict-last-value on real NDVI "
+                f"(skill={float(real_skill):.4f}); prefer persistence"
+            )
+
     return DynamicsResponse(
         predictions=predictions,
         confidence=confidence,
@@ -1081,6 +1307,7 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
         },
         inference_us=dt_us,
         device=str(_REG.device),
+        skill_vs_persistence=skill_vs_persistence,
     )
 
 
@@ -1168,8 +1395,9 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
     LandScan, location) are passed as zeros + masked-as-absent. The
     encoder is robust to this configuration — it was trained with the
     full mask-ratio schedule. Returns the average-pooled token output
-    (192-D for Tiny) which matches the canonical Galileo embedding
-    extraction recipe (cf. visualizing_embeddings.py upstream).
+    (768-D for the base variant; config.json embedding_size) which
+    matches the canonical Galileo embedding extraction recipe (cf.
+    visualizing_embeddings.py upstream).
     """
     try:
         encoder, meta = _REG.load_galileo()
@@ -1191,10 +1419,13 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
 
     device = _REG.device
     arr = np.asarray(req.s2_chip, dtype=np.float32)  # [T, H, W, 10]
-    # Apply per-band normalization with the Galileo pretraining stats.
-    mean = np.asarray(GALILEO_S2_MEAN, dtype=np.float32)
-    std = np.asarray(GALILEO_S2_STD, dtype=np.float32)
-    s2_n = (arr - mean) / std
+    # Apply per-band normalization with Galileo's upstream Normalizer
+    # scheme (shift/divide, NOT z-score): x_norm = (x - shift) / div with
+    # shift = mean - 2σ, div = 4σ (audit 2026-05-30 HIGH fix #1; cf.
+    # galileo/src/data/dataset.py Normalizer std=True, arXiv:2502.09356).
+    galileo_dir = _resolve_galileo_dir()
+    shift, div, norm_source = _galileo_s2_shift_div(galileo_dir)
+    s2_n = (arr - shift) / div
     # Reorder to [H, W, T, 10] which is what construct_galileo_input expects.
     s2_t = torch.from_numpy(s2_n).permute(1, 2, 0, 3).contiguous().to(device)
 
@@ -1259,6 +1490,12 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
             torch.ones_like(st_m),
             months.long(),
             patch_size=GALILEO_PATCH_SIZE,
+            # Chip is sampled at 30 m; without this the encoder defaults
+            # to BASE_GSD=10 → gsd_ratio = 10*2/10 = 2 instead of the
+            # correct 30*2/10 = 6, mis-setting the spatial positional
+            # encoding (audit 2026-05-30 HIGH fix #2; single_file_galileo.py
+            # Encoder.forward input_resolution_m, gsd_ratio math ~line 711).
+            input_resolution_m=GALILEO_CHIP_GSD_M,
         )
         # average_tokens takes the first 7 outputs (4 data + 3 masks
         # for S2/SP/T) — discard the static-mask. Result is [B, embed_dim].
@@ -1282,10 +1519,11 @@ def predict_galileo_embed(req: GalileoRequest) -> GalileoResponse:
             "via": "python_sidecar",
             "source": meta["source"],
             "paper": meta["paper"],
-            "config": meta["config"],
+            "config": {**meta["config"], "normalization_source": norm_source},
             "honesty_warnings": [
+                f"normalization_source: {norm_source}",
                 "frozen_pretrained_encoder: this is a per-cell forward "
-                "pass through the frozen Galileo-Tiny encoder using "
+                "pass through the frozen Galileo encoder using "
                 "the S2-only modality (S1/ERA5/TC/VIIRS/SRTM/DW/WC/"
                 "LandScan/location all zero-masked). The full multimodal "
                 "embedding would carry richer context — this responder "
@@ -1342,6 +1580,7 @@ def predict_clay_embed(req: ClayRequest) -> ClayResponse:
     # to mid-year noon when caller doesn't pass year/month so the model
     # still receives a coherent vector rather than zeros (which would
     # land it in an undertrained corner of the conditioning space).
+    fallback_warnings: list[str] = []
     if req.year is not None and req.month is not None:
         # Approximate week-of-year from year/month/(day or 15).
         from datetime import date  # noqa: WPS433
@@ -1349,6 +1588,16 @@ def predict_clay_embed(req: ClayRequest) -> ClayResponse:
         woy = d.isocalendar().week
     else:
         woy = 26  # mid-year fallback
+        # Honesty (audit 2026-05-30 fix #4): the time-conditioning vector
+        # is NOT the scene's real acquisition time — it encodes a mid-year
+        # noon default. The embedding is therefore conditioned on a guessed
+        # season. (Live Rust path always sends real year+month, so this
+        # fires only on a degraded caller.)
+        fallback_warnings.append(
+            "time_defaulted: scene year/month absent; week-of-year defaulted "
+            "to 26 (mid-year) and hour to solar noon. The time-conditioning "
+            "vector does NOT reflect the real acquisition time."
+        )
     week_rad = woy * 2 * math.pi / 52
     hour_rad = 12 * 2 * math.pi / 24  # solar noon
     time_vec = torch.tensor(
@@ -1366,7 +1615,18 @@ def predict_clay_embed(req: ClayRequest) -> ClayResponse:
             device=_REG.device,
         )
     else:
+        # NB: zero-filling here is NOT "unknown location" — sin(0)=0,
+        # cos(0)=1 encodes lat=0,lng=0 (Null Island), a concrete point the
+        # encoder treats as real. Flag it (audit 2026-05-30 fix #4) so the
+        # Rust side never threads a Null-Island-conditioned embedding into a
+        # signed fact as if the location were known. (Live path always sends
+        # real lat/lng, so this fires only on a degraded caller.)
         latlon_vec = torch.zeros((1, 4), dtype=torch.float32, device=_REG.device)
+        fallback_warnings.append(
+            "location_defaulted: scene lat/lng absent; latlon-conditioning "
+            "vector zero-filled, which encodes lat=0,lng=0 (Null Island) as a "
+            "REAL point — not 'unknown'. The embedding is conditioned on (0,0)."
+        )
 
     waves = torch.tensor(
         meta["config"]["wavelength_um_per_band"],
@@ -1405,6 +1665,7 @@ def predict_clay_embed(req: ClayRequest) -> ClayResponse:
             "paper": meta["paper"],
             "config": meta["config"],
             "honesty_warnings": [
+                *fallback_warnings,
                 "frozen_pretrained_encoder: this is a per-cell forward "
                 "pass through the frozen Clay v1.5 encoder (no fine-tuning "
                 "at this responder). The CLS embedding captures whatever "

@@ -107,6 +107,89 @@ INPUT_DIM = K_LAGS * N_BANDS + N_CONTEXT      # = 29
 # Flat output dimension: mean[N_BANDS] || log_var[N_BANDS].
 OUTPUT_DIM = 2 * N_BANDS                      # = 8
 
+# ─── cell64 → (lat, lng) decode (Python port) ───────────────────────
+# Audit 2026-05-30 fix #5: the real-NDVI eval previously fed lat=0/lng=0
+# for every cell because the Rust `latlng_from_cell64` helper isn't bound
+# in Python. That biases the spatial-context vector toward Null Island and
+# can flatter or flatten the reported skill. The active emem cell64 geo
+# encoding is NOT true H3 geometry — it's a plain WGS-84 quantisation grid
+# (crates/emem-codec/src/geo.rs), so it decodes in pure Python:
+#
+#   alphabet : 65,536 CVCV bigrams, deterministic product of 21 consonants
+#              × 10 vowels (× same again), padded with z<hex4> entries
+#              (crates/emem-codec/src/alphabet.rs).
+#   cell u64 : 4 bigrams (base-65,536 digits) → 64-bit raw
+#              (crates/emem-codec/src/cell64.rs).
+#   geo      : prefix mode=1|res=21|base=0xab; bits 42..22 = lat_q (21b),
+#              bits 21..0 = lng_q (22b); lat = lat_q/2^21*180-90,
+#              lng = lng_q/2^22*360-180 (crates/emem-codec/src/geo.rs).
+_CONS = "bcdfghjklmnpqrstvwxyz"  # 21
+_VOWS = "aeiouAEIOU"             # 10
+
+
+def _build_cell64_alphabet_index() -> Dict[str, int]:
+    """Reconstruct the cell64 alphabet → index map exactly as
+    crates/emem-codec/src/alphabet.rs::build_alphabet_v0()."""
+    out: List[str] = []
+    for c1 in _CONS:
+        for v1 in _VOWS:
+            for c2 in _CONS:
+                for v2 in _VOWS:
+                    out.append(c1 + v1 + c2 + v2)
+    while len(out) < 65_536:
+        out.append("z{:04x}".format(len(out)))
+    out = out[:65_536]
+    return {sym: i for i, sym in enumerate(out)}
+
+
+_CELL64_ALPHABET_INDEX = _build_cell64_alphabet_index()
+
+# geo.rs constants.
+_GEO_LAT_BITS = 21
+_GEO_LNG_BITS = 22
+_GEO_LAT_MAX = (1 << _GEO_LAT_BITS) - 1
+_GEO_LNG_MAX = (1 << _GEO_LNG_BITS) - 1
+_GEO_PREFIX_MASK = 0xFFFF_F000_0000_0000
+# (mode=1 << 60) | (res=21 << 52) | (base=0xab << 44)
+_GEO_PREFIX = (1 << 60) | (21 << 52) | (0xAB << 44)
+
+
+def latlng_from_cell64(s: str) -> Tuple[float, float] | None:
+    """Decode a cell64 string to (lat_deg, lng_deg) bucket centre, or
+    None if the string is malformed or is not a geo-aperture cell at the
+    active resolution. Mirrors geo.rs::latlng_from_cell64."""
+    parts = s.split(".")
+    if len(parts) != 4:
+        return None
+    raw = 0
+    for i, sym in enumerate(parts):
+        idx = _CELL64_ALPHABET_INDEX.get(sym)
+        if idx is None:
+            return None
+        raw |= idx << (48 - i * 16)
+    if (raw & _GEO_PREFIX_MASK) != _GEO_PREFIX:
+        return None  # not a geo cell (legacy 305 m / 16-bit grid, edge, etc.)
+    lng_q = raw & _GEO_LNG_MAX
+    lat_q = (raw >> _GEO_LNG_BITS) & _GEO_LAT_MAX
+    lat_deg = (lat_q / _GEO_LAT_MAX) * 180.0 - 90.0
+    lng_deg = (lng_q / _GEO_LNG_MAX) * 360.0 - 180.0
+    return float(lat_deg), float(lng_deg)
+
+
+def compute_skill_score(
+    mse_model: float | None, mse_baseline: float | None
+) -> float | None:
+    """Skill score vs the predict-last-value (persistence) baseline:
+    `skill = 1 - mse_model / mse_baseline`. Returns None when either MSE
+    is missing or the baseline is non-positive (skill undefined). > 0
+    means the model beats persistence; ≤ 0 means persistence wins."""
+    if mse_model is None or mse_baseline is None:
+        return None
+    if mse_baseline <= 0.0:
+        return None
+    return float(1.0 - mse_model / mse_baseline)
+
+
 # ─── Architecture ───────────────────────────────────────────────────
 D_MODEL = 32
 N_HEADS = 4
@@ -289,10 +372,9 @@ def harvest_real_ndvi(
     if not csv_path.exists():
         print(f"[harvest_real_ndvi] {csv_path} missing; skip real slice")
         return []
-    try:
-        from emem_cell64 import latlng_from_cell64  # not vendored; skip if not available
-    except ImportError:
-        latlng_from_cell64 = None
+    # Per-cell lat/lng is decoded later (in evaluate_on_real_ndvi) via the
+    # pure-Python latlng_from_cell64 ported from crates/emem-codec/src/geo.rs
+    # — no external Rust binding needed (audit 2026-05-30 fix #5).
     rows = []
     with csv_path.open() as fh:
         for r in csv.DictReader(fh):
@@ -508,7 +590,7 @@ def train(
     if real_eval:
         try:
             real_mse_model, real_mse_baseline, n_real_pairs = evaluate_on_real_ndvi(
-                model, real_eval
+                model, real_eval, verbose=verbose
             )
             if verbose:
                 print(
@@ -568,6 +650,17 @@ def train(
     else:
         ndvi_mse_lift_pct = float("nan")
 
+    # Skill score vs the predict-last-value (persistence / Markov-1)
+    # baseline on the held-out REAL NDVI cells (audit 2026-05-30 HIGH #5).
+    # skill = 1 - MSE_model / MSE_baseline. skill > 0 ⇔ the model beats
+    # persistence; skill ≤ 0 ⇔ persistence is as good or better. This is
+    # the single most honest number for whether the trained head adds
+    # anything over "tomorrow looks like today" on real ground truth.
+    real_ndvi_skill_score = compute_skill_score(real_mse_model, real_mse_baseline)
+    beats_persistence_on_real_ndvi = (
+        real_ndvi_skill_score is not None and real_ndvi_skill_score > 0.0
+    )
+
     return {
         "history": history,
         "training_time_s": dt,
@@ -586,6 +679,8 @@ def train(
         "baseline_mse_phys": last["baseline_mse_phys"],
         "real_ndvi_mse_model": real_mse_model,
         "real_ndvi_mse_baseline": real_mse_baseline,
+        "real_ndvi_skill_score": real_ndvi_skill_score,
+        "beats_persistence_on_real_ndvi": beats_persistence_on_real_ndvi,
         "n_real_ndvi_eval_pairs": n_real_pairs,
         "onnx_vs_pytorch_max_diff": max_diff,
         "train_size": N_TRAIN_SYNTHETIC,
@@ -596,26 +691,40 @@ def train(
 
 
 def evaluate_on_real_ndvi(
-    model: DynamicsV2, real_eval: List[Dict]
+    model: DynamicsV2, real_eval: List[Dict], verbose: bool = False
 ) -> Tuple[float, float, int]:
     """For each real NDVI cell with depth ≥ K_LAGS+1, slide a window
     and predict; return (model_mse, baseline_mse, n_pairs) in physical
     NDVI units. The other three bands are filled with NaN-safe
     placeholders since the model only needs the NDVI column for this
     eval — we still feed normalised stand-ins so the model receives a
-    coherent input."""
-    # We need a lat/lng per cell. Without the latlng_from_cell64
-    # Rust helper available from Python we fall back to lat=0/lng=0
-    # which is a worst-case stress test of the model's robustness
-    # (it should still pick up the cyclic seasonality from the
-    # 6-month lag context). When the cell encoder is exposed via
-    # pyo3 (future work) this becomes more precise.
+    coherent input.
+
+    Audit 2026-05-30 fix #5: the per-cell lat/lng is now decoded in
+    Python from the cell64 string (latlng_from_cell64 above), so the
+    spatial-context vector reflects the cell's REAL position instead of
+    biasing every cell to lat=0/lng=0 (Null Island). The number of cells
+    that still fell back to (0,0) — because their cell key isn't a
+    geo-aperture cell64 (e.g. a legacy 305 m string) — is logged so the
+    reported skill can't be silently inflated by a hidden (0,0) bias."""
     model.eval()
     pairs = 0
     err_model = 0.0
     err_baseline = 0.0
+    cells_decoded = 0
+    cells_fell_back = 0
     for cell in real_eval:
         obs = cell["obs"]
+        # Decode the cell's real (lat, lng) from its cell64 key. Fall back
+        # to (0, 0) only when the key isn't a decodable geo cell, and count
+        # those so the (0,0) bias is visible rather than hidden.
+        latlng = latlng_from_cell64(str(cell.get("cell", "")))
+        if latlng is None:
+            cell_lat, cell_lng = 0.0, 0.0
+            cells_fell_back += 1
+        else:
+            cell_lat, cell_lng = latlng
+            cells_decoded += 1
         # `obs` is list of (tslot, ndvi). Sort by tslot.
         obs = sorted(obs, key=lambda x: x[0])
         # Take only NDVI observations, build a "monthly" series by
@@ -633,13 +742,14 @@ def evaluate_on_real_ndvi(
         for i in range(K_LAGS, len(monthly)):
             ndvi_lags = np.asarray([v for _, v in monthly[i - K_LAGS : i]], dtype=np.float32)
             target = monthly[i][1]
-            # Fill other bands with their climatological means + small noise
-            lst_day = np.asarray([_lst_day_seasonal(0.0, (mb % 12) + 1, 290.0) for mb, _ in monthly[i - K_LAGS : i]], dtype=np.float32)
+            # Fill other bands with their climatological means + small noise,
+            # using the cell's real latitude for the LST seasonal shape.
+            lst_day = np.asarray([_lst_day_seasonal(cell_lat, (mb % 12) + 1, 290.0) for mb, _ in monthly[i - K_LAGS : i]], dtype=np.float32)
             lst_night = lst_day - 8.0
             pm = np.full(K_LAGS, BAND_NORM["cams.pm25"][0], dtype=np.float32)
             lags_phys = np.stack([ndvi_lags, lst_day, lst_night, pm], axis=-1)
             lags_norm = _normalise_lags(lags_phys)
-            ctx = _build_context(0.0, 0.0, monthly[i][0] % 12)
+            ctx = _build_context(cell_lat, cell_lng, monthly[i][0] % 12)
             flat = np.concatenate([lags_norm.reshape(-1), ctx]).astype(np.float32)
             with torch.no_grad():
                 pred = model(torch.from_numpy(flat).unsqueeze(0))[0]
@@ -648,6 +758,11 @@ def evaluate_on_real_ndvi(
             err_model += (pred_phys[0] - target) ** 2
             err_baseline += (baseline_phys - target) ** 2
             pairs += 1
+    if verbose:
+        print(
+            f"[train] real-NDVI eval cell positions: {cells_decoded} decoded "
+            f"from cell64, {cells_fell_back} fell back to (0,0) (non-geo cell key)"
+        )
     if pairs == 0:
         return 0.0, 0.0, 0
     return float(err_model / pairs), float(err_baseline / pairs), int(pairs)
@@ -708,6 +823,12 @@ def write_metadata(out_dir: Path, stats: Dict) -> None:
             "baseline_mse_physical_units": stats["baseline_mse_phys"],
             "real_ndvi_mse_model": stats["real_ndvi_mse_model"],
             "real_ndvi_mse_baseline": stats["real_ndvi_mse_baseline"],
+            # Skill vs predict-last-value (persistence) on real NDVI. >0
+            # ⇔ beats persistence; ≤0 ⇔ persistence wins (audit 2026-05-30
+            # HIGH #5). The sidecar surfaces this in the dynamics response.
+            "real_ndvi_skill_score": stats["real_ndvi_skill_score"],
+            "beats_persistence_on_real_ndvi": stats["beats_persistence_on_real_ndvi"],
+            "skill_reference": "predict-last-value (persistence / Markov-1)",
             "checkpoint_blake2b_hex": stats["checkpoint_blake2b"],
             "honesty_caveats": [
                 "training_set_predominantly_synthetic: real corpus history is "

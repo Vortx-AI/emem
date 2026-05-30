@@ -57,6 +57,8 @@ from train_dynamics_v2 import (
     _build_context,
     _denormalise_pred,
     _normalise_lags,
+    compute_skill_score,
+    latlng_from_cell64,
 )
 
 EMEM_DATA = Path(os.environ.get("EMEM_DATA", "/home/ubuntu/emem/var/emem"))
@@ -187,12 +189,84 @@ def test_metadata_carries_trained_flag_and_blake2b() -> None:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Pure-Python honesty/correctness tests (no GPU, no on-disk artifact).
+# These cover the audit 2026-05-30 fixes #5 (skill score, cell64 decode)
+# and serve as regression guards independent of the trained checkpoint.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def test_skill_score_beats_and_ties() -> None:
+    """skill = 1 - mse_model/mse_baseline. >0 beats persistence."""
+    assert compute_skill_score(0.5, 1.0) == 0.5      # model half the error
+    assert compute_skill_score(1.0, 1.0) == 0.0      # tie
+    assert compute_skill_score(2.0, 1.0) == -1.0     # worse than persistence
+
+
+def test_skill_score_undefined_returns_none() -> None:
+    """Missing MSE or a non-positive baseline → None (skill undefined),
+    never a fabricated number that could inflate the headline."""
+    assert compute_skill_score(None, 1.0) is None
+    assert compute_skill_score(0.5, None) is None
+    assert compute_skill_score(0.5, 0.0) is None
+    assert compute_skill_score(0.5, -1.0) is None
+
+
+def test_negative_skill_means_does_not_beat_persistence() -> None:
+    """A model worse than predict-last-value yields skill<0, which the
+    sidecar maps to beats_persistence=false + a NEGATIVE_SKILL warning.
+    Mirror that decision rule here so the trainer-side flag can't drift
+    from the server-side gate."""
+    skill = compute_skill_score(2.0, 1.0)
+    assert skill is not None and skill < 0.0
+    beats = skill > 0.0
+    assert beats is False
+
+
+def test_cell64_decode_roundtrips_known_points() -> None:
+    """The pure-Python cell64→(lat,lng) decode (ported from
+    crates/emem-codec/src/geo.rs) must recover the input lat/lng to
+    within the ~9.55 m bucket (≈1e-3°). The cell64 strings below were
+    produced by reproducing the Rust ENCODE (geo.rs::cell_from_latlng +
+    to_cell64) — see the geo grid spec in geo.rs."""
+    # (lat, lng, cell64) golden triples, validated against the Rust encode.
+    cases = [
+        (45.0, -90.0, "defi.zb5ff.zffd0.baba"),
+        (-33.45, -70.66, "defi.zb283.qUbe.rEtU"),
+        (1.29, 103.85, "defi.zb40e.zad72.suhe"),
+        (60.0, 11.0, "defi.zb6aa.zObe.zf49f"),
+    ]
+    for lat, lng, cell in cases:
+        dec = latlng_from_cell64(cell)
+        assert dec is not None, f"{cell} should decode"
+        assert abs(dec[0] - lat) < 1e-3, f"{cell} lat {dec[0]} != {lat}"
+        assert abs(dec[1] - lng) < 1e-3, f"{cell} lng {dec[1]} != {lng}"
+
+
+def test_cell64_decode_rejects_non_geo_and_malformed() -> None:
+    """Malformed cell64 (wrong part count, unknown bigram) and non-geo
+    cells (wrong mode|res|base prefix) must return None — never silently
+    decode to a wrong lat/lng that would bias the eval's spatial context."""
+    assert latlng_from_cell64("aa.bb.cc") is None          # 3 parts
+    assert latlng_from_cell64("ZZ99.ab12.cd34.ef56") is None  # unknown bigram
+    assert latlng_from_cell64("") is None
+    # A syntactically-valid cell64 whose prefix isn't the geo aperture.
+    assert latlng_from_cell64("baba.baba.baba.baba") is None
+
+
 if __name__ == "__main__":
+    # Pure-Python tests always run.
+    test_skill_score_beats_and_ties()
+    test_skill_score_undefined_returns_none()
+    test_negative_skill_means_does_not_beat_persistence()
+    test_cell64_decode_roundtrips_known_points()
+    test_cell64_decode_rejects_non_geo_and_malformed()
+    print("[smoke] 5 pure-Python tests passed")
     if not _have_artifact():
-        print("[smoke] dynamics_v2 artifact missing; nothing to test")
+        print("[smoke] dynamics_v2 artifact missing; skipping ONNX tests")
         raise SystemExit(0)
     test_onnx_runs_on_non_degenerate_input()
     test_output_not_identity_baseline()
     test_output_in_physical_ranges()
     test_metadata_carries_trained_flag_and_blake2b()
-    print("[smoke] all 4 tests passed")
+    print("[smoke] all ONNX tests passed")
