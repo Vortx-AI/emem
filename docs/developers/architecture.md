@@ -12,7 +12,7 @@ deploy, `whitepaper.md` for the math.
 A single Rust binary `emem-server` listens on one port (default
 `0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **80 unique paths under
 `/v1/*`**) and an MCP JSON-RPC endpoint at `POST /mcp`
-(**69 tools** — 10 core / 59 extended). An optional Python sidecar over a Unix domain socket
+(**70 tools** — 10 core / 60 extended). An optional Python sidecar over a Unix domain socket
 handles GPU inference for Clay v1.5, Prithvi-EO-2.0, Galileo, and
 JEPA v2. Storage is a sled hot cache plus an append-only Merkle
 log on local disk. Identity is a 32-byte ed25519 secret at
@@ -79,7 +79,7 @@ signed `Receipt`.
 | emem-core | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
 | emem-cli | 7 binaries: `emem`, `emem-server`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-ask-eval`, `emem-purge-fnkey` |
 | emem-storage | `MaterializingStorage` (cache + fetch + log composite), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (69 tools) |
+| emem-mcp | MCP tool registry (70 tools) |
 | emem-codec | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet |
 | emem-cache | sled cache wrapper (`SledHotCache`) |
 | emem-intent | 7-variant `Intent` enum and rule-based planner |
@@ -437,7 +437,7 @@ for the JEPA v2 untrained sentinel.
 REST and MCP serve the same primitives. The MCP tool list is a
 strict read-only subset of REST; writes (`attest`, `backfill`,
 reviews POST) go through REST only. `POST /mcp` is JSON-RPC 2.0,
-backed by `crates/emem-mcp/src/lib.rs` (69 tools). Three
+backed by `crates/emem-mcp/src/lib.rs` (70 tools). Three
 well-known endpoints publish capabilities: `/.well-known/mcp.json`
 (MCP transport advertisement), `/.well-known/agent-card.json`
 (recommended tool order), and `/.well-known/emem.json` (responder
