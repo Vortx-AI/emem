@@ -1163,6 +1163,28 @@ fn soil_max_cells() -> usize {
         .clamp(1, ceiling)
 }
 
+/// Tighter per-cell fan-out cap for the polygon elevation-coherence endpoint
+/// (default 32). Tunable via `EMEM_ELEVATION_MAX_CELLS`; clamped to
+/// `1..=boring_max_cells()`.
+///
+/// Two of the three `ELEVATION_COHERENCE_BANDS` — Copernicus DEM and GMRT —
+/// are served by per-POINT JSON APIs with no tileable raster the polygon-bbox
+/// prewarm can warm (only `esa_worldcover.lc_2021` shares a COG tile). So a
+/// wide place-name polygon at the 512-cell boring ceiling serialises into
+/// hundreds of per-point HTTP calls — slow, and liable to trip the upstream
+/// rate limit. This cap bounds the elevation fan-out so a polygon elevation
+/// query stays responsive; when it truncates coverage the response surfaces a
+/// `coverage_capped` note rather than silently sampling fewer cells. Same
+/// shape as [`soil_max_cells`].
+fn elevation_max_cells() -> usize {
+    let ceiling = boring_max_cells();
+    std::env::var("EMEM_ELEVATION_MAX_CELLS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(32)
+        .clamp(1, ceiling)
+}
+
 // ── CORS layer (open for agents, Origin-allowlist when configured) ─────
 //
 // Default behavior is `Access-Control-Allow-Origin: *` so unauthenticated
@@ -20684,10 +20706,18 @@ async fn elevation_coherent_polygon(
     target: &ResolvedTarget,
     polygon: &ResolvedPolygon,
 ) -> Result<JsonValue, ApiError> {
+    // Cop-DEM + GMRT are per-POINT JSON APIs (no tile prewarm), so cap the
+    // fan-out tighter than the generic boring ceiling — see
+    // `elevation_max_cells`. Record whether the cap actually truncated
+    // coverage so we can disclose it honestly rather than silently sampling
+    // fewer cells.
+    let n_available = polygon.sample_cells.len();
+    let effective_cap = elevation_max_cells();
+    let coverage_capped = n_available > effective_cap;
     let cells: Vec<String> = polygon
         .sample_cells
         .iter()
-        .take(boring_max_cells())
+        .take(effective_cap)
         .cloned()
         .collect();
     if cells.is_empty() {
@@ -20931,6 +20961,9 @@ async fn elevation_coherent_polygon(
             "area_km2":          area_km2,
             "sample_cells":      cells,
             "n_sample_cells":    total,
+            "n_available_cells": n_available,
+            "coverage_capped":   coverage_capped,
+            "coverage_cap":      effective_cap,
             "source":            polygon.source,
             "geojson":           polygon_geojson,
             "scene_thumbs":      JsonValue::Array(scene_thumbs),
@@ -47345,6 +47378,48 @@ mod tests {
         match prev_soil {
             Some(v) => std::env::set_var("EMEM_SOIL_MAX_CELLS", v),
             None => std::env::remove_var("EMEM_SOIL_MAX_CELLS"),
+        }
+        match prev_boring {
+            Some(v) => std::env::set_var("EMEM_BORING_MAX_CELLS", v),
+            None => std::env::remove_var("EMEM_BORING_MAX_CELLS"),
+        }
+    }
+
+    /// `elevation_max_cells()` defaults to a tight 32-cell cap, reads the env
+    /// override at runtime (NOT cached), and never exceeds the global boring
+    /// ceiling. This is what bounds a place-name /v1/elevation polygon fan-out
+    /// so it can't serialise into hundreds of per-point Cop-DEM / GMRT calls.
+    #[test]
+    fn elevation_max_cells_caps_fanout() {
+        let _g = eudr_test_env_guard();
+        let prev_elev = std::env::var("EMEM_ELEVATION_MAX_CELLS").ok();
+        let prev_boring = std::env::var("EMEM_BORING_MAX_CELLS").ok();
+
+        std::env::remove_var("EMEM_ELEVATION_MAX_CELLS");
+        std::env::remove_var("EMEM_BORING_MAX_CELLS");
+        assert_eq!(elevation_max_cells(), 32, "default elevation cap is 32");
+        assert!(
+            elevation_max_cells() <= boring_max_cells(),
+            "elevation cap never exceeds the global boring ceiling"
+        );
+
+        // Runtime-readable override (proves no LazyLock caching).
+        std::env::set_var("EMEM_ELEVATION_MAX_CELLS", "8");
+        assert_eq!(elevation_max_cells(), 8, "env override is read at runtime");
+
+        // Clamped to the global ceiling.
+        std::env::set_var("EMEM_BORING_MAX_CELLS", "16");
+        std::env::set_var("EMEM_ELEVATION_MAX_CELLS", "1000");
+        assert_eq!(
+            elevation_max_cells(),
+            16,
+            "elevation cap is clamped down to the global boring ceiling"
+        );
+
+        // Restore.
+        match prev_elev {
+            Some(v) => std::env::set_var("EMEM_ELEVATION_MAX_CELLS", v),
+            None => std::env::remove_var("EMEM_ELEVATION_MAX_CELLS"),
         }
         match prev_boring {
             Some(v) => std::env::set_var("EMEM_BORING_MAX_CELLS", v),

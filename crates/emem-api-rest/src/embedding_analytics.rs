@@ -263,35 +263,72 @@ async fn cells_for_region(
 /// dropped — the count of covered cells is surfaced so the caller can tell
 /// thin coverage from a wrong query.
 async fn embeddings_for_cells(cells: &[String], s: &AppState) -> (Vec<Vec<f32>>, Vec<String>) {
-    let mut vectors = Vec::new();
-    let mut cids = Vec::new();
-    for cell in cells {
-        let req = RecallReq {
-            cell: cell.clone(),
-            bands: Some(vec![EMBED_BAND.to_string()]),
-            tslot: None,
-            ..Default::default()
-        };
-        if let Ok((resp, _notes)) = recall_with_auto_materialize(&req, s).await {
-            for (idx, f) in resp.facts.iter().enumerate() {
-                if let Fact::Primary(p) = f {
-                    if p.band == EMBED_BAND {
-                        if let Some(v) = as_vec_f32(&p.value) {
-                            if v.iter().any(|x| x.is_finite()) {
-                                vectors.push(v);
-                                if let Some(c) = resp
-                                    .receipt
-                                    .fact_cids
-                                    .get(idx)
-                                    .map(|c| c.as_str().to_string())
-                                    .filter(|c| !c.is_empty())
-                                {
-                                    cids.push(c);
+    // Per-cell GeoTessera recalls are independent. GeoTessera reads ~640 B
+    // via an HTTPS range read per cell, and cells in the same 0.1° tile
+    // share one underlying tile fetch (TESSERA_HEADER_CACHE / cog single-
+    // flight collapse it), so a bounded concurrent fan-out is a clean win
+    // without flooding the bucket. We key each task by its cell index and
+    // reassemble strictly in input order, so `vectors`/`cids` — and thus
+    // every downstream centroid/diversity reduction and the receipt — are
+    // byte-identical to the old serial loop.
+    const EMBED_CONCURRENCY: usize = 16;
+    // Per-cell result: the covered (vector, optional cid) pairs in the
+    // same order the serial loop produced them.
+    type CellEmbeds = Vec<(Vec<f32>, Option<String>)>;
+    let mut per_cell: Vec<Option<CellEmbeds>> = vec![None; cells.len()];
+    let mut set: tokio::task::JoinSet<(usize, CellEmbeds)> = tokio::task::JoinSet::new();
+    let mut next = 0usize;
+    loop {
+        while set.len() < EMBED_CONCURRENCY && next < cells.len() {
+            let idx = next;
+            next += 1;
+            let cell = cells[idx].clone();
+            let st = s.clone();
+            set.spawn(async move {
+                let req = RecallReq {
+                    cell,
+                    bands: Some(vec![EMBED_BAND.to_string()]),
+                    tslot: None,
+                    ..Default::default()
+                };
+                let mut found: CellEmbeds = Vec::new();
+                if let Ok((resp, _notes)) = recall_with_auto_materialize(&req, &st).await {
+                    for (i, f) in resp.facts.iter().enumerate() {
+                        if let Fact::Primary(p) = f {
+                            if p.band == EMBED_BAND {
+                                if let Some(v) = as_vec_f32(&p.value) {
+                                    if v.iter().any(|x| x.is_finite()) {
+                                        let cid = resp
+                                            .receipt
+                                            .fact_cids
+                                            .get(i)
+                                            .map(|c| c.as_str().to_string())
+                                            .filter(|c| !c.is_empty());
+                                        found.push((v, cid));
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                (idx, found)
+            });
+        }
+        let Some(joined) = set.join_next().await else {
+            break;
+        };
+        if let Ok((idx, found)) = joined {
+            per_cell[idx] = Some(found);
+        }
+    }
+
+    let mut vectors = Vec::new();
+    let mut cids = Vec::new();
+    for found in per_cell.into_iter().flatten() {
+        for (v, cid) in found {
+            vectors.push(v);
+            if let Some(c) = cid {
+                cids.push(c);
             }
         }
     }

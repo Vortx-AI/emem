@@ -257,7 +257,36 @@ pub async fn terrain(req: TerrainReq, s: &AppState) -> Result<JsonValue, ApiErro
     let (centre_cell, neighbours, cell_w_m, cell_h_m) = neighbourhood(&cell, step_cells)?;
 
     // Recall the centre + 8 neighbours. Each is one elevation recall.
-    let (z_centre_opt, centre_cid) = recall_elevation(&centre_cell, s).await;
+    // These 9 recalls are independent and almost always land on the same
+    // one or two Copernicus-DEM COG tiles, so we fire them all at once and
+    // let cog.rs's PROFILE_CACHE/TILE_CACHE single-flight collapse the
+    // shared tile fetch. The results are reassembled strictly in the
+    // original (centre, then `neighbours` order) sequence, so `cids`,
+    // `by_dir`, and `neighbour_cells` — and therefore the slope/TRI/TPI
+    // math and the receipt — are byte-identical to the old serial walk.
+    // 9 < the JoinSet concurrency cap of 16, so no extra bounding needed.
+    // (stencil index, (elevation, fact_cid)) for one recalled cell.
+    type ElevAt = (usize, (Option<f64>, Option<String>));
+    let mut set: tokio::task::JoinSet<ElevAt> = tokio::task::JoinSet::new();
+    {
+        // Index 0 = centre, 1..=8 = neighbours in `neighbours` order.
+        let centre = centre_cell.clone();
+        let st = s.clone();
+        set.spawn(async move { (0usize, recall_elevation(&centre, &st).await) });
+        for (i, (_dir, c64)) in neighbours.iter().enumerate() {
+            let c64 = c64.clone();
+            let st = s.clone();
+            set.spawn(async move { (i + 1, recall_elevation(&c64, &st).await) });
+        }
+    }
+    let mut results: Vec<Option<(Option<f64>, Option<String>)>> = vec![None; neighbours.len() + 1];
+    while let Some(joined) = set.join_next().await {
+        if let Ok((idx, r)) = joined {
+            results[idx] = Some(r);
+        }
+    }
+
+    let (z_centre_opt, centre_cid) = results[0].take().unwrap_or((None, None));
     let mut cids: Vec<String> = Vec::new();
     if let Some(c) = centre_cid {
         cids.push(c);
@@ -265,8 +294,8 @@ pub async fn terrain(req: TerrainReq, s: &AppState) -> Result<JsonValue, ApiErro
     // dir → elevation, NaN-masking misses.
     let mut by_dir: std::collections::BTreeMap<&'static str, f64> = Default::default();
     let mut neighbour_cells: Vec<JsonValue> = Vec::new();
-    for (dir, c64) in &neighbours {
-        let (z, cid) = recall_elevation(c64, s).await;
+    for (i, (dir, c64)) in neighbours.iter().enumerate() {
+        let (z, cid) = results[i + 1].take().unwrap_or((None, None));
         if let Some(c) = cid {
             cids.push(c);
         }

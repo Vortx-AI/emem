@@ -97,7 +97,6 @@ pub async fn query_region(
     srv: &Server,
 ) -> Result<QueryRegionResp, StorageError> {
     let started = Instant::now();
-    let storage = srv.storage.as_ref();
     let bound = build_as_of_bound(None, req.as_of_tslot, req.as_of_signed_at.as_deref())?;
     let scope_filter: Option<&emem_fact::Scope> = req.scope.as_ref().filter(|s| !s.is_empty());
 
@@ -135,6 +134,80 @@ pub async fn query_region(
         vec![req.geometry.clone()]
     };
 
+    // ── Per-cell scan + batched get_facts_many, run with bounded
+    //    concurrency, then merged back in cell order so the result is
+    //    byte-identical to the old sequential walk. ──────────────────
+    //
+    // Each cell produces an independent `(scanned cid+fact pairs,
+    // unbounded_count)` tuple. We collect into a `Vec<Option<_>>` slot
+    // keyed by the cell's index so the merge below sees results in the
+    // exact `cells` order regardless of which task finished first. The
+    // MAX_REGION_FACTS cap, band filter, scoped-tx filter, and the
+    // cell-order break are all re-applied serially during the merge, so
+    // the contributing facts/cids/cells and the receipt are unchanged.
+    let scoped_tx_filter = scope_filter.is_some() && bound.transaction_time.is_some();
+    // Per-cell scan result: the (cid, fact) pairs the cell scanned (in
+    // index order) plus how many unbounded facts the cell had (for the
+    // temporal_advice diagnostic).
+    type CellScan = (Vec<(FactCid, Option<Fact>)>, usize);
+    let mut scanned: Vec<Option<CellScan>> = vec![None; cells.len()];
+    {
+        // Bounded fan-out: cap in-flight scans so a 4096-cell bbox can't
+        // open thousands of concurrent storage/materializer reads.
+        const QR_SCAN_CONCURRENCY: usize = 16;
+        let mut set: tokio::task::JoinSet<Result<(usize, CellScan), StorageError>> =
+            tokio::task::JoinSet::new();
+        let mut next = 0usize;
+        let scope_owned: Option<emem_fact::Scope> = scope_filter.cloned();
+        loop {
+            while set.len() < QR_SCAN_CONCURRENCY && next < cells.len() {
+                let idx = next;
+                next += 1;
+                let cell = cells[idx].clone();
+                let storage = srv.storage.clone();
+                let bound = bound.clone();
+                let scope_owned = scope_owned.clone();
+                set.spawn(async move {
+                    let storage = storage.as_ref();
+                    let mut unbounded = 0usize;
+                    let entries = if let Some(sc) = scope_owned.as_ref() {
+                        // Scoped per-cell scan. The scope index is keyed by
+                        // valid-time tslot, so apply the valid-time half of
+                        // the bound from the key; the transaction-time half
+                        // is applied during the merge via `bound.fact_passes`.
+                        let mut s = storage.scan_cell_in_scope(&cell, None, Some(sc)).await?;
+                        if !bound.is_unbounded() {
+                            unbounded += s.len();
+                            if let Some(vt) = bound.valid_time {
+                                s.retain(|(k, _)| k.tslot <= vt);
+                            }
+                        }
+                        s
+                    } else if bound.is_unbounded() {
+                        storage.scan_cell(&cell, None).await?
+                    } else {
+                        // Track the unbounded count for temporal_advice.
+                        unbounded += storage.scan_cell(&cell, None).await?.len();
+                        storage.scan_cell_as_of(&cell, None, &bound).await?
+                    };
+                    let cids: Vec<FactCid> = entries.into_iter().map(|(_, c)| c).collect();
+                    let fetched = storage.get_facts_many(&cids).await?;
+                    let pairs: Vec<(FactCid, Option<Fact>)> =
+                        cids.into_iter().zip(fetched).collect();
+                    Ok((idx, (pairs, unbounded)))
+                });
+            }
+            let Some(joined) = set.join_next().await else {
+                break;
+            };
+            let (idx, scan) = joined.map_err(|e| StorageError::Protocol {
+                code: ErrorCode::Internal,
+                message: format!("query_region: scan task panicked: {e}"),
+            })??;
+            scanned[idx] = Some(scan);
+        }
+    }
+
     let mut all_facts: Vec<Fact> = Vec::new();
     let mut all_cids: Vec<FactCid> = Vec::new();
     // Parallel to `all_facts` — the cell64 the fact was scanned from.
@@ -142,34 +215,15 @@ pub async fn query_region(
     // cos(lat) equal-area weight per cell.
     let mut all_fact_cells: Vec<String> = Vec::new();
     let mut unbounded_total: usize = 0;
-    'outer: for cell in &cells {
+    'outer: for (cell, scan) in cells.iter().zip(scanned) {
         if all_facts.len() >= MAX_REGION_FACTS {
             break;
         }
-        let entries = if let Some(_sc) = scope_filter {
-            // Scoped per-cell scan. The scope index is keyed by valid-time
-            // tslot, so apply the valid-time half of the bound from the
-            // key; the transaction-time half is applied below on the
-            // loaded fact via `bound.fact_passes`.
-            let mut s = storage.scan_cell_in_scope(cell, None, scope_filter).await?;
-            if !bound.is_unbounded() {
-                unbounded_total += s.len();
-                if let Some(vt) = bound.valid_time {
-                    s.retain(|(k, _)| k.tslot <= vt);
-                }
-            }
-            s
-        } else if bound.is_unbounded() {
-            storage.scan_cell(cell, None).await?
-        } else {
-            // Track the unbounded count for the temporal_advice diagnostic.
-            unbounded_total += storage.scan_cell(cell, None).await?.len();
-            storage.scan_cell_as_of(cell, None, &bound).await?
+        let Some((pairs, unbounded)) = scan else {
+            continue;
         };
-        let cids: Vec<FactCid> = entries.into_iter().map(|(_, c)| c).collect();
-        let fetched = storage.get_facts_many(&cids).await?;
-        let scoped_tx_filter = scope_filter.is_some() && bound.transaction_time.is_some();
-        for (cid, fact) in cids.iter().zip(fetched) {
+        unbounded_total += unbounded;
+        for (cid, fact) in pairs {
             let Some(fact) = fact else { continue };
             // Scoped path honours a transaction-time bound here (the scope
             // index can't pre-filter on signed_at).
@@ -186,7 +240,7 @@ pub async fn query_region(
                     continue;
                 }
             }
-            all_cids.push(cid.clone());
+            all_cids.push(cid);
             all_facts.push(fact);
             all_fact_cells.push(cell.clone());
             if all_facts.len() >= MAX_REGION_FACTS {
