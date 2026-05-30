@@ -1,0 +1,25 @@
+[package]
+name = "emem-sleep-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Opt-in sleep-time agent: during idle periods, an LLM rewrites/merges high-churn or contradicted memory and writes the result back as a NEW signed memory that supersedes the originals bi-temporally (non-destructive)."
+
+[[bin]]
+name = "emem-sleep-agentd"
+path = "src/bin/emem-sleep-agentd.rs"
+
+[dependencies]
+serde      = { workspace = true }
+serde_json = { workspace = true }
+reqwest    = { workspace = true }
+tokio      = { workspace = true }
+clap       = { workspace = true }
+anyhow     = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+tracing-subscriber = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
