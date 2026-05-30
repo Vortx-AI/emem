@@ -2858,6 +2858,37 @@ mod tests {
     }
 
     #[test]
+    fn documentation_only_cosine_algorithms_advertise_runnable_endpoints() {
+        // carbon.deforestation_alert_proxy@1 and the triple-consensus key
+        // stay documentation_only for the scalar AST evaluator (it cannot
+        // compute the multi-vintage embedding cosine), but each now
+        // advertises a dedicated dispatcher endpoint as runnable surface.
+        let r = &*DEFAULT;
+        for (key, path) in [
+            (
+                "carbon.deforestation_alert_proxy@1",
+                "/v1/deforestation_alert",
+            ),
+            (
+                "clay_prithvi_tessera_triple_consensus@1",
+                "/v1/triple_consensus",
+            ),
+        ] {
+            let a = r.lookup(key).unwrap_or_else(|| panic!("{key} missing"));
+            assert!(a.documentation_only, "{key} must stay documentation_only");
+            assert_eq!(
+                a.runtime_path.as_deref(),
+                Some(path),
+                "{key} must advertise its runnable dispatcher endpoint"
+            );
+            assert!(
+                a.partial_runtime,
+                "{key} runtime is partial (GPU-gated encoders degrade to Absence)"
+            );
+        }
+    }
+
+    #[test]
     fn algal_bloom_gates_on_ndwi() {
         // Not water (ndwi <= 0) → 0
         let mut s = std::collections::HashMap::new();

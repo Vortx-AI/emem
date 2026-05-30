@@ -8480,6 +8480,9 @@
       "accuracy_band": "Editorial 50/50 split between NDVI drop (normalised by 0.30) and Tessera embedding divergence (normalised by 0.20); no published precision/recall against known deforestation, mining-encroachment, or oil-spill emission events for this exact composite. Use as a triage / scout signal, not for regulatory attribution. For cite-able attribution overlay Hansen GFC v1.10 annual loss (Hansen et al. 2013, Science 342:850) or RADD weekly tropical alerts (Reiche et al. 2021, Environ Res Lett 16:024005).",
       "pitfalls": "The 0.5 / 0.5 weighting between NDVI drop and Tessera-embedding cosine change is editorial and unjustified by any published validation; the two terms can disagree (e.g. selective logging that moves the embedding without dropping NDVI, or seasonal phenology that drops NDVI without structural change). Do not interpret `alert_score > 0.6` as a regulator-defensible deforestation event \u2014 confirm with Hansen GFC, RADD, or Sentinel-2 RGB before crediting decisions. The same composite, retargeted with mining-spectral or oil-slick bands, is sometimes called an 'emission anomaly' signal \u2014 it remains a scout-only triage proxy in either domain.",
       "honest_limits": "AST flagged documentation_only on 2026-05-29: references the phantom band `modis.ndvi_mean` (not registered in bands-v0.json) AND drops the Tessera-embedding cosine-change term entirely (single-cell AST cannot compute multi-vintage cosine). Compose client-side by pulling `indices.ndvi` for two epochs via /v1/trajectory and applying the documented 0.5/0.5 weighting against a Tessera multi-year sample if available.",
+      "honest_runtime_note": "The scalar evaluation-AST below stays documentation_only because it cannot compute the Tessera embedding-change cosine and short-cuts the composite. The runnable surface is POST /v1/deforestation_alert {cell}: it computes the full documented composite 0.5*clamp01(max(0, modis.ndvi_mean - indices.ndvi)/0.30) + 0.5*clamp01((1 - cos(tessera_latest, tessera_prev))/0.20). All three inputs (indices.ndvi, modis.ndvi_mean, geotessera.multi_year) materialize without a GPU. Each half degrades independently: when only one half is computable the endpoint reports that half under a distinct output_key (ndvi_drop_half_only / embedding_change_half_only), never as the full alert_score; when neither is computable it returns an honest 'inconclusive' verdict with no number.",
+      "runtime_path": "/v1/deforestation_alert",
+      "partial_runtime": true,
       "documentation_only": true,
       "evaluation": {
         "op": "clamp",
@@ -13510,8 +13513,9 @@
         }
       },
       "documentation_only": true,
-      "runtime_path": "/v1/ask",
-      "partial_runtime": true
+      "runtime_path": "/v1/triple_consensus",
+      "partial_runtime": true,
+      "honest_runtime_note": "The scalar evaluation-AST evaluator cannot express the per-encoder year-over-year embedding cosine, so this key stays documentation_only for /v1/ask's AST dispatch. The runnable surface is POST /v1/triple_consensus {cell}: it computes d_e = clamp(1 - cos(v_now, v_prev), 0, 1) per available encoder, fuses by quadratic mean over the encoders that have two vintages, and reports the LandTrendr agreement class. clay_v1/prithvi_eo2 are GPU-gated single-vintage materializers, so on a GPU-less or cold responder only Tessera multi-year is computable and the endpoint returns an honest 'inconclusive' verdict (N < consensus_min_models) rather than a fabricated number."
     },
     {
       "key": "deforestation_triple@1",

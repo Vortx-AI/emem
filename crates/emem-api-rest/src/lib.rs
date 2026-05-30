@@ -52,6 +52,7 @@ mod jepa_v2;
 mod physics;
 mod prithvi_chip;
 pub mod topic_router;
+mod triple_consensus;
 mod vault;
 
 use axum::body::Bytes;
@@ -959,6 +960,18 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/benchmark/grade", post(post_benchmark_grade))
         // Physics primitives — explicit-FD heat / wave PDE solvers and a
         // constrained JEPA-pattern NDVI predictor. See crates/emem-api-rest/src/physics.rs.
+        // Triple-consensus + deforestation-alert dispatcher arms: the
+        // runnable surface for two combined algorithms whose documented
+        // formula needs a multi-vintage embedding cosine the scalar AST
+        // cannot express. See crates/emem-api-rest/src/triple_consensus.rs.
+        .route(
+            "/v1/triple_consensus",
+            post(triple_consensus::post_triple_consensus),
+        )
+        .route(
+            "/v1/deforestation_alert",
+            post(triple_consensus::post_deforestation_alert),
+        )
         .route("/v1/heat_solve", post(physics::post_heat_solve))
         .route("/v1/wave_solve", post(physics::post_wave_solve))
         .route("/v1/jepa_predict", post(physics::post_jepa_predict))

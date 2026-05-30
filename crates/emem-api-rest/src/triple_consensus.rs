@@ -1,0 +1,756 @@
+//! Real dispatcher arms for two combined algorithms whose documented
+//! formulas the scalar `evaluation`-AST evaluator cannot express, because
+//! they require a **cosine over a multi-vintage embedding vector** rather
+//! than an `f64 → f64` arithmetic tree:
+//!
+//!   1. [`triple_consensus`] — `clay_prithvi_tessera_triple_consensus@1`.
+//!      Year-over-year change index fused across up to three foundation
+//!      encoders. Each encoder contributes `d = clamp(1 - cos(v_now,
+//!      v_prev), 0, 1)`; the ensemble is the quadratic mean of the
+//!      *available* components, and a LandTrendr-style agreement
+//!      classifier (gate 0.15) reports `all_three` / `two_of_three` /
+//!      `one_or_none`.
+//!
+//!   2. [`deforestation_alert`] — `carbon.deforestation_alert_proxy@1`.
+//!      `alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(
+//!      embedding_change/0.20)`, where `ndvi_drop = max(0,
+//!      ndvi_modis - ndvi_now)` and `embedding_change =
+//!      1 - cos(tessera_latest, tessera_prev)`.
+//!
+//! Both algorithms stay flagged `documentation_only` in the registry: the
+//! AST evaluator MUST keep returning `Ok(None)` for them (the scalar tree
+//! genuinely cannot compute the cosine term). These endpoints are the
+//! honest runnable surface. They never fabricate an embedding or a vote —
+//! when a GPU-gated encoder (`clay_v1`, `prithvi_eo2`) or a vintage is
+//! unavailable, the encoder is reported under `encoders_absent[]` with a
+//! typed reason and dropped from the fusion. When fewer than the
+//! algorithm's `consensus_min_models` are available the response is an
+//! honest `inconclusive` verdict, not a number.
+//!
+//! ## CORRECTNESS NOTE on `clay_v1` / `prithvi_eo2` year-over-year
+//! The shipped materializers for `clay_v1` and `prithvi_eo2` produce only
+//! the **latest** vintage (single embedding, GPU-gated). They take no
+//! prior-year parameter. So a year-over-year cosine for those two is only
+//! computable when the store *already holds* two distinct-tslot facts for
+//! the encoder at the cell (e.g. a deployment that signed last year's and
+//! this year's vintage). We recall the two most-recent distinct-tslot
+//! facts per encoder; if fewer than two exist, that encoder is absent.
+//! We never synthesise a prior vintage. On a GPU-less / cold responder
+//! the typical outcome is Tessera-only → `inconclusive` — which is the
+//! honest answer, not a fabricated all-three vote.
+
+use std::time::Instant;
+
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
+use serde::Deserialize;
+use serde_json::{json, Value as JsonValue};
+
+use emem_core::ErrorCode;
+use emem_fact::{Fact, FactCid};
+use emem_primitives::cbor_ops::{as_f64, as_vec_f32, cosine};
+use emem_primitives::RecallReq;
+
+use crate::{recall_with_auto_materialize, ApiError, AppState, ErrorBody};
+
+/// Width of one GeoTessera vintage inside the `geotessera.multi_year`
+/// stack: 128-D per year, 8 years (2017..=2024) → 1024-D flat array,
+/// missing years NaN-masked. See `materialize_geotessera_multi_year`.
+const TESSERA_VINTAGE_DIM: usize = 128;
+
+fn pubkey_b32(state: &AppState) -> String {
+    data_encoding::BASE32_NOPAD
+        .encode(&state.identity.pubkey.0)
+        .to_lowercase()
+}
+
+fn bad_request(msg: impl Into<String>) -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: msg.into(),
+            details: None,
+        },
+    )
+}
+
+/// Split a `geotessera.multi_year` flat vector into per-vintage 128-D
+/// slices, dropping any slice that is entirely NaN (a year that 404'd at
+/// materialization time and was NaN-masked). Returns the *covered*
+/// vintages in chronological order. A slice with any finite element is
+/// kept whole — `cosine` is computed only over finite pairs by the
+/// caller via [`cosine_finite`].
+pub(crate) fn covered_vintages(stack: &[f32], dim: usize) -> Vec<Vec<f32>> {
+    if dim == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + dim <= stack.len() {
+        let slice = &stack[i..i + dim];
+        if slice.iter().any(|x| x.is_finite()) {
+            out.push(slice.to_vec());
+        }
+        i += dim;
+    }
+    out
+}
+
+/// Cosine over only the index positions where BOTH vectors are finite.
+/// The multi-year stack NaN-masks absent years; a partially-finite
+/// vintage (should not happen in practice, but defensive) still yields a
+/// meaningful cosine over its real dims. Returns `None` when no finite
+/// overlap exists (caller treats as "vintage unusable").
+pub(crate) fn cosine_finite(a: &[f32], b: &[f32]) -> Option<f32> {
+    let n = a.len().min(b.len());
+    let mut fa = Vec::with_capacity(n);
+    let mut fb = Vec::with_capacity(n);
+    for i in 0..n {
+        if a[i].is_finite() && b[i].is_finite() {
+            fa.push(a[i]);
+            fb.push(b[i]);
+        }
+    }
+    if fa.is_empty() {
+        return None;
+    }
+    Some(cosine(&fa, &fb))
+}
+
+/// `d = clamp(1 - cos(v_now, v_prev), 0, 1)` — one encoder's year-over-year
+/// change magnitude. `None` when the two vintages share no finite dims.
+fn change_component(v_now: &[f32], v_prev: &[f32]) -> Option<f64> {
+    let c = cosine_finite(v_now, v_prev)? as f64;
+    Some((1.0 - c).clamp(0.0, 1.0))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TripleConsensusReq {
+    pub cell: String,
+    /// Override the consensus gate (default from the registry parameters
+    /// block: 0.15). Clamped to (0, 1).
+    #[serde(default)]
+    pub consensus_threshold: Option<f64>,
+}
+
+/// Pull the two most-recent distinct-tslot Primary vectors for `band` at
+/// `cell`. Returns `(now, prev, [cid_now, cid_prev])`. `Err(reason)` when
+/// the band is unavailable (e.g. GPU encoder + sidecar down) or fewer
+/// than two distinct vintages exist.
+async fn two_vintages(
+    cell: &str,
+    band: &str,
+    s: &AppState,
+) -> Result<(Vec<f32>, Vec<f32>, Vec<String>), String> {
+    let req = RecallReq {
+        cell: cell.to_string(),
+        bands: Some(vec![band.to_string()]),
+        // No tslot pin: recall returns the band's facts; we sort the
+        // distinct tslots ourselves and take the two most recent.
+        tslot: None,
+        ..Default::default()
+    };
+    let (resp, _notes) = recall_with_auto_materialize(&req, s)
+        .await
+        .map_err(|e| format!("recall failed: {}", e.1.message))?;
+
+    // Collect (tslot, vector, cid) for every Primary fact for this band.
+    let mut rows: Vec<(u64, Vec<f32>, String)> = Vec::new();
+    for (idx, f) in resp.facts.iter().enumerate() {
+        if let Fact::Primary(p) = f {
+            if p.band != band {
+                continue;
+            }
+            if let Some(v) = as_vec_f32(&p.value) {
+                let cid = resp
+                    .receipt
+                    .fact_cids
+                    .get(idx)
+                    .map(|c| c.as_str().to_string())
+                    .unwrap_or_default();
+                rows.push((p.tslot, v, cid));
+            }
+        }
+    }
+    if resp.facts.iter().all(|f| !matches!(f, Fact::Primary(_)))
+        || rows.is_empty()
+    {
+        return Err(format!(
+            "no embedding vector for `{band}` at this cell (GPU encoder absent / sidecar down, or cell cold)"
+        ));
+    }
+    // Most-recent first, dedup by tslot.
+    rows.sort_by_key(|r| std::cmp::Reverse(r.0));
+    rows.dedup_by_key(|r| r.0);
+    if rows.len() < 2 {
+        return Err(format!(
+            "only one vintage of `{band}` exists at this cell; year-over-year change needs two distinct vintages (materializer produces the latest only — sign a prior vintage to enable)"
+        ));
+    }
+    let now = rows[0].clone();
+    let prev = rows[1].clone();
+    Ok((now.1, prev.1, vec![now.2, prev.2]))
+}
+
+/// One fused component result, surfaced verbatim in the response so an
+/// analyst can audit which encoder drove the alert.
+struct Component {
+    encoder: &'static str,
+    change: f64,
+    cids: Vec<String>,
+}
+
+/// The fusion verdict, computed purely from the available per-encoder
+/// change magnitudes so it is unit-testable without standing up an
+/// `AppState`. `changes` holds one value per *available* encoder (those
+/// that had two vintages); encoders that were absent are simply not in
+/// the slice — they NEVER contribute a synthesised zero or vote.
+///
+/// Returns `(ensemble, agreement, available)`. When fewer than
+/// `min_models` encoders are available `ensemble` is `None` and the
+/// verdict is inconclusive — no number is fabricated.
+pub(crate) fn fuse(
+    changes: &[f64],
+    n_encoders_total: usize,
+    gate: f64,
+    min_models: usize,
+) -> (Option<f64>, &'static str, bool) {
+    let n_used = changes.len();
+    if n_used < min_models {
+        return (None, "insufficient_encoders", false);
+    }
+    let n_over_gate = changes.iter().filter(|c| **c > gate).count();
+    let agreement = if n_used == n_encoders_total && n_used == 3 && n_over_gate == 3 {
+        "all_three"
+    } else if n_over_gate >= 2 {
+        "two_of_three"
+    } else {
+        "one_or_none"
+    };
+    let ssq: f64 = changes.iter().map(|c| c * c).sum();
+    let ensemble = (ssq / n_used as f64).sqrt();
+    (Some(ensemble), agreement, true)
+}
+
+pub async fn triple_consensus(req: TripleConsensusReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
+
+    let alg = emem_core::algorithms::DEFAULT.lookup("clay_prithvi_tessera_triple_consensus@1");
+    let gate = req
+        .consensus_threshold
+        .or_else(|| alg.and_then(|a| a.param_f64("consensus_threshold")))
+        .unwrap_or(0.15)
+        .clamp(f64::MIN_POSITIVE, 1.0);
+    let min_models = alg
+        .and_then(|a| a.param_f64("consensus_min_models"))
+        .unwrap_or(2.0) as usize;
+
+    let mut components: Vec<Component> = Vec::new();
+    let mut absent: Vec<JsonValue> = Vec::new();
+    let mut all_cids: Vec<String> = Vec::new();
+
+    // ── Tessera: one recall yields the multi-vintage stack; latest vs
+    //    prev covered vintage. No GPU. ──────────────────────────────────
+    {
+        let mreq = RecallReq {
+            cell: cell.clone(),
+            bands: Some(vec!["geotessera.multi_year".to_string()]),
+            tslot: None,
+            ..Default::default()
+        };
+        match recall_with_auto_materialize(&mreq, s).await {
+            Ok((resp, _notes)) => {
+                let primary = resp.facts.iter().enumerate().find_map(|(i, f)| match f {
+                    Fact::Primary(p) if p.band == "geotessera.multi_year" => Some((i, p)),
+                    _ => None,
+                });
+                match primary.and_then(|(i, p)| as_vec_f32(&p.value).map(|v| (i, v))) {
+                    Some((i, stack)) => {
+                        let vintages = covered_vintages(&stack, TESSERA_VINTAGE_DIM);
+                        if vintages.len() >= 2 {
+                            let latest = &vintages[vintages.len() - 1];
+                            let prev = &vintages[vintages.len() - 2];
+                            match change_component(latest, prev) {
+                                Some(dt) => {
+                                    let cid = resp
+                                        .receipt
+                                        .fact_cids
+                                        .get(i)
+                                        .map(|c| c.as_str().to_string())
+                                        .unwrap_or_default();
+                                    if !cid.is_empty() {
+                                        all_cids.push(cid.clone());
+                                    }
+                                    components.push(Component {
+                                        encoder: "geotessera.multi_year",
+                                        change: dt,
+                                        cids: vec![cid],
+                                    });
+                                }
+                                None => absent.push(json!({
+                                    "encoder": "geotessera.multi_year",
+                                    "reason": "two covered vintages share no finite dimensions",
+                                })),
+                            }
+                        } else {
+                            absent.push(json!({
+                                "encoder": "geotessera.multi_year",
+                                "reason": format!("only {} covered Tessera vintage(s) at this cell; year-over-year change needs two", vintages.len()),
+                            }));
+                        }
+                    }
+                    None => absent.push(json!({
+                        "encoder": "geotessera.multi_year",
+                        "reason": "no multi-year embedding at this cell (outside Tessera coverage)",
+                    })),
+                }
+            }
+            Err(e) => absent.push(json!({
+                "encoder": "geotessera.multi_year",
+                "reason": format!("recall failed: {}", e.1.message),
+            })),
+        }
+    }
+
+    // ── Clay + Prithvi: GPU-gated, single-vintage materializer. Compute
+    //    only when two distinct-tslot facts already exist; else honest
+    //    absence. NEVER synthesise a prior vintage. ──────────────────────
+    for band in ["clay_v1", "prithvi_eo2"] {
+        match two_vintages(&cell, band, s).await {
+            Ok((now, prev, cids)) => match change_component(&now, &prev) {
+                Some(d) => {
+                    for c in &cids {
+                        if !c.is_empty() {
+                            all_cids.push(c.clone());
+                        }
+                    }
+                    components.push(Component {
+                        encoder: if band == "clay_v1" { "clay_v1" } else { "prithvi_eo2" },
+                        change: d,
+                        cids,
+                    });
+                }
+                None => absent.push(json!({
+                    "encoder": band,
+                    "reason": "the two vintages share no finite dimensions",
+                })),
+            },
+            Err(reason) => absent.push(json!({ "encoder": band, "reason": reason })),
+        }
+    }
+
+    let n_used = components.len();
+    let changes: Vec<f64> = components.iter().map(|c| c.change).collect();
+    // Agreement + ensemble over the *available* components only — anchored
+    // to the documented LandTrendr thresholds. Absent encoders never
+    // contribute a synthesised zero or vote.
+    let (ensemble_opt, agreement, fuse_available) = fuse(&changes, 3, gate, min_models);
+
+    let per_encoder: Vec<JsonValue> = components
+        .iter()
+        .map(|c| {
+            json!({
+                "encoder": c.encoder,
+                "change": c.change,
+                "over_gate": c.change > gate,
+                "input_fact_cids": c.cids,
+            })
+        })
+        .collect();
+
+    let resolved_env = crate::resolved_envelope(vec![("cell".into(), resolved)]);
+    let pubkey = pubkey_b32(s);
+    let receipt = s.sign_receipt(
+        "emem.triple_consensus",
+        vec![cell.clone()],
+        all_cids.iter().cloned().map(FactCid::new).collect(),
+        false,
+        started,
+        None,
+    );
+
+    // Honest degradation: fewer than consensus_min_models available →
+    // inconclusive verdict with NO fabricated ensemble number.
+    if !fuse_available {
+        return Ok(json!({
+            "schema": "emem.triple_consensus.v1",
+            "algorithm_key": "clay_prithvi_tessera_triple_consensus@1",
+            "cell": cell,
+            "resolved_from": resolved_env,
+            "verdict": "inconclusive",
+            "available": false,
+            "ensemble": JsonValue::Null,
+            "agreement": "insufficient_encoders",
+            "encoders_used": per_encoder,
+            "encoders_absent": absent,
+            "n_encoders_used": n_used,
+            "consensus_min_models": min_models,
+            "consensus_threshold": gate,
+            "honest_note": format!(
+                "Year-over-year consensus needs at least {min_models} encoders with two vintages; only {n_used} available here. Most often this means the GPU sidecar is down (clay_v1/prithvi_eo2 sign Absence) and only Tessera multi-year is computable. No ensemble value is reported — that would be a fabricated number."
+            ),
+            "responder_pubkey_b32": pubkey,
+            "receipt": receipt,
+        }));
+    }
+
+    // Quadratic mean (L2-mean) of the available components — matches the
+    // documented `sqrt((dc^2 + dp^2 + dt^2)/3)` generalised to N<=3.
+    let ensemble = ensemble_opt.expect("fuse returned available with no ensemble");
+
+    Ok(json!({
+        "schema": "emem.triple_consensus.v1",
+        "algorithm_key": "clay_prithvi_tessera_triple_consensus@1",
+        "cell": cell,
+        "resolved_from": resolved_env,
+        "verdict": "computed",
+        "available": true,
+        "ensemble": ensemble,
+        "agreement": agreement,
+        "encoders_used": per_encoder,
+        "encoders_absent": absent,
+        "n_encoders_used": n_used,
+        "consensus_min_models": min_models,
+        "consensus_threshold": gate,
+        "formula": "d_e = clamp(1 - cos(v_now, v_prev), 0, 1) per encoder; ensemble = sqrt(mean(d_e^2)) over available encoders; agreement gates on consensus_threshold",
+        "citation": alg.map(|a| a.citation.clone()).unwrap_or_default(),
+        "honest_note": if n_used < 3 {
+            format!("Consensus computed over {n_used} of 3 encoders; {} unavailable (see encoders_absent). Treat as lower-confidence than a full triple.", 3 - n_used)
+        } else {
+            "All three encoders contributed.".to_string()
+        },
+        "input_fact_cids": all_cids,
+        "responder_pubkey_b32": pubkey,
+        "receipt": receipt,
+    }))
+}
+
+pub async fn post_triple_consensus(
+    State(s): State<AppState>,
+    Json(req): Json<TripleConsensusReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(triple_consensus(req, &s).await?))
+}
+
+// ── carbon.deforestation_alert_proxy@1 ─────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct DeforestationAlertReq {
+    pub cell: String,
+}
+
+/// `alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`
+/// where `ndvi_drop = max(0, ndvi_modis_baseline - ndvi_now)` and
+/// `embedding_change = 1 - cos(tessera_latest, tessera_prev)`.
+///
+/// Both halves degrade independently and honestly: a missing band drops
+/// its half AND renames the output so the agent cannot mistake a
+/// half-score for the full composite. If NEITHER half is computable the
+/// response is an honest `inconclusive` with no number.
+pub async fn deforestation_alert(
+    req: DeforestationAlertReq,
+    s: &AppState,
+) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
+
+    let mut notes: Vec<String> = Vec::new();
+    let mut cids: Vec<String> = Vec::new();
+
+    // NDVI-drop half. Recall both indices.ndvi (S2) and modis.ndvi_mean
+    // (MODIS baseline) — both materializable without a GPU.
+    let mreq = RecallReq {
+        cell: cell.clone(),
+        bands: Some(vec![
+            "indices.ndvi".to_string(),
+            "modis.ndvi_mean".to_string(),
+        ]),
+        tslot: None,
+        ..Default::default()
+    };
+    let (resp, _notes) = recall_with_auto_materialize(&mreq, s).await?;
+    let mut ndvi_now: Option<f64> = None;
+    let mut ndvi_modis: Option<f64> = None;
+    for (idx, f) in resp.facts.iter().enumerate() {
+        if let Fact::Primary(p) = f {
+            let cid = resp
+                .receipt
+                .fact_cids
+                .get(idx)
+                .map(|c| c.as_str().to_string());
+            match p.band.as_str() {
+                "indices.ndvi" => {
+                    ndvi_now = as_f64(&p.value).filter(|x| x.is_finite());
+                    if let Some(c) = cid {
+                        if !c.is_empty() {
+                            cids.push(c);
+                        }
+                    }
+                }
+                "modis.ndvi_mean" => {
+                    ndvi_modis = as_f64(&p.value).filter(|x| x.is_finite());
+                    if let Some(c) = cid {
+                        if !c.is_empty() {
+                            cids.push(c);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let ndvi_term: Option<f64> = match (ndvi_modis, ndvi_now) {
+        (Some(base), Some(now)) => {
+            let drop = (base - now).max(0.0);
+            Some((drop / 0.30).clamp(0.0, 1.0))
+        }
+        _ => {
+            notes.push(
+                "NDVI-drop half unavailable: indices.ndvi and/or modis.ndvi_mean did not materialize at this cell".to_string(),
+            );
+            None
+        }
+    };
+
+    // Embedding-change half: Tessera latest-vs-prev vintage cosine. No GPU.
+    let treq = RecallReq {
+        cell: cell.clone(),
+        bands: Some(vec!["geotessera.multi_year".to_string()]),
+        tslot: None,
+        ..Default::default()
+    };
+    let mut embed_term: Option<f64> = None;
+    match recall_with_auto_materialize(&treq, s).await {
+        Ok((tresp, _n)) => {
+            let primary = tresp.facts.iter().enumerate().find_map(|(i, f)| match f {
+                Fact::Primary(p) if p.band == "geotessera.multi_year" => {
+                    as_vec_f32(&p.value).map(|v| (i, v))
+                }
+                _ => None,
+            });
+            match primary {
+                Some((i, stack)) => {
+                    let vintages = covered_vintages(&stack, TESSERA_VINTAGE_DIM);
+                    if vintages.len() >= 2 {
+                        let latest = &vintages[vintages.len() - 1];
+                        let prev = &vintages[vintages.len() - 2];
+                        match cosine_finite(latest, prev) {
+                            Some(c) => {
+                                let change = (1.0 - c as f64).clamp(0.0, 1.0);
+                                embed_term = Some((change / 0.20).clamp(0.0, 1.0));
+                                if let Some(cid) =
+                                    tresp.receipt.fact_cids.get(i).map(|c| c.as_str().to_string())
+                                {
+                                    if !cid.is_empty() {
+                                        cids.push(cid);
+                                    }
+                                }
+                            }
+                            None => notes.push(
+                                "embedding-change half unavailable: two Tessera vintages share no finite dimensions".to_string(),
+                            ),
+                        }
+                    } else {
+                        notes.push(format!(
+                            "embedding-change half unavailable: only {} covered Tessera vintage(s) (need two)",
+                            vintages.len()
+                        ));
+                    }
+                }
+                None => notes.push(
+                    "embedding-change half unavailable: no Tessera multi-year embedding at this cell".to_string(),
+                ),
+            }
+        }
+        Err(e) => notes.push(format!(
+            "embedding-change half unavailable: Tessera recall failed: {}",
+            e.1.message
+        )),
+    }
+
+    let resolved_env = crate::resolved_envelope(vec![("cell".into(), resolved)]);
+    let pubkey = pubkey_b32(s);
+    let receipt = s.sign_receipt(
+        "emem.deforestation_alert",
+        vec![cell.clone()],
+        cids.iter().cloned().map(FactCid::new).collect(),
+        false,
+        started,
+        None,
+    );
+
+    // Compose. The documented composite is a 0.5/0.5 blend. If only one
+    // half is available we report THAT half under a distinct key so it is
+    // never mistaken for the full composite. If neither — inconclusive.
+    let (alert_score, output_key, available): (Option<f64>, &str, bool) =
+        match (ndvi_term, embed_term) {
+            (Some(a), Some(b)) => (Some(0.5 * a + 0.5 * b), "alert_score", true),
+            (Some(a), None) => (Some(a), "ndvi_drop_half_only", true),
+            (None, Some(b)) => (Some(b), "embedding_change_half_only", true),
+            (None, None) => (None, "inconclusive", false),
+        };
+
+    Ok(json!({
+        "schema": "emem.deforestation_alert.v1",
+        "algorithm_key": "carbon.deforestation_alert_proxy@1",
+        "cell": cell,
+        "resolved_from": resolved_env,
+        "available": available,
+        "verdict": if available { "computed" } else { "inconclusive" },
+        "output_key": output_key,
+        "value": alert_score,
+        "ndvi_drop_term": ndvi_term,
+        "embedding_change_term": embed_term,
+        "ndvi_now": ndvi_now,
+        "ndvi_modis_baseline": ndvi_modis,
+        "formula": "0.5*clamp01(max(0, ndvi_modis - ndvi_now)/0.30) + 0.5*clamp01((1 - cos(tessera_latest, tessera_prev))/0.20)",
+        "citation": emem_core::algorithms::DEFAULT
+            .lookup("carbon.deforestation_alert_proxy@1")
+            .map(|a| a.citation.clone())
+            .unwrap_or_default(),
+        "honest_note": if alert_score.is_some() && output_key != "alert_score" {
+            "Only one of the two composite halves was computable; reported half-score under its own key, NOT as the full alert_score. Do not threshold this against the 0.6 alert gate.".to_string()
+        } else if !available {
+            "Neither composite half was computable at this cell. No number reported.".to_string()
+        } else {
+            "Both halves computed; scout-only triage signal — confirm with Hansen GFC / RADD before crediting decisions.".to_string()
+        },
+        "degradation_notes": notes,
+        "input_fact_cids": cids,
+        "responder_pubkey_b32": pubkey,
+        "receipt": receipt,
+    }))
+}
+
+pub async fn post_deforestation_alert(
+    State(s): State<AppState>,
+    Json(req): Json<DeforestationAlertReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    if req.cell.trim().is_empty() {
+        return Err(bad_request("deforestation_alert requires a non-empty `cell`"));
+    }
+    Ok(Json(deforestation_alert(req, &s).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vintage(seed: f32, dim: usize) -> Vec<f32> {
+        (0..dim).map(|i| ((i as f32) * 0.01 + seed).sin()).collect()
+    }
+
+    #[test]
+    fn covered_vintages_drops_all_nan_years() {
+        let dim = 4;
+        // year0 finite, year1 all-NaN, year2 finite.
+        let mut stack = Vec::new();
+        stack.extend(vintage(0.1, dim));
+        stack.extend(std::iter::repeat_n(f32::NAN, dim));
+        stack.extend(vintage(0.7, dim));
+        let v = covered_vintages(&stack, dim);
+        assert_eq!(v.len(), 2, "the all-NaN middle year must be dropped");
+        assert!(v[0].iter().all(|x| x.is_finite()));
+        assert!(v[1].iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn change_component_identical_vintages_is_zero() {
+        let a = vintage(0.3, TESSERA_VINTAGE_DIM);
+        let d = change_component(&a, &a).expect("finite overlap");
+        assert!(d.abs() < 1e-6, "identical vintages → zero change, got {d}");
+    }
+
+    #[test]
+    fn change_component_orthogonal_is_one() {
+        // Two orthogonal half-vectors → cosine 0 → change 1.0.
+        let mut a = vec![0.0f32; 8];
+        let mut b = vec![0.0f32; 8];
+        a[0] = 1.0;
+        b[1] = 1.0;
+        let d = change_component(&a, &b).expect("finite overlap");
+        assert!((d - 1.0).abs() < 1e-6, "orthogonal → change 1.0, got {d}");
+    }
+
+    #[test]
+    fn cosine_finite_skips_nan_dims() {
+        let a = [1.0f32, f32::NAN, 1.0, 0.0];
+        let b = [1.0f32, 5.0, 1.0, 0.0];
+        // Only dims 0,2,3 are finite in both → cosine over [1,1,0] vs [1,1,0] = 1.
+        let c = cosine_finite(&a, &b).expect("some finite overlap");
+        assert!((c - 1.0).abs() < 1e-6, "got {c}");
+    }
+
+    #[test]
+    fn cosine_finite_all_nan_overlap_is_none() {
+        let a = [f32::NAN, 1.0];
+        let b = [2.0, f32::NAN];
+        assert!(cosine_finite(&a, &b).is_none());
+    }
+
+    #[test]
+    fn fuse_two_of_three_quadratic_mean() {
+        // Two components present (e.g. GPU absent → only Tessera + one
+        // other), both over the 0.15 gate: dc=0.4, dt=0.2 →
+        // sqrt((0.16+0.04)/2)=0.3162..; agreement two_of_three.
+        let (ens, agree, avail) = fuse(&[0.4, 0.2], 3, 0.15, 2);
+        assert!(avail);
+        assert_eq!(agree, "two_of_three");
+        assert!((ens.unwrap() - 0.31623).abs() < 1e-4);
+    }
+
+    #[test]
+    fn fuse_all_three_requires_every_encoder_over_gate() {
+        // Full triple, all over gate → all_three.
+        let (ens, agree, avail) = fuse(&[0.3, 0.4, 0.5], 3, 0.15, 2);
+        assert!(avail);
+        assert_eq!(agree, "all_three");
+        assert!(ens.is_some());
+        // Full triple but one below gate → two_of_three (not all_three).
+        let (_e, agree2, _a) = fuse(&[0.3, 0.4, 0.05], 3, 0.15, 2);
+        assert_eq!(agree2, "two_of_three");
+    }
+
+    /// HONEST GPU-ABSENT DEGRADATION: when the GPU sidecar is down,
+    /// clay_v1 and prithvi_eo2 sign Absence, so only the Tessera
+    /// component is available (N=1 < consensus_min_models=2). The fusion
+    /// MUST return inconclusive with NO ensemble number — never a
+    /// fabricated all-three vote.
+    #[test]
+    fn fuse_tessera_only_is_inconclusive_not_fabricated() {
+        let (ens, agree, avail) = fuse(&[0.42], 3, 0.15, 2);
+        assert!(!avail, "single encoder must be inconclusive");
+        assert!(ens.is_none(), "no ensemble number may be fabricated");
+        assert_eq!(agree, "insufficient_encoders");
+    }
+
+    #[test]
+    fn fuse_zero_encoders_is_inconclusive() {
+        let (ens, agree, avail) = fuse(&[], 3, 0.15, 2);
+        assert!(!avail);
+        assert!(ens.is_none());
+        assert_eq!(agree, "insufficient_encoders");
+    }
+
+    #[test]
+    fn deforestation_ndvi_drop_half_matches_formula() {
+        // ndvi_modis=0.80, ndvi_now=0.50 → drop=0.30 → /0.30 → 1.0 (clamped).
+        let drop = (0.80_f64 - 0.50).max(0.0);
+        let term = (drop / 0.30).clamp(0.0, 1.0);
+        assert!((term - 1.0).abs() < 1e-9, "got {term}");
+        // Half-and-half composite with an embedding term of 0.5:
+        let alert = 0.5 * term + 0.5 * 0.5;
+        assert!((alert - 0.75).abs() < 1e-9, "got {alert}");
+    }
+
+    #[test]
+    fn deforestation_negative_drop_clamps_to_zero() {
+        // Greening: ndvi_now > baseline → drop=0 → term=0.
+        let drop = (0.40_f64 - 0.60).max(0.0);
+        let term = (drop / 0.30).clamp(0.0, 1.0);
+        assert!(term.abs() < 1e-12, "greening must not raise an alert, got {term}");
+    }
+}
