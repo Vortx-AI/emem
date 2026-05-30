@@ -47,6 +47,7 @@ use std::sync::{Arc, LazyLock};
 mod ask_foundation;
 mod clay_chip;
 mod galileo_chip;
+mod eo_runtime;
 mod gpu_sidecar;
 mod jepa_v2;
 mod physics;
@@ -972,6 +973,13 @@ pub fn router(state: AppState) -> Router {
             "/v1/deforestation_alert",
             post(triple_consensus::post_deforestation_alert),
         )
+        // SPI drought / ΔNBR burn severity / IPCC-2019 rice CH4: runnable
+        // surface for three documented algorithms whose formulas need a
+        // multi-year series or a two-scene pair the scalar AST cannot
+        // express. See crates/emem-api-rest/src/eo_runtime.rs.
+        .route("/v1/spi", post(eo_runtime::post_spi))
+        .route("/v1/burn_severity", post(eo_runtime::post_burn_severity))
+        .route("/v1/rice_ch4", post(eo_runtime::post_rice_ch4))
         .route("/v1/heat_solve", post(physics::post_heat_solve))
         .route("/v1/wave_solve", post(physics::post_wave_solve))
         .route("/v1/jepa_predict", post(physics::post_jepa_predict))

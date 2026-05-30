@@ -1010,7 +1010,10 @@
       "primitive": "POST /v1/trajectory {cell, band:'indices.nbr', window:[pre_tslot, post_tslot]} \u2192 \u0394NBR in-process",
       "deterministic": true,
       "citation": "Key, C.H. & Benson, N.C. 2006. Landscape Assessment (LA) sampling and analysis methods. USGS RMRS-GTR-164-CD.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/burn_severity",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/burn_severity computes ΔNBR = NBR_pre − NBR_post and classifies it into the USGS/Key&Benson ladder (unburned <0.10, low <0.27, moderate_low <0.44, moderate_high <0.66, else high; also surfaced ×1000 per the common convention). The scalar AST stays documentation_only because it cannot pair two scenes. Honest degradation: when only one (or zero) NBR scene is materializable at the cell the endpoint returns verdict:inconclusive with NO ΔNBR — a single-scene ΔNBR would be fabricated. The caller should supply nbr_pre/nbr_post bracketing the fire date, or pin the pre/post tslots. Absolute thresholds are region-tuned (Key & Benson 2006)."
     },
     {
       "key": "burn_likelihood_from_nbr@1",
@@ -10295,7 +10298,10 @@
         "anchor_band": "sentinel1_raw",
         "fallback_strategy": "tier_demote"
       },
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/rice_ch4",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/rice_ch4 computes IPCC 2019 Refinement Vol4 Ch5 Eq 5.1: CH4 = EFc·SFw·SFp·SFo·days·T_mod (T_mod = Yan-2005 Q10 exp(0.0917·(T−25))). The water regime (→ SFw via Table 5.12: continuous_flood 1.00, mid_season_drainage 0.71, AWD 0.52, upland 0.00) is classified from the indices.ndwi series by mean + zero-crossing count. EFc (Table 5.11 regional baseline) and cultivation_period_days are REQUIRED caller inputs — no region default is applied, because silently using the global 1.19 kg CH4/ha/day biases inventories by ~30%; SFp (Table 5.13, default 0.68) and SFo (Table 5.14, default 1.00) are optional. The scalar AST stays documentation_only because the regime needs an NDWI series. Honest degradation: fewer than 4 NDWI samples returns verdict:inconclusive with NO CH4 — the regime cannot be classified. Output is labelled model:IPCC_2019_Tier2 (inventory estimate, NOT a flux measurement); Verra VM0042 issuance still requires an eddy-covariance flux tower."
     },
     {
       "key": "gdd_phenology@1",
@@ -11112,8 +11118,9 @@
         "fallback_strategy": "absence"
       },
       "documentation_only": true,
-      "runtime_path": "/v1/hunt",
-      "partial_runtime": true
+      "runtime_path": "/v1/spi",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/spi computes the full McKee-1993 SPI: it accumulates weather.precipitation_mm into non-overlapping window sums, fits Γ(α,β) by the Thom-1958 MLE (Guttman 1999 / WMO-1090), applies the mixed CDF H(x)=q+(1-q)·P(α,x/β), and maps to the standard normal z-score. The scalar AST stays documentation_only because it cannot fit a distribution over a multi-year series. Honest degradation: fewer than 20 historical window-sums (or <10 positive) returns verdict:inconclusive with the sample count and NO SPI — a gamma cannot be fit to a handful of points. A caller may also POST precip_history_mm + current_accumulation_mm directly."
     },
     {
       "key": "aqi_class@1",
