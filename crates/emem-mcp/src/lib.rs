@@ -494,6 +494,39 @@ const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properti
 "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":256,"default":16,"description":"Sample budget per POLYGON plot. POINT plots evaluate at 1 cell."}
 }}"#;
 
+// ── Runtime algorithm endpoints (mirror the REST /v1/* + OpenAPI) ────────
+const SCHEMA_SPI: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name."},
+"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},
+"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm). When omitted the endpoint reads the stored weather.precipitation_mm trajectory."},
+"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied, else taken as the most-recent window from the stored series."}
+}}"#;
+
+const SCHEMA_BURN_SEVERITY: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name."},
+"nbr_pre":{"type":"number","description":"Pre-fire NBR. Pin the scene just before the fire date for a correct result."},
+"nbr_post":{"type":"number","description":"Post-fire NBR. When both nbr_pre and nbr_post are omitted the endpoint uses the two most-recent stored indices.nbr scenes (older=pre, newer=post)."}
+}}"#;
+
+const SCHEMA_RICE_CH4: &str = r#"{"type":"object","required":["cell","cultivation_period_days","efc_kg_ch4_ha_day"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name."},
+"cultivation_period_days":{"type":"number","description":"Cultivation-period length in days (typically 110–150). REQUIRED — IPCC Eq 5.1 integrates the daily EF over this period; no defensible global default."},
+"efc_kg_ch4_ha_day":{"type":"number","description":"Regional baseline EFc (kg CH4/ha/day) from IPCC 2019 Table 5.11. REQUIRED — pick the row for the cell's IPCC region (Asia.S 0.85, Asia.SE 1.22, Europe 1.56, …); the global 1.19 default would bias inventories ~30%."},
+"ndwi_series":{"type":"array","items":{"type":"number"},"description":"Optional explicit NDWI series across the cultivation period. When omitted the endpoint reads the stored indices.ndwi trajectory."},
+"sfp":{"type":"number","description":"Pre-season water-regime scaling factor SFp (Table 5.13); default 0.68 (non-flooded pre-season > 180 d)."},
+"sfo":{"type":"number","description":"Organic-amendment scaling factor SFo (Table 5.14); default 1.00 (no amendment)."},
+"t_paddy_c":{"type":"number","description":"Mean paddy-water temperature (°C) for the Yan-2005 Q10 modifier; omit to disable the temperature correction (T_mod = 1)."}
+}}"#;
+
+const SCHEMA_DEFORESTATION_ALERT: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name."}
+}}"#;
+
+const SCHEMA_TRIPLE_CONSENSUS: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name."},
+"consensus_threshold":{"type":"number","description":"Override the registry consensus gate (default 0.15); clamped to (0,1)."}
+}}"#;
+
 const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder. REQUIRED unless `polygon_bbox` is provided."},
 "polygon_bbox":{"type":"object","properties":{
@@ -645,6 +678,62 @@ pub const TOOLS: &[ToolDescriptor] = &[
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
+    },
+    // ── Runtime algorithm endpoints ──────────────────────────────────
+    ToolDescriptor {
+        name: "emem_spi",
+        title: "Standardized Precipitation Index (McKee 1993) drought metric",
+        description: "Compute the Standardized Precipitation Index (McKee et al. 1993) at a cell: fit a gamma distribution to the same-window precipitation-accumulation history, then standardize the current accumulation to a z-score and map it to a drought class (extreme/severe/moderate drought … normal … wet). Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit them to read the stored `weather.precipitation_mm` trajectory and build the window accumulations server-side. `window_days` selects SPI-1 (30 d), SPI-3 (90 d, default), SPI-12 (360 d), etc.",
+        when_to_use: "Call when the user asks 'is this place in drought', 'how dry is it relative to normal', or wants a precipitation-anomaly z-score. The response is honest: when fewer than the WMO-recommended minimum samples exist it returns verdict=`inconclusive` with `spi:null` and a `honest_note` rather than fabricating a z-score from a handful of points. Quote the `spi`, `spi_class`, and `n_samples`. For raw precipitation use `emem_weather`; SPI is the standardized anomaly.",
+        input_schema: SCHEMA_SPI,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","window_days":90}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_burn_severity",
+        title: "Burn severity (dNBR, Key & Benson) from pre/post-fire NBR",
+        description: "Compute the differenced Normalized Burn Ratio (dNBR = NBR_pre − NBR_post; Key & Benson 2006) and map it to the USGS burn-severity classes (unburned / low / moderate-low / moderate-high / high). Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) for a correct result, or omit both to use the two most-recent stored `indices.nbr` scenes (older=pre, newer=post) as a coarse estimate.",
+        when_to_use: "Call after a wildfire to quantify how badly an area burned, or to triage post-fire severity across a region cell-by-cell. Best practice: explicitly pass `nbr_pre`/`nbr_post` from scenes that bracket the known fire date — the stored-trajectory fallback just takes the two most-recent scenes and may not bracket the fire. Surface `dnbr` and `severity_class`. For active-fire detection use `emem_hunt` with the wildfire event instead.",
+        input_schema: SCHEMA_BURN_SEVERITY,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","nbr_pre":0.62,"nbr_post":0.11}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_rice_ch4",
+        title: "Rice-paddy methane (IPCC 2019 Tier 2, Eq 5.1)",
+        description: "Estimate seasonal CH4 emissions from rice cultivation per IPCC 2019 Refinement Eq 5.1: integrate the daily emission factor over the cultivation period with water-regime scaling (SFp pre-season, SFo organic amendment) and an optional Yan-2005 Q10 temperature modifier. `cultivation_period_days` and the regional `efc_kg_ch4_ha_day` (Table 5.11) are REQUIRED — the endpoint refuses to guess a global default because the regional EFc drives the magnitude (~30% bias if wrong). An NDWI series (supplied or read from stored `indices.ndwi`) informs the flooding-regime context.",
+        when_to_use: "Call for paddy-rice GHG inventory / MRV work where the user needs kg CH4 per hectare for a cultivation season. The caller MUST pick the IPCC region's EFc row (Table 5.11) and the cultivation-period length; pass SFp/SFo when the water regime or organic amendment is known. Surface the seasonal emission, the EFc used, and the scaling factors so the inventory is auditable. For enteric/fertilizer pathways use the dedicated sustainability endpoints.",
+        input_schema: SCHEMA_RICE_CH4,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","cultivation_period_days":120,"efc_kg_ch4_ha_day":1.22}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_deforestation_alert",
+        title: "Deforestation alert proxy (NDVI drop + embedding change)",
+        description: "Composite deforestation-alert score: `alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`, where `ndvi_drop = max(0, ndvi_modis_baseline − ndvi_now)` and `embedding_change = 1 − cos(tessera_latest, tessera_prev)`. Each half degrades INDEPENDENTLY and honestly: if a band is missing, that half is dropped AND the output is renamed so a half-score can never be mistaken for the full composite. If NEITHER half is computable the response is a signed `inconclusive` carrying no number.",
+        when_to_use: "Call to flag recent forest-loss-like change at a known cell when you want a single 0..1 alert score rather than a full ensemble. Read the renamed score field and the present/absent halves — don't treat a half-score as the full composite. For multi-cell open-world discovery use `emem_hunt` (deforestation event); for the three-encoder change ensemble use `emem_triple_consensus`; for regulatory EUDR evidence use `emem_eudr_dds`.",
+        input_schema: SCHEMA_DEFORESTATION_ALERT,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_triple_consensus",
+        title: "Clay+Prithvi+Tessera change-consensus ensemble",
+        description: "Three-encoder change ensemble: compute the cosine change between the two most-recent DISTINCT vintages for each of the Clay, Prithvi, and Tessera embeddings at the cell, then vote each encoder's change against `consensus_threshold` (registry default 0.15). Returns each encoder's change magnitude, its vote, and the consensus verdict (how many of the three agree change happened). Degrades to a signed `inconclusive` when the GPU sidecar is unreachable or a cell lacks two distinct vintages for the encoders.",
+        when_to_use: "Call when the user wants a robust, model-agnostic 'did this place change' answer backed by three independent foundation encoders rather than one — e.g. cross-checking a single-encoder alert, or auditing change with consensus voting. Surface the per-encoder change + the vote count. When only one encoder has two vintages the verdict is honest about the thin evidence. For a single-encoder vector delta use `emem_state_diff`; for the NDVI+embedding proxy use `emem_deforestation_alert`.",
+        input_schema: SCHEMA_TRIPLE_CONSENSUS,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","consensus_threshold":0.15}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
     },
     // ── Read primitives ──────────────────────────────────────────────
     ToolDescriptor {

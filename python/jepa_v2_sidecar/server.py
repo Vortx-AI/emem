@@ -521,7 +521,9 @@ class _Registry:
                 or meta.get("model", {}).get("blake2b_hex")
             )
             if expected_b2b:
-                got_b2b = hashlib.blake2b(ckpt_path.read_bytes()).hexdigest()
+                got_b2b = hashlib.blake2b(
+                    ckpt_path.read_bytes(), digest_size=32
+                ).hexdigest()
                 if got_b2b != expected_b2b:
                     raise RuntimeError(
                         "dynamics_v2 trained checkpoint blake2b mismatch "

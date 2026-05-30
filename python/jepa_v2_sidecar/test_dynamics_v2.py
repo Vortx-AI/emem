@@ -196,6 +196,49 @@ def test_metadata_carries_trained_flag_and_blake2b() -> None:
 # ─────────────────────────────────────────────────────────────────────
 
 
+def _have_state_dict() -> bool:
+    return (DYN_DIR / "dynamics_v2.state_dict.pt").exists() and (
+        DYN_DIR / "dynamics_v2.metadata.json"
+    ).exists()
+
+
+@pytest.mark.skipif(
+    not _have_state_dict(), reason="dynamics_v2 trained checkpoint missing"
+)
+def test_loader_blake2b_uses_digest_size_32() -> None:
+    """Regression for the digest-size bug: the trainer pins the checkpoint
+    with blake2b(digest_size=32) (train_dynamics_v2.py), so the loader MUST
+    verify with the SAME digest_size or it rejects the correct file on every
+    boot. This test loads the real artifact through server.load_dynamics()
+    and asserts it does NOT raise the "blake2b mismatch" RuntimeError.
+
+    Pre-fix, the loader computed the default 64-byte digest and compared it
+    against the 32-byte (64-hex) pin → guaranteed mismatch → 503 on every
+    dynamics_v2 request.
+    """
+    meta = _load_metadata()
+    if not meta.get("training", {}).get("trained", False):
+        pytest.skip("metadata still untrained; loader takes the fallback path")
+    pinned = meta.get("training", {}).get("checkpoint_blake2b_hex") or meta.get(
+        "model", {}
+    ).get("blake2b_hex")
+    if not pinned:
+        pytest.skip("no pinned checkpoint hash to verify against")
+    # The pin is 32-byte blake2b → 64 hex chars.
+    assert len(pinned) == 64, f"pinned hash should be 64 hex chars, got {len(pinned)}"
+
+    try:
+        import server  # noqa: WPS433 — needs the runtime deps (torch/fastapi)
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"server import failed (runtime deps absent): {e}")
+
+    # Fresh registry so we exercise the real load + verify path, not a cache.
+    reg = server._Registry()
+    model, loaded_meta = reg.load_dynamics()  # raises RuntimeError on mismatch
+    assert model is not None
+    assert loaded_meta.get("training", {}).get("trained") is True
+
+
 def test_skill_score_beats_and_ties() -> None:
     """skill = 1 - mse_model/mse_baseline. >0 beats persistence."""
     assert compute_skill_score(0.5, 1.0) == 0.5      # model half the error

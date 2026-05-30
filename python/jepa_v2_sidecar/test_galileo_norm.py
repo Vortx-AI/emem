@@ -172,6 +172,127 @@ def test_request_accepts_optional_s1_srtm_and_validates_shape() -> None:
         assert "2 bands" in str(e) or "VV" in str(e)
 
 
+def _galileo_weights_dir() -> "Path | None":
+    """Resolve the Galileo `base` encoder dir if the weights are present
+    locally, else None (so the real-forward test skips on a bare checkout
+    rather than network-fetching)."""
+    try:
+        d = server._resolve_galileo_dir()
+    except Exception:  # noqa: BLE001
+        return None
+    if d is not None and (d / "encoder.pt").exists() and (d / "config.json").exists():
+        return d
+    return None
+
+
+@pytest.mark.skipif(not HAVE_SERVER, reason=f"server import failed: {IMPORT_ERR}")
+def test_average_tokens_arity_real_forward() -> None:
+    """Real Galileo forward → average_tokens arity-regression guard.
+
+    The handler calls `encoder.average_tokens(*model_output[:-1])`.
+    `Encoder.forward` returns a 9-tuple ending in `months`; `average_tokens`
+    needs exactly the 8 (x,m) tensors. The `[:-1]` slice drops `months` so
+    the arity is 8==8. This was flagged in an audit as a possible 7-vs-8
+    TypeError, but a real forward proves it works. If a future refactor
+    changes either the forward return length or the average_tokens
+    signature, this test fails instead of crashing only in production.
+    """
+    weights = _galileo_weights_dir()
+    if weights is None:
+        pytest.skip("galileo base encoder weights not present locally")
+
+    import torch  # local import: only needed for this test
+
+    from single_file_galileo import (  # noqa: WPS433
+        Encoder,
+        SPACE_BANDS,
+        SPACE_BAND_GROUPS_IDX,
+        SPACE_TIME_BANDS,
+        SPACE_TIME_BANDS_GROUPS_IDX,
+        SRTM_BANDS,
+        STATIC_BANDS,
+        STATIC_BAND_GROUPS_IDX,
+        S1_BANDS,
+        S2_BANDS,
+        TIME_BANDS,
+        TIME_BAND_GROUPS_IDX,
+    )
+
+    dev = torch.device("cpu")
+    encoder = Encoder.load_from_folder(weights, dev).eval()
+
+    h, w = server.GALILEO_CHIP_H, server.GALILEO_CHIP_W
+    t = server.GALILEO_CHIP_T
+    rng = np.random.default_rng(0)
+
+    s_t_x = torch.zeros((h, w, t, len(SPACE_TIME_BANDS)))
+    s_t_m = torch.ones((h, w, t, len(SPACE_TIME_BANDS_GROUPS_IDX)))
+    s2_idx = [SPACE_TIME_BANDS.index(b) for b in S2_BANDS]
+    s_t_x[:, :, :, s2_idx] = torch.from_numpy(
+        rng.standard_normal((h, w, t, len(S2_BANDS))).astype(np.float32)
+    )
+    for i, k in enumerate(SPACE_TIME_BANDS_GROUPS_IDX):
+        if k.startswith("S2_"):
+            s_t_m[:, :, :, i] = 0
+    s1_idx = [SPACE_TIME_BANDS.index(b) for b in S1_BANDS]
+    s_t_x[:, :, :, s1_idx] = torch.from_numpy(
+        rng.standard_normal((h, w, t, len(S1_BANDS))).astype(np.float32)
+    )
+    for i, k in enumerate(SPACE_TIME_BANDS_GROUPS_IDX):
+        if k == "S1":
+            s_t_m[:, :, :, i] = 0
+
+    sp_x = torch.zeros((h, w, len(SPACE_BANDS)))
+    sp_m = torch.ones((h, w, len(SPACE_BAND_GROUPS_IDX)))
+    srtm_idx = [SPACE_BANDS.index(b) for b in SRTM_BANDS]
+    sp_x[:, :, srtm_idx] = torch.from_numpy(
+        rng.standard_normal((h, w, len(SRTM_BANDS))).astype(np.float32)
+    )
+    for i, k in enumerate(SPACE_BAND_GROUPS_IDX):
+        if k == "SRTM":
+            sp_m[:, :, i] = 0
+
+    t_x = torch.zeros((t, len(TIME_BANDS)))
+    t_m = torch.ones((t, len(TIME_BAND_GROUPS_IDX)))
+    st_x = torch.zeros((len(STATIC_BANDS),))
+    st_m = torch.ones((len(STATIC_BAND_GROUPS_IDX),))
+    months = torch.full((t,), 7, dtype=torch.long).unsqueeze(0)
+
+    s_t_x = s_t_x.unsqueeze(0)
+    s_t_m = s_t_m.unsqueeze(0)
+    sp_x = sp_x.unsqueeze(0)
+    sp_m = sp_m.unsqueeze(0)
+    t_x = t_x.unsqueeze(0)
+    t_m = t_m.unsqueeze(0)
+    st_x = st_x.unsqueeze(0)
+    st_m = st_m.unsqueeze(0)
+
+    with torch.inference_mode():
+        model_output = encoder(
+            s_t_x.float(),
+            sp_x.float(),
+            t_x.float(),
+            st_x.float(),
+            s_t_m,
+            sp_m,
+            torch.ones_like(t_m),
+            torch.ones_like(st_m),
+            months.long(),
+            patch_size=server.GALILEO_PATCH_SIZE,
+            input_resolution_m=server.GALILEO_CHIP_GSD_M,
+        )
+        # Mirror the production handler exactly: drop `months`, average the
+        # 8 (x,m) tensors. 9-tuple → 8 args, the canonical arity.
+        assert len(model_output) == 9, f"forward returned {len(model_output)}-tuple"
+        embedding_t = encoder.average_tokens(*model_output[:-1])
+        if embedding_t.dim() > 1:
+            embedding_t = embedding_t.squeeze(0)
+        embedding = embedding_t.cpu().tolist()
+
+    assert len(embedding) == 768, f"expected 768-D embedding, got {len(embedding)}"
+    assert np.all(np.isfinite(embedding)), "embedding has non-finite values"
+
+
 if __name__ == "__main__":
     if not HAVE_SERVER:
         print(f"[galileo] server import failed; skipping ({IMPORT_ERR})")
@@ -185,4 +306,9 @@ if __name__ == "__main__":
     test_chip_gsd_is_30m()
     test_s1_srtm_modality_shift_div()
     test_request_accepts_optional_s1_srtm_and_validates_shape()
+    if _galileo_weights_dir() is not None:
+        test_average_tokens_arity_real_forward()
+        print("[galileo] real-forward arity guard passed")
+    else:
+        print("[galileo] real-forward arity guard skipped (no local weights)")
     print("[galileo] all normalization tests passed")

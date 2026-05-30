@@ -13417,6 +13417,50 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        // ── Runtime algorithm endpoints (mirror the REST /v1/* handlers) ──
+        // Without these arms the catalog advertises tools that tools/call
+        // can't dispatch. Each degrades to a signed `inconclusive` exactly
+        // as its REST sibling does.
+        "emem_spi" => {
+            let req: eo_runtime::SpiReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match eo_runtime::post_spi(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_burn_severity" => {
+            let req: eo_runtime::BurnSeverityReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match eo_runtime::post_burn_severity(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_rice_ch4" => {
+            let req: eo_runtime::RiceCh4Req =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match eo_runtime::post_rice_ch4(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_deforestation_alert" => {
+            let req: triple_consensus::DeforestationAlertReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match triple_consensus::post_deforestation_alert(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_triple_consensus" => {
+            let req: triple_consensus::TripleConsensusReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match triple_consensus::post_triple_consensus(State(s.clone()), Json(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_recall_polygon" => {
             let req: RecallPolygonReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -22069,6 +22113,16 @@ async fn materialize_galileo_base(
     // modalities were actually fed vs masked-absent.
     let mut warnings = sidecar_honesty_warnings(&resp.model);
     warnings.push(format!("modality_subset: [{}]", modality_subset.join(",")));
+    // When the scene acquisition time couldn't be resolved we fall back to
+    // month=July (7) for Galileo's seasonal positional encoding and tslot=0.
+    // Surface that honestly rather than silently baking a fake season —
+    // mirrors Clay's sidecar-declared `time_defaulted` (the Galileo month is
+    // derived Rust-side, so we emit the warning here).
+    if scene_unix <= 0 {
+        warnings.push(format!(
+            "time_defaulted: scene acquisition time could not be resolved at this cell; month defaulted to {month} (July) for the seasonal positional encoding and tslot pinned to 0 — the embedding's season is a placeholder, not the observed scene's"
+        ));
+    }
     if multimodal {
         let mut absent: Vec<&str> = Vec::new();
         if s1.is_none() {
