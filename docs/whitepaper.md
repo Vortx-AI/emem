@@ -1238,7 +1238,7 @@ the provenance:
 
 `emem-server` serves both HTTP/REST and MCP JSON-RPC on one port
 (default `0.0.0.0:5051`). **169 REST routes** total, **79 under
-`/v1/*`**, **69 MCP tools (10 core, 59 extended)**. Discovery chain on first contact:
+`/v1/*`**, **70 MCP tools (10 core, 60 extended)**. Discovery chain on first contact:
 
 ```text
   1. GET  /.well-known/emem.json         responder pubkey + capabilities
