@@ -49,7 +49,7 @@ use serde_json::{json, Value as JsonValue};
 
 use emem_core::ErrorCode;
 use emem_fact::{Fact, FactCid};
-use emem_primitives::cbor_ops::{as_f64, as_vec_f32, cosine};
+use emem_primitives::cbor_ops::{as_f64, as_vec_f32, cosine_finite};
 use emem_primitives::RecallReq;
 
 use crate::{recall_with_auto_materialize, ApiError, AppState, ErrorBody};
@@ -96,27 +96,6 @@ pub(crate) fn covered_vintages(stack: &[f32], dim: usize) -> Vec<Vec<f32>> {
         i += dim;
     }
     out
-}
-
-/// Cosine over only the index positions where BOTH vectors are finite.
-/// The multi-year stack NaN-masks absent years; a partially-finite
-/// vintage (should not happen in practice, but defensive) still yields a
-/// meaningful cosine over its real dims. Returns `None` when no finite
-/// overlap exists (caller treats as "vintage unusable").
-pub(crate) fn cosine_finite(a: &[f32], b: &[f32]) -> Option<f32> {
-    let n = a.len().min(b.len());
-    let mut fa = Vec::with_capacity(n);
-    let mut fb = Vec::with_capacity(n);
-    for i in 0..n {
-        if a[i].is_finite() && b[i].is_finite() {
-            fa.push(a[i]);
-            fb.push(b[i]);
-        }
-    }
-    if fa.is_empty() {
-        return None;
-    }
-    Some(cosine(&fa, &fb))
 }
 
 /// `d = clamp(1 - cos(v_now, v_prev), 0, 1)` — one encoder's year-over-year

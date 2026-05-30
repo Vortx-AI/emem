@@ -74,6 +74,40 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
     (dot / (na.sqrt() * nb.sqrt())) as f32
 }
 
+/// NaN-aware cosine: cosine over only the index positions where BOTH
+/// vectors are finite. The Tessera `geotessera.multi_year` stack
+/// NaN-masks absent vintages (a 404 year becomes 128 NaNs), so a plain
+/// [`cosine`] would propagate NaN and silently drop the cell from any
+/// ranking. This restricts the dot/norm sums to the finite overlap so a
+/// partially-covered multi-year vector still scores meaningfully against
+/// its real dims. Length is taken as the min so callers can compare
+/// slices of different lengths safely.
+///
+/// Returns `None` when there is no finite overlap (caller treats as
+/// "vector unusable"); single-vintage geotessera has no NaN and should
+/// stay on the faster [`cosine`] path.
+pub fn cosine_finite(a: &[f32], b: &[f32]) -> Option<f32> {
+    let n = a.len().min(b.len());
+    let mut dot: f64 = 0.0;
+    let mut na: f64 = 0.0;
+    let mut nb: f64 = 0.0;
+    let mut any = false;
+    for i in 0..n {
+        if a[i].is_finite() && b[i].is_finite() {
+            let x = a[i] as f64;
+            let y = b[i] as f64;
+            dot += x * y;
+            na += x * x;
+            nb += y * y;
+            any = true;
+        }
+    }
+    if !any || na == 0.0 || nb == 0.0 {
+        return None;
+    }
+    Some((dot / (na.sqrt() * nb.sqrt())) as f32)
+}
+
 /// Wrap an f32 into a CBOR Float for response values.
 pub fn f32_to_cbor(x: f32) -> ciborium::Value {
     ciborium::Value::Float(x as f64)
@@ -249,5 +283,24 @@ mod tests {
     fn cosine_identical_is_one() {
         let a = vec![0.3_f32, 0.4, 0.5];
         assert!((cosine(&a, &a) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_finite_skips_nan_dims() {
+        // A multi_year-style vector with a NaN-masked vintage. Plain
+        // cosine would return NaN (silent drop); cosine_finite scores
+        // over the finite overlap.
+        let a = [1.0f32, f32::NAN, 1.0, 0.0];
+        let b = [1.0f32, 5.0, 1.0, 0.0];
+        assert!(cosine(&a, &b).is_nan(), "plain cosine propagates NaN");
+        let c = cosine_finite(&a, &b).expect("finite overlap exists");
+        assert!((c - 1.0).abs() < 1e-6, "cosine over [1,1,0] vs [1,1,0]=1; got {c}");
+    }
+
+    #[test]
+    fn cosine_finite_no_overlap_is_none() {
+        let a = [f32::NAN, 1.0];
+        let b = [2.0, f32::NAN];
+        assert!(cosine_finite(&a, &b).is_none(), "no finite overlap → None");
     }
 }

@@ -3863,9 +3863,9 @@ async fn materializers(
                 "confidence":        0.85,
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
-                "fetch_strategy":    "8x https_range (one per year)",
-                "fetch_bytes_per_cell": 5120,
-                "notes":             "1024-D = 128 × 8 years (2017,2018,2019,2020,2021,2022,2023,2024). Years with no tile coverage at this cell get zero-padded slices; derivation.args.years_covered records which slices are real. Use this for time-aware similarity search — the temporal trajectory of a place across the Tessera vintage."
+                "fetch_strategy":    "9x https_range (one per year)",
+                "fetch_bytes_per_cell": 5760,
+                "notes":             "1152-D = 128 × 9 years (2017,2018,2019,2020,2021,2022,2023,2024,2025). Years with no tile coverage at this cell get NaN-masked slices (so cosine over real dims is honest, not pulled toward zero); derivation.args.years_covered records which slices are real. NaN-aware scoring (find_similar / query_region) compares only the finite overlap. Use this for time-aware similarity search — the temporal trajectory of a place across the Tessera vintage."
             },
             {
                 "band":              "geotessera.bin128",
@@ -14358,7 +14358,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/heat_solve":        {"post":{"summary":"2-D explicit-FD heat-equation solver (forecast LST N hours ahead from a 3×3 cell stencil)","operationId":"emem_heat_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HeatSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/wave_solve":        {"post":{"summary":"1-D explicit-FD shallow-water wave-equation solver (propagate offshore swell to the coast along a bathymetric profile)","operationId":"emem_wave_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WaveSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/jepa_predict":      {"post":{"summary":"constrained JEPA-pattern AR(2) seasonal NDVI predictor (closed-form coefficients, NOT a learned MLP)","operationId":"emem_jepa_predict","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/JepaPredictReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/jepa_predict_v2":   {"post":{"summary":"learned dynamics head over Tessera embeddings: predicts the next-vintage 128-D embedding from the K most-recent attested vintages. Receipt carries model_cid + training/validation provenance; honesty_warnings flags `untrained_baseline` when the artifact is the zero-init sentinel.","operationId":"emem_jepa_predict_v2","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/jepa_predict_v2":   {"post":{"summary":"learned multi-band-scalar dynamics head: predicts the next-step value of 4 scalars (indices.ndvi, modis.lst_day_8day, modis.lst_night_8day, cams.pm25) from up to K=6 most-recent attested lags per band. Receipt carries model_cid + training/validation provenance + a skill_vs_persistence block; honesty_warnings flags `untrained_baseline` (zero-init sentinel) and `NEGATIVE_SKILL` (worse than persistence). On negative skill, bands with a real lag are served from persistence (via=persistence_fallback_negative_skill); see each band's `via`.","operationId":"emem_jepa_predict_v2","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"target_month":{"type":"integer","minimum":1,"maximum":12,"description":"Month-of-year to forecast (1-12); defaults to the month after now."}}}}}},"responses":{"200":json_ok}}},
             // Runtime algorithm endpoints: make five documentation-only
             // registry algorithms actually computable. Each signs its
             // result and returns an honest `inconclusive` verdict (no
@@ -21424,7 +21424,7 @@ async fn materialize_geotessera_embedding(
     materialize_geotessera_for_year(cell64, s, 2024, "geotessera").await
 }
 
-/// Multi-year Tessera: stack 2017..=2024 → 8 × 128 = 1024-D vector signed
+/// Multi-year Tessera: stack 2017..=2025 → 9 × 128 = 1152-D vector signed
 /// as one Primary fact for `geotessera.multi_year`. Each year is a
 /// per-cell range read against the public bucket; we serialise the calls
 /// and skip years that 404 (some tiles only exist for some years) so the
@@ -21437,7 +21437,7 @@ async fn materialize_geotessera_multi_year(
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
-    let years: [i32; 8] = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024];
+    let years: [i32; 9] = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025];
     let mut full = Vec::with_capacity(128 * years.len());
     let mut covered: Vec<i32> = Vec::new();
     for y in years.iter() {
@@ -21478,7 +21478,7 @@ async fn materialize_geotessera_multi_year(
         uncertainty: None,
         sources: vec![Source {
             scheme: "geotessera".into(),
-            id: "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{2017..2024}"
+            id: "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{2017..2025}"
                 .into(),
             cid: None,
             hash: None,
@@ -21551,6 +21551,55 @@ fn served_via_from_sidecar(
             Some(model_blake2b_hex.to_string())
         },
     }
+}
+
+/// Pull the sidecar's self-declared `model.honesty_warnings` (a JSON
+/// array of strings) into a `Vec<String>`. Generic — picks up whatever
+/// the sidecar emits (`single_timestep_of_4`, `frozen_pretrained_encoder`,
+/// `time_defaulted`, modality-subset, `NEGATIVE_SKILL`, …) so new warnings
+/// flow through without a code change. Returns an empty vec when absent.
+fn sidecar_honesty_warnings(model: &JsonValue) -> Vec<String> {
+    model
+        .get("honesty_warnings")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Fold `honesty_warnings` into a fact's `derivation.args` *only when
+/// non-empty*. The positional args array is preserved verbatim under an
+/// `"args"` key and the warnings land under `"honesty_warnings"`, so the
+/// signed receipt discloses model degradation. When there are no
+/// warnings the original positional `args` array is returned unchanged —
+/// byte-identical CBOR to before this change (back-compat: legacy facts
+/// re-derive to the same CID).
+fn args_with_honesty(
+    positional: Vec<ciborium::Value>,
+    mut warnings: Vec<String>,
+) -> ciborium::Value {
+    if warnings.is_empty() {
+        return ciborium::Value::Array(positional);
+    }
+    // Deterministic order so the same warning set always yields the same
+    // CBOR (and thus the same fact CID).
+    warnings.sort();
+    warnings.dedup();
+    ciborium::Value::Map(vec![
+        (
+            ciborium::Value::Text("args".into()),
+            ciborium::Value::Array(positional),
+        ),
+        (
+            ciborium::Value::Text("honesty_warnings".into()),
+            ciborium::Value::Array(
+                warnings.into_iter().map(ciborium::Value::Text).collect(),
+            ),
+        ),
+    ])
 }
 
 async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
@@ -21636,6 +21685,15 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
         .and_then(|v| v.as_str())
         .unwrap_or("prithvi_eo_v2_300m_tl")
         .to_string();
+    // Honesty: whatever the sidecar self-declared PLUS the two Rust-side
+    // degradations the Prithvi chip-fetcher always incurs but the sidecar
+    // can't see — we feed S2 L2A in place of the HLS V2 the model was
+    // trained on, and we hand it a single timestep where the temporal
+    // branch expects 4. `args_with_honesty` only changes the CBOR when the
+    // set is non-empty.
+    let mut prithvi_warnings = sidecar_honesty_warnings(&resp.model);
+    prithvi_warnings.push("s2_l2a_substitute_for_hls_v2".into());
+    prithvi_warnings.push("single_timestep_of_4".into());
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "prithvi_eo2".into(),
@@ -21650,13 +21708,16 @@ async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact
         sources,
         derivation: Derivation {
             fn_key: "prithvi_eo2_300m_tl_embed@1".into(),
-            args: Some(ciborium::Value::Array(vec![
-                ciborium::Value::Float(lat),
-                ciborium::Value::Float(lng),
-                ciborium::Value::Text(chip.scene_id.clone()),
-                ciborium::Value::Integer((scene_unix).into()),
-                ciborium::Value::Text(model_blake2b.clone()),
-            ])),
+            args: Some(args_with_honesty(
+                vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Text(chip.scene_id.clone()),
+                    ciborium::Value::Integer((scene_unix).into()),
+                    ciborium::Value::Text(model_blake2b.clone()),
+                ],
+                prithvi_warnings,
+            )),
         },
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -21778,13 +21839,19 @@ async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::Fa
         sources,
         derivation: Derivation {
             fn_key: "clay_v1_5_embed@1".into(),
-            args: Some(ciborium::Value::Array(vec![
-                ciborium::Value::Float(lat),
-                ciborium::Value::Float(lng),
-                ciborium::Value::Text(chip.scene_id.clone()),
-                ciborium::Value::Integer(scene_unix.into()),
-                ciborium::Value::Text(model_blake2b.clone()),
-            ])),
+            args: Some(args_with_honesty(
+                vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Text(chip.scene_id.clone()),
+                    ciborium::Value::Integer(scene_unix.into()),
+                    ciborium::Value::Text(model_blake2b.clone()),
+                ],
+                // Clay's `time_defaulted` / `location_defaulted` warnings are
+                // sidecar-declared (it knows whether year/month/lat/lng were
+                // present); pass them through generically.
+                sidecar_honesty_warnings(&resp.model),
+            )),
         },
         privacy_class: "l2_only_with_model_cid".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -21903,14 +21970,24 @@ async fn materialize_galileo_base(
         sources,
         derivation: Derivation {
             fn_key: "galileo_v1_s2_embed@1".into(),
-            args: Some(ciborium::Value::Array(vec![
-                ciborium::Value::Float(lat),
-                ciborium::Value::Float(lng),
-                ciborium::Value::Text(chip.scene_id.clone()),
-                ciborium::Value::Integer((scene_unix).into()),
-                ciborium::Value::Integer((doy as i64).into()),
-                ciborium::Value::Text(model_blake2b.clone()),
-            ])),
+            args: Some(args_with_honesty(
+                vec![
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Text(chip.scene_id.clone()),
+                    ciborium::Value::Integer((scene_unix).into()),
+                    ciborium::Value::Integer((doy as i64).into()),
+                    ciborium::Value::Text(model_blake2b.clone()),
+                ],
+                {
+                    // Sidecar's declared modality-subset warning(s) PLUS the
+                    // Rust-side truth that we only feed S2 with every other
+                    // Galileo modality (SAR/climate/DEM) zero-masked.
+                    let mut w = sidecar_honesty_warnings(&resp.model);
+                    w.push("s2_only_modalities_zero_masked".into());
+                    w
+                },
+            )),
         },
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -21939,6 +22016,83 @@ fn unix_to_year_doy(unix: i64) -> (i32, i32) {
     let jan1 = days_from_civil(y, 1, 1);
     let day_of_year = (z - jan1 + 1) as i32; // 1..=366
     (y, day_of_year)
+}
+
+/// Map a WGS84 (lat, lng) to the `(row, col)` of the GeoTessera tile
+/// array, which is stored in the tile's **per-tile UTM** CRS — NOT in
+/// degrees. The earlier linear-degree mapping (row ∝ fraction of the
+/// 0.1° lat box) was wrong: a 0.1° tile at 52°N is ~729 px wide (easting)
+/// but ~1139 px tall (northing), and the axes track UTM metres, so a
+/// degree-fraction picks the wrong pixel and we then sign that wrong
+/// pixel's 128-D vector.
+///
+/// GeoTessera convention (confirmed against the public bucket and the
+/// `geotessera` docs/source `fetch_embedding`, which derives CRS+affine
+/// from the paired landmask GeoTIFF):
+///   * UTM zone = `floor((tile_center_lon + 180)/6) + 1`, hemisphere by
+///     `tile_center_lat` sign (EPSG 326XX north / 327XX south).
+///   * The landmask raster is the axis-aligned UTM envelope of the
+///     reprojected 0.1° lat/lon box: origin at the NW corner
+///     `(min_easting, max_northing)` of the four reprojected box corners,
+///     10 m pixels, north-up (row increases southward, col eastward),
+///     array C-order `[H][W][128]`. We verified `H×W` from this envelope
+///     (e.g. tile `grid_0.15_52.05` → 1139×729) matches the published
+///     `.npy` shape exactly.
+///
+/// row = floor((y_origin − y) / 10), col = floor((x − x_origin) / 10),
+/// where `(x, y)` is `(lat, lng)` reprojected into the tile's UTM zone.
+///
+/// Limitation: the affine origin/CRS truly lives in the landmask GeoTIFF,
+/// which the public embedding bucket does NOT colocate with the `.npy`
+/// (it is registry-resolved in a separate store we don't fetch per pixel).
+/// We reconstruct the origin analytically from the documented convention.
+/// This is exact at the tile interior; because the lat/lon box reprojects
+/// to a slightly non-rectangular UTM quad, the envelope-corner origin can
+/// differ from the landmask's by sub-pixel-to-~1 px near the tile edges.
+/// The result is clamped into `[0,H)×[0,W)`. We record the (zone, origin)
+/// in `derivation.args` so the recipe is reproducible.
+fn tessera_row_col(
+    lat: f64,
+    lng: f64,
+    tile_center_lat: f64,
+    tile_center_lon: f64,
+    h: usize,
+    w: usize,
+) -> (usize, usize, u32, f64, f64) {
+    // Zone + hemisphere from the tile center (so every pixel in the tile
+    // shares one CRS, matching the landmask).
+    let zone = (((tile_center_lon + 180.0) / 6.0).floor() as i32 + 1).clamp(1, 60) as u32;
+    let epsg = if tile_center_lat >= 0.0 {
+        32600 + zone
+    } else {
+        32700 + zone
+    };
+    let project = |la: f64, lo: f64| -> (f64, f64) {
+        // Force the tile's zone/hemisphere so corners and the query point
+        // are all in one CRS even if the point sits just over a UTM seam.
+        let u = emem_fetch::proj::latlng_to_utm_with_epsg(la, lo, epsg)
+            .unwrap_or_else(|| emem_fetch::proj::latlng_to_utm(la, lo, Some(zone as u8)));
+        (u.easting, u.northing)
+    };
+    let n_lat = tile_center_lat + 0.05;
+    let s_lat = tile_center_lat - 0.05;
+    let w_lon = tile_center_lon - 0.05;
+    let e_lon = tile_center_lon + 0.05;
+    let corners = [
+        project(s_lat, w_lon),
+        project(s_lat, e_lon),
+        project(n_lat, w_lon),
+        project(n_lat, e_lon),
+    ];
+    let min_e = corners.iter().map(|c| c.0).fold(f64::INFINITY, f64::min);
+    let max_n = corners
+        .iter()
+        .map(|c| c.1)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let (x, y) = project(lat, lng);
+    let row = (((max_n - y) / 10.0).floor() as i64).clamp(0, h as i64 - 1) as usize;
+    let col = (((x - min_e) / 10.0).floor() as i64).clamp(0, w as i64 - 1) as usize;
+    (row, col, epsg, min_e, max_n)
 }
 
 /// Per-year Tessera pixel fetch — pure HTTP-range NumPy reader against the
@@ -22018,12 +22172,10 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
         }
     };
 
-    let north_lat = tile_lat + 0.05;
-    let west_lng = tile_lon - 0.05;
-    let frac_y = ((north_lat - lat) / 0.1).clamp(0.0, 1.0 - 1e-9);
-    let frac_x = ((lng - west_lng) / 0.1).clamp(0.0, 1.0 - 1e-9);
-    let row = (frac_y * (h as f64)) as usize;
-    let col = (frac_x * (w as f64)) as usize;
+    // (lat,lng) → (row,col) in the tile's UTM CRS (NOT linear in degrees).
+    // Use the canonical rounded tile centre (matches the grid_ tile name).
+    let (row, col, _epsg, _min_e, _max_n) =
+        tessera_row_col(lat, lng, tile_lat_r, tile_lon_r, h, w);
     let pixel_idx = row * w + col;
 
     let emb_off = emb_data_off + pixel_idx * 128;
@@ -22084,7 +22236,7 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
 }
 
 /// Per-year Tessera band materializer. `band` is `geotessera.YYYY` for
-/// YYYY in 2017..=2024.
+/// YYYY in 2017..=2025.
 async fn materialize_geotessera_year_band(
     cell64: &str,
     s: &AppState,
@@ -22096,9 +22248,9 @@ async fn materialize_geotessera_year_band(
     let year: i32 = suffix
         .parse()
         .map_err(|_| format!("invalid year in {band}"))?;
-    if !(2017..=2024).contains(&year) {
+    if !(2017..=2025).contains(&year) {
         return Err(format!(
-            "year {year} outside Tessera v1 vintage [2017,2024]"
+            "year {year} outside Tessera v1 vintage [2017,2025]"
         ));
     }
     materialize_geotessera_for_year(cell64, s, year, band).await
@@ -28067,6 +28219,15 @@ fn parse_npy_header(buf: &[u8]) -> Result<(Vec<usize>, String, usize), String> {
     // Header is a Python literal dict. Extract by string surgery — tiny
     // and known-shape so a real Python parser is overkill.
     let dtype = extract_str_field(hdr, "descr").ok_or("no descr")?;
+    // Reject Fortran (column-major) arrays. Every downstream offset
+    // computation here assumes C-order `row*W + col`; a fortran_order:True
+    // array would be transposed in memory and we'd sign garbage. The
+    // GeoTessera tiles are C-order, but guard explicitly rather than trust.
+    if let Some(fo) = extract_bool_field(hdr, "fortran_order") {
+        if fo {
+            return Err("npy fortran_order:True unsupported (we assume C-order)".into());
+        }
+    }
     let shape_s = extract_paren_field(hdr, "shape").ok_or("no shape")?;
     let mut shape = Vec::new();
     for tok in shape_s.split(',') {
@@ -28089,6 +28250,21 @@ fn extract_str_field(hdr: &str, key: &str) -> Option<String> {
     let after = &rest[q1 + 1..];
     let q2 = after.find('\'')?;
     Some(after[..q2].to_string())
+}
+
+/// Parse a Python-literal bool field (`'key': True` / `False`) from a
+/// .npy header dict. Returns `None` when the key is absent.
+fn extract_bool_field(hdr: &str, key: &str) -> Option<bool> {
+    let needle = format!("'{key}':");
+    let i = hdr.find(&needle)?;
+    let rest = hdr[i + needle.len()..].trim_start();
+    if rest.starts_with("True") {
+        Some(true)
+    } else if rest.starts_with("False") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn extract_paren_field(hdr: &str, key: &str) -> Option<String> {
@@ -28388,7 +28564,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
 
     // Single source of truth for which Tessera vintages exist. Recall +
     // materialize + catalog all read from this range.
-    const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2024;
+    const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2025;
     let tessera_window_start = jan1_unix(*TESSERA_YEARS_RANGE.start());
     let tessera_window_end = jan1_unix(*TESSERA_YEARS_RANGE.end() + 1) - 1;
 
@@ -28813,7 +28989,7 @@ fn source_scheme_for(band: &str) -> &str {
 /// of the constant in `band_materializer_meta` and `materialize_band_at`;
 /// kept here so `/v1/data_availability` can enumerate per-year entries
 /// programmatically rather than hardcoding a list.
-const TESSERA_YEARS_RANGE_PUBLIC: std::ops::RangeInclusive<i32> = 2017..=2024;
+const TESSERA_YEARS_RANGE_PUBLIC: std::ops::RangeInclusive<i32> = 2017..=2025;
 
 /// Concrete enumeration of every band this responder will materialize on
 /// demand — used to drive `/v1/data_availability`. Includes the bare
@@ -29096,7 +29272,7 @@ async fn materialize_band_at(
             // Bare `geotessera` resolves to the Tessera vintage that
             // contains target_unix; agents asking for backfill across
             // years should use `geotessera.YYYY` directly.
-            const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2024;
+            const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2025;
             let y = tessera_year_for_unix(target_unix, TESSERA_YEARS_RANGE.clone()).ok_or_else(
                 || {
                     format!(
@@ -29130,7 +29306,7 @@ async fn materialize_band_at(
     // Per-year Tessera vintages: `geotessera.YYYY` → fixed year, ignoring
     // target_unix (the year IS the target).
     if let Some(y) = parse_geotessera_year(band) {
-        const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2024;
+        const TESSERA_YEARS_RANGE: std::ops::RangeInclusive<i32> = 2017..=2025;
         if !TESSERA_YEARS_RANGE.contains(&y) {
             return Err(format!(
                 "Tessera vintage {y} not in supported range {}..={}",
@@ -33206,7 +33382,21 @@ async fn tessera_rerank(
         .map(|(idx, rc)| {
             let score = have_vec
                 .remove(&idx)
-                .map(|v| cosine(&v, &centroid_f32))
+                .map(|v| {
+                    // This reranker fixes the `geotessera` (single-vintage,
+                    // no NaN) band, so the plain cosine is correct here.
+                    // But should a NaN-masked `geotessera.multi_year` vector
+                    // ever reach this path, a plain cosine would propagate
+                    // NaN and the cell would sort last (silent drop). Route
+                    // any NaN-bearing vector through the NaN-aware
+                    // `cosine_finite` so it scores over its finite overlap.
+                    if v.iter().any(|x| !x.is_finite()) {
+                        emem_primitives::cbor_ops::cosine_finite(&v, &centroid_f32)
+                            .unwrap_or(0.0)
+                    } else {
+                        cosine(&v, &centroid_f32)
+                    }
+                })
                 .unwrap_or(0.0);
             (rc.clone(), score)
         })
@@ -46461,5 +46651,174 @@ mod tests {
         // A strong, unambiguous hit IS confident (sanity of the policy).
         let (hc3, _r3) = locate_confidence("nominatim", 0.8, false, false, 1);
         assert!(hc3, "a high-importance unambiguous hit is confident");
+    }
+
+    /// Pin the Tessera UTM (lat,lng,tile) → (row,col) mapping against the
+    /// real published tile `grid_0.15_52.05` (UTM zone 31N, npy shape
+    /// 1139×729 verified live). A query at the tile's geographic centre
+    /// must land near the array centre, and the four box corners must map
+    /// to the four array corners — none of which the old linear-degree
+    /// mapping got right (it would have used the lat fraction for the row,
+    /// ignoring that the array is UTM-northing-indexed).
+    #[test]
+    fn tessera_row_col_utm_grid_0_15_52_05() {
+        let (tile_lat, tile_lon) = (52.05_f64, 0.15_f64);
+        let (h, w) = (1139usize, 729usize);
+
+        // Centre → near array centre (within a few px of H/2, W/2).
+        let (r, c, epsg, _e, _n) = tessera_row_col(tile_lat, tile_lon, tile_lat, tile_lon, h, w);
+        assert_eq!(epsg, 32631, "tile centre lon 0.15 is UTM zone 31 North");
+        let (rc, cc) = (h / 2, w / 2);
+        assert!(
+            (r as i64 - rc as i64).abs() <= 6,
+            "centre row {r} should be near {rc}"
+        );
+        assert!(
+            (c as i64 - cc as i64).abs() <= 6,
+            "centre col {c} should be near {cc}"
+        );
+
+        // The lat/lon box reprojects to a non-rectangular UTM quad (the
+        // meridians converge northward at 52°N), so the array-corner
+        // extremes come from DIFFERENT box corners than a degree grid
+        // would assume — this is exactly what the old linear mapping got
+        // wrong. The UTM envelope is: min-easting at the SW corner,
+        // max-easting at the NE corner, max-northing at the NW corner,
+        // min-northing at the SE corner.
+        //
+        // NW corner → top row (max northing); its easting is inset, so the
+        // column is NOT the west edge.
+        let (r_nw, _c_nw, ..) =
+            tessera_row_col(tile_lat + 0.05, tile_lon - 0.05, tile_lat, tile_lon, h, w);
+        assert!(r_nw <= 2, "NW corner row {r_nw} should be ~0 (max northing)");
+
+        // SW corner → west edge (col ~0, min easting).
+        let (_r_sw, c_sw, ..) =
+            tessera_row_col(tile_lat - 0.05, tile_lon - 0.05, tile_lat, tile_lon, h, w);
+        assert!(c_sw <= 2, "SW corner col {c_sw} should be ~0 (min easting)");
+
+        // NE corner → east edge (col near max, max easting).
+        let (_r_ne, c_ne, ..) =
+            tessera_row_col(tile_lat + 0.05, tile_lon + 0.05, tile_lat, tile_lon, h, w);
+        assert!(
+            c_ne >= w - 2,
+            "NE corner col {c_ne} should be near east edge {} (max easting)",
+            w - 1
+        );
+
+        // SE corner → bottom row (min northing).
+        let (r_se, _c_se, ..) =
+            tessera_row_col(tile_lat - 0.05, tile_lon + 0.05, tile_lat, tile_lon, h, w);
+        assert!(
+            r_se >= h - 2,
+            "SE corner row {r_se} should be near bottom {} (min northing)",
+            h - 1
+        );
+
+        // Monotonicity: moving north decreases the row (UTM-northing axis).
+        let (r_lo, ..) = tessera_row_col(tile_lat - 0.02, tile_lon, tile_lat, tile_lon, h, w);
+        let (r_hi, ..) = tessera_row_col(tile_lat + 0.02, tile_lon, tile_lat, tile_lon, h, w);
+        assert!(r_hi < r_lo, "north (higher lat) must map to a smaller row");
+    }
+
+    /// Southern-hemisphere tile picks a 327XX EPSG.
+    #[test]
+    fn tessera_row_col_southern_hemisphere_epsg() {
+        // Around Brazil: lon -60 → zone 21, south.
+        let (_r, _c, epsg, ..) = tessera_row_col(-10.05, -59.95, -10.05, -59.95, 1200, 1100);
+        assert_eq!(epsg, 32721, "south, zone 21 → EPSG 32721");
+    }
+
+    /// fortran_order:True must be rejected (we assume C-order; a
+    /// column-major array would make us sign a transposed pixel).
+    #[test]
+    fn parse_npy_header_rejects_fortran_order() {
+        // Minimal v1 .npy header with fortran_order: True.
+        let dict = b"{'descr': '|i1', 'fortran_order': True, 'shape': (3, 4, 128), }";
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"\x93NUMPY\x01\x00");
+        let hlen = dict.len() as u16;
+        buf.extend_from_slice(&hlen.to_le_bytes());
+        buf.extend_from_slice(dict);
+        let err = parse_npy_header(&buf).expect_err("fortran_order:True must error");
+        assert!(err.contains("fortran_order"), "got {err}");
+
+        // The same header with False parses fine.
+        let dict2 = b"{'descr': '|i1', 'fortran_order': False, 'shape': (3, 4, 128), }";
+        let mut buf2 = Vec::new();
+        buf2.extend_from_slice(b"\x93NUMPY\x01\x00");
+        buf2.extend_from_slice(&(dict2.len() as u16).to_le_bytes());
+        buf2.extend_from_slice(dict2);
+        let (shape, dtype, _off) = parse_npy_header(&buf2).expect("C-order parses");
+        assert_eq!(shape, vec![3, 4, 128]);
+        assert_eq!(dtype, "|i1");
+    }
+
+    /// `args_with_honesty`: no warnings → byte-identical to the plain
+    /// positional args array (back-compat: legacy facts re-derive to the
+    /// same CID). With warnings → a map carrying both, deterministically
+    /// ordered.
+    #[test]
+    fn args_with_honesty_empty_is_byte_identical() {
+        let positional = vec![
+            ciborium::Value::Float(1.0),
+            ciborium::Value::Text("scene".into()),
+        ];
+        let plain = ciborium::Value::Array(positional.clone());
+        let mut want = Vec::new();
+        ciborium::into_writer(&plain, &mut want).unwrap();
+
+        let got_val = args_with_honesty(positional.clone(), vec![]);
+        let mut got = Vec::new();
+        ciborium::into_writer(&got_val, &mut got).unwrap();
+        assert_eq!(got, want, "no-warning args must be byte-identical CBOR");
+
+        // With warnings → a map (different shape), warnings sorted+deduped.
+        let with = args_with_honesty(
+            positional,
+            vec![
+                "single_timestep_of_4".into(),
+                "s2_l2a_substitute_for_hls_v2".into(),
+                "single_timestep_of_4".into(),
+            ],
+        );
+        let ciborium::Value::Map(entries) = &with else {
+            panic!("expected a map when warnings present");
+        };
+        let (_k, hw) = entries
+            .iter()
+            .find(|(k, _)| matches!(k, ciborium::Value::Text(t) if t == "honesty_warnings"))
+            .expect("honesty_warnings key present");
+        let ciborium::Value::Array(ws) = hw else {
+            panic!("warnings must be an array");
+        };
+        assert_eq!(ws.len(), 2, "deduped to 2");
+        assert!(
+            matches!(&ws[0], ciborium::Value::Text(t) if t == "s2_l2a_substitute_for_hls_v2"),
+            "sorted: s2... before single..."
+        );
+    }
+
+    /// The generic sidecar honesty-warning extractor pulls a string array
+    /// out of `model.honesty_warnings` and tolerates absence / wrong type.
+    #[test]
+    fn sidecar_honesty_warnings_extraction() {
+        let model = serde_json::json!({
+            "model_id": "clay_v1_5",
+            "honesty_warnings": ["time_defaulted", "location_defaulted"]
+        });
+        assert_eq!(
+            sidecar_honesty_warnings(&model),
+            vec![
+                "time_defaulted".to_string(),
+                "location_defaulted".to_string()
+            ]
+        );
+        // Absent → empty.
+        assert!(sidecar_honesty_warnings(&serde_json::json!({})).is_empty());
+        // Wrong type → empty (defensive).
+        assert!(
+            sidecar_honesty_warnings(&serde_json::json!({"honesty_warnings": 5})).is_empty()
+        );
     }
 }

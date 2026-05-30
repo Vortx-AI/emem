@@ -1539,6 +1539,36 @@ async fn collect_lags_for_band(
     (out, n_real, cids)
 }
 
+/// Negative-skill persistence fallback (pure). When `fallback_active`
+/// (model is trained but does NOT beat persistence on real held-out
+/// NDVI), every band that has a real lag has its prediction OVERWRITTEN
+/// with that most-recent real lag — the persistence baseline is strictly
+/// better than a negative-skill learned forecast — tagged
+/// `persistence_fallback_negative_skill`. Bands with no real lag keep
+/// their (climatology) prediction, labelled `climatology`. When the
+/// fallback is not active, every band is labelled `learned_model` and
+/// predictions are left untouched. Returns the per-band `via` map.
+fn apply_persistence_fallback(
+    fallback_active: bool,
+    predictions: &mut [f32],
+    last_real_lag_per_band: &[Option<f32>],
+) -> serde_json::Map<String, JsonValue> {
+    use crate::jepa_v2::BAND_KEYS;
+    let mut per_band_via = serde_json::Map::new();
+    for (i, band) in BAND_KEYS.iter().enumerate() {
+        let via = if !fallback_active {
+            "learned_model"
+        } else if let Some(real) = last_real_lag_per_band.get(i).copied().flatten() {
+            predictions[i] = real;
+            "persistence_fallback_negative_skill"
+        } else {
+            "climatology"
+        };
+        per_band_via.insert((*band).to_string(), JsonValue::String(via.into()));
+    }
+    per_band_via
+}
+
 /// Run the learned multi-band-scalar dynamics predictor.
 pub async fn jepa_predict_v2(
     mut req: JepaPredictV2Req,
@@ -1573,6 +1603,11 @@ pub async fn jepa_predict_v2(
     // with the band's climatological mean (= metadata.normalisation.band_norm[band].mean).
     let mut all_lags_phys: Vec<Vec<f32>> = Vec::with_capacity(N_BANDS);
     let mut n_real_per_band: Vec<usize> = Vec::with_capacity(N_BANDS);
+    // Most-recent REAL lag per band (None when the whole window was
+    // climatology-filled). `collect_lags_for_band` places real obs at the
+    // tail, so when n_real >= 1 the most-recent real value is at lag k-1.
+    // Used for the persistence fallback when the model has negative skill.
+    let mut last_real_lag_per_band: Vec<Option<f32>> = Vec::with_capacity(N_BANDS);
     let mut input_cids: Vec<String> = Vec::new();
     let mut per_band_cids: serde_json::Map<String, JsonValue> = serde_json::Map::new();
     for band in BAND_KEYS.iter() {
@@ -1580,6 +1615,11 @@ pub async fn jepa_predict_v2(
         let (lags, n_real, cids) =
             collect_lags_for_band(&req.cell, band, K_LAGS, mean, state).await;
         n_real_per_band.push(n_real);
+        last_real_lag_per_band.push(if n_real >= 1 {
+            lags.last().copied()
+        } else {
+            None
+        });
         per_band_cids.insert(
             (*band).to_string(),
             JsonValue::Array(cids.iter().cloned().map(JsonValue::String).collect()),
@@ -1648,7 +1688,7 @@ pub async fn jepa_predict_v2(
     // directly with all-zero confidence (= caller MUST treat as
     // baseline) and tag the receipt with `via:
     // short_circuit_untrained`.
-    let (output, mut model_block) = if !crate::jepa_v2::is_trained() {
+    let (mut output, mut model_block) = if !crate::jepa_v2::is_trained() {
         let mut preds = Vec::with_capacity(N_BANDS);
         let mut conf = Vec::with_capacity(N_BANDS);
         let mut low_conf = Vec::with_capacity(N_BANDS);
@@ -1686,6 +1726,24 @@ pub async fn jepa_predict_v2(
     } else {
         predict_via_sidecar_or_local(&lags_normalised, &context).await?
     };
+
+    // Negative-skill persistence fallback. When the model does NOT beat
+    // persistence on real held-out NDVI, the learned forecast is worse
+    // than just predicting the last observed value — so for every band
+    // that has a real lag, override the learned prediction with that
+    // most-recent real lag (the persistence baseline) and tag the band
+    // `via: persistence_fallback_negative_skill`. Bands with no real lag
+    // keep their climatology prediction, labelled `via: climatology` so
+    // the agent knows it wasn't grounded in an observation. This only
+    // engages for trained models (the untrained short-circuit already
+    // returns climatology); a trained-but-negative-skill model is the
+    // case this guards against.
+    let fallback_active = crate::jepa_v2::is_trained() && !metadata.beats_persistence();
+    let per_band_via = apply_persistence_fallback(
+        fallback_active,
+        &mut output.predictions,
+        &last_real_lag_per_band,
+    );
 
     // Patch in the band-keys + per-band fact-cid attribution so the
     // receipt is self-describing.
@@ -1743,6 +1801,7 @@ pub async fn jepa_predict_v2(
                     "value": output.predictions[i],
                     "confidence": output.confidence[i],
                     "n_real_lags": n_real_per_band[i],
+                    "via": per_band_via.get(*b).cloned().unwrap_or(JsonValue::Null),
                 }),
             )
         })
@@ -1757,6 +1816,7 @@ pub async fn jepa_predict_v2(
         "target_month": target_month,
         "band_keys": BAND_KEYS,
         "predictions": predictions_map,
+        "per_band_via": per_band_via,
         "predictions_array": output.predictions,
         "confidence_array": output.confidence,
         "low_confidence_bands": output.low_confidence_bands,
@@ -1784,6 +1844,40 @@ pub async fn post_jepa_predict_v2(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Negative-skill persistence fallback: when active, a band with a
+    /// real lag has its prediction REPLACED by that lag (so the served
+    /// value equals the last real observation), while a band with no real
+    /// lag keeps its climatology prediction. When inactive, predictions
+    /// are untouched and every band is `learned_model`.
+    #[test]
+    fn persistence_fallback_returns_last_real_lag() {
+        use crate::jepa_v2::{BAND_KEYS, N_BANDS};
+        // Learned predictions (deliberately different from the lags).
+        let mut preds = vec![0.10_f32, 305.0, 295.0, 40.0];
+        assert_eq!(preds.len(), N_BANDS);
+        // Real lags exist for bands 0,1,3; band 2 had no real lag.
+        let last = vec![Some(0.42_f32), Some(290.0), None, Some(12.0)];
+
+        let via = apply_persistence_fallback(true, &mut preds, &last);
+        // Bands with a real lag → prediction == that lag, tagged persistence.
+        assert_eq!(preds[0], 0.42, "ndvi prediction should equal the last real lag");
+        assert_eq!(preds[1], 290.0);
+        assert_eq!(preds[3], 12.0);
+        assert_eq!(
+            via[BAND_KEYS[0]].as_str(),
+            Some("persistence_fallback_negative_skill")
+        );
+        // Band 2 had no real lag → untouched climatology, labelled.
+        assert_eq!(preds[2], 295.0, "no real lag → climatology kept");
+        assert_eq!(via[BAND_KEYS[2]].as_str(), Some("climatology"));
+
+        // Inactive → predictions untouched, all learned_model.
+        let mut preds2 = vec![1.0_f32, 2.0, 3.0, 4.0];
+        let via2 = apply_persistence_fallback(false, &mut preds2, &last);
+        assert_eq!(preds2, vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(via2[BAND_KEYS[0]].as_str(), Some("learned_model"));
+    }
 
     /// CFL choice: at α=1e-6 m²/s and Δx=10 m the dt_max is 0.20 ·
     /// 100 / 1e-6 = 2.0e7 s ≈ 231 days — so a one-week horizon needs

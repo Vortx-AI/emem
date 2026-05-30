@@ -14,7 +14,9 @@
 //!
 //! Configuration:
 //!   - `EMEM_SIDECAR_SOCK` — Unix socket path. Default `/run/emem/jepa_sidecar.sock`.
-//!   - `EMEM_SIDECAR_TIMEOUT_MS` — per-request timeout. Default 5_000 ms.
+//!   - `EMEM_SIDECAR_TIMEOUT_MS` — per-request timeout. Default 15_000 ms
+//!     (a cold ViT-L load on a shared A100 copies >1 GB of weights to VRAM
+//!     and exceeds 5 s, and even 10 s under contention).
 //!
 //! Failure mode: when the sidecar is unreachable (socket missing,
 //! connection refused, timeout), this module returns
@@ -30,7 +32,12 @@ use serde_json::Value as JsonValue;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-const DEFAULT_TIMEOUT_MS: u64 = 5_000;
+// Cold ViT-L on a shared A100 copies >1 GB of checkpoint to VRAM on the
+// first call and exceeds 5 s (and even 10 s under GPU contention); a 5 s
+// default surfaced spurious timeouts that signed an Absence over a cell
+// the sidecar would have served. 15 s covers the documented worst-case
+// cold-load above (Clay/Prithvi ~10 s, Galileo Base ~5 s) with margin.
+const DEFAULT_TIMEOUT_MS: u64 = 15_000;
 
 fn socket_path() -> PathBuf {
     PathBuf::from(

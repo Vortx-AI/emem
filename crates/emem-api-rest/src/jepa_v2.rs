@@ -176,6 +176,55 @@ impl ModelMetadata {
         fallback
     }
 
+    /// Look a field up first in `validation`, then `training` (the
+    /// trainer has written the skill numbers to either block across
+    /// versions). Returns the first present value.
+    fn val_or_train(&self, key: &str) -> Option<&serde_json::Value> {
+        self.validation
+            .get(key)
+            .or_else(|| self.training.get(key))
+    }
+
+    /// Skill of the learned model vs the persistence baseline on real
+    /// held-out NDVI, in `[-∞, 1]` where >0 means "better than just
+    /// predicting the last vintage" and <0 means the learned model is
+    /// WORSE than persistence (negative skill).
+    ///
+    /// Read DEFENSIVELY: prefer an explicit `skill_vs_persistence` field;
+    /// if absent, derive it from the MSE pair already in metadata as the
+    /// standard skill score `1 - mse_model / mse_baseline`. Returns
+    /// `None` only when neither the explicit field nor a usable
+    /// (model, baseline>0) MSE pair exists.
+    pub fn skill_vs_persistence(&self) -> Option<f64> {
+        if let Some(s) = self
+            .val_or_train("skill_vs_persistence")
+            .and_then(|v| v.as_f64())
+        {
+            return Some(s);
+        }
+        let mse_model = self.val_or_train("real_ndvi_mse_model")?.as_f64()?;
+        let mse_base = self.val_or_train("real_ndvi_mse_baseline")?.as_f64()?;
+        if mse_base <= 0.0 {
+            return None;
+        }
+        Some(1.0 - mse_model / mse_base)
+    }
+
+    /// Does the learned model beat persistence on real held-out NDVI?
+    /// Prefer the trainer's explicit boolean; otherwise infer from the
+    /// computed skill (>0). DEFAULTS TO FALSE when neither is available —
+    /// the honest, fail-safe assumption is "we have not shown skill, so
+    /// serve the persistence baseline".
+    pub fn beats_persistence(&self) -> bool {
+        if let Some(b) = self
+            .val_or_train("beats_persistence_on_real_ndvi")
+            .and_then(|v| v.as_bool())
+        {
+            return b;
+        }
+        self.skill_vs_persistence().map(|s| s > 0.0).unwrap_or(false)
+    }
+
     /// Per-band (min, max) physical clamp applied after denormalisation.
     pub fn physical_range(&self, band: &str) -> (f32, f32) {
         let fallback = match band {
@@ -440,6 +489,29 @@ pub fn receipt_block(metadata: &ModelMetadata, out: Option<&DynamicsOutput>) -> 
             )));
         }
     }
+    // Skill vs persistence: loud NEGATIVE_SKILL warning when the learned
+    // model is worse than just predicting the last real vintage. The
+    // handler serves the persistence baseline in that case; the receipt
+    // must disclose why.
+    let skill = metadata.skill_vs_persistence();
+    let beats = metadata.beats_persistence();
+    if let Some(s) = skill {
+        if s < 0.0 {
+            warnings.push(JsonValue::String(format!(
+                "NEGATIVE_SKILL: skill_vs_persistence={s:.4} (<0) — the learned \
+                 jepa_v2 dynamics is WORSE than the persistence baseline on real \
+                 held-out NDVI. Per-band predictions that have a real lag are \
+                 served from persistence (via=persistence_fallback_negative_skill); \
+                 do not treat the learned forecast as an improvement."
+            )));
+        }
+    }
+    let skill_block = serde_json::json!({
+        "skill_vs_persistence": skill,
+        "beats_persistence_on_real_ndvi": beats,
+        "real_ndvi_mse_model": metadata.val_or_train("real_ndvi_mse_model").cloned(),
+        "real_ndvi_mse_baseline": metadata.val_or_train("real_ndvi_mse_baseline").cloned(),
+    });
     serde_json::json!({
         "model_id": metadata.model_id,
         "version": metadata.version,
@@ -453,6 +525,7 @@ pub fn receipt_block(metadata: &ModelMetadata, out: Option<&DynamicsOutput>) -> 
         "normalisation": metadata.normalisation,
         "wire": metadata.wire,
         "trained_at_iso": metadata.trained_at_iso,
+        "skill_vs_persistence": skill_block,
         "honesty_warnings": JsonValue::Array(warnings),
     })
 }
@@ -629,6 +702,76 @@ mod tests {
             .as_str()
             .unwrap_or("")
             .contains("low_confidence_band:indices.ndvi")));
+    }
+
+    /// Skill is read from an explicit field when present, else computed
+    /// from the MSE pair as `1 - mse_model/mse_baseline`.
+    #[test]
+    fn skill_vs_persistence_explicit_and_derived() {
+        // Explicit field wins.
+        let m: ModelMetadata = serde_json::from_value(json!({
+            "model_id": "x", "version": "1",
+            "training": {"trained": true},
+            "validation": {"skill_vs_persistence": 0.25},
+            "artifact": {"filename": "a", "size_bytes": 1, "blake2b_hex": "0"},
+        }))
+        .expect("parse");
+        assert!((m.skill_vs_persistence().unwrap() - 0.25).abs() < 1e-9);
+        assert!(m.beats_persistence());
+
+        // Derived from MSE pair: 1 - 0.6/0.4 = -0.5 → negative skill.
+        let neg: ModelMetadata = serde_json::from_value(json!({
+            "model_id": "x", "version": "1",
+            "training": {"trained": true},
+            "validation": {"real_ndvi_mse_model": 0.6, "real_ndvi_mse_baseline": 0.4},
+            "artifact": {"filename": "a", "size_bytes": 1, "blake2b_hex": "0"},
+        }))
+        .expect("parse");
+        assert!((neg.skill_vs_persistence().unwrap() - (-0.5)).abs() < 1e-9);
+        assert!(!neg.beats_persistence(), "negative skill must not beat persistence");
+
+        // Neither present → None, and beats_persistence defaults FALSE.
+        let m2 = trained_meta();
+        assert!(m2.skill_vs_persistence().is_none());
+        assert!(!m2.beats_persistence(), "no skill evidence → fail-safe false");
+    }
+
+    /// A trained model with NEGATIVE skill must emit a loud
+    /// `NEGATIVE_SKILL` honesty warning and surface a top-level
+    /// `skill_vs_persistence` block in the receipt.
+    #[test]
+    fn receipt_block_emits_negative_skill_warning() {
+        let m: ModelMetadata = serde_json::from_value(json!({
+            "model_id": "x", "version": "1",
+            "training": {"trained": true, "synthetic_fraction_train": 0.1},
+            "validation": {"real_ndvi_mse_model": 0.6, "real_ndvi_mse_baseline": 0.4},
+            "artifact": {"filename": "a", "size_bytes": 1, "blake2b_hex": "0"},
+        }))
+        .expect("parse");
+        let block = receipt_block(&m, None);
+        let warnings = block
+            .get("honesty_warnings")
+            .and_then(|v| v.as_array())
+            .expect("honesty_warnings");
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.as_str().unwrap_or("").contains("NEGATIVE_SKILL")),
+            "negative-skill model must emit NEGATIVE_SKILL warning"
+        );
+        let skill = block
+            .get("skill_vs_persistence")
+            .expect("skill_vs_persistence block present");
+        assert!(
+            (skill.get("skill_vs_persistence").and_then(|v| v.as_f64()).unwrap() - (-0.5)).abs()
+                < 1e-9
+        );
+        assert_eq!(
+            skill
+                .get("beats_persistence_on_real_ndvi")
+                .and_then(|v| v.as_bool()),
+            Some(false)
+        );
     }
 
     /// `predict_next_step` rejects mis-shaped input fast.
