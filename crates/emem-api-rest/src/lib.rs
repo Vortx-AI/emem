@@ -46,12 +46,14 @@ use std::sync::{Arc, LazyLock};
 
 mod ask_foundation;
 mod clay_chip;
+mod embedding_analytics;
 mod eo_runtime;
 mod galileo_chip;
 mod gpu_sidecar;
 mod jepa_v2;
 mod physics;
 mod prithvi_chip;
+mod terrain;
 pub mod topic_router;
 mod triple_consensus;
 mod vault;
@@ -980,6 +982,27 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/spi", post(eo_runtime::post_spi))
         .route("/v1/burn_severity", post(eo_runtime::post_burn_severity))
         .route("/v1/rice_ch4", post(eo_runtime::post_rice_ch4))
+        // ── DEM terrain triad (Horn slope / Riley TRI / Weiss TPI) over a
+        //    3×3 copdem30m.elevation_mean neighbourhood. See terrain.rs. ──
+        .route("/v1/terrain", post(terrain::post_terrain))
+        // ── Embedding-region analytics over GeoTessera 128-D (CPU, no GPU).
+        //    See embedding_analytics.rs. ──────────────────────────────────
+        .route(
+            "/v1/region_similarity",
+            post(embedding_analytics::post_region_similarity),
+        )
+        .route(
+            "/v1/embedding_centroid",
+            post(embedding_analytics::post_embedding_centroid),
+        )
+        .route(
+            "/v1/embedding_diversity",
+            post(embedding_analytics::post_embedding_diversity),
+        )
+        .route(
+            "/v1/neighborhood_consistency",
+            post(embedding_analytics::post_neighborhood_consistency),
+        )
         .route("/v1/heat_solve", post(physics::post_heat_solve))
         .route("/v1/wave_solve", post(physics::post_wave_solve))
         .route("/v1/jepa_predict", post(physics::post_jepa_predict))
@@ -13547,6 +13570,56 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        "emem_terrain" => {
+            let req: terrain::TerrainReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match terrain::post_terrain(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_region_similarity" => {
+            let req: embedding_analytics::RegionSimilarityReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match embedding_analytics::post_region_similarity(State(s.clone()), EmemJson(req)).await
+            {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_embedding_centroid" => {
+            let req: embedding_analytics::EmbeddingCentroidReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match embedding_analytics::post_embedding_centroid(State(s.clone()), EmemJson(req))
+                .await
+            {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_embedding_diversity" => {
+            let req: embedding_analytics::EmbeddingDiversityReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match embedding_analytics::post_embedding_diversity(State(s.clone()), EmemJson(req))
+                .await
+            {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_neighborhood_consistency" => {
+            let req: embedding_analytics::NeighborhoodConsistencyReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match embedding_analytics::post_neighborhood_consistency(
+                State(s.clone()),
+                EmemJson(req),
+            )
+            .await
+            {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_recall_polygon" => {
             let req: RecallPolygonReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -14541,6 +14614,11 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
             "/v1/burn_severity":     {"post":{"summary":"Key & Benson dNBR burn severity: dNBR = nbr_pre − nbr_post, mapped to USGS severity classes. Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) or omit to use the two most-recent stored `indices.nbr` scenes.","operationId":"emem_burn_severity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"nbr_pre":{"type":"number","description":"Pre-fire NBR."},"nbr_post":{"type":"number","description":"Post-fire NBR."}}}}}},"responses":{"200":json_ok}}},
             "/v1/rice_ch4":          {"post":{"summary":"IPCC-2019 Tier-2 rice-cultivation CH4 (Eq 5.1): integrates the daily emission factor over the cultivation period with water-regime (SFp/SFo) and optional Yan-2005 Q10 temperature scaling. `cultivation_period_days` and the regional `efc_kg_ch4_ha_day` (Table 5.11) are REQUIRED — no defensible global default.","operationId":"emem_rice_ch4","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","cultivation_period_days","efc_kg_ch4_ha_day"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"cultivation_period_days":{"type":"number","description":"Cultivation-period length in days (typically 110–150)."},"efc_kg_ch4_ha_day":{"type":"number","description":"Regional baseline EFc (kg CH4/ha/day) from IPCC 2019 Table 5.11."},"ndwi_series":{"type":"array","items":{"type":"number"},"description":"Optional explicit NDWI series across the cultivation period."},"sfp":{"type":"number","description":"Pre-season water-regime scaling factor SFp (Table 5.13); default 0.68."},"sfo":{"type":"number","description":"Organic-amendment scaling factor SFo (Table 5.14); default 1.00."},"t_paddy_c":{"type":"number","description":"Mean paddy-water temperature (°C) for the Yan-2005 Q10 modifier; omit to disable."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/terrain":           {"post":{"summary":"DEM terrain triad over a 3×3 copdem30m.elevation_mean neighbourhood: Horn-1981 slope (deg), Riley-1999 ruggedness (TRI), Weiss-2001 topographic position (TPI). The 8 neighbour cell64s are derived by perturbing lat/lng step_cells pitches per axis (default 3 ≈ 28.7 m, matching the ~30 m Cop-DEM resolution). Slope/TRI need the full 8-ring; TPI degrades to ≥1 neighbour. Ocean/coast cells return a signed inconclusive (Cop-DEM is bathymetry-free), never a fabricated value.","operationId":"emem_terrain","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (~9.55 m each). Default 3 ≈ 28.7 m matches the Cop-DEM native resolution; 1 reads flat inside one source pixel."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/region_similarity": {"post":{"summary":"How alike are two places? Mean-pool the 128-D GeoTessera embedding across each region's cells, then return cosine(centroid_a, centroid_b) in [-1,1]. CPU-fetched (no GPU). Each region is {place} | {polygon_bbox} | {cells}. Signed inconclusive when a region has no embedding-covered cell.","operationId":"emem_region_similarity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["region_a","region_b"],"properties":{"region_a":{"type":"object","description":"{place} | {polygon_bbox:{min_lat,max_lat,min_lng,max_lng}} | {cells:[cell64,...]}"},"region_b":{"type":"object","description":"same shape as region_a"},"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64}}}}}},"responses":{"200":json_ok}}},
+            "/v1/embedding_centroid":{"post":{"summary":"Mean-pooled 128-D GeoTessera centroid for a region (centroid = (1/N) Σ v_i) + the L2-normalised centroid + a content-addressed centroid_cid. Building block for region_similarity. CPU-fetched. Region is {place} | {polygon_bbox} | {cells}. Signed inconclusive when no cell carried a vector.","operationId":"emem_embedding_centroid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string"},"polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}}},"cells":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64}}}}}},"responses":{"200":json_ok}}},
+            "/v1/embedding_diversity":{"post":{"summary":"Landscape heterogeneity over a region: diversity = (1/(N(N-1))) Σ_{i<j} (1 − cosine(v_i,v_j)), the mean pairwise cosine distance over the region's 128-D GeoTessera embeddings. 0 = uniform, higher = more varied. CPU-fetched. Region is {place} | {polygon_bbox} | {cells}. Needs ≥2 embedding-covered cells, else signed inconclusive.","operationId":"emem_embedding_diversity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string"},"polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}}},"cells":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64}}}}}},"responses":{"200":json_ok}}},
+            "/v1/neighborhood_consistency":{"post":{"summary":"Spatial consistency/outlier of a cell vs its 8 immediate cell64 neighbours: consistency = (1/k) Σ cosine(centre, neighbour_i) over the 128-D GeoTessera embeddings, plus outlier_score = 1 − consistency (the region_outlier_score@1 reading). High outlier = the cell stands out from its surroundings (edge, clearing, built patch). CPU-fetched. Signed inconclusive when neither centre nor any neighbour carried an embedding.","operationId":"emem_neighborhood_consistency","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/schema":            {"get":{"summary":"active CDDL/JSON schema bundle (REST mirror of emem_schema)","operationId":"emem_schema","responses":{"200":json_ok}}},
             // Single canonical /v1/facts/{cid} — earlier we listed it twice
             // with different operationIds (emem_fetch and emem_get_fact);
@@ -40153,7 +40231,59 @@ fn sample_cells_in_polygon(
     out
 }
 
-fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) -> Vec<String> {
+/// Resolve a free-text place name to a `(min_lat, max_lat, min_lng,
+/// max_lng)` bbox + the geocoder layer that produced it (`via`). Reuses
+/// `locate_inner` so the layering (wide-bbox table → embedded gazetteer →
+/// cache → Photon → Nominatim) is identical to `/v1/recall_polygon`. When
+/// the place resolves to a point (no polygon extent) we fall back to the
+/// centre cell's ~10 m bucket bbox — a degenerate single-cell fan-out, the
+/// honest answer for a point-only place. Used by the embedding-region
+/// analytics endpoints (`/v1/region_similarity`, `/v1/embedding_centroid`,
+/// `/v1/embedding_diversity`).
+pub(crate) async fn resolve_place_bbox(
+    place: &str,
+) -> Result<((f64, f64, f64, f64), &'static str), ApiError> {
+    let resp = locate_inner(LocateReq {
+        lat: None,
+        lng: None,
+        place: Some(place.to_string()),
+    })
+    .await?;
+    let via = match resp.0.get("via").and_then(|v| v.as_str()) {
+        Some("embedded") => "embedded",
+        Some("geonames") => "geonames",
+        Some("cache") => "cache",
+        Some("nominatim") => "nominatim",
+        Some("photon") => "photon",
+        Some("direct") => "direct",
+        _ => "unknown",
+    };
+    if let Some(JsonValue::Object(m)) = resp.0.get("polygon_bbox") {
+        let g = |k: &str| m.get(k).and_then(|v| v.as_f64()).filter(|v| v.is_finite());
+        if let (Some(min_lat), Some(max_lat), Some(min_lng), Some(max_lng)) =
+            (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng"))
+        {
+            return Ok(((min_lat, max_lat, min_lng, max_lng), via));
+        }
+    }
+    // Point-only place: use the centre cell's bucket bbox.
+    if let Some(c) = resp.0.get("cell64").and_then(|v| v.as_str()) {
+        if let Ok(ll) = emem_codec::latlng_from_cell64(c) {
+            let b = ll.bbox_deg;
+            return Ok(((b.min_lat, b.max_lat, b.min_lng, b.max_lng), via));
+        }
+    }
+    Err(ApiError(
+        StatusCode::NOT_FOUND,
+        ErrorBody {
+            code: ErrorCode::NoGeocoderMatch,
+            message: format!("could not resolve a bbox for place '{place}'"),
+            details: None,
+        },
+    ))
+}
+
+pub(crate) fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) -> Vec<String> {
     let (mn_la, mx_la, mn_ln, mx_ln) = bbox;
     let n_side = (target_n as f64).sqrt().floor().max(2.0) as usize;
     let mut seen = std::collections::BTreeSet::new();

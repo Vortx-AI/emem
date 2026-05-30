@@ -1013,7 +1013,7 @@
       "documentation_only": true,
       "runtime_path": "/v1/burn_severity",
       "partial_runtime": true,
-      "honest_runtime_note": "POST /v1/burn_severity computes ΔNBR = NBR_pre − NBR_post and classifies it into the USGS/Key&Benson ladder (unburned <0.10, low <0.27, moderate_low <0.44, moderate_high <0.66, else high; also surfaced ×1000 per the common convention). The scalar AST stays documentation_only because it cannot pair two scenes. Honest degradation: when only one (or zero) NBR scene is materializable at the cell the endpoint returns verdict:inconclusive with NO ΔNBR — a single-scene ΔNBR would be fabricated. The caller should supply nbr_pre/nbr_post bracketing the fire date, or pin the pre/post tslots. Absolute thresholds are region-tuned (Key & Benson 2006)."
+      "honest_runtime_note": "POST /v1/burn_severity computes \u0394NBR = NBR_pre \u2212 NBR_post and classifies it into the USGS/Key&Benson ladder (unburned <0.10, low <0.27, moderate_low <0.44, moderate_high <0.66, else high; also surfaced \u00d71000 per the common convention). The scalar AST stays documentation_only because it cannot pair two scenes. Honest degradation: when only one (or zero) NBR scene is materializable at the cell the endpoint returns verdict:inconclusive with NO \u0394NBR \u2014 a single-scene \u0394NBR would be fabricated. The caller should supply nbr_pre/nbr_post bracketing the fire date, or pin the pre/post tslots. Absolute thresholds are region-tuned (Key & Benson 2006)."
     },
     {
       "key": "burn_likelihood_from_nbr@1",
@@ -5236,7 +5236,10 @@
       "primitive": "POST /v1/locate {q} \u2192 neighborhood_cells; POST /v1/recall_many {cells:[centre,...8], bands:['copdem30m.elevation_mean']} \u2192 apply Horn",
       "deterministic": true,
       "citation": "Horn, B.K.P. 1981. Hill shading and the reflectance map. Proceedings of the IEEE 69(1):14\u201347.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/terrain",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/terrain computes Horn (1981) 8-direction slope from the 3\u00d73 copdem30m.elevation_mean neighbourhood (centre + 8 cell64 neighbours derived by perturbing lat/lng one cell pitch per axis; east-west spacing cos(lat)-corrected). slope_deg = atan(sqrt((dz/dx)\u00b2+(dz/dy)\u00b2))\u00b7180/\u03c0. The scalar AST stays documentation_only \u2014 it sees one cell, not the neighbourhood. Honest degradation: Cop-DEM is bathymetry-free, so when fewer than all 8 neighbours materialize (coast/ocean) the slope block returns verdict:inconclusive with NO slope \u2014 a partial-stencil value would be fabricated."
     },
     {
       "key": "ruggedness_index@1",
@@ -5267,7 +5270,10 @@
       "primitive": "POST /v1/recall_many {cells:[centre,...8 neighbours], bands:['copdem30m.elevation_mean']}",
       "deterministic": true,
       "citation": "Riley, S.J., DeGloria, S.D. & Elliot, R. 1999. A Terrain Ruggedness Index that quantifies topographic heterogeneity. Intermountain Journal of Sciences 5(1\u20134):23\u201327.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/terrain",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/terrain computes the Riley/DeGloria/Elliot (1999) Terrain Ruggedness Index TRI = sqrt(\u03a3_{i=1..8}(Z_centre\u2212Z_i)\u00b2) over the same 3\u00d73 copdem30m.elevation_mean neighbourhood. The scalar AST stays documentation_only \u2014 it cannot reach the 8 neighbours. Honest degradation: returns verdict:inconclusive (no TRI) when the centre or the full 8-neighbour ring did not materialize (e.g. ocean cell)."
     },
     {
       "key": "topo_position_index@1",
@@ -5298,7 +5304,10 @@
       "primitive": "POST /v1/recall_many {cells:[centre,...8 neighbours], bands:['copdem30m.elevation_mean']}",
       "deterministic": true,
       "citation": "Weiss, A. 2001. Topographic Position and Landforms Analysis. ESRI User Conference Poster, San Diego.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/terrain",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/terrain computes the Weiss (2001) Topographic Position Index TPI = Z_centre \u2212 mean(Z_neighbours) over the 3\u00d73 copdem30m.elevation_mean neighbourhood (positive = ridge/crest, negative = valley). The scalar AST stays documentation_only \u2014 it cannot reach the neighbours. TPI degrades gracefully to \u22651 materialized neighbour; with neither centre nor any neighbour it returns verdict:inconclusive (no TPI)."
     },
     {
       "key": "coastal_proximity@1",
@@ -5513,7 +5522,10 @@
       "primitive": "POST /v1/locate {q} \u2192 neighborhood_cells; POST /v1/recall_many {cells:[centre,...neighbours], bands:['geotessera']}",
       "deterministic": true,
       "citation": "Tobler, W.R. 1970. A computer movie simulating urban growth. Economic Geography 46(sup1):234\u2013240. (First Law of Geography.)",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/neighborhood_consistency",
+      "partial_runtime": false,
+      "honest_runtime_note": "POST /v1/neighborhood_consistency returns consistency = (1/k) \u03a3 cosine(centre, neighbour_i) over the cell's 8 immediate cell64 neighbours (128-D GeoTessera), plus outlier_score = 1 \u2212 consistency (the region_outlier_score@1 reading). High consistency = blends into surroundings (Tobler); high outlier = anomalous. CPU-fetched \u2014 no GPU. The scalar AST stays documentation_only \u2014 it cannot reach the neighbours' vectors. Honest degradation: verdict:inconclusive when neither centre nor any neighbour carried an embedding."
     },
     {
       "key": "embedding_centroid@1",
@@ -5536,7 +5548,10 @@
       "primitive": "POST /v1/locate {q:<wide place>} \u2192 polygon_sample_cells; POST /v1/recall_many \u2192 mean and renormalize",
       "deterministic": true,
       "citation": "Mean-pooled embedding is a standard set-encoder baseline; cf. Zaheer et al. 2017. Deep Sets. NeurIPS.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/embedding_centroid",
+      "partial_runtime": false,
+      "honest_runtime_note": "POST /v1/embedding_centroid mean-pools the 128-D GeoTessera embedding over a region (place | polygon_bbox | cells): centroid = (1/N) \u03a3 v_i, plus the L2-normalised centroid and a content-addressed centroid_cid. CPU-fetched \u2014 no GPU sidecar. The scalar AST stays documentation_only \u2014 it cannot operate on a set of vectors. NaN dims are averaged over their finite contributors. Honest degradation: verdict:inconclusive (no centroid) when no sampled cell carried a GeoTessera vector. coverage_capped surfaces when the cell list was truncated."
     },
     {
       "key": "region_similarity@1",
@@ -5567,7 +5582,10 @@
       "primitive": "embedding_centroid@1 on each region \u2192 cosine in-process",
       "deterministic": true,
       "citation": "Composition of `embedding_centroid@1` and `embedding_cosine@1`.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/region_similarity",
+      "partial_runtime": false,
+      "honest_runtime_note": "POST /v1/region_similarity returns sim = cosine(centroid(region_a), centroid(region_b)) over the two regions' mean-pooled 128-D GeoTessera centroids (each region is place | polygon_bbox | cells), in [-1,1]. CPU-fetched \u2014 no GPU sidecar. cosine_finite skips NaN dims. The scalar AST stays documentation_only \u2014 it cannot mean-pool two vector sets. Honest degradation: verdict:inconclusive (no similarity) when either region had no embedding-covered cell."
     },
     {
       "key": "place_archetype_match@1",
@@ -5631,7 +5649,10 @@
       "primitive": "POST /v1/locate {q:<region>} \u2192 polygon_sample_cells; POST /v1/recall_many \u2192 mean \u2192 cosine vs query",
       "deterministic": true,
       "citation": "Mahalanobis-style outlier reasoning in latent space; cf. Lee et al. 2018. A simple unified framework for detecting OOD samples. NeurIPS.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/neighborhood_consistency",
+      "partial_runtime": false,
+      "honest_runtime_note": "POST /v1/neighborhood_consistency surfaces outlier_score = 1 \u2212 consistency = 1 \u2212 (1/k) \u03a3 cosine(centre, neighbour_i) over the cell's 8 immediate cell64 neighbours (128-D GeoTessera). This is the region_outlier_score@1 reading against the spatial neighbourhood (in place of the enclosing-region polygon sample). CPU-fetched \u2014 no GPU. Honest degradation: verdict:inconclusive when neither centre nor any neighbour carried an embedding."
     },
     {
       "key": "embedding_corridor_consistency@1",
@@ -6159,7 +6180,7 @@
       "primitive": "POST /v1/recall {bands:['weather.temperature_2m','weather.cloud_cover','weather.wind_speed_10m','indices.ndvi']}",
       "deterministic": true,
       "citation": "H\u00f6ppe, P. 1999. The physiological equivalent temperature, a universal index for the biometeorological assessment of the thermal environment. International Journal of Biometeorology 43(2):71\u201375. (Gaussian shape editorial; calibrated thermal-comfort indices like UTCI need humidity + radiation.)",
-      "honest_limits": "AST substitutes weather.temperature_2m for the formula's heat-index composition. Score peak is therefore at 22 °C dry-bulb rather than 22 °C HI; humid environments will over-claim comfort. Compose client-side by computing heat_index@2 first when humidity is available. Disclosed 2026-05-29.",
+      "honest_limits": "AST substitutes weather.temperature_2m for the formula's heat-index composition. Score peak is therefore at 22 \u00b0C dry-bulb rather than 22 \u00b0C HI; humid environments will over-claim comfort. Compose client-side by computing heat_index@2 first when humidity is available. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -7959,7 +7980,10 @@
       "primitive": "POST /v1/recall_many {cells:[...], bands:['geotessera']} \u2192 mean pairwise (1 - cosine)",
       "deterministic": true,
       "citation": "Standard k-medoid / determinantal-point-process diversity reasoning. Kulesza & Taskar 2012. Determinantal Point Processes for Machine Learning. Foundations and Trends in ML.",
-      "documentation_only": true
+      "documentation_only": true,
+      "runtime_path": "/v1/embedding_diversity",
+      "partial_runtime": false,
+      "honest_runtime_note": "POST /v1/embedding_diversity returns diversity = (1/(N(N-1))) \u03a3_{i<j}(1\u2212cosine(v_i,v_j)), the mean pairwise cosine distance over a region's 128-D GeoTessera embeddings (region is place | polygon_bbox | cells). 0 = uniform landscape, higher = more heterogeneous. CPU-fetched \u2014 no GPU. The scalar AST stays documentation_only \u2014 it cannot compute pairwise cosines over a set. Honest degradation: verdict:inconclusive when fewer than two embedding-covered cells exist."
     },
     {
       "key": "trend_strength@1",
@@ -8113,7 +8137,7 @@
       "primitive": "POST /v1/recall {bands:['modis.burned_area_monthly','indices.nbr']}",
       "deterministic": true,
       "citation": "Andreae, M.O. 2019. Emission of trace gases and aerosols from biomass burning \u2013 an updated assessment. Atmos. Chem. Phys. 19:8523\u20138546. IPCC 2019 Refinement to the 2006 Guidelines for National GHG Inventories, Vol 4 Ch 2. Key, C.H. & Benson, N.C. 2006. Landscape Assessment (LA) Sampling and Analysis Methods. USDA RMRS-GTR-164-CD.",
-      "honest_limits": "AST uses fixed 143 t CO2/ha global mean instead of the formula's biome-specific table (tropical=280, temperate=130, boreal=80, savanna=30, grassland=5, peat=10). True biome lookup needs a land-cover band gate; until that lands the constant 143 (≈ tropical+temperate average × 44/12) introduces ±30% bias relative to the documented per-biome lookup. Disclosed 2026-05-29.",
+      "honest_limits": "AST uses fixed 143 t CO2/ha global mean instead of the formula's biome-specific table (tropical=280, temperate=130, boreal=80, savanna=30, grassland=5, peat=10). True biome lookup needs a land-cover band gate; until that lands the constant 143 (\u2248 tropical+temperate average \u00d7 44/12) introduces \u00b130% bias relative to the documented per-biome lookup. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "where",
         "cond": {
@@ -8558,7 +8582,7 @@
       "primitive": "POST /v1/recall {bands:['indices.evi','power.allsky_sw','weather.temperature_2m']}",
       "deterministic": true,
       "citation": "Potter, C.S. et al. 1993. Terrestrial ecosystem production: a process model based on global satellite and surface data. Global Biogeochemical Cycles 7(4):811\u2013841. Sims, D.A. et al. 2006. On the use of MODIS EVI to assess gross primary productivity of North American ecosystems. JGR 111:G04015. Xiao, X. et al. 2004. Modeling gross primary production of temperate deciduous broadleaf forest using satellite images. Remote Sensing of Environment 91:256\u2013270.",
-      "honest_limits": "AST uses EVI directly in place of the formula's `fpar_proxy` (EVI-to-fAPAR mapping is omitted), and `power.allsky_sw` is a daily-mean W/m² value where the formula calls for daily PAR MJ (factor ~0.5 PAR/SW × ~0.0864 MJ/W/day → output units differ). Treat output as a relative NPP index, not g_C/m²/MJ. Disclosed 2026-05-29.",
+      "honest_limits": "AST uses EVI directly in place of the formula's `fpar_proxy` (EVI-to-fAPAR mapping is omitted), and `power.allsky_sw` is a daily-mean W/m\u00b2 value where the formula calls for daily PAR MJ (factor ~0.5 PAR/SW \u00d7 ~0.0864 MJ/W/day \u2192 output units differ). Treat output as a relative NPP index, not g_C/m\u00b2/MJ. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "mul",
         "terms": [
@@ -10301,7 +10325,7 @@
       "documentation_only": true,
       "runtime_path": "/v1/rice_ch4",
       "partial_runtime": true,
-      "honest_runtime_note": "POST /v1/rice_ch4 computes IPCC 2019 Refinement Vol4 Ch5 Eq 5.1: CH4 = EFc·SFw·SFp·SFo·days·T_mod (T_mod = Yan-2005 Q10 exp(0.0917·(T−25))). The water regime (→ SFw via Table 5.12: continuous_flood 1.00, mid_season_drainage 0.71, AWD 0.52, upland 0.00) is classified from the indices.ndwi series by mean + zero-crossing count. EFc (Table 5.11 regional baseline) and cultivation_period_days are REQUIRED caller inputs — no region default is applied, because silently using the global 1.19 kg CH4/ha/day biases inventories by ~30%; SFp (Table 5.13, default 0.68) and SFo (Table 5.14, default 1.00) are optional. The scalar AST stays documentation_only because the regime needs an NDWI series. Honest degradation: fewer than 4 NDWI samples returns verdict:inconclusive with NO CH4 — the regime cannot be classified. Output is labelled model:IPCC_2019_Tier2 (inventory estimate, NOT a flux measurement); Verra VM0042 issuance still requires an eddy-covariance flux tower."
+      "honest_runtime_note": "POST /v1/rice_ch4 computes IPCC 2019 Refinement Vol4 Ch5 Eq 5.1: CH4 = EFc\u00b7SFw\u00b7SFp\u00b7SFo\u00b7days\u00b7T_mod (T_mod = Yan-2005 Q10 exp(0.0917\u00b7(T\u221225))). The water regime (\u2192 SFw via Table 5.12: continuous_flood 1.00, mid_season_drainage 0.71, AWD 0.52, upland 0.00) is classified from the indices.ndwi series by mean + zero-crossing count. EFc (Table 5.11 regional baseline) and cultivation_period_days are REQUIRED caller inputs \u2014 no region default is applied, because silently using the global 1.19 kg CH4/ha/day biases inventories by ~30%; SFp (Table 5.13, default 0.68) and SFo (Table 5.14, default 1.00) are optional. The scalar AST stays documentation_only because the regime needs an NDWI series. Honest degradation: fewer than 4 NDWI samples returns verdict:inconclusive with NO CH4 \u2014 the regime cannot be classified. Output is labelled model:IPCC_2019_Tier2 (inventory estimate, NOT a flux measurement); Verra VM0042 issuance still requires an eddy-covariance flux tower."
     },
     {
       "key": "gdd_phenology@1",
@@ -10350,7 +10374,7 @@
         "anchor_band": "weather.temperature_2m",
         "fallback_strategy": "absence"
       },
-      "honest_limits": "AST flagged documentation_only on 2026-05-29: the formula needs daily Tmax AND Tmin and integrates from sowing to date_t. The single-cell AST has only one weather.temperature_2m sample (instantaneous), so Tmax and Tmin collapse to the same value — the McMaster-Wilhelm formula degenerates to `T - 10` clipped to [0,20], NOT a real GDD. Compose client-side via /v1/backfill over the sowing→date_t window and accumulate.",
+      "honest_limits": "AST flagged documentation_only on 2026-05-29: the formula needs daily Tmax AND Tmin and integrates from sowing to date_t. The single-cell AST has only one weather.temperature_2m sample (instantaneous), so Tmax and Tmin collapse to the same value \u2014 the McMaster-Wilhelm formula degenerates to `T - 10` clipped to [0,20], NOT a real GDD. Compose client-side via /v1/backfill over the sowing\u2192date_t window and accumulate.",
       "documentation_only": true,
       "evaluation": {
         "op": "max",
@@ -11120,7 +11144,7 @@
       "documentation_only": true,
       "runtime_path": "/v1/spi",
       "partial_runtime": true,
-      "honest_runtime_note": "POST /v1/spi computes the full McKee-1993 SPI: it accumulates weather.precipitation_mm into non-overlapping window sums, fits Γ(α,β) by the Thom-1958 MLE (Guttman 1999 / WMO-1090), applies the mixed CDF H(x)=q+(1-q)·P(α,x/β), and maps to the standard normal z-score. The scalar AST stays documentation_only because it cannot fit a distribution over a multi-year series. Honest degradation: fewer than 20 historical window-sums (or <10 positive) returns verdict:inconclusive with the sample count and NO SPI — a gamma cannot be fit to a handful of points. A caller may also POST precip_history_mm + current_accumulation_mm directly."
+      "honest_runtime_note": "POST /v1/spi computes the full McKee-1993 SPI: it accumulates weather.precipitation_mm into non-overlapping window sums, fits \u0393(\u03b1,\u03b2) by the Thom-1958 MLE (Guttman 1999 / WMO-1090), applies the mixed CDF H(x)=q+(1-q)\u00b7P(\u03b1,x/\u03b2), and maps to the standard normal z-score. The scalar AST stays documentation_only because it cannot fit a distribution over a multi-year series. Honest degradation: fewer than 20 historical window-sums (or <10 positive) returns verdict:inconclusive with the sample count and NO SPI \u2014 a gamma cannot be fit to a handful of points. A caller may also POST precip_history_mm + current_accumulation_mm directly."
     },
     {
       "key": "aqi_class@1",
@@ -13060,7 +13084,7 @@
           }
         ]
       },
-      "honest_limits": "AST substitutes a fixed `-15 dB` constant for the documented `lookback(sentinel1_raw, 30d)` (single-cell AST cannot see the 30-day prior). The output is `|sentinel1_raw + 15|`, NOT the documented coherence ΔVV. Compose client-side via /v1/trajectory over the 30-day window when used for change detection. Disclosed 2026-05-29.",
+      "honest_limits": "AST substitutes a fixed `-15 dB` constant for the documented `lookback(sentinel1_raw, 30d)` (single-cell AST cannot see the 30-day prior). The output is `|sentinel1_raw + 15|`, NOT the documented coherence \u0394VV. Compose client-side via /v1/trajectory over the 30-day window when used for change detection. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {
@@ -15631,7 +15655,7 @@
         ],
         "fallback_strategy": "absence_with_reason"
       },
-      "honest_limits": "AST substitutes a fixed `0.5` constant for the formula's `ndvi_2y_ago` lookback, and the land-cover branch is a class_table on current LC only (any LC in [50,60] → 1.0) with no temporal comparison. Single-cell AST cannot do the documented temporal Δ; compose client-side via /v1/trajectory or /v1/diff. Disclosed 2026-05-29.",
+      "honest_limits": "AST substitutes a fixed `0.5` constant for the formula's `ndvi_2y_ago` lookback, and the land-cover branch is a class_table on current LC only (any LC in [50,60] \u2192 1.0) with no temporal comparison. Single-cell AST cannot do the documented temporal \u0394; compose client-side via /v1/trajectory or /v1/diff. Disclosed 2026-05-29.",
       "evaluation": {
         "op": "clamp",
         "inner": {

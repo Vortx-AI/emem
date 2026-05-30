@@ -527,6 +527,28 @@ const SCHEMA_TRIPLE_CONSENSUS: &str = r#"{"type":"object","required":["cell"],"p
 "consensus_threshold":{"type":"number","description":"Override the registry consensus gate (default 0.15); clamped to (0,1)."}
 }}"#;
 
+const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
+"step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."}
+}}"#;
+
+const SCHEMA_REGION_GENERIC: &str = r#"{"type":"object","properties":{
+"place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder to a polygon bbox, then sampled. One of place/polygon_bbox/cells required."},
+"polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit bbox; sampled on a grid. Alternative to place/cells."},
+"cells":{"type":"array","items":{"type":"string"},"description":"Explicit cell64 list (taken verbatim, capped by max_cells). Alternative to place/polygon_bbox."},
+"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64,"description":"Cap on cells sampled from the region; surfaced as coverage_capped."}
+}}"#;
+
+const SCHEMA_REGION_SIMILARITY: &str = r#"{"type":"object","required":["region_a","region_b"],"properties":{
+"region_a":{"type":"object","description":"First region: {place} | {polygon_bbox:{min_lat,max_lat,min_lng,max_lng}} | {cells:[cell64,...]}."},
+"region_b":{"type":"object","description":"Second region, same shape as region_a."},
+"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64,"description":"Per-region cell cap."}
+}}"#;
+
+const SCHEMA_NEIGHBORHOOD_CONSISTENCY: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"Target cell64 or place name. Scored against its 8 immediate cell64 neighbours."}
+}}"#;
+
 const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder. REQUIRED unless `polygon_bbox` is provided."},
 "polygon_bbox":{"type":"object","properties":{
@@ -731,6 +753,61 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user wants a robust, model-agnostic 'did this place change' answer backed by three independent foundation encoders rather than one — e.g. cross-checking a single-encoder alert, or auditing change with consensus voting. Surface the per-encoder change + the vote count. When only one encoder has two vintages the verdict is honest about the thin evidence. For a single-encoder vector delta use `emem_state_diff`; for the NDVI+embedding proxy use `emem_deforestation_alert`.",
         input_schema: SCHEMA_TRIPLE_CONSENSUS,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","consensus_threshold":0.15}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_terrain",
+        title: "Terrain triad — slope + ruggedness + topographic position from DEM",
+        description: "Compute three standard DEM terrain indices from one 3×3 Copernicus-DEM (copdem30m.elevation_mean) neighbourhood at a cell: Horn (1981) slope in degrees, Riley (1999) Terrain Ruggedness Index (TRI = sqrt(Σ(Z_centre−Z_i)²)), and Weiss (2001) Topographic Position Index (TPI = Z_centre − mean(neighbours); positive = ridge, negative = valley). The 8 neighbour cell64s are derived by perturbing the cell's lat/lng one cell pitch per axis; the east-west ground spacing is cos(lat)-corrected.",
+        when_to_use: "Call when the user asks how steep / how rugged / ridge-or-valley a place is, for siting (solar, construction, agriculture), erosion/landslide screening, or habitat-heterogeneity inputs. Slope and TRI need the full 8-neighbour ring; TPI degrades to ≥1 neighbour. Copernicus DEM is bathymetry-free, so ocean cells return a signed `inconclusive` rather than a fabricated slope — read each index's own `verdict`. For raw elevation use `emem_elevation`.",
+        input_schema: SCHEMA_TERRAIN,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_region_similarity",
+        title: "Region similarity — cosine of two regions' mean GeoTessera embeddings",
+        description: "Answer 'how alike are these two places?' Mean-pool the 128-D GeoTessera embedding across each region's cells to get a centroid, then return the cosine similarity in [-1,1] (+1 = identical landscape, 0 = unrelated). Each region is {place} | {polygon_bbox} | {cells}. CPU-fetched embeddings — no GPU sidecar needed. Surfaces how many cells in each region actually carried a vector (coverage).",
+        when_to_use: "Call to compare two areas at the level of overall land character (e.g. 'is this valley like that one?', 'find me somewhere that looks like X'). Degrades to a signed `inconclusive` (no number) when a region has no embedding-covered cells. For a single cell-to-cell vector cosine use `emem_compare`; for k-NN retrieval use `emem_find_similar`.",
+        input_schema: SCHEMA_REGION_SIMILARITY,
+        example_args: r#"{"region_a":{"place":"Napa Valley"},"region_b":{"place":"Barossa Valley"}}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_embedding_centroid",
+        title: "Embedding centroid — mean-pooled GeoTessera vector for a region",
+        description: "Mean-pool the 128-D GeoTessera embedding over a region's cells: centroid = (1/N) Σ v_i, plus the L2-normalised centroid and a content-addressed centroid_cid. The building block region_similarity composes. Region is {place} | {polygon_bbox} | {cells}. NaN dims are averaged over their finite contributors. CPU-only.",
+        when_to_use: "Call when you need one representative embedding vector for an area — to feed similarity search, clustering, or a linear probe over places rather than single cells. Returns a stable centroid_cid for citation. Signed `inconclusive` when no cell in the region carried a vector.",
+        input_schema: SCHEMA_REGION_GENERIC,
+        example_args: r#"{"place":"Serengeti National Park","max_cells":64}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_embedding_diversity",
+        title: "Embedding diversity — landscape heterogeneity over a region",
+        description: "Quantify how varied a region's landscape is: diversity = (1/(N(N-1))) Σ_{i<j} (1 − cosine(v_i, v_j)), the mean pairwise cosine distance over the region's GeoTessera embeddings. 0 = perfectly uniform; higher = more heterogeneous land cover (a determinantal-point-process / k-medoid diversity). Region is {place} | {polygon_bbox} | {cells}. CPU-only.",
+        when_to_use: "Call for habitat-heterogeneity / biodiversity-proxy inputs, or to tell a monoculture from a mosaic landscape, or to rank regions by how mixed they are. Needs ≥2 embedding-covered cells, else a signed `inconclusive`. Pair with `emem_terrain` ruggedness for a fuller heterogeneity picture.",
+        input_schema: SCHEMA_REGION_GENERIC,
+        example_args: r#"{"place":"Okavango Delta","max_cells":64}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_neighborhood_consistency",
+        title: "Neighbourhood consistency / spatial outlier (GeoTessera vs 8 neighbours)",
+        description: "Score how much a cell looks like its surroundings: consistency = (1/8) Σ cosine(centre, neighbour_i) over the 8 immediate cell64 neighbours, plus outlier_score = 1 − consistency. High consistency = the cell blends in (Tobler's First Law); high outlier_score = it stands out — an edge, a fresh clearing, a built patch in farmland. CPU-only GeoTessera embeddings.",
+        when_to_use: "Call to flag a cell that is anomalous versus its local neighbourhood (change/edge detection, QA of a homogeneous expectation, scouting for the odd-one-out). Signed `inconclusive` when neither the centre nor any neighbour carried an embedding. For year-over-year change at one cell use `emem_state_diff` or `emem_triple_consensus`.",
+        input_schema: SCHEMA_NEIGHBORHOOD_CONSISTENCY,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
