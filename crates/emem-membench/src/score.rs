@@ -186,7 +186,9 @@ pub async fn run_all_live(
             lr_correct += 1;
         }
     }
-    eprintln!("[membench] long-range: graded the {lr_n} earliest-loaded items (front of transcript)");
+    eprintln!(
+        "[membench] long-range: graded the {lr_n} earliest-loaded items (front of transcript)"
+    );
     let lru = AxisScore::new(lr_correct, lr_n);
 
     // --- test-time learning: for items with an `update`, apply the update
@@ -306,10 +308,10 @@ mod tests {
     #[test]
     fn half_wrong_text_corpus_scores_about_half() {
         let pairs = [
-            ("The capital of France is Paris", "Paris"),   // hit
-            ("NDVI was 0.71 in June", "0.71"),             // hit
-            ("The user lives in Porto", "Lisbon"),         // miss
-            ("Some unrelated note", "Biscuit"),            // miss
+            ("The capital of France is Paris", "Paris"), // hit
+            ("NDVI was 0.71 in June", "0.71"),           // hit
+            ("The user lives in Porto", "Lisbon"),       // miss
+            ("Some unrelated note", "Biscuit"),          // miss
         ];
         let correct = pairs
             .iter()
@@ -324,7 +326,7 @@ mod tests {
     fn topline_is_item_weighted() {
         let a = AxisScore::new(2, 4); // 0.5
         let b = AxisScore::new(1, 1); // 1.0
-        // item-weighted: (2+1)/(4+1) = 0.6, NOT the axis mean 0.75.
+                                      // item-weighted: (2+1)/(4+1) = 0.6, NOT the axis mean 0.75.
         assert!((topline(&[&a, &b]) - 0.6).abs() < 1e-9);
     }
 }

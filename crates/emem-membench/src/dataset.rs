@@ -123,8 +123,8 @@ pub fn parse_jsonl(text: &str) -> anyhow::Result<Vec<DatasetItem>> {
 /// `full` (user-supplied). The label rides into the scorecard so a sample
 /// score is never mistaken for the published benchmark.
 pub fn load(path: &str) -> anyhow::Result<Dataset> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("read dataset {path}: {e}"))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("read dataset {path}: {e}"))?;
     let items = parse_jsonl(&text)?;
     let provenance = if path.ends_with("sample-longmemeval.jsonl") {
         Provenance::Sample
@@ -168,7 +168,8 @@ mod tests {
 
     #[test]
     fn malformed_line_is_hard_error() {
-        let jsonl = "{\"id\":\"a\",\"content\":\"x\",\"query\":\"q\",\"expected_answer\":\"y\"}\nnot json";
+        let jsonl =
+            "{\"id\":\"a\",\"content\":\"x\",\"query\":\"q\",\"expected_answer\":\"y\"}\nnot json";
         let err = parse_jsonl(jsonl).unwrap_err();
         assert!(err.to_string().contains("line 2"), "got: {err}");
     }

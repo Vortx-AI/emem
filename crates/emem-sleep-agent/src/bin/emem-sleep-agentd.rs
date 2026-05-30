@@ -48,8 +48,7 @@ struct Args {
 async fn main() -> std::process::ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -62,7 +61,10 @@ async fn main() -> std::process::ExitCode {
     // Connectivity check up front so the operator gets a clear error rather
     // than per-pass failures.
     if let Err(e) = client.ping().await {
-        eprintln!("error: cannot reach responder at {}: {e}", cfg.responder_url);
+        eprintln!(
+            "error: cannot reach responder at {}: {e}",
+            cfg.responder_url
+        );
         return std::process::ExitCode::from(2);
     }
     println!("connected to responder at {}", cfg.responder_url);

@@ -211,7 +211,9 @@ async fn run_self_test() -> anyhow::Result<Output> {
         fixture::LONG_RANGE_ITEMS.len(),
         fixture::CONFLICT_CASES.len(),
     );
-    eprintln!("[membench] NOT run: live HTTP, server-signed receipt (self-test is unsigned by design)");
+    eprintln!(
+        "[membench] NOT run: live HTTP, server-signed receipt (self-test is unsigned by design)"
+    );
     let stub = StubResponder::from_fixture();
     let card = score::run_all(&stub).await?;
     Ok(Output {
@@ -257,11 +259,7 @@ async fn run_live(base_url: &str, args: &Args) -> anyhow::Result<Output> {
 
     // 2) Pick the read path: semantic search if the BGE model is loaded,
     //    else the honest lexical recall fallback.
-    let sample_q = ds
-        .items
-        .first()
-        .map(|i| i.query.as_str())
-        .unwrap_or("test");
+    let sample_q = ds.items.first().map(|i| i.query.as_str()).unwrap_or("test");
     let (model_loaded, idx_size) = driver.probe_search(sample_q).await;
     let path = if model_loaded {
         eprintln!("[membench] read path = memory_search (BGE model loaded, index size {idx_size})");

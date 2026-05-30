@@ -52,11 +52,9 @@ pub fn looks_like_cell64(s: &str) -> bool {
     if parts.len() != 4 {
         return false;
     }
-    parts.iter().all(|p| {
-        !p.is_empty()
-            && p.len() <= 5
-            && p.bytes().all(|b| b.is_ascii_alphanumeric())
-    })
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_alphanumeric()))
 }
 
 /// Decode a `cell64` string back to a 64-bit cell ID. O(1) per bigram via
@@ -124,7 +122,7 @@ mod tests {
             "Mount Everest",
             "not-a-cell",
             "São Paulo, Brazil",
-            "a.b.c",          // only 3 parts
+            "a.b.c",           // only 3 parts
             "aa.bb.cc.ddeeff", // last token too long (>5 chars)
             "",
             "ento.bria.calo.tris.extra", // 5 parts

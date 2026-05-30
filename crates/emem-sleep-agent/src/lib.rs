@@ -169,9 +169,10 @@ pub async fn run_pass(
         .count();
 
     if candidates.is_empty() {
-        summary
-            .notes
-            .push("empty candidate set — corpus has no contradicted or high-churn memory to reconcile.".into());
+        summary.notes.push(
+            "empty candidate set — corpus has no contradicted or high-churn memory to reconcile."
+                .into(),
+        );
         return Ok(summary);
     }
 

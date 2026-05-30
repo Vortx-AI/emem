@@ -11617,9 +11617,11 @@ static MCP_TASKS: LazyLock<Mutex<std::collections::HashMap<String, McpTaskSlot>>
 /// task's terminal result). On poison we recover the guard and carry on —
 /// the map is a plain `HashMap` with no cross-entry invariant that a
 /// half-finished mutation could violate.
-fn mcp_tasks_lock(
-) -> std::sync::MutexGuard<'static, std::collections::HashMap<String, McpTaskSlot>> {
-    MCP_TASKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+fn mcp_tasks_lock() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, McpTaskSlot>>
+{
+    MCP_TASKS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn now_unix_ms() -> u64 {
@@ -11833,9 +11835,7 @@ fn mcp_spawn_task(
         // the working slot when the id is still vacant. Either way we report
         // the slot that ends up in the map so the CreateTaskResult reflects
         // reality (a fast task can legitimately come back already completed).
-        let entry = map
-            .entry(task_id.clone())
-            .or_insert_with(|| slot);
+        let entry = map.entry(task_id.clone()).or_insert_with(|| slot);
         // If the future raced ahead and minted a terminal slot, it cleared
         // `abort`; attach our handle only while the slot is still working so
         // `tasks/cancel` can reach a genuinely in-flight task.
@@ -45635,12 +45635,33 @@ mod tests {
         let cell = "bra5.zb000.aaaa.bbbb";
         let tslot = 21u64;
         // spread 1.0 → severity 0.5 == default floor (included; floor is >=).
-        seed_ndvi_fact(&s, cell, tslot, [21u8; 32], 0.5, 1.0, "2026-05-01T12:00:00Z").await;
-        seed_ndvi_fact(&s, cell, tslot, [22u8; 32], -0.5, 0.6, "2026-05-02T12:00:00Z").await;
+        seed_ndvi_fact(
+            &s,
+            cell,
+            tslot,
+            [21u8; 32],
+            0.5,
+            1.0,
+            "2026-05-01T12:00:00Z",
+        )
+        .await;
+        seed_ndvi_fact(
+            &s,
+            cell,
+            tslot,
+            [22u8; 32],
+            -0.5,
+            0.6,
+            "2026-05-02T12:00:00Z",
+        )
+        .await;
 
         let (seen, emitted) = run_refinement_pass(&s).await.expect("enabled pass runs");
         assert_eq!(seen, 1, "one contradiction observed on the enabled path");
-        assert_eq!(emitted, 1, "enabled path emits the expected disagrees_with edge");
+        assert_eq!(
+            emitted, 1,
+            "enabled path emits the expected disagrees_with edge"
+        );
 
         match prev {
             Some(v) => std::env::set_var("EMEM_REFINEMENT_ENABLED", v),
@@ -45663,9 +45684,26 @@ mod tests {
             let cell = "blow.zb000.aaaa.cccc";
             let tslot = 31u64;
             // 0.49 - (-0.49) = 0.98 → severity 0.49 < 0.5 floor.
-            seed_ndvi_fact(&s, cell, tslot, [31u8; 32], 0.49, 1.0, "2026-05-01T12:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [32u8; 32], -0.49, 0.6, "2026-05-02T12:00:00Z")
-                .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [31u8; 32],
+                0.49,
+                1.0,
+                "2026-05-01T12:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [32u8; 32],
+                -0.49,
+                0.6,
+                "2026-05-02T12:00:00Z",
+            )
+            .await;
             let (_seen, emitted) = run_refinement_pass(&s).await.expect("below-floor pass");
             assert_eq!(
                 emitted, 0,
@@ -45679,9 +45717,26 @@ mod tests {
             let cell = "abov.zb000.aaaa.dddd";
             let tslot = 32u64;
             // 0.51 - (-0.51) = 1.02 → severity 0.51 > 0.5 floor.
-            seed_ndvi_fact(&s, cell, tslot, [33u8; 32], 0.51, 1.0, "2026-05-01T12:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [34u8; 32], -0.51, 0.6, "2026-05-02T12:00:00Z")
-                .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [33u8; 32],
+                0.51,
+                1.0,
+                "2026-05-01T12:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [34u8; 32],
+                -0.51,
+                0.6,
+                "2026-05-02T12:00:00Z",
+            )
+            .await;
             let (_seen, emitted) = run_refinement_pass(&s).await.expect("above-floor pass");
             assert_eq!(
                 emitted, 1,
@@ -45707,10 +45762,46 @@ mod tests {
             let cell = "cap1.zb000.aaaa.eeee";
             let tslot = 41u64;
             // 4 attesters, all well above the 0.5 floor when extremes pair.
-            seed_ndvi_fact(&s, cell, tslot, [41u8; 32], 0.9, 1.0, "2026-05-01T00:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [42u8; 32], 0.3, 0.9, "2026-05-02T00:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [43u8; 32], -0.3, 0.7, "2026-05-03T00:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [44u8; 32], -0.9, 0.5, "2026-05-04T00:00:00Z").await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [41u8; 32],
+                0.9,
+                1.0,
+                "2026-05-01T00:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [42u8; 32],
+                0.3,
+                0.9,
+                "2026-05-02T00:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [43u8; 32],
+                -0.3,
+                0.7,
+                "2026-05-03T00:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [44u8; 32],
+                -0.9,
+                0.5,
+                "2026-05-04T00:00:00Z",
+            )
+            .await;
             let (_seen, emitted) = run_refinement_pass(&s).await.expect("cap=1 pass");
             assert_eq!(emitted, 1, "cap=1 emits exactly one pair");
         }
@@ -45721,12 +45812,51 @@ mod tests {
             let s = test_app_state();
             let cell = "cap2.zb000.aaaa.ffff";
             let tslot = 42u64;
-            seed_ndvi_fact(&s, cell, tslot, [45u8; 32], 0.9, 1.0, "2026-05-01T00:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [46u8; 32], 0.3, 0.9, "2026-05-02T00:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [47u8; 32], -0.3, 0.7, "2026-05-03T00:00:00Z").await;
-            seed_ndvi_fact(&s, cell, tslot, [48u8; 32], -0.9, 0.5, "2026-05-04T00:00:00Z").await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [45u8; 32],
+                0.9,
+                1.0,
+                "2026-05-01T00:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [46u8; 32],
+                0.3,
+                0.9,
+                "2026-05-02T00:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [47u8; 32],
+                -0.3,
+                0.7,
+                "2026-05-03T00:00:00Z",
+            )
+            .await;
+            seed_ndvi_fact(
+                &s,
+                cell,
+                tslot,
+                [48u8; 32],
+                -0.9,
+                0.5,
+                "2026-05-04T00:00:00Z",
+            )
+            .await;
             let (_seen, emitted) = run_refinement_pass(&s).await.expect("cap=2 pass");
-            assert_eq!(emitted, 2, "cap=2 emits exactly two pairs (N/2=2 available)");
+            assert_eq!(
+                emitted, 2,
+                "cap=2 emits exactly two pairs (N/2=2 available)"
+            );
         }
 
         match prev {
@@ -45993,8 +46123,7 @@ mod tests {
             abort: if terminal {
                 None
             } else {
-                let never =
-                    tokio::runtime::Handle::current().spawn(std::future::pending::<()>());
+                let never = tokio::runtime::Handle::current().spawn(std::future::pending::<()>());
                 Some(never.abort_handle())
             },
         }
@@ -46282,7 +46411,10 @@ mod tests {
     fn locate_confidence_never_hard_true_on_weak_match() {
         // Low-importance single Nominatim/Photon hit → not confident.
         let (hc, _r) = locate_confidence("nominatim", 0.1, false, false, 1);
-        assert!(!hc, "a low-importance single fuzzy hit must NOT be high-confidence");
+        assert!(
+            !hc,
+            "a low-importance single fuzzy hit must NOT be high-confidence"
+        );
         // Class mismatch ("Mount X" → a street) → not confident regardless.
         let (hc2, _r2) = locate_confidence("photon", 0.9, true, false, 3);
         assert!(!hc2, "a class-mismatched hit must NOT be high-confidence");

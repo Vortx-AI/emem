@@ -213,10 +213,7 @@ impl LiveDriver {
                         .get("model_loaded")
                         .and_then(|b| b.as_bool())
                         .unwrap_or(false);
-                    let size = v
-                        .get("corpus_size")
-                        .and_then(|n| n.as_u64())
-                        .unwrap_or(0) as usize;
+                    let size = v.get("corpus_size").and_then(|n| n.as_u64()).unwrap_or(0) as usize;
                     (loaded, size)
                 }
                 Err(_) => (false, 0),
@@ -260,7 +257,9 @@ impl LiveDriver {
 
     /// Read one memory file's content via `memory_view`.
     async fn read_file(&self, path: &str) -> anyhow::Result<Option<String>> {
-        let out = self.mcp_call("memory_view", json!({ "path": path })).await?;
+        let out = self
+            .mcp_call("memory_view", json!({ "path": path }))
+            .await?;
         Ok(out
             .get("content")
             .and_then(|c| c.as_str())
@@ -454,7 +453,10 @@ mod tests {
         let mut out = Vec::new();
         collect_paths(&v, &mut out);
         out.sort();
-        assert_eq!(out, vec!["/memories/membench/a.md", "/memories/membench/c.md"]);
+        assert_eq!(
+            out,
+            vec!["/memories/membench/a.md", "/memories/membench/c.md"]
+        );
     }
 
     #[test]
@@ -467,6 +469,9 @@ mod tests {
 
     #[test]
     fn item_path_is_sanitised() {
-        assert_eq!(LiveDriver::item_path("loc-capital/fr"), "/memories/membench/loc_capital_fr.md");
+        assert_eq!(
+            LiveDriver::item_path("loc-capital/fr"),
+            "/memories/membench/loc_capital_fr.md"
+        );
     }
 }

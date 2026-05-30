@@ -37,7 +37,12 @@ impl LlmRequest {
             ));
         }
         for (i, f) in cand.cluster.iter().enumerate() {
-            user.push_str(&format!("--- entry {} (path: {}) ---\n{}\n\n", i + 1, f.path, f.content));
+            user.push_str(&format!(
+                "--- entry {} (path: {}) ---\n{}\n\n",
+                i + 1,
+                f.path,
+                f.content
+            ));
         }
         LlmRequest { system, user }
     }
@@ -139,10 +144,7 @@ impl HttpLlmTransport {
             .await
             .map_err(|e| LlmError::Transport(e.to_string()))?;
         if !resp.status().is_success() {
-            return Err(LlmError::Transport(format!(
-                "{url} -> {}",
-                resp.status()
-            )));
+            return Err(LlmError::Transport(format!("{url} -> {}", resp.status())));
         }
         let v: Value = resp
             .json()

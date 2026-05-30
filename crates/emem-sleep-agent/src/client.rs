@@ -161,7 +161,10 @@ impl ResponderClient {
         limit: usize,
     ) -> Result<Vec<Value>, SleepAgentError> {
         let out = self
-            .mcp_call("memory_list_by_kind", json!({ "kind": kind, "limit": limit }))
+            .mcp_call(
+                "memory_list_by_kind",
+                json!({ "kind": kind, "limit": limit }),
+            )
             .await?;
         Ok(out
             .get("files")

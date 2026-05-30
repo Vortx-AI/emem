@@ -110,9 +110,7 @@ mod tests {
     /// A mock responder that captures memory_create calls and serves a
     /// fixture corpus over the same wire the real client speaks.
     /// Implemented as a tiny axum app on an ephemeral port.
-    async fn spawn_mock_responder(
-        created: Arc<Mutex<Vec<(String, String, String)>>>,
-    ) -> String {
+    async fn spawn_mock_responder(created: Arc<Mutex<Vec<(String, String, String)>>>) -> String {
         use std::net::SocketAddr;
         // Two near-duplicate semantic files in the fixture corpus.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -144,23 +142,31 @@ mod tests {
         format!("http://{addr}")
     }
 
-    fn handle(
-        req: &str,
-        body: &str,
-        created: &Arc<Mutex<Vec<(String, String, String)>>>,
-    ) -> (&'static str, String) {
+    // (path, file_text, kind) of each memory_create the mock responder saw.
+    type CreatedLog = Arc<Mutex<Vec<(String, String, String)>>>;
+
+    fn handle(req: &str, body: &str, created: &CreatedLog) -> (&'static str, String) {
         let first = req.lines().next().unwrap_or("");
         if first.starts_with("GET /v1/health") || first.starts_with("GET / ") {
             return ("200 OK", json!({"ok": true}).to_string());
         }
         if first.starts_with("POST /v1/memory_contradictions") {
             // No contradictions in this fixture.
-            return ("200 OK", json!({ "contradictions": [], "corpus_scanned": 0 }).to_string());
+            return (
+                "200 OK",
+                json!({ "contradictions": [], "corpus_scanned": 0 }).to_string(),
+            );
         }
         if first.starts_with("POST /mcp") {
             let rpc: Value = serde_json::from_str(body).unwrap_or(json!({}));
-            let name = rpc.pointer("/params/name").and_then(|v| v.as_str()).unwrap_or("");
-            let args = rpc.pointer("/params/arguments").cloned().unwrap_or(json!({}));
+            let name = rpc
+                .pointer("/params/name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let args = rpc
+                .pointer("/params/arguments")
+                .cloned()
+                .unwrap_or(json!({}));
             let inner = mcp_inner(name, &args, created);
             let env = json!({
                 "jsonrpc": "2.0", "id": 1,
@@ -175,11 +181,7 @@ mod tests {
         ("404 Not Found", json!({"error": "not found"}).to_string())
     }
 
-    fn mcp_inner(
-        name: &str,
-        args: &Value,
-        created: &Arc<Mutex<Vec<(String, String, String)>>>,
-    ) -> Value {
+    fn mcp_inner(name: &str, args: &Value, created: &CreatedLog) -> Value {
         match name {
             "memory_list_by_kind" => {
                 let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("");
@@ -206,11 +208,26 @@ mod tests {
                 })
             }
             "memory_create" => {
-                let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let text = args.get("file_text").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let path = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let text = args
+                    .get("file_text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let kind = args
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let new_cid = format!("cidMERGED-{}", created.lock().unwrap().len());
-                created.lock().unwrap().push((path.clone(), text, kind.clone()));
+                created
+                    .lock()
+                    .unwrap()
+                    .push((path.clone(), text, kind.clone()));
                 json!({
                     "ok": true, "verb": "create", "path": path,
                     "file_cid": new_cid, "memory_kind": kind,
@@ -301,7 +318,10 @@ mod tests {
                 stem: "n/x".into(),
                 total_versions: 2,
             },
-            cluster: vec![MemoryFile::stub("n/x-1", "a"), MemoryFile::stub("n/x-2", "b")],
+            cluster: vec![
+                MemoryFile::stub("n/x-1", "a"),
+                MemoryFile::stub("n/x-2", "b"),
+            ],
             canonical_path: "n/x-1".into(),
         };
         // The merged text the LLM proposes.

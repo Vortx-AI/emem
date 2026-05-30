@@ -43,7 +43,11 @@ impl MemoryFile {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CandidateSource {
     /// Selected because attesters disagree about a `(cell, band)`.
-    Contradiction { cell: String, band: String, severity: f32 },
+    Contradiction {
+        cell: String,
+        band: String,
+        severity: f32,
+    },
     /// Selected because a path stem has been rewritten / duplicated a lot.
     Churn { stem: String, total_versions: usize },
 }
