@@ -36,6 +36,29 @@ pub fn is_cell64_shape(s: &str) -> bool {
     parts.iter().all(|sym| ALPHABET_INDEX.contains_key(*sym))
 }
 
+/// Looser shape detector: does this string *look like* it was meant to be a
+/// cell64 even if it doesn't decode? A cell64 is exactly 4 dot-separated
+/// tokens, each a short (≤5 char) run of ASCII alphanumerics with no spaces.
+/// This is the predicate the API uses to tell "typo'd cell ID" apart from a
+/// place name: a malformed cell ID (e.g. one bigram outside the alphabet)
+/// must surface as a typed `invalid_cell64` error rather than be fed to the
+/// fuzzy geocoder, where it would dress junk up as a confident place.
+///
+/// Returns true for things like `"ento.bria.calo.tXYZ"` (4 short alnum
+/// tokens, dotted) but false for `"Mount Everest"`, `"not-a-cell"`,
+/// `"São Paulo, Brazil"`, or any string with spaces / commas / hyphens.
+pub fn looks_like_cell64(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    parts.iter().all(|p| {
+        !p.is_empty()
+            && p.len() <= 5
+            && p.bytes().all(|b| b.is_ascii_alphanumeric())
+    })
+}
+
 /// Decode a `cell64` string back to a 64-bit cell ID. O(1) per bigram via
 /// the precomputed reverse index.
 pub fn from_cell64(s: &str) -> Result<Cell, CodecError> {
@@ -81,6 +104,35 @@ mod tests {
             let s = to_cell64(c);
             let c2 = from_cell64(&s).expect("decode");
             assert_eq!(c, c2, "raw={raw:x} via {s}");
+        }
+    }
+
+    #[test]
+    fn looks_like_cell64_discriminates_typos_from_place_names() {
+        // A real cell64 is obviously cell64-shaped.
+        let real = to_cell64(Cell::from_raw(0x1234_5678_9abc_def0));
+        assert!(looks_like_cell64(&real));
+        assert!(is_cell64_shape(&real));
+
+        // 4 short alnum dotted tokens that don't decode: a typo'd cell id.
+        // Shape matches, decode fails — this is the case the API rejects.
+        assert!(looks_like_cell64("ZZ99.ab12.cd34.ef56"));
+        assert!(!is_cell64_shape("ZZ99.ab12.cd34.ef56"));
+
+        // Place names and junk are NOT cell64-shaped.
+        for not_cell in [
+            "Mount Everest",
+            "not-a-cell",
+            "São Paulo, Brazil",
+            "a.b.c",          // only 3 parts
+            "aa.bb.cc.ddeeff", // last token too long (>5 chars)
+            "",
+            "ento.bria.calo.tris.extra", // 5 parts
+        ] {
+            assert!(
+                !looks_like_cell64(not_cell),
+                "{not_cell:?} must not look like a cell64"
+            );
         }
     }
 }

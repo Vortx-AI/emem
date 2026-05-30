@@ -1098,6 +1098,27 @@ fn boring_max_cells() -> usize {
         .clamp(1, 4096)
 }
 
+/// Tighter per-cell fan-out cap for SoilGrids-backed endpoints (default 64).
+/// Tunable via `EMEM_SOIL_MAX_CELLS`; clamped to `1..=boring_max_cells()`.
+///
+/// Unlike the COG-backed boring endpoints (forest/water), SoilGrids has no
+/// tileable raster the polygon-bbox prewarm can warm: every cell hits
+/// rest.isric.org's per-POINT JSON API once, so a wide place-name fan-out at
+/// the 512-cell ceiling serialises into hundreds of per-point HTTP calls and
+/// a soil query on a city-sized place can run ~40 s. This cap bounds the
+/// soil fan-out so a place-name soil query stays responsive; when it
+/// truncates coverage the response surfaces a `coverage_capped` note rather
+/// than silently sampling fewer cells. Same shape as the known Cop-DEM /
+/// elevation per-point issue.
+fn soil_max_cells() -> usize {
+    let ceiling = boring_max_cells();
+    std::env::var("EMEM_SOIL_MAX_CELLS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(64)
+        .clamp(1, ceiling)
+}
+
 // ── CORS layer (open for agents, Origin-allowlist when configured) ─────
 //
 // Default behavior is `Access-Control-Allow-Origin: *` so unauthenticated
@@ -7777,6 +7798,7 @@ async fn boring_recall_aggregated(
     bands: &[String],
     tslot: Option<u64>,
     include: &std::collections::HashSet<&str>,
+    max_cells: usize,
 ) -> Result<JsonValue, ApiError> {
     // Point query: zero behaviour change vs the legacy code path.
     let polygon = match target.polygon.as_ref() {
@@ -7786,12 +7808,19 @@ async fn boring_recall_aggregated(
         Some(p) => p.clone(),
     };
 
-    // Sanity-bound the cell list. `resolve_target` already capped, but
-    // double-check to keep the upstream-fetch budget defensible.
+    // Sanity-bound the cell list. `resolve_target` already capped to the
+    // global boring ceiling, but the per-endpoint `max_cells` can be tighter
+    // (e.g. SoilGrids' per-POINT JSON API has no tile prewarm, so its fan-out
+    // is capped lower — see `soil_max_cells`). Record whether the cap
+    // actually truncated coverage so we can disclose it honestly rather than
+    // silently sampling fewer cells.
+    let n_available = polygon.sample_cells.len();
+    let effective_cap = max_cells.min(boring_max_cells());
+    let coverage_capped = n_available > effective_cap;
     let cells: Vec<String> = polygon
         .sample_cells
         .iter()
-        .take(boring_max_cells())
+        .take(effective_cap)
         .cloned()
         .collect();
     if cells.is_empty() {
@@ -8222,6 +8251,23 @@ async fn boring_recall_aggregated(
         map.insert("partial".into(), json!(partial));
         map.insert("coverage_fraction".into(), json!(coverage_fraction));
         map.insert("is_exhaustive".into(), json!(false));
+        // Honesty: when a per-endpoint fan-out cap truncated the polygon
+        // sample (e.g. SoilGrids per-POINT API), say so explicitly so the
+        // caller doesn't read the aggregate as covering the whole feature.
+        if coverage_capped {
+            map.insert("coverage_capped".into(), json!(true));
+            map.insert(
+                "coverage_capped_note".into(),
+                json!(format!(
+                    "Fan-out was capped at {} of {} candidate cells for this feature to \
+                     bound latency (this source is queried per-point with no tileable \
+                     prewarm). The aggregate summarises the sampled cells only; raise the \
+                     cap via env or query a smaller area / specific cell for full coverage.",
+                    cells.len(),
+                    n_available
+                )),
+            );
+        }
         let bbox = polygon.bbox;
         map.insert(
             "next".into(),
@@ -8625,7 +8671,7 @@ async fn get_v1_at(
     let tag = format!("at bands {bands:?}");
     let v = with_boring_budget(
         &tag,
-        boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set),
+        boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set, boring_max_cells()),
     )
     .await?;
     Ok(Json(v))
@@ -8691,6 +8737,19 @@ async fn boring_named(
     q: LatLngQ,
     bands: &[&str],
 ) -> Result<Json<JsonValue>, ApiError> {
+    boring_named_capped(s, q, bands, None).await
+}
+
+/// Like [`boring_named`] but with an explicit per-endpoint fan-out cap.
+/// `max_cells = None` uses the global boring ceiling (`boring_max_cells`);
+/// `Some(n)` clamps tighter (used by the SoilGrids endpoints, whose per-POINT
+/// JSON API has no tileable prewarm — see `soil_max_cells`).
+async fn boring_named_capped(
+    s: &AppState,
+    q: LatLngQ,
+    bands: &[&str],
+    max_cells: Option<usize>,
+) -> Result<Json<JsonValue>, ApiError> {
     let inc_set: std::collections::HashSet<&str> = q
         .include
         .as_ref()
@@ -8699,9 +8758,10 @@ async fn boring_named(
     let target = q.resolve_target(16).await?;
     let bands_owned: Vec<String> = bands.iter().map(|s| (*s).to_string()).collect();
     let tag = format!("bands {bands:?}");
+    let cap = max_cells.unwrap_or_else(boring_max_cells);
     let v = with_boring_budget(
         &tag,
-        boring_recall_aggregated(s, target, &bands_owned, q.tslot, &inc_set),
+        boring_recall_aggregated(s, target, &bands_owned, q.tslot, &inc_set, cap),
     )
     .await?;
     Ok(Json(v))
@@ -8757,7 +8817,11 @@ async fn get_v1_soil(
     State(s): State<AppState>,
     Query(q): Query<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    boring_named(
+    // SoilGrids is a per-POINT JSON API (rest.isric.org), not a tileable COG,
+    // so the polygon prewarm can't warm it and a wide place-name fan-out
+    // serialises into hundreds of per-point calls. Cap it (EMEM_SOIL_MAX_CELLS,
+    // default 64) so a place-name soil query stays responsive.
+    boring_named_capped(
         &s,
         q,
         &[
@@ -8768,6 +8832,7 @@ async fn get_v1_soil(
             "soilgrids.bdod_0_30cm",
             "soilgrids.nitrogen_0_30cm",
         ],
+        Some(soil_max_cells()),
     )
     .await
 }
@@ -8858,7 +8923,7 @@ async fn post_v1_at(
     let tag = format!("at bands {bands:?}");
     let v = with_boring_budget(
         &tag,
-        boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set),
+        boring_recall_aggregated(&s, target, &bands, q.tslot, &inc_set, boring_max_cells()),
     )
     .await?;
     Ok(Json(v))
@@ -8889,7 +8954,8 @@ async fn post_v1_soil(
     State(s): State<AppState>,
     Json(q): Json<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    boring_named(
+    // See get_v1_soil: SoilGrids per-POINT API → cap the fan-out.
+    boring_named_capped(
         &s,
         q,
         &[
@@ -8900,6 +8966,7 @@ async fn post_v1_soil(
             "soilgrids.bdod_0_30cm",
             "soilgrids.nitrogen_0_30cm",
         ],
+        Some(soil_max_cells()),
     )
     .await
 }
@@ -11543,6 +11610,18 @@ impl McpTaskSlot {
 static MCP_TASKS: LazyLock<Mutex<std::collections::HashMap<String, McpTaskSlot>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
+/// Single lock-acquisition point for [`MCP_TASKS`]. Centralises poison
+/// handling so a panic in one task's completion fold-back can never brick
+/// the whole registry (a poisoned `Mutex` would otherwise make every
+/// subsequent `.lock().unwrap()` panic, silently dropping every other
+/// task's terminal result). On poison we recover the guard and carry on —
+/// the map is a plain `HashMap` with no cross-entry invariant that a
+/// half-finished mutation could violate.
+fn mcp_tasks_lock(
+) -> std::sync::MutexGuard<'static, std::collections::HashMap<String, McpTaskSlot>> {
+    MCP_TASKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn now_unix_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -11568,7 +11647,7 @@ fn task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
 /// regardless of age (a slow tool legitimately runs longer than the TTL,
 /// which only governs *post-completion* retention). Takes the lock itself.
 fn mcp_tasks_reap(now_ms: u64) {
-    let mut map = MCP_TASKS.lock().unwrap();
+    let mut map = mcp_tasks_lock();
     map.retain(|_, slot| {
         if !slot.is_terminal() {
             return true; // still running — keep regardless of age
@@ -11596,12 +11675,12 @@ fn mcp_spawn_task(
     let mut h = blake3::Hasher::new();
     h.update(&now.to_le_bytes());
     h.update(name.as_bytes());
-    h.update(&(MCP_TASKS.lock().unwrap().len() as u64).to_le_bytes());
+    h.update(&(mcp_tasks_lock().len() as u64).to_le_bytes());
     let task_id = format!("emem-task-{}", &h.finalize().to_hex().to_string()[..26]);
 
     {
         let max_tasks = mcp_max_tasks();
-        let mut map = MCP_TASKS.lock().unwrap();
+        let mut map = mcp_tasks_lock();
         if map.len() >= max_tasks {
             // Try to make room by dropping the oldest terminal slot.
             let victim = map
@@ -11629,6 +11708,13 @@ fn mcp_spawn_task(
     let task_id_for_future = task_id.clone();
     let name_owned = name.to_string();
     let state = s.clone();
+    // Captured so the completion fold-back can reconstruct a terminal slot
+    // if (and only if) the working slot is somehow absent — e.g. the future
+    // finishes before the post-spawn insert below lands, or a misbehaving
+    // reaper removed it. Without this, a fast/short task could complete into
+    // a missing slot and silently drop its terminal result.
+    let created_iso_for_future = iso8601_now_utc();
+    let ttl_for_future = ttl_ms;
     let join = tokio::spawn(async move {
         let result = match mcp_tool_call(&name_owned, args, &state).await {
             Ok(inner) => mcp_wrap_call_tool_result(inner),
@@ -11652,34 +11738,61 @@ fn mcp_spawn_task(
                 }
             }
         };
-        // Fold the terminal status + payload back into the slot.
+        // Fold the terminal status + payload back into the slot. Hold the
+        // lock across the whole read-modify-write so a concurrent reaper /
+        // poller never observes a half-written terminal state, and so the
+        // result is never silently dropped.
         let fin = now_unix_ms();
         let fin_iso = iso8601_now_utc();
-        let mut map = MCP_TASKS.lock().unwrap();
-        if let Some(slot) = map.get_mut(&task_id_for_future) {
-            let is_err = result
-                .get("isError")
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false);
-            // If a cancel raced in first, keep the cancelled status.
-            if slot.status != TASK_STATUS_CANCELLED {
-                slot.status = if is_err {
-                    TASK_STATUS_FAILED.to_string()
-                } else {
-                    TASK_STATUS_COMPLETED.to_string()
-                };
-                // On failure, surface a concise error string on the slot so
-                // `tasks/get` / `tasks/cancel` report it without the host
-                // having to call `tasks/result`. The success path leaves
-                // `status_message` untouched (None).
-                if is_err {
-                    slot.status_message = Some(mcp_result_error_summary(&result));
+        let is_err = result
+            .get("isError")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
+        let terminal_status = if is_err {
+            TASK_STATUS_FAILED.to_string()
+        } else {
+            TASK_STATUS_COMPLETED.to_string()
+        };
+        // On failure, surface a concise error string on the slot so
+        // `tasks/get` / `tasks/cancel` report it without the host having to
+        // call `tasks/result`. The success path leaves `status_message` None.
+        let err_summary = is_err.then(|| mcp_result_error_summary(&result));
+        let mut map = mcp_tasks_lock();
+        // Reset the retention clock to completion time: the host's TTL window
+        // to poll the result starts when the result is ready, never when the
+        // (possibly long-running) task was created.
+        match map.get_mut(&task_id_for_future) {
+            Some(slot) => {
+                // If a cancel raced in first, keep the cancelled status —
+                // but still clear the abort handle and refresh the clock.
+                if slot.status != TASK_STATUS_CANCELLED {
+                    slot.status = terminal_status;
+                    slot.status_message = err_summary;
+                    slot.result = Some(result);
                 }
-                slot.result = Some(result);
+                slot.abort = None;
+                slot.last_updated_ms = fin;
+                slot.last_updated_iso = fin_iso;
             }
-            slot.abort = None;
-            slot.last_updated_ms = fin;
-            slot.last_updated_iso = fin_iso;
+            None => {
+                // The working slot is gone (finished before the post-spawn
+                // insert landed, or was wrongly reaped). Reconstruct a
+                // terminal slot so the result stays retrievable within a
+                // fresh retention window rather than being lost.
+                map.insert(
+                    task_id_for_future.clone(),
+                    McpTaskSlot {
+                        status: terminal_status,
+                        status_message: err_summary,
+                        created_at_iso: created_iso_for_future.clone(),
+                        last_updated_iso: fin_iso,
+                        last_updated_ms: fin,
+                        ttl_ms: ttl_for_future,
+                        result: Some(result),
+                        abort: None,
+                    },
+                );
+            }
         }
         json!({})
     });
@@ -11696,9 +11809,23 @@ fn mcp_spawn_task(
         abort: Some(join.abort_handle()),
     };
     let task_json = {
-        let mut map = MCP_TASKS.lock().unwrap();
-        map.insert(task_id.clone(), slot);
-        task_object(&task_id, map.get(&task_id).unwrap())
+        let mut map = mcp_tasks_lock();
+        // The spawned future may have already completed and reconstructed a
+        // terminal slot under this id (fast/short task). Never clobber a
+        // terminal slot with this fresh `working` placeholder — only register
+        // the working slot when the id is still vacant. Either way we report
+        // the slot that ends up in the map so the CreateTaskResult reflects
+        // reality (a fast task can legitimately come back already completed).
+        let entry = map
+            .entry(task_id.clone())
+            .or_insert_with(|| slot);
+        // If the future raced ahead and minted a terminal slot, it cleared
+        // `abort`; attach our handle only while the slot is still working so
+        // `tasks/cancel` can reach a genuinely in-flight task.
+        if entry.abort.is_none() && entry.status == TASK_STATUS_WORKING {
+            entry.abort = Some(join.abort_handle());
+        }
+        task_object(&task_id, entry)
     };
     Ok(json!({ "task": task_json }))
 }
@@ -12329,7 +12456,7 @@ async fn mcp_jsonrpc(
             match p.get("taskId").and_then(|v| v.as_str()) {
                 Some(task_id) => {
                     mcp_tasks_reap(now_unix_ms());
-                    let map = MCP_TASKS.lock().unwrap();
+                    let map = mcp_tasks_lock();
                     match map.get(task_id) {
                         Some(slot) => Ok(task_object(task_id, slot)),
                         None => Err((
@@ -12346,7 +12473,7 @@ async fn mcp_jsonrpc(
             match p.get("taskId").and_then(|v| v.as_str()) {
                 Some(task_id) => {
                     mcp_tasks_reap(now_unix_ms());
-                    let map = MCP_TASKS.lock().unwrap();
+                    let map = mcp_tasks_lock();
                     match map.get(task_id) {
                         Some(slot) => match &slot.result {
                             Some(result) => Ok(result.clone()),
@@ -12370,7 +12497,7 @@ async fn mcp_jsonrpc(
         }
         "tasks/list" => {
             mcp_tasks_reap(now_unix_ms());
-            let map = MCP_TASKS.lock().unwrap();
+            let map = mcp_tasks_lock();
             let tasks: Vec<JsonValue> =
                 map.iter().map(|(id, slot)| task_object(id, slot)).collect();
             Ok(json!({ "tasks": tasks }))
@@ -12380,7 +12507,7 @@ async fn mcp_jsonrpc(
             match p.get("taskId").and_then(|v| v.as_str()) {
                 Some(task_id) => {
                     let now = now_unix_ms();
-                    let mut map = MCP_TASKS.lock().unwrap();
+                    let mut map = mcp_tasks_lock();
                     match map.get_mut(task_id) {
                         Some(slot) => {
                             if let Some(abort) = slot.abort.take() {
@@ -14200,7 +14327,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (32-byte BLAKE3 of the per-fact merkle root, hex), `attester_pubkey_b32`, `signature_b32` (ed25519 over batch_root), and `facts[]` (each carries cell, band, tslot, value, and any per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester_pubkey_b32","signature_b32","facts"],"properties":{"batch_root":{"type":"string","description":"hex BLAKE3 root of the per-fact merkle tree"},"attester_pubkey_b32":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature_b32":{"type":"string","description":"base32-nopad-lc ed25519 signature over batch_root"},"facts":{"type":"array","items":{"type":"object","required":["cell","band","value"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers — NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature":{"type":"string","description":"base32-nopad-lc ed25519 signature over blake3(batch_root||registry_cid||schema_cid)"},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
             "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
             // High-traffic endpoints that were previously discoverable
@@ -19728,6 +19855,28 @@ pub enum ResolvedRef {
 pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef), ApiError> {
     if emem_codec::is_cell64_shape(s) {
         return Ok((s.to_string(), ResolvedRef::Cell));
+    }
+    // The value isn't a valid cell64. Before handing it to the fuzzy
+    // geocoder, check whether it was *meant* to be a cell64 (4 short
+    // dot-separated alnum tokens) but failed to decode — i.e. a typo'd
+    // cell ID. Feeding such junk to the geocoder confidently resolves it
+    // to a random place ("not-a-cell" → some football club). Reject it as
+    // a typed error so a malformed cell ID never silently becomes a place.
+    if emem_codec::looks_like_cell64(s) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidCell,
+                message: format!(
+                    "'{s}' is shaped like a cell64 (4 dot-separated tokens) but is not a \
+                     valid cell64 — at least one bigram is outside the alphabet. This was \
+                     NOT geocoded as a place name to avoid resolving a typo'd cell ID to a \
+                     random location. Pass a valid cell64, a recognisable place name, or \
+                     lat+lng directly."
+                ),
+                details: None,
+            },
+        ));
     }
     let lr = LocateReq {
         lat: None,
@@ -45453,7 +45602,7 @@ mod tests {
         let mut polled_result = None;
         for _ in 0..200 {
             {
-                let map = MCP_TASKS.lock().unwrap();
+                let map = mcp_tasks_lock();
                 let slot = map.get(&task_id).expect("slot still present");
                 if slot.is_terminal() {
                     assert_eq!(slot.status, TASK_STATUS_COMPLETED);
@@ -45474,7 +45623,7 @@ mod tests {
 
         // tasks/result-style read after completion returns the same payload.
         let after = {
-            let map = MCP_TASKS.lock().unwrap();
+            let map = mcp_tasks_lock();
             map.get(&task_id).unwrap().result.clone().unwrap()
         };
         assert_eq!(after, sync_result);
@@ -45508,7 +45657,7 @@ mod tests {
         let mut status = String::new();
         for _ in 0..200 {
             {
-                let map = MCP_TASKS.lock().unwrap();
+                let map = mcp_tasks_lock();
                 let slot = map.get(&task_id).expect("slot present");
                 if slot.is_terminal() {
                     status = slot.status.clone();
@@ -45530,13 +45679,120 @@ mod tests {
 
         // The Task object exposed to hosts also carries it (not null).
         let obj = {
-            let map = MCP_TASKS.lock().unwrap();
+            let map = mcp_tasks_lock();
             task_object(&task_id, map.get(&task_id).unwrap())
         };
         assert!(
             obj.get("statusMessage").and_then(|v| v.as_str()).is_some(),
             "tasks/get Task.statusMessage must be non-null on failure"
         );
+    }
+
+    /// TTL robustness: the reaper must NEVER evict a non-terminal (working)
+    /// slot regardless of how long it has run, and a completed task's result
+    /// must remain retrievable within a fresh retention window that starts at
+    /// completion time (not at the long-running task's creation time).
+    #[tokio::test]
+    async fn async_task_ttl_robustness() {
+        let s = test_app_state();
+
+        // 1. A still-working slot is never reaped, even with an already-past
+        //    TTL and a reap clock far in the future.
+        let working_id = "emem-task-working-never-reaped".to_string();
+        {
+            let mut map = mcp_tasks_lock();
+            map.insert(
+                working_id.clone(),
+                McpTaskSlot {
+                    status: TASK_STATUS_WORKING.to_string(),
+                    status_message: None,
+                    created_at_iso: iso8601_now_utc(),
+                    last_updated_iso: iso8601_now_utc(),
+                    last_updated_ms: 0, // ancient
+                    ttl_ms: 1,          // already past
+                    result: None,
+                    abort: None, // is_terminal() keys off abort; force working below
+                },
+            );
+            // A None abort would make is_terminal() true; emulate a live
+            // handle by spawning a never-completing task and stashing it.
+            let never = tokio::spawn(async {
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            });
+            map.get_mut(&working_id).unwrap().abort = Some(never.abort_handle());
+        }
+        mcp_tasks_reap(u64::MAX); // reap clock far in the future
+        {
+            let map = mcp_tasks_lock();
+            assert!(
+                map.contains_key(&working_id),
+                "a working (non-terminal) slot must survive the reaper regardless of age"
+            );
+            // Clean up the live handle so it doesn't leak across the test.
+            if let Some(slot) = map.get(&working_id) {
+                if let Some(a) = &slot.abort {
+                    a.abort();
+                }
+            }
+        }
+        {
+            let mut map = mcp_tasks_lock();
+            map.remove(&working_id);
+        }
+
+        // 2. A completed task's result is retrievable, and the completion
+        //    fold-back resets the retention clock so the host's TTL window
+        //    starts at completion. Spawn a real task, let it finish, and
+        //    assert the slot is terminal with a result and a fresh
+        //    last_updated_ms (>= the spawn time).
+        let before = now_unix_ms();
+        let create = mcp_spawn_task("emem_grid_info", json!({}), mcp_task_default_ttl_ms(), &s)
+            .expect("spawn ok");
+        let task_id = create
+            .get("task")
+            .and_then(|t| t.get("taskId"))
+            .and_then(|v| v.as_str())
+            .expect("taskId present")
+            .to_string();
+
+        let mut terminal_updated_ms = None;
+        for _ in 0..200 {
+            {
+                let map = mcp_tasks_lock();
+                let slot = map.get(&task_id).expect("slot present");
+                if slot.is_terminal() {
+                    assert_eq!(slot.status, TASK_STATUS_COMPLETED);
+                    assert!(
+                        slot.result.is_some(),
+                        "completed task must retain its terminal result"
+                    );
+                    terminal_updated_ms = Some(slot.last_updated_ms);
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let updated = terminal_updated_ms.expect("task reached a terminal, result-bearing state");
+        assert!(
+            updated >= before,
+            "completion must reset the retention clock to completion time \
+             (got last_updated_ms={updated} < spawn={before})"
+        );
+        // A poll within the fresh retention window still returns the result:
+        // the reaper at exactly the completion instant must not evict it.
+        mcp_tasks_reap(updated);
+        {
+            let map = mcp_tasks_lock();
+            assert!(
+                map.get(&task_id).and_then(|sl| sl.result.clone()).is_some(),
+                "result must be retrievable within the post-completion TTL window"
+            );
+        }
+        {
+            let mut map = mcp_tasks_lock();
+            map.remove(&task_id);
+        }
     }
 
     /// A `task`-param `tools/call` against a tool whose taskSupport is
@@ -45643,5 +45899,124 @@ mod tests {
             caps_old.get("tasks").is_none(),
             "tasks capability is 2025-11-25-only and must not appear at 2025-06-18"
         );
+    }
+
+    /// `soil_max_cells()` defaults to a tight 64-cell cap, reads the env
+    /// override at runtime (NOT cached), and never exceeds the global boring
+    /// ceiling. This is what bounds a place-name /v1/soil fan-out so it can't
+    /// serialise into hundreds of per-point SoilGrids calls.
+    #[test]
+    fn soil_max_cells_caps_fanout() {
+        let _g = eudr_test_env_guard();
+        let prev_soil = std::env::var("EMEM_SOIL_MAX_CELLS").ok();
+        let prev_boring = std::env::var("EMEM_BORING_MAX_CELLS").ok();
+
+        std::env::remove_var("EMEM_SOIL_MAX_CELLS");
+        std::env::remove_var("EMEM_BORING_MAX_CELLS");
+        assert_eq!(soil_max_cells(), 64, "default soil cap is 64");
+        assert!(
+            soil_max_cells() <= boring_max_cells(),
+            "soil cap never exceeds the global boring ceiling"
+        );
+
+        // Runtime-readable override (proves no LazyLock caching).
+        std::env::set_var("EMEM_SOIL_MAX_CELLS", "16");
+        assert_eq!(soil_max_cells(), 16, "env override is read at runtime");
+
+        // Clamped to the global ceiling: a soil cap above the boring max is
+        // pulled back down to it.
+        std::env::set_var("EMEM_BORING_MAX_CELLS", "32");
+        std::env::set_var("EMEM_SOIL_MAX_CELLS", "1000");
+        assert_eq!(
+            soil_max_cells(),
+            32,
+            "soil cap is clamped down to the global boring ceiling"
+        );
+
+        // Restore.
+        match prev_soil {
+            Some(v) => std::env::set_var("EMEM_SOIL_MAX_CELLS", v),
+            None => std::env::remove_var("EMEM_SOIL_MAX_CELLS"),
+        }
+        match prev_boring {
+            Some(v) => std::env::set_var("EMEM_BORING_MAX_CELLS", v),
+            None => std::env::remove_var("EMEM_BORING_MAX_CELLS"),
+        }
+    }
+
+    /// Malformed-cell honesty: a string that is *shaped like* a cell64 (4
+    /// short dot-separated alnum tokens) but does not decode must surface as
+    /// a typed `invalid_cell` error — it must NOT be geocoded into a random
+    /// confident place. A genuine cell64 resolves unchanged. A clear place
+    /// name still resolves, but never as high-confidence junk.
+    #[tokio::test]
+    async fn resolve_cell_field_rejects_malformed_cell_shape() {
+        // 1. A valid cell64 passes through as a Cell ref, byte-identical.
+        let real = emem_codec::to_cell64(emem_core::Cell::from_raw(0x1234_5678_9abc_def0));
+        let (cell, rref) = resolve_cell_field(&real)
+            .await
+            .expect("a valid cell64 resolves");
+        assert_eq!(cell, real, "valid cell64 returned unchanged");
+        assert!(
+            matches!(rref, ResolvedRef::Cell),
+            "valid cell64 is a Cell ref, not a geocoded Place"
+        );
+
+        // 2. A cell64-SHAPED-but-undecodable id (4 short alnum tokens, but a
+        //    bigram outside the alphabet) is rejected with a typed error and
+        //    is NOT geocoded.
+        let malformed = "ZZ99.ab12.cd34.ef56"; // 4 dotted alnum tokens, not in alphabet
+        assert!(
+            !emem_codec::is_cell64_shape(malformed),
+            "test fixture must not be a valid cell64"
+        );
+        assert!(
+            emem_codec::looks_like_cell64(malformed),
+            "test fixture must be cell64-shaped"
+        );
+        let err = resolve_cell_field(malformed)
+            .await
+            .expect_err("malformed cell-shaped input must be a typed error, not a geocode");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(
+            matches!(err.1.code, ErrorCode::InvalidCell),
+            "malformed cell id maps to invalid_cell, got {:?}",
+            err.1.code
+        );
+
+        // 3. Junk that is clearly NOT cell64-shaped (hyphens / spaces) does
+        //    not trip the shape guard, so it would reach the geocoder rather
+        //    than the typed-error path. The geocoder requires a sled DB and
+        //    is not hermetic here; the confidence-propagation contract (a
+        //    fuzzy match reports is_high_confidence:false, never hard-true)
+        //    is enforced by `resolve_cell_field` reading the real
+        //    `selected.is_high_confidence` from the locate body and exercised
+        //    by the locate-confidence unit coverage. We assert only the
+        //    routing-side invariant here, which needs no network/DB.
+        for junk in ["not-a-cell", "Mount Everest", "São Paulo, Brazil"] {
+            assert!(
+                !emem_codec::looks_like_cell64(junk),
+                "{junk:?} is not cell64-shaped — it routes to the geocoder (real \
+                 confidence), not the invalid_cell typed-error path"
+            );
+        }
+    }
+
+    /// The locate-confidence policy never reports a weak/fuzzy geocode as
+    /// high-confidence — the value `resolve_cell_field` copies into
+    /// `ResolvedRef::Place.is_high_confidence`. A low-importance single hit
+    /// must be `false`; this is what stops junk being dressed up as a
+    /// confident place. Pure function, fully hermetic.
+    #[test]
+    fn locate_confidence_never_hard_true_on_weak_match() {
+        // Low-importance single Nominatim/Photon hit → not confident.
+        let (hc, _r) = locate_confidence("nominatim", 0.1, false, false, 1);
+        assert!(!hc, "a low-importance single fuzzy hit must NOT be high-confidence");
+        // Class mismatch ("Mount X" → a street) → not confident regardless.
+        let (hc2, _r2) = locate_confidence("photon", 0.9, true, false, 3);
+        assert!(!hc2, "a class-mismatched hit must NOT be high-confidence");
+        // A strong, unambiguous hit IS confident (sanity of the policy).
+        let (hc3, _r3) = locate_confidence("nominatim", 0.8, false, false, 1);
+        assert!(hc3, "a high-importance unambiguous hit is confident");
     }
 }

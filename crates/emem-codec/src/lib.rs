@@ -22,7 +22,7 @@ pub mod hilbert;
 pub mod tslot_text;
 pub mod vec64;
 
-pub use cell64::{from_cell64, is_cell64_shape, to_cell64};
+pub use cell64::{from_cell64, is_cell64_shape, looks_like_cell64, to_cell64};
 pub use cid64::{from_cid64, to_cid64};
 pub use geo::{
     cell64_from_latlng, cell_from_latlng, equal_area_weight_for, latlng_from_cell64, BboxDeg,
