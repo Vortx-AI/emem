@@ -449,6 +449,24 @@ pub trait Storage: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// Recall edges TERMINATING at `obj` ("what points at this fact")
+    /// under predicate `pred`, bi-temporally filtered by `as_of`. The
+    /// mirror of [`Storage::recall_edges`]: same `pred=""` → all-predicates
+    /// rule, same closed-interval `as_of` + `valid_to` filter, but
+    /// supersession collapses per SUBJECT (the newest edge from each
+    /// distinct subject under a predicate wins) and the scan walks the
+    /// reverse [`TREE_EDGE_OPS`] index. Default impl returns `[]` so
+    /// in-memory mocks and ephemeral backends keep compiling. (v0.0.9.)
+    async fn recall_edges_by_obj(
+        &self,
+        _obj: &FactCid,
+        _pred: &str,
+        _as_of: Option<u64>,
+        _limit: usize,
+    ) -> Result<Vec<emem_fact::EdgeFact>, StorageError> {
+        Ok(Vec::new())
+    }
+
     /// `true` when an edge with this CID has been persisted. Default impl
     /// returns `false`.
     async fn has_edge(&self, _cid: &emem_fact::EdgeCid) -> Result<bool, StorageError> {
@@ -822,6 +840,20 @@ impl Storage for MaterializingStorage {
         recall_edges_tree(hot.db(), subj, pred, as_of, limit)
     }
 
+    async fn recall_edges_by_obj(
+        &self,
+        obj: &FactCid,
+        pred: &str,
+        as_of: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<EdgeFact>, StorageError> {
+        let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
+            code: ErrorCode::Internal,
+            message: "recall_edges_by_obj requires a SledHotCache handle".into(),
+        })?;
+        recall_edges_by_obj_tree(hot.db(), obj, pred, as_of, limit)
+    }
+
     async fn has_edge(&self, cid: &EdgeCid) -> Result<bool, StorageError> {
         let hot = self.hot.as_ref().ok_or_else(|| StorageError::Protocol {
             code: ErrorCode::Internal,
@@ -986,6 +1018,40 @@ fn add_edges_tree(db: &sled::Db, edges: &[EdgeFact]) -> Result<Vec<EdgeCid>, Sto
     Ok(out)
 }
 
+/// Which end of the edge anchors a scan. `Subj` walks [`TREE_EDGE_SPO`]
+/// ("what does this fact point at"); `Obj` walks [`TREE_EDGE_OPS`] ("what
+/// points at this fact"). The two share the SAME bi-temporal `as_of` +
+/// `valid_to` filter and supersession discipline (factored into
+/// [`scan_edges_anchored`]) so the forward and reverse reads can never
+/// drift apart — they differ only in (a) which index tree they prefix-scan
+/// and (b) the group key supersession collapses on.
+#[derive(Clone, Copy)]
+enum EdgeAnchor {
+    /// Scan by subject — forward index, group/supersede per object.
+    Subj,
+    /// Scan by object — reverse index, group/supersede per subject.
+    Obj,
+}
+
+impl EdgeAnchor {
+    fn tree(&self) -> &'static str {
+        match self {
+            EdgeAnchor::Subj => TREE_EDGE_SPO,
+            EdgeAnchor::Obj => TREE_EDGE_OPS,
+        }
+    }
+    /// The supersession group key for a hydrated edge: forward collapses
+    /// per `(pred, obj)`, reverse per `(pred, subj)`. Either way the key
+    /// fixes the predicate and the *other* end so the newest `valid_from`
+    /// wins among edges that mean the same relation to the same neighbour.
+    fn group_key(&self, edge: &EdgeFact) -> String {
+        match self {
+            EdgeAnchor::Subj => format!("{}\0{}", edge.pred, edge.obj.as_str()),
+            EdgeAnchor::Obj => format!("{}\0{}", edge.pred, edge.subj.as_str()),
+        }
+    }
+}
+
 /// Recall edges from the forward index. See
 /// [`Storage::recall_edges`] for the bi-temporal + supersession contract.
 fn recall_edges_tree(
@@ -995,50 +1061,82 @@ fn recall_edges_tree(
     as_of: Option<u64>,
     limit: usize,
 ) -> Result<Vec<EdgeFact>, StorageError> {
+    scan_edges_anchored(db, EdgeAnchor::Subj, subj.as_str(), pred, as_of, limit)
+}
+
+/// Recall edges TERMINATING at `obj` from the reverse index
+/// ([`TREE_EDGE_OPS`]). See [`Storage::recall_edges_by_obj`] for the
+/// contract. Shares [`scan_edges_anchored`] with the forward path so the
+/// `as_of` / `valid_to` boundary and supersession rule are byte-for-byte
+/// the same filter — only the anchor end differs.
+fn recall_edges_by_obj_tree(
+    db: &sled::Db,
+    obj: &FactCid,
+    pred: &str,
+    as_of: Option<u64>,
+    limit: usize,
+) -> Result<Vec<EdgeFact>, StorageError> {
+    scan_edges_anchored(db, EdgeAnchor::Obj, obj.as_str(), pred, as_of, limit)
+}
+
+/// Shared scan: prefix-walk the index tree named by `anchor` for
+/// `anchor_cid` (optionally narrowed to one `pred`, `""` = all preds),
+/// hydrate each edge body from [`TREE_EDGES`], apply the bi-temporal
+/// `as_of` + `valid_to` filter, collapse by the anchor's supersession
+/// group key keeping the largest `valid_from`, and return up to `limit`
+/// edges in ascending `(valid_from, obj_cid)` order.
+fn scan_edges_anchored(
+    db: &sled::Db,
+    anchor: EdgeAnchor,
+    anchor_cid: &str,
+    pred: &str,
+    as_of: Option<u64>,
+    limit: usize,
+) -> Result<Vec<EdgeFact>, StorageError> {
     let bodies = db
         .open_tree(TREE_EDGES)
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
-    let spo = db
-        .open_tree(TREE_EDGE_SPO)
+    let index = db
+        .open_tree(anchor.tree())
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
 
-    // Collect (obj, valid_from, edge_cid) candidates from the index.
-    let mut candidates: Vec<(String, u64, String)> = Vec::new();
+    // Collect the candidate edge CIDs from the index. The index keys are
+    // laid out identically for both trees (`anchor \0 pred \0 vf_be8 \0
+    // edge_cid`), so the same decoders work for the SPO and OPS scans.
+    let mut candidate_cids: Vec<String> = Vec::new();
     if pred.is_empty() {
-        // Scan every predicate for this subject.
-        let mut prefix = Vec::with_capacity(subj.as_str().len() + 1);
-        prefix.extend_from_slice(subj.as_str().as_bytes());
+        let mut prefix = Vec::with_capacity(anchor_cid.len() + 1);
+        prefix.extend_from_slice(anchor_cid.as_bytes());
         prefix.push(0u8);
-        for row in spo.scan_prefix(prefix) {
-            let (k, _obj) =
+        for row in index.scan_prefix(prefix) {
+            let (k, _v) =
                 row.map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
-            if let Some((p, vf, cid)) = decode_edge_spo_key_anypred(&k, subj.as_str()) {
-                let _ = p;
-                candidates.push(("".into(), vf, cid));
+            if let Some((_p, _vf, cid)) = decode_edge_spo_key_anypred(&k, anchor_cid) {
+                candidate_cids.push(cid);
             }
         }
     } else {
-        let mut prefix = Vec::with_capacity(subj.as_str().len() + pred.len() + 2);
-        prefix.extend_from_slice(subj.as_str().as_bytes());
+        let mut prefix = Vec::with_capacity(anchor_cid.len() + pred.len() + 2);
+        prefix.extend_from_slice(anchor_cid.as_bytes());
         prefix.push(0u8);
         prefix.extend_from_slice(pred.as_bytes());
         prefix.push(0u8);
-        for row in spo.scan_prefix(prefix) {
-            let (k, _obj) =
+        for row in index.scan_prefix(prefix) {
+            let (k, _v) =
                 row.map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
-            if let Some((vf, cid)) = decode_edge_spo_key(&k, subj.as_str(), pred) {
-                candidates.push(("".into(), vf, cid));
+            if let Some((_vf, cid)) = decode_edge_spo_key(&k, anchor_cid, pred) {
+                candidate_cids.push(cid);
             }
         }
     }
 
     // Hydrate bodies and apply the bi-temporal filter + supersession. We
-    // group by the object fact CID (read off the hydrated body so the
+    // group by the anchor-specific key (read off the hydrated body so the
     // any-predicate path groups correctly) and keep the edge with the
     // largest valid_from that satisfies the as_of bound.
     use std::collections::HashMap;
     let mut best: HashMap<String, EdgeFact> = HashMap::new();
-    for (_obj_placeholder, _vf, cid) in candidates {
+    for cid in candidate_cids {
         let body = match bodies
             .get(cid.as_bytes())
             .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
@@ -1060,7 +1158,7 @@ fn recall_edges_tree(
                 }
             }
         }
-        let group = format!("{}\0{}", edge.pred, edge.obj.as_str());
+        let group = anchor.group_key(&edge);
         match best.get(&group) {
             Some(existing) if existing.valid_from >= edge.valid_from => {}
             _ => {
@@ -1839,6 +1937,85 @@ mod edge_tests {
             .unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0], edge);
+    }
+
+    /// Reverse lookup (`obj -> subj`): write `A relates_to B`, then ask
+    /// "what points at B" via the OPS index. The forward and reverse reads
+    /// must agree on the same edge, and the reverse path must honour the
+    /// SAME bi-temporal `as_of` + supersession contract.
+    #[tokio::test]
+    async fn reverse_lookup_round_trip() {
+        let storage = ephemeral();
+        let e = mk_edge("subj-a", "relates_to", "obj-b", 10, None);
+        storage
+            .add_edges(std::slice::from_ref(&e))
+            .await
+            .expect("add");
+
+        // recall_edges_by_obj(B) returns the edge with subj=A.
+        let got = storage
+            .recall_edges_by_obj(&FactCid::new("obj-b"), "relates_to", None, 100)
+            .await
+            .expect("reverse recall");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], e);
+        assert_eq!(got[0].subj.as_str(), "subj-a");
+
+        // Empty-predicate reverse scan finds it too.
+        let any = storage
+            .recall_edges_by_obj(&FactCid::new("obj-b"), "", None, 100)
+            .await
+            .unwrap();
+        assert_eq!(any.len(), 1);
+        assert_eq!(any[0], e);
+
+        // A different object yields nothing (honest empty, not a leak).
+        let none = storage
+            .recall_edges_by_obj(&FactCid::new("obj-other"), "", None, 100)
+            .await
+            .unwrap();
+        assert!(none.is_empty());
+    }
+
+    /// Reverse-path supersession honours `as_of` the same way the forward
+    /// path does: two edges from the SAME subject to the same object under
+    /// the same predicate, newer `valid_from` shadows the older when both
+    /// are in-window; only the older is visible before the newer begins.
+    #[tokio::test]
+    async fn reverse_lookup_supersession_as_of() {
+        let storage = ephemeral();
+        let early = mk_edge("subj-a", "state", "obj-x", 10, None);
+        let late = mk_edge("subj-a", "state", "obj-x", 20, None);
+        storage
+            .add_edges(&[early.clone(), late.clone()])
+            .await
+            .expect("add");
+
+        // as_of=15 → only vf=10 is in-window.
+        let at15 = storage
+            .recall_edges_by_obj(&FactCid::new("obj-x"), "state", Some(15), 100)
+            .await
+            .unwrap();
+        assert_eq!(at15.len(), 1);
+        assert_eq!(at15[0].valid_from, 10);
+
+        // as_of=25 → both in-window; supersession (per subject) keeps vf=20.
+        let at25 = storage
+            .recall_edges_by_obj(&FactCid::new("obj-x"), "state", Some(25), 100)
+            .await
+            .unwrap();
+        assert_eq!(at25.len(), 1);
+        assert_eq!(at25[0].valid_from, 20);
+
+        // Non-destructive: both rows still live in the reverse OPS index.
+        let ops = storage
+            .hot
+            .as_ref()
+            .unwrap()
+            .db()
+            .open_tree(TREE_EDGE_OPS)
+            .unwrap();
+        assert_eq!(ops.len(), 2, "reverse supersession must not delete rows");
     }
 
     /// Helper: a minimal Primary fact for attestation tests.

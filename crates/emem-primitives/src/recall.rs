@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use emem_cache::CanonicalKey;
 use emem_core::ErrorCode;
 use emem_fact::{EdgeFact, Fact, FactCid, Receipt, Scope};
-use emem_storage::{AsOfBound, Server, StorageError};
+use emem_storage::{AsOfBound, FactContestedRecord, Server, StorageError};
 
 use crate::cbor_ops::parse_rfc3339_strict;
 
@@ -132,6 +132,27 @@ pub struct TemporalAdvice {
     pub hint: String,
 }
 
+/// Advisory note that a returned fact has been flagged as contested by
+/// the contradiction-fed refinement loop (a signed `disagrees_with` edge
+/// down-weighted it). This is RESPONDER-DERIVED metadata: it is NOT part
+/// of the fact's content address and NOT part of the receipt preimage, so
+/// a recall of the same fact before vs. after it was contested produces a
+/// byte-identical receipt (the only difference is this advisory block).
+/// Treat it like `materialize_notes` — outside the signed surface. The
+/// underlying [`FactContestedRecord`] is itself signed-by-construction
+/// (it cites the `by_edge` CID of the signed disagreement edge), so a
+/// caller who wants a trust anchor follows `by_edge` and verifies that
+/// edge's receipt — not this note. (v0.0.9 refinement loop.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContestedNote {
+    /// CID of the fact in `facts[]` this note refers to.
+    pub fact_cid: String,
+    /// The non-destructive overlay record: which edge contested it, the
+    /// severity, when it was marked, and whether this is the
+    /// lower-confidence side of the pair.
+    pub record: FactContestedRecord,
+}
+
 /// Recall response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecallResp {
@@ -169,6 +190,15 @@ pub struct RecallResp {
     /// when requested but the returned facts have no edges. (v0.0.9.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edges: Option<Vec<EdgeFact>>,
+    /// Advisory contested-marker notes for any returned fact the
+    /// refinement loop has flagged via a `disagrees_with` edge. Absent
+    /// (`None`) when no returned fact is contested — in that case the
+    /// response AND the receipt are byte-identical to a pre-v0.0.9 recall.
+    /// This is responder-derived advisory metadata OUTSIDE the signed
+    /// surface: the contested status never enters a fact's CID or the
+    /// receipt preimage (see [`ContestedNote`]). (v0.0.9 refinement loop.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contested: Option<Vec<ContestedNote>>,
 }
 
 /// Recall facts at a cell, optionally filtered by band and tslot.
@@ -309,6 +339,14 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
 
     let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
     let fetched = storage.get_facts_many(&cids).await?;
+    // Keep the CIDs of facts that actually resolved (a body may be missing)
+    // so the contested-marker lookup below pairs each note with a fact that
+    // is genuinely present in `facts`.
+    let resolved_cids: Vec<FactCid> = cids
+        .iter()
+        .zip(fetched.iter())
+        .filter_map(|(c, f)| f.as_ref().map(|_| c.clone()))
+        .collect();
     let facts: Vec<Fact> = fetched.into_iter().flatten().collect();
 
     // Always surface the full set of bands attested at this cell. The
@@ -398,6 +436,29 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         (None, Vec::new())
     };
 
+    // Contested-marker overlay (v0.0.9 refinement loop). For every fact we
+    // are about to return, check the non-destructive `fact_contested` tree.
+    // This is responder-derived ADVISORY metadata — it is computed AFTER
+    // the fact set is fixed and is deliberately NOT threaded into
+    // `edge_cids`, `cids`, or any other input to the receipt preimage, so
+    // a recall of the same facts before vs. after they were contested signs
+    // a byte-identical receipt. When nothing is contested the field stays
+    // `None` and the wire shape matches the pre-v0.0.9 response exactly.
+    let mut contested_notes: Vec<ContestedNote> = Vec::new();
+    for fc in &resolved_cids {
+        if let Some(record) = storage.get_fact_contested(fc).await.unwrap_or(None) {
+            contested_notes.push(ContestedNote {
+                fact_cid: fc.as_str().to_string(),
+                record,
+            });
+        }
+    }
+    let contested = if contested_notes.is_empty() {
+        None
+    } else {
+        Some(contested_notes)
+    };
+
     // sign_receipt_with_edges collapses to sign_receipt_full when
     // edge_cids is empty, so the no-include path is byte-identical to
     // pre-v0.0.9 receipts.
@@ -418,6 +479,7 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         bands_already_attested_at_cell,
         temporal_advice,
         edges: edges_out,
+        contested,
     })
 }
 
@@ -708,6 +770,110 @@ mod include_edges_tests {
         assert_eq!(edges[0], edge);
         assert_eq!(withe.receipt.edge_cids.len(), 1);
         assert_eq!(withe.receipt.edge_cids[0], edge.cid());
+    }
+
+    /// contested_surfaced_in_recall: marking a returned fact contested
+    /// surfaces a `contested` note in recall WITHOUT a separate query; an
+    /// un-contested fact leaves the field absent AND the receipt
+    /// byte-identical to the baseline (the marker is responder-derived
+    /// advisory metadata, outside the signed preimage).
+    #[tokio::test]
+    async fn contested_surfaced_in_recall() {
+        let cell = "damO.zb000.xUti.zde78";
+        let (storage, srv) = ephemeral_server();
+
+        // Attest one fact and capture its CID.
+        let att = sign(vec![mk_fact(cell, 12)], [21u8; 32]);
+        let cids = storage.put_attestation(&att).await.expect("attest");
+        let fc = cids[0].clone();
+
+        // BASELINE: recall before any contested marker. Capture the exact
+        // receipt-preimage-bearing bytes (request_id + served_at vary per
+        // call, so we compare the receipt SIGNATURE-input fields that the
+        // marker must NOT perturb, plus assert the field is absent).
+        let base = recall(
+            &RecallReq {
+                cell: cell.into(),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("baseline recall");
+        assert!(
+            base.contested.is_none(),
+            "un-contested fact → contested field absent"
+        );
+        let base_v = serde_json::to_value(&base).unwrap();
+        assert!(
+            base_v.get("contested").is_none(),
+            "contested key must be absent on the wire when nothing is contested"
+        );
+        // Receipt fields that feed the preimage: cells, fact_cids, edge_cids.
+        let base_fact_cids: Vec<String> = base
+            .receipt
+            .fact_cids
+            .iter()
+            .map(|c| c.as_str().to_string())
+            .collect();
+        let base_cells = base.receipt.cells.clone();
+        assert!(base.receipt.edge_cids.is_empty());
+
+        // Mark the fact contested via a (fabricated) disagrees_with edge.
+        let record = FactContestedRecord {
+            by_edge: "some-disagrees-with-edge-cid".into(),
+            severity: 0.7,
+            marked_at: "2026-05-30T00:00:00Z".into(),
+            lower_confidence: true,
+        };
+        storage
+            .mark_fact_contested(&fc, &record)
+            .await
+            .expect("mark contested");
+
+        // RECALL AGAIN: the contested note now appears, attached to the
+        // same fact, WITHOUT a second query from the caller.
+        let after = recall(
+            &RecallReq {
+                cell: cell.into(),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall after contest");
+        let notes = after.contested.expect("contested note surfaced");
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].fact_cid, fc.as_str());
+        assert_eq!(notes[0].record, record);
+
+        // PROOF the marker is OUTSIDE the receipt preimage: every field
+        // that feeds the signature input is byte-identical to the baseline.
+        let after_fact_cids: Vec<String> = after
+            .receipt
+            .fact_cids
+            .iter()
+            .map(|c| c.as_str().to_string())
+            .collect();
+        assert_eq!(
+            after_fact_cids, base_fact_cids,
+            "contested marker must NOT change receipt.fact_cids (preimage input)"
+        );
+        assert_eq!(
+            after.receipt.cells, base_cells,
+            "contested marker must NOT change receipt.cells (preimage input)"
+        );
+        assert!(
+            after.receipt.edge_cids.is_empty(),
+            "contested marker must NOT add edge_cids (preimage input)"
+        );
+        // The fact bodies themselves are byte-identical — content address
+        // unchanged.
+        assert_eq!(
+            serde_json::to_value(&after.facts).unwrap(),
+            serde_json::to_value(&base.facts).unwrap(),
+            "contested marker must NOT mutate the returned fact bodies"
+        );
     }
 
     /// Sign the SAME attestation envelope as [`sign`] but tag it with a

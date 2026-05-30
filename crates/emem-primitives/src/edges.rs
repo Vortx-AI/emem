@@ -19,6 +19,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+use emem_core::ErrorCode;
 use emem_fact::{EdgeFact, FactCid, Receipt};
 use emem_storage::{AsOfBound, Server, StorageError};
 
@@ -33,19 +34,35 @@ fn max_limit() -> usize {
     crate::memory_consolidation::env_usize("EMEM_EDGES_MAX_LIMIT", 1_000, 1, 1_000_000)
 }
 
-/// Request: the subject fact, optional predicate + valid-time bound.
+/// Request: an anchor fact (subject for `direction="out"`, object for
+/// `direction="in"`), optional predicate + valid-time bound.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EdgesRecallReq {
-    /// Subject fact CID. Edges originating here are returned.
+    /// Subject fact CID for the forward (`out`) direction — edges
+    /// originating here are returned. Leave empty when reading the reverse
+    /// (`in`) direction with `obj` set.
+    #[serde(default)]
     pub subj: String,
+    /// Object fact CID for the reverse (`in`) direction — edges
+    /// TERMINATING here ("what points at this fact") are returned. Setting
+    /// this implies `direction="in"` unless `direction` is given
+    /// explicitly and consistently. (v0.0.9 reverse lookup.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub obj: Option<String>,
+    /// Traversal direction. `"out"` (the default) walks `subj --pred--> ?`
+    /// (what this fact points at); `"in"` walks `? --pred--> obj` (what
+    /// points at this fact — disagrees-with / supersedes / relates-to).
+    /// When omitted it is inferred: `obj` set → `"in"`, else `"out"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
     /// Predicate filter. Empty string `""` (the default) scans every
-    /// predicate for the subject.
+    /// predicate for the anchor fact.
     #[serde(default)]
     pub pred: String,
     /// Bi-temporal valid-time bound. When set, only edges with
     /// `valid_from <= as_of_tslot` and `valid_to` either `None` or
     /// `>= as_of_tslot` are returned (closed intervals); supersession
-    /// keeps the newest edge per object.
+    /// keeps the newest edge per neighbour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of_tslot: Option<u64>,
     /// Maximum edges to return. Defaults to 100, capped at 1000.
@@ -53,22 +70,108 @@ pub struct EdgesRecallReq {
     pub limit: Option<usize>,
 }
 
-/// Response: matching edges, the distinct object CIDs, an agent hint, and
-/// the signed receipt.
+/// Resolved traversal direction for an [`EdgesRecallReq`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Direction {
+    /// `subj --pred--> ?` — forward, what the anchor points at.
+    Out,
+    /// `? --pred--> obj` — reverse, what points at the anchor.
+    In,
+}
+
+impl EdgesRecallReq {
+    /// Resolve `(direction, anchor_cid)` from the request, rejecting the
+    /// ambiguous / empty cases with an honest error rather than a silent
+    /// empty result (the no-silent-fallbacks contract).
+    fn resolve(&self) -> Result<(Direction, String), StorageError> {
+        let subj = self.subj.trim();
+        let obj = self.obj.as_deref().map(str::trim).unwrap_or("");
+        let explicit: Option<Direction> = match self.direction.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some("out") => Some(Direction::Out),
+            Some("in") => Some(Direction::In),
+            Some(other) => {
+                return Err(StorageError::Protocol {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "edges_recall: unknown direction '{other}'. Use \"out\" (subj→objs, the default) or \"in\" (obj→subjs, what points at this fact)."
+                    ),
+                });
+            }
+        };
+        // Infer direction when not given: obj present (and subj absent) → in,
+        // else out.
+        let dir = match explicit {
+            Some(d) => d,
+            None if !obj.is_empty() && subj.is_empty() => Direction::In,
+            None => Direction::Out,
+        };
+        match dir {
+            Direction::Out => {
+                if subj.is_empty() {
+                    return Err(StorageError::Protocol {
+                        code: ErrorCode::InvalidArgument,
+                        message: "edges_recall: direction=\"out\" requires a non-empty `subj` (subject fact CID).".into(),
+                    });
+                }
+                if !obj.is_empty() {
+                    return Err(StorageError::Protocol {
+                        code: ErrorCode::InvalidArgument,
+                        message: "edges_recall: ambiguous request — direction=\"out\" with `obj` set. Set exactly one of `subj` (out) or `obj` (in).".into(),
+                    });
+                }
+                Ok((Direction::Out, subj.to_string()))
+            }
+            Direction::In => {
+                if obj.is_empty() {
+                    return Err(StorageError::Protocol {
+                        code: ErrorCode::InvalidArgument,
+                        message: "edges_recall: direction=\"in\" requires a non-empty `obj` (object fact CID — the fact you want the inbound edges of).".into(),
+                    });
+                }
+                if !subj.is_empty() {
+                    return Err(StorageError::Protocol {
+                        code: ErrorCode::InvalidArgument,
+                        message: "edges_recall: ambiguous request — direction=\"in\" with `subj` set. Set exactly one of `subj` (out) or `obj` (in).".into(),
+                    });
+                }
+                Ok((Direction::In, obj.to_string()))
+            }
+        }
+    }
+}
+
+/// Response: matching edges, the neighbour CIDs, an agent hint, and the
+/// signed receipt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EdgesRecallResp {
     /// Edges in ascending `valid_from` order (ties broken by object CID).
     pub edges: Vec<EdgeFact>,
-    /// Distinct object fact CIDs cited, in first-seen order.
+    /// Direction this response answered: `"out"` (subj→objs) or `"in"`
+    /// (obj→subjs). Added in v0.0.9; the forward (`out`) path keeps the
+    /// historical `objs` field, so legacy readers are byte-unaffected.
+    pub direction: String,
+    /// Distinct OBJECT fact CIDs cited, in first-seen order. Always
+    /// present for the forward (`out`) direction (back-compat); on the
+    /// reverse (`in`) direction this is the distinct subjects' *objects*,
+    /// i.e. the anchor object itself — so for `in` reads prefer `subjs`.
     pub objs: Vec<String>,
+    /// Distinct SUBJECT fact CIDs cited ("what points at the anchor"), in
+    /// first-seen order. Present (non-`None`) only for the reverse (`in`)
+    /// direction; absent on the forward path so the pre-v0.0.9 `out`
+    /// response shape is byte-identical. (v0.0.9 reverse lookup.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subjs: Option<Vec<String>>,
     /// One-paragraph agent-facing summary of what was scanned.
     pub agent_hint: String,
-    /// Signed receipt — `fact_cids` = subject + objects; `edge_cids`
+    /// Signed receipt — `fact_cids` = anchor + neighbours; `edge_cids`
     /// commit the returned edges into the signature preimage.
     pub receipt: Receipt,
 }
 
-/// Recall edges for a subject. See module docs for semantics.
+/// Recall edges for an anchor fact. `direction="out"` (default) returns
+/// edges the anchor SUBJECT points at; `direction="in"` returns edges that
+/// point AT the anchor OBJECT. See module docs for semantics.
 pub async fn edges_recall(
     req: &EdgesRecallReq,
     srv: &Server,
@@ -78,14 +181,26 @@ pub async fn edges_recall(
         .limit
         .unwrap_or_else(default_limit)
         .clamp(1, max_limit());
-    let subj = FactCid::new(&req.subj);
+    let (direction, anchor_cid) = req.resolve()?;
+    let anchor = FactCid::new(&anchor_cid);
 
-    let edges = srv
-        .storage
-        .recall_edges(&subj, &req.pred, req.as_of_tslot, limit)
-        .await?;
+    let edges = match direction {
+        Direction::Out => {
+            srv.storage
+                .recall_edges(&anchor, &req.pred, req.as_of_tslot, limit)
+                .await?
+        }
+        Direction::In => {
+            srv.storage
+                .recall_edges_by_obj(&anchor, &req.pred, req.as_of_tslot, limit)
+                .await?
+        }
+    };
 
-    // Distinct objects, first-seen order.
+    // Distinct objects (forward) and subjects (reverse), first-seen order.
+    // `objs` is always populated (back-compat for the `out` path); `subjs`
+    // is filled only on the reverse path so the `out` wire shape is
+    // byte-identical to pre-v0.0.9.
     let mut objs: Vec<String> = Vec::new();
     for e in &edges {
         let o = e.obj.as_str().to_string();
@@ -93,19 +208,37 @@ pub async fn edges_recall(
             objs.push(o);
         }
     }
+    let subjs: Option<Vec<String>> = match direction {
+        Direction::Out => None,
+        Direction::In => {
+            let mut v: Vec<String> = Vec::new();
+            for e in &edges {
+                let s = e.subj.as_str().to_string();
+                if !v.iter().any(|x| x == &s) {
+                    v.push(s);
+                }
+            }
+            Some(v)
+        }
+    };
 
-    // Receipt citations: the subject fact + every object fact. Cells are
-    // not derivable from a fact CID alone (the CID is a content address,
-    // not a cell64), so `cells` is empty — the load-bearing binding is
-    // `fact_cids` + `edge_cids`.
-    let mut fact_cids: Vec<FactCid> = Vec::with_capacity(objs.len() + 1);
-    fact_cids.push(subj.clone());
-    for o in &objs {
-        fact_cids.push(FactCid::new(o));
+    // Receipt citations: the anchor fact + every distinct NEIGHBOUR fact.
+    // Forward → neighbours are the objects; reverse → neighbours are the
+    // subjects. Cells are not derivable from a fact CID alone (the CID is a
+    // content address, not a cell64), so `cells` is empty — the
+    // load-bearing binding is `fact_cids` + `edge_cids`.
+    let neighbours: &[String] = match &subjs {
+        Some(s) => s,
+        None => &objs,
+    };
+    let mut fact_cids: Vec<FactCid> = Vec::with_capacity(neighbours.len() + 1);
+    fact_cids.push(anchor.clone());
+    for n in neighbours {
+        fact_cids.push(FactCid::new(n));
     }
     let edge_cids: Vec<emem_fact::EdgeCid> = edges.iter().map(|e| e.cid()).collect();
 
-    let agent_hint = build_agent_hint(&edges, &req.subj, &req.pred, req.as_of_tslot);
+    let agent_hint = build_agent_hint(&edges, direction, &anchor_cid, &req.pred, req.as_of_tslot);
 
     let bound = AsOfBound::default();
     let receipt = srv.sign_receipt_with_edges(
@@ -122,13 +255,24 @@ pub async fn edges_recall(
 
     Ok(EdgesRecallResp {
         edges,
+        direction: match direction {
+            Direction::Out => "out".into(),
+            Direction::In => "in".into(),
+        },
         objs,
+        subjs,
         agent_hint,
         receipt,
     })
 }
 
-fn build_agent_hint(edges: &[EdgeFact], subj: &str, pred: &str, as_of: Option<u64>) -> String {
+fn build_agent_hint(
+    edges: &[EdgeFact],
+    direction: Direction,
+    anchor: &str,
+    pred: &str,
+    as_of: Option<u64>,
+) -> String {
     let pred_label = if pred.is_empty() {
         "any predicate".to_string()
     } else {
@@ -138,15 +282,30 @@ fn build_agent_hint(edges: &[EdgeFact], subj: &str, pred: &str, as_of: Option<u6
         Some(t) => format!(" as of valid-time {t}"),
         None => String::new(),
     };
-    if edges.is_empty() {
-        return format!(
-            "No edges originate at subject '{subj}' under {pred_label}{asof_label}. This is the honest 'no relation known', not a lookup failure — write edges by POSTing a signed Attestation with an `edges` array to /v1/edges."
-        );
+    match direction {
+        Direction::Out => {
+            if edges.is_empty() {
+                return format!(
+                    "No edges originate at subject '{anchor}' under {pred_label}{asof_label}. This is the honest 'no relation known', not a lookup failure — write edges by POSTing a signed Attestation with an `edges` array to /v1/edges."
+                );
+            }
+            format!(
+                "Found {n} edge(s) from subject '{anchor}' under {pred_label}{asof_label}. Each edge is content-addressed and the receipt's edge_cids commit them into the signature; verify offline via /v1/verify_receipt, and follow `obj` to recall the related fact.",
+                n = edges.len()
+            )
+        }
+        Direction::In => {
+            if edges.is_empty() {
+                return format!(
+                    "Nothing points at object '{anchor}' under {pred_label}{asof_label}. This is the honest 'no fact references this one', not a lookup failure — inbound edges (disagrees_with / supersedes / relates_to) are written by POSTing a signed Attestation with an `edges` array to /v1/edges."
+                );
+            }
+            format!(
+                "Found {n} edge(s) pointing AT object '{anchor}' under {pred_label}{asof_label} (reverse lookup — what disagrees-with / supersedes / relates-to this fact). Each edge's `subj` is the fact that references the anchor; follow it to recall that fact, and verify the receipt's edge_cids offline via /v1/verify_receipt.",
+                n = edges.len()
+            )
+        }
     }
-    format!(
-        "Found {n} edge(s) from subject '{subj}' under {pred_label}{asof_label}. Each edge is content-addressed and the receipt's edge_cids commit them into the signature; verify offline via /v1/verify_receipt, and follow `obj` to recall the related fact.",
-        n = edges.len()
-    )
 }
 
 #[cfg(test)]
@@ -226,6 +385,30 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|e| e.subj.as_str() == subj.as_str())
+                .filter(|e| pred.is_empty() || e.pred == pred)
+                .filter(|e| match as_of {
+                    Some(t) => e.valid_from <= t && e.valid_to.map(|vt| vt >= t).unwrap_or(true),
+                    None => true,
+                })
+                .cloned()
+                .collect();
+            out.sort_by_key(|a| a.valid_from);
+            out.truncate(limit);
+            Ok(out)
+        }
+        async fn recall_edges_by_obj(
+            &self,
+            obj: &FactCid,
+            pred: &str,
+            as_of: Option<u64>,
+            limit: usize,
+        ) -> Result<Vec<EdgeFact>, StorageError> {
+            let mut out: Vec<EdgeFact> = self
+                .edges
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.obj.as_str() == obj.as_str())
                 .filter(|e| pred.is_empty() || e.pred == pred)
                 .filter(|e| match as_of {
                     Some(t) => e.valid_from <= t && e.valid_to.map(|vt| vt >= t).unwrap_or(true),
@@ -382,5 +565,108 @@ mod tests {
         assert!(resp.edges.is_empty());
         assert!(resp.receipt.edge_cids.is_empty());
         assert!(resp.agent_hint.contains("No edges"));
+    }
+
+    /// Reverse lookup through the primitive: `obj` set (no `subj`) infers
+    /// `direction="in"`, dispatches to `recall_edges_by_obj`, and the
+    /// response names the subjects pointing at the anchor.
+    #[tokio::test]
+    async fn reverse_lookup_via_primitive() {
+        let e = mk_edge("subj-a", "relates_to", "obj-b", 10, None);
+        let storage = Arc::new(MockEdgeStorage::new(vec![e.clone()]));
+        let srv = test_server(storage);
+        let resp = edges_recall(
+            &EdgesRecallReq {
+                obj: Some("obj-b".into()),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("ok");
+        assert_eq!(resp.direction, "in");
+        assert_eq!(resp.edges.len(), 1);
+        assert_eq!(resp.subjs.as_deref(), Some(&["subj-a".to_string()][..]));
+        // Receipt cites anchor (obj-b) + neighbour subject (subj-a).
+        let fc: Vec<&str> = resp.receipt.fact_cids.iter().map(|c| c.as_str()).collect();
+        assert!(fc.contains(&"obj-b"));
+        assert!(fc.contains(&"subj-a"));
+        assert_eq!(resp.receipt.edge_cids[0], e.cid());
+        assert!(resp.agent_hint.contains("pointing AT"));
+    }
+
+    /// Forward path is byte-unchanged: `subjs` is absent on the wire.
+    #[tokio::test]
+    async fn forward_response_omits_subjs() {
+        let e = mk_edge("subj-a", "rel", "obj-b", 1, None);
+        let storage = Arc::new(MockEdgeStorage::new(vec![e]));
+        let srv = test_server(storage);
+        let resp = edges_recall(
+            &EdgesRecallReq {
+                subj: "subj-a".into(),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("ok");
+        assert_eq!(resp.direction, "out");
+        assert!(resp.subjs.is_none());
+        let v = serde_json::to_value(&resp).unwrap();
+        assert!(
+            v.get("subjs").is_none(),
+            "forward response must not carry a `subjs` key"
+        );
+    }
+
+    /// Ambiguity + emptiness are honest errors, never a silent empty.
+    #[tokio::test]
+    async fn ambiguous_and_empty_requests_error() {
+        let storage = Arc::new(MockEdgeStorage::new(vec![]));
+        let srv = test_server(storage);
+
+        // Neither subj nor obj.
+        let err = edges_recall(&EdgesRecallReq::default(), &srv)
+            .await
+            .expect_err("empty must error");
+        assert!(matches!(err, StorageError::Protocol { .. }));
+
+        // Both subj and obj.
+        let both = edges_recall(
+            &EdgesRecallReq {
+                subj: "subj-a".into(),
+                obj: Some("obj-b".into()),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect_err("ambiguous must error");
+        assert!(matches!(both, StorageError::Protocol { .. }));
+
+        // direction=in but no obj.
+        let dir = edges_recall(
+            &EdgesRecallReq {
+                direction: Some("in".into()),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect_err("in without obj must error");
+        assert!(matches!(dir, StorageError::Protocol { .. }));
+
+        // unknown direction.
+        let unk = edges_recall(
+            &EdgesRecallReq {
+                subj: "subj-a".into(),
+                direction: Some("sideways".into()),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect_err("unknown direction must error");
+        assert!(matches!(unk, StorageError::Protocol { .. }));
     }
 }
