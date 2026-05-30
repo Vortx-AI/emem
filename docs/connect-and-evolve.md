@@ -62,10 +62,9 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 ## The refinement loop — how the memory evolves
 
-**The benefit.** When attesters disagree, emem does not just flag it and
-move on. It records the disagreement as a link and marks the contested
-fact for another look — so the corpus tightens over time instead of
-accumulating silent conflicts.
+**The benefit.** When attesters disagree, emem records the disagreement
+as a link and marks the contested fact for another look. The corpus
+tightens over time instead of accumulating silent conflicts.
 
 The loop is opt-in (`EMEM_REFINEMENT_ENABLED`) and non-destructive:
 

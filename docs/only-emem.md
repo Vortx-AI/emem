@@ -26,7 +26,7 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
 ```
 
 Why it matters: a guess from one model looks identical to a consensus of
-three. emem makes the difference visible. (MCP: `memory_contradictions`.)
+three. The result is visible to the agent. (MCP: `memory_contradictions`.)
 
 ## 2. It answers "what did we believe on date X"
 
@@ -68,7 +68,7 @@ trust surface, two layers of memory.
 
 ## In one line
 
-emem keeps disagreement instead of hiding it, keeps history instead of
-overwriting it, and keeps proof of authorship instead of asking you to
+emem keeps disagreement instead of hiding it and keeps history instead of
+overwriting it. It also keeps proof of authorship, so you do not have to
 trust the store. See [Connect & evolve](./connect-and-evolve.md) for how
 these combine into a memory that links facts and improves over time.
