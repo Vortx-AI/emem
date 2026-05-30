@@ -11704,11 +11704,16 @@ fn mcp_spawn_task(
     let now = now_unix_ms();
     mcp_tasks_reap(now);
 
-    // Mint a task id: blake3 over clock + tool + a registry-unique salt.
+    // Mint a task id: blake3 over clock + tool + a process-monotonic counter.
+    // The counter (not the registry len) is what guarantees uniqueness — two
+    // concurrent spawns of the same tool in the same millisecond would otherwise
+    // collide on the id and clobber each other's slot.
+    static MCP_TASK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = MCP_TASK_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut h = blake3::Hasher::new();
     h.update(&now.to_le_bytes());
     h.update(name.as_bytes());
-    h.update(&(mcp_tasks_lock().len() as u64).to_le_bytes());
+    h.update(&seq.to_le_bytes());
     let task_id = format!("emem-task-{}", &h.finalize().to_hex().to_string()[..26]);
 
     {
