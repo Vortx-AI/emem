@@ -2018,6 +2018,117 @@ mod edge_tests {
         assert_eq!(ops.len(), 2, "reverse supersession must not delete rows");
     }
 
+    /// Forward `recall_edges` bi-temporal boundary at `as_of == valid_to`.
+    /// The impl (`scan_edges_anchored`) drops an edge only when
+    /// `valid_to Some(vt)` with `vt < as_of` (line ~1156), so the closed
+    /// interval is INCLUSIVE of `valid_to`: an edge with `valid_to = Some(18)`
+    /// is still visible at `as_of == 18`, visible at 17, and gone at 19.
+    /// This pins the exact boundary the storage layer implements (the mock
+    /// the audit flagged diverged here).
+    #[tokio::test]
+    async fn forward_recall_edges_valid_to_boundary() {
+        let storage = ephemeral();
+        let e = mk_edge("subj-bound", "rel", "obj-bound", 5, Some(18));
+        storage.add_edges(std::slice::from_ref(&e)).await.unwrap();
+
+        // as_of = 17 (< valid_to) → included.
+        let at17 = storage
+            .recall_edges(&FactCid::new("subj-bound"), "rel", Some(17), 100)
+            .await
+            .unwrap();
+        assert_eq!(at17.len(), 1, "as_of < valid_to is in-window");
+
+        // as_of == valid_to == 18 → INCLUDED (closed interval, vt < as_of is
+        // the drop rule, so vt == as_of survives).
+        let at18 = storage
+            .recall_edges(&FactCid::new("subj-bound"), "rel", Some(18), 100)
+            .await
+            .unwrap();
+        assert_eq!(
+            at18.len(),
+            1,
+            "as_of == valid_to must be INCLUDED (drop rule is vt < as_of)"
+        );
+
+        // as_of = 19 (> valid_to) → closed → excluded.
+        let at19 = storage
+            .recall_edges(&FactCid::new("subj-bound"), "rel", Some(19), 100)
+            .await
+            .unwrap();
+        assert!(at19.is_empty(), "as_of > valid_to drops the closed edge");
+    }
+
+    /// Forward supersession: two edges with the SAME (subj,pred,obj) but
+    /// different `valid_from`. At a given `as_of` only the latest in-window
+    /// `valid_from` survives the group-by-collapse, while the earlier edge is
+    /// the only one visible before the newer one begins. (Complements the
+    /// reverse-path `reverse_lookup_supersession_as_of` and the existing
+    /// forward `edge_supersession_as_of`, exercising the boundary at exactly
+    /// the newer `valid_from`.)
+    #[tokio::test]
+    async fn forward_supersession_boundary_at_valid_from() {
+        let storage = ephemeral();
+        let early = mk_edge("subj-s", "state", "obj-s", 10, None);
+        let late = mk_edge("subj-s", "state", "obj-s", 20, None);
+        storage
+            .add_edges(&[early.clone(), late.clone()])
+            .await
+            .unwrap();
+
+        // as_of == 19 → late (vf=20) not yet begun → only early visible.
+        let at19 = storage
+            .recall_edges(&FactCid::new("subj-s"), "state", Some(19), 100)
+            .await
+            .unwrap();
+        assert_eq!(at19.len(), 1);
+        assert_eq!(at19[0].valid_from, 10, "before vf=20 begins, early wins");
+
+        // as_of == 20 → both in-window (vf <= as_of) → supersession keeps late.
+        let at20 = storage
+            .recall_edges(&FactCid::new("subj-s"), "state", Some(20), 100)
+            .await
+            .unwrap();
+        assert_eq!(at20.len(), 1);
+        assert_eq!(
+            at20[0].valid_from, 20,
+            "at exactly vf=20, the newer edge supersedes"
+        );
+    }
+
+    /// Edge self-loop: subj == obj. Pins the impl's ACTUAL behavior — the
+    /// storage layer treats subject and object as opaque CIDs and applies no
+    /// self-loop guard, so a self-loop is stored and recallable from both the
+    /// forward (SPO) and reverse (OPS) indexes. This is intentional: the edge
+    /// layer is a general temporal KG and self-edges (e.g. a fact that
+    /// supersedes a prior version of itself) are legitimate.
+    #[tokio::test]
+    async fn edge_self_loop_is_stored_and_recallable() {
+        let storage = ephemeral();
+        let e = mk_edge("node-x", "supersedes", "node-x", 3, None);
+        let cids = storage
+            .add_edges(std::slice::from_ref(&e))
+            .await
+            .expect("add self-loop");
+        assert_eq!(cids.len(), 1, "self-loop is accepted, not rejected");
+        assert!(storage.has_edge(&e.cid()).await.unwrap());
+
+        // Recallable in the forward direction.
+        let fwd = storage
+            .recall_edges(&FactCid::new("node-x"), "supersedes", None, 100)
+            .await
+            .unwrap();
+        assert_eq!(fwd.len(), 1, "self-loop visible via SPO");
+        assert_eq!(fwd[0], e);
+
+        // Recallable in the reverse direction (same node as object).
+        let rev = storage
+            .recall_edges_by_obj(&FactCid::new("node-x"), "supersedes", None, 100)
+            .await
+            .unwrap();
+        assert_eq!(rev.len(), 1, "self-loop visible via OPS");
+        assert_eq!(rev[0], e);
+    }
+
     /// Helper: a minimal Primary fact for attestation tests.
     fn mk_fact(cell: &str, tslot: u64) -> Fact {
         use emem_fact::{Derivation, PrimaryFact, Source};

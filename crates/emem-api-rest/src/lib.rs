@@ -11662,6 +11662,39 @@ fn mcp_tasks_reap(now_ms: u64) {
 /// and `CallToolResult` JSON back into the slot when it finishes. Enforces
 /// the `MCP_MAX_TASKS` bound (evicting the oldest finished slot, else
 /// erroring).
+/// Enforce the `max_tasks` cap on an already-locked registry map: when the
+/// map is at (or over) capacity, evict the OLDEST terminal slot to make
+/// room; if no terminal slot exists, reject with the JSON-RPC -32000
+/// capacity error. Pure over `(map, max_tasks)` so the cap/eviction policy
+/// is unit-testable without touching the process-global registry or env.
+fn mcp_make_room_locked(
+    map: &mut std::collections::HashMap<String, McpTaskSlot>,
+    max_tasks: usize,
+) -> Result<(), (i64, String)> {
+    if map.len() < max_tasks {
+        return Ok(());
+    }
+    // Try to make room by dropping the oldest terminal slot.
+    let victim = map
+        .iter()
+        .filter(|(_, sl)| sl.is_terminal())
+        .min_by_key(|(_, sl)| sl.last_updated_ms)
+        .map(|(id, _)| id.clone());
+    match victim {
+        Some(id) => {
+            map.remove(&id);
+            Ok(())
+        }
+        None => Err((
+            -32000,
+            format!(
+                "task registry at capacity ({max_tasks} in-flight); \
+                 retry after a running task completes or use synchronous mode"
+            ),
+        )),
+    }
+}
+
 fn mcp_spawn_task(
     name: &str,
     args: JsonValue,
@@ -11681,28 +11714,7 @@ fn mcp_spawn_task(
     {
         let max_tasks = mcp_max_tasks();
         let mut map = mcp_tasks_lock();
-        if map.len() >= max_tasks {
-            // Try to make room by dropping the oldest terminal slot.
-            let victim = map
-                .iter()
-                .filter(|(_, sl)| sl.is_terminal())
-                .min_by_key(|(_, sl)| sl.last_updated_ms)
-                .map(|(id, _)| id.clone());
-            match victim {
-                Some(id) => {
-                    map.remove(&id);
-                }
-                None => {
-                    return Err((
-                        -32000,
-                        format!(
-                            "task registry at capacity ({max_tasks} in-flight); \
-                             retry after a running task completes or use synchronous mode"
-                        ),
-                    ));
-                }
-            }
-        }
+        mcp_make_room_locked(&mut map, max_tasks)?;
     }
 
     let task_id_for_future = task_id.clone();
@@ -45341,6 +45353,26 @@ mod tests {
 
     // ── Contradiction-fed refinement loop (v0.0.9) ──────────────────
 
+    /// Serialises every test that drives `run_refinement_pass`, because the
+    /// pass reads its severity floor / max-pairs / enabled flags from the
+    /// PROCESS env at runtime. Tests that mutate those vars take this lock so
+    /// a default-relying pass can never observe another test's override. A
+    /// `tokio::sync::Mutex` so async tests can hold the guard across `.await`
+    /// without tripping `clippy::await_holding_lock`; the sync env test grabs
+    /// it via `blocking_lock` (no runtime → safe).
+    static REFINEMENT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Serialises tests that spawn into the PROCESS-GLOBAL `MCP_TASKS`
+    /// registry via `mcp_spawn_task`. The minted task id is
+    /// `blake3(now_ms ++ tool_name ++ registry_len)`, so two concurrent
+    /// spawns of the SAME tool at the same millisecond with the same
+    /// registry length collide on the id and clobber each other's slot — a
+    /// pre-existing flake in the suite, surfaced only under parallel load.
+    /// Tests that drive `mcp_spawn_task` against the live registry take this
+    /// lock so they never run concurrently. (Tests that operate on a LOCAL
+    /// map — e.g. the capacity/eviction policy tests — do not need it.)
+    static MCP_TASK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     /// Seed ONE Primary NDVI fact at `(cell, "indices.ndvi", tslot)`
     /// signed by an arbitrary attester `secret`, persisted through the
     /// real `put_attestation` path so the multi-attester index is
@@ -45419,6 +45451,7 @@ mod tests {
     /// lower-confidence fact as contested.
     #[tokio::test]
     async fn contradiction_emits_edge() {
+        let _g = REFINEMENT_TEST_LOCK.lock().await;
         let s = test_app_state();
         let cell = "damO.zb000.xUti.zde78";
         let tslot = 12u64;
@@ -45504,6 +45537,7 @@ mod tests {
     /// wall-clock `signed_at` making the full edge CID vary tick-to-tick.
     #[tokio::test]
     async fn refinement_idempotent() {
+        let _g = REFINEMENT_TEST_LOCK.lock().await;
         let s = test_app_state();
         let cell = "alfa.zb000.aaaa.aaaa";
         let tslot = 7u64;
@@ -45546,18 +45580,153 @@ mod tests {
         );
     }
 
-    /// With the env unset, `refinement_enabled()` is false so the
-    /// scheduler block is skipped.
+    /// `refinement_enabled()` reflects `EMEM_REFINEMENT_ENABLED` exactly:
+    /// unset → false (OFF by default), "0" → false, "1" → true. Deterministic
+    /// — controls the var inside the refinement lock and restores it, so it
+    /// always asserts something (the old version no-op'd when the var was set
+    /// by another process). Not a `tokio::test`; the lock is sync.
     #[test]
-    fn refinement_disabled_by_default() {
-        // The test harness does not set EMEM_REFINEMENT_ENABLED. Guard
-        // against a stray value from another process by asserting the
-        // helper's contract for the unset case explicitly.
-        if std::env::var("EMEM_REFINEMENT_ENABLED").is_err() {
-            assert!(
-                !emem_primitives::memory_consolidation::refinement_enabled(),
-                "refinement must be OFF by default"
+    fn refinement_enabled_reflects_env() {
+        let _g = REFINEMENT_TEST_LOCK.blocking_lock();
+        let prev = std::env::var("EMEM_REFINEMENT_ENABLED").ok();
+
+        std::env::remove_var("EMEM_REFINEMENT_ENABLED");
+        assert!(
+            !emem_primitives::memory_consolidation::refinement_enabled(),
+            "unset → refinement OFF by default"
+        );
+
+        std::env::set_var("EMEM_REFINEMENT_ENABLED", "0");
+        assert!(
+            !emem_primitives::memory_consolidation::refinement_enabled(),
+            "\"0\" → OFF"
+        );
+
+        std::env::set_var("EMEM_REFINEMENT_ENABLED", "1");
+        assert!(
+            emem_primitives::memory_consolidation::refinement_enabled(),
+            "\"1\" → ON"
+        );
+
+        // Restore whatever the harness had.
+        match prev {
+            Some(v) => std::env::set_var("EMEM_REFINEMENT_ENABLED", v),
+            None => std::env::remove_var("EMEM_REFINEMENT_ENABLED"),
+        }
+    }
+
+    /// Positive enabled-path test: with the loop enabled, a seeded
+    /// above-floor contradiction makes `run_refinement_pass` emit exactly the
+    /// expected `disagrees_with` edge. Asserts the pass actually RUNS (not
+    /// just that the flag flips). Restores the env afterwards.
+    #[tokio::test]
+    async fn refinement_enabled_path_runs_a_pass() {
+        let _g = REFINEMENT_TEST_LOCK.lock().await;
+        let prev = std::env::var("EMEM_REFINEMENT_ENABLED").ok();
+        std::env::set_var("EMEM_REFINEMENT_ENABLED", "1");
+        assert!(emem_primitives::memory_consolidation::refinement_enabled());
+
+        let s = test_app_state();
+        let cell = "bra5.zb000.aaaa.bbbb";
+        let tslot = 21u64;
+        // spread 1.0 → severity 0.5 == default floor (included; floor is >=).
+        seed_ndvi_fact(&s, cell, tslot, [21u8; 32], 0.5, 1.0, "2026-05-01T12:00:00Z").await;
+        seed_ndvi_fact(&s, cell, tslot, [22u8; 32], -0.5, 0.6, "2026-05-02T12:00:00Z").await;
+
+        let (seen, emitted) = run_refinement_pass(&s).await.expect("enabled pass runs");
+        assert_eq!(seen, 1, "one contradiction observed on the enabled path");
+        assert_eq!(emitted, 1, "enabled path emits the expected disagrees_with edge");
+
+        match prev {
+            Some(v) => std::env::set_var("EMEM_REFINEMENT_ENABLED", v),
+            None => std::env::remove_var("EMEM_REFINEMENT_ENABLED"),
+        }
+    }
+
+    /// Severity FLOOR: a contradiction whose severity is just BELOW the
+    /// default `refinement_min_severity` (0.5) emits ZERO edges; just ABOVE
+    /// emits one. Uses the default floor (no env mutation), so severity is
+    /// driven purely by the seeded NDVI spread (range 2.0 → severity =
+    /// spread / 2). below: spread 0.98 → 0.49; above: spread 1.02 → 0.51.
+    #[tokio::test]
+    async fn refinement_severity_floor() {
+        let _g = REFINEMENT_TEST_LOCK.lock().await;
+
+        // Below floor → no edge.
+        {
+            let s = test_app_state();
+            let cell = "blow.zb000.aaaa.cccc";
+            let tslot = 31u64;
+            // 0.49 - (-0.49) = 0.98 → severity 0.49 < 0.5 floor.
+            seed_ndvi_fact(&s, cell, tslot, [31u8; 32], 0.49, 1.0, "2026-05-01T12:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [32u8; 32], -0.49, 0.6, "2026-05-02T12:00:00Z")
+                .await;
+            let (_seen, emitted) = run_refinement_pass(&s).await.expect("below-floor pass");
+            assert_eq!(
+                emitted, 0,
+                "severity just below the floor emits no disagrees_with edge"
             );
+        }
+
+        // Above floor → one edge.
+        {
+            let s = test_app_state();
+            let cell = "abov.zb000.aaaa.dddd";
+            let tslot = 32u64;
+            // 0.51 - (-0.51) = 1.02 → severity 0.51 > 0.5 floor.
+            seed_ndvi_fact(&s, cell, tslot, [33u8; 32], 0.51, 1.0, "2026-05-01T12:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [34u8; 32], -0.51, 0.6, "2026-05-02T12:00:00Z")
+                .await;
+            let (_seen, emitted) = run_refinement_pass(&s).await.expect("above-floor pass");
+            assert_eq!(
+                emitted, 1,
+                "severity just above the floor emits exactly one edge"
+            );
+        }
+    }
+
+    /// `refinement_max_pairs_per_contradiction` CAP: a single contradiction
+    /// with N disagreeing attesters (N=4 here) emits exactly `cap` edges when
+    /// the cap (2) is below the maximum number of disjoint pairs (N/2 = 2 →
+    /// pick cap=2; verify cap=1 yields 1). Controls
+    /// `EMEM_REFINEMENT_MAX_PAIRS` inside the refinement lock and restores it.
+    #[tokio::test]
+    async fn refinement_max_pairs_cap() {
+        let _g = REFINEMENT_TEST_LOCK.lock().await;
+        let prev = std::env::var("EMEM_REFINEMENT_MAX_PAIRS").ok();
+
+        // cap = 1 → exactly one (widest-spread) pair regardless of N.
+        std::env::set_var("EMEM_REFINEMENT_MAX_PAIRS", "1");
+        {
+            let s = test_app_state();
+            let cell = "cap1.zb000.aaaa.eeee";
+            let tslot = 41u64;
+            // 4 attesters, all well above the 0.5 floor when extremes pair.
+            seed_ndvi_fact(&s, cell, tslot, [41u8; 32], 0.9, 1.0, "2026-05-01T00:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [42u8; 32], 0.3, 0.9, "2026-05-02T00:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [43u8; 32], -0.3, 0.7, "2026-05-03T00:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [44u8; 32], -0.9, 0.5, "2026-05-04T00:00:00Z").await;
+            let (_seen, emitted) = run_refinement_pass(&s).await.expect("cap=1 pass");
+            assert_eq!(emitted, 1, "cap=1 emits exactly one pair");
+        }
+
+        // cap = 2 → exactly two disjoint extreme-inward pairs (N=4 → N/2=2).
+        std::env::set_var("EMEM_REFINEMENT_MAX_PAIRS", "2");
+        {
+            let s = test_app_state();
+            let cell = "cap2.zb000.aaaa.ffff";
+            let tslot = 42u64;
+            seed_ndvi_fact(&s, cell, tslot, [45u8; 32], 0.9, 1.0, "2026-05-01T00:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [46u8; 32], 0.3, 0.9, "2026-05-02T00:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [47u8; 32], -0.3, 0.7, "2026-05-03T00:00:00Z").await;
+            seed_ndvi_fact(&s, cell, tslot, [48u8; 32], -0.9, 0.5, "2026-05-04T00:00:00Z").await;
+            let (_seen, emitted) = run_refinement_pass(&s).await.expect("cap=2 pass");
+            assert_eq!(emitted, 2, "cap=2 emits exactly two pairs (N/2=2 available)");
+        }
+
+        match prev {
+            Some(v) => std::env::set_var("EMEM_REFINEMENT_MAX_PAIRS", v),
+            None => std::env::remove_var("EMEM_REFINEMENT_MAX_PAIRS"),
         }
     }
 
@@ -45569,6 +45738,7 @@ mod tests {
     /// tool as the stand-in for the slow tools so the test is hermetic.
     #[tokio::test]
     async fn async_task_handle() {
+        let _g = MCP_TASK_TEST_LOCK.lock().await;
         let s = test_app_state();
 
         // Synchronous reference result (what tools/call returns today).
@@ -45634,6 +45804,7 @@ mod tests {
     /// without the host having to read `tasks/result`.
     #[tokio::test]
     async fn async_task_failure_has_status_message() {
+        let _g = MCP_TASK_TEST_LOCK.lock().await;
         let s = test_app_state();
 
         // Spawning an unknown tool drives the `isError:true` completion path
@@ -45694,6 +45865,7 @@ mod tests {
     /// completion time (not at the long-running task's creation time).
     #[tokio::test]
     async fn async_task_ttl_robustness() {
+        let _g = MCP_TASK_TEST_LOCK.lock().await;
         let s = test_app_state();
 
         // 1. A still-working slot is never reaped, even with an already-past
@@ -45792,6 +45964,100 @@ mod tests {
         {
             let mut map = mcp_tasks_lock();
             map.remove(&task_id);
+        }
+    }
+
+    /// Build a registry slot for the capacity tests. `terminal` controls
+    /// whether the slot counts as evictable (terminal slots have no abort
+    /// handle); `updated_ms` drives the oldest-first eviction tie-break.
+    fn mk_task_slot(terminal: bool, updated_ms: u64) -> McpTaskSlot {
+        McpTaskSlot {
+            status: if terminal {
+                TASK_STATUS_COMPLETED.to_string()
+            } else {
+                TASK_STATUS_WORKING.to_string()
+            },
+            status_message: None,
+            created_at_iso: iso8601_now_utc(),
+            last_updated_iso: iso8601_now_utc(),
+            last_updated_ms: updated_ms,
+            ttl_ms: 60_000,
+            result: if terminal { Some(json!({})) } else { None },
+            // is_terminal() keys off `abort.is_none()`. A non-terminal slot
+            // needs a live abort handle; a terminal one has None.
+            abort: if terminal {
+                None
+            } else {
+                let never =
+                    tokio::runtime::Handle::current().spawn(std::future::pending::<()>());
+                Some(never.abort_handle())
+            },
+        }
+    }
+
+    /// Capacity REJECTION: at `max_tasks` with NO terminal slot to evict, a
+    /// new spawn is rejected with the JSON-RPC -32000 capacity error. Drives
+    /// the pure `mcp_make_room_locked` policy on a LOCAL map so the
+    /// process-global registry and `EMEM_MCP_MAX_TASKS` env are untouched
+    /// (no parallel-test races).
+    #[tokio::test]
+    async fn mcp_task_capacity_rejected_when_full_of_running() {
+        let mut map: std::collections::HashMap<String, McpTaskSlot> =
+            std::collections::HashMap::new();
+        // Fill to capacity (2) with NON-terminal (running) slots.
+        map.insert("run-a".into(), mk_task_slot(false, 10));
+        map.insert("run-b".into(), mk_task_slot(false, 20));
+
+        let err = mcp_make_room_locked(&mut map, 2)
+            .expect_err("at capacity with no terminal slot must be rejected");
+        assert_eq!(err.0, -32000, "capacity rejection uses JSON-RPC -32000");
+        assert!(
+            err.1.contains("at capacity"),
+            "error message names the capacity condition: {}",
+            err.1
+        );
+        assert_eq!(map.len(), 2, "rejection must NOT evict a running slot");
+
+        // Abort the live handles so they don't leak past the test.
+        for slot in map.values() {
+            if let Some(a) = &slot.abort {
+                a.abort();
+            }
+        }
+    }
+
+    /// Oldest-finished EVICTION: at capacity but WITH a terminal slot, a new
+    /// spawn evicts the OLDEST terminal slot (smallest `last_updated_ms`) and
+    /// succeeds, leaving room for the incoming task. A newer terminal slot
+    /// and any running slot survive.
+    #[tokio::test]
+    async fn mcp_task_evicts_oldest_finished_at_capacity() {
+        let mut map: std::collections::HashMap<String, McpTaskSlot> =
+            std::collections::HashMap::new();
+        // Capacity 3: one running, one OLD terminal, one NEW terminal.
+        map.insert("running".into(), mk_task_slot(false, 5));
+        map.insert("old-done".into(), mk_task_slot(true, 10));
+        map.insert("new-done".into(), mk_task_slot(true, 99));
+
+        mcp_make_room_locked(&mut map, 3).expect("eviction makes room → Ok");
+
+        assert_eq!(map.len(), 2, "exactly one slot evicted to make room");
+        assert!(
+            !map.contains_key("old-done"),
+            "the OLDEST terminal slot is the eviction victim"
+        );
+        assert!(
+            map.contains_key("new-done"),
+            "the newer terminal slot survives"
+        );
+        assert!(
+            map.contains_key("running"),
+            "a running (non-terminal) slot is never evicted"
+        );
+
+        // Abort the live handle on the surviving running slot.
+        if let Some(a) = map.get("running").and_then(|sl| sl.abort.as_ref()) {
+            a.abort();
         }
     }
 

@@ -1005,4 +1005,78 @@ mod include_edges_tests {
             "an unscoped (global) fact is invisible to a tenant-scoped recall"
         );
     }
+
+    /// Scope match is EXACT-TUPLE, not subset. Scope identity is the blake3
+    /// of the canonical four-tuple CBOR, so a fact written under
+    /// `{user_id:"u", org_id:"o"}` is addressable ONLY by that exact tuple.
+    /// A recall under `{user_id:"u"}` alone hashes to a different scope and
+    /// MISSES — recalling a strict subset does NOT widen to a superset write.
+    /// This pins the (surprising-if-you-expect-subset) exact-tuple semantic.
+    #[tokio::test]
+    async fn scope_partial_tuple_misses() {
+        let cell = "damO.zb000.xUti.zde78";
+        let (storage, srv) = ephemeral_server();
+        let full = emem_fact::Scope {
+            user_id: Some("u".into()),
+            org_id: Some("o".into()),
+            ..Default::default()
+        };
+        let att = sign_scoped(vec![mk_fact(cell, 7)], [13u8; 32], full.clone());
+        storage.put_attestation(&att).await.expect("attest");
+
+        // Recall under the PARTIAL tuple {user_id:"u"} → MISS. Subset of the
+        // write's scope does not match; scope is matched on the whole tuple.
+        let partial = recall(
+            &RecallReq {
+                cell: cell.into(),
+                scope: Some(scope_user("u")),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall partial");
+        assert!(
+            partial.facts.is_empty(),
+            "partial-tuple {{user_id:u}} must MISS a {{user_id:u, org_id:o}} write \
+             (exact-tuple match, not subset); got {:?}",
+            partial.facts
+        );
+
+        // Recall under the FULL tuple → HIT.
+        let exact = recall(
+            &RecallReq {
+                cell: cell.into(),
+                scope: Some(full),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall exact");
+        assert_eq!(exact.facts.len(), 1, "exact four-tuple must HIT");
+
+        // Recall under the same user but a DIFFERENT org → MISS (any axis
+        // differing changes the scope digest).
+        let other_org = emem_fact::Scope {
+            user_id: Some("u".into()),
+            org_id: Some("different".into()),
+            ..Default::default()
+        };
+        let wrong_org = recall(
+            &RecallReq {
+                cell: cell.into(),
+                scope: Some(other_org),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall other org");
+        assert!(
+            wrong_org.facts.is_empty(),
+            "different org_id changes the scope digest → MISS; got {:?}",
+            wrong_org.facts
+        );
+    }
 }
