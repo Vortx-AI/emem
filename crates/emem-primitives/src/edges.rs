@@ -22,10 +22,16 @@ use serde::{Deserialize, Serialize};
 use emem_fact::{EdgeFact, FactCid, Receipt};
 use emem_storage::{AsOfBound, Server, StorageError};
 
-/// Default cap on returned edges. Override per-call with `limit`.
-const DEFAULT_LIMIT: usize = 100;
-/// Hard ceiling on `limit` regardless of caller value.
-const MAX_LIMIT: usize = 1_000;
+/// Default cap on returned edges (env `EMEM_EDGES_DEFAULT_LIMIT`, default
+/// 100). Override per-call with `limit`.
+fn default_limit() -> usize {
+    crate::memory_consolidation::env_usize("EMEM_EDGES_DEFAULT_LIMIT", 100, 1, 1_000_000)
+}
+/// Hard ceiling on `limit` regardless of caller value (env
+/// `EMEM_EDGES_MAX_LIMIT`, default 1000).
+fn max_limit() -> usize {
+    crate::memory_consolidation::env_usize("EMEM_EDGES_MAX_LIMIT", 1_000, 1, 1_000_000)
+}
 
 /// Request: the subject fact, optional predicate + valid-time bound.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -68,7 +74,10 @@ pub async fn edges_recall(
     srv: &Server,
 ) -> Result<EdgesRecallResp, StorageError> {
     let started = Instant::now();
-    let limit = req.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let limit = req
+        .limit
+        .unwrap_or_else(default_limit)
+        .clamp(1, max_limit());
     let subj = FactCid::new(&req.subj);
 
     let edges = srv

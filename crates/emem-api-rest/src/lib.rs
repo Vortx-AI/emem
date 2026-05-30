@@ -11467,22 +11467,52 @@ const TASK_STATUS_COMPLETED: &str = "completed";
 const TASK_STATUS_FAILED: &str = "failed";
 const TASK_STATUS_CANCELLED: &str = "cancelled";
 
-/// Hard upper bound on live task slots. Picked well above any realistic
-/// concurrent slow-tool fan-out for a single host while staying small
-/// enough that a leaked-poll loop can't exhaust memory.
-const MCP_MAX_TASKS: usize = 256;
-
-/// Default retention for a finished task slot when the caller does not
-/// request a `ttl`. The host is expected to poll within this window.
-const MCP_TASK_DEFAULT_TTL_MS: u64 = 5 * 60 * 1000;
+/// Hard upper bound on live task slots (env `EMEM_MCP_MAX_TASKS`, default
+/// 256). Picked well above any realistic concurrent slow-tool fan-out for a
+/// single host while staying small enough that a leaked-poll loop can't
+/// exhaust memory. Clamped to `1..=100_000`.
+fn mcp_max_tasks() -> usize {
+    std::env::var("EMEM_MCP_MAX_TASKS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(256)
+        .clamp(1, 100_000)
+}
 
 /// Upper clamp on a caller-requested `ttl` so a host cannot pin a slot
-/// open indefinitely.
-const MCP_TASK_MAX_TTL_MS: u64 = 30 * 60 * 1000;
+/// open indefinitely (env `EMEM_MCP_TASK_MAX_TTL_MS`, default 1_800_000 =
+/// 30 min). Clamped to at least 1 ms.
+fn mcp_task_max_ttl_ms() -> u64 {
+    std::env::var("EMEM_MCP_TASK_MAX_TTL_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(30 * 60 * 1000)
+        .max(1)
+}
+
+/// Default retention for a finished task slot when the caller does not
+/// request a `ttl` (env `EMEM_MCP_TASK_DEFAULT_TTL_MS`, default 300_000 =
+/// 5 min). The host is expected to poll within this window. Clamped to at
+/// least 1 ms and to `<= mcp_task_max_ttl_ms()`.
+fn mcp_task_default_ttl_ms() -> u64 {
+    std::env::var("EMEM_MCP_TASK_DEFAULT_TTL_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(5 * 60 * 1000)
+        .max(1)
+        .min(mcp_task_max_ttl_ms())
+}
 
 /// Suggested poll cadence handed back to the host in the `Task.pollInterval`
-/// field (milliseconds). The slow tools settle in single-digit seconds.
-const MCP_TASK_POLL_INTERVAL_MS: u64 = 1000;
+/// field (milliseconds) (env `EMEM_MCP_TASK_POLL_INTERVAL_MS`, default 1000).
+/// The slow tools settle in single-digit seconds. Clamped to at least 1 ms.
+fn mcp_task_poll_interval_ms() -> u64 {
+    std::env::var("EMEM_MCP_TASK_POLL_INTERVAL_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1000)
+        .max(1)
+}
 
 /// One task's state in the registry. The spawned tool future writes its
 /// own terminal status + result back into this slot on completion (see
@@ -11536,7 +11566,7 @@ fn task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
         "createdAt":     slot.created_at_iso,
         "lastUpdatedAt": slot.last_updated_iso,
         "ttl":           slot.ttl_ms,
-        "pollInterval":  MCP_TASK_POLL_INTERVAL_MS,
+        "pollInterval":  mcp_task_poll_interval_ms(),
     })
 }
 
@@ -11576,8 +11606,9 @@ fn mcp_spawn_task(
     let task_id = format!("emem-task-{}", &h.finalize().to_hex().to_string()[..26]);
 
     {
+        let max_tasks = mcp_max_tasks();
         let mut map = MCP_TASKS.lock().unwrap();
-        if map.len() >= MCP_MAX_TASKS {
+        if map.len() >= max_tasks {
             // Try to make room by dropping the oldest terminal slot.
             let victim = map
                 .iter()
@@ -11592,7 +11623,7 @@ fn mcp_spawn_task(
                     return Err((
                         -32000,
                         format!(
-                            "task registry at capacity ({MCP_MAX_TASKS} in-flight); \
+                            "task registry at capacity ({max_tasks} in-flight); \
                              retry after a running task completes or use synchronous mode"
                         ),
                     ));
@@ -11643,6 +11674,13 @@ fn mcp_spawn_task(
                 } else {
                     TASK_STATUS_COMPLETED.to_string()
                 };
+                // On failure, surface a concise error string on the slot so
+                // `tasks/get` / `tasks/cancel` report it without the host
+                // having to call `tasks/result`. The success path leaves
+                // `status_message` untouched (None).
+                if is_err {
+                    slot.status_message = Some(mcp_result_error_summary(&result));
+                }
                 slot.result = Some(result);
             }
             slot.abort = None;
@@ -11693,6 +11731,30 @@ fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
             "structuredContent": inner,
             "isError": false,
         })
+    }
+}
+
+/// Distil a concise human-readable error string from an `isError` task
+/// `CallToolResult` for the slot's `statusMessage`. Pulls the first text
+/// content block (where `mcp_spawn_task` writes `tool error (code): msg`)
+/// and truncates to keep the field bounded.
+fn mcp_result_error_summary(result: &JsonValue) -> String {
+    const MAX_LEN: usize = 240;
+    let text = result
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| {
+            arr.iter()
+                .find_map(|b| b.get("text").and_then(|t| t.as_str()))
+        })
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "tool error".to_string());
+    if text.chars().count() > MAX_LEN {
+        let truncated: String = text.chars().take(MAX_LEN).collect();
+        format!("{truncated}…")
+    } else {
+        text
     }
 }
 
@@ -12223,8 +12285,8 @@ async fn mcp_jsonrpc(
                     let requested_ttl = task_meta
                         .get("ttl")
                         .and_then(|v| v.as_u64())
-                        .unwrap_or(MCP_TASK_DEFAULT_TTL_MS);
-                    let ttl = requested_ttl.clamp(1, MCP_TASK_MAX_TTL_MS);
+                        .unwrap_or_else(mcp_task_default_ttl_ms);
+                    let ttl = requested_ttl.clamp(1, mcp_task_max_ttl_ms());
                     mcp_spawn_task(name, args, ttl, &s)
                 }
             } else {
@@ -45373,7 +45435,7 @@ mod tests {
         let sync_result = mcp_wrap_call_tool_result(sync_inner);
 
         // Async path: spawn → CreateTaskResult with a running task.
-        let create = mcp_spawn_task("emem_grid_info", json!({}), MCP_TASK_DEFAULT_TTL_MS, &s)
+        let create = mcp_spawn_task("emem_grid_info", json!({}), mcp_task_default_ttl_ms(), &s)
             .expect("spawn ok");
         let task = create.get("task").expect("CreateTaskResult has task");
         let task_id = task
@@ -45422,6 +45484,65 @@ mod tests {
             map.get(&task_id).unwrap().result.clone().unwrap()
         };
         assert_eq!(after, sync_result);
+    }
+
+    /// A spawned task that completes with an error must surface a non-null
+    /// `statusMessage` on the slot, so `tasks/get` reports the failure
+    /// without the host having to read `tasks/result`.
+    #[tokio::test]
+    async fn async_task_failure_has_status_message() {
+        let s = test_app_state();
+
+        // Spawning an unknown tool drives the `isError:true` completion path
+        // hermetically (no network) — `mcp_tool_call` returns -32602.
+        let create = mcp_spawn_task(
+            "emem_definitely_not_a_real_tool",
+            json!({}),
+            mcp_task_default_ttl_ms(),
+            &s,
+        )
+        .expect("spawn ok");
+        let task_id = create
+            .get("task")
+            .and_then(|t| t.get("taskId"))
+            .and_then(|v| v.as_str())
+            .expect("taskId present")
+            .to_string();
+
+        // Poll to terminal.
+        let mut status_message = None;
+        let mut status = String::new();
+        for _ in 0..200 {
+            {
+                let map = MCP_TASKS.lock().unwrap();
+                let slot = map.get(&task_id).expect("slot present");
+                if slot.is_terminal() {
+                    status = slot.status.clone();
+                    status_message = slot.status_message.clone();
+                    break;
+                }
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+
+        assert_eq!(status, TASK_STATUS_FAILED, "errored task should be failed");
+        let msg = status_message.expect("failed task must carry a non-null statusMessage");
+        assert!(!msg.is_empty(), "statusMessage should be a concise error");
+        assert!(
+            msg.contains("tool error") || msg.contains("unknown tool"),
+            "statusMessage should describe the failure, got {msg:?}"
+        );
+
+        // The Task object exposed to hosts also carries it (not null).
+        let obj = {
+            let map = MCP_TASKS.lock().unwrap();
+            task_object(&task_id, map.get(&task_id).unwrap())
+        };
+        assert!(
+            obj.get("statusMessage").and_then(|v| v.as_str()).is_some(),
+            "tasks/get Task.statusMessage must be non-null on failure"
+        );
     }
 
     /// A `task`-param `tools/call` against a tool whose taskSupport is

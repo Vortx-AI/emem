@@ -90,6 +90,10 @@ warm. First build ~5 min; incremental ~30 s.
 | `EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`  | `86400`| consolidation cadence |
 | `EMEM_MEMORY_CONSOLIDATION_MIN_FILES`      | `50`   | min episodic files per attester-subdir before consolidating |
 | `EMEM_MEMORY_CONSOLIDATION_MIN_AGE_DAYS`   | `7`    | files newer than this stay unconsolidated |
+| `EMEM_EDGES_DEFAULT_LIMIT`                 | `100`  | default cap on edges returned by `edges_recall` when no `limit` is given |
+| `EMEM_EDGES_MAX_LIMIT`                     | `1000` | hard ceiling on a caller-supplied `edges_recall` `limit` |
+| `EMEM_RECALL_EDGES_PER_FACT`               | `32`   | max edges fetched per fact for `recall` `include:["edges"]` |
+| `EMEM_RECALL_EDGES_TOTAL_CAP`              | `256`  | total edge cap across all facts for `recall` `include:["edges"]` |
 
 Notes. Both schedulers are opt-in and idempotent. The TTL pass moves
 expired path → file_cid mappings from `emem.memory_files` to
@@ -102,6 +106,19 @@ BGE model at `EMEM_MEMORY_SEARCH_MODEL_DIR` is required for
 `/v1/memory/search`; a missing model returns 503 (typed, not silent
 random vectors). Lance partitions land under `$EMEM_DATA/lance/` and
 hydrate idempotently on boot.
+
+### MCP async task registry
+
+Knobs for the in-process task registry backing the spec 2025-11-25
+task-augmented `tools/call` (`tasks/get` / `tasks/result` / `tasks/list`
+/ `tasks/cancel`). Defaults match the previous hardcoded values.
+
+| Var | Default | Notes |
+|-----|---------|-------|
+| `EMEM_MCP_MAX_TASKS`              | `256`     | hard upper bound on live task slots (clamped `1..=100000`) |
+| `EMEM_MCP_TASK_DEFAULT_TTL_MS`    | `300000`  | post-completion slot retention when caller omits `ttl`; clamped `>= 1` and `<= EMEM_MCP_TASK_MAX_TTL_MS` |
+| `EMEM_MCP_TASK_MAX_TTL_MS`        | `1800000` | upper clamp on a caller-requested `ttl` |
+| `EMEM_MCP_TASK_POLL_INTERVAL_MS`  | `1000`    | suggested poll cadence handed back in `Task.pollInterval` (min `1`) |
 
 `EMEM_BIND` requires `host:port` (not bare host). To bind `:443` as a
 non-root user under systemd, set the file capability after every build:

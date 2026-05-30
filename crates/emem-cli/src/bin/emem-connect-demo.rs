@@ -100,8 +100,13 @@ async fn main() -> anyhow::Result<()> {
     println!("\n=== STEP 3: signed edges + bi-temporal supersession ===");
     // Edge #1: relates_to, valid_from = 10. Signed by A.
     let edge_vf10 = mk_edge(&a_fact_cid, "relates_to", &b_fact_cid, 10, &a);
-    let edge1_att =
-        sign_attestation(vec![], vec![edge_vf10.clone()], &a, &registry_cid, &schema_cid);
+    let edge1_att = sign_attestation(
+        vec![],
+        vec![edge_vf10.clone()],
+        &a,
+        &registry_cid,
+        &schema_cid,
+    );
     let r1 = post_edges(&client, &base, &edge1_att).await?;
     println!(
         "  POST /v1/edges (valid_from=10) → edge_cids={}",
@@ -110,8 +115,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Edge #2: same (subj,pred,obj), valid_from = 20. Signed by A.
     let edge_vf20 = mk_edge(&a_fact_cid, "relates_to", &b_fact_cid, 20, &a);
-    let edge2_att =
-        sign_attestation(vec![], vec![edge_vf20.clone()], &a, &registry_cid, &schema_cid);
+    let edge2_att = sign_attestation(
+        vec![],
+        vec![edge_vf20.clone()],
+        &a,
+        &registry_cid,
+        &schema_cid,
+    );
     let r2 = post_edges(&client, &base, &edge2_att).await?;
     println!(
         "  POST /v1/edges (valid_from=20) → edge_cids={}",
@@ -442,7 +452,11 @@ async fn post_edges(
     base: &str,
     att: &Attestation,
 ) -> anyhow::Result<Value> {
-    let resp = client.post(format!("{base}/v1/edges")).json(att).send().await?;
+    let resp = client
+        .post(format!("{base}/v1/edges"))
+        .json(att)
+        .send()
+        .await?;
     check_status(resp).await
 }
 

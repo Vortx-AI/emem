@@ -15,6 +15,17 @@ pub fn env_u64(key: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+/// Read an unsigned env var with a default, clamped to `[min, max]`.
+/// Unparseable / unset values fall back to `default` (which is itself
+/// clamped, so callers always get a value inside the bounds).
+pub fn env_usize(key: &str, default: usize, min: usize, max: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(default)
+        .clamp(min, max)
+}
+
 /// True when `EMEM_MEMORY_TTL_ENABLED=1` (or any non-empty value other
 /// than `0` / `false`).
 pub fn ttl_enabled() -> bool {

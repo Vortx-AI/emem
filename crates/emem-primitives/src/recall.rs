@@ -368,22 +368,30 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         .as_ref()
         .is_some_and(|v| v.iter().any(|s| s == "edges"));
     let (edges_out, edge_cids): (Option<Vec<EdgeFact>>, Vec<emem_fact::EdgeCid>) = if want_edges {
-        const PER_FACT_EDGE_LIMIT: usize = 32;
-        const TOTAL_EDGE_CAP: usize = 256;
+        // env `EMEM_RECALL_EDGES_PER_FACT` (default 32) /
+        // `EMEM_RECALL_EDGES_TOTAL_CAP` (default 256).
+        let per_fact_edge_limit =
+            crate::memory_consolidation::env_usize("EMEM_RECALL_EDGES_PER_FACT", 32, 1, 1_000_000);
+        let total_edge_cap = crate::memory_consolidation::env_usize(
+            "EMEM_RECALL_EDGES_TOTAL_CAP",
+            256,
+            1,
+            1_000_000,
+        );
         let mut collected: Vec<EdgeFact> = Vec::new();
         for fc in &cids {
-            if collected.len() >= TOTAL_EDGE_CAP {
+            if collected.len() >= total_edge_cap {
                 break;
             }
-            let remaining = TOTAL_EDGE_CAP - collected.len();
-            let lim = PER_FACT_EDGE_LIMIT.min(remaining);
+            let remaining = total_edge_cap - collected.len();
+            let lim = per_fact_edge_limit.min(remaining);
             let mut es = storage
                 .recall_edges(fc, "", bound.valid_time, lim)
                 .await
                 .unwrap_or_default();
             collected.append(&mut es);
         }
-        collected.truncate(TOTAL_EDGE_CAP);
+        collected.truncate(total_edge_cap);
         let ecids: Vec<emem_fact::EdgeCid> = collected.iter().map(|e| e.cid()).collect();
         (Some(collected), ecids)
     } else {
