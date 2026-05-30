@@ -32,6 +32,41 @@ EMEM_REFINEMENT_ENABLED=1 cargo run --release --bin emem-server
 
 ---
 
+## Run it (one command)
+
+The whole loop below — mint two attesters, sign two disagreeing facts,
+write two bi-temporal edges, read the supersession, score the
+disagreement, watch the refinement loop emit a signed `disagrees_with`
+edge, recall with edges attached, and verify a receipt offline — is
+bundled as a single runnable binary. Everything it sends is real signed
+bytes (the same merkle + ed25519 mechanics as step 1's curl form).
+
+Start a responder with the refinement loop enabled:
+
+```bash
+EMEM_REFINEMENT_ENABLED=1 \
+EMEM_REFINEMENT_INTERVAL_SECS=3 \
+EMEM_REFINEMENT_MIN_SEVERITY=0.1 \
+cargo run --release --bin emem-server
+```
+
+Then, in another shell, run the walkthrough against it:
+
+```bash
+EMEM_BASE_URL=$EMEM cargo run -p emem-cli --bin emem-connect-demo
+# or pass the base URL as the first positional arg:
+#   cargo run -p emem-cli --bin emem-connect-demo http://127.0.0.1:5051
+```
+
+It prints each of steps 1–7 with the signed CIDs and receipts and exits
+non-zero on any HTTP error, so it doubles as a smoke test. Step 5 (the
+auto `disagrees_with` edge) only fires when the responder was started
+with the `EMEM_REFINEMENT_*` flags above; without them the binary prints
+a clear note and continues. The hand-driven `curl` walkthrough below is
+the same loop, broken out step by step.
+
+---
+
 ## 1. Attest two disagreeing facts at the same (cell, band, tslot)
 
 A contradiction needs **two different attester keys** signing **different

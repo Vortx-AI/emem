@@ -26,6 +26,10 @@ name = "emem-realdemo"
 path = "src/bin/emem-realdemo.rs"
 
 [[bin]]
+name = "emem-connect-demo"
+path = "src/bin/emem-connect-demo.rs"
+
+[[bin]]
 name = "emem-purge-fnkey"
 path = "src/bin/emem-purge-fnkey.rs"
 
