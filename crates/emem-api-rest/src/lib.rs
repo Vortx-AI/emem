@@ -33485,27 +33485,52 @@ async fn post_ask(
     let budget = std::env::var("EMEM_ASK_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(45u64)
+        .unwrap_or(30u64)
         .clamp(10, 180);
     let q_preview: String = req.q.chars().take(80).collect();
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(budget),
-        ask_inner(s, req),
-    )
-    .await
-    {
+    let q_lower = req.q.to_lowercase();
+    let looks_eudr = [
+        "deforest",
+        "eudr",
+        "forest loss",
+        "tree cover",
+        "logging",
+        "land clearing",
+        "due diligence",
+    ]
+    .iter()
+    .any(|k| q_lower.contains(k));
+    match tokio::time::timeout(std::time::Duration::from_secs(budget), ask_inner(s, req)).await {
         Ok(Ok(v)) => Ok(Json(v)),
         Ok(Err(e)) => Err(e),
-        Err(_) => Err(ApiError(
-            StatusCode::GATEWAY_TIMEOUT,
-            ErrorBody {
-                code: emem_core::error::ErrorCode::SourceFetchFailed,
-                message: format!(
-                    "/v1/ask: classifier-driven fan-out for q={q_preview:?} exceeded {budget}s. Common causes: slow MODIS/LST connector on first cell, /v1/locate cold-cache geocoder. Try a structured POST /v1/recall or /v1/hunt with the specific band + region, or raise EMEM_ASK_TIMEOUT_SECS."
-                ),
-                details: None,
-            },
-        )),
+        Err(_) => {
+            // Do NOT return 504. A hard error makes agents retry: the
+            // eudr-a2a agent retried 144 times, each a 90 s hold that piled
+            // up. Instead return a 200 with an explicit `incomplete` status
+            // and a pointer to the BOUNDED structured endpoint that answers
+            // this fast — so the agent redirects (and stops hammering)
+            // rather than re-queuing the same fan-out. Honest: no data is
+            // fabricated; the body says plainly it did not finish.
+            let mut next = vec![
+                json!({"tool":"recall","path":"POST /v1/recall {cell|place|lat+lng, bands:[...]}","why":"one specific band at the cell, fast + signed"}),
+                json!({"tool":"hunt","path":"POST /v1/hunt {event, region}","why":"event hotspots over a region"}),
+            ];
+            let answer = if looks_eudr {
+                next.insert(0, json!({"tool":"eudr_dds","path":"POST /v1/eudr_dds {plots:[{geometry_geojson, country_of_production, commodity_hs, quantity_kg}]}","why":"EUDR deforestation due-diligence for a plot — bounded, signed, the right tool for this question"}));
+                "This deforestation / EUDR question fans out across many cold satellite bands and did not finish within the time budget. For EUDR due-diligence on a plot, call POST /v1/eudr_dds (bounded and signed) — that is the right tool here. For a single indicator, call POST /v1/recall with a specific band such as hansen.loss_year."
+            } else {
+                "This question fans out across many cold satellite bands and did not finish within the time budget. Call POST /v1/recall with the specific band(s) you need, or POST /v1/hunt for an event sweep — both are bounded and signed. Re-asking warms the bands and gets faster."
+            };
+            Ok(Json(json!({
+                "schema":        "emem.ask.v1",
+                "status":        "incomplete",
+                "question":      q_preview,
+                "answer":        answer,
+                "reason":        format!("ask fan-out exceeded the {budget}s budget on cold upstreams; no signed answer was cached for this place yet"),
+                "out_of_scope":  false,
+                "next":          next,
+            })))
+        }
     }
 }
 
