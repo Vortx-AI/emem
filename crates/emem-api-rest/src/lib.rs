@@ -158,6 +158,10 @@ const LOGO_300W_PNG: &[u8] = include_bytes!("../../../web/logo-300w.png");
 const LOGO_600W_PNG: &[u8] = include_bytes!("../../../web/logo-600w.png");
 const LOGO_1200W_PNG: &[u8] = include_bytes!("../../../web/logo-1200w.png");
 const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
+/// Rasterised 1200x630 PNG of the OG card. Social / agent link-preview
+/// crawlers (Slack, X, LinkedIn, Discord, most LLM fetchers) do NOT render
+/// an SVG og:image — the pages reference this PNG so previews actually show.
+const OG_IMAGE_PNG: &[u8] = include_bytes!("../../../web/og-image.png");
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
 /// `/docs/api/` and `/docs/api` — the ReDoc interactive REST reference,
@@ -677,6 +681,7 @@ pub fn router(state: AppState) -> Router {
         .route("/logo-600w.png", get(serve_logo_600))
         .route("/logo-1200w.png", get(serve_logo_1200))
         .route("/og-image.svg", get(serve_og_image))
+        .route("/og-image.png", get(serve_og_image_png))
         .route(
             "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
             get(serve_indexnow_key),
@@ -1469,6 +1474,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/logo-600w.png"
         | "/logo-1200w.png"
         | "/og-image.svg"
+        | "/og-image.png"
         | "/robots.txt"
         | "/sitemap.xml" => Some("public, max-age=86400"),
         _ => None,
@@ -1916,6 +1922,7 @@ async fn rate_limit_layer(
             | "/logo-600w.png"
             | "/logo-1200w.png"
             | "/og-image.svg"
+            | "/og-image.png"
     );
     if bypass {
         return next.run(req).await;
@@ -3010,6 +3017,9 @@ async fn serve_logo_600() -> Response {
 }
 async fn serve_logo_1200() -> Response {
     png_response(LOGO_1200W_PNG)
+}
+async fn serve_og_image_png() -> Response {
+    png_response(OG_IMAGE_PNG)
 }
 async fn serve_og_image() -> Response {
     text_response("image/svg+xml; charset=utf-8", OG_IMAGE_SVG)
@@ -33032,6 +33042,8 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
     let svg = format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {TOTAL_H}" width="{W}" height="{TOTAL_H}">
+<title>emem coverage map: where Earth memory exists</title>
+<desc>Live plate-carree density map of cells with at least one signed fact in the emem corpus.</desc>
 <defs><style>
 .h1  {{ font-family: 'Source Serif 4','Source Serif Pro',Georgia,serif; font-weight: 600; font-size: 22px; fill: #1a1a1a; }}
 .dek {{ font-family: 'Source Serif 4','Source Serif Pro',Georgia,serif; font-style: italic; font-size: 13.5px; fill: #4a4a4a; }}
