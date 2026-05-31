@@ -1,7 +1,7 @@
 <!doctype html><html lang=en>
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem — the verified memory of Earth for AI agents</title>
+<title>emem: the verified memory of Earth for AI agents</title>
 <meta name=description content="Earth now has a memory. Satellites read Earth from orbit and turn what they see into answers, so any app, team, or AI agent can ask what is happening anywhere on Earth and trust what comes back. Every answer is signed and verifiable. Open, no keys, MCP + REST.">
 <link rel=canonical href="https://emem.dev/">
 <link rel=alternate type=text/markdown href=/llms.txt>
@@ -13,19 +13,19 @@
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/">
-<meta property=og:title content="emem — the verified memory of Earth for AI agents">
+<meta property=og:title content="emem: the verified memory of Earth for AI agents">
 <meta property=og:description content="A living memory of the planet. Satellites read Earth from orbit and turn what they see into answers any app, team, or AI agent can ask for and trust. Every answer signed and verifiable. Open, no keys.">
 <meta property=og:image content="https://emem.dev/og-image.svg">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 <meta property=og:image:type content="image/svg+xml">
-<meta property=og:image:alt content="emem.dev — Earth memory protocol. Cell × Band × Tslot → Fact.">
+<meta property=og:image:alt content="emem.dev. A verified memory of Earth for AI agents.">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
-<meta name=twitter:title content="emem — the verified memory of Earth for AI agents">
+<meta name=twitter:title content="emem: the verified memory of Earth for AI agents">
 <meta name=twitter:description content="A living memory of the planet. Satellites read Earth from orbit and turn what they see into answers any app, team, or AI agent can ask for and trust. Open, no keys.">
 <meta name=twitter:image content="https://emem.dev/og-image.svg">
-<meta name=twitter:image:alt content="emem.dev — Earth memory protocol. Cell × Band × Tslot → Fact.">
+<meta name=twitter:image:alt content="emem.dev. A verified memory of Earth for AI agents.">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
@@ -501,6 +501,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .btn{position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
 .btn:hover{transform:translateY(-1px)}
 .btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
+.closer{font-size:var(--t-xl);color:var(--ink);font-weight:400;letter-spacing:-.015em;margin:2.2rem 0 0;max-width:64ch}
+.closer .accent{color:var(--accent)}
+.closer-cta{margin-top:1.4rem}
+.section-body .btn{color:var(--paper);text-decoration:none}
+.section-body .btn.ghost{color:var(--ink)}
+.section-body .btn:hover{text-decoration:none}
 </style>
 </head>
 <body>
@@ -535,10 +541,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
      Disable with <html class="no-art">. -->
 <div class="earth-rail" aria-hidden="true">
   <svg viewBox="0 0 150 1000" preserveAspectRatio="xMidYMid meet" fill="none">
+    <!-- double-line vine (Mithila signature) — two parallel strokes -->
     <path class="ev-spine" pathLength="1" d="M75 14
       C 62 64 90 110 75 162 C 64 206 92 262 76 314 C 62 366 90 416 76 462
       L76 520 L75 600
       C 70 660 80 712 75 760 C 72 806 76 850 75 892"/>
+    <path class="ev-spine" pathLength="1" transform="translate(3.6 0)" d="M75 14
+      C 62 64 90 110 75 162 C 64 206 92 262 76 314 C 62 366 90 416 76 462
+      L76 520 L75 600
+      C 70 660 80 712 75 760 C 72 806 76 850 75 892"/>
+    <!-- vine dots between the registers -->
+    <circle class="ev-dot" cx="80" cy="92" r="1"/><circle class="ev-dot" cx="72" cy="208" r="1"/>
+    <circle class="ev-dot" cx="80" cy="392" r="1"/><circle class="ev-dot" cx="74" cy="660" r="1"/>
+    <circle class="ev-dot" cx="80" cy="836" r="1"/>
 
     <!-- 1 · sun over the seed — Earth begins -->
     <g class="ev-motif" style="--i:0">
@@ -737,8 +752,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta"><div class="idx"><span class="idx-label">where this goes</span></div></aside>
   <div class="section-body">
     <h2>Where this is going.</h2>
-    <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other&rsquo;s attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it.</p>
-    <p>None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.</p>
+    <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline. Today that is one hosted responder and self-hosted nodes, and the hard part already ships beneath them: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a self-correcting refinement loop.</p>
+    <p>The design target is a federation of those responders, resolving the same facts byte-for-byte and cross-citing each other&rsquo;s attestations, so the more of the world that is observed, the more trustworthy the shared memory becomes. Give it time, and Earth&rsquo;s memory stops being something you query. It becomes a common record of the planet that any person, any company, and any agent can build on, and that no one has to take on faith.</p>
+    <p class="closer">Earth now has a memory. <span class="accent">Help it remember.</span></p>
+    <div class="hero-cta closer-cta">
+      <a class="btn" href="/reference">Connect an agent &rarr;</a>
+      <a class="btn ghost" href="/docs">Read the docs &rarr;</a>
+    </div>
   </div>
 </section>
 

@@ -5481,7 +5481,8 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     // just to learn what exists. The full catalog is one fetch away at
     // /v1/tools (or MCP tools/list, tiered). See `tools_summary` below.
     let core_count = emem_mcp::TOOLS.iter().filter(|t| t.tier == "core").count();
-    let mut by_category: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut by_category: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
     for t in emem_mcp::TOOLS {
         let cat = serde_json::to_value(t.category)
             .ok()
@@ -43202,8 +43203,14 @@ mod tests {
     /// topic union, so a broad flood question must detect nothing.
     #[test]
     fn concrete_band_fastpath_detection() {
-        assert_eq!(concrete_bands_in_question("NDVI near Mount Fuji"), vec!["indices.ndvi"]);
-        assert_eq!(concrete_bands_in_question("what is the ndmi here"), vec!["indices.ndmi"]);
+        assert_eq!(
+            concrete_bands_in_question("NDVI near Mount Fuji"),
+            vec!["indices.ndvi"]
+        );
+        assert_eq!(
+            concrete_bands_in_question("what is the ndmi here"),
+            vec!["indices.ndmi"]
+        );
         assert_eq!(
             concrete_bands_in_question("show me LST"),
             vec!["modis.lst_day_8day", "modis.lst_night_8day"]
@@ -43211,7 +43218,7 @@ mod tests {
         // Whole-word only: substrings must not trigger.
         assert!(concrete_bands_in_question("the land is dry").is_empty()); // "land" !~ "lst"
         assert!(concrete_bands_in_question("a sandbar at low tide").is_empty()); // "sandbar" !~ "nbr"
-        // EVI/SAVI have no standalone band key -> not detectable.
+                                                                                 // EVI/SAVI have no standalone band key -> not detectable.
         assert!(concrete_bands_in_question("compute EVI and SAVI").is_empty());
         // Broad flood question (the Katihar regression) detects nothing,
         // so the fast path can never narrow it.
