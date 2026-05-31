@@ -108,6 +108,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .section-body>h2 .num{color:var(--mute-2);margin-right:.6rem;font-weight:300}
 .section-body>.lede{font-size:var(--t-md);color:var(--ink-2);max-width:60ch;margin:0 0 2rem;font-weight:400}
 .section-body p{max-width:64ch;margin:0 0 1.1rem;color:var(--ink-2)}
+.section-body ul{max-width:64ch;margin:0 0 1.1rem;padding-left:1.1rem;list-style:none}
+.section-body li{color:var(--ink-2);line-height:1.55;margin:0 0 .7rem;position:relative;padding-left:1rem}
+.section-body li::before{content:"";position:absolute;left:0;top:.55em;width:.4rem;height:.4rem;background:var(--accent);border-radius:50%}
 .section-body strong{color:var(--ink);font-weight:700}
 .section-body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
 .section-body a:hover{background:var(--accent-bg)}
@@ -792,7 +795,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     var r = responses[q];
     hOut.classList.remove('empty');
     if (!r) {
-      hOut.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> Only South Mumbai and Bengaluru are inlined (no fabricated fact_cids). Run the full motion at <a href="#example">the example below</a> or against <span class="band">/v1/recall</span>.';
+      hOut.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> Only South Mumbai and Bengaluru are inlined (no fabricated fact_cids). See <a href="#proof">a real signed fact below</a> or call <span class="band">/v1/recall</span> for any place.';
       return;
     }
     hOut.innerHTML =
