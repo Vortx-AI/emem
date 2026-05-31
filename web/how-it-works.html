@@ -297,13 +297,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .statusbar a.on{opacity:1;color:var(--accent)}
 .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
 .section{position:relative;border-bottom:none}
-.section::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,transparent,var(--rule) 14%,var(--rule) 86%,transparent)}
+.section::after{content:"";position:absolute;left:0;right:0;bottom:-2.5px;height:6px;opacity:.5;background:linear-gradient(var(--rule),var(--rule)) left top/100% 1px no-repeat,linear-gradient(var(--rule),var(--rule)) left bottom/100% 1px no-repeat,repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px) center/auto 100%;-webkit-mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent);mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent)}
 .section::before{content:"";position:absolute;bottom:-3px;left:50%;width:5px;height:5px;margin-left:-2.5px;background:var(--paper);border:1px solid var(--accent);opacity:.5;transform:rotate(45deg);z-index:1}
 .btn{position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
 .btn:hover{transform:translateY(-1px)}
 .btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
 /* ── Mithila frame system: the double-line + accent node on every panel ──── */
-.code,.fact,.substrate-grid,.memt-block{box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule)}
+.code,.fact,.substrate-grid,.memt-block{position:relative;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.code::after,.fact::after,.substrate-grid::after{content:"";position:absolute;inset:-3px;pointer-events:none;opacity:.4;padding:2px;background:repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
 .code-head::before,.memt-block .memt-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
 </style>
 </head>
