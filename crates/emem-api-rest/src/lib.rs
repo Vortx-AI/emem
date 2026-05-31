@@ -6037,9 +6037,28 @@ async fn find_similar_with_auto_materialize(
     Ok((resp, materialize_notes))
 }
 
+/// Uncapped cold-band materialisation. Explicit recall, the boring
+/// endpoints, diff, trajectory, etc. honour EVERY requested band.
 async fn recall_with_auto_materialize(
     req: &RecallReq,
     s: &AppState,
+) -> Result<(RecallResp, Vec<JsonValue>), ApiError> {
+    recall_with_auto_materialize_capped(req, s, None).await
+}
+
+/// As `recall_with_auto_materialize`, but `cold_band_cap: Some(n)`
+/// materialises at most `n` of the MISSING (cold) bands this call and
+/// defers the rest with an honest `deferred` note. Warm bands (already
+/// stored) are never capped — only cold upstream fetches are. Used by
+/// `/v1/ask`, where the band set is auto-selected by topic routing (often
+/// a wide union); capping the cold fan-out keeps ask inside its budget and
+/// returns a partial answer instead of the 90 s 504 the eudr-a2a agent hit
+/// 144 times. Explicit `/v1/recall` passes `None` so a caller that names
+/// 12 bands still gets all 12.
+async fn recall_with_auto_materialize_capped(
+    req: &RecallReq,
+    s: &AppState,
+    cold_band_cap: Option<usize>,
 ) -> Result<(RecallResp, Vec<JsonValue>), ApiError> {
     use std::collections::HashSet;
     // Canonicalize bare short-name bands (e.g. `elevation` →
@@ -6080,8 +6099,7 @@ async fn recall_with_auto_materialize(
     // (3) Request specifies no bands AND cell has facts: leave alone.
     //     The agent didn't ask for anything new; don't pay an upstream
     //     fetch on every recall.
-    let owned_default: Vec<String>;
-    let candidates: &[String] = match req.bands.as_ref() {
+    let mut candidates: Vec<String> = match req.bands.as_ref() {
         Some(req_bands) if !req_bands.is_empty() => {
             let present: HashSet<&str> = resp
                 .facts
@@ -6091,25 +6109,35 @@ async fn recall_with_auto_materialize(
                     _ => None,
                 })
                 .collect();
-            owned_default = req_bands
+            req_bands
                 .iter()
                 .filter(|b| !present.contains(b.as_str()))
                 .cloned()
-                .collect();
-            owned_default.as_slice()
+                .collect()
         }
         _ if resp.facts.is_empty() => {
-            owned_default = vec![
+            vec![
                 "copdem30m.elevation_mean".into(),
                 "weather.temperature_2m".into(),
-            ];
-            owned_default.as_slice()
+            ]
         }
-        _ => &[],
+        _ => Vec::new(),
     };
 
+    // Cold-band cap (ask path): materialise at most `cold_band_cap` of the
+    // cold bands this call; defer the rest. Bounds the worst-case fan-out
+    // to one materialiser wave so ask returns a partial answer in budget
+    // rather than 504-ing. The deferred bands are still cite-ably fetchable
+    // via an explicit /v1/recall.
+    let mut deferred_cold: Vec<String> = Vec::new();
+    if let Some(cap) = cold_band_cap {
+        if candidates.len() > cap {
+            deferred_cold = candidates.split_off(cap);
+        }
+    }
+
     if !candidates.is_empty() {
-        let outcomes = try_materialize_bands(&req.cell, candidates, s).await;
+        let outcomes = try_materialize_bands(&req.cell, &candidates, s).await;
         let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
         for o in &outcomes {
             if let Some(reason) = &o.skip_reason {
@@ -6129,6 +6157,13 @@ async fn recall_with_auto_materialize(
         if materialized_any {
             resp = recall(req, s).await?;
         }
+    }
+    for b in &deferred_cold {
+        materialize_notes.push(json!({
+            "band":   b,
+            "status": "deferred",
+            "reason": "cold_band_cap reached — this band was not materialised on this call to keep the request inside its latency budget. Fetch it cite-ably via POST /v1/recall {cell, bands:[this band]}.",
+        }));
     }
     Ok((resp, materialize_notes))
 }
@@ -32535,6 +32570,20 @@ fn materialize_concurrency() -> usize {
         .clamp(1, 32)
 }
 
+/// Max cold (not-yet-stored) bands `/v1/ask` materialises per request
+/// before deferring the rest with a note. Defaults to one materialiser
+/// wave (`materialize_concurrency`, 6) so the worst-case cold fan-out is
+/// ~one `EMEM_MATERIALIZER_TIMEOUT_SECS`, keeping ask inside its budget
+/// instead of 504-ing. Tunable via `EMEM_ASK_COLD_BAND_CAP` (clamped
+/// 1..=64); set high to restore the old unbounded ask fan-out.
+fn ask_cold_band_cap() -> usize {
+    std::env::var("EMEM_ASK_COLD_BAND_CAP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or_else(materialize_concurrency)
+        .clamp(1, 64)
+}
+
 fn chrono_iso8601_utc() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
@@ -33426,10 +33475,15 @@ async fn post_ask(
     // whole question past the gateway timeout. Per-materializer timeout
     // still caps individual upstream calls; this is the fan-out ceiling
     // on top. Tunable via EMEM_ASK_TIMEOUT_SECS (clamped 10..=180).
+    // Lowered 90→45 on 2026-05-31: a 90 s hold per ask is what let the
+    // eudr-a2a agent's 144 timed-out asks pile up and (with a full disk)
+    // contribute to the accept-loop stall. With the cold-band cap above,
+    // ask now returns a partial answer well inside this; the budget is the
+    // backstop, not the common path.
     let budget = std::env::var("EMEM_ASK_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(90u64)
+        .unwrap_or(45u64)
         .clamp(10, 180);
     let q_preview: String = req.q.chars().take(80).collect();
     match tokio::time::timeout(
@@ -39271,7 +39325,20 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         tslot: None,
         ..Default::default()
     };
-    let (recall_resp, materialize_notes) = recall_with_auto_materialize(&recall_req, &s).await?;
+    // Cap cold-band materialisation on the ask path: the topic union can be
+    // a wide set of slow bands (the eudr-a2a agent's forest questions hit
+    // ~12 cold bands → 90 s 504, 144 times). Materialise at most a bounded
+    // set this call and defer the rest with an honest note, so ask returns a
+    // partial signed answer in budget instead of timing out. Bare recall
+    // stays uncapped. When the question named a concrete band (narrowed) the
+    // set is already tiny, so no cap needed.
+    let ask_cap = if narrowed {
+        None
+    } else {
+        Some(ask_cold_band_cap())
+    };
+    let (recall_resp, materialize_notes) =
+        recall_with_auto_materialize_capped(&recall_req, &s, ask_cap).await?;
 
     // Algorithm hints — for each matched topic, surface every recipe key
     // the agent should apply, with input bands, formula, output range,
