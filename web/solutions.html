@@ -417,6 +417,17 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .connect{grid-template-columns:repeat(2,1fr)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* ── polish: header scrollspy · hand-drawn section dividers · framed buttons ── */
+.statusbar a{position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
+.statusbar a:hover{opacity:1}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.section{position:relative;border-bottom:none}
+.section::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,transparent,var(--rule) 14%,var(--rule) 86%,transparent)}
+.section::before{content:"";position:absolute;bottom:-3px;left:50%;width:5px;height:5px;margin-left:-2.5px;background:var(--paper);border:1px solid var(--accent);opacity:.5;transform:rotate(45deg);z-index:1}
+.btn{position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
 </style>
 </head>
 <body>
@@ -721,5 +732,25 @@ document.querySelectorAll('.copy').forEach(function(btn){
   });
 });
 </script>
+<script>
+
+  // Header scrollspy: highlight the in-page section in view; mark current page.
+  (function(){
+    var path=(location.pathname.replace(/\/+$/,'')||'/');
+    document.querySelectorAll('.statusbar a[href]').forEach(function(a){
+      var h=a.getAttribute('href'); if(h&&h.charAt(0)!=='#'){ if(h.replace(/\/+$/,'')===path) a.classList.add('on'); }
+    });
+    var links={};
+    document.querySelectorAll('.statusbar a[href^="#"]').forEach(function(a){ links[a.getAttribute('href').slice(1)]=a; });
+    var secs=Object.keys(links).map(function(id){return document.getElementById(id);}).filter(Boolean);
+    if('IntersectionObserver' in window && secs.length){
+      var io=new IntersectionObserver(function(es){
+        es.forEach(function(e){ if(e.isIntersecting){ Object.keys(links).forEach(function(id){ links[id].classList.toggle('on', id===e.target.id); }); } });
+      },{rootMargin:'-45% 0px -50% 0px'});
+      secs.forEach(function(s){ io.observe(s); });
+    }
+  })();
+</script>
+
 </body>
 </html>
