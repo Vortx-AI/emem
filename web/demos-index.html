@@ -3,7 +3,7 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos — index of live, signed walkthroughs</title>
+<title>emem.dev/demos: index of live, signed walkthroughs</title>
 <meta name=description content="Index of emem.dev demo surfaces: signed-answer walkthrough, case-study gallery, live corpus stream, in-browser receipt verifier, agent benchmark. Every page hits the same hosted responder.">
 <link rel=canonical href="https://emem.dev/demos">
 <link rel=alternate type=application/json href="/openapi.json">
@@ -13,11 +13,14 @@
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/demos">
-<meta property=og:title content="emem.dev/demos — live, signed walkthroughs">
+<meta property=og:title content="emem.dev/demos: live, signed walkthroughs">
 <meta property=og:description content="Pick a demo. Each one runs against the live responder and is verifiable end-to-end.">
 <meta property=og:image content="https://emem.dev/og-image.svg">
 <link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <style>
 :root{
   --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
@@ -43,12 +46,18 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--rule)}
 a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
-.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;display:flex;align-items:center;height:2.2rem;padding:0 1rem;font-size:var(--t-xs);color:var(--ink-3)}
-.statusbar .brand{font-weight:600;color:var(--ink);letter-spacing:-.01em;margin-right:1rem}
-.statusbar .brand .leaf{color:var(--accent)}
-.statusbar nav{display:flex;gap:.7rem;margin-left:auto}
-.statusbar nav a{color:var(--ink-3);border-bottom:none}
-.statusbar nav a:hover{color:var(--accent)}
+/* unified site statusbar (matches /reference) */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:60;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 1.4rem;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{opacity:1;color:var(--ink);background:var(--paper-3);border-bottom:none}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+@media (max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
 .wrap{max-width:1080px;margin:0 auto;padding:2rem 1.4rem 5rem}
 @media(max-width:760px){.wrap{padding:1.4rem 1rem 4rem}}
 header.masthead{padding-bottom:1.6rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
@@ -77,9 +86,6 @@ footer a:hover{color:var(--accent)}
   h1{font-size:var(--t-xl);line-height:1.18}
   .lede{font-size:var(--t-base)}
   .grid{grid-template-columns:1fr;gap:.7rem}
-  .statusbar{flex-wrap:wrap;height:auto;padding:.5rem .8rem;gap:.4rem}
-  .statusbar nav{margin-left:0;flex-wrap:wrap;gap:.5rem}
-  .statusbar>span:not(.brand){display:none}
   footer{gap:.5rem;font-size:10px}
   footer .muted{flex-basis:100%;margin-top:.4rem}
 }
@@ -92,17 +98,19 @@ footer a:hover{color:var(--accent)}
 </head>
 <body>
 
-<div class=statusbar>
-  <span class=brand>emem<span class=leaf>·</span>dev<span class=leaf>/demos</span></span>
-  <span>index of live walkthroughs against the hosted responder</span>
-  <nav>
-    <a href="/">home</a>
-    <a href="/agents.md">agents.md</a>
-    <a href="/openapi.json">openapi</a>
-    <a href="/mcp">mcp</a>
-    <a href="https://github.com/Vortx-AI/emem">github</a>
-  </nav>
-</div>
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/">Home</a>
+    <a href="/how-it-works" class="nav-sec">How it works</a>
+    <a href="/solutions" class="nav-sec">Solutions</a>
+    <a href="/reference" class="nav-sec">Reference</a>
+    <a href="/docs" class="nav-sec">Docs</a>
+    <a href="/verify" class="nav-sec">Verify</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+  </div>
+</header>
 
 <main class=wrap>
   <header class=masthead>
@@ -269,9 +277,14 @@ footer a:hover{color:var(--accent)}
     <a href="/humans">humans</a>
     <a href="/.well-known/emem.json">.well-known</a>
     <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
-    <span class=muted>· emem v0.0.7 · Earth as memory, for real-world agents</span>
+    <span class=muted>· emem v0.0.9 · Earth as memory, for real-world agents</span>
   </footer>
 </main>
+
+<script>
+// Statusbar: mark the current page's nav link as active. Chrome only.
+(function(){var p=(location.pathname.replace(/\/+$/,'')||'/');document.querySelectorAll('.statusbar a[href]').forEach(function(a){var h=a.getAttribute('href');if(h&&h.charAt(0)!=='#'&&h.replace(/\/+$/,'')===p)a.classList.add('on');});})();
+</script>
 
 </body>
 </html>

@@ -3,12 +3,15 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>404 — emem.dev</title>
+<title>404 : emem.dev</title>
 <meta name=description content="The path you requested is not attested at this responder. Every emem read is an address lookup against a content-addressed ledger; an unknown address resolves to a signed 'not_found', not a fabricated answer.">
 <meta name=robots content="noindex">
 <meta name=color-scheme content="light dark">
 <link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <style>
 :root{
   --paper:oklch(0.975 0.005 85);
@@ -68,6 +71,10 @@ code,.mono{font-family:var(--mono)}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 .statusbar .meta{color:var(--mute);font-size:var(--t-xs)}
+.statusbar a{position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
+.statusbar a:hover{opacity:1}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
 
 /* hero */
 main{max-width:880px;margin:0 auto;padding:3rem var(--pad-x) 5rem}
@@ -99,6 +106,9 @@ h1 .verdict{color:var(--accent)}
 .receipt .v{color:var(--ink);word-break:break-all}
 .receipt .v.path{color:var(--accent-2);font-weight:600}
 .receipt .v.reason{color:var(--ink-2)}
+/* Mithila frame: double-line + accent diamond node on the receipt panel */
+.receipt{position:relative;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.receipt::before{content:"";position:absolute;top:-3px;left:1.2rem;width:5px;height:5px;background:var(--paper);border:1px solid var(--accent);opacity:.7;transform:rotate(45deg)}
 
 /* path list */
 section.paths{margin:0 0 2.4rem}
@@ -182,10 +192,13 @@ footer a{color:var(--ink-2)}
 <header class="statusbar">
   <div class="statusbar-inner">
     <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
-    <a href="/">home</a>
-    <a href="/docs/">docs</a>
-    <a href="/openapi.json">openapi</a>
-    <a href="/mcp">mcp</a>
+    <a href="/">Home</a>
+    <a href="/how-it-works">How it works</a>
+    <a href="/solutions">Solutions</a>
+    <a href="/reference">Reference</a>
+    <a href="/docs">Docs</a>
+    <a href="/verify">Verify</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
     <span class="spacer"></span>
     <span class="meta">404 · path not attested</span>
   </div>
@@ -198,15 +211,15 @@ footer a{color:var(--ink-2)}
     Every emem read is an address lookup against a content-addressed ledger
     of <code>(cell × band × tslot) → fact</code>. The path you requested
     isn't a route this responder serves and isn't a fact_cid it holds, so
-    the honest answer is a signed "not_found" — never a fabricated page.
+    the honest answer is a signed "not_found", never a fabricated page.
   </p>
 
   <div class="receipt" role="region" aria-label="lookup receipt">
-    <div class="row"><span class="k">request_path</span><span class="v path" id="req-path">—</span></div>
+    <div class="row"><span class="k">request_path</span><span class="v path" id="req-path">…</span></div>
     <div class="row"><span class="k">responder</span><span class="v">emem.dev</span></div>
     <div class="row"><span class="k">looked_up</span><span class="v reason">route registry, static surface, demo index, doc tree, fact cid index</span></div>
-    <div class="row"><span class="k">verdict</span><span class="v reason">no entry — this is a real 404, not a "we hide it" 404</span></div>
-    <div class="row"><span class="k">served_at</span><span class="v" id="served-at">—</span></div>
+    <div class="row"><span class="k">verdict</span><span class="v reason">no entry: this is a real 404, not a "we hide it" 404</span></div>
+    <div class="row"><span class="k">served_at</span><span class="v" id="served-at">…</span></div>
   </div>
 
   <section class="paths">
@@ -230,7 +243,7 @@ footer a{color:var(--ink-2)}
 </main>
 
 <footer>
-  <span>emem.dev — Earth memory protocol · Vortx AI</span>
+  <span>emem.dev : Earth memory protocol · Vortx AI</span>
   <span><a href="https://github.com/Vortx-AI/emem">github</a> · <a href="/privacy">privacy</a> · <a href="/terms">terms</a></span>
 </footer>
 

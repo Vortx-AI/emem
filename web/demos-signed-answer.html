@@ -3,7 +3,7 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos/signed-answer — ask, recall, verify, reproduce</title>
+<title>emem.dev/demos/signed-answer: ask, recall, verify, reproduce</title>
 <meta name=description content="A four-curl walk through the protocol's trust path. Resolve a place, recall a band, verify the receipt's Ed25519 signature, then reproduce the fact CID from a fresh call. Runs live against the local responder.">
 <link rel=canonical href="https://emem.dev/demos/signed-answer">
 <link rel=alternate type=application/json href="/openapi.json">
@@ -13,13 +13,16 @@
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/demos/signed-answer">
-<meta property=og:title content="emem.dev/demos/signed-answer — the trust path in four steps">
+<meta property=og:title content="emem.dev/demos/signed-answer: the trust path in four steps">
 <meta property=og:description content="Watch a question become a content-addressed, signed answer. Then verify the signature offline.">
 <meta property=og:image content="https://emem.dev/humans-og.svg">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 <link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <style>
 /* Unified emem design tokens — light + dark via prefers-color-scheme,
    same palette as /, /demos, /humans, /verify. Variable names kept on
@@ -168,14 +171,42 @@ footer.foot a:hover{color:var(--accent)}
 .muted{color:var(--fg-3)}
 .skip{position:absolute;left:-999px;top:0}
 .skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+
+/* unified site statusbar (matches /reference) */
+.statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:60;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 1.4rem;display:flex;align-items:center;gap:1rem;height:40px;font-size:11px}
+.statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
+.statusbar a:first-of-type{border-left:1px solid var(--line);margin-left:.5rem}
+.statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2);border-bottom:none}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.statusbar .brand{font-weight:700;font-size:12px;letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+@media (max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
 </style>
 </head>
 <body>
 <a class=skip href="#main">Skip to walk</a>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/">Home</a>
+    <a href="/how-it-works" class="nav-sec">How it works</a>
+    <a href="/solutions" class="nav-sec">Solutions</a>
+    <a href="/reference" class="nav-sec">Reference</a>
+    <a href="/docs" class="nav-sec">Docs</a>
+    <a href="/verify" class="nav-sec">Verify</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+  </div>
+</header>
+
 <main class=app id=main tabindex="-1">
   <header class=top role=banner>
     <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/signed-answer</span></span>
-    <span class=tag>— the trust path in four steps</span>
+    <span class=tag>the trust path in four steps</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
       <a href="/verify">verify</a>
@@ -188,7 +219,7 @@ footer.foot a:hover{color:var(--accent)}
   <p class=lede>
     Every recall this protocol serves comes back wrapped in a receipt the responder signs with its Ed25519 key.
     The receipt commits to <b>content-addressed fact CIDs</b> over a canonical preimage, so the same question
-    asked years apart, at any responder, returns the same bytes — or a verifiable absence.
+    asked years apart, at any responder, returns the same bytes, or a verifiable absence.
     <span class=accent>This page walks the trust path live</span>: locate a place, recall a band, verify the signature,
     and reproduce the CID. Each step issues a real HTTP call against this responder; the JSON you see is what
     your agent would see.
@@ -219,7 +250,7 @@ footer.foot a:hover{color:var(--accent)}
         <span class=endpoint>POST /v1/locate</span>
       </div>
       <p class=desc>
-        Resolve free text into a single <code>cell64</code> — the protocol's spatial primary key. The locator
+        Resolve free text into a single <code>cell64</code>, the protocol's spatial primary key. The locator
         is a five-layer cascade (wide-bbox table → embedded gazetteer → GeoNames 68 k → sled cache → Photon →
         Nominatim). It returns the resolved label, lat/lng, and the path it took.
       </p>
@@ -258,7 +289,7 @@ footer.foot a:hover{color:var(--accent)}
       </div>
       <p class=desc>
         Recompute the canonical preimage <code>blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖
-        fact_cids)</code> — sections joined by <code>|</code>, list elements followed by <code>,</code> —
+        fact_cids)</code> (sections joined by <code>|</code>, list elements followed by <code>,</code>)
         and check the Ed25519 signature against the responder's public key. The responder does it here for
         convenience; the <a href=/verify>/verify</a> page does the same math client-only with
         <code>@noble/ed25519</code> so you don't have to trust this server.
@@ -282,7 +313,7 @@ footer.foot a:hover{color:var(--accent)}
         <span class=endpoint>POST /v1/recall</span>
       </div>
       <p class=desc>
-        Call recall a second time. The fact CID is BLAKE3 over canonical CBOR — same cell, same band, same
+        Call recall a second time. The fact CID is BLAKE3 over canonical CBOR: same cell, same band, same
         tslot, same derivation key → same 32-character base32 address. If the bytes you receive don't hash
         to the original CID, something tampered with the response.
       </p>
@@ -309,7 +340,7 @@ footer.foot a:hover{color:var(--accent)}
     <a href="/verify">verify</a>
     <a href="/humans">humans</a>
     <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
-    <span class=muted>· emem v0.0.7 · signed by the responder</span>
+    <span class=muted>· emem v0.0.9 · signed by the responder</span>
   </footer>
 
 </main>
@@ -537,6 +568,10 @@ $('placeInput').addEventListener('keydown', (e)=>{ if (e.key==='Enter') runStep1
     if (![...sel.options].some(o => o.selected)) sel.value = bands[0];
   }catch(e){ /* leave the placeholder option as-is */ }
 })();
+</script>
+<script>
+// Statusbar: mark the current page's nav link as active. Chrome only.
+(function(){var p=(location.pathname.replace(/\/+$/,'')||'/');document.querySelectorAll('.statusbar a[href]').forEach(function(a){var h=a.getAttribute('href');if(h&&h.charAt(0)!=='#'&&h.replace(/\/+$/,'')===p)a.classList.add('on');});})();
 </script>
 </body>
 </html>
