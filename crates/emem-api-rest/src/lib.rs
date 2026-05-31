@@ -5496,7 +5496,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "extended": emem_mcp::TOOLS.len() - core_count,
         "by_category": by_category,
         "list": "/v1/tools",
-        "mcp": "POST /mcp {\"method\":\"tools/list\"} — core by default; {\"tier\":\"all\"} for the full catalog",
+        "mcp": "POST /mcp {\"method\":\"tools/list\"} returns all 80 tools by default; pass {\"tier\":\"core\"} for just the 10 essentials",
         "note": "Full descriptors (input_schema, when_to_use, annotations) at /v1/tools or via MCP tools/list. Summarized here to keep discovery token-cheap.",
     });
     Json(json!({
@@ -12503,10 +12503,13 @@ async fn mcp_jsonrpc(
             }))
         }
         "tools/list" => {
-            // Tier-based progressive disclosure. Default returns core
-            // tools (~8); pass tier:"all" or tier:"extended" in params,
-            // or follow nextCursor to page through. tools/call dispatches
-            // by name against ALL tools regardless of tier.
+            // Return the FULL catalog (all 80 tools) by default — that is what
+            // a standard MCP client expects from a no-param tools/list, and
+            // most hosts do not follow a non-standard nextCursor, so a
+            // core-only default left 70 tools undiscoverable. Token-conscious
+            // callers can still narrow with {"tier":"core"} (the 10 essentials)
+            // or {"tier":"extended"}. tools/call dispatches by name against ALL
+            // tools regardless of tier.
             let requested_tier = req
                 .params
                 .as_ref()
@@ -12523,10 +12526,10 @@ async fn mcp_jsonrpc(
                 requested_tier
             } else if cursor_tier == "tier:extended" {
                 "extended"
-            } else if cursor_tier == "tier:all" {
-                "all"
-            } else {
+            } else if cursor_tier == "tier:core" {
                 "core"
+            } else {
+                "all"
             };
             let tools = emem_mcp::tools_at_tier(effective_tier);
             let tool_json: Vec<JsonValue> = tools.iter().map(|t| json!({
@@ -12560,9 +12563,10 @@ async fn mcp_jsonrpc(
                     "showing_count": tool_json.len(),
                     "hint": format!(
                         "Showing {} of {} tools (tier: {}). \
-                         All {} tools are callable via tools/call regardless of tier. \
-                         Pass {{\"tier\":\"all\"}} to see the full catalog.",
-                        tool_json.len(), total, effective_tier, total
+                         The full catalog is returned by default; pass \
+                         {{\"tier\":\"core\"}} for just the 10 essentials. \
+                         All tools are callable via tools/call regardless of tier.",
+                        tool_json.len(), total, effective_tier
                     ),
                 },
             });

@@ -135,7 +135,7 @@ learns. Two abilities sit on top of the fact store:
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 87 paths under
-`/v1/*`, 75 MCP tools (10 core, 65 extended), 18 static MCP
+`/v1/*`, 80 MCP tools (10 core, 70 extended), 7 static MCP
 resources + 8 URI templates, 159 algorithms in the content-addressed
 registry, 42 bands in the manifest, 46 source schemes, and 16 data
 connectors + 13 utility modules.
@@ -164,7 +164,7 @@ log. See "Watching humans use the API" below.
 | Resource | Live count |
 |---|---|
 | REST paths (OpenAPI) | 90 documented, 87 under `/v1/*` |
-| MCP tools | 75 (10 core / 65 extended) |
+| MCP tools | 80 (10 core / 70 extended) |
 | Algorithms (composition recipes) | 159 |
 | Band-cube slots | 42 |
 | MCP resources | 18 static + 8 URI templates |

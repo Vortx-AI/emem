@@ -11,7 +11,7 @@
 
 ## Description
 
-emem is a verifiable memory substrate for AI agents. Earth memory and agent memory on one signed trust surface: every read returns an ed25519 receipt, every write is content-addressed, every byte is reproducible on any peer. 75 MCP tools (10 core, 65 extended), tier-gated for progressive disclosure, plus 18 MCP resources + 8 URI templates (`memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`).
+emem is a verifiable memory substrate for AI agents. Earth memory and agent memory on one signed trust surface: every read returns an ed25519 receipt, every write is content-addressed, every byte is reproducible on any peer. 80 MCP tools (10 core, 70 extended), plus 7 MCP resources + 3 URI templates (`memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`).
 
 ## Key capabilities
 
@@ -37,7 +37,7 @@ Remote HTTP MCP endpoint (Streamable HTTP, JSON-RPC 2.0):
 }
 ```
 
-Tier-gated `tools/list` returns 10 core tools by default. Pass `{"tier":"all"}` to enumerate the full 70-tool catalog. Tool dispatch via `tools/call` ignores tier — every tool is callable.
+`tools/list` returns all 80 tools by default, so any MCP client discovers the full surface. Pass `{"tier":"core"}` to narrow to the 10 essentials. Tool dispatch via `tools/call` ignores tier; every tool is callable.
 
 ## Example questions
 
