@@ -207,19 +207,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
 .foot-bottom a{color:inherit}
 
-/* consent banner */
-#emem-consent{position:fixed;left:1em;right:1em;bottom:1em;max-width:36em;margin:0 auto;background:var(--paper-2);border:1px solid var(--rule-strong);padding:1em 1.1em;box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:var(--t-sm);line-height:1.5;z-index:9999;color:var(--ink-2)}
-#emem-consent[hidden]{display:none}
-#emem-consent p{margin:0 0 .7em;max-width:none}
-#emem-consent strong{color:var(--ink);font-weight:700}
-#emem-consent code{background:var(--paper-3);padding:0 .25em;color:var(--ink);font-family:var(--mono);font-size:.9em}
-#emem-consent .row{display:flex;flex-wrap:wrap;gap:.5em;align-items:center}
-#emem-consent button{padding:.5em 1.1em;border:1px solid var(--accent);background:var(--paper);color:var(--accent);font:inherit;font-family:var(--mono);font-weight:700;cursor:pointer;min-width:6em}
-#emem-consent button[data-act=accept]{background:var(--accent);color:var(--paper)}
-#emem-consent button:hover{filter:brightness(1.06)}
-#emem-consent button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-#emem-consent a{margin-left:auto;font-size:.92em;color:var(--accent);text-decoration:underline}
-
 /* substrate (memory primitives walkthrough) */
 .substrate-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2)}
 .substrate-grid .lane{padding:1rem 1.1rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.5rem}
@@ -315,11 +302,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <a href="/how-it-works">How it works</a>
     <a href="/solutions" class="nav-sec">Solutions</a>
     <a href="/reference" class="nav-sec">Reference</a>
-    <a href="/docs/" class="nav-sec">Docs</a>
+    <a href="/docs" class="nav-sec">Docs</a>
     <a href="/verify" class="nav-sec">Verify</a>
     <span class="spacer"></span>
-    <a href="/openapi.json" class="nav-sec">openapi</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
   </div>
 </header>
 
@@ -719,21 +705,11 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
       <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
       <span>
         <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
-        <a href="/privacy">privacy · terms</a> ·
-        <a href="#" id="emem-consent-manage">manage cookies</a>
+        <a href="/privacy">privacy · terms</a>
       </span>
     </div>
   </div>
 </footer>
-
-<div id=emem-consent hidden role=dialog aria-modal=false aria-labelledby=emem-consent-h>
-  <p id=emem-consent-h>This site loads <strong>Google Analytics 4</strong> for aggregate visit counts. By default no cookies are set and no personal data is sent (Consent Mode v2, all denied). Click <strong>Accept</strong> to enable cookie-based analytics, or <strong>Reject</strong> to keep the cookieless default. Decision stored in a first-party cookie <code>emem_consent</code>, valid for 180 days, revocable from the footer.</p>
-  <div class=row>
-    <button data-act=accept type=button>Accept</button>
-    <button data-act=reject type=button>Reject</button>
-    <a href=/privacy>Privacy policy</a>
-  </div>
-</div>
 
 <script>
 (function(){
@@ -807,19 +783,6 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   } else {
     loadStreamOnce(); loadAttest();
   }
-
-  // Consent banner.
-  var KEY='emem_consent', MAX_AGE=180*24*60*60;
-  var banner=document.getElementById('emem-consent');
-  var manage=document.getElementById('emem-consent-manage');
-  function readCookie(){var m=document.cookie.match(/(?:^|;\s*)emem_consent=([^;]*)/);return m?decodeURIComponent(m[1]):null;}
-  function writeCookie(val){var attrs='; Max-Age='+MAX_AGE+'; Path=/; SameSite=Lax';if(location.protocol==='https:')attrs+='; Secure';document.cookie=KEY+'='+encodeURIComponent(val)+attrs;}
-  function delCookie(){var attrs='; Max-Age=0; Path=/; SameSite=Lax';if(location.protocol==='https:')attrs+='; Secure';document.cookie=KEY+'='+attrs;}
-  function decide(granted){writeCookie(granted?'accept':'reject');if(granted&&typeof gtag==='function'){gtag('consent','update',{analytics_storage:'granted',functionality_storage:'granted'});}banner.hidden=true;}
-  if(banner&&!readCookie())banner.hidden=false;
-  if(banner)banner.addEventListener('click',function(e){var t=e.target.closest('button[data-act]');if(!t)return;decide(t.getAttribute('data-act')==='accept');});
-  if(banner)banner.addEventListener('keydown',function(e){if(e.key==='Escape')decide(false);});
-  if(manage)manage.addEventListener('click',function(e){e.preventDefault();delCookie();if(banner){banner.hidden=false;var b=banner.querySelector('button');if(b)b.focus();}});
 })();
 </script>
 </body></html>

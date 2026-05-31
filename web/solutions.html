@@ -312,19 +312,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
 .foot-bottom a{color:inherit}
 
-/* consent banner */
-#emem-consent{position:fixed;left:1em;right:1em;bottom:1em;max-width:36em;margin:0 auto;background:var(--paper-2);border:1px solid var(--rule-strong);padding:1em 1.1em;box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:var(--t-sm);line-height:1.5;z-index:9999;color:var(--ink-2)}
-#emem-consent[hidden]{display:none}
-#emem-consent p{margin:0 0 .7em;max-width:none}
-#emem-consent strong{color:var(--ink);font-weight:700}
-#emem-consent code{background:var(--paper-3);padding:0 .25em;color:var(--ink);font-family:var(--mono);font-size:.9em}
-#emem-consent .row{display:flex;flex-wrap:wrap;gap:.5em;align-items:center}
-#emem-consent button{padding:.5em 1.1em;border:1px solid var(--accent);background:var(--paper);color:var(--accent);font:inherit;font-family:var(--mono);font-weight:700;cursor:pointer;min-width:6em}
-#emem-consent button[data-act=accept]{background:var(--accent);color:var(--paper)}
-#emem-consent button:hover{filter:brightness(1.06)}
-#emem-consent button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-#emem-consent a{margin-left:auto;font-size:.92em;color:var(--accent);text-decoration:underline}
-
 /* substrate (memory primitives walkthrough) */
 .substrate-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2)}
 .substrate-grid .lane{padding:1rem 1.1rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.5rem}
@@ -437,14 +424,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
-    <a href="/" class="nav-sec">home</a>
-    <a href="/how-it-works" class="nav-sec">how it works</a>
-    <a href="/solutions" class="nav-sec">solutions</a>
-    <a href="/reference" class="nav-sec">reference</a>
+    <a href="/">Home</a>
+    <a href="/how-it-works" class="nav-sec">How it works</a>
+    <a href="/solutions" class="nav-sec">Solutions</a>
+    <a href="/reference" class="nav-sec">Reference</a>
+    <a href="/docs" class="nav-sec">Docs</a>
+    <a href="/verify" class="nav-sec">Verify</a>
     <span class="spacer"></span>
-    <a href="/docs">docs</a>
-    <a href="/verify">verify</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
   </div>
 </header>
 
@@ -711,8 +698,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
       <span>
         <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
-        <a href="/privacy">privacy · terms</a> ·
-        <a href="#" id="emem-consent-manage">manage cookies</a>
+        <a href="/privacy">privacy · terms</a>
       </span>
     </div>
   </div>

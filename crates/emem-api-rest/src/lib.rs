@@ -5475,24 +5475,29 @@ async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) 
 }
 
 async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
-    let descriptors: Vec<JsonValue> = emem_mcp::TOOLS.iter().map(|t| json!({
-        "name": t.name,
-        "title": t.title,
-        "description": t.description,
-        "when_to_use": t.when_to_use,
-        "level": t.level,
-        "category": t.category,
-        "tier": t.tier,
-        "input_schema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
-        "example_args": serde_json::from_str::<JsonValue>(t.example_args).unwrap_or(json!({})),
-        "annotations": {
-            "title":           t.title,
-            "readOnlyHint":    t.read_only_hint,
-            "destructiveHint": t.destructive_hint,
-            "idempotentHint":  t.idempotent_hint,
-            "openWorldHint":   t.open_world_hint,
-        },
-    })).collect();
+    // Tools are SUMMARIZED here, not inlined. Dumping all 80 full
+    // descriptors (input_schema + when_to_use + example_args + annotations)
+    // made this discovery card ~150 KB / ~38K tokens — a cost an agent pays
+    // just to learn what exists. The full catalog is one fetch away at
+    // /v1/tools (or MCP tools/list, tiered). See `tools_summary` below.
+    let core_count = emem_mcp::TOOLS.iter().filter(|t| t.tier == "core").count();
+    let mut by_category: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for t in emem_mcp::TOOLS {
+        let cat = serde_json::to_value(t.category)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| "other".to_string());
+        *by_category.entry(cat).or_insert(0) += 1;
+    }
+    let tools_summary = json!({
+        "count": emem_mcp::TOOLS.len(),
+        "core": core_count,
+        "extended": emem_mcp::TOOLS.len() - core_count,
+        "by_category": by_category,
+        "list": "/v1/tools",
+        "mcp": "POST /mcp {\"method\":\"tools/list\"} — core by default; {\"tier\":\"all\"} for the full catalog",
+        "note": "Full descriptors (input_schema, when_to_use, annotations) at /v1/tools or via MCP tools/list. Summarized here to keep discovery token-cheap.",
+    });
     Json(json!({
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
@@ -5803,7 +5808,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             },
             "walkthrough": "examples/connect-and-evolve.md"
         },
-        "tools": descriptors,
+        "tools": tools_summary,
     }))
 }
 
@@ -15144,18 +15149,19 @@ fn serve_demo_path(p: std::path::PathBuf, mime: &'static str) -> Response {
 
 // ── /api alias + /v1/discover (one-call agent bootstrap) ────────────────
 //
-// `/api` is a 308 redirect to `/v1/agent_card` — agents that probe the
-// conventional `/api` slug land in the right place.
+// `/api` is a 308 redirect to `/v1/discover` — agents that probe the
+// conventional `/api` slug land on the lean entry point, not the larger
+// agent_card.
 //
 // `/v1/discover` is the *one* call a new agent should make. It returns
-// the agent_card, manifests, a curated set of canonical "famous places"
-// the agent can recall against to verify the loop works, and a list of
-// active contributors. Replaces a five-call onboarding dance with one.
+// a one-line fact, the fanout URL map, manifest CIDs, and primitive
+// examples (~0.9K tokens) — versus the agent_card's fuller discovery
+// payload. Replaces a five-call onboarding dance with one.
 
 async fn api_alias() -> Response {
     Response::builder()
         .status(StatusCode::PERMANENT_REDIRECT)
-        .header("location", "/v1/agent_card")
+        .header("location", "/v1/discover")
         .body(axum::body::Body::empty())
         .unwrap_or_else(|_| StatusCode::PERMANENT_REDIRECT.into_response())
 }

@@ -495,11 +495,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div>
     <h1>Earth as memory,<br><span class="accent">for real-world agents.</span></h1>
 
-    <p class="sub">emem is a signed, content-addressed spatial memory for AI agents &mdash; every place-time on Earth resolves to a verifiable fact, read over MCP or REST, with no keys.</p>
+    <p class="sub">A shared, verifiable memory of the physical world for AI agents. Every place-time resolves to an ed25519-signed fact, citable across agents by content ID &mdash; direct measurements alongside four geospatial foundation models (Clay, Prithvi, Tessera, Galileo) whose agreement is scored for consensus.</p>
 
     <div class="hero-cta">
-      <a class="btn" href="#agents">Connect over MCP</a>
-      <a class="btn ghost" href="/docs">Read the docs &rarr;</a>
+      <a class="btn" href="#how">How it works &rarr;</a>
+      <a class="btn ghost" href="#agents">Connect (MCP) &rarr;</a>
     </div>
 
     <!-- Compact try-it: a visitor types a place and gets the byte-identical
@@ -523,7 +523,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
-    <p class="hero-trust">open &middot; no keys &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
+    <p class="hero-trust">open &middot; no keys &middot; MCP + REST &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
   </div>
 </section>
 
@@ -532,28 +532,30 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">01</span><span class="idx-label">For AI agents</span></div>
     <dl>
-      <dt>transport</dt><dd>MCP Streamable HTTP</dd>
-      <dt>auth</dt><dd>none for reads</dd>
+      <dt>transport</dt><dd>MCP Streamable HTTP &middot; REST</dd>
+      <dt>read</dt><dd>recall &middot; ask</dd>
+      <dt>memory</dt><dd>state &middot; bundles &middot; search &middot; contradictions</dd>
+      <dt>streams</dt><dd>SSE: corpus &amp; writes</dd>
       <dt>first tool</dt><dd>emem_ask</dd>
       <dt>receipts</dt><dd>ed25519, verify offline</dd>
-      <dt>setup</dt><dd><a href="/reference">/reference</a></dd>
     </dl>
   </aside>
 
   <div class="section-body">
     <h2><span class="num">01</span>For AI agents</h2>
-    <p class="lede">Agents are the primary user. No keys, no signup &mdash; point a client at the endpoint and call.</p>
+    <p class="lede">Agents are the primary user &mdash; they read and write a shared, verifiable memory of the physical world here, and subscribe to it as it changes. No keys, no signup: point a client at the endpoint and call. The surface below is the whole of it.</p>
 
     <table class="endpoints">
       <thead>
-        <tr><th>Entry point</th><th>URL</th></tr>
+        <tr><th>Surface</th><th>Endpoints</th></tr>
       </thead>
       <tbody>
-        <tr><td class="desc">MCP (Streamable HTTP)</td><td><span class="path">https://emem.dev/mcp</span> <button class="copy" data-copy-target="#mcp-url-plain" style="margin-left:.6rem;font-size:var(--t-xs);padding:.1rem .5rem;border:1px solid var(--rule);background:var(--paper);cursor:pointer;color:var(--mute)">copy</button><span id="mcp-url-plain" hidden>https://emem.dev/mcp</span></td></tr>
-        <tr><td class="desc">OpenAPI 3.1</td><td><a class="path" href="/openapi.json">/openapi.json</a></td></tr>
-        <tr><td class="desc">LLM context</td><td><a class="path" href="/llms.txt">/llms.txt</a> &middot; <a href="/llms-full.txt">/llms-full.txt</a></td></tr>
-        <tr><td class="desc">Agent card</td><td><a class="path" href="/agent.json">/agent.json</a> &middot; <a href="/v1/agent_card">/v1/agent_card</a></td></tr>
-        <tr><td class="desc">Discovery</td><td><a class="path" href="/.well-known/mcp.json">/.well-known/mcp.json</a> &middot; <a href="/.well-known/emem.json">/.well-known/emem.json</a></td></tr>
+        <tr><td class="desc">Connect</td><td><span class="path">https://emem.dev/mcp</span> (MCP) <button class="copy" data-copy-target="#mcp-url-plain" style="margin-left:.4rem;font-size:var(--t-xs);padding:.1rem .5rem;border:1px solid var(--rule);background:var(--paper);cursor:pointer;color:var(--mute)">copy</button><span id="mcp-url-plain" hidden>https://emem.dev/mcp</span> &middot; <a class="path" href="/openapi.json">/openapi.json</a> (REST)</td></tr>
+        <tr><td class="desc">Discover</td><td><a class="path" href="/llms.txt">/llms.txt</a> &middot; <a class="path" href="/.well-known/mcp.json">/.well-known/mcp.json</a> &middot; <a href="/v1/discover">/v1/discover</a> &middot; <a href="/v1/agent_card">/v1/agent_card</a></td></tr>
+        <tr><td class="desc">Read</td><td><span class="path">POST /v1/recall</span> &middot; <span class="path">POST /v1/ask</span> &mdash; signed facts; auto-fetch on a miss</td></tr>
+        <tr><td class="desc">Memory substrate</td><td><span class="path">/v1/state</span> &middot; <span class="path">/v1/memory_bundle</span> &middot; <span class="path">/v1/memory/search</span> &middot; <span class="path">/v1/memory_contradictions</span> &middot; <span class="path">/v1/edges/recall</span></td></tr>
+        <tr><td class="desc">Streams (SSE)</td><td><a class="path" href="/v1/stream">/v1/stream</a> &mdash; signed corpus heartbeat &middot; <span class="path">/v1/memory/sse</span> &mdash; every write as it commits</td></tr>
+        <tr><td class="desc">Verify</td><td><a class="path" href="/verify">/verify</a> &middot; <span class="path">POST /v1/verify_receipt</span> &mdash; offline, no callback</td></tr>
         <tr><td class="desc">First tool to call</td><td><span class="path">emem_ask</span> &mdash; intent-routed; one call resolves place &rarr; recall &rarr; applicable algorithms</td></tr>
       </tbody>
     </table>
@@ -657,6 +659,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p class="lede">An LLM asked what is at a place will usually guess. emem is the missing handle: a stable address for every patch of Earth, and a signed fact at that address any agent can read and verify.</p>
 
     <p>A language model has no shared memory of the physical world. The cell64 grid gives every ~9.55&nbsp;m patch a token-like address that is the same on every responder. Read a cell and you get a fact &mdash; elevation, weather, land cover, a foundation embedding &mdash; that is ed25519-signed and content-addressed by its <span class="band">fact_cid</span>. Quote that CID in a chat and a colleague pulls byte-identical bytes from any replica and checks the signature in their browser at <a href="/verify">/verify</a>, with no callback to the issuer.</p>
+
+    <p>Some bands are foundation-model embeddings. emem runs four independent geospatial encoders on the grid &mdash; <strong>Clay v1.5</strong>, <strong>Prithvi-EO-2.0</strong>, <strong>Tessera</strong>, and <strong>Galileo</strong> &mdash; each with a different receptive field (chip-scale, multi-temporal, per-pixel). Because they alias differently, their <em>agreement</em> that a cell changed is signal and their disagreement is recorded, not averaged: <span class="band">triple_consensus</span> scores the vote, drops any encoder that is offline rather than zero-filling it, and signs the verdict (or an honest <span class="band">inconclusive</span>). <a href="/how-it-works#substrate">The encoders, dimensions, and papers &rarr;</a></p>
 
     <p>Facts link to each other through typed edges (<span class="band">disagrees_with</span>, <span class="band">supersedes</span>, <span class="band">relates_to</span>) and improve over time: when two attesters disagree, emem scores the contradiction and keeps both CIDs rather than silently picking one, and an opt-in refinement loop flags facts for re-attestation. A later attestation supersedes an earlier one on the transaction-time axis without erasing the old bytes.</p>
 
