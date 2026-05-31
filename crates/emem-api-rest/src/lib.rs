@@ -32571,16 +32571,18 @@ fn materialize_concurrency() -> usize {
 }
 
 /// Max cold (not-yet-stored) bands `/v1/ask` materialises per request
-/// before deferring the rest with a note. Defaults to one materialiser
-/// wave (`materialize_concurrency`, 6) so the worst-case cold fan-out is
-/// ~one `EMEM_MATERIALIZER_TIMEOUT_SECS`, keeping ask inside its budget
-/// instead of 504-ing. Tunable via `EMEM_ASK_COLD_BAND_CAP` (clamped
-/// 1..=64); set high to restore the old unbounded ask fan-out.
+/// before deferring the rest with a note. Defaults to 3: a single
+/// materialiser wave of 6 still 504'd at 45s in prod because the union
+/// pulls in slow upstreams (Hansen COG, MODIS ORNL) whose ~30s fetch plus
+/// geocode + dispatch overhead overran the budget. 3 reliably returns a
+/// partial signed answer in ~25s; the rest defer with a note pointing at
+/// /v1/recall. Tunable via `EMEM_ASK_COLD_BAND_CAP` (clamped 1..=64); set
+/// high to restore the old unbounded ask fan-out.
 fn ask_cold_band_cap() -> usize {
     std::env::var("EMEM_ASK_COLD_BAND_CAP")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or_else(materialize_concurrency)
+        .unwrap_or(3)
         .clamp(1, 64)
 }
 
