@@ -184,6 +184,7 @@ footer.foot a:hover{color:var(--accent)}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 @media (max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
@@ -191,7 +192,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <header class="statusbar">
   <div class="statusbar-inner">
-    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a>
     <a href="/">Home</a>
     <a href="/how-it-works" class="nav-sec">How it works</a>
     <a href="/solutions" class="nav-sec">Solutions</a>
@@ -205,7 +206,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <main class=app id=main tabindex="-1">
   <header class=top role=banner>
-    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/signed-answer</span></span>
+    <a href="/" class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</a><span class=leaf>demos/signed-answer</span></span>
     <span class=tag>the trust path in four steps</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
@@ -222,13 +223,18 @@ footer.foot a:hover{color:var(--accent)}
     asked years apart, at any responder, returns the same bytes, or a verifiable absence.
     <span class=accent>This page walks the trust path live</span>: locate a place, recall a band, verify the signature,
     and reproduce the CID. Each step issues a real HTTP call against this responder; the JSON you see is what
-    your agent would see.
+    your agent would see. <span class=accent>At the end you didn't trust us, you checked the math.</span>
   </p>
 
   <section class=controls aria-label="Inputs">
     <div>
       <label for=placeInput>place</label>
-      <input id=placeInput type=text spellcheck=false autocomplete=off value="Golden Gate Park, San Francisco">
+      <input id=placeInput type=text spellcheck=false autocomplete=off value="Bengaluru" list=warmPlaces>
+      <datalist id=warmPlaces>
+        <option value="Bengaluru"></option>
+        <option value="South Mumbai"></option>
+        <option value="Mount Fuji"></option>
+      </datalist>
     </div>
     <div>
       <label for=bandInput>band</label>
@@ -377,10 +383,20 @@ function setChips(n, items){
 function clearStep(n){setOut('out'+n,'—');setChips(n,[]);setTag(n,'')}
 function disable(n,d){$('btn'+n).disabled=d}
 
+// 60 s ceiling per call. Cold cells can take seconds while the responder
+// fetches + signs upstream tiles; the gateway itself gives up near 90 s, so
+// we abort first and show a friendly "warming up" message instead of a hang.
 async function postJson(url, body){
-  const r = await fetch(url, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
-  if (!r.ok){ throw new Error(`${url} → ${r.status} ${r.statusText}`); }
-  return r.json();
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), 60000);
+  try {
+    const r = await fetch(url, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{}),signal:ctrl.signal});
+    if (!r.ok){ throw new Error(`${url} → ${r.status} ${r.statusText}`); }
+    return r.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('responder is warming this cell up (cold fetch over 60 s). Try again in a moment, or pick a warm place like Bengaluru.');
+    throw e;
+  } finally { clearTimeout(timer); }
 }
 
 async function runStep1(){
@@ -474,13 +490,14 @@ async function runStep3(){
     setOut('out3', j);
     setChips(3, [
       ['valid', j.valid ? 'true' : 'false', j.valid?'ok':'fail'],
-      ['fact_cids', String(j.fact_cids_count||0), ''],
+      ['merkle_proof', j.merkle_proof_valid ? 'valid' : 'invalid', j.merkle_proof_valid?'ok':'fail'],
+      ['fact_cid', shortCid(state.factCid), 'cid'],
       ['preimage_blake3', (j.preimage_blake3_hex||'').slice(0,16)+'…', ''],
       ['signer', shortCid(j.signer_pubkey_b32), 'pub'],
       ['verify', dt+' ms', ''],
     ]);
     if (j.valid){
-      setTag(3, `<span style="color:var(--accent)">✓ signature verifies (${dt} ms)</span>`);
+      setTag(3, `<span style="color:var(--accent)">✓ Ed25519 signature + merkle proof verify (${dt} ms). This answer is provable offline, no callback to emem.dev needed.</span>`);
       setStep(3,'done'); setStep(4,'active'); disable(4,false);
     } else {
       setTag(3, '<span style="color:var(--warn)">✗ signature invalid</span>');

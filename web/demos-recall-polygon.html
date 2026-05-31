@@ -149,6 +149,7 @@ footer.foot a:hover{color:var(--accent)}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 @media (max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
@@ -156,7 +157,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <header class="statusbar">
   <div class="statusbar-inner">
-    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a>
     <a href="/">Home</a>
     <a href="/how-it-works" class="nav-sec">How it works</a>
     <a href="/solutions" class="nav-sec">Solutions</a>
@@ -170,7 +171,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <main class=app id=main tabindex="-1">
   <header class=top role=banner>
-    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/recall-polygon</span></span>
+    <a href="/" class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</a><span class=leaf>demos/recall-polygon</span></span>
     <span class=tag>fan a single call out across a region</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
@@ -193,7 +194,12 @@ footer.foot a:hover{color:var(--accent)}
   <section class=controls aria-label="Inputs">
     <div>
       <label for=placeInput>place (admin area)</label>
-      <input id=placeInput type=text spellcheck=false autocomplete=off value="Lagos">
+      <input id=placeInput type=text spellcheck=false autocomplete=off value="Bengaluru" list=warmPlaces>
+      <datalist id=warmPlaces>
+        <option value="Bengaluru"></option>
+        <option value="South Mumbai"></option>
+        <option value="Mount Fuji"></option>
+      </datalist>
     </div>
     <div>
       <label for=bandInput>band</label>
@@ -273,13 +279,20 @@ function setRaw(obj){
   el.textContent = full.slice(0, 1500) + '\n…';
 }
 async function postJson(url, body){
-  const r = await fetch(url, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body||{})});
-  if (!r.ok) {
-    let txt;
-    try { txt = JSON.stringify(await r.json()); } catch { txt = r.statusText; }
-    throw new Error(`${url} → ${r.status} ${txt}`);
-  }
-  return r.json();
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), 60000);
+  try {
+    const r = await fetch(url, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body||{}), signal:ctrl.signal});
+    if (!r.ok) {
+      let txt;
+      try { txt = JSON.stringify(await r.json()); } catch { txt = r.statusText; }
+      throw new Error(`${url} → ${r.status} ${txt}`);
+    }
+    return r.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('responder is warming this polygon up (cold fan-out over 60 s). Try again, or pick a warm place like Bengaluru.');
+    throw e;
+  } finally { clearTimeout(timer); }
 }
 
 // Map a value v in [vmin, vmax] to a green-shaded oklch colour matching the
@@ -404,11 +417,20 @@ async function run(){
           (receipt.fact_cids && receipt.fact_cids[0]) ||
           (cellEntry.facts && cellEntry.facts[0] && cellEntry.facts[0].fact_cid) ||
           null;
+        // The per-fact `derivation.args` lead with [lat, lng] for every
+        // materializer fn, so we can recover the cell centroid and draw a true
+        // geographic heatmap even though merged_facts has no `centre` field.
+        let centre = f.centre;
+        const a = f.derivation && f.derivation.args;
+        if (!centre && Array.isArray(a) && a.length >= 2 &&
+            Math.abs(a[0]) <= 90 && Math.abs(a[1]) <= 180) {
+          centre = { lat_deg: a[0], lng_deg: a[1] };
+        }
         return {
           cell64: cellKey,
           value:  typeof f.value === 'number' ? f.value : parseFloat(f.value),
           unit:   f.unit || (j.band_metadata && j.band_metadata.unit) || '',
-          centre: f.centre,
+          centre,
           fact_cid,
         };
       });
@@ -455,12 +477,14 @@ async function run(){
     $('statSigner').textContent = shortCid(sig);
 
     $('chips').innerHTML = [
-      ['place', place, ''],
+      ['place', j.place_label || place, ''],
       ['band',  band, ''],
-      ['cells', String(items.length), ''],
+      ['cells', String(j.cells_sampled ?? items.length), ''],
+      Number.isFinite(j.area_km2) ? ['area', j.area_km2.toFixed(0) + ' km²', ''] : null,
+      ['signed receipts', String(items.filter(i=>i.fact_cid).length), 'pub'],
       ['signer', shortCid(sig), 'pub'],
       ['total', dt + ' ms', ''],
-    ].map(([k,v]) => `<span class=chip><span class=dot></span><b>${k}</b><span class=muted>${v}</span></span>`).join('');
+    ].filter(Boolean).map(([k,v]) => `<span class=chip><span class=dot></span><b>${k}</b><span class=muted>${v}</span></span>`).join('');
 
     renderHeatmap(items, agg);
     setRaw(j);

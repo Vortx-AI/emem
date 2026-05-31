@@ -157,6 +157,7 @@ footer.foot a:hover{color:var(--accent)}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 @media (max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
@@ -164,7 +165,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <header class="statusbar">
   <div class="statusbar-inner">
-    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a>
     <a href="/">Home</a>
     <a href="/how-it-works" class="nav-sec">How it works</a>
     <a href="/solutions" class="nav-sec">Solutions</a>
@@ -178,7 +179,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <main class=app id=main tabindex="-1">
   <header class=top role=banner>
-    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/state-cube</span></span>
+    <a href="/" class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</a><span class=leaf>demos/state-cube</span></span>
     <span class=tag>the 1792-D voxel at any place</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
@@ -191,10 +192,12 @@ footer.foot a:hover{color:var(--accent)}
 
   <p class=lede>
     One endpoint, two views. <code>POST /v1/state</code> with <code>view=encoder</code> returns one named foundation
-    embedding at its native dimension. <code>view=cube</code> returns the responder's full 1792-D voxel assembled
-    across every wired band in canonical offset order, with per-band coverage so an agent can tell attested-zero from
-    not-yet-materialised, and <span class=accent>extras that preserve full Clay/Prithvi 1024-D fidelity</span> when
-    the cube slot truncates them. <b>The cube is a fixed-width fingerprint; the extras carry the full payload.</b>
+    embedding at its native dimension (Tessera 128-D, Clay 1024-D, Prithvi 1024-D, Galileo 768-D).
+    <code>view=cube</code> returns the responder's full <b>1792-D voxel</b>, the fused fingerprint that lays those
+    four foundation encoders plus the raw sensor and derived bands into canonical offset order, with per-band
+    <code>coverage[]</code> so an agent can tell attested-zero from not-yet-materialised, and
+    <span class=accent>extras that preserve full Clay/Prithvi 1024-D fidelity</span> when the cube slot truncates them.
+    <b>The cube is a fixed-width fingerprint; the extras carry the full payload.</b>
     Pick a place, hit run, watch a real responder fill the slots in front of you.
   </p>
 
@@ -362,11 +365,20 @@ function metric(el,label,val,sub){
 }
 
 async function call(path, body){
-  const opts={method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)};
-  const r=await fetch(HOST+path,opts);
-  const t=await r.text();
-  try{return {ok:r.ok,status:r.status,data:JSON.parse(t)};}
-  catch(e){return {ok:r.ok,status:r.status,data:{raw:t}};}
+  // 60 s ceiling: cube assembly with materialize=true can fetch many cold
+  // bands. The gateway gives up near 90 s, so abort first with a clear message.
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),60000);
+  const opts={method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:ctrl.signal};
+  try{
+    const r=await fetch(HOST+path,opts);
+    const t=await r.text();
+    try{return {ok:r.ok,status:r.status,data:JSON.parse(t)};}
+    catch(e){return {ok:r.ok,status:r.status,data:{raw:t}};}
+  }catch(e){
+    if(e.name==='AbortError') return {ok:false,status:0,data:{message:'responder is warming this cell up (cold materialize over 60 s). Try again, or set materialise=false to read what is already cached.'}};
+    return {ok:false,status:0,data:{message:String(e)}};
+  }finally{clearTimeout(timer);}
 }
 
 async function step1(){
@@ -375,16 +387,19 @@ async function step1(){
   tag('tag1','<span class=spinner></span>resolving '+p);
   $('tag1').innerHTML=tag('tag1','').textContent || '';
   $('tag1').innerHTML='<span class="spinner"></span> resolving '+escapeHTML(p);
-  const r=await call('/v1/locate',{place:p});
-  if(!r.ok){$('out1').textContent='ERROR '+r.status+'\n'+pretty(r.data); tag('tag1','locate failed'); return false;}
+  const r=await call('/v1/locate',{q:p});
+  if(!r.ok){$('out1').textContent='ERROR '+(r.status||'')+'\n'+pretty(r.data); tag('tag1',r.data&&r.data.message?r.data.message:'locate failed'); return false;}
   state.cell=r.data.cell64 || r.data.cell;
   state.resolved=r.data;
+  const ctr=r.data.centre||{};
+  const lat=(typeof ctr.lat_deg==='number')?ctr.lat_deg:r.data.lat;
+  const lng=(typeof ctr.lng_deg==='number')?ctr.lng_deg:r.data.lng;
   chips('chips1',[
     {kind:'cell',text:'cell '+state.cell},
-    {kind:'ok',text:(r.data.label||p)+' '+(typeof r.data.lat==='number'?r.data.lat.toFixed(4):'')+', '+(typeof r.data.lng==='number'?r.data.lng.toFixed(4):'')}
+    {kind:'ok',text:(r.data.place_label||r.data.label||p)+' '+(typeof lat==='number'?lat.toFixed(4):'')+(typeof lng==='number'?', '+lng.toFixed(4):'')}
   ]);
   $('out1').textContent=pretty(r.data);
-  tag('tag1','resolved in '+(r.data.lookup_ms||'?')+' ms');
+  tag('tag1','resolved · via '+(r.data.via||'?'));
   setStep(2);
   return true;
 }
@@ -402,10 +417,10 @@ async function step2(){
     {kind:'ok',text:'memory_token ready'}
   ]);
   const mr=$('metric2'); mr.innerHTML='';
-  metric(mr,'dim',String(d.dim||0),(d.dim===128)?'tessera native':'native');
-  metric(mr,'L2 norm', (d.l2_norm||0).toFixed(3));
-  metric(mr,'tslot', String(d.tslot||0), 'unix seconds');
-  metric(mr,'view', d.view||'encoder');
+  metric(mr,'dim',String(d.dim||0),(d.dim===128)?'tessera native':'encoder native');
+  metric(mr,'L2 norm', (d.l2_norm||0).toFixed(3), 'vector magnitude');
+  metric(mr,'tslot', String(d.tslot||0), 'vintage slot index');
+  metric(mr,'first values', (d.vector||[]).slice(0,3).map(x=>x.toFixed(2)).join(', '), 'real components');
   $('out2').textContent=pretty({cell:d.cell,view:d.view,encoder:d.encoder,dim:d.dim,l2_norm:d.l2_norm,tslot:d.tslot,fact_cid:d.fact_cid,memory_token:d.memory_token,vector_first_4:(d.vector||[]).slice(0,4)});
   tag('tag2','ok');
   setStep(3);

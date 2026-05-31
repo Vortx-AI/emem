@@ -115,6 +115,17 @@ header.top .navlinks a:hover{color:var(--accent)}
 .out pre .n{color:var(--accent)}
 .out pre .b{color:var(--accent)}
 
+.interp{font-size:12px;color:var(--fg-2);line-height:1.6;margin:.9em 0 0;max-width:720px}
+.interp b{color:var(--fg);font-weight:500}
+.consensus{margin-top:2em;padding-top:1.4em;border-top:1px solid var(--line)}
+.consensus-h{font-size:14px;font-weight:600;margin:0 0 .2em;color:var(--fg)}
+.encoders{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.5em;margin:.5em 0}
+.enc{background:var(--bg-1);border:1px solid var(--line);padding:.6em .8em;border-radius:3px}
+.enc .name{font-size:12px;color:var(--fg);font-weight:500}
+.enc .chg{font-size:18px;color:var(--accent);font-weight:600;margin:.15em 0}
+.enc .sub{font-size:10.5px;color:var(--fg-3)}
+.enc[data-gate=over]{border-color:var(--accent)}
+.enc[data-gate=over] .name{color:var(--accent)}
 .tag-row{font-size:11.5px;color:var(--fg-3);margin:.4em 0 .8em}
 .tag-row .spinner{display:inline-block;width:10px;height:10px;border:2px solid var(--accent);
   border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;margin-right:.4em;vertical-align:-1px}
@@ -147,6 +158,7 @@ footer.foot a:hover{color:var(--accent)}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 @media (max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
@@ -154,7 +166,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <header class="statusbar">
   <div class="statusbar-inner">
-    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a>
     <a href="/">Home</a>
     <a href="/how-it-works" class="nav-sec">How it works</a>
     <a href="/solutions" class="nav-sec">Solutions</a>
@@ -168,7 +180,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <main class=app id=main tabindex="-1">
   <header class=top role=banner>
-    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/find-similar</span></span>
+    <a href="/" class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</a><span class=leaf>demos/find-similar</span></span>
     <span class=tag>k-NN over the 128-D Tessera embedding</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
@@ -180,10 +192,14 @@ footer.foot a:hover{color:var(--accent)}
   </header>
 
   <p class=lede>
-    Pick a place. emem resolves it to a <b>cell64</b>, pulls the cell's 128-D Tessera
-    embedding, and returns the K nearest neighbours on Earth by cosine distance,
-    each one a signed fact you can cite, recall, and verify.
+    Pick a place. emem resolves it to a <b>cell64</b>, reads the cell's <b>geospatial
+    foundation-model embedding</b> (Tessera, a 128-D annual fingerprint learned from
+    Sentinel-1 SAR + Sentinel-2 optical), and returns the K nearest cells on Earth by
+    cosine similarity, each one a signed fact you can recall and verify.
     <span class=accent>One call: <code>POST /v1/find_similar</code>.</span>
+    Neighbours mean "the surface looks like this here", not "the climate matches",
+    so vintage-to-vintage <i>change</i> is cross-checked separately by
+    <a href="#consensus">triple_consensus</a> below.
   </p>
 
   <section class=controls aria-label="Inputs">
@@ -213,6 +229,21 @@ footer.foot a:hover{color:var(--accent)}
 
   <section aria-label="results">
     <div class=results id=results></div>
+    <p id=interp class=interp></p>
+  </section>
+
+  <section id=consensus class=consensus aria-label="multi-encoder consensus">
+    <h2 class=consensus-h>Multi-encoder consensus at the query cell</h2>
+    <p class=muted style="font-size:12px;margin:.2em 0 .8em;max-width:680px">
+      Similarity is one encoder's opinion. The headline differentiator is <b>agreement across encoders</b>:
+      <code>POST /v1/triple_consensus</code> recalls the query cell through Clay, Prithvi, and Tessera, measures
+      each encoder's vintage-to-vintage change as <code>1 - cos(v_now, v_prev)</code>, and reports whether they
+      agree that something changed. <span class=endpoint-pill>POST /v1/triple_consensus</span>
+    </p>
+    <div class=tag-row id=conTag></div>
+    <div class=chips id=conChips></div>
+    <div class=encoders id=conEncoders></div>
+    <p id=conFormula class=muted style="font-size:11px;margin:.4em 0 0"></p>
   </section>
 
   <section class=out aria-label="raw JSON">
@@ -242,6 +273,44 @@ footer.foot a:hover{color:var(--accent)}
 const $ = (id) => document.getElementById(id);
 function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');setTimeout(()=>el.classList.remove('on'),1700)}
 function shortCid(s){if(!s)return '—';return s.length>20?s.slice(0,12)+'…'+s.slice(-4):s}
+function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+// Live multi-encoder consensus for the query cell. Verified fields against
+// emem.dev: agreement, consensus_threshold, ensemble, n_encoders_used,
+// encoders_used[{encoder, change, over_gate}], formula, receipt.responder_pubkey_b32.
+async function runConsensus(cell){
+  if (!cell) return;
+  $('conTag').innerHTML = '<span class=spinner></span>recalling Clay + Prithvi + Tessera…';
+  $('conChips').innerHTML = ''; $('conEncoders').innerHTML = ''; $('conFormula').textContent = '';
+  try {
+    const t0 = performance.now();
+    const d = await postJson('/v1/triple_consensus', { cell });
+    const dt = (performance.now() - t0).toFixed(0);
+    const agree = d.agreement || 'n/a';
+    const agreeKind = (agree === 'all_three' || agree === 'two_of_three') ? 'ok' : '';
+    // responder_pubkey_b32 sits at the top level of the triple_consensus
+    // response (the receipt carries `responder` as raw bytes).
+    const sig = d.responder_pubkey_b32 || (d.receipt && d.receipt.responder_pubkey_b32);
+    $('conChips').innerHTML = [
+      ['agreement', agree, agreeKind],
+      ['encoders', String(d.n_encoders_used ?? (d.encoders_used||[]).length), ''],
+      ['ensemble', (d.ensemble ?? 0).toFixed(4), ''],
+      ['gate', '≥ ' + (d.consensus_threshold ?? 0.15), ''],
+      ['signer', shortCid(sig), 'pub'],
+      ['took', dt + ' ms', ''],
+    ].map(([k,v,kind]) => `<span class=chip ${kind==='ok'?'style="color:var(--accent);border-color:var(--accent)"':''}><span class=dot></span><b>${k}</b><span class=muted>${escapeHTML(v)}</span></span>`).join('');
+    $('conEncoders').innerHTML = (d.encoders_used||[]).map(e => `
+      <div class=enc data-gate="${e.over_gate?'over':'under'}">
+        <div class=name>${escapeHTML(e.encoder)}</div>
+        <div class=chg>${(e.change ?? 0).toFixed(4)}</div>
+        <div class=sub>1 - cos(now, prev) · ${e.over_gate?'over gate':'under gate'}</div>
+      </div>`).join('') || '<div class=muted style="font-size:12px">no encoders contributed at this cell yet</div>';
+    $('conFormula').textContent = d.formula || '';
+    $('conTag').innerHTML = `<span style="color:var(--accent)">✓ ${d.n_encoders_used||0} encoders agree → <b>${escapeHTML(agree)}</b> (${dt} ms) · ${escapeHTML(d.honest_note||'')}</span>`;
+  } catch (e) {
+    $('conTag').innerHTML = `<span class=muted>consensus unavailable: ${escapeHTML(e.message)}</span>`;
+  }
+}
 function fmtJson(obj){
   let s = JSON.stringify(obj, null, 2);
   return s.replace(/("(\\u[\da-f]{4}|\\[^u]|[^\\"])*?")(\s*:)?|\b(true|false|null)\b|-?\d+(\.\d+)?([eE][+-]?\d+)?/g, m=>{
@@ -257,9 +326,16 @@ function setRaw(obj){
   el.innerHTML = fmtJson(obj);
 }
 async function postJson(url, body){
-  const r = await fetch(url, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body||{})});
-  if (!r.ok) throw new Error(`${url} → ${r.status} ${r.statusText}`);
-  return r.json();
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), 60000);
+  try {
+    const r = await fetch(url, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body||{}), signal:ctrl.signal});
+    if (!r.ok) throw new Error(`${url} → ${r.status} ${r.statusText}`);
+    return r.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('responder is warming this cell up (cold over 60 s). Try again, or pick a warm place like Bengaluru.');
+    throw e;
+  } finally { clearTimeout(timer); }
 }
 
 async function resolveToCell(input){
@@ -291,38 +367,52 @@ async function run(){
     const sig = j.receipt && j.receipt.responder_pubkey_b32;
     $('chips').innerHTML = [
       ['query cell', loc.cell64, 'cell'],
-      ['k', String(j.neighbors ? j.neighbors.length : 0), ''],
+      ['embedding', (j.neighbors && j.neighbors[0] && j.neighbors[0].band_used) || 'geotessera', ''],
+      ['returned', String(j.returned_k ?? (j.neighbors ? j.neighbors.length : 0)), ''],
       ['mode', mode, ''],
       ['signer', shortCid(sig), 'pub'],
       ['total', dt + ' ms', ''],
-    ].map(([k,v]) => `<span class=chip><span class=dot></span><b>${k}</b><span class=muted>${v}</span></span>`).join('');
+    ].map(([k,v]) => `<span class=chip><span class=dot></span><b>${k}</b><span class=muted>${escapeHTML(v)}</span></span>`).join('');
 
     // Render neighbours sorted by cosine descending. The responder already returns
-    // them sorted, but we re-sort defensively.
-    const neighbours = (j.neighbors || j.neighbours || []).slice();
+    // them sorted, but we re-sort defensively. Live field names (verified against
+    // emem.dev): each neighbour carries `cell`, `score` (cosine), `lat`, `lng`,
+    // `place_label_cached`, `scene_png_url`, `similarity_method`, `band_used`.
+    const neighbours = (j.neighbors || j.neighbours || []).slice()
+      .sort((a,b)=>(b.score??0)-(a.score??0));
+    const bandUsed = (neighbours[0] && neighbours[0].band_used) || 'geotessera';
     if (!neighbours.length) {
-      $('results').innerHTML = `<div class=muted style="padding:1em">no neighbours returned — try a different cell or mode</div>`;
+      $('results').innerHTML = `<div class=muted style="padding:1em">no neighbours returned. Try a different cell or mode.</div>`;
     } else {
-      // Normalise the cos→bar width. Tessera cosines run roughly -0.2..0.95
-      // in practice; clamp to [0,1] for the bar.
-      const max = Math.max(...neighbours.map(n => Math.max(0, n.cos ?? n.score ?? 0)));
+      // Tessera cosines run roughly 0.5..0.95 in practice; normalise the bar
+      // to the top score so the strongest match fills the bar.
+      const max = Math.max(...neighbours.map(n => Math.max(0, n.score ?? 0)));
       $('results').innerHTML = neighbours.map((n, i) => {
-        const cos = (n.cos ?? n.score ?? 0);
+        const cos = (n.score ?? 0);
         const pct = max > 0 ? Math.max(0, cos / max) * 100 : 0;
-        const lat = n.centre && n.centre.lat_deg;
-        const lng = n.centre && n.centre.lng_deg;
-        const label = (lat != null && lng != null) ? `${lat.toFixed(3)}, ${lng.toFixed(3)}` : (n.place_label || '');
+        const cellId = n.cell || n.cell64;
+        const coord = (n.lat != null && n.lng != null) ? `${n.lat.toFixed(3)}, ${n.lng.toFixed(3)}` : '';
+        const label = [n.place_label_cached, coord].filter(Boolean).join(' · ');
+        const scene = n.scene_png_url ? (n.scene_png_url.startsWith('http') ? n.scene_png_url : location.origin + n.scene_png_url) : null;
         return `<div class=result>
           <div class=rank>${i+1}</div>
-          <div class=cell>${n.cell64 || n.cell}<span class=label>${label}</span></div>
+          <div class=cell>${scene?`<a href="${scene}" target=_blank rel=noopener title="Sentinel-2 RGB scene at this cell">scene ↗</a> `:''}${cellId}<span class=label>${label||'&nbsp;'}</span></div>
           <div class=cos>cos ${cos.toFixed(4)}</div>
           <div class=dist>${(1 - cos).toFixed(4)}</div>
           <div class=bar><span style="width:${pct.toFixed(1)}%"></span></div>
         </div>`;
       }).join('');
     }
+    // Surface what the embedding axis actually means, straight from the responder.
+    const interp = j.interpretation || {};
+    const axis = interp.embedding_axis || '';
+    $('interp').innerHTML = axis
+      ? `<b>what "${escapeHTML(bandUsed)}" similarity means:</b> ${escapeHTML(axis)}${interp.does_not_mean?` <span class=muted>It does <i>not</i> mean: ${escapeHTML(interp.does_not_mean)}</span>`:''}`
+      : '';
     setRaw(j);
-    $('tag').innerHTML = `<span style="color:var(--accent)">✓ ${neighbours.length} neighbours in ${dt} ms · cited under <code>${shortCid(sig)}</code></span>`;
+    $('tag').innerHTML = `<span style="color:var(--accent)">✓ ${neighbours.length} neighbours in ${dt} ms over the <code>${escapeHTML(bandUsed)}</code> foundation embedding · cited under <code>${shortCid(sig)}</code></span>`;
+    // Kick off the consensus mini-showcase for the query cell.
+    runConsensus(loc.cell64);
   } catch (e) {
     $('tag').innerHTML = `<span style="color:var(--warn)">✗ ${e.message}</span>`;
     setRaw(String(e));

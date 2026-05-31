@@ -94,13 +94,14 @@ footer a:hover{color:var(--accent)}
   .card{padding:.9rem 1rem}
   .card a.title{font-size:var(--t-base)}
 }
+.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
 
 <header class="statusbar">
   <div class="statusbar-inner">
-    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a>
     <a href="/">Home</a>
     <a href="/how-it-works" class="nav-sec">How it works</a>
     <a href="/solutions" class="nav-sec">Solutions</a>
@@ -135,9 +136,21 @@ footer a:hover{color:var(--accent)}
     </article>
 
     <article class="card status-live">
+      <a class=title href="/demos/find-similar#consensus">Multi-encoder consensus · Clay + Prithvi + Tessera</a>
+      <span class=endpoint>POST /v1/triple_consensus</span>
+      <p class=desc>The headline differentiator. emem recalls a cell through three foundation encoders, measures each one's vintage-to-vintage change as <code>1 - cos(now, prev)</code>, and reports whether they <b>agree</b> something changed (<code>two_of_three</code> / <code>all_three</code>). No single model gets the last word. Runs live inside the find-similar page.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>/v1/triple_consensus</span>
+        <span class=tag>agreement</span>
+        <span class=tag>ensemble = rms</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
       <a class=title href="/demos/state-cube">State cube · 1792-D voxel at a place</a>
       <span class=endpoint>GET /demos/state-cube</span>
-      <p class=desc>One endpoint, two views. <code>view=encoder</code> returns a single 128-D or 1024-D foundation embedding. <code>view=cube</code> assembles the full 1792-D voxel with per-band coverage and full-fidelity extras when slots truncate Clay/Prithvi.</p>
+      <p class=desc>One endpoint, two views. <code>view=encoder</code> returns a single foundation embedding (Tessera 128-D, Clay/Prithvi 1024-D, Galileo 768-D). <code>view=cube</code> fuses all four encoders plus the sensor and derived bands into the full 1792-D voxel, with per-band coverage and full-fidelity extras when slots truncate Clay/Prithvi.</p>
       <div class=meta>
         <span class="tag status">live</span>
         <span class=tag>/v1/state</span>
@@ -170,14 +183,14 @@ footer a:hover{color:var(--accent)}
     </article>
 
     <article class="card status-live">
-      <a class=title href="/demos/find-similar">Find similar · k-NN over Tessera</a>
+      <a class=title href="/demos/find-similar">Find similar · k-NN over a foundation embedding</a>
       <span class=endpoint>GET /demos/find-similar</span>
-      <p class=desc>Pick a place. emem returns the K nearest cells on Earth by cosine distance over the 128-D Tessera embedding. Modes: cosine, hamming, hamming-then-rerank. Each neighbour is a signed fact you can recall and verify.</p>
+      <p class=desc>Pick a place. emem returns the K nearest cells on Earth by cosine similarity over the 128-D Tessera foundation embedding, each one a signed fact with a scene thumbnail you can recall and verify. The same page runs a live <code>triple_consensus</code> at the query cell so you see multi-encoder agreement, not just one encoder's opinion.</p>
       <div class=meta>
         <span class="tag status">live</span>
         <span class=tag>/v1/find_similar</span>
+        <span class=tag>/v1/triple_consensus</span>
         <span class=tag>cosine k-NN</span>
-        <span class=tag>Tessera 128-D</span>
       </div>
     </article>
 

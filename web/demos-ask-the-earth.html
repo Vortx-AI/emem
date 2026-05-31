@@ -124,6 +124,7 @@ footer.foot a:hover{color:var(--accent)}
 .muted{color:var(--ink-3)}
 .skip{position:absolute;left:-999px;top:0}
 .skip:focus{left:1rem;top:1rem;background:var(--paper);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 </style>
 </head>
 <body>
@@ -131,7 +132,7 @@ footer.foot a:hover{color:var(--accent)}
 
 <header class="statusbar">
   <div class="statusbar-inner">
-    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a>
     <a href="/">Home</a>
     <a href="/how-it-works" class="nav-sec">How it works</a>
     <a href="/solutions" class="nav-sec">Solutions</a>
@@ -190,40 +191,50 @@ const Q=[
   {title:"How high is Mount Everest?", endpoint:"/v1/elevation", method:"POST",
    payload:{place:"Mount Everest"},
    render(d){
-     const cell=(d.cells||[{}])[0]; const e=cell.elevation_m;
+     // /v1/elevation returns a flat object: elevation_m, cell64, lc_class_decoded,
+     // interpretation, responder_pubkey_b32 (verified against emem.dev).
+     const e=d.elevation_m;
      return {
-       answer:`<span class=v>${e?.toFixed?e.toFixed(0):e} m</span> above sea level. ${escapeHTML(cell.interpretation||'')}`,
+       answer:`<span class=v>${e?.toFixed?e.toFixed(0):e} m</span> above sea level. ${escapeHTML(d.interpretation||'')}`,
        citations:[
-         cell.cell?{kind:'cell',text:'cell '+cell.cell}:null,
+         d.cell64?{kind:'cell',text:'cell '+d.cell64}:null,
+         d.lc_class_decoded?{kind:'src',text:'land class: '+d.lc_class_decoded}:null,
          {kind:'src',text:'Cop-DEM 90 m + ESA WorldCover'},
-         (cell.sub_facts?.copdem30m_elevation_mean?.fact_cid)?{kind:'cid',text:'fact_cid '+shortCid(cell.sub_facts.copdem30m_elevation_mean.fact_cid)}:null,
+         d.responder_pubkey_b32?{kind:'cid',text:'signer '+shortCid(d.responder_pubkey_b32)}:null,
        ].filter(Boolean)
      };
    }},
   {title:"What is the air quality in Delhi right now?", endpoint:"/v1/air", method:"POST",
    payload:{place:"Delhi"},
    render(d){
+     // /v1/air returns bands{ "cams.pm25": {value, unit, fact_cids[], ...}, ... }
+     // value is a top-level number (verified against emem.dev).
      const b=d.bands||{};
-     const no2=b['cams.no2']?.value?.aggregate; const pm25=b['cams.pm2_5']?.value?.aggregate;
+     const pm25=b['cams.pm25']?.value; const no2=b['cams.no2']?.value;
+     const cid=(b['cams.pm25']?.fact_cids||[])[0];
      return {
        answer:`PM2.5 <span class=v>${pm25!=null?pm25.toFixed(1):'—'}</span> <span class=u>µg/m³</span> · NO₂ <span class=v>${no2!=null?no2.toFixed(1):'—'}</span> <span class=u>µg/m³</span>`,
        citations:[
          {kind:'cell',text:`${d.coverage_fraction!=null?Math.round(d.coverage_fraction*100)+'% coverage':'aggregated'}`},
          {kind:'src',text:'CAMS via Open-Meteo (~11 km)'},
-       ]
+         cid?{kind:'cid',text:'fact_cid '+shortCid(cid)}:null,
+       ].filter(Boolean)
      };
    }},
   {title:"NDVI at Yellowstone National Park", endpoint:"/v1/ndvi", method:"POST",
    payload:{place:"Yellowstone National Park"},
    render(d){
-     const v=d.value??d.ndvi;
-     const cids=(d.fact_cids||[]).slice(0,1);
+     // /v1/ndvi returns bands{ "indices.ndvi": {value, fact_cid, cell64, ...} }
+     // (verified against emem.dev).
+     const n=(d.bands||{})['indices.ndvi']||{};
+     const v=n.value;
      return {
-       answer:`<span class=v>${v?.toFixed?v.toFixed(3):v}</span> <span class=u>(green vegetation index, [-1,1])</span>`,
+       answer:`<span class=v>${v?.toFixed?v.toFixed(3):(v??'—')}</span> <span class=u>(NDVI, green vegetation index, [-1,1])</span>`,
        citations:[
-         {kind:'src',text:`${d.aggregator||'mean'} over Sentinel-2 indices`},
-         ...(cids.map(c=>({kind:'cid',text:'fact_cid '+shortCid(c)})))
-       ]
+         {kind:'src',text:'Sentinel-2 L2A (B08, B04)'},
+         d.cell64?{kind:'cell',text:'cell '+d.cell64}:null,
+         n.fact_cid?{kind:'cid',text:'fact_cid '+shortCid(n.fact_cid)}:null,
+       ].filter(Boolean)
      };
    }},
   {title:"Find places like Bengaluru", endpoint:"/v1/find_similar", method:"POST",
@@ -236,25 +247,32 @@ const Q=[
        citations: ns.map(n=>({kind:'cell',text:n.cell})).slice(0,3)
      };
    }},
-  {title:"How similar are Bengaluru and Mumbai?", endpoint:"/v1/compare", method:"POST",
-   payload:{a:"Bengaluru",b:"Mumbai"},
+  {title:"Do Clay, Prithvi and Tessera agree about Bengaluru?", endpoint:"/v1/triple_consensus", method:"POST",
+   payload:{cell:"Bengaluru"},
    render(d){
-     const c=d.cosine;
+     // The multi-encoder consensus showcase. Verified fields: agreement,
+     // ensemble, consensus_threshold, n_encoders_used, encoders_used[{encoder,
+     // change, over_gate}], receipt.responder_pubkey_b32.
+     const encs=(d.encoders_used||[]).map(e=>`${escapeHTML(e.encoder)} <span class=u>Δ ${(e.change??0).toFixed(3)}${e.over_gate?' ✓':''}</span>`).join(' · ');
      return {
-       answer:`Tessera cosine similarity <span class=v>${c?.toFixed?c.toFixed(4):c}</span> ${c>0.99?'<span class=u>(near-identical archetype)</span>':''} over <span class=v>${(d.shared_bands||[]).length}</span> shared bands.`,
+       answer:`Agreement: <span class=v>${escapeHTML(d.agreement||'n/a')}</span> across <span class=v>${d.n_encoders_used||0}</span> encoders · ensemble change <span class=v>${(d.ensemble??0).toFixed(4)}</span> (gate ≥ ${d.consensus_threshold??0.15}). ${encs}`,
        citations:[
-         {kind:'cell',text:'shared bands: '+(d.shared_bands||[]).slice(0,3).join(', ')},
-         {kind:'src',text:'two-cell vector compare'}
-       ]
+         {kind:'src',text:'d_e = 1 - cos(now, prev) per encoder; ensemble = rms'},
+         d.responder_pubkey_b32?{kind:'cid',text:'signer '+shortCid(d.responder_pubkey_b32)}:null,
+         (d.receipt?.fact_cids||[])[0]?{kind:'cid',text:'fact_cid '+shortCid(d.receipt.fact_cids[0])}:null,
+       ].filter(Boolean)
      };
    }},
-  {title:"Hotspots of deforestation in Sumatra", endpoint:"/v1/hunt", method:"POST",
-   payload:{event:"deforestation",region:"Sumatra"},
+  {title:"Hotspots of vegetation loss near Bengaluru", endpoint:"/v1/hunt", method:"POST",
+   payload:{event:"deforestation",region:"Bengaluru"},
    render(d){
      const h=(d.hotspots||[]).slice(0,3);
      return {
        answer:`Top hotspots ranked by NDVI: ${h.map(x=>`<span class=v>NDVI ${x.value?.toFixed?x.value.toFixed(3):x.value}</span> at ${x.cell64.slice(0,18)}…`).join(' · ')}`,
-       citations: h.map(x=>({kind:'cell',text:x.cell64})).slice(0,3)
+       citations: [
+         ...h.map(x=>({kind:'cell',text:x.cell64})).slice(0,2),
+         h[0]?.fact_cid?{kind:'cid',text:'fact_cid '+shortCid(h[0].fact_cid)}:null,
+       ].filter(Boolean)
      };
    }},
   {title:"Field polygons in Salinas, California (each carries cell64)", endpoint:"/v1/field_boundaries", method:"POST",
@@ -291,18 +309,23 @@ const Q=[
        ]
      };
    }},
-  {title:"Free-text: how walkable is South Mumbai? (ask self-anchors)", endpoint:"/v1/ask", method:"POST",
-   payload:{q:"How walkable is South Mumbai?"},
+  {title:"Free-text: what is the elevation in South Mumbai? (the intent router)", endpoint:"/v1/ask", method:"POST",
+   payload:{q:"What is the elevation in South Mumbai?"},
    render(d){
+     // /v1/ask is the four-classifier intent router. Verified fields:
+     // topic_routing.matched_topics[], topic_routing.routing.method ("ort" =
+     // ONNX transformer), answer, receipt.fact_cids[], algorithms_for_question[].
      const pr=d.place_resolved||{};
-     const algs=Object.keys(d.algorithm_outcomes||{}).slice(0,3);
-     const obs=(d.band_observations||[]).length;
+     const tr=d.topic_routing||{};
+     const topics=(tr.matched_topics||[]).slice(0,4);
+     const method=tr.routing&&tr.routing.method;
+     const cid=(d.receipt&&d.receipt.fact_cids||[])[0];
      return {
-       answer:`Resolved <span class=v>${escapeHTML(pr.input||'?')}</span> ${pr.extracted_from_question?'<span class=u>(extracted from question text)</span>':''} to <span class=u>${escapeHTML(pr.label||pr.cell64||'')}</span>. <span class=v>${obs}</span> bands observed${algs.length?', algorithms: '+algs.join(', '):''}.`,
+       answer:`Classifier routed this to <span class=v>${topics.map(escapeHTML).join(', ')||'?'}</span> ${method?`<span class=u>(via ${escapeHTML(method)} transformer)</span>`:''}, anchored at <span class=u>${escapeHTML(pr.label||pr.cell64||'')}</span> ${pr.extracted_from_question?'<span class=u>(lat/place extracted from the question text)</span>':''}. Answer: <span class=v>${escapeHTML(d.answer||'')}</span>`,
        citations:[
          pr.cell64?{kind:'cell',text:'cell '+pr.cell64}:null,
-         {kind:'src',text:pr.via||'geocoder'},
-         (d.algorithms_cid)?{kind:'cid',text:'algorithms_cid '+shortCid(d.algorithms_cid)}:null,
+         {kind:'src',text:'topics: '+topics.join(' · ')},
+         cid?{kind:'cid',text:'fact_cid '+shortCid(cid)}:null,
        ].filter(Boolean)
      };
    }},
@@ -336,8 +359,10 @@ async function fire(i){
   card.classList.remove('ok','fail'); card.classList.add('busy');
   $('meta_q'+i).innerHTML='<span class=spinner></span>calling…';
   const t0=performance.now();
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),60000);
   try{
-    const opts={method:q.method,headers:{'content-type':'application/json'}};
+    const opts={method:q.method,headers:{'content-type':'application/json'},signal:ctrl.signal};
     if(q.payload) opts.body=JSON.stringify(q.payload);
     const r=await fetch(HOST+q.endpoint,opts);
     const dt=Math.round(performance.now()-t0);
@@ -352,9 +377,12 @@ async function fire(i){
   }catch(e){
     card.classList.remove('busy'); card.classList.add('fail');
     $('meta_q'+i).textContent='error';
-    $('ans_q'+i).innerHTML='<span style="color:var(--warn)">'+escapeHTML(e.message||String(e))+'</span>';
+    const msg = e.name==='AbortError'
+      ? 'responder is warming this place up (cold over 60 s). Hit run again in a moment.'
+      : (e.message||String(e));
+    $('ans_q'+i).innerHTML='<span style="color:var(--warn)">'+escapeHTML(msg)+'</span>';
     $('raw_q'+i).textContent=String(e);
-  }
+  }finally{ clearTimeout(timer); }
 }
 
 const cards=$('cards');
