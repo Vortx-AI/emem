@@ -6502,6 +6502,22 @@ struct LatLngQ {
     /// belong on POST /v1/recall_polygon.
     #[serde(default)]
     n_cells: Option<usize>,
+    /// Area mode on the DIRECT lat/lng path. When set (or when `n_cells>1`
+    /// is passed with coordinates), the point is expanded to a square
+    /// bbox of half-side `radius_m` metres and the endpoint fans out over
+    /// it and returns the same `stats` block (mean/median/min/max/std) a
+    /// place-with-extent gets — so "NDVI of this plot" is an honest area
+    /// answer, not one 9.55 m pixel. Bare lat/lng with no radius and no
+    /// `n_cells` stays a single point (backward compatible).
+    #[serde(default)]
+    radius_m: Option<f64>,
+    /// Optional numeric threshold for the `pct_area_over` reducer: the
+    /// fraction of sampled cells whose value exceeds it (e.g. "% of the
+    /// plot with NDVI < 0.3" via `1 - pct_area_over`, or "% over 30 °C").
+    /// cos(lat)-area-weighted, same weighting the mean uses. Only emitted
+    /// for numeric bands in area mode.
+    #[serde(default)]
+    threshold: Option<f64>,
     /// Opt-in heavy response sections. Tokens: `"value_per_cell"`,
     /// `"geojson"`, `"scene_thumbs"`. Default omits these to stay
     /// under MCP's 25 KB cap.
@@ -6570,20 +6586,56 @@ impl LatLngQ {
     /// polygon is present — caller wants a single value at the centroid.
     async fn resolve_target(&self, default_n: usize) -> Result<ResolvedTarget, ApiError> {
         self.validate_n_cells()?;
-        // Direct lat/lng: no geocoder, no polygon. Behaviour identical
-        // to the pre-polygon code path so existing point-callers don't
-        // see any envelope drift.
+        // Direct lat/lng. A bare point (no radius, no n_cells) keeps the
+        // exact pre-polygon envelope so existing point-callers see no drift.
+        // When the caller opts into area mode — `radius_m` set OR an
+        // explicit `n_cells > 1` — the point is expanded to a square bbox
+        // and the endpoint fans out + aggregates, so "NDVI of this plot" is
+        // an honest area stat instead of one 9.55 m pixel (D1, 2026-05-31).
         if let Some(la) = self.lat {
             let lo = self.longitude()?;
+            if !la.is_finite()
+                || !lo.is_finite()
+                || !(-90.0..=90.0).contains(&la)
+                || !(-180.0..=180.0).contains(&lo)
+            {
+                return Err(ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!(
+                            "coordinates out of range: lat in [-90,90], lng in [-180,180], got lat={la}, lng={lo}"
+                        ),
+                        details: None,
+                    },
+                ));
+            }
+            let want_area = self.radius_m.is_some() || self.n_cells.is_some_and(|n| n > 1);
+            let polygon = if want_area {
+                Some(point_area_polygon(la, lo, self.radius_m, self.n_cells))
+            } else {
+                None
+            };
+            let area_km2 = polygon.as_ref().map(|p| {
+                let mid = (p.bbox.0 + p.bbox.1) / 2.0;
+                let lat_km = (p.bbox.1 - p.bbox.0) * 111.0;
+                let lng_km = (p.bbox.3 - p.bbox.2) * 111.0 * mid.to_radians().cos().abs();
+                (lat_km * lng_km).max(0.0)
+            });
             return Ok(ResolvedTarget {
                 lat: la,
                 lng: lo,
-                via: "input_latlng".to_string(),
-                polygon: None,
+                via: if want_area {
+                    "input_latlng_area".to_string()
+                } else {
+                    "input_latlng".to_string()
+                },
+                polygon,
                 is_high_confidence: true,
                 confidence_reason: "direct_latlng".to_string(),
-                area_km2: None,
+                area_km2,
                 input_place_query: None,
+                threshold: self.threshold,
             });
         }
         let p = self.place.as_deref().ok_or_else(|| {
@@ -6662,6 +6714,7 @@ impl LatLngQ {
                 confidence_reason,
                 area_km2: None,
                 input_place_query,
+                threshold: self.threshold,
             });
         }
 
@@ -6712,6 +6765,7 @@ impl LatLngQ {
             confidence_reason,
             area_km2,
             input_place_query,
+            threshold: self.threshold,
         })
     }
 }
@@ -6730,6 +6784,9 @@ struct ResolvedTarget {
     confidence_reason: String,
     area_km2: Option<f64>,
     input_place_query: Option<String>,
+    /// Optional numeric threshold for the `pct_area_over` reducer, carried
+    /// from the request through to the per-band aggregation. None disables it.
+    threshold: Option<f64>,
 }
 
 #[derive(Clone)]
@@ -7491,6 +7548,8 @@ async fn get_places_scene_overlay_svg(
         bands: None,
         tslot: q.tslot,
         n_cells: Some(n_cells),
+        radius_m: None,
+        threshold: None,
         include: None,
     };
     let target = lq.resolve_target(n_cells).await?;
@@ -8507,6 +8566,32 @@ async fn boring_recall_aggregated(
             "captured_at_range":     captured_at_range,
             "responder_pubkey_b32":  pubkey_b32,
         });
+        // pct_area_over reducer (D1): cos(lat)-weighted fraction of sampled
+        // cells whose numeric value exceeds the caller's threshold (same
+        // area weighting the mean uses). "% of plot with NDVI < 0.3" is
+        // `1 - pct_area_over` at threshold 0.3; "% over 30 °C" is
+        // pct_area_over at 30. Numeric values only; skipped otherwise.
+        if let Some(thr) = target.threshold {
+            let mut over_w = 0.0f64;
+            let mut total_w = 0.0f64;
+            for (v, c) in primary_values.iter().zip(primary_cells.iter()) {
+                if let Some(x) = v.as_f64() {
+                    let w = emem_codec::latlng_from_cell64(c)
+                        .map(|ll| ll.lat_deg.to_radians().cos().abs().max(1e-6))
+                        .unwrap_or(1.0);
+                    total_w += w;
+                    if x > thr {
+                        over_w += w;
+                    }
+                }
+            }
+            if total_w > 0.0 {
+                if let Some(map) = block.as_object_mut() {
+                    map.insert("pct_area_over".into(), json!(over_w / total_w));
+                    map.insert("pct_area_over_threshold".into(), json!(thr));
+                }
+            }
+        }
         if let Some(map) = block.as_object_mut() {
             if include.contains("value_per_cell") {
                 map.insert(
@@ -10962,12 +11047,133 @@ fn enrich_find_similar_response(body: &mut JsonValue, mode_str: &str, band_used:
     }
 }
 
+/// Convert an ISO `YYYY-MM-DD` date to the tslot for `band`'s tempo, so an
+/// agent can express a diff/trajectory window in human dates instead of raw
+/// Unix-epoch slot integers (C4, 2026-05-31). Reuses `modis_calendar_to_unix`
+/// for the civil-date parse and the band's registry tempo for the snap.
+fn iso_date_to_tslot(date: &str, band: &str) -> Result<u64, ApiError> {
+    let unix = modis_calendar_to_unix(date.trim()).ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "could not parse date '{date}': expected ISO YYYY-MM-DD (e.g. 2024-06-01)"
+                ),
+                details: None,
+            },
+        )
+    })?;
+    // Unknown band → fall back to annual (Slow) tempo for the snap; the
+    // band's own unknown-ness surfaces elsewhere (recall/trajectory warnings).
+    let tempo = tempo_for_band(band).unwrap_or(emem_core::tslot::Tempo::Slow);
+    Ok(emem_core::tslot::Tslot::from_unix(unix, tempo).0)
+}
+
+/// Shared location resolver for the spatial primitives that take one point:
+/// explicit cell64 (or place name in the cell field) wins, then `place`,
+/// then `lat`+`lng`. Returns the resolved cell64 + provenance. 400 when
+/// nothing usable was supplied or coordinates are out of range.
+async fn resolve_point_location(
+    cell: Option<&str>,
+    place: Option<&str>,
+    lat: Option<f64>,
+    lng: Option<f64>,
+) -> Result<(String, ResolvedRef), ApiError> {
+    if let Some(c) = cell.filter(|c| !c.trim().is_empty()) {
+        return resolve_cell_field(c).await;
+    }
+    if let Some(p) = place.filter(|p| !p.trim().is_empty()) {
+        return resolve_cell_field(p).await;
+    }
+    if let (Some(la), Some(lo)) = (lat, lng) {
+        if !la.is_finite()
+            || !lo.is_finite()
+            || !(-90.0..=90.0).contains(&la)
+            || !(-180.0..=180.0).contains(&lo)
+        {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "coordinates out of range: lat in [-90,90], lng in [-180,180], got lat={la}, lng={lo}"
+                    ),
+                    details: None,
+                },
+            ));
+        }
+        let cell = emem_codec::to_cell64(emem_codec::cell_from_latlng(la, lo));
+        return Ok((cell, ResolvedRef::Cell));
+    }
+    Err(ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: "no location provided: pass `cell` (a cell64 or place name), `place`, or `lat`+`lng`".into(),
+            details: None,
+        },
+    ))
+}
+
+/// API-layer diff request: flexible location (cell/place/lat+lng) and a
+/// window expressed as either raw tslots (`tslot_a`/`tslot_b`) or ISO dates
+/// (`date_a`/`date_b`). Resolves to the strict primitive `DiffReq`.
+#[derive(Deserialize)]
+struct DiffApiReq {
+    #[serde(default, alias = "cell64")]
+    cell: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
+    band: String,
+    #[serde(default)]
+    tslot_a: Option<u64>,
+    #[serde(default)]
+    tslot_b: Option<u64>,
+    #[serde(default)]
+    date_a: Option<String>,
+    #[serde(default)]
+    date_b: Option<String>,
+}
+
 async fn post_diff(
     State(s): State<AppState>,
-    EmemJson(mut req): EmemJson<DiffReq>,
+    EmemJson(api): EmemJson<DiffApiReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let (cell, rc) = resolve_cell_field(&req.cell).await?;
-    req.cell = cell;
+    let (cell, rc) =
+        resolve_point_location(api.cell.as_deref(), api.place.as_deref(), api.lat, api.lng).await?;
+    // Window: raw tslot wins; else an ISO date is converted via the band's tempo.
+    let resolve_edge = |tslot: Option<u64>,
+                        date: Option<&str>,
+                        which: &str|
+     -> Result<u64, ApiError> {
+        if let Some(t) = tslot {
+            Ok(t)
+        } else if let Some(d) = date {
+            iso_date_to_tslot(d, &api.band)
+        } else {
+            Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("diff needs {which}: pass `tslot_{which}` (Unix-epoch slot) or `date_{which}` (YYYY-MM-DD)"),
+                    details: None,
+                },
+            ))
+        }
+    };
+    let tslot_a = resolve_edge(api.tslot_a, api.date_a.as_deref(), "a")?;
+    let tslot_b = resolve_edge(api.tslot_b, api.date_b.as_deref(), "b")?;
+    let req = DiffReq {
+        cell,
+        band: api.band,
+        tslot_a,
+        tslot_b,
+    };
     let resp = diff(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
     Ok(Json(attach_resolved(
@@ -10976,12 +11182,67 @@ async fn post_diff(
     )))
 }
 
+/// API-layer trajectory request: flexible location (cell/place/lat+lng) and
+/// a window expressed as either raw tslots (`window: [a,b]`) or ISO dates
+/// (`from_date`/`to_date`). Resolves to the strict primitive `TrajectoryReq`.
+#[derive(Deserialize)]
+struct TrajectoryApiReq {
+    #[serde(default, alias = "cell64")]
+    cell: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
+    band: String,
+    #[serde(default)]
+    window: Option<[u64; 2]>,
+    #[serde(default)]
+    from_date: Option<String>,
+    #[serde(default)]
+    to_date: Option<String>,
+    #[serde(default)]
+    as_of_tslot: Option<u64>,
+    #[serde(default)]
+    as_of_signed_at: Option<String>,
+    #[serde(default)]
+    scope: Option<emem_fact::Scope>,
+}
+
 async fn post_trajectory(
     State(s): State<AppState>,
-    EmemJson(mut req): EmemJson<TrajectoryReq>,
+    EmemJson(api): EmemJson<TrajectoryApiReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let (cell, rc) = resolve_cell_field(&req.cell).await?;
-    req.cell = cell;
+    let (cell, rc) =
+        resolve_point_location(api.cell.as_deref(), api.place.as_deref(), api.lat, api.lng).await?;
+    // Window: raw [a,b] tslots win; else from_date/to_date are converted
+    // via the band's tempo. Missing both is a typed 400.
+    let window: [u64; 2] = if let Some(w) = api.window {
+        w
+    } else if let (Some(f), Some(t)) = (api.from_date.as_deref(), api.to_date.as_deref()) {
+        [
+            iso_date_to_tslot(f, &api.band)?,
+            iso_date_to_tslot(t, &api.band)?,
+        ]
+    } else {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "trajectory needs a window: pass `window:[a,b]` (Unix-epoch slots) or `from_date`+`to_date` (YYYY-MM-DD)".into(),
+                details: None,
+            },
+        ));
+    };
+    let req = TrajectoryReq {
+        cell,
+        band: api.band,
+        window,
+        as_of_tslot: api.as_of_tslot,
+        as_of_signed_at: api.as_of_signed_at,
+        scope: api.scope,
+    };
     let resp = trajectory(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
     let mut v = serde_json::to_value(resp).unwrap_or(json!({}));
@@ -20929,6 +21190,8 @@ async fn post_elevation_coherent(
         bands: None,
         tslot: None,
         n_cells: None,
+        radius_m: None,
+        threshold: None,
         include: None,
     };
     let target = if req.lat.is_some() && req.lng.is_some() {
@@ -20953,6 +21216,7 @@ async fn post_elevation_coherent(
             confidence_reason: "direct_cell".into(),
             area_km2: None,
             input_place_query: None,
+            threshold: None,
         }
     } else if req.place.is_some() {
         q.resolve_target(16).await?
@@ -21190,6 +21454,7 @@ async fn elevation_coherent_polygon(
             confidence_reason: target.confidence_reason.clone(),
             area_km2: target.area_km2,
             input_place_query: target.input_place_query.clone(),
+            threshold: target.threshold,
         };
         return Box::pin(elevation_coherent(s, point)).await;
     }
@@ -41193,6 +41458,44 @@ pub(crate) async fn resolve_place_bbox(
     ))
 }
 
+/// Build a square area-polygon centred on a point for the boring-endpoint
+/// coord path (D1, 2026-05-31). `radius_m` (half-side, metres) defines the
+/// extent; when absent it is derived from `n_cells` so more cells = a
+/// proportionally larger neighbourhood at roughly the grid pitch. Samples
+/// `n_cells` cells (default 9, clamped to the boring cap) inside the bbox
+/// via the same uniform-stride helper place-with-extent uses, so coords get
+/// the identical aggregation path.
+fn point_area_polygon(
+    lat: f64,
+    lng: f64,
+    radius_m: Option<f64>,
+    n_cells: Option<usize>,
+) -> ResolvedPolygon {
+    let n = n_cells.unwrap_or(9).clamp(1, boring_max_cells());
+    // Derive a half-side from n_cells when no radius is given: a square
+    // holding ~n cells at the ~9.55 m grid pitch has half-side
+    // ≈ sqrt(n)/2 · pitch.
+    let half_m = radius_m
+        .filter(|r| r.is_finite() && *r > 0.0)
+        .unwrap_or_else(|| (n as f64).sqrt() * 0.5 * f64::from(RESOLUTION_M_GRID));
+    let dlat = half_m / METERS_PER_DEGREE_LAT;
+    let coslat = lat.to_radians().cos().abs().max(1e-6);
+    let dlng = half_m / (METERS_PER_DEGREE_LAT * coslat);
+    let bbox = (
+        (lat - dlat).clamp(-90.0, 90.0),
+        (lat + dlat).clamp(-90.0, 90.0),
+        (lng - dlng).clamp(-180.0, 180.0),
+        (lng + dlng).clamp(-180.0, 180.0),
+    );
+    let sample_cells = sample_cells_in_bbox(bbox, n);
+    ResolvedPolygon {
+        bbox,
+        sample_cells,
+        place_label: None,
+        source: "point_radius".to_string(),
+    }
+}
+
 pub(crate) fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) -> Vec<String> {
     let (mn_la, mx_la, mn_ln, mx_ln) = bbox;
     let n_side = (target_n as f64).sqrt().floor().max(2.0) as usize;
@@ -44197,6 +44500,8 @@ mod tests {
             bands: None,
             tslot: None,
             n_cells: None,
+            radius_m: None,
+            threshold: None,
             include: None,
         };
         let q2 = LatLngQ {
@@ -44208,6 +44513,8 @@ mod tests {
             bands: None,
             tslot: None,
             n_cells: None,
+            radius_m: None,
+            threshold: None,
             include: None,
         };
         assert!(q1.longitude().ok() == Some(75.85));
@@ -44221,6 +44528,8 @@ mod tests {
             bands: None,
             tslot: None,
             n_cells: None,
+            radius_m: None,
+            threshold: None,
             include: None,
         };
         assert!(q_missing.longitude().is_err());
