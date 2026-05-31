@@ -3,7 +3,7 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/humans — knowledge constellation of Earth memory</title>
+<title>emem.dev/humans · knowledge constellation of Earth memory</title>
 <meta name=description content="Single-page exploration of the emem corpus. Cells as stars, every visible thing has a CID and a data attribute, every receipt is offline-verifiable in the browser. Built for AI agents that humans can also see.">
 <link rel=canonical href="https://emem.dev/humans">
 <link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
@@ -17,14 +17,14 @@
 <meta name=color-scheme content="dark">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/humans">
-<meta property=og:title content="emem.dev/humans — knowledge constellation">
-<meta property=og:description content="Every star is a signed cell on Earth. Click one — the receipt verifies offline in your browser. Every API call this UI makes prints below, so an LLM can learn the protocol by watching.">
+<meta property=og:title content="emem.dev/humans · knowledge constellation">
+<meta property=og:description content="Every star is a signed cell on Earth. Click one and the receipt verifies offline in your browser. Every API call this UI makes prints below, so an LLM can learn the protocol by watching.">
 <meta property=og:image content="https://emem.dev/humans-og.svg">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 <meta name=twitter:card content="summary_large_image">
 <meta name=twitter:url content="https://emem.dev/humans">
-<meta name=twitter:title content="emem.dev/humans — knowledge constellation">
+<meta name=twitter:title content="emem.dev/humans · knowledge constellation">
 <meta name=twitter:description content="Every star is a signed cell on Earth. Receipts verify offline. The page is its own API console.">
 <meta name=twitter:image content="https://emem.dev/humans-og.svg">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -174,6 +174,18 @@ header .chip:hover{border-color:var(--accent);color:var(--accent)}
 header .chip kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .25em;border-radius:2px;
   font-size:10px;color:var(--fg-3);margin-left:.3em}
 @media(max-width:760px){header .brand{font-size:12px}header .chip{padding:.2em .4em;font-size:10.5px}}
+/* unified site nav — same links as every other emem surface, styled for
+   the dark app header: faded mono links + accent active-underline. Lives
+   inside the existing header grid row so the canvas layout is untouched. */
+header .sitenav{display:flex;align-items:center;gap:0;font-family:var(--mono);font-size:11px}
+header .sitenav a{position:relative;color:var(--fg-2);border-bottom:none;text-decoration:none;
+  padding:.35em .55em;opacity:.6;transition:opacity .18s ease,color .18s ease;white-space:nowrap}
+header .sitenav a:hover{opacity:1;color:var(--fg)}
+header .sitenav a.on{opacity:1;color:var(--accent)}
+header .sitenav a.on::after{content:"";position:absolute;left:.55em;right:.55em;bottom:.05em;height:2px;
+  background:var(--accent);opacity:.85;border-radius:1px}
+@media(max-width:1100px){header .sitenav a.nav-sec{display:none}}
+@media(max-width:760px){header .sitenav{display:none}}
 
 /* left rail */
 aside.left{grid-area:left;border-right:1px solid var(--line);background:var(--bg-1);
@@ -766,11 +778,20 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 <div id=app role=application aria-label="emem knowledge constellation">
   <header role=banner>
     <div class=brand aria-label="emem.dev humans page"><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=humans>humans</span></div>
+    <nav class=sitenav aria-label="emem surfaces">
+      <a href="/">Home</a>
+      <a href="/how-it-works" class="nav-sec">How it works</a>
+      <a href="/solutions" class="nav-sec">Solutions</a>
+      <a href="/reference" class="nav-sec">Reference</a>
+      <a href="/docs" class="nav-sec">Docs</a>
+      <a href="/verify" class="nav-sec">Verify</a>
+      <a href="https://github.com/Vortx-AI/emem" rel="noopener" class="nav-sec">GitHub</a>
+    </nav>
     <div class=pubkey id=hdrPubkey title="Responder ed25519 public key, base32-nopad-lowercase"><span class=dot></span><span id=hdrPubkeyText>connecting…</span></div>
     <div class=spacer></div>
     <div class=chips>
-      <button class=chip id=chipCmdk   type=button data-emem-action=open-cmdk    aria-label="Ask about a place" title="Ask about any place — flood risk, wildfire smoke, heat health, climate impact. Click or press Ctrl-K.">ask<kbd id=kbdCmdk>Ctrl-K</kbd></button>
-      <button class=chip id=chipTry    type=button data-emem-action=open-tryit  aria-label="Try the API live" title="Open the live API drawer — pick a primitive, edit JSON, run against this responder, see receipt + curl/python/MCP.">try<kbd>T</kbd></button>
+      <button class=chip id=chipCmdk   type=button data-emem-action=open-cmdk    aria-label="Ask about a place" title="Ask about any place: flood risk, wildfire smoke, heat health, climate impact. Click or press Ctrl-K.">ask<kbd id=kbdCmdk>Ctrl-K</kbd></button>
+      <button class=chip id=chipTry    type=button data-emem-action=open-tryit  aria-label="Try the API live" title="Open the live API drawer: pick a primitive, edit JSON, run against this responder, see receipt + curl/python/MCP.">try<kbd>T</kbd></button>
       <button class=chip id=chipLasso  type=button data-emem-action=lasso-toggle aria-label="Toggle lasso select" aria-pressed=false title="Drag a region on the map to recall every cell inside it.">lasso<kbd>L</kbd></button>
       <button class=chip id=chipConsole type=button data-emem-action=focus-console aria-label="Focus the API console" title="Every /v1/* call this page makes is logged below. Copy as curl, Python, or MCP.">console<kbd>~</kbd></button>
       <button class=chip id=chipHelp   type=button data-emem-action=open-help    aria-label="Show keyboard help" title="Keyboard shortcuts and concept glossary.">help<kbd>?</kbd></button>
@@ -797,7 +818,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div class=stat><span>sources</span><code id=mSrc class=copyable>—</code></div>
     <div class=stat><span>topics</span><code id=mTop class=copyable>—</code></div>
 
-    <h3>filter — band family</h3>
+    <h3>filter · band family</h3>
     <div id=famKey></div>
 
     <h3>time window</h3>
@@ -812,7 +833,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 
   <main id=main tabindex="-1">
     <div class=hero id=hero role=note>
-      <h1>ask about <b>any place</b> — flood risk, wildfire smoke, heat health</h1>
+      <h1>ask about <b>any place</b> · flood risk, wildfire smoke, heat health</h1>
       <p>press <kbd>Ctrl-K</kbd> to ask, or click any star on the map · every dot is a place where verified Earth data lives · every answer ships with a cryptographic receipt you can verify offline · every <kbd>/v1/*</kbd> call prints in the console below so an LLM scraping this page learns the API by observation</p>
       <button class=hero-close id=heroClose type=button aria-label="Dismiss intro">×</button>
     </div>
@@ -856,7 +877,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <div class="sec focus">
         <button id=focusBtn type=button aria-pressed=false
                 data-emem-action=toggle-focus
-                aria-label="Toggle focus mode" title="Hide all chrome — F or Esc">⤢ focus<kbd>F</kbd></button>
+                aria-label="Toggle focus mode" title="Hide all chrome · F or Esc">⤢ focus<kbd>F</kbd></button>
       </div>
     </div>
     <button class="collapse-handle cl" id=cHandleLeft type=button
@@ -880,7 +901,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <div id=ontology aria-hidden=true></div>
     <div id=logview aria-hidden=true>
       <div class=head>
-        <span><b style="color:var(--fg-2)">API console</b> · every <code style="color:var(--fg-2)">/v1/*</code> call this page makes · copy as curl, Python, or MCP — newest first</span>
+        <span><b style="color:var(--fg-2)">API console</b> · every <code style="color:var(--fg-2)">/v1/*</code> call this page makes · copy as curl, Python, or MCP · newest first</span>
         <span id=logCount>—</span>
       </div>
       <div class=body id=logBody></div>
@@ -930,7 +951,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 <!-- command palette -->
 <div class=cmdk-back id=cmdkBack role=dialog aria-modal=true aria-label="Command palette">
   <div class=cmdk-box>
-    <input id=cmdkInput type=text autocomplete=off aria-label="Ask about a place (command palette)" placeholder="ask about a place — flood risk, wildfire smoke, climate haven, heat health, where else looks like this …">
+    <input id=cmdkInput type=text autocomplete=off aria-label="Ask about a place (command palette)" placeholder="ask about a place · flood risk, wildfire smoke, climate haven, heat health, where else looks like this …">
     <!-- Example-question chips: real queries from the 105-question consumer
          eval. Click any to populate the box and submit as /v1/ask.
          Hidden once the user types so the corpus matches surface fully. -->
@@ -972,7 +993,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <button id=tryReset type=button title="Reset to the default example">reset</button>
     <span class=ttiming id=tryTiming></span>
   </div>
-  <div class=tout id=tryOut><div class=empty style="margin:1em 0">edit the body above and hit <b style="color:var(--accent)">run</b> — response, receipt, and a snippet for any agent appear here</div></div>
+  <div class=tout id=tryOut><div class=empty style="margin:1em 0">edit the body above and hit <b style="color:var(--accent)">run</b> · response, receipt, and a snippet for any agent appear here</div></div>
   <div class=tsnip id=trySnip>
     <span>copy as</span>
     <button id=tryCurl type=button>curl</button>
@@ -1010,7 +1031,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
     <p style="font-family:var(--mono);font-size:11px;color:var(--fg-3);margin-top:1em">
       Sibling JSON twin: <a href="/humans.json">/humans.json</a>.
       Page-scoped llms.txt: <a href="/humans/llms.txt">/humans/llms.txt</a>.
-      Every <code>/v1/*</code> call this UI makes prints in the console — a scraping LLM learns the API by observation.
+      Every <code>/v1/*</code> call this UI makes prints in the console; a scraping LLM learns the API by observation.
     </p>
   </div>
 </div>

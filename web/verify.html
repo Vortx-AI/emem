@@ -3,8 +3,8 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/verify — cryptographic receipt verifier</title>
-<meta name=description content="Paste a fact CID or a receipt JSON. Every signature is recomputed in your browser — ed25519 over the canonical preimage, no server round-trip required. The protocol's trust layer, made visible.">
+<title>emem.dev/verify · cryptographic receipt verifier</title>
+<meta name=description content="Paste a fact CID or a receipt JSON. Every signature is recomputed in your browser: ed25519 over the canonical preimage, no server round-trip required. The protocol's trust layer, made visible.">
 <link rel=canonical href="https://emem.dev/verify">
 <link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
@@ -15,13 +15,13 @@
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/verify">
-<meta property=og:title content="emem.dev/verify — receipts, signatures, sources">
-<meta property=og:description content="Every fact on emem.dev is content-addressed and signed by an ed25519 responder key. This page recomputes the signature in your browser — no trust required, no server call.">
+<meta property=og:title content="emem.dev/verify · receipts, signatures, sources">
+<meta property=og:description content="Every fact on emem.dev is content-addressed and signed by an ed25519 responder key. This page recomputes the signature in your browser: no trust required, no server call.">
 <meta property=og:image content="https://emem.dev/humans-og.svg">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 <meta name=twitter:card content="summary_large_image">
-<meta name=twitter:title content="emem.dev/verify — receipts, signatures, sources">
+<meta name=twitter:title content="emem.dev/verify · receipts, signatures, sources">
 <meta name=twitter:description content="Receipts verify offline in your browser. The protocol's trust layer, made visible.">
 <meta name=twitter:image content="https://emem.dev/humans-og.svg">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -247,14 +247,47 @@ footer.foot a:hover{color:var(--accent)}
 .skip{position:absolute;left:-999px;top:0}
 .skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
 .hidden{display:none!important}
+
+/* unified site statusbar, adapted to this surface's --bg/--fg tokens */
+.statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:920px;margin:0 auto;padding:0 1.4em;display:flex;align-items:center;gap:1rem;height:40px;font-size:11px;font-family:var(--mono)}
+.statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
+.statusbar a:first-of-type{border-left:1px solid var(--line);margin-left:.5rem}
+.statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2)}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.statusbar .brand{font-weight:700;font-size:12px;letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+@media(max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+
+/* Mithila accent: double-line + small accent diamond, for framed panels */
+.mithila{display:flex;align-items:center;gap:.5em;margin:0 0 1.1em}
+.mithila .ln{flex:1;height:0;border-top:1px solid var(--line);box-shadow:0 3px 0 -2px var(--line)}
+.mithila .dia{width:7px;height:7px;background:var(--accent);transform:rotate(45deg);flex-shrink:0;opacity:.8}
+.input-card,.card,.status{position:relative}
+.input-card::before,.card::before{content:"";position:absolute;left:1.2em;right:1.2em;top:.55em;height:0;border-top:1px solid var(--line);box-shadow:0 2px 0 -1px var(--line);opacity:.5;pointer-events:none}
 </style>
 </head>
 <body>
 <a class=skip href="#main">Skip to verifier</a>
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/">Home</a>
+    <a href="/how-it-works" class="nav-sec">How it works</a>
+    <a href="/solutions" class="nav-sec">Solutions</a>
+    <a href="/reference" class="nav-sec">Reference</a>
+    <a href="/docs" class="nav-sec">Docs</a>
+    <a href="/verify" class="on">Verify</a>
+    <span class="spacer"></span>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+  </div>
+</header>
 <main class=app id=main tabindex="-1">
   <header class=top role=banner>
     <span class=brand aria-label="emem.dev verify page"><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=verify>verify</span></span>
-    <span class=tag>— cryptographic receipt verifier</span>
+    <span class=tag>cryptographic receipt verifier</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
       <a href="/humans">humans</a>
@@ -271,8 +304,10 @@ footer.foot a:hover{color:var(--accent)}
     Drop a fact CID, paste a receipt JSON, watch the math run.
   </p>
 
+  <div class=mithila aria-hidden=true><span class=ln></span><span class=dia></span><span class=ln></span></div>
+
   <section class=input-card aria-label="Input">
-    <label for=cidInput>fact CID — paste a 32-character base32 content-address</label>
+    <label for=cidInput>fact CID · paste a 32-character base32 content-address</label>
     <div class=row>
       <input id=cidInput type=text spellcheck=false autocomplete=off
              placeholder="e.g. qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq">
@@ -284,7 +319,7 @@ footer.foot a:hover{color:var(--accent)}
       <button data-example=load-densest type=button>fetch from densest cell</button>
     </div>
     <div class=or>or paste a receipt JSON</div>
-    <label for=receiptInput>receipt JSON — verifies the ed25519 signature offline against the canonical preimage</label>
+    <label for=receiptInput>receipt JSON · verifies the ed25519 signature offline against the canonical preimage</label>
     <textarea id=receiptInput spellcheck=false autocomplete=off
               placeholder='{"primitive":"recall","served_at":"2026-05-13T14:38:00Z","request_id":"…","cells":["…"],"fact_cids":["…"],"responder_pubkey_b32":"…","sig_b32":"…","schema_cid":"…"}'></textarea>
     <div class=actions>
@@ -297,18 +332,18 @@ footer.foot a:hover{color:var(--accent)}
   <section class="status idle" id=statusBanner role=status aria-live=polite>
     <span class=glyph aria-hidden=true>◌</span>
     <div>
-      <div class=text id=statusText>idle — fetch a fact or paste a receipt to begin</div>
+      <div class=text id=statusText>idle · fetch a fact or paste a receipt to begin</div>
       <div class=sub id=statusSub>this surface verifies <code>blake3(preimage) → ed25519.verify(sig, digest, pubkey)</code> entirely in your browser</div>
     </div>
   </section>
 
   <section class="card hidden" id=factCard aria-label="Fact details">
-    <h3>fact <span class=pill id=factKindPill>—</span></h3>
+    <h3>fact <span class=pill id=factKindPill>·</span></h3>
     <div class=grid id=factGrid></div>
   </section>
 
   <section class="card hidden" id=receiptCard aria-label="Receipt details">
-    <h3>receipt <span class=pill id=receiptPrimitivePill>—</span></h3>
+    <h3>receipt <span class=pill id=receiptPrimitivePill>·</span></h3>
     <div class=grid id=receiptGrid></div>
     <div class=actions>
       <button id=btnReverify type=button>re-verify</button>
@@ -321,7 +356,7 @@ footer.foot a:hover{color:var(--accent)}
     <h3>verify it yourself <span class=pill>three independent paths</span></h3>
     <p class=muted style="font-size:12.5px;margin:0 0 .8em;line-height:1.6">
       The receipt's signature is reproducible from primitives every system already has. Pick whichever recipe
-      matches your toolchain — they all compute the same byte-for-byte digest and run the same ed25519 verify.
+      matches your toolchain; they all compute the same byte-for-byte digest and run the same ed25519 verify.
     </p>
     <div class=recipes>
       <details open>
@@ -546,7 +581,7 @@ function chip(kind, text, fullValue){
   const full = fullValue == null ? text : fullValue;
   const short = (typeof text === 'string' && text.length > 22)
     ? text.slice(0, 12) + '…' + text.slice(-4) : text;
-  return `<span class=chip data-kind="${escapeHtml(kind)}" data-full="${escapeHtml(full)}" title="${escapeHtml(full)} — click to copy"><span class=dot></span>${escapeHtml(short)}</span>`;
+  return `<span class=chip data-kind="${escapeHtml(kind)}" data-full="${escapeHtml(full)}" title="${escapeHtml(full)} · click to copy"><span class=dot></span>${escapeHtml(short)}</span>`;
 }
 
 // Wire chip clicks (delegated).
@@ -666,7 +701,7 @@ function renderReceipt(receipt, result){
     // browser falls back to the server, the user got a "verified" with
     // no signal that the offline guarantee no longer held.
     const viaChip = result.via === 'browser'
-      ? '<span class=chip data-kind=ok title="Recomputed in your browser with @noble/curves + @noble/hashes — no server round-trip"><span class=dot></span>offline · in browser</span>'
+      ? '<span class=chip data-kind=ok title="Recomputed in your browser with @noble/curves + @noble/hashes, no server round-trip"><span class=dot></span>offline · in browser</span>'
       : result.via === 'server'
       ? '<span class=chip data-kind=cid title="Browser crypto unavailable; the responder verified its own signature via POST /v1/verify_receipt"><span class=dot></span>server-verified · POST /v1/verify_receipt</span>'
       : '';
@@ -782,7 +817,7 @@ async function verifyAndRender(receiptIn){
     '<code>digest = blake3(preimage); ed25519.verify(sig, digest, pubkey)</code>');
   let result = await verifyReceiptInBrowser(receipt);
   if (result.via === 'fallback') {
-    setStatus('pending', 'noble libs unavailable — falling back to /v1/verify_receipt',
+    setStatus('pending', 'noble libs unavailable · falling back to /v1/verify_receipt',
               'the in-browser path failed to load; using the responder\'s verify endpoint as a backup');
     result = await verifyReceiptViaServer(receipt);
   }
@@ -795,7 +830,7 @@ async function verifyAndRender(receiptIn){
       (result.via === 'browser' ? ' · verified offline by your browser' : ' · verified via /v1/verify_receipt'));
   } else {
     setStatus('fail',
-      'receipt did NOT verify — tamper detected',
+      'receipt did NOT verify · tamper detected',
       'the signature does not match a blake3 digest of the canonical preimage. ' +
       (result.error ? '<code>' + escapeHtml(result.error) + '</code>' : 'check that responder_pubkey_b32, sig_b32, and the cells/fact_cids arrays are byte-identical to what the responder signed.'));
   }
@@ -803,19 +838,19 @@ async function verifyAndRender(receiptIn){
 
 // ── glossary popovers ───────────────────────────────────────────────────────
 const GLOSS = {
-  cid: { title: 'cid — content identifier',
-    body: 'BLAKE3 hash (32 bytes) of the canonical CBOR encoding of a fact or manifest, then base32-nopad-lowercase (32 characters). Two responders observing the same fact compute the same CID. The CID *is* the validator — you can never serve different bytes under the same CID.' },
-  preimage: { title: 'preimage — the bytes the responder signed',
+  cid: { title: 'cid · content identifier',
+    body: 'BLAKE3 hash (32 bytes) of the canonical CBOR encoding of a fact or manifest, then base32-nopad-lowercase (32 characters). Two responders observing the same fact compute the same CID. The CID *is* the validator: you can never serve different bytes under the same CID.' },
+  preimage: { title: 'preimage · the bytes the responder signed',
     body: '<code>request_id | served_at | primitive | (cell0, cell1, …,) | (cid0, cid1, …,)</code><br>Each section UTF-8, sections separated by <code>|</code>, list elements followed by <code>,</code>. The blake3 hash of this byte sequence is what ed25519 verifies.' },
-  blake3: { title: 'blake3 — content hash',
+  blake3: { title: 'blake3 · content hash',
     body: '32-byte cryptographic hash used for fact CIDs and for the preimage digest in receipts. Collision-resistant, parallel, and faster than SHA-2 / SHA-3. Library used here: <code>@noble/hashes/blake3</code>.' },
-  ed25519: { title: 'ed25519 — responder signing key',
+  ed25519: { title: 'ed25519 · responder signing key',
     body: '32-byte public key, 64-byte signature. Every receipt is signed by the responder\'s ed25519 key over the blake3 digest of the canonical preimage. Library used here: <code>@noble/curves/ed25519</code>.' },
-  receipt: { title: 'receipt — the signed envelope',
+  receipt: { title: 'receipt · the signed envelope',
     body: 'A small object the responder emits alongside any recall: <code>{primitive, request_id, served_at, cells[], fact_cids[], responder_pubkey_b32, sig_b32, schema_cid}</code>. Verifies offline with the math shown above.' },
-  responder: { title: 'responder — the signer',
-    body: 'A node that stores facts and signs receipts. Identified by an ed25519 public key. Multiple responders can co-attest the same fact — that\'s how you know a fact is real, not just one party\'s claim. This responder\'s pubkey is visible at <a href="/.well-known/emem.json" target=_blank rel=noopener>/.well-known/emem.json</a>.' },
-  cell64: { title: 'cell64 — the place primitive',
+  responder: { title: 'responder · the signer',
+    body: 'A node that stores facts and signs receipts. Identified by an ed25519 public key. Multiple responders can co-attest the same fact, which is how you know a fact is real, not just one party\'s claim. This responder\'s pubkey is visible at <a href="/.well-known/emem.json" target=_blank rel=noopener>/.well-known/emem.json</a>.' },
+  cell64: { title: 'cell64 · the place primitive',
     body: 'A 64-bit identifier for a ~9.55 m square on Earth. The interior packs lat[21]·lng[22] bits as fixed-point integers; the 4-char prefix is a checksum. Example: <code>defi.zb544.pico.zd392</code>.' },
 };
 function showGloss(key, btn){
@@ -857,7 +892,7 @@ async function loadDensestExample(){
   try {
     const cov = await fetch('/v1/coverage').then(r => r.json());
     const cell = (cov.cells || [])[0];
-    if (!cell) { setStatus('fail', 'no coverage available', '—'); return; }
+    if (!cell) { setStatus('fail', 'no coverage available', '·'); return; }
     const rec = await fetch('/v1/recall', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -865,7 +900,7 @@ async function loadDensestExample(){
     }).then(r => r.json());
     const cid = (rec.receipt && rec.receipt.fact_cids && rec.receipt.fact_cids[0])
              || (rec.facts && rec.facts[0] && (rec.facts[0].fact_cid || rec.facts[0].cid));
-    if (!cid) { setStatus('fail', 'densest cell has no facts', '—'); return; }
+    if (!cid) { setStatus('fail', 'densest cell has no facts', '·'); return; }
     $('cidInput').value = cid;
     history.replaceState({}, '', '/verify/' + cid);
     await fetchAndShowFact(cid);
@@ -901,7 +936,7 @@ $('btnPasteFromClipboard').onclick = async () => {
     const txt = await navigator.clipboard.readText();
     $('receiptInput').value = txt;
     toast('pasted ' + txt.length + ' chars');
-  } catch (_) { toast('clipboard blocked — paste manually'); }
+  } catch (_) { toast('clipboard blocked · paste manually'); }
 };
 $('btnClear').onclick = () => {
   $('cidInput').value = '';
@@ -910,7 +945,7 @@ $('btnClear').onclick = () => {
   $('receiptCard').classList.add('hidden');
   _lastReceipt = null; _lastCid = null;
   refreshRecipes(null);
-  setStatus('idle', 'idle — fetch a fact or paste a receipt to begin',
+  setStatus('idle', 'idle · fetch a fact or paste a receipt to begin',
     'this surface verifies <code>blake3(preimage) → ed25519.verify(sig, digest, pubkey)</code> entirely in your browser');
   history.replaceState({}, '', '/verify');
 };

@@ -3,12 +3,12 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem.dev — REST API reference (interactive)</title>
-<meta name=description content="Interactive console for /v1/locate, /v1/recall, /v1/hunt — execute against the live emem.dev surface, see the ed25519 receipt verified in your browser, then read the full ReDoc reference below.">
+<title>emem.dev · REST API reference (interactive)</title>
+<meta name=description content="Interactive console for /v1/locate, /v1/recall, /v1/hunt: execute against the live emem.dev surface, see the ed25519 receipt verified in your browser, then read the full ReDoc reference below.">
 <link rel=canonical href="https://emem.dev/docs/api/">
 <meta name=robots content="index,follow">
 
-<meta property=og:title content="emem.dev — REST API reference">
+<meta property=og:title content="emem.dev · REST API reference">
 <meta property=og:description content="Interactive console + full reference. Verify every receipt in your browser.">
 <meta property=og:url content="https://emem.dev/docs/api/">
 <meta property=og:type content=website>
@@ -69,12 +69,21 @@
   }
   .topbar .brand img { width: 20px; height: 20px; object-fit: contain; display: block; }
   .topbar a {
+    position: relative;
     color: var(--ink-2); text-decoration: none;
     padding: 0 .5rem; height: 100%;
     display: flex; align-items: center;
     border-right: 1px solid var(--rule);
+    opacity: .6; transition: opacity .18s ease, color .18s ease;
   }
-  .topbar a:hover { color: var(--ink); background: rgba(0,0,0,.04); }
+  .topbar a:first-of-type { border-left: 1px solid var(--rule); margin-left: .5rem; }
+  .topbar a:hover { opacity: 1; color: var(--ink); background: rgba(0,0,0,.04); }
+  .topbar a.on { opacity: 1; color: var(--accent); }
+  .topbar a.on::after {
+    content: ""; position: absolute; left: .5rem; right: .5rem; bottom: 5px;
+    height: 2px; background: var(--accent); opacity: .85; border-radius: 1px;
+  }
+  @media (max-width: 760px) { .topbar a.nav-sec { display: none; } }
   .topbar .spacer { flex: 1; }
 
   /* ── Playground ─────────────────────────────────────────────────────── */
@@ -220,16 +229,15 @@
 
 <header class=topbar>
   <div class=topbar-inner>
-    <span class=brand><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem · API</span>
-    <a href="/">home</a>
-    <a href="/docs/">docs</a>
-    <a href="/docs/quickstart.html">quickstart</a>
-    <a href="/openapi.json">openapi.json (raw)</a>
-    <a href="/mcp">/mcp</a>
+    <span class=brand><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/">Home</a>
+    <a href="/how-it-works" class=nav-sec>How it works</a>
+    <a href="/solutions" class=nav-sec>Solutions</a>
+    <a href="/reference" class=nav-sec>Reference</a>
+    <a href="/docs/" class=on>Docs</a>
+    <a href="/verify" class=nav-sec>Verify</a>
     <span class=spacer></span>
-    <a href="/humans">/humans</a>
-    <a href="/verify">/verify</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
   </div>
 </header>
 
@@ -324,15 +332,15 @@ const ORIGIN = (location.origin === 'null' || location.origin.startsWith('file:'
 const EXAMPLES = [
   { key: 'locate',        method: 'POST', path: '/v1/locate',
     label: 'locate',
-    note: 'Resolve a place name to a cell64 + bbox + polygon. Try a country, a region, a city, or a landmark — the cascade routes through countries → admin1/2/3 → cities → POIs → cache → Photon → Nominatim, and Overture divisions adds an authoritative polygon + multilingual names.',
+    note: 'Resolve a place name to a cell64 + bbox + polygon. Try a country, a region, a city, or a landmark; the cascade routes through countries → admin1/2/3 → cities → POIs → cache → Photon → Nominatim, and Overture divisions adds an authoritative polygon + multilingual names.',
     body: { place: 'Bangladesh' } },
   { key: 'locate-poi',    method: 'POST', path: '/v1/locate',
     label: 'locate · POI',
-    note: 'Same endpoint, well-known landmark example. POIs (peaks, lakes, parks, airports, monuments) come from the curated GeoNames extract bundled inside the binary — no network for ~99 % of named places.',
+    note: 'Same endpoint, well-known landmark example. POIs (peaks, lakes, parks, airports, monuments) come from the curated GeoNames extract bundled inside the binary; no network for ~99 % of named places.',
     body: { place: 'Mount Everest' } },
   { key: 'locate-latlng', method: 'POST', path: '/v1/locate',
     label: 'locate · lat/lng',
-    note: 'Pass coordinates directly to skip geocoding — useful when the agent already has a GPS fix or has just unpacked a cell64.',
+    note: 'Pass coordinates directly to skip geocoding; useful when the agent already has a GPS fix or has just unpacked a cell64.',
     body: { lat: 23.7104, lng: 90.4074 } },
   { key: 'recall',        method: 'POST', path: '/v1/recall',
     label: 'recall',
@@ -344,7 +352,7 @@ const EXAMPLES = [
     body: { event: 'deforestation', polygon_bbox: { min_lat: 20.74, max_lat: 26.63, min_lng: 88.01, max_lng: 92.67 } } },
   { key: 'find_similar',  method: 'POST', path: '/v1/find_similar',
     label: 'find_similar',
-    note: 'Nearest-neighbour search in Tessera embedding space. Pass a cell64 to find cells that look spectrally similar — useful for transfer-learning where you have one example and want more.',
+    note: 'Nearest-neighbour search in Tessera embedding space. Pass a cell64 to find cells that look spectrally similar; useful for transfer-learning where you have one example and want more.',
     body: { cell: 'defi.zb509.meze.ze7b5', k: 5 } },
 ];
 
