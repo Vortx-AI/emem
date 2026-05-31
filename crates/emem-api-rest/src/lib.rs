@@ -1123,20 +1123,21 @@ fn body_limit_bytes() -> usize {
     mb.clamp(1, 256) * 1024 * 1024
 }
 
-/// HTTP request gateway timeout. Defaults to **180 s**; tunable via
-/// `EMEM_TIMEOUT_SECS` (clamped to 1..=600). Bumped from 60 s on
-/// 2026-05-03 after observing /v1/ask flood-risk calls take ~70 s
-/// even after parallelising temporal-window materialisation: a cold
-/// flood_risk@2 fans out 3 temporal windows × ~8 samples each, and
-/// per-sample S1/S2 STAC + COG fetches sit at 5–15 s p95 on cold
-/// cells. The agent-card and OpenAPI both quote this number so
-/// clients can set their own per-request timeout coherently —
-/// surfaced under `runtime.gateway_timeout_secs`.
+/// HTTP request gateway timeout. Defaults to **40 s**; tunable via
+/// `EMEM_TIMEOUT_SECS` (clamped to 1..=600). Lowered 180→40 on 2026-05-31:
+/// a 180 s ceiling let slow requests (cold ask fan-outs, a 90 s geocode
+/// hang on a malformed cell) hold connections for minutes and pile into
+/// CLOSE-WAIT until the :443 accept loop stalled — the recurring wedge.
+/// The hot paths now self-bound well under this (ask 30 s budget + cold-band
+/// cap; the cell-field geocode is wrapped at 10 s; per-materializer 30 s),
+/// so 40 s is a backstop, not the common path. This is the single most
+/// effective guard against a slow request taking the whole site down. The
+/// agent-card / OpenAPI quote it under `runtime.gateway_timeout_secs`.
 fn timeout_seconds() -> u64 {
     std::env::var("EMEM_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(180u64)
+        .unwrap_or(40u64)
         .clamp(1, 600)
 }
 
@@ -7060,7 +7061,13 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
         // `hansen.*` arm so adding either form picks up the family
         // editorial fields (description / interpretation / …).
         b if b.starts_with("forest_change.") => "forest_change",
-        b if b.starts_with("modis.lst_") || b.starts_with("modis.ndvi") => "indices",
+        // MODIS NDVI is an optical index → inherit `indices` editorial fields.
+        // MODIS LST is land-surface temperature in Kelvin — it must NOT inherit
+        // the `indices` (-1..1 unitless) metadata (that mislabelled LST 302 K as
+        // a unitless index). It falls through to band_key, so the response shows
+        // no inherited cube description rather than a wrong one; the fact itself
+        // already carries the correct unit:"K".
+        b if b.starts_with("modis.ndvi") => "indices",
         b if b.starts_with("soilgrids.") => "soilgrids",
         // CAMS scalars now have a dedicated `air_quality` band entry
         // (carved 7 dims off the front of `_reserved_512` in
@@ -12051,23 +12058,29 @@ async fn post_verify_receipt(
     let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
     let signature_valid = pk.verify_strict(msg.as_bytes(), &sig).is_ok();
 
-    // ── Trust fix (2026-05-31): when the caller passes the `facts` they
-    // intend to rely on, do NOT treat the receipt's signature as blanket
-    // assurance for them. Recompute each supplied fact's content id and
-    // require it to be one the receipt actually signs. A genuine receipt
-    // presented next to a tampered fact must NOT verify — previously `facts`
-    // was dropped by serde and a doctored value passed as `valid:true`.
+    // ── Optional facts cross-check (2026-05-31, advisory). When the caller
+    // passes the `facts` they intend to rely on, recompute each one's content
+    // id and report whether it is among the cids the receipt signs. This is
+    // ADVISORY and never flips `valid`: recomputation runs over the supplied
+    // JSON fact, and a JSON round-trip can diverge from the canonical CBOR for
+    // a GENUINE fact (float/encoding), so a non-match is INCONCLUSIVE, not
+    // proof of tampering. A POSITIVE match (in_receipt:true) IS meaningful —
+    // it confirms the supplied fact is one the receipt signed. For
+    // authoritative bytes, dereference GET /v1/facts/<cid>. (Earlier this
+    // flipped `valid:false` on any recompute mismatch, which wrongly failed
+    // genuine facts on the documented recall→verify path — regression fixed.)
     let receipt_cids: std::collections::HashSet<&str> =
         r.fact_cids.iter().map(|c| c.as_str()).collect();
     let mut facts_check: Vec<JsonValue> = Vec::new();
-    let mut facts_match = true;
+    let mut all_supplied_matched = true;
+    let supplied_n = req.facts.as_ref().map(|f| f.len()).unwrap_or(0);
     if let Some(supplied) = req.facts.as_ref() {
         for f in supplied {
             match emem_cache::sled_hot::fact_cid_of(f) {
                 Ok(cid) => {
                     let in_receipt = receipt_cids.contains(cid.as_str());
                     if !in_receipt {
-                        facts_match = false;
+                        all_supplied_matched = false;
                     }
                     facts_check.push(json!({
                         "computed_fact_cid": cid.0,
@@ -12075,7 +12088,7 @@ async fn post_verify_receipt(
                     }));
                 }
                 Err(e) => {
-                    facts_match = false;
+                    all_supplied_matched = false;
                     facts_check.push(json!({
                         "computed_fact_cid": JsonValue::Null,
                         "in_receipt":        false,
@@ -12085,17 +12098,17 @@ async fn post_verify_receipt(
             }
         }
     }
-    // The receipt may be genuine while the supplied fact is not the one it
-    // attests — surface both, but `valid` (what a naive caller reads) is
-    // true only when the signature holds AND every supplied fact matches.
-    let valid = signature_valid && facts_match;
+    // `valid` reflects ONLY the receipt's cryptographic validity — authoritative.
+    let valid = signature_valid;
     let reason: Option<&str> = if !signature_valid {
         Some("signature_invalid")
-    } else if !facts_match {
-        Some("fact_mismatch")
     } else {
         None
     };
+    // null when no facts supplied; Some(true) = every supplied fact's recomputed
+    // cid is in the receipt (confirmed genuine); Some(false) = at least one could
+    // not be matched by recomputation (inconclusive — see facts_check_note).
+    let facts_confirmed: Option<bool> = (supplied_n > 0).then_some(all_supplied_matched);
 
     // ── F4: re-walk the merkle path the storage layer recorded for
     // `fact_cids[0]` and confirm it terminates at the declared root.
@@ -12180,10 +12193,16 @@ async fn post_verify_receipt(
         "valid": valid,
         "reason": reason,
         "signature_valid": signature_valid,
-        // null when no facts were supplied to check; bool otherwise.
-        "facts_match": req.facts.as_ref().map(|_| facts_match),
-        "facts_supplied": req.facts.as_ref().map(|f| f.len()).unwrap_or(0),
+        // Advisory. null when no facts supplied; true = every supplied fact's
+        // recomputed cid is in the receipt (confirmed); false = inconclusive.
+        "facts_confirmed": facts_confirmed,
+        "facts_supplied": supplied_n,
         "facts_check": facts_check,
+        "facts_check_note": if supplied_n > 0 {
+            JsonValue::String("Advisory, does NOT affect `valid`. in_receipt:true confirms the supplied fact is one the receipt signed. in_receipt:false is INCONCLUSIVE — cid recomputation runs over the supplied JSON and can diverge from the canonical CBOR for a genuine fact; dereference GET /v1/facts/<cid> for authoritative bytes.".into())
+        } else {
+            JsonValue::Null
+        },
         "signer_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&pk_bytes).to_lowercase(),
         "preimage_blake3_hex": msg.to_hex().to_string(),
         "primitive": r.primitive,
@@ -21019,7 +21038,32 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
         lng: None,
         place: Some(s.to_string()),
     };
-    let resp = locate_inner(lr).await?;
+    // Bound the geocode hard. The cell field accepts place names, which
+    // fall through to the network geocoder (Photon/Nominatim, on the 90 s
+    // shared client). A junk token like "not-a-cell" used to hang ~60-90 s
+    // here, holding the connection and leaking CLOSE-WAIT — a prime
+    // contributor to the accept-loop wedge. 10 s is far longer than a real
+    // geocode (in-process tables answer in <5 ms; live Photon ~100 ms) and
+    // turns a hung resolve into a fast typed error instead of a stuck task.
+    let resp = match tokio::time::timeout(std::time::Duration::from_secs(10), locate_inner(lr))
+        .await
+    {
+        Ok(inner) => inner?,
+        Err(_) => {
+            return Err(ApiError(
+                StatusCode::GATEWAY_TIMEOUT,
+                ErrorBody {
+                    code: ErrorCode::NoGeocoderMatch,
+                    message: format!(
+                        "resolving '{s}' to a cell timed out (the geocoder did not answer in 10 s). \
+                         Pass a valid cell64 (4 dot-separated bigrams, e.g. defi.zb4d9.pefa.zf619) \
+                         or explicit lat+lng instead of a free-text place for a deterministic, fast path."
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    };
     let body = &resp.0;
     let cell = body.get("cell64").and_then(|v| v.as_str())
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, ErrorBody {
@@ -46319,22 +46363,33 @@ mod tests {
             })),
         )
         .await
-        .map_err(|e| format!("verify tampered: {} {}", e.0, e.1.message))
+        .map_err(|e| format!("verify bogus-fact: {} {}", e.0, e.1.message))
         .unwrap();
+        // `valid` reflects the receipt's cryptographic validity ONLY — it is
+        // genuine, so valid stays true even though the supplied fact is bogus.
+        // The facts cross-check is ADVISORY: a fact not in the receipt's cids
+        // surfaces as facts_confirmed:false (never a false `valid:false`, which
+        // previously broke the genuine recall→verify path over a JSON round-trip).
         assert_eq!(
             v_tampered.get("valid").and_then(|x| x.as_bool()),
-            Some(false),
-            "a fact not attested by the receipt must fail verification: {v_tampered:?}"
-        );
-        assert_eq!(
-            v_tampered.get("reason").and_then(|x| x.as_str()),
-            Some("fact_mismatch"),
-            "reason must be fact_mismatch: {v_tampered:?}"
-        );
-        assert_eq!(
-            v_tampered.get("signature_valid").and_then(|x| x.as_bool()),
             Some(true),
-            "the receipt signature itself is still genuine: {v_tampered:?}"
+            "receipt signature is genuine; valid reflects the receipt only: {v_tampered:?}"
+        );
+        assert_eq!(
+            v_tampered.get("facts_confirmed").and_then(|x| x.as_bool()),
+            Some(false),
+            "a fact not among the receipt's cids must surface facts_confirmed:false: {v_tampered:?}"
+        );
+        let in_receipt = v_tampered
+            .get("facts_check")
+            .and_then(|x| x.as_array())
+            .and_then(|a| a.first())
+            .and_then(|e| e.get("in_receipt"))
+            .and_then(|b| b.as_bool());
+        assert_eq!(
+            in_receipt,
+            Some(false),
+            "the bogus fact's recomputed cid is not in the receipt: {v_tampered:?}"
         );
     }
 
