@@ -507,6 +507,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .section-body .btn{color:var(--paper);text-decoration:none}
 .section-body .btn.ghost{color:var(--ink)}
 .section-body .btn:hover{text-decoration:none}
+/* ── Mithila frame system: the double-line + accent node on every panel ──── */
+.code,.fact,.substrate-grid,.memt-block{box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule)}
+.code-head::before,.memt-block .memt-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
 </style>
 </head>
 <body>

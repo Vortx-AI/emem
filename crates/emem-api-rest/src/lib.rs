@@ -32139,6 +32139,33 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
         lbl_y = H + 66,
         legend_x_end = legend_x + legend_w,
     );
+    // Mithila double-line border + corner diamonds — ties the data-viz into the
+    // site's hand-painted theme (ink-green linework), matching the homepage rail.
+    let frame = {
+        let r = 5;
+        let mut f = String::new();
+        f.push_str(&format!("<rect x='8' y='8' width='{}' height='{}' fill='none' stroke='#5b7d4d' stroke-width='1.4' opacity='0.5'/>", W - 16, TOTAL_H - 16));
+        f.push_str(&format!("<rect x='12' y='12' width='{}' height='{}' fill='none' stroke='#5b7d4d' stroke-width='0.7' opacity='0.5'/>", W - 24, TOTAL_H - 24));
+        for (cx, cy) in [
+            (14, 14),
+            (W - 14, 14),
+            (14, TOTAL_H - 14),
+            (W - 14, TOTAL_H - 14),
+        ] {
+            f.push_str(&format!(
+                "<path d='M{} {} L{} {} L{} {} L{} {} Z' fill='#5b7d4d' opacity='0.6'/>",
+                cx,
+                cy - r,
+                cx + r,
+                cy,
+                cx,
+                cy + r,
+                cx - r,
+                cy
+            ));
+        }
+        f
+    };
     let svg = format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {TOTAL_H}" width="{W}" height="{TOTAL_H}">
@@ -32161,6 +32188,7 @@ async fn build_coverage_map_svg(s: &AppState) -> (String, usize, u64) {
 <text class="dek" x="24" y="{dek_y}">{cell_count} cells with at least one signed fact · {total_facts} facts in the corpus · Plate-carrée, 1° bins</text>
 {legend}
 <text class="src" x="24" y="{src_y}">emem.dev · responder {pubkey_short}…</text>
+{frame}
 </svg>
 "##,
         half_h = H / 2,

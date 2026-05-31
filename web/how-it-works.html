@@ -302,6 +302,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .btn{position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
 .btn:hover{transform:translateY(-1px)}
 .btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
+/* ── Mithila frame system: the double-line + accent node on every panel ──── */
+.code,.fact,.substrate-grid,.memt-block{box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule)}
+.code-head::before,.memt-block .memt-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
 </style>
 </head>
 <body>
