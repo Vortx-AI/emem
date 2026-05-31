@@ -1,8 +1,8 @@
 <!doctype html><html lang=en>
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem, Earth memory for AI agents</title>
-<meta name=description content="Earth memory protocol for AI agents. Cell × Band × Tslot → Fact. Every read is an ed25519-signed receipt with a content-addressed CID. MCP + REST. No API keys.">
+<title>emem — the verified memory of Earth for AI agents</title>
+<meta name=description content="Agents are starting to act on the real world. emem is the shared, verified memory of Earth they act from — every fact about a place and time is signed, citable, and reproducible. Open, no keys, MCP + REST.">
 <link rel=canonical href="https://emem.dev/">
 <link rel=alternate type=text/markdown href=/llms.txt>
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -13,8 +13,8 @@
 <link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/">
-<meta property=og:title content="emem, Earth memory for AI agents">
-<meta property=og:description content="Signed, content-addressed Earth memory. Cell × Band × Tslot → Fact. MCP + REST. No API keys.">
+<meta property=og:title content="emem — the verified memory of Earth for AI agents">
+<meta property=og:description content="Agents are starting to act on the real world. emem is the shared, verified memory of Earth they act from — every fact signed, citable, and reproducible. Open, no keys.">
 <meta property=og:image content="https://emem.dev/og-image.svg">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
@@ -22,8 +22,8 @@
 <meta property=og:image:alt content="emem.dev — Earth memory protocol. Cell × Band × Tslot → Fact.">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
-<meta name=twitter:title content="emem, Earth memory for AI agents">
-<meta name=twitter:description content="Signed, content-addressed Earth memory. MCP + REST. No keys.">
+<meta name=twitter:title content="emem — the verified memory of Earth for AI agents">
+<meta name=twitter:description content="Agents are starting to act on the real world. emem is the shared, verified memory of Earth they act from — signed, citable, reproducible. Open, no keys.">
 <meta name=twitter:image content="https://emem.dev/og-image.svg">
 <meta name=twitter:image:alt content="emem.dev — Earth memory protocol. Cell × Band × Tslot → Fact.">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -475,12 +475,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
-    <a href="#agents" class="nav-sec">for agents</a>
-    <a href="#example" class="nav-sec">example</a>
-    <a href="#how" class="nav-sec">how it works</a>
-    <a href="#capabilities" class="nav-sec">capabilities</a>
-    <a href="#built" class="nav-sec">built with</a>
-    <a href="#verify" class="nav-sec">verify</a>
+    <a href="#idea" class="nav-sec">the idea</a>
+    <a href="#how" class="nav-sec">why it holds</a>
+    <a href="#impact" class="nav-sec">what it&rsquo;s for</a>
+    <a href="#proof" class="nav-sec">proof</a>
+    <a href="#act" class="nav-sec">get started</a>
     <span class="spacer"></span>
     <a href="/how-it-works" class="nav-sec">how it works</a>
     <a href="/solutions" class="nav-sec">solutions</a>
@@ -490,16 +489,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </header>
 
-<!-- ===== 01 · HERO ===== -->
 <section class="hero page hero-lean">
   <div>
-    <h1>Earth as memory,<br><span class="accent">for real-world agents.</span></h1>
+    <h1>Agents are starting to act<br><span class="accent">on the real world.</span></h1>
 
-    <p class="sub">A shared, verifiable memory of the physical world for AI agents. Every place-time resolves to an ed25519-signed fact, citable across agents by content ID &mdash; direct measurements alongside four geospatial foundation models (Clay, Prithvi, Tessera, Galileo) whose agreement is scored for consensus.</p>
+    <p class="sub">emem is the shared, verified memory of Earth they act from &mdash; every fact signed, citable, and reproducible. From &ldquo;the model said so&rdquo; to &ldquo;here&rsquo;s the evidence.&rdquo;</p>
 
     <div class="hero-cta">
-      <a class="btn" href="#how">How it works &rarr;</a>
-      <a class="btn ghost" href="#agents">Connect (MCP) &rarr;</a>
+      <a class="btn" href="#act">Connect an agent &rarr;</a>
+      <a class="btn ghost" href="#proof">See a signed answer &rarr;</a>
     </div>
 
     <!-- Compact try-it: a visitor types a place and gets the byte-identical
@@ -509,7 +507,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="tryit-head">
         <span class="dot"></span>
         <span class="url">POST&nbsp;/v1/recall</span>
-        <span style="margin-left:auto;color:var(--mute)">try it &middot; signed fact, cached in-page</span>
+        <span style="margin-left:auto;color:var(--mute)">try it &middot; a real signed fact, cached in-page</span>
       </div>
       <div class="tryit-body">
         <div class="tryit-input">
@@ -518,7 +516,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
           <button id="tryit-hero-go">recall</button>
         </div>
         <div class="tryit-result empty" id="tryit-hero-result">
-          Type a place &rarr; <span class="band">recall</span> returns a signed elevation fact with its <span class="band">fact_cid</span>. Two are cached here (South Mumbai, Bengaluru); the full motion is at <a href="#example">the example below</a>.
+          Type a place &rarr; <span class="band">recall</span> returns a signed elevation fact with its <span class="band">fact_cid</span>. Two are cached here (South Mumbai, Bengaluru).
         </div>
       </div>
     </div>
@@ -527,142 +525,32 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
-<!-- ===== 02 · FOR AI AGENTS ===== -->
-<section class="section page" id="agents">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">01</span><span class="idx-label">For AI agents</span></div>
-    <dl>
-      <dt>transport</dt><dd>MCP Streamable HTTP &middot; REST</dd>
-      <dt>read</dt><dd>recall &middot; ask</dd>
-      <dt>memory</dt><dd>state &middot; bundles &middot; search &middot; contradictions</dd>
-      <dt>streams</dt><dd>SSE: corpus &amp; writes</dd>
-      <dt>first tool</dt><dd>emem_ask</dd>
-      <dt>receipts</dt><dd>ed25519, verify offline</dd>
-    </dl>
-  </aside>
-
+<!-- ===== the problem ===== -->
+<section class="section page" id="problem">
+  <aside class="section-meta"><div class="idx"><span class="idx-label">the problem</span></div></aside>
   <div class="section-body">
-    <h2><span class="num">01</span>For AI agents</h2>
-    <p class="lede">Agents are the primary user &mdash; they read and write a shared, verifiable memory of the physical world here, and subscribe to it as it changes. No keys, no signup: point a client at the endpoint and call. The surface below is the whole of it.</p>
-
-    <table class="endpoints">
-      <thead>
-        <tr><th>Surface</th><th>Endpoints</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="desc">Connect</td><td><span class="path">https://emem.dev/mcp</span> (MCP) <button class="copy" data-copy-target="#mcp-url-plain" style="margin-left:.4rem;font-size:var(--t-xs);padding:.1rem .5rem;border:1px solid var(--rule);background:var(--paper);cursor:pointer;color:var(--mute)">copy</button><span id="mcp-url-plain" hidden>https://emem.dev/mcp</span> &middot; <a class="path" href="/openapi.json">/openapi.json</a> (REST)</td></tr>
-        <tr><td class="desc">Discover</td><td><a class="path" href="/llms.txt">/llms.txt</a> &middot; <a class="path" href="/.well-known/mcp.json">/.well-known/mcp.json</a> &middot; <a href="/v1/discover">/v1/discover</a> &middot; <a href="/v1/agent_card">/v1/agent_card</a></td></tr>
-        <tr><td class="desc">Read</td><td><span class="path">POST /v1/recall</span> &middot; <span class="path">POST /v1/ask</span> &mdash; signed facts; auto-fetch on a miss</td></tr>
-        <tr><td class="desc">Memory substrate</td><td><span class="path">/v1/state</span> &middot; <span class="path">/v1/memory_bundle</span> &middot; <span class="path">/v1/memory/search</span> &middot; <span class="path">/v1/memory_contradictions</span> &middot; <span class="path">/v1/edges/recall</span></td></tr>
-        <tr><td class="desc">Streams (SSE)</td><td><a class="path" href="/v1/stream">/v1/stream</a> &mdash; signed corpus heartbeat &middot; <span class="path">/v1/memory/sse</span> &mdash; every write as it commits</td></tr>
-        <tr><td class="desc">Verify</td><td><a class="path" href="/verify">/verify</a> &middot; <span class="path">POST /v1/verify_receipt</span> &mdash; offline, no callback</td></tr>
-        <tr><td class="desc">First tool to call</td><td><span class="path">emem_ask</span> &mdash; intent-routed; one call resolves place &rarr; recall &rarr; applicable algorithms</td></tr>
-      </tbody>
-    </table>
-
-    <div class="code">
-      <div class="code-head">
-        <span class="lang">JSON</span>
-        <span class="tab">MCP config (Claude, Cursor, &hellip;)</span>
-        <span class="spacer"></span>
-        <button class="copy" data-copy-target="#agents-mcp-pre">copy</button>
-      </div>
-<pre id="agents-mcp-pre"><code><span class="tok-p">{</span>
-  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
-    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
-      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>
-      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>
-    <span class="tok-p">}</span>
-  <span class="tok-p">}</span>
-<span class="tok-p">}</span></code></pre>
-    </div>
-
-    <p>Every answer is an ed25519 receipt, verifiable offline. <a href="/reference">Full client setup &rarr;</a></p>
+    <h2>Ask an agent about a place, and it guesses.</h2>
+    <p class="lede">A forest in Borneo, a floodplain outside Chennai, a field in Iowa &mdash; ask an AI agent what is true on the ground there, and it will usually improvise.</p>
+    <p>It has no shared handle for the patch of land you mean, and no way to prove the number it hands back. That was harmless when agents only answered questions. It is not harmless now that they <em>act</em> &mdash; filing compliance, pricing risk, triaging a disaster, releasing a payment. Roughly a quarter of organizations are already scaling agents that take real-world actions <a href="https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai">(McKinsey, 2025)</a>. Acting on a guess has quietly become a liability.</p>
   </div>
 </section>
 
-<!-- ===== 03 · ONE RUNNABLE EXAMPLE ===== -->
-<section class="section page" id="example">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">02</span><span class="idx-label">One example</span></div>
-    <dl>
-      <dt>step 1</dt><dd>POST&nbsp;/v1/locate</dd>
-      <dt>step 2</dt><dd>POST&nbsp;/v1/recall</dd>
-      <dt>cold latency</dt><dd>~180&nbsp;ms</dd>
-      <dt>warm latency</dt><dd>~10&nbsp;ms</dd>
-      <dt>more</dt><dd><a href="/reference">/reference</a></dd>
-    </dl>
-  </aside>
-
+<!-- ===== the idea ===== -->
+<section class="section page" id="idea">
+  <aside class="section-meta"><div class="idx"><span class="idx-label">the idea</span></div></aside>
   <div class="section-body">
-    <h2><span class="num">02</span>From a place name to a signed number</h2>
-    <p class="lede">Two POSTs. The recall comes back with the value, its unit, the upstream source, and a 64-byte ed25519 receipt over the canonical preimage.</p>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">step 1 &middot; locate</span><span class="spacer"></span><button class="copy" data-copy-target="#code-locate">copy</button></div>
-<pre id="code-locate"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/locate</span> \
-    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"q":"South Mumbai"}'</span> | <span class="tok-k">jq</span> .cell64
-<span class="tok-s">"defi.zb4d7.ze56c.zf24c"</span></code></pre>
-    </div>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">step 2 &middot; recall</span><span class="spacer"></span><button class="copy" data-copy-target="#code-recall">copy</button></div>
-<pre id="code-recall"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \
-    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d7.ze56c.zf24c",
-         "bands":["copdem30m.elevation_mean"]}'</span></code></pre>
-    </div>
-
-    <p>The same response, parsed for the human eye:</p>
-
-    <div class="fact">
-      <div class="fact-head">
-        <span class="signed">SIGNED &middot; ed25519</span><span>&middot;</span>
-        <span class="ts">2026-05-16T18:58:04Z</span><span>&middot;</span>
-        <span>via copdem30m</span>
-      </div>
-      <div class="fact-grid">
-        <span class="k">value</span><span class="v big">10.0<span class="unit">m above mean sea level</span></span>
-        <span class="k">cell64</span><span class="v">defi.zb4d7.ze56c.zf24c</span>
-        <span class="k">band</span><span class="v">copdem30m.elevation_mean</span>
-        <span class="k">tslot</span><span class="v">0&nbsp;<span style="color:var(--mute)">(static)</span></span>
-        <span class="k">fact_cid</span><span class="v cid">4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</span>
-        <span class="k">signed_by</span><span class="v cid">777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka</span>
-      </div>
-      <div class="fact-verify">
-        <span class="check">verified</span>
-        <span>Signature recomputable offline against the responder pubkey.</span>
-        <a href="/verify/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma" style="margin-left:auto">/verify</a>
-      </div>
-    </div>
-
-    <p>First call on a fresh cell: ~180&nbsp;ms (one upstream fetch, then persisted). Every call after, anywhere: ~10&nbsp;ms, same signature, same CID. That CID is what the agent quotes back to the user. <a href="/reference">More examples &rarr;</a></p>
+    <h2>So we gave the Earth a memory they can trust.</h2>
+    <p class="lede">emem turns every place on Earth into an address with a memory. Ask for a fact and you do not get a guess &mdash; you get a receipt.</p>
+    <p>Elevation, rainfall, how much forest stood here last year, how a coastline has moved: each answer comes back signed &mdash; <em>this value, at this place, at this time</em> &mdash; that anyone can verify without trusting us, and that any other agent can cite tomorrow and reproduce byte-for-byte. The address is the same on every node, so two agents asking about the same ground reach the same memory.</p>
   </div>
 </section>
 
-<!-- ===== 04 · WHAT IT IS / HOW IT WORKS ===== -->
+<!-- ===== why shared + signed + consensus ===== -->
 <section class="section page" id="how">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">03</span><span class="idx-label">How it works</span></div>
-    <dl>
-      <dt>address</dt><dd>cell64, ~9.55&nbsp;m square</dd>
-      <dt>fact</dt><dd>signed, content-addressed</dd>
-      <dt>edges</dt><dd>disagrees_with &middot; supersedes &middot; relates_to</dd>
-      <dt>evolve</dt><dd>contradiction scoring + refinement loop</dd>
-      <dt>depth</dt><dd><a href="/how-it-works">/how-it-works</a></dd>
-    </dl>
-  </aside>
-
+  <aside class="section-meta"><div class="idx"><span class="idx-label">why it holds</span></div></aside>
   <div class="section-body">
-    <h2><span class="num">03</span>What it is, and how it works</h2>
-    <p class="lede">An LLM asked what is at a place will usually guess. emem is the missing handle: a stable address for every patch of Earth, and a signed fact at that address any agent can read and verify.</p>
-
-    <p>A language model has no shared memory of the physical world. The cell64 grid gives every ~9.55&nbsp;m patch a token-like address that is the same on every responder. Read a cell and you get a fact &mdash; elevation, weather, land cover, a foundation embedding &mdash; that is ed25519-signed and content-addressed by its <span class="band">fact_cid</span>. Quote that CID in a chat and a colleague pulls byte-identical bytes from any replica and checks the signature in their browser at <a href="/verify">/verify</a>, with no callback to the issuer.</p>
-
-    <p>Some bands are foundation-model embeddings. emem runs four independent geospatial encoders on the grid &mdash; <strong>Clay v1.5</strong>, <strong>Prithvi-EO-2.0</strong>, <strong>Tessera</strong>, and <strong>Galileo</strong> &mdash; each with a different receptive field (chip-scale, multi-temporal, per-pixel). Because they alias differently, their <em>agreement</em> that a cell changed is signal and their disagreement is recorded, not averaged: <span class="band">triple_consensus</span> scores the vote, drops any encoder that is offline rather than zero-filling it, and signs the verdict (or an honest <span class="band">inconclusive</span>). <a href="/how-it-works#substrate">The encoders, dimensions, and papers &rarr;</a></p>
-
-    <p>Facts link to each other through typed edges (<span class="band">disagrees_with</span>, <span class="band">supersedes</span>, <span class="band">relates_to</span>) and improve over time: when two attesters disagree, emem scores the contradiction and keeps both CIDs rather than silently picking one, and an opt-in refinement loop flags facts for re-attestation. A later attestation supersedes an earlier one on the transaction-time axis without erasing the old bytes.</p>
+    <h2>Shared, so it compounds. Signed, so it can&rsquo;t be faked.</h2>
+    <p>Because the memory is <strong>shared</strong>, agents stop re-deriving the world from scratch and build on each other&rsquo;s verified work. Because every fact is <strong>signed and content-addressed</strong>, no one can quietly slip a wrong one in &mdash; the way a poisoned note can be planted in an ordinary agent&rsquo;s private memory <a href="https://arxiv.org/abs/2503.03704">(MINJA, NeurIPS 2025)</a>. And because four independent foundation models read the same ground &mdash; <strong>Clay, Prithvi, Tessera, Galileo</strong> &mdash; their agreement becomes a signal you can act on, while their disagreement is recorded and scored, never averaged away.</p>
 
     <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
       <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
@@ -699,156 +587,86 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <polygon class="arrowhead" points="115,188 110,198 120,198"/>
       </svg>
     </div>
-
-    <p><a href="/how-it-works">How it works in depth &rarr;</a> &middot; <a href="/whitepaper.md">Whitepaper &rarr;</a></p>
+    <p><a href="/how-it-works">See how it works, in depth &rarr;</a> &middot; <a href="/whitepaper.md">Read the whitepaper &rarr;</a></p>
   </div>
 </section>
 
-<!-- ===== 05 · WHAT AGENTS DO WITH IT ===== -->
-<section class="section page" id="capabilities">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Capabilities</span></div>
+<!-- ===== what becomes possible ===== -->
+<section class="section page" id="impact">
+  <aside class="section-meta"><div class="idx"><span class="idx-label">what it&rsquo;s for</span></div></aside>
+  <div class="section-body">
+    <h2>What an agent can finally do, responsibly.</h2>
+    <p class="lede">Give an agent a memory of Earth it can cite, and the actions it can stand behind change.</p>
+    <ul>
+      <li><strong>Prove a shipment&rsquo;s land was never cleared.</strong> The audit the EU now requires under its Deforestation Regulation &mdash; in a year the tropics lost a record 6.7 million hectares of primary rainforest <a href="https://www.wri.org/news/release-global-forest-loss-shatters-records-2024-fueled-massive-fires">(WRI / Global Forest Watch)</a>.</li>
+      <li><strong>Raise a flood or wildfire flag a day sooner.</strong> A single day of warning can cut disaster damage by up to a third <a href="https://www.un.org/en/climatechange/early-warnings-for-all">(UN Early Warnings for All)</a>.</li>
+      <li><strong>Keep a carbon credit honest</strong> with continuous, signed evidence instead of a once-a-year spot check.</li>
+      <li><strong>Remember any place well enough to defend a decision</strong> &mdash; a price, a claim, a route &mdash; with the receipt attached.</li>
+    </ul>
+    <p><a href="/solutions">See what people are building &rarr;</a></p>
+  </div>
+</section>
+
+<!-- ===== proof ===== -->
+<section class="section page" id="proof">
+  <aside class="section-meta"><div class="idx"><span class="idx-label">the proof</span></div>
     <dl>
-      <dt>recall</dt><dd>POST&nbsp;/v1/recall</dd>
-      <dt>verify</dt><dd><a href="/verify">/verify</a></dd>
-      <dt>memory</dt><dd>state, tokens, bundles</dd>
-      <dt>hunt</dt><dd>POST&nbsp;/v1/hunt</dd>
-      <dt>solve</dt><dd>jepa_predict, heat_solve</dd>
-      <dt>compose</dt><dd>159 algorithms</dd>
+      <dt>sources</dt><dd>46 open data sets</dd>
+      <dt>every read</dt><dd>ed25519 receipt</dd>
+      <dt>reproducible</dt><dd>on any node</dd>
     </dl>
   </aside>
-
   <div class="section-body">
-    <h2><span class="num">04</span>What agents do with it</h2>
-    <p class="lede">Six things an agent reaches for. Each is one call; each answer carries a receipt.</p>
-
-    <div class="substrate-grid">
-      <div class="lane">
-        <span class="verb">recall</span>
-        <span class="title">Recall any place-time</span>
-        <span class="endpoint">POST /v1/recall</span>
-        <span class="desc">Cell &times; bands &rarr; signed facts. Auto-fetches on a miss, then signs the result. Warm reads land in ~10&nbsp;ms.</span>
+    <h2>Don&rsquo;t take our word. Take the receipt.</h2>
+    <p class="lede">Every answer carries a signature you can check in your own browser &mdash; no callback to us. <a href="https://eudr.dev">eudr.dev</a> already runs on emem, issuing signed EU deforestation statements. Here is a real fact, exactly as the responder returned it:</p>
+    <div class="fact">
+      <div class="fact-head"><span class="dot"></span>signed fact &middot; verifiable offline</div>
+      <div class="fact-grid">
+        <span>cell</span><span class="cell">defi.zb4d7.ze56c.zf24c</span>
+        <span>band</span><span class="band">copdem30m.elevation_mean</span>
+        <span>value</span><b>10.0&nbsp;m</b>
+        <span>fact_cid</span><span class="cid">4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</span>
       </div>
-      <div class="lane">
-        <span class="verb">verify</span>
-        <span class="title">Verify offline</span>
-        <span class="endpoint"><a href="/verify">/verify</a></span>
-        <span class="desc">Recompute the BLAKE3 preimage and check the ed25519 receipt against the responder pubkey &mdash; no callback to us.</span>
-      </div>
-      <div class="lane">
-        <span class="verb">remember</span>
-        <span class="title">Give the agent memory</span>
-        <span class="endpoint">/v1/state &middot; /v1/memory_token &middot; /v1/memory_bundle</span>
-        <span class="desc">State vectors, memory tokens, bundles, BGE-768 search over the agent&rsquo;s own files, bi-temporal recall. <a href="/docs">Memory docs &rarr;</a></span>
-      </div>
-      <div class="lane">
-        <span class="verb">hunt</span>
-        <span class="title">Discover hotspots</span>
-        <span class="endpoint">POST /v1/hunt</span>
-        <span class="desc">For questions that don&rsquo;t anchor on one place. Sweeps a region for a pattern across 12 events and ranks the top cells.</span>
-      </div>
-      <div class="lane">
-        <span class="verb">forecast</span>
-        <span class="title">Forecast &amp; solve</span>
-        <span class="endpoint">jepa_predict &middot; heat_solve &middot; wave_solve</span>
-        <span class="desc"><code>jepa_predict</code> is a closed-form AR(2) NDVI model; <code>heat_solve</code> and <code>wave_solve</code> integrate physics on the signed grid. Each pins its input fact_cids.</span>
-      </div>
-      <div class="lane">
-        <span class="verb">compose</span>
-        <span class="title">Compose algorithms</span>
-        <span class="endpoint">159 recipes &middot; /v1/triple_consensus</span>
-        <span class="desc">Each recipe carries a formula, input bands, and a citation. <code>triple_consensus</code> scores change with three independent foundation encoders.</span>
-      </div>
+      <div class="fact-verify"><a href="/verify/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma">verify this receipt yourself &rarr;</a></div>
     </div>
-
-    <p><a href="/reference">Full read surface &rarr;</a></p>
   </div>
 </section>
 
-<!-- ===== 06 · BUILT WITH EMEM ===== -->
-<section class="section page" id="built">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Built with emem</span></div>
-    <dl>
-      <dt>agent</dt><dd><a href="https://eudr.dev">eudr.dev</a></dd>
-      <dt>regulation</dt><dd>EU 2023/1115</dd>
-      <dt>output</dt><dd>signed Annex II DDS</dd>
-      <dt>endpoint</dt><dd>POST&nbsp;/v1/eudr_dds</dd>
-      <dt>more</dt><dd><a href="/solutions">/solutions</a></dd>
-    </dl>
-  </aside>
-
+<!-- ===== come build on it ===== -->
+<section class="section page" id="act">
+  <aside class="section-meta"><div class="idx"><span class="idx-label">your move</span></div></aside>
   <div class="section-body">
-    <h2><span class="num">05</span>Built with emem</h2>
-    <p class="lede"><a href="https://eudr.dev">eudr.dev</a> is an independent EU Deforestation Regulation compliance agent. Every paragraph it quotes resolves to an ed25519-signed <span class="band">fact_cid</span> served from this responder.</p>
-
-    <p>It ingests a shipment plot, dispatches <span class="band">/v1/eudr_dds</span> against the cell64-tiled forest baseline, and returns a Due Diligence Statement shaped to Annex II of Regulation (EU) 2023/1115. The per-cell algorithm <span class="band">eudr_compliance@1</span> implements the Article 2(4) forest test &mdash; &gt;0.5&nbsp;ha, &gt;5&nbsp;m height, &gt;10&nbsp;% canopy cover &mdash; against the JRC GFC2020 V3 baseline. The agent runs independently and is not affiliated with any EU institution. Each finding paste-resolves at <a href="/verify">/verify</a>; the schema is at <a href="/v1/schemas/eudr_dds.json">/v1/schemas/eudr_dds.json</a>.</p>
-
-    <p style="margin-top:1.2rem">
-      <a class="btn" href="https://eudr.dev">Open eudr.dev &rarr;</a>
-      <a class="btn ghost" href="/solutions">All solutions &rarr;</a>
-    </p>
-
+    <h2>It&rsquo;s open. Come build on it.</h2>
+    <p class="lede">No keys, no signup. Pick the way in that fits you.</p>
     <div class="substrate-grid">
       <div class="lane">
-        <span class="verb">climate finance</span>
-        <span class="title">Carbon MRV verifier</span>
-        <span class="desc">Cross-checks offset claims against signed forest, soil, and NDVI evidence for VM0042 / VCS / Gold Standard reports. <a href="/solutions">&rarr; /solutions</a></span>
+        <span class="verb">agents</span>
+        <span class="title">Connect over MCP and ask.</span>
+        <span class="endpoint">https://emem.dev/mcp &middot; first tool: emem_ask</span>
+        <span class="desc">Point any MCP client at the endpoint. One call resolves a place, recalls the facts, and hands back a signed answer. <a href="/reference">Connect &rarr;</a></span>
       </div>
       <div class="lane">
-        <span class="verb">insurance</span>
-        <span class="title">Flood pre-screen</span>
-        <span class="desc">Pre-screens addresses with signed elevation, surface water, and weather via <code>flood_risk@2</code>. <a href="/solutions">&rarr; /solutions</a></span>
+        <span class="verb">developers</span>
+        <span class="title">One REST call, and every receipt verifies.</span>
+        <span class="endpoint">POST /v1/recall &middot; /openapi.json</span>
+        <span class="desc">Locate &rarr; recall &rarr; verify. Plain HTTP, OpenAPI 3.1, signed receipts you can check offline. <a href="/reference">Read the API &rarr;</a></span>
       </div>
       <div class="lane">
-        <span class="verb">supply chain</span>
-        <span class="title">Location verifier</span>
-        <span class="desc">Tests an origin claim against signed land cover, NDVI, and building count at the claimed coordinates. <a href="/solutions">&rarr; /solutions</a></span>
+        <span class="verb">organizations</span>
+        <span class="title">Signed evidence you can stand behind.</span>
+        <span class="endpoint">audit-grade &middot; bi-temporal</span>
+        <span class="desc">Prove what was true, and what you knew when &mdash; for compliance, MRV, and underwriting. <a href="/solutions">See deployments &rarr;</a></span>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ===== 07 · VERIFY ===== -->
-<section class="section page" id="verify">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Verify</span></div>
-    <dl>
-      <dt>signature</dt><dd>ed25519 (64&nbsp;B)</dd>
-      <dt>digest</dt><dd>BLAKE3</dd>
-      <dt>encoding</dt><dd>canonical CBOR</dd>
-      <dt>in-browser</dt><dd><a href="/verify">/verify</a></dd>
-      <dt>fallback</dt><dd>POST&nbsp;/v1/verify_receipt</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">06</span>Verifying without trusting</h2>
-    <p class="lede">Every answer is signed. The responder pubkey is the only trust anchor.</p>
-
-    <p>The preimage is a deterministic concatenation, so any agent recomputes it offline and checks the signature &mdash; verify in the browser at <a href="/verify">/verify</a> or with <span class="band">POST /v1/verify_receipt</span>. A receipt issued today verifies in any year, on any node, as long as the pubkey is preserved, and the same answer is reproducible on any peer that holds the fact. <a href="/how-it-works">The preimage, in full &rarr;</a></p>
-  </div>
-</section>
-
-<!-- ===== WHERE THIS IS GOING ===== -->
+<!-- ===== where this is going ===== -->
 <section class="section page" id="direction">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">&rarr;</span><span class="idx-label">Direction</span></div>
-    <dl>
-      <dt>ships in 0.0.9</dt><dd>content addressing, signed receipts</dd>
-      <dt></dt><dd>typed temporal edges</dd>
-      <dt></dt><dd>multi-attester contradiction scoring</dd>
-      <dt></dt><dd>deterministic refinement loop</dd>
-      <dt>design target</dt><dd>federation of independent responders</dd>
-    </dl>
-  </aside>
-
+  <aside class="section-meta"><div class="idx"><span class="idx-label">where this goes</span></div></aside>
   <div class="section-body">
-    <h2>Where this is going</h2>
-    <p class="lede">Forward-looking. Everything below the line ships in 0.0.9; the federation routing does not.</p>
-
+    <h2>Where this is going.</h2>
     <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other&rsquo;s attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it.</p>
-
     <p>None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.</p>
   </div>
 </section>

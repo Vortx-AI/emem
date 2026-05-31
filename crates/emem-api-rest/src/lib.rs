@@ -29899,11 +29899,63 @@ fn band_short_name_alias(name: &str) -> Option<&'static str> {
         "elevation" => Some("copdem30m.elevation_mean"),
         "ndvi" => Some("indices.ndvi"),
         "ndwi" => Some("indices.ndwi"),
+        // Spectral indices that exist 1:1 in bands-v0.json under the
+        // `indices` group. EVI/SAVI have no standalone band key in the
+        // registry, so they are deliberately NOT aliased here (a bare
+        // "evi" stays unknown rather than resolving to the wrong band).
+        "ndmi" => Some("indices.ndmi"),
+        "nbr" => Some("indices.nbr"),
+        "mndwi" => Some("indices.mndwi"),
+        "ndbi" => Some("indices.ndbi"),
+        "ndre" => Some("indices.ndre"),
         "temperature" | "temperature_2m" => Some("weather.temperature_2m"),
         "precipitation" => Some("weather.precipitation_mm"),
         "population" => Some("population"),
         _ => None,
     }
+}
+
+/// Detect unambiguous concrete-band keywords in a free-text question for
+/// the `/v1/ask` concrete-band fast path. Returns the canonical band
+/// key(s) the question explicitly names. Matching is whole-word over a
+/// lowercased copy of the question so "land" never matches "lst" and
+/// "sandbar" never matches "nbr". Returns more than one key only for
+/// genuinely multi-band requests (e.g. "lst" → MODIS LST day + night,
+/// which the registry splits into two bands). Bands without a real key
+/// in bands-v0.json (evi, savi) are intentionally not detectable.
+///
+/// This is intent NARROWING, not routing: a hit only matters when the
+/// band is also in the union the matched topics would have produced
+/// (see `ask_inner`). It never widens the materialize set.
+fn concrete_bands_in_question(q: &str) -> Vec<&'static str> {
+    let lc = q.to_lowercase();
+    let words: std::collections::HashSet<&str> = lc
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    // (keyword, canonical band keys). Order is deterministic so the
+    // narrowed set is reproducible across responders.
+    const MAP: &[(&str, &[&str])] = &[
+        ("ndvi", &["indices.ndvi"]),
+        ("ndwi", &["indices.ndwi"]),
+        ("ndmi", &["indices.ndmi"]),
+        ("nbr", &["indices.nbr"]),
+        ("mndwi", &["indices.mndwi"]),
+        ("ndbi", &["indices.ndbi"]),
+        ("ndre", &["indices.ndre"]),
+        ("lst", &["modis.lst_day_8day", "modis.lst_night_8day"]),
+    ];
+    let mut out: Vec<&'static str> = Vec::new();
+    for (kw, bands) in MAP {
+        if words.contains(*kw) {
+            for b in *bands {
+                if !out.contains(b) {
+                    out.push(*b);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Resolve a caller-supplied band name to its canonical key, applying the
@@ -30461,12 +30513,32 @@ async fn try_materialize_bands(
     bands: &[String],
     s: &AppState,
 ) -> Vec<MaterializeOutcome> {
-    let mut out = Vec::with_capacity(bands.len());
     if !auto_materialize_enabled() {
-        return out;
+        return Vec::new();
     }
-    for b in bands {
-        match b.as_str() {
+    // Bounded-concurrency fan-out over the requested bands. Each band's
+    // match arm below produces exactly one `MaterializeOutcome` (one Ok
+    // or one Err path) into a per-band local `out`, so collecting across
+    // bands and flattening preserves the previous one-outcome-per-band
+    // contract; only ordering changes, and downstream callers key by
+    // band name (never by index). The per-materializer timeout/retry
+    // lives inside each `materialize_*` call and is untouched. Cap via
+    // `EMEM_MATERIALIZE_CONCURRENCY` (default 6); set to 1 to reproduce
+    // the original strictly-serial behavior.
+    let concurrency = materialize_concurrency();
+    use futures_util::StreamExt as _;
+    // Own each band string inside its future so the stream's items do not
+    // borrow the `bands` slice (that higher-ranked borrow is what makes
+    // `buffer_unordered` futures fail the `Send`/HRTB bound). Re-bind to a
+    // `&String` named `b` so the per-arm body below is byte-for-byte the
+    // original serial code (same `b == "..."`, `b.as_str()`, `b.clone()`).
+    let per_band: Vec<Vec<MaterializeOutcome>> =
+        futures_util::stream::iter(bands.iter().cloned().map(|b_owned| {
+            let b = b_owned;
+            async move {
+            let b = &b;
+            let mut out: Vec<MaterializeOutcome> = Vec::with_capacity(1);
+            match b.as_str() {
             "modis.ndvi_mean" => match materialize_modis_ndvi(cell64, s).await {
                 Ok(cid) => {
                     tracing::info!(
@@ -31722,9 +31794,26 @@ async fn try_materialize_bands(
                     skip_reason: Some(e),
                 });
             }
-        }
-    }
-    out
+            }
+            out
+            }
+        }))
+        .buffer_unordered(concurrency.max(1))
+        .collect()
+        .await;
+    per_band.into_iter().flatten().collect()
+}
+
+/// Bound on concurrent per-band materializers inside
+/// `try_materialize_bands`. Defaults to 6; tunable via
+/// `EMEM_MATERIALIZE_CONCURRENCY` (clamped 1..=32). Setting it to 1
+/// reproduces the original strictly-serial await loop.
+fn materialize_concurrency() -> usize {
+    std::env::var("EMEM_MATERIALIZE_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(6)
+        .clamp(1, 32)
 }
 
 fn chrono_iso8601_utc() -> String {
@@ -38357,7 +38446,44 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             }
         }
     }
-    let bands_vec: Vec<String> = want_bands.iter().cloned().collect();
+    // Concrete-band fast path (within-intent narrowing). When the user
+    // names an unambiguous concrete band (e.g. "NDVI near Mount Fuji")
+    // AND that band is already in the union the matched topics would have
+    // produced, constrain the MATERIALIZE set to just that band (or those
+    // bands) instead of fetching the full ~30-50-fact topic recipe. This
+    // is the dominant cold-latency lever on single-band questions: the
+    // topic still routes, the algorithm hints + caveats still ship, but
+    // we stop fanning out to every sibling band the topic owns. Gated by
+    // `EMEM_ASK_CONCRETE_BAND_FASTPATH` (default ON; "0" restores the
+    // full-union behavior). Never widens the set — narrowing only fires
+    // when the detected band is a strict subset of `want_bands`.
+    let fastpath_on = std::env::var("EMEM_ASK_CONCRETE_BAND_FASTPATH")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    let narrowed_to: Vec<String> = if fastpath_on && !want_bands.is_empty() {
+        let detected: Vec<String> = concrete_bands_in_question(&req.q)
+            .into_iter()
+            .map(String::from)
+            .filter(|b| want_bands.contains(b))
+            .collect();
+        // Only narrow when EVERY detected concrete band is present in the
+        // union AND narrowing actually drops at least one band (i.e. the
+        // detected set is a strict subset). If the detected set already
+        // equals the union there is nothing to narrow.
+        if !detected.is_empty() && detected.len() < want_bands.len() {
+            detected
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    let narrowed = !narrowed_to.is_empty();
+    let bands_vec: Vec<String> = if narrowed {
+        narrowed_to.clone()
+    } else {
+        want_bands.iter().cloned().collect()
+    };
 
     let recall_req = RecallReq {
         cell: cell.clone(),
@@ -38535,6 +38661,21 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             "data_url":      format!("{origin_for_links}/v1/cells/{cell}"),
         }),
     ];
+    // Concrete-band fast path narrowed the materialize set. Tell the
+    // agent honestly that we fetched only the band(s) it explicitly
+    // named, and how to get the full topic recipe if it wants it.
+    if narrowed {
+        caveats.push(json!({
+            "type":          "narrowed_to_requested_band",
+            "human_message": format!(
+                "Your question named a specific band, so this response was narrowed to just {bands:?} instead of the full topic recipe. For every band the matched topic(s) own, call /v1/recall with bands={bands:?} omitted (or POST /v1/ask with EMEM_ASK_CONCRETE_BAND_FASTPATH disabled).",
+                bands = narrowed_to,
+            ),
+            "data_present":  true,
+            "data_url":      format!("{origin_for_links}/v1/recall"),
+            "narrowed_bands": narrowed_to.clone(),
+        }));
+    }
     // Only emit the "out of scope" caveat when the topic router
     // matched nothing AND no band data landed via either fall-through
     // path (inventory walk in `band_observations[]`, raw snapshot in
@@ -43053,6 +43194,33 @@ fn not_found(msg: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Concrete-band detector for the /v1/ask fast path: whole-word
+    /// matching only, multi-band split for LST, and EVI/SAVI explicitly
+    /// undetectable (no real band key). Mirrors the narrowing guard in
+    /// `ask_inner`: a hit only narrows when it is a strict subset of the
+    /// topic union, so a broad flood question must detect nothing.
+    #[test]
+    fn concrete_band_fastpath_detection() {
+        assert_eq!(concrete_bands_in_question("NDVI near Mount Fuji"), vec!["indices.ndvi"]);
+        assert_eq!(concrete_bands_in_question("what is the ndmi here"), vec!["indices.ndmi"]);
+        assert_eq!(
+            concrete_bands_in_question("show me LST"),
+            vec!["modis.lst_day_8day", "modis.lst_night_8day"]
+        );
+        // Whole-word only: substrings must not trigger.
+        assert!(concrete_bands_in_question("the land is dry").is_empty()); // "land" !~ "lst"
+        assert!(concrete_bands_in_question("a sandbar at low tide").is_empty()); // "sandbar" !~ "nbr"
+        // EVI/SAVI have no standalone band key -> not detectable.
+        assert!(concrete_bands_in_question("compute EVI and SAVI").is_empty());
+        // Broad flood question (the Katihar regression) detects nothing,
+        // so the fast path can never narrow it.
+        assert!(concrete_bands_in_question("is this place flooded near Katihar").is_empty());
+        // Aliases resolve to the same canonical keys the detector emits,
+        // so the guard's `want_bands.contains(...)` check lines up.
+        assert_eq!(band_short_name_alias("nbr"), Some("indices.nbr"));
+        assert_eq!(band_short_name_alias("evi"), None);
+    }
 
     /// The structural-routing eval corpus. Each prompt is a free-text
     /// question that an LLM with emem connected SHOULD route into the

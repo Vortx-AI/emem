@@ -37,6 +37,7 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 
 ## Optional
 
+- [llms-full.txt](https://emem.dev/llms-full.txt): the full machine-readable bundle (this file plus agents.md, spec, and skills) in one fetch — larger; prefer this file for a lean ingest.
 - [registries](https://emem.dev/v1/manifests): manifest CIDs for the band, algorithm, source, and topic registries.
 - [whitepaper](https://emem.dev/whitepaper.md): architecture and math (cell64, CID, receipt preimage, memory tokens).
 - [gallery](https://emem.dev/docs/gallery): live coverage map, per-place scenes, and the protocol diagrams.
