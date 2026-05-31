@@ -475,58 +475,36 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
-    <a href="#grounding" class="nav-sec">grounding</a>
-    <a href="#connect-evolve" class="nav-sec">connect &amp; evolve</a>
-    <a href="#peers" class="nav-sec">peers</a>
-    <a href="#first-call" class="nav-sec">first call</a>
-    <a href="#daily-two" class="nav-sec">daily two</a>
-    <a href="#connect" class="nav-sec">connect</a>
-    <a href="#showcase" class="nav-sec">showcase</a>
-    <a href="#substrate" class="nav-sec">substrate</a>
+    <a href="#agents" class="nav-sec">for agents</a>
+    <a href="#example" class="nav-sec">example</a>
+    <a href="#how" class="nav-sec">how it works</a>
+    <a href="#capabilities" class="nav-sec">capabilities</a>
+    <a href="#built" class="nav-sec">built with</a>
     <a href="#verify" class="nav-sec">verify</a>
-    <a href="#for-agents" class="nav-sec">for agents</a>
     <span class="spacer"></span>
-    <a href="/docs/">docs</a>
-    <a href="/demos">demos</a>
-    <a href="/humans">humans</a>
-    <a href="/verify" class="nav-sec">verify a receipt</a>
-    <a href="/openapi.json" class="nav-sec">openapi</a>
+    <a href="/how-it-works" class="nav-sec">how it works</a>
+    <a href="/solutions" class="nav-sec">solutions</a>
+    <a href="/reference" class="nav-sec">reference</a>
+    <a href="/docs">docs</a>
     <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
   </div>
 </header>
 
-<!--
-  Hero — fold 1: the world.
-
-  Following the parallel UX audits (human / agent / developer / restructure-spec),
-  this fold says one thing in one register: what emem is, in the world. No
-  formula, no pillars, no sidebar of kv metadata, no MCP config button.
-  Trust signals collapse to one quiet line. CTAs cap at two: one evaluation
-  (Quickstart), one proof (signed-answer demo). Everything that used to be
-  inlined here — the Cell × Band × Tslot formula, the four pillars, the state
-  vector + memory token cards, the MCP install snippet — now lives in
-  dedicated folds below where each can breathe at its own abstraction level.
--->
+<!-- ===== 01 · HERO ===== -->
 <section class="hero page hero-lean">
   <div>
     <h1>Earth as memory,<br><span class="accent">for real-world agents.</span></h1>
 
-    <p class="sub">Every place on Earth has one signed memory. Above it, a substrate the agent writes to &mdash; typed, searchable, bi-temporal. Read in one HTTP call. Verify the receipt offline at <a href="/verify">/verify</a>.</p>
+    <p class="sub">emem is a signed, content-addressed spatial memory for AI agents &mdash; every place-time on Earth resolves to a verifiable fact, read over MCP or REST, with no keys.</p>
 
     <div class="hero-cta">
-      <a class="btn" href="/docs/quickstart.html">Quickstart (60 s)</a>
-      <a class="btn ghost" href="/demos/signed-answer">See a signed answer &rarr;</a>
+      <a class="btn" href="#agents">Connect over MCP</a>
+      <a class="btn ghost" href="/docs">Read the docs &rarr;</a>
     </div>
 
-    <!--
-      Compact try-it, lifted into the first screenful. A visitor types a
-      place and gets the byte-identical cell64 + signed elevation fact that
-      the live responder returns, without scrolling. It shares the same
-      cached responses and the same run() handler as the full console in
-      §03; the IDs below are wired to that handler at the bottom of the page.
-      The full try-it (with the JSON envelope + locate→recall framing) stays
-      below for visitors who want the whole motion.
-    -->
+    <!-- Compact try-it: a visitor types a place and gets the byte-identical
+         cell64 + signed elevation fact the live responder returns. Wired to
+         the runHero() handler at the bottom of the page. -->
     <div class="tryit hero-tryit" id="tryit-hero">
       <div class="tryit-head">
         <span class="dot"></span>
@@ -540,7 +518,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
           <button id="tryit-hero-go">recall</button>
         </div>
         <div class="tryit-result empty" id="tryit-hero-result">
-          Type a place &rarr; <span class="band">recall</span> returns a signed elevation fact with its <span class="band">fact_cid</span>. Two are cached here (South Mumbai, Bengaluru); the full motion is at <a href="#first-call">&sect;03</a>.
+          Type a place &rarr; <span class="band">recall</span> returns a signed elevation fact with its <span class="band">fact_cid</span>. Two are cached here (South Mumbai, Bengaluru); the full motion is at <a href="#example">the example below</a>.
         </div>
       </div>
     </div>
@@ -549,311 +527,45 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
-<section class="section page" id="grounding">
+<!-- ===== 02 · FOR AI AGENTS ===== -->
+<section class="section page" id="agents">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">00</span><span class="idx-label">Grounding</span></div>
+    <div class="idx"><span class="idx-num">01</span><span class="idx-label">For AI agents</span></div>
     <dl>
-      <dt>tokens for text</dt><dd>"the brown fox" &rarr; [47891, 14127, 31206]</dd>
-      <dt>tokens for Earth</dt><dd>18.98&deg;N 72.82&deg;E &rarr; <span class="cell">defi.zb4d7.ze56c.zf24c</span></dd>
-      <dt>both</dt><dd>compact, content-addressed, model-agnostic</dd>
-      <dt>diff</dt><dd>text tokens are private to one model; Earth tokens are shared across every agent</dd>
+      <dt>transport</dt><dd>MCP Streamable HTTP</dd>
+      <dt>auth</dt><dd>none for reads</dd>
+      <dt>first tool</dt><dd>emem_ask</dd>
+      <dt>receipts</dt><dd>ed25519, verify offline</dd>
+      <dt>setup</dt><dd><a href="/reference">/reference</a></dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">00</span>An LLM token, but for places on Earth</h2>
-    <p class="lede">Agents hallucinate reality because they have no shared memory of the physical world. emem is that memory: every place on Earth gets one stable token, every fact at that token is signed, and any responder serves the same bytes for the same token forever.</p>
+    <h2><span class="num">01</span>For AI agents</h2>
+    <p class="lede">Agents are the primary user. No keys, no signup &mdash; point a client at the endpoint and call.</p>
 
-    <p>A language model tokenises text so its layers can reason over symbols instead of raw characters. emem tokenises <em>Earth</em> for the same reason: agents need a finite alphabet for places before they can reason, remember, or cite. The cell64 grid is that alphabet &mdash; a 64-bit identifier per ~9.55 m square at the equator, content-addressed, deterministic, and the same on every responder.</p>
-
-    <div class="memt-block" aria-label="LLM tokens versus Earth tokens — the conceptual analogy">
-      <div class="memt-head">
-        <span class="label">tokenisation analogy</span>
-        <span class="gloss">an LLM tokenises text; emem tokenises Earth</span>
-        <span class="spacer"></span>
-        <a href="/spec.md">spec</a>
-        <a href="/whitepaper.md">whitepaper</a>
-      </div>
-      <div class="memt-body">
-<pre style="font-family:var(--mono);font-size:var(--t-sm);line-height:1.5;margin:0;color:var(--ink-2);overflow-x:auto;white-space:pre">  TEXT TOKENS                          EARTH TOKENS (cell64)
-  &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;                          &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;
-  &quot;the brown fox&quot;                      18.98&deg;N  72.82&deg;E
-        &darr;  tokeniser                          &darr;  cell_from_latlng
-  [47891, 14127, 31206]                defi.zb4d7.ze56c.zf24c
-        &darr;  embedding (private)                &darr;  recall (signed)
-  1024-D vector,                       { band, value, fact_cid,
-  model-specific,                        ed25519 signature,
-  forgotten next session               every responder, any year }
-</pre>
-      </div>
-    </div>
-
-    <p>The right-hand column is what makes the answer durable. A receipt-bearing fact survives the session, survives the model, survives the responder. Quote the <span class="band">fact_cid</span> in a chat and your colleague can pull byte-identical bytes from any replica and verify the signature in their browser at <a href="/verify">/verify</a> &mdash; no callback to the issuer.</p>
-
-    <p style="font-weight:700;color:var(--ink);margin-top:1.8rem">Four things every agent currently lacks. emem provides each at the protocol layer.</p>
-
-    <table class="absent-table">
-      <tbody>
-        <tr>
-          <td><b>persistent world state</b></td>
-          <td>Each conversation starts from zero; the model forgets what was at this cell last week. <span class="band">cell &times; band &times; tslot &rarr; fact</span> is durable. An agent quotes <span class="band">fact_cid</span> across sessions; the next agent resolves the same bytes.</td>
-        </tr>
-        <tr>
-          <td><b>shared environmental memory</b></td>
-          <td>Two agents arguing about a place have no common reference and both guess. emem hands them one <span class="band">cell64</span> they both anchor on, plus signed receipts they both verify offline.</td>
-        </tr>
-        <tr>
-          <td><b>deterministic grounding</b></td>
-          <td>LLM outputs about places drift between calls. A receipt over <span class="band">blake3</span>-canonical CBOR reproduces byte-for-byte; ed25519 verification needs no server round-trip.</td>
-        </tr>
-        <tr>
-          <td><b>spatial continuity</b></td>
-          <td>"near Mount Fuji" means something different to every model. The cell64 grid is ~10 m square at the equator, with antimeridian and pole canonicalisation pinned in code; two queries 1 m apart land in the same cell, deterministically.</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <p style="margin-top:1.6rem">The grounding layer changes what an agent <em>can</em> be. Once places have stable tokens and facts at those tokens are signed, the loop is <em>locate &rarr; recall &rarr; reason &rarr; cite</em> &mdash; each step content-addressed, each fact verifiable from the receipt alone. <a href="/agents.md">agents.md</a> walks the loop; <a href="#first-call">&sect;03</a> shows the first call.</p>
-  </div>
-</section>
-
-<section class="section page" id="connect-evolve">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">00b</span><span class="idx-label">Connect &amp; evolve</span></div>
-    <dl>
-      <dt>connect</dt><dd>signed facts grouped into one envelope</dd>
-      <dt>cite</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">memb:&lt;cid&gt;</span></dd>
-      <dt>disagree</dt><dd>POST&nbsp;/v1/memory_contradictions</dd>
-      <dt>edges</dt><dd>POST&nbsp;/v1/edges/recall &middot; emem_edges_recall</dd>
-      <dt>supersede</dt><dd>as_of_signed_at (transaction time)</dd>
-      <dt>reflect</dt><dd>POST&nbsp;/v1/reviews</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">00b</span>Memory that connects facts and gets better over time</h2>
-    <p class="lede">emem stores facts and links them. When two sources disagree, it <em>records the disagreement</em> instead of silently picking one. A later attestation supersedes an earlier one on the transaction-time axis without erasing it &mdash; the old bytes stay replayable. That is how the memory evolves: contradictions become signed, queryable evidence; nothing is overwritten in the dark.</p>
-
-    <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
-      <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
-      <svg viewBox="0 0 760 300" role="img" preserveAspectRatio="xMidYMid meet">
-        <!-- column 1: three facts at one (cell, band) -->
-        <text x="20" y="26" class="t-mute" font-size="11">FACTS · one (cell, band, tslot)</text>
-        <rect class="node" x="20" y="40" width="190" height="40" rx="3"/>
-        <text x="32" y="58" font-size="12">attester A &middot; NDVI 0.61</text>
-        <text x="32" y="73" class="t-accent" font-size="10">fact_cid tc54…aeesh</text>
-        <rect class="node" x="20" y="92" width="190" height="40" rx="3"/>
-        <text x="32" y="110" font-size="12">attester B &middot; NDVI 0.58</text>
-        <text x="32" y="125" class="t-accent" font-size="10">fact_cid wbqy…6m5q</text>
-        <rect class="node" x="20" y="144" width="190" height="40" rx="3"/>
-        <text x="32" y="162" font-size="12">attester C &middot; NDVI 0.19</text>
-        <text x="32" y="177" class="t-absent" font-size="10">fact_cid cxji…h5bq · outlier</text>
-
-        <!-- edges into the bundle / contradiction node -->
-        <path class="edge-accent" d="M210 60 C 270 60, 280 80, 330 95" stroke-width="1.5"/>
-        <path class="edge-accent" d="M210 112 H 330" stroke-width="1.5"/>
-        <path class="edge-absent" d="M210 164 C 270 164, 280 140, 330 125" stroke-width="1.5"/>
-        <text x="232" y="48" class="t-mute" font-size="10">co_located</text>
-        <text x="232" y="200" class="t-absent" font-size="10">disagrees_with</text>
-
-        <!-- column 2: connect (bundle) + record disagreement -->
-        <rect class="node-out" x="330" y="70" width="190" height="36" rx="3"/>
-        <text x="342" y="86" font-size="12" font-weight="bold">CONNECT &middot; memory_bundle</text>
-        <text x="342" y="100" class="t-accent" font-size="10">memb:&lt;bundle_cid&gt; (one signed envelope)</text>
-        <rect class="node-warn" x="330" y="116" width="190" height="50" rx="3"/>
-        <text x="342" y="134" font-size="12" font-weight="bold">RECORD &middot; contradiction</text>
-        <text x="342" y="149" class="t-absent" font-size="10">severity 0.71 · both fact_cids kept</text>
-        <text x="342" y="162" class="t-mute" font-size="10">/v1/memory_contradictions</text>
-
-        <!-- edge to refinement -->
-        <path class="edge" d="M520 141 C 590 141, 600 200, 560 215" stroke-width="1.5"/>
-        <!-- column 3: refinement loop -->
-        <rect class="node" x="540" y="200" width="200" height="56" rx="3"/>
-        <text x="552" y="220" font-size="12" font-weight="bold">REFINE</text>
-        <text x="552" y="235" class="t-mute" font-size="10">flag re-attestation · /v1/reviews</text>
-        <text x="552" y="248" class="t-mute" font-size="10">supersede via as_of_signed_at</text>
-        <!-- loop arrow back to facts -->
-        <path class="edge" d="M540 228 C 360 270, 120 270, 115 188" stroke-width="1.5" stroke-dasharray="4 3"/>
-        <text x="250" y="285" class="t-mute" font-size="10">re-attestation appends a new fact; the old bytes stay replayable</text>
-        <polygon class="arrowhead" points="115,188 110,198 120,198"/>
-      </svg>
-      <div class="cev-legend">
-        <div class="e"><b>connect</b><span><code>/v1/memory_bundle</code> groups N signed facts into one <code>memb:&lt;cid&gt;</code> envelope an agent cites as a unit.</span></div>
-        <div class="e"><b>disagree</b><span><code>/v1/memory_contradictions</code> scores per-band spread and keeps every conflicting <code>fact_cid</code> &mdash; no last-writer-wins.</span></div>
-        <div class="e"><b>edges</b><span>Typed connections are first-class: <code>(subj, pred, obj, valid_from)</code> queried by <code>/v1/edges/recall</code>, attached to any read with <code>include:["edges"]</code>. The opt-in refinement loop records <code>disagrees_with</code> edges from contradictions automatically.</span></div>
-        <div class="e"><b>evolve</b><span>A new attestation supersedes on <code>as_of_signed_at</code>; <code>/v1/reviews</code> records the task outcome. The earlier bytes never vanish.</span></div>
-      </div>
-    </div>
-
-    <p>The loop is honest by construction. A scalar disagreement is scored by normalised spread against the band&rsquo;s documented physical range; a vector disagreement by 1&nbsp;&minus;&nbsp;mean cosine; a categorical one by 1&nbsp;&minus;&nbsp;mode-share. The contradiction is itself addressable, so two agents settle a number by reading the same scored evidence rather than trusting either one. <a href="#substrate">&sect;05</a> documents the substrate; <a href="#memory-cases">&sect;05b</a> shows the production shapes this solves.</p>
-  </div>
-</section>
-
-<section class="section page" id="peers">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">00c</span><span class="idx-label">Peers</span></div>
-    <dl>
-      <dt>compared</dt><dd>Mem0 · Letta · Zep · Anthropic memory tool</dd>
-      <dt>emem adds</dt><dd>signed receipts, verify offline</dd>
-      <dt>plus</dt><dd>bi-temporal recall</dd>
-      <dt>plus</dt><dd>typed connections between facts</dd>
-      <dt>plus</dt><dd>Earth-grounded, content-addressed</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">00c</span>How emem sits next to other agent memory</h2>
-    <p class="lede">Each one is built for a different job. emem is not a replacement for chat-memory inference or a stateful agent runtime &mdash; it is the verifiable layer underneath, where the trust surface and the spatial / temporal grounding live. Here is the honest map.</p>
-
-    <div class="scroll-x">
-    <table class="peer">
+    <table class="endpoints">
       <thead>
-        <tr>
-          <th>&nbsp;</th>
-          <th>Mem0</th>
-          <th>Letta</th>
-          <th>Zep / Graphiti</th>
-          <th>Anthropic memory tool</th>
-          <th class="emem">emem</th>
-        </tr>
+        <tr><th>Entry point</th><th>URL</th></tr>
       </thead>
       <tbody>
-        <tr>
-          <th>Good at</th>
-          <td>chat-memory extraction &amp; recall</td>
-          <td>stateful agent runtime, editable memory blocks</td>
-          <td>temporal knowledge graph over conversations</td>
-          <td>tight Claude-loop file memory</td>
-          <td class="emem">Earth-grounded, signed fact store with bi-temporal recall</td>
-        </tr>
-        <tr>
-          <th>Signed receipts (verify offline)</th>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="emem"><span class="yes">yes</span> &mdash; ed25519 over BLAKE3, recompute without a callback</td>
-        </tr>
-        <tr>
-          <th>Bi-temporal recall</th>
-          <td class="no">timestamped, not valid/transaction split</td>
-          <td class="no">no</td>
-          <td><span class="yes">yes</span> (valid + transaction time)</td>
-          <td class="no">no</td>
-          <td class="emem"><span class="yes">yes</span> &mdash; <span class="band">as_of_tslot</span> + <span class="band">as_of_signed_at</span> on every read</td>
-        </tr>
-        <tr>
-          <th>Typed connections between facts</th>
-          <td class="no">scoped writes</td>
-          <td class="no">shared blocks</td>
-          <td><span class="yes">graph edges</span> over chat entities</td>
-          <td class="no">plain files</td>
-          <td class="emem"><span class="yes">yes</span> &mdash; bundles group facts; contradictions record disagreement with both CIDs</td>
-        </tr>
-        <tr>
-          <th>Content-addressed (CID-stable)</th>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="emem"><span class="yes">yes</span> &mdash; identical fact &rarr; identical CID on any responder</td>
-        </tr>
-        <tr>
-          <th>Earth-grounded</th>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="no">no</td>
-          <td class="emem"><span class="yes">yes</span> &mdash; every fact keyed to a cell64 (~9.55 m square)</td>
-        </tr>
+        <tr><td class="desc">MCP (Streamable HTTP)</td><td><span class="path">https://emem.dev/mcp</span> <button class="copy" data-copy-target="#mcp-url-plain" style="margin-left:.6rem;font-size:var(--t-xs);padding:.1rem .5rem;border:1px solid var(--rule);background:var(--paper);cursor:pointer;color:var(--mute)">copy</button><span id="mcp-url-plain" hidden>https://emem.dev/mcp</span></td></tr>
+        <tr><td class="desc">OpenAPI 3.1</td><td><a class="path" href="/openapi.json">/openapi.json</a></td></tr>
+        <tr><td class="desc">LLM context</td><td><a class="path" href="/llms.txt">/llms.txt</a> &middot; <a href="/llms-full.txt">/llms-full.txt</a></td></tr>
+        <tr><td class="desc">Agent card</td><td><a class="path" href="/agent.json">/agent.json</a> &middot; <a href="/v1/agent_card">/v1/agent_card</a></td></tr>
+        <tr><td class="desc">Discovery</td><td><a class="path" href="/.well-known/mcp.json">/.well-known/mcp.json</a> &middot; <a href="/.well-known/emem.json">/.well-known/emem.json</a></td></tr>
+        <tr><td class="desc">First tool to call</td><td><span class="path">emem_ask</span> &mdash; intent-routed; one call resolves place &rarr; recall &rarr; applicable algorithms</td></tr>
       </tbody>
     </table>
-    </div>
 
-    <p class="peer-note">Sources for the vendor read: <a href="https://mem0.ai/blog/state-of-ai-agent-memory-2026">Mem0</a> on chat-memory inference, <a href="https://www.letta.com/blog/agent-memory">Letta</a> on stateful runtimes, <a href="https://arxiv.org/html/2501.13956v1">Zep / Graphiti</a> on temporal graph memory, <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool">Anthropic&rsquo;s memory tool</a> on the Claude loop. emem&rsquo;s distinguishing row is the combination: <strong>signed receipts you verify offline, bi-temporal recall, typed connections between facts, Earth-grounded, content-addressed</strong>. Use emem when an answer has to be auditable, point-in-time, and tied to a place.</p>
-  </div>
-</section>
-
-<section class="section page" id="corpus">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">01</span><span class="idx-label">Corpus</span></div>
-    <dl>
-      <dt>refreshes</dt><dd>regenerates on demand</dd>
-      <dt>projection</dt><dd>plate-carrée</dd>
-      <dt>density</dt><dd>log10(1 + facts)</dd>
-      <dt>endpoint</dt><dd>GET&nbsp;/v1/coverage_map.svg</dd>
-      <dt>matrix</dt><dd>GET&nbsp;/v1/coverage_matrix</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">01</span>The corpus, plotted on a flat Earth</h2>
-    <p class="lede">Every cell with at least one signed fact, on a plate-carrée projection. The dots cluster where the lazy materialiser has been busy. Every miss anywhere on the globe extends the map forward by one cell.</p>
-
-    <div class="stats">
-      <div class="stat"><div class="n">92<span class="small">/ REST</span></div><div class="lbl">documented <code>/v1</code> paths (95 in OpenAPI)</div></div>
-      <div class="stat"><div class="n">80<span class="small">/ MCP</span></div><div class="lbl">tools (10 advertised by default; fetch the rest via the <code>tier:extended</code> cursor)</div></div>
-      <div class="stat"><div class="n">159</div><div class="lbl">algorithms registered</div></div>
-      <div class="stat"><div class="n">42<span class="small">/ 46</span></div><div class="lbl">cube slots / upstream sources</div></div>
-    </div>
-    <p style="font-size:var(--t-sm);color:var(--mute);margin:.6rem 0 0">Four band counts measure different things, like the agent_card's <code>band_taxonomy</code> reconciles them: <b>42</b> cube slots (top-level keys in the 1792-D voxel layout), <b>122</b> materializer-wired band names (auto-fetched on a recall miss), <b>159</b> algorithm recipes, and <b>80</b> MCP tools (10 core / 70 extended). An MCP client that shows only 10 tools is seeing the core tier — all 80 are callable; pass <code>{"tier":"all"}</code> or follow the <code>tier:extended</code> cursor for the full catalogue.</p>
-
-    <div class="coverage">
-      <div class="coverage-head">
-        <span class="label">/v1/coverage_map.svg</span>
-        <span>1440 × 720 · 1° bins · log density</span>
-        <span class="spacer"></span>
-        <span class="legend">
-          <span style="color:var(--mute)">cold</span>
-          <span class="step s1"></span>
-          <span class="step s2"></span>
-          <span class="step s3"></span>
-          <span class="step s4"></span>
-          <span style="color:var(--mute)">dense</span>
-        </span>
-      </div>
-      <a href="/v1/coverage_map.svg"><img src="/v1/coverage_map.svg" alt="Global plate-carrée map of cells with at least one signed fact" loading="lazy" width="1440" height="720"></a>
-    </div>
-
-    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">Each tile is one <span class="cell">cell64</span> (about 9.55&nbsp;m square at the equator) the responder has answered for. Open the SVG in a new tab and an agent fetches the same URL via MCP.</p>
-  </div>
-</section>
-
-<section class="section page" id="connect">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">02</span><span class="idx-label">Connect</span></div>
-    <dl>
-      <dt>transport</dt><dd>Streamable HTTP</dd>
-      <dt>spec</dt><dd>MCP 2025-03-26</dd>
-      <dt>auth</dt><dd>none for reads</dd>
-      <dt>writes</dt><dd>Ed25519, plain REST only</dd>
-      <dt>retries</dt><dd>idempotent, safe to retry</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">02</span>Wire it into your runtime</h2>
-    <p class="lede">Same JSON in every host that speaks MCP. For runtimes without native Streamable HTTP, the <span class="band">mcp-remote</span> stdio bridge works. No keys, no install.</p>
-
-    <div class="connect" id="client-tabs">
-      <div class="client active" data-client="claude-code"><span class="name">Claude Code</span><span class="meta">.mcp.json</span></div>
-      <div class="client" data-client="cursor"><span class="name">Cursor 0.42+</span><span class="meta">.cursor/mcp.json</span></div>
-      <div class="client" data-client="claude-desktop"><span class="name">Claude Desktop</span><span class="meta">claude_desktop_config.json</span></div>
-      <div class="client" data-client="cline"><span class="name">Cline (VS Code)</span><span class="meta">MCP settings</span></div>
-      <div class="client" data-client="gemini"><span class="name">Gemini CLI</span><span class="meta">extension install</span></div>
-      <div class="client" data-client="openai"><span class="name">OpenAI custom GPT</span><span class="meta">Action import</span></div>
-      <div class="client" data-client="stdio"><span class="name">stdio bridge</span><span class="meta">mcp-remote</span></div>
-      <div class="client" data-client="rest"><span class="name">Plain REST</span><span class="meta">POST /v1/*</span></div>
-    </div>
-
-    <div class="code" id="connect-code">
+    <div class="code">
       <div class="code-head">
         <span class="lang">JSON</span>
-        <span class="tab" id="connect-filename">.mcp.json</span>
+        <span class="tab">MCP config (Claude, Cursor, &hellip;)</span>
         <span class="spacer"></span>
-        <button class="copy" data-copy-target="#connect-pre">copy</button>
+        <button class="copy" data-copy-target="#agents-mcp-pre">copy</button>
       </div>
-<pre id="connect-pre"><code><span class="tok-p">{</span>
+<pre id="agents-mcp-pre"><code><span class="tok-p">{</span>
   <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
     <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
       <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>
@@ -863,39 +575,29 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <span class="tok-p">}</span></code></pre>
     </div>
 
-    <p>Reads are idempotent. The MCP layer is a convenience wrapper over the same handlers behind <a href="/openapi.json">/openapi.json</a>. Writes (<span class="band">/v1/attest</span>, <span class="band">/v1/challenge</span>) require an Ed25519 secret the attester controls and are not exposed via MCP for that reason.</p>
-
-    <div class="ascii-rule">────────────────────────────────────────────────────────────────────────────────────────</div>
-
-    <p style="font-weight:700;color:var(--ink);margin-top:1.5rem">Five-step loop, after first contact.</p>
-
-    <div class="loop">
-      <div class="step"><div class="n">01</div><div class="verb">discover</div><div class="desc">/v1/agent_card or /v1/discover once per session. Cache it.</div></div>
-      <div class="step"><div class="n">02</div><div class="verb">locate</div><div class="desc">Place name (or lat/lng) → cell64. Geocoder cascade reports which layer answered.</div></div>
-      <div class="step"><div class="n">03</div><div class="verb">recall</div><div class="desc">Cell × bands → signed facts. Materialises on miss; warm reads under 10 ms.</div></div>
-      <div class="step"><div class="n">04</div><div class="verb">reason</div><div class="desc">find_similar, compare, trajectory, query_region. Connect facts with memory_bundle; surface disagreement with /v1/memory_contradictions. Stay inside the protocol.</div></div>
-      <div class="step"><div class="n">05</div><div class="verb">verify</div><div class="desc">Quote the fact_cid back to the user. They can verify offline at /verify.</div></div>
-    </div>
+    <p>Every answer is an ed25519 receipt, verifiable offline. <a href="/reference">Full client setup &rarr;</a></p>
   </div>
 </section>
 
-<section class="section page" id="first-call">
+<!-- ===== 03 · ONE RUNNABLE EXAMPLE ===== -->
+<section class="section page" id="example">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">03</span><span class="idx-label">First call</span></div>
+    <div class="idx"><span class="idx-num">02</span><span class="idx-label">One example</span></div>
     <dl>
-      <dt>cold latency</dt><dd>~180 ms</dd>
-      <dt>warm latency</dt><dd>~10 ms</dd>
-      <dt>materialisers</dt><dd>20 wired</dd>
-      <dt>sources</dt><dd>46 schemes</dd>
+      <dt>step 1</dt><dd>POST&nbsp;/v1/locate</dd>
+      <dt>step 2</dt><dd>POST&nbsp;/v1/recall</dd>
+      <dt>cold latency</dt><dd>~180&nbsp;ms</dd>
+      <dt>warm latency</dt><dd>~10&nbsp;ms</dd>
+      <dt>more</dt><dd><a href="/reference">/reference</a></dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">03</span>From a place name to a signed number</h2>
-    <p class="lede">Two POSTs. The recall comes back with the value, its unit, the upstream sources, and a 64-byte Ed25519 receipt over the canonical preimage.</p>
+    <h2><span class="num">02</span>From a place name to a signed number</h2>
+    <p class="lede">Two POSTs. The recall comes back with the value, its unit, the upstream source, and a 64-byte ed25519 receipt over the canonical preimage.</p>
 
     <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">step 1 · locate</span><span class="spacer"></span><button class="copy" data-copy-target="#code-locate">copy</button></div>
+      <div class="code-head"><span class="lang">SH</span><span class="tab">step 1 &middot; locate</span><span class="spacer"></span><button class="copy" data-copy-target="#code-locate">copy</button></div>
 <pre id="code-locate"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/locate</span> \
     <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
     <span class="tok-flag">-d</span> <span class="tok-s">'{"q":"South Mumbai"}'</span> | <span class="tok-k">jq</span> .cell64
@@ -903,41 +605,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     </div>
 
     <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">step 2 · recall</span><span class="spacer"></span><button class="copy" data-copy-target="#code-recall">copy</button></div>
+      <div class="code-head"><span class="lang">SH</span><span class="tab">step 2 &middot; recall</span><span class="spacer"></span><button class="copy" data-copy-target="#code-recall">copy</button></div>
 <pre id="code-recall"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \
     <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
     <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d7.ze56c.zf24c",
          "bands":["copdem30m.elevation_mean"]}'</span></code></pre>
     </div>
 
-    <p style="font-size:var(--t-sm);color:var(--mute);margin:.8rem 0 .5rem">Same two calls in Python and TypeScript — both clients are zero-config, parse to plain dicts/objects, and preserve every receipt byte for offline verification.</p>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">PY</span><span class="tab">python · pip install emem (client at github.com/Vortx-AI/emem/tree/main/sdks/emem-py)</span><span class="spacer"></span><button class="copy" data-copy-target="#code-py">copy</button></div>
-<pre id="code-py"><code><span class="tok-k">from</span> emem <span class="tok-k">import</span> Client
-
-<span class="tok-k">with</span> Client() <span class="tok-k">as</span> em:
-    cell  = em.locate(<span class="tok-s">"South Mumbai"</span>)[<span class="tok-s">"cell64"</span>]
-    facts = em.recall(cell, bands=[<span class="tok-s">"copdem30m.elevation_mean"</span>])
-    <span class="tok-k">print</span>(facts[<span class="tok-s">"facts"</span>][<span class="tok-cmd">0</span>][<span class="tok-s">"value"</span>])  <span class="tok-cmd"># 10.0</span></code></pre>
-    </div>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">TS</span><span class="tab">typescript · npm i @emem/client (client at github.com/Vortx-AI/emem/tree/main/sdks/emem-ts)</span><span class="spacer"></span><button class="copy" data-copy-target="#code-ts">copy</button></div>
-<pre id="code-ts"><code><span class="tok-k">import</span> { Client } <span class="tok-k">from</span> <span class="tok-s">"@emem/client"</span>;
-
-<span class="tok-k">const</span> em    = <span class="tok-k">new</span> Client();
-<span class="tok-k">const</span> loc   = <span class="tok-k">await</span> em.locate({ place: <span class="tok-s">"South Mumbai"</span> });
-<span class="tok-k">const</span> facts = <span class="tok-k">await</span> em.recall({ cell: loc.cell64, bands: [<span class="tok-s">"copdem30m.elevation_mean"</span>] });
-<span class="tok-k">console</span>.log(facts.facts[<span class="tok-cmd">0</span>].value);  <span class="tok-cmd">// 10.0</span></code></pre>
-    </div>
-
     <p>The same response, parsed for the human eye:</p>
 
     <div class="fact">
       <div class="fact-head">
-        <span class="signed">SIGNED · ed25519</span><span>·</span>
-        <span class="ts">2026-05-16T18:58:04Z</span><span>·</span>
+        <span class="signed">SIGNED &middot; ed25519</span><span>&middot;</span>
+        <span class="ts">2026-05-16T18:58:04Z</span><span>&middot;</span>
         <span>via copdem30m</span>
       </div>
       <div class="fact-grid">
@@ -955,748 +635,198 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       </div>
     </div>
 
-    <p>First call on a fresh cell: ~180 ms (one upstream fetch, then persisted). Every call after, anywhere: ~10 ms, same signature, same CID. That CID is what the agent quotes back to the user.</p>
-
-    <div class="ascii-rule">────────────────────────────────────────────────────────────────────────────────────────</div>
-
-    <p style="font-weight:700;color:var(--ink);margin-top:1.6rem">Same protocol, different question: which other places on Earth look like Bengaluru?</p>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">find_similar · cosine over 128-D Tessera</span><span class="spacer"></span><button class="copy" data-copy-target="#code-similar">copy</button></div>
-<pre id="code-similar"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/find_similar</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"key":"defi.zb493.xuqA.zcb5f","k":3}'</span></code></pre>
-    </div>
-
-    <div class="fact">
-      <div class="fact-head">
-        <span class="signed">NEIGHBOURS · cosine</span><span>·</span>
-        <span>seed defi.zb493.xuqA.zcb5f (Bengaluru)</span>
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:var(--t-sm)">
-        <thead>
-          <tr style="border-bottom:1px solid var(--rule)">
-            <th style="text-align:left;padding:.4rem .4rem .4rem 0;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">score</th>
-            <th style="text-align:left;padding:.4rem .4rem .4rem 0;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">cell64</th>
-            <th style="text-align:left;padding:.4rem .4rem .4rem 0;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">place</th>
-            <th style="text-align:right;padding:.4rem 0 .4rem .4rem;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700">lat, lng</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="border-bottom:1px dashed var(--rule)">
-            <td style="padding:.45rem .4rem .45rem 0;font-weight:700;color:var(--accent)">0.6537</td>
-            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">defi.zb5cf.nura.zd83c</td>
-            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">New York City, USA</td>
-            <td style="padding:.45rem 0 .45rem .4rem;text-align:right;color:var(--ink-2)">40.7229, -73.9987</td>
-          </tr>
-          <tr>
-            <td style="padding:.45rem .4rem .45rem 0;font-weight:700;color:var(--accent)">0.6426</td>
-            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">defi.zb563.noxo.xAvu</td>
-            <td style="padding:.45rem .4rem .45rem 0;color:var(--ink)">Shanghai, China</td>
-            <td style="padding:.45rem 0 .45rem .4rem;text-align:right;color:var(--ink-2)">31.2304, 121.4737</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p>Verified response from <a href="/agents.md">/agents.md</a>. The score is cosine over the 128-D Tessera annual embedding. Two more modes exist: <span class="band">hamming</span> (about 1000x faster, around 65 percent recall@10) and <span class="band">hamming_then_rerank</span> (matches cosine precision at roughly 16x less work, the default for production agents).</p>
-
-    <div class="tryit" id="tryit">
-      <div class="tryit-head">
-        <span class="dot"></span>
-        <span class="url">POST&nbsp;/v1/locate</span>
-        <span style="color:var(--mute)">then</span>
-        <span class="url">POST&nbsp;/v1/recall</span>
-        <span style="margin-left:auto;color:var(--mute)">live demo · cached responses</span>
-      </div>
-      <div class="tryit-body">
-        <div class="tryit-input">
-          <span class="prefix">place</span>
-          <input id="tryit-place" type="text" aria-label="Place name to try" value="South Mumbai" placeholder="e.g. Bengaluru">
-          <button id="tryit-go">run</button>
-        </div>
-        <div class="tryit-suggest">
-          <span class="sug" data-place="South Mumbai">South Mumbai</span>
-          <span class="sug" data-place="Bengaluru">Bengaluru</span>
-        </div>
-        <div class="tryit-result empty" id="tryit-result">
-          Two verified responses are cached in this page (South Mumbai and Bengaluru). The cell64, value, and fact_cid are byte-identical to what the live responder returns. For any other place, run the command above against <span class="band">https://emem.dev/v1/recall</span> in your terminal.
-        </div>
-      </div>
-    </div>
+    <p>First call on a fresh cell: ~180&nbsp;ms (one upstream fetch, then persisted). Every call after, anywhere: ~10&nbsp;ms, same signature, same CID. That CID is what the agent quotes back to the user. <a href="/reference">More examples &rarr;</a></p>
   </div>
 </section>
 
-<!--
-  Daily two — the state vector + memory token cards used to live in the hero
-  but were pushing it from "world" register into "implementation" register.
-  Moved here so they sit at their natural abstraction level: the two
-  primitives a working agent will call every day, after the first-call
-  curl tour above. The cards themselves are unchanged.
--->
-<section class="section page" id="daily-two">
+<!-- ===== 04 · WHAT IT IS / HOW IT WORKS ===== -->
+<section class="section page" id="how">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">03b</span><span class="idx-label">Daily two</span></div>
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">How it works</span></div>
     <dl>
-      <dt>state vector</dt><dd>POST /v1/state</dd>
-      <dt>memory token</dt><dd>POST /v1/memory_token</dd>
-      <dt>token grammar</dt><dd>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</dd>
-      <dt>resolve</dt><dd>GET /v1/facts/&lt;cid&gt;</dd>
+      <dt>address</dt><dd>cell64, ~9.55&nbsp;m square</dd>
+      <dt>fact</dt><dd>signed, content-addressed</dd>
+      <dt>edges</dt><dd>disagrees_with &middot; supersedes &middot; relates_to</dd>
+      <dt>evolve</dt><dd>contradiction scoring + refinement loop</dd>
+      <dt>depth</dt><dd><a href="/how-it-works">/how-it-works</a></dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">03b</span>Two primitives every agent uses daily</h2>
-    <p class="lede">The state vector reads a place: ask for any cell and get a 128-D Tessera embedding, signed, ready to drop into context. The memory token cites it: one string the agent pastes anywhere, and any reader resolves back to the same signed fact.</p>
+    <h2><span class="num">03</span>What it is, and how it works</h2>
+    <p class="lede">An LLM asked what is at a place will usually guess. emem is the missing handle: a stable address for every patch of Earth, and a signed fact at that address any agent can read and verify.</p>
 
-    <div class="memt-block" aria-label="memory token, the cite-handle for one signed fact at one place">
-      <div class="memt-head">
-        <span class="label">memory token</span>
-        <span class="gloss">one string an agent can paste anywhere; resolves to one signed fact at one place</span>
-        <span class="spacer"></span>
-        <a href="/whitepaper.md#194-memory-tokens">spec</a>
-        <a href="/integrations.md#memory-tokens">integrate</a>
-      </div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>format:</b> <code>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</code></div>
-        <div class="memt-example">memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</div>
-        <div class="memt-parts">
-          <span class="k">cell</span><span><code>defi.zb4d7.ze56c.zf24c</code> &nbsp;(South Mumbai, 18.98&deg;N 72.82&deg;E)</span>
-          <span class="k">fact</span><span><code>copdem30m.elevation_mean = 10.0 m</code> via Copernicus DEM, signed</span>
-          <span class="k">resolve</span><span><code>GET /v1/facts/&lt;fact_cid&gt;</code> returns the same bytes on any responder, forever</span>
-          <span class="k">compose</span><span><code>POST /v1/memory_token {"cell":"&hellip;","fact_cid":"&hellip;"}</code></span>
-        </div>
-      </div>
+    <p>A language model has no shared memory of the physical world. The cell64 grid gives every ~9.55&nbsp;m patch a token-like address that is the same on every responder. Read a cell and you get a fact &mdash; elevation, weather, land cover, a foundation embedding &mdash; that is ed25519-signed and content-addressed by its <span class="band">fact_cid</span>. Quote that CID in a chat and a colleague pulls byte-identical bytes from any replica and checks the signature in their browser at <a href="/verify">/verify</a>, with no callback to the issuer.</p>
+
+    <p>Facts link to each other through typed edges (<span class="band">disagrees_with</span>, <span class="band">supersedes</span>, <span class="band">relates_to</span>) and improve over time: when two attesters disagree, emem scores the contradiction and keeps both CIDs rather than silently picking one, and an opt-in refinement loop flags facts for re-attestation. A later attestation supersedes an earlier one on the transaction-time axis without erasing the old bytes.</p>
+
+    <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
+      <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
+      <svg viewBox="0 0 760 300" role="img" preserveAspectRatio="xMidYMid meet">
+        <text x="20" y="26" class="t-mute" font-size="11">FACTS · one (cell, band, tslot)</text>
+        <rect class="node" x="20" y="40" width="190" height="40" rx="3"/>
+        <text x="32" y="58" font-size="12">attester A &middot; NDVI 0.61</text>
+        <text x="32" y="73" class="t-accent" font-size="10">fact_cid tc54…aeesh</text>
+        <rect class="node" x="20" y="92" width="190" height="40" rx="3"/>
+        <text x="32" y="110" font-size="12">attester B &middot; NDVI 0.58</text>
+        <text x="32" y="125" class="t-accent" font-size="10">fact_cid wbqy…6m5q</text>
+        <rect class="node" x="20" y="144" width="190" height="40" rx="3"/>
+        <text x="32" y="162" font-size="12">attester C &middot; NDVI 0.19</text>
+        <text x="32" y="177" class="t-absent" font-size="10">fact_cid cxji…h5bq · outlier</text>
+        <path class="edge-accent" d="M210 60 C 270 60, 280 80, 330 95" stroke-width="1.5"/>
+        <path class="edge-accent" d="M210 112 H 330" stroke-width="1.5"/>
+        <path class="edge-absent" d="M210 164 C 270 164, 280 140, 330 125" stroke-width="1.5"/>
+        <text x="232" y="48" class="t-mute" font-size="10">relates_to</text>
+        <text x="232" y="200" class="t-absent" font-size="10">disagrees_with</text>
+        <rect class="node-out" x="330" y="70" width="190" height="36" rx="3"/>
+        <text x="342" y="86" font-size="12" font-weight="bold">CONNECT &middot; memory_bundle</text>
+        <text x="342" y="100" class="t-accent" font-size="10">memb:&lt;bundle_cid&gt; (one signed envelope)</text>
+        <rect class="node-warn" x="330" y="116" width="190" height="50" rx="3"/>
+        <text x="342" y="134" font-size="12" font-weight="bold">RECORD &middot; contradiction</text>
+        <text x="342" y="149" class="t-absent" font-size="10">severity 0.71 · both fact_cids kept</text>
+        <text x="342" y="162" class="t-mute" font-size="10">/v1/memory_contradictions</text>
+        <path class="edge" d="M520 141 C 590 141, 600 200, 560 215" stroke-width="1.5"/>
+        <rect class="node" x="540" y="200" width="200" height="56" rx="3"/>
+        <text x="552" y="220" font-size="12" font-weight="bold">REFINE</text>
+        <text x="552" y="235" class="t-mute" font-size="10">flag re-attestation · /v1/reviews</text>
+        <text x="552" y="248" class="t-mute" font-size="10">supersede via as_of_signed_at</text>
+        <path class="edge" d="M540 228 C 360 270, 120 270, 115 188" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <text x="250" y="285" class="t-mute" font-size="10">re-attestation appends a new fact; the old bytes stay replayable</text>
+        <polygon class="arrowhead" points="115,188 110,198 120,198"/>
+      </svg>
     </div>
 
-    <div class="memt-block" aria-label="state vector, the dense per-place embedding an agent can drop into context">
-      <div class="memt-head">
-        <span class="label">state vector</span>
-        <span class="gloss">128-D Tessera embedding for any place on Earth, signed, ready to drop into an LLM context</span>
-        <span class="spacer"></span>
-        <a href="/whitepaper.md#193-memory-exposure-how-agents-reach-emem">spec</a>
-        <a href="/integrations.md#state-vectors">integrate</a>
-      </div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>endpoint:</b> <code>POST /v1/state {"cell":"&lt;place|cell64&gt;","encoder":"geotessera"}</code></div>
-        <div class="memt-example">{"cell":"defi.zb4d7.ze56c.zf24c","encoder":"geotessera","dim":128,"vector":[0.043,-0.115,&hellip;],"l2_norm":3.71,"fact_cid":"&hellip;","memory_token":"memt:&hellip;","receipt":{&hellip;}}</div>
-        <div class="memt-parts">
-          <span class="k">read</span><span>the dense state for any cell on Earth in one round-trip, signed and content-addressed</span>
-          <span class="k">steer</span><span>drop the vector into your LLM's context, or feed it to <code>/v1/find_similar</code> to ask "what looks like this place?"</span>
-          <span class="k">write</span><span><code>POST /v1/attest</code> with a signed Attestation; the same cell becomes readable from any replica</span>
-        </div>
-      </div>
-    </div>
+    <p><a href="/how-it-works">How it works in depth &rarr;</a> &middot; <a href="/whitepaper.md">Whitepaper &rarr;</a></p>
   </div>
 </section>
 
-<section class="section page" id="agent-memory">
+<!-- ===== 05 · WHAT AGENTS DO WITH IT ===== -->
+<section class="section page" id="capabilities">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">03c</span><span class="idx-label">Agent memory</span></div>
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Capabilities</span></div>
     <dl>
-      <dt>write</dt><dd>MCP&nbsp;memory_create</dd>
-      <dt>search</dt><dd>POST&nbsp;/v1/memory/search</dd>
-      <dt>cite</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">memb:&lt;cid&gt;</span></dd>
-      <dt>typed</dt><dd>episodic &middot; semantic &middot; procedural &middot; resource</dd>
-      <dt>bi-temporal</dt><dd>as_of_tslot &middot; as_of_signed_at on every read</dd>
-      <dt>stream</dt><dd>GET&nbsp;/v1/memory/sse</dd>
+      <dt>recall</dt><dd>POST&nbsp;/v1/recall</dd>
+      <dt>verify</dt><dd><a href="/verify">/verify</a></dd>
+      <dt>memory</dt><dd>state, tokens, bundles</dd>
+      <dt>hunt</dt><dd>POST&nbsp;/v1/hunt</dd>
+      <dt>solve</dt><dd>jepa_predict, heat_solve</dd>
+      <dt>compose</dt><dd>159 algorithms</dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">03c</span>The agent's own memory, on the same substrate</h2>
-    <p class="lede">The state vector is what the responder remembers about a place. Above it, the agent gets its own writable scratchpad &mdash; typed, content-addressed, ed25519-signed, searchable. Memory of Earth and memory of the agent ride the same trust layer; the same <a href="/verify">/verify</a> page checks them both.</p>
+    <h2><span class="num">04</span>What agents do with it</h2>
+    <p class="lede">Six things an agent reaches for. Each is one call; each answer carries a receipt.</p>
 
-    <div class="memt-block" aria-label="memory file — the agent's writable scratchpad, signed at every edit">
-      <div class="memt-head">
-        <span class="label">memory file</span>
-        <span class="gloss">Anthropic memory-tool shape; every write is content-addressed and signed</span>
-        <span class="spacer"></span>
-        <a href="/docs/memory.html">spec</a>
-        <a href="/agents.md">agent guide</a>
+    <div class="substrate-grid">
+      <div class="lane">
+        <span class="verb">recall</span>
+        <span class="title">Recall any place-time</span>
+        <span class="endpoint">POST /v1/recall</span>
+        <span class="desc">Cell &times; bands &rarr; signed facts. Auto-fetches on a miss, then signs the result. Warm reads land in ~10&nbsp;ms.</span>
       </div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>verbs:</b> <code>memory_view</code> &middot; <code>memory_create</code> &middot; <code>memory_str_replace</code> &middot; <code>memory_insert</code> &middot; <code>memory_delete</code> &middot; <code>memory_rename</code></div>
-        <div class="memt-example">{"path":"/memories/by_attester/aw3k7nq2/episodic/2026-05-28.md","file_text":"&hellip;","kind":"episodic","attester":{"pubkey_b32":"&hellip;","sig_b32":"&hellip;"}}</div>
-        <div class="memt-parts">
-          <span class="k">kind</span><span>one of <code>episodic</code> (events), <code>semantic</code> (facts), <code>procedural</code> (playbooks), <code>resource</code> (default scratchpad) &mdash; routes to a typed sled index so <code>memory_list_by_kind</code> returns only the slice the agent asked for</span>
-          <span class="k">cap</span><span>paths under <code>/memories/by_attester/&lt;pubkey&gt;/&hellip;</code> require an ed25519 signature over <code>blake3("emem.memory_write|"||verb||"|"||path||"|"||body_hash)</code>; wrong key &rarr; 401, wrong namespace &rarr; 403; bare <code>/memories/&hellip;</code> stays anyone-writable</span>
-          <span class="k">audit</span><span>every write surfaces a <code>file_cid</code> + signed receipt; <code>memory_file_history</code> keeps the chain of CIDs per path so an audit replays the exact byte sequence</span>
-        </div>
+      <div class="lane">
+        <span class="verb">verify</span>
+        <span class="title">Verify offline</span>
+        <span class="endpoint"><a href="/verify">/verify</a></span>
+        <span class="desc">Recompute the BLAKE3 preimage and check the ed25519 receipt against the responder pubkey &mdash; no callback to us.</span>
+      </div>
+      <div class="lane">
+        <span class="verb">remember</span>
+        <span class="title">Give the agent memory</span>
+        <span class="endpoint">/v1/state &middot; /v1/memory_token &middot; /v1/memory_bundle</span>
+        <span class="desc">State vectors, memory tokens, bundles, BGE-768 search over the agent&rsquo;s own files, bi-temporal recall. <a href="/docs">Memory docs &rarr;</a></span>
+      </div>
+      <div class="lane">
+        <span class="verb">hunt</span>
+        <span class="title">Discover hotspots</span>
+        <span class="endpoint">POST /v1/hunt</span>
+        <span class="desc">For questions that don&rsquo;t anchor on one place. Sweeps a region for a pattern across 12 events and ranks the top cells.</span>
+      </div>
+      <div class="lane">
+        <span class="verb">forecast</span>
+        <span class="title">Forecast &amp; solve</span>
+        <span class="endpoint">jepa_predict &middot; heat_solve &middot; wave_solve</span>
+        <span class="desc"><code>jepa_predict</code> is a closed-form AR(2) NDVI model; <code>heat_solve</code> and <code>wave_solve</code> integrate physics on the signed grid. Each pins its input fact_cids.</span>
+      </div>
+      <div class="lane">
+        <span class="verb">compose</span>
+        <span class="title">Compose algorithms</span>
+        <span class="endpoint">159 recipes &middot; /v1/triple_consensus</span>
+        <span class="desc">Each recipe carries a formula, input bands, and a citation. <code>triple_consensus</code> scores change with three independent foundation encoders.</span>
       </div>
     </div>
 
-    <div class="memt-block" aria-label="memory search — semantic recall over the agent's files">
-      <div class="memt-head">
-        <span class="label">memory search</span>
-        <span class="gloss">BGE-768 + LanceDB IVF_PQ over /memories/* contents; paraphrase matches</span>
-        <span class="spacer"></span>
-        <a href="/docs/memory.html#semantic-search-over-memory-files">spec</a>
-      </div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>endpoint:</b> <code>POST /v1/memory/search {"q":"&hellip;","k":10,"kind?","path_prefix?","attester_pubkey_b32?"}</code></div>
-        <div class="memt-example">{"hits":[{"path":"/memories/&hellip;","file_cid":"&hellip;","kind":"episodic","similarity":0.81,"snippet":"&hellip;200&nbsp;chars around best chunk&hellip;"}],"via":"lance_ann","corpus_size":3217}</div>
-        <div class="memt-parts">
-          <span class="k">embed</span><span>BGE-base-en-v1.5 at 768-D, mean-pooled across &le;504-token chunks; the query side carries BGE's "Represent this sentence for searching relevant passages:" prefix</span>
-          <span class="k">store</span><span>Lance partition at <code>$EMEM_DATA/lance/memory_text_index_d768.lance</code>; IVF_PQ with cosine metric; brute-force fallback if Lance is disabled or empty (<code>via</code> reports which path served the query)</span>
-          <span class="k">filter</span><span>narrow by <code>kind</code>, <code>path_prefix</code>, <code>attester_pubkey_b32</code> &mdash; the agent finds only its own episodic notes from last week, not someone else's procedural playbooks</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="memt-block" aria-label="bi-temporal recall — what did emem know about a place on a given date">
-      <div class="memt-head">
-        <span class="label">bi-temporal</span>
-        <span class="gloss">valid-time + transaction-time on every read; receipts carry the bound</span>
-        <span class="spacer"></span>
-        <a href="/docs/memory.html#bi-temporal-reads">spec</a>
-      </div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>flags:</b> <code>as_of_tslot</code> (when the world was X) &nbsp;&middot;&nbsp; <code>as_of_signed_at</code> (when emem knew X) on every read primitive</div>
-        <div class="memt-example">{"cell":"&hellip;","band":"jrc_tmf_v3","as_of_tslot":1609372800,"as_of_signed_at":"2026-05-15T00:00:00Z"}<br>// receipt.as_of = { "valid_time": &hellip;, "transaction_time": "&hellip;" }</div>
-        <div class="memt-parts">
-          <span class="k">retrospect</span><span>an auditor in 2027 takes a 2026-05 receipt to any peer and replays the exact same query &mdash; no trust assumption back to our server</span>
-          <span class="k">honest</span><span>conflicting bounds &rarr; 400 <code>invalid_temporal_bound</code>; malformed timestamp &rarr; 400 <code>invalid_signed_at_format</code>; empty result with a bound returns 200 + <code>temporal_advice</code>, never a 404 (zero is a valid answer for "what did we know last quarter")</span>
-          <span class="k">scope</span><span>applies to <code>recall</code>, <code>recall_polygon</code>, <code>recall_many</code>, <code>trajectory</code>, <code>query_region</code>, <code>find_similar</code>, <code>state</code>, <code>state_multi</code>, and per-triple inside <code>memory_bundle</code></span>
-        </div>
-      </div>
-    </div>
+    <p><a href="/reference">Full read surface &rarr;</a></p>
   </div>
 </section>
 
-<section class="section page" id="hunter">
+<!-- ===== 06 · BUILT WITH EMEM ===== -->
+<section class="section page" id="built">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Hunter</span></div>
-    <dl>
-      <dt>endpoint</dt><dd>POST /v1/hunt</dd>
-      <dt>events live</dt><dd>12</dd>
-      <dt>region accepts</dt><dd>name, polygon_bbox, geojson</dd>
-      <dt>sample size</dt><dd>up to 32 cells</dd>
-      <dt>returns</dt><dd>top 8, ranked</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">04</span>Questions that don't anchor on a place</h2>
-    <p class="lede">"Where is the algal bloom." "Where is the deforestation." Hunter mode sweeps a region for a pattern, picks the matching detector from the algorithm registry, and ranks the top eight cells.</p>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="spacer"></span><button class="copy" data-copy-target="#code-hunt">copy</button></div>
-<pre id="code-hunt"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/hunt</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"event":"algal_bloom","region":"Lake Erie"}'</span></code></pre>
-    </div>
-
-    <div class="hunter">
-      <div class="case">
-        <div class="verb">verified · /v1/hunt</div>
-        <div class="title">Algal bloom over Lake Erie</div>
-        <div class="target">event: algal_bloom · primary_band indices.ndvi · gate_band indices.ndwi</div>
-        <div class="row">
-          <span>defi.zb5dc.bObe.wOgI · 41.838°N, -81.163°W</span>
-          <span class="val">NDVI -0.057 · NDWI 0.141</span>
-          <span class="cid">tc54vlpl…aeeshaa</span>
-        </div>
-        <div style="font-size:var(--t-xs);color:var(--mute);margin-top:.7rem;line-height:1.5">
-          One verified hotspot from the live registry. The cell, the gated NDWI value, and the fact_cid are the response on <span class="band">/v1/hunt</span> with <span class="band">{"event":"algal_bloom","region":"Lake Erie"}</span>. The accompanying scene is at <a href="/v1/cells/defi.zb5dc.bObe.wOgI/scene.png">/v1/cells/defi.zb5dc.bObe.wOgI/scene.png</a>.
-        </div>
-      </div>
-    </div>
-
-    <p>The CID above is real. Open <a href="/v1/facts/tc54vlpl62a4d2kah5rwcmfvd3eo7xqkszmkpwxk4xrkpaeeshaa">/v1/facts/tc54vlpl…</a> on this responder, or any future replica, and you get byte-identical CBOR back.</p>
-
-    <p style="font-weight:700;color:var(--ink);margin-top:1.8rem">Twelve events ship today. The registry decides which algorithm runs.</p>
-
-    <table class="absent-table">
-      <tbody>
-        <tr><td>algal_bloom</td><td>chlorophyll proxy from NDCI with an NDWI water gate</td></tr>
-        <tr><td>deforestation</td><td>triple-encoder consensus uplifted by Hansen GFC mask</td></tr>
-        <tr><td>wildfire_active</td><td>VIIRS / MODIS thermal anomaly</td></tr>
-        <tr><td>burned_area</td><td>MODIS MCD64A1 monthly burned-pixel composite</td></tr>
-        <tr><td>methane_plume</td><td>TROPOMI XCH4 anomaly over baseline</td></tr>
-        <tr><td>flood_extent</td><td>Sentinel-1 SAR VV threshold under cloud</td></tr>
-        <tr><td>water_turbidity</td><td>Sentinel-2 red-band reflectance, water-mask gated</td></tr>
-        <tr><td>urban_expansion</td><td>Overture buildings delta with S2 SWIR corroboration</td></tr>
-        <tr><td>wetland_change</td><td>JRC GSW recurrence delta plus optical leg</td></tr>
-        <tr><td>coastal_erosion</td><td>triple consensus clamped to ±5 m bathymetry</td></tr>
-        <tr><td>disaster_anomaly</td><td>2-σ neighbour z-score, spatial only, adaptive gate</td></tr>
-        <tr><td>climate_archetype_shift</td><td>12-class Köppen-Geiger reclassification</td></tr>
-      </tbody>
-    </table>
-
-    <p>When the event has no registered algorithm (today, <span class="band">oil_slick</span>), the responder returns <span class="band">status: not_yet_implemented</span> and points at the closest available physics (Sentinel-1 surface roughness, red-band turbidity). No hotspots, no fabricated receipt.</p>
-  </div>
-</section>
-
-<section class="section page" id="showcase">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04b</span><span class="idx-label">Built with emem</span></div>
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Built with emem</span></div>
     <dl>
       <dt>agent</dt><dd><a href="https://eudr.dev">eudr.dev</a></dd>
       <dt>regulation</dt><dd>EU 2023/1115</dd>
       <dt>output</dt><dd>signed Annex II DDS</dd>
-      <dt>baseline</dt><dd>JRC GFC2020 V3</dd>
-      <dt>article 2(4)</dt><dd>&gt;10&nbsp;% canopy, &gt;0.5&nbsp;ha, &gt;5&nbsp;m</dd>
       <dt>endpoint</dt><dd>POST&nbsp;/v1/eudr_dds</dd>
+      <dt>more</dt><dd><a href="/solutions">/solutions</a></dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">04b</span>Real agents already run on this</h2>
+    <h2><span class="num">05</span>Built with emem</h2>
     <p class="lede"><a href="https://eudr.dev">eudr.dev</a> is an independent EU Deforestation Regulation compliance agent. Every paragraph it quotes resolves to an ed25519-signed <span class="band">fact_cid</span> served from this responder.</p>
 
-    <p>The agent ingests a shipment plot, dispatches <span class="band">/v1/eudr_dds</span> against the cell64-tiled forest baseline, and returns a Due Diligence Statement shaped to Annex II of Regulation (EU) 2023/1115. The per-cell algorithm <span class="band">eudr_compliance@1</span> implements Article 2(4) as written &mdash; &gt;0.5&nbsp;ha, &gt;5&nbsp;m height, &gt;10&nbsp;% canopy cover, excluding land predominantly under agricultural or urban use. Forest baseline is JRC GFC2020 V3 (the Commission&rsquo;s expected non-binding baseline, live single-COG materialiser at JEODPP), corroborated against Hansen GFC v1.12 treecover2000. Article 2(28) dispatch picks POINT (&le;4&nbsp;ha non-cattle) vs POLYGON (&gt;4&nbsp;ha or any cattle plot under HS&nbsp;0102/0201/0202).</p>
+    <p>It ingests a shipment plot, dispatches <span class="band">/v1/eudr_dds</span> against the cell64-tiled forest baseline, and returns a Due Diligence Statement shaped to Annex II of Regulation (EU) 2023/1115. The per-cell algorithm <span class="band">eudr_compliance@1</span> implements the Article 2(4) forest test &mdash; &gt;0.5&nbsp;ha, &gt;5&nbsp;m height, &gt;10&nbsp;% canopy cover &mdash; against the JRC GFC2020 V3 baseline. The agent runs independently and is not affiliated with any EU institution. Each finding paste-resolves at <a href="/verify">/verify</a>; the schema is at <a href="/v1/schemas/eudr_dds.json">/v1/schemas/eudr_dds.json</a>.</p>
 
-    <p>Driver attribution (Sims et&nbsp;al.&nbsp;2025) and RADD Sentinel-1 disturbance alerts layer on as refinement; both currently materialise typed Absence because the upstreams do not honour HTTP Range and the responder will not fabricate a value for a connector it cannot read. The Article 9(1)(b) legality disclaimer ships in the same envelope &mdash; land tenure, FPIC, country-of-origin laws are structurally out of EO scope and need a partner module before TRACES NT submission. Honest by construction.</p>
-
-    <p>The agent is operated independently and is <em>not affiliated with, endorsed by, or sponsored by</em> any EU institution. The cite-back surface is the same one you can drive from your own MCP client: every finding paste-resolves at <a href="/verify">/verify</a>, and the schema at <a href="/v1/schemas/eudr_dds.json">/v1/schemas/eudr_dds.json</a> cites the exact EUR-Lex paragraph each field maps to.</p>
-
-    <p style="margin-top:1.5rem">
+    <p style="margin-top:1.2rem">
       <a class="btn" href="https://eudr.dev">Open eudr.dev &rarr;</a>
-      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/eudr_dds</code>
-      <a class="btn ghost" href="/v1/schemas/eudr_dds.json">Annex II JSON Schema</a>
+      <a class="btn ghost" href="/solutions">All solutions &rarr;</a>
     </p>
-
-    <p style="margin-top:1.5rem;font-size:var(--t-xs);color:var(--mute)">Building an agent on emem? Open an issue at <a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">github.com/Vortx-AI/emem</a> and we&rsquo;ll list it here.</p>
-  </div>
-</section>
-
-<section class="section page" id="showcase-carbon">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04c</span><span class="idx-label">Built with emem</span></div>
-    <dl>
-      <dt>use case</dt><dd>Carbon MRV verification</dd>
-      <dt>standard</dt><dd>VM0042 / VCS / Gold Standard</dd>
-      <dt>output</dt><dd>signed biomass + SOC receipts</dd>
-      <dt>bands</dt><dd>indices.ndvi, hansen.*, soilgrids.soc_0_30cm, esa_worldcover.lc_2021</dd>
-      <dt>endpoints</dt><dd>POST&nbsp;/v1/forest, /v1/soil, /v1/ndvi</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">04c</span>Carbon-credit verifier</h2>
-    <p class="lede">An agent that cross-checks carbon offset claims against signed satellite evidence: forest cover baselines, deforestation trajectories, soil organic carbon, and vegetation condition.</p>
-
-    <p>Ingest a project polygon and a claimed baseline year. The agent calls <span class="band">/v1/forest</span> for Hansen tree cover 2000 baseline + year-of-loss, <span class="band">/v1/soil</span> for SoilGrids organic carbon at 0&ndash;30&nbsp;cm, and <span class="band">/v1/ndvi</span> for Sentinel-2 NDVI. Each fact is ed25519-signed and content-addressed &mdash; the receipt&rsquo;s <span class="band">fact_cid</span> is citable in VM0042 monitoring reports.</p>
-
-    <p>The <span class="band">deforestation_alert_ndvi_drop@1</span> algorithm detects NDVI drops exceeding the alert threshold between consecutive tslots; <span class="band">hansen.loss_year</span> confirms loss timing against the Global Forest Change baseline. Together they answer whether a claimed &ldquo;avoided deforestation&rdquo; credit is backed by an actual standing-forest baseline. Soil carbon (<span class="band">soilgrids.soc_0_30cm</span>) adds below-ground verification for projects claiming soil sequestration. Every number traces back to a signed receipt.</p>
-
-    <p style="margin-top:1.5rem">
-      <a class="btn" href="/v1/forest?place=Mato+Grosso">/v1/forest &rarr;</a>
-      <a class="btn ghost" href="/v1/soil?place=Mato+Grosso">/v1/soil</a>
-      <a class="btn ghost" href="/v1/ndvi?place=Mato+Grosso">/v1/ndvi</a>
-    </p>
-    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.4rem">These open raw JSON in the browser &mdash; up to ~30&nbsp;s on a cold cell while the materialiser fetches upstream, then ~10&nbsp;ms warm.</p>
-  </div>
-</section>
-
-<section class="section page" id="showcase-insurance">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04d</span><span class="idx-label">Built with emem</span></div>
-    <dl>
-      <dt>use case</dt><dd>Flood risk pre-screening</dd>
-      <dt>output</dt><dd>signed elevation + water + weather profile</dd>
-      <dt>bands</dt><dd>copdem30m.elevation_mean, surface_water.recurrence, weather.precipitation_mm, sentinel1_raw</dd>
-      <dt>algorithm</dt><dd>flood_risk@2</dd>
-      <dt>endpoints</dt><dd>POST&nbsp;/v1/elevation, /v1/water, /v1/weather</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">04d</span>Insurance flood pre-screen</h2>
-    <p class="lede">A property-risk agent that pre-screens addresses for flood exposure using signed elevation, 37-year surface-water history, precipitation nowcast, and SAR-derived water extent &mdash; before an underwriter opens the file.</p>
-
-    <p>The agent takes an address or lat/lng, calls <span class="band">/v1/elevation</span> for Copernicus DEM 30&nbsp;m (land) plus GMRT (bathymetry), <span class="band">/v1/water</span> for JRC Global Surface Water recurrence (1984&ndash;2021) plus Sentinel-1 backscatter, and <span class="band">/v1/weather</span> for MET Norway precipitation nowcast. The <span class="band">flood_risk@2</span> algorithm fuses these into a single 0&ndash;1 risk score.</p>
-
-    <p>Every input band is a signed fact &mdash; the insurer cites <span class="band">fact_cid</span> values in the policy file and any auditor re-verifies offline via <span class="band">/v1/verify_receipt</span>. Precipitation updates every six hours; surface-water recurrence is a 37-year JRC baseline; Sentinel-1 SAR cuts through cloud cover for real-time flood-extent detection. The agent surfaces what the data says and what it does not &mdash; <span class="band">caveats[]</span> notes grid resolution and revisit cadence.</p>
-
-    <p style="margin-top:1.5rem">
-      <a class="btn" href="/v1/elevation?place=Ashok+Nagar+Ranchi">/v1/elevation &rarr;</a>
-      <a class="btn ghost" href="/v1/water?place=Ashok+Nagar+Ranchi">/v1/water</a>
-      <a class="btn ghost" href="/v1/weather?place=Ashok+Nagar+Ranchi">/v1/weather</a>
-    </p>
-  </div>
-</section>
-
-<section class="section page" id="showcase-supplychain">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04e</span><span class="idx-label">Built with emem</span></div>
-    <dl>
-      <dt>use case</dt><dd>Supply-chain provenance</dd>
-      <dt>output</dt><dd>signed location + land-cover attestation</dd>
-      <dt>bands</dt><dd>esa_worldcover.lc_2021, indices.ndvi, overture.buildings.count</dd>
-      <dt>endpoints</dt><dd>POST&nbsp;/v1/locate, /v1/recall, /v1/verify_receipt</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">04e</span>Supply-chain location verifier</h2>
-    <p class="lede">A provenance agent that verifies supply-chain origin claims &mdash; &ldquo;this coffee was grown at these coordinates&rdquo; &mdash; against signed satellite evidence of what actually exists at that place.</p>
-
-    <p>The agent takes a claimed origin (coordinates or place name from a supplier declaration), calls <span class="band">/v1/locate</span> to resolve to a cell64, then <span class="band">/v1/recall</span> to fetch signed land-cover (ESA WorldCover), vegetation (NDVI), and built-environment (Overture building count) facts. A coffee-farm claim at coordinates that show <span class="band">esa_worldcover.lc_2021&nbsp;=&nbsp;50</span> (Built-up) rather than <span class="band">40</span> (Cropland) is flagged immediately.</p>
-
-    <p>The temporal dimension matters: <span class="band">/v1/diff</span> compares the cell&rsquo;s state across tslots so the agent detects land-use change between the claimed origin date and the current observation. Every fact is signed and content-addressed; the supply-chain auditor cites <span class="band">fact_cid</span> values in the chain-of-custody record, and any counterparty re-verifies without trusting the auditor via <span class="band">/v1/verify_receipt</span>.</p>
-
-    <p style="margin-top:1.5rem">
-      <a class="btn" href="/v1/locate?place=Chikmagalur+Karnataka">/v1/locate &rarr;</a>
-      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/recall</code>
-      <a class="btn ghost" href="/verify">/verify</a>
-    </p>
-  </div>
-</section>
-
-<section class="section page" id="substrate">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Substrate</span></div>
-    <dl>
-      <dt>read</dt><dd>POST&nbsp;/v1/state · /v1/state_multi · /v1/state_diff</dd>
-      <dt>cite</dt><dd>POST&nbsp;/v1/memory_token · /v1/memory_bundle</dd>
-      <dt>write</dt><dd>POST&nbsp;/v1/attest · MCP&nbsp;memory_create&hellip;rename (6)</dd>
-      <dt>search</dt><dd>POST&nbsp;/v1/memory/search (BGE&nbsp;+ Lance)</dd>
-      <dt>audit</dt><dd>POST&nbsp;/v1/memory_contradictions</dd>
-      <dt>stream</dt><dd>GET&nbsp;/v1/memory/sse</dd>
-      <dt>bi-temporal</dt><dd>as_of_tslot · as_of_signed_at on every read</dd>
-      <dt>mcp tools</dt><dd>17 of 70 (1 core, 16 extended)</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">05</span>The memory substrate</h2>
-    <p class="lede">Below the recall surface sits a typed, signed, searchable memory substrate. State is the read motion (planet-keyed dense vector). The memory token is the cite motion (one string any pipeline can paste). Memory files give an agent a writable scratchpad whose every edit is ed25519-signed and content-addressed. Every read carries the same bi-temporal axis pair: <span class="band">as_of_tslot</span> for what the world looked like on a given date; <span class="band">as_of_signed_at</span> for what the system knew on a given date.</p>
 
     <div class="substrate-grid">
       <div class="lane">
-        <span class="verb">read · 128-D</span>
-        <span class="title">/v1/state</span>
-        <span class="endpoint">{cell, encoder?, view?}</span>
-        <span class="desc">Dense signed state at any place. <code>view=encoder</code> returns one foundation embedding (default geotessera, 128-D); <code>view=cube</code> returns the full 1792-D cube. Cell may be a place name; the geocoder cascade resolves it. Cold cells materialise on miss, then sign.</span>
+        <span class="verb">climate finance</span>
+        <span class="title">Carbon MRV verifier</span>
+        <span class="desc">Cross-checks offset claims against signed forest, soil, and NDVI evidence for VM0042 / VCS / Gold Standard reports. <a href="/solutions">&rarr; /solutions</a></span>
       </div>
       <div class="lane">
-        <span class="verb">cite · 1 string</span>
-        <span class="title">/v1/memory_token</span>
-        <span class="endpoint">memt:&lt;cell64&gt;:&lt;fact_cid&gt;</span>
-        <span class="desc">Compose a single colon-separated handle the agent can paste in chat, write to a long-term store, or quote across processes. Resolves back to the exact bytes on any responder that holds the fact.</span>
+        <span class="verb">insurance</span>
+        <span class="title">Flood pre-screen</span>
+        <span class="desc">Pre-screens addresses with signed elevation, surface water, and weather via <code>flood_risk@2</code>. <a href="/solutions">&rarr; /solutions</a></span>
       </div>
       <div class="lane">
-        <span class="verb">dereference</span>
-        <span class="title">/v1/memory_token/resolve</span>
-        <span class="endpoint">{token}</span>
-        <span class="desc">Single round-trip dereference: parse the token, fetch the fact by CID, return the canonical body plus the offline-verify URL. Returns 404 with a typed reason if the responder doesn&rsquo;t hold the fact.</span>
+        <span class="verb">supply chain</span>
+        <span class="title">Location verifier</span>
+        <span class="desc">Tests an origin claim against signed land cover, NDVI, and building count at the claimed coordinates. <a href="/solutions">&rarr; /solutions</a></span>
       </div>
     </div>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">read · /v1/state</span><span class="spacer"></span><button class="copy" data-copy-target="#code-state">copy</button></div>
-<pre id="code-state"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/state</span> \
-    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"South Mumbai","encoder":"geotessera"}'</span>
-
-<span class="tok-p">{</span>
-  <span class="tok-key">"cell"</span>: <span class="tok-s">"defi.zb4d7.ze56c.zf24c"</span>,
-  <span class="tok-key">"view"</span>: <span class="tok-s">"encoder"</span>, <span class="tok-key">"encoder"</span>: <span class="tok-s">"geotessera"</span>, <span class="tok-key">"dim"</span>: <span class="tok-n">128</span>,
-  <span class="tok-key">"vector"</span>: [<span class="tok-n">4.17</span>, <span class="tok-n">-3.26</span>, <span class="tok-n">1.24</span>, <span class="tok-n">4.63</span>, <span class="tok-n">-2.15</span>, <span class="tok-c">/* 123 more */</span>],
-  <span class="tok-key">"l2_norm"</span>: <span class="tok-n">37.84</span>,
-  <span class="tok-key">"fact_cid"</span>: <span class="tok-s">"…"</span>,
-  <span class="tok-key">"memory_token"</span>: <span class="tok-s">"memt:defi.zb4d7.ze56c.zf24c:…"</span>,
-  <span class="tok-key">"receipt"</span>: <span class="tok-p">{</span> <span class="tok-key">"alg"</span>: <span class="tok-s">"ed25519"</span>, <span class="tok-key">"signature"</span>: <span class="tok-s">"…"</span> <span class="tok-p">}</span>
-<span class="tok-p">}</span></code></pre>
-    </div>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">compose · /v1/memory_token</span><span class="spacer"></span><button class="copy" data-copy-target="#code-memt">copy</button></div>
-<pre id="code-memt"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/memory_token</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d7.ze56c.zf24c",
-         "fact_cid":"4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma"}'</span>
-
-<span class="tok-p">{</span> <span class="tok-key">"memory_token"</span>: <span class="tok-s">"memt:defi.zb4d7.ze56c.zf24c:4qakixs4xc…k5ma"</span>,
-  <span class="tok-key">"grammar"</span>: <span class="tok-s">"memt:&lt;cell64&gt;:&lt;fact_cid&gt;"</span>,
-  <span class="tok-key">"docs"</span>: <span class="tok-s">"/whitepaper.md#195-memory-token-format"</span> <span class="tok-p">}</span></code></pre>
-    </div>
-
-    <p>Two more verbs fan the state read. <span class="band">/v1/state_multi</span> fans across every wired foundation encoder (<span class="band">geotessera</span>, <span class="band">clay_v1</span>, <span class="band">prithvi_eo2</span>, <span class="band">galileo</span>) for the same cell, returning a per-encoder map plus a typed <span class="band">missing[]</span> list when an encoder is not wired at this responder. <span class="band">/v1/state_diff</span> takes one cell and two tslots and returns the delta vector, its L2 norm, and the cosine between the two source vectors, with both source <span class="band">fact_cid</span>s so the agent can quote both attestations as evidence.</p>
-
-    <p>Above the read surface sits a writable memory substrate the agent owns. <span class="band">/v1/memory_bundle</span> takes N (cell, band, tslot) triples and returns one signed envelope &mdash; the <span class="band">memb:&lt;bundle_cid&gt;</span> token is the multi-fact analogue of <span class="band">memt:</span>. The six file-op verbs (<span class="band">memory_view · memory_create · memory_str_replace · memory_insert · memory_delete · memory_rename</span>) conform to Anthropic&rsquo;s memory tool spec (header <span class="band">context-management-2025-06-27</span>): the &ldquo;files&rdquo; are signed, content-addressed blobs under a path tree rooted at <span class="band">/memories/</span>. Each file carries a <span class="band">kind</span> from the CoALA / LangMem taxonomy &mdash; <span class="band">episodic</span> for observations of events, <span class="band">semantic</span> for durable learned facts, <span class="band">procedural</span> for playbooks, <span class="band">resource</span> for scratchpads &mdash; and <span class="band">memory_list_by_kind</span> returns only the slice the agent asked for.</p>
-
-    <p>Writes can be capability-bound. Paths under <span class="band">/memories/by_attester/&lt;pubkey_short&gt;/&hellip;</span> are write-restricted to the holder of the corresponding ed25519 private key: every <span class="band">memory_create</span> in that namespace carries an <span class="band">attester: {pubkey_b32, sig_b32}</span> block where the signature is computed over <span class="band">blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)</span>. Wrong key &rarr; 401 <span class="band">memory_attestation_invalid</span>. Wrong namespace &rarr; 403. Bare <span class="band">/memories/&hellip;</span> stays anyone-writable and back-compat with the unsigned form.</p>
-
-    <p>Three primitives turn the substrate from storage into a queryable knowledge surface. <span class="band">/v1/memory/search</span> embeds the query through BGE-base-en-v1.5 and runs cosine against a LanceDB IVF_PQ partition (<span class="band">memory_text_index_d768.lance</span>) over every memory file&rsquo;s contents &mdash; the agent paraphrases, the index finds. <span class="band">/v1/memory_contradictions</span> walks the parallel multi-attester index and scores disagreement per band kind: scalar bands by normalised spread against the documented physical range, vector bands by 1 minus mean cosine, categorical bands by 1 minus mode-share. <span class="band">/v1/memory/sse</span> opens an event stream filtered by <span class="band">path_prefix · kind · attester</span> so a compliance subscriber or a downstream agent receives every write the moment its sled commit lands.</p>
-
-    <p>The substrate is intentionally typed at every boundary. Vector-only bands accept <span class="band">/v1/state</span>; scalar bands return a typed 422 pointing the agent at <span class="band">/v1/recall</span>. Empty cells return a typed 404 pointing at <span class="band">/v1/materializers</span>. Bi-temporal queries with an inverted bound return 400 <span class="band">invalid_temporal_bound</span>; a malformed timestamp returns 400 <span class="band">invalid_signed_at_format</span>. Receipts carry an <span class="band">as_of</span> block when the bound is non-empty; pre-bi-temporal receipts deserialise byte-identically because the field is absent. Memory file writes are append-only at the content-address layer &mdash; <span class="band">memory_delete</span> drops the path index but the blob lives on, addressable through <span class="band">memory_file_history</span>. No silent zero-fills, no last-writer-wins, no opaque mutation.</p>
   </div>
 </section>
 
-<section class="section page" id="memory-cases">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">05b</span><span class="idx-label">In production</span></div>
-    <dl>
-      <dt>audit</dt><dd>EU AI Act Art. 12 · EUDR DDS</dd>
-      <dt>retrospect</dt><dd>as_of_signed_at over every read</dd>
-      <dt>provenance</dt><dd>per-attester namespace, ed25519 signed</dd>
-      <dt>federation</dt><dd>CID-deterministic across peers</dd>
-      <dt>contradiction</dt><dd>per-band severity scorer</dd>
-      <dt>peer systems</dt><dd>Mem0 · Letta · Zep · Anthropic memory-tool</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">05b</span>What the substrate is for</h2>
-    <p class="lede">Five production problems we built the substrate to solve. Each call sketch is paste-runnable against <a href="https://emem.dev">emem.dev</a>; every receipt verifies offline at <a href="/verify">/verify</a>.</p>
-
-    <h3>Audit-grade point-in-time evidence</h3>
-    <p>An auditor in 2027 asks whether a plot was forest on 2020-12-31 <em>according to your system at the time of the DDS submission</em>, not according to today&rsquo;s reprocessed tiles. Last-writer-wins memory loses the original; Zep&rsquo;s bi-temporal graph keeps both timestamps but issues unsigned facts that an admin can rewrite. emem pairs <span class="band">as_of_tslot</span> + <span class="band">as_of_signed_at</span> on every read with content-addressed signed receipts: the auditor takes a 2026-05 receipt to any peer node and verifies the BLAKE3 preimage and ed25519 signature without trusting our server.</p>
-    <pre><code>POST /v1/recall { cell, band: "jrc_tmf_v3", as_of_tslot: 1609372800, as_of_signed_at: "2026-05-15T00:00:00Z" }
-POST /v1/verify_receipt { receipt }   # any peer, any time, no network back to us</code></pre>
-
-    <h3>Insurance underwriting &mdash; what did we know when we bound the policy</h3>
-    <p>A claim filed today disputes wildfire perimeter on a 2024-09 policy bind date. Mem0 and LangMem give &ldquo;current memory&rdquo; with timestamped extracts but no valid-time / transaction-time split. Anthropic&rsquo;s memory tool stores plain files an operator can edit. The substrate&rsquo;s bi-temporal axis + ed25519 capability binding pins the bind-time evidence under the underwriter&rsquo;s pubkey namespace; nobody including us can retroactively edit the path.</p>
-    <pre><code>POST /v1/recall_polygon { geometry, band: "modis.lst_day_8day", as_of_signed_at: "2024-09-10T00:00:00Z" }
-POST /v1/memory_bundle  { triples, purpose: "policy POL-1234 bind evidence" }   # returns memb:&lt;cid&gt;</code></pre>
-
-    <h3>Multi-attester supply-chain provenance</h3>
-    <p>Four sourcing agents (forester, mill, customs, brand) each push location and biomass claims about the same plot; one is wrong. Recent multi-agent failure research finds ~37&nbsp;% of cross-agent breakdowns are memory-shaped: last-writer-wins on shared state. Mem0&rsquo;s scoped writes don&rsquo;t carry per-agent signatures; Letta&rsquo;s shared blocks don&rsquo;t either. The substrate routes each writer through <span class="band">/memories/by_attester/&lt;pubkey&gt;/&hellip;</span> and the multi-attester index keeps both CIDs at the same canonical key; <span class="band">/v1/memory_contradictions</span> scores the disagreement and quotes both <span class="band">fact_cid</span>s so the brand agent can act on signed evidence.</p>
-    <pre><code>POST /v1/memory_contradictions { cell_prefix: "defi.zb5f9", band: "indices.ndvi", min_severity: 0.2 }
-# returns: [{ cell, band, tslot, attestations: [...signed disagreements...], severity, kind }]</code></pre>
-
-    <h3>Hallucination prevention via signed reads</h3>
-    <p>The MINJA memory-injection attack (NeurIPS 2025) hit 95&nbsp;% success on agent memory stores through query-only interaction &mdash; agents implicitly trust their own memory. Mem0, LangMem, and Anthropic&rsquo;s memory tool persist unsigned strings; a poisoned memory looks identical to a real one. Every <span class="band">memory_view</span> and <span class="band">/v1/recall</span> return the signer pubkey; the agent&rsquo;s &ldquo;did I really learn this&rdquo; check becomes signature verification against a trusted set, not a trust assumption.</p>
-    <pre><code># every read carries: { value, signer_pubkey_b32, signed_at, fact_cid }
-# agent rule: if signer_pubkey_b32 ∉ trusted_set: ignore + alert</code></pre>
-
-    <h3>Real-time compliance subscription &mdash; EU AI Act Article 12</h3>
-    <p>Article 12 (high-risk systems, applicable 2026-08) requires automatic event logging across the lifecycle, with logs generated by the system and verifiable to third parties. LangMem and Anthropic&rsquo;s memory tool produce logs the operator can edit. The substrate&rsquo;s SSE stream + per-event ed25519 signature + content-addressed append-only history means a compliance subscriber filters by <span class="band">path_prefix=/memories/by_attester/&lt;clinician_pubkey&gt;</span> and proves non-repudiation to a regulator who never trusted us.</p>
-    <pre><code>GET /v1/memory/sse?path_prefix=/memories/by_attester/clinician-aw3k7nq/&amp;kind=episodic
-# emits: data: { "type": "created", "path", "file_cid", "kind", "attester_pubkey_b32", "signed_at", "size_bytes" }</code></pre>
-
-    <p style="margin-top:1.5rem;font-size:var(--t-xs);color:var(--mute)">The vendor map: <a href="https://mem0.ai/blog/state-of-ai-agent-memory-2026">Mem0</a> leads on chat-memory inference; <a href="https://arxiv.org/html/2501.13956v1">Zep / Graphiti</a> on temporal graph memory; <a href="https://www.letta.com/blog/agent-memory">Letta</a> on stateful agent runtimes; <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool">Anthropic&rsquo;s memory tool</a> on tight Claude-loop integration. emem covers signed, federated, point-in-time, multi-attester memory &mdash; a verifiable spatial / temporal fact store with memory-system ergonomics bolted on. The wins concentrate in audit, multi-attester, point-in-time, and signed-provenance.</p>
-  </div>
-</section>
-
-<section class="section page" id="primitives">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Read surface</span></div>
-    <dl>
-      <dt>discovery</dt><dd>8 paths</dd>
-      <dt>introspection</dt><dd>15 paths</dd>
-      <dt>read primitives</dt><dd>16 paths</dd>
-      <dt>substrate</dt><dd>5 paths (state*, memt*)</dd>
-      <dt>liveness</dt><dd>2 paths (stream, attest)</dd>
-      <dt>physics</dt><dd>4 paths</dd>
-      <dt>verification</dt><dd>5 paths</dd>
-      <dt>MCP tools</dt><dd>65 read-only</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">06</span>The read surface, table-flat</h2>
-    <p class="lede">High-traffic endpoints. The full machine surface is at <a href="/openapi.json">/openapi.json</a>; the MCP descriptors mirror them at <a href="/v1/tools">/v1/tools</a>.</p>
-
-    <div class="scroll-x">
-    <table class="endpoints">
-      <thead>
-        <tr><th>Method</th><th>Path</th><th>MCP tool</th><th>Body / use</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="method post">POST</td><td class="path">/v1/locate</td><td>emem_locate</td><td class="desc">place name → cell64 + neighbourhood + live band inventory</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td>emem_recall</td><td class="desc">{cell, bands?, tslot?} → signed facts, auto-materialise on miss</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/recall_many</td><td>emem_recall_many</td><td class="desc">batch recall, up to 256 cells per envelope</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/recall_polygon</td><td>emem_recall_polygon</td><td class="desc">recall across a place's polygon, optional Fields-of-The-World overlay</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/find_similar</td><td>emem_find_similar</td><td class="desc">k-NN by 128-D Tessera embedding; cosine / hamming / hamming_then_rerank</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/state</td><td>emem_state</td><td class="desc">dense state vector at a cell; view=encoder (default, 128-D) or view=cube (1792-D)</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">fan-out across geotessera, clay_v1, prithvi_eo2; typed missing[] when unwired</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/state_diff</td><td>emem_state_diff</td><td class="desc">vintage delta at one cell: residual vector + L2 + cosine between two tslots</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/memory_token</td><td>emem_memory_token</td><td class="desc">compose memt:&lt;cell64&gt;:&lt;fact_cid&gt; citation handle</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/memory_token/resolve</td><td>emem_memory_token_resolve</td><td class="desc">single round-trip dereference; returns the signed fact body the cid names</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/stream</td><td>(SSE)</td><td class="desc">signed corpus.state ticks; interval 5&ndash;300 s, query tunable</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/corpus_state_stats</td><td>emem_corpus_state_stats</td><td class="desc">snapshot of distinct cells, distinct bands, facts scanned, per-band counts</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/benchmark</td><td>emem_benchmark</td><td class="desc">hand-verified eval items; pair with POST /v1/benchmark/grade</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/ask</td><td>emem_ask</td><td class="desc">place-anchored Q&amp;A with packaged receipts; routes to one of 27 band-topics</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/hunt</td><td>emem_hunt</td><td class="desc">event + region → top 8 cells, ranked by the algorithm's primary scalar</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/verify</td><td>emem_verify</td><td class="desc">structured claim → verdict + evidence fact_cids</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/verify_receipt</td><td>emem_verify_receipt</td><td class="desc">recompute preimage, check Ed25519 over BLAKE3</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/trajectory</td><td>emem_trajectory</td><td class="desc">{cell, band, window:[a,b]} → time series</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/diff</td><td>emem_diff</td><td class="desc">signed delta between two tslots; rejects tautology (a == b)</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/heat_solve</td><td>emem_heat_solve</td><td class="desc">explicit-FD heat solver, CFL-stable</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict</td><td>emem_jepa_predict</td><td class="desc">closed-form AR(2) NDVI predictor with fixed coefficients</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/intent</td><td>emem_intent</td><td class="desc">typed Intent dispatcher; EUDR pre-screen is kind=verify with claim algorithm=deforestation_triple@1</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/cells/:cell64/scene.png</td><td>emem_cell_scene_rgb</td><td class="desc">Sentinel-2 L2A · 256×256 · pure-Rust STAC + COG range read</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/coverage_map.svg</td><td>emem_coverage_map</td><td class="desc">1440 × 720 plate-carrée density map of attested cells</td></tr>
-      </tbody>
-    </table>
-    </div>
-
-    <p style="font-weight:700;color:var(--ink);margin-top:2rem">Forecasting and physics, signed and honest about their limits.</p>
-    <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients &mdash; deterministic, reproducible, no black box. <span class="band">/v1/jepa_predict_v2</span> runs Tessera-embedding dynamics; the head is trained on synthetic pairs only, so when it cannot improve on the last observed vintage it short-circuits to that identity baseline and the receipt carries <span class="band">untrained_baseline</span>. The forecast is never dressed up as a learned prediction. Two physics solvers run on the same signed grid: <span class="band">/v1/heat_solve</span> integrates 2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil (CFL-stable, e.g. urban-heat spread), and <span class="band">/v1/wave_solve</span> integrates a 1-D shallow-water equation along a seaward bathymetry gradient (e.g. coastal swell). Both return the field plus the source <span class="band">fact_cid</span>s their initial condition was built from.</p>
-
-    <p style="font-weight:700;color:var(--ink);margin-top:2rem">One of the 159 algorithm recipes, end to end.</p>
-    <p>Each registered algorithm carries a formula, its input bands, a citation, an accuracy band, and a <span class="band">learned_from</span> provenance line. <span class="band">clay_prithvi_tessera_triple_consensus@1</span> asks three independent foundation encoders (Tessera, Clay, and Prithvi) to score how much a cell changed across its two most-recent distinct vintages, then gates the ensemble against the registry threshold. The receipt pins the algorithms manifest CID and every input fact CID, so a third party can re-run the exact recipe and reproduce the number rather than trust it.</p>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">SH</span><span class="tab">recipe · /v1/triple_consensus</span><span class="spacer"></span><button class="copy" data-copy-target="#code-triple">copy</button></div>
-<pre id="code-triple"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/triple_consensus</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"Rondônia"}'</span>   <span class="tok-c"># cell64 or a place name</span>
-
-<span class="tok-p">{</span>
-  <span class="tok-key">"algorithm_key"</span>: <span class="tok-s">"clay_prithvi_tessera_triple_consensus@1"</span>,
-  <span class="tok-key">"formula"</span>: <span class="tok-s">"d_e = clamp(1 - cos(v_now, v_prev), 0, 1); ensemble = sqrt(mean(d_e^2))"</span>,
-  <span class="tok-key">"encoders_used"</span>: <span class="tok-p">[</span>
-    <span class="tok-p">{</span> <span class="tok-key">"encoder"</span>: <span class="tok-s">"geotessera.multi_year"</span>, <span class="tok-key">"change"</span>: <span class="tok-n">0.173</span>, <span class="tok-key">"over_gate"</span>: <span class="tok-n">true</span>  <span class="tok-p">}</span>,
-    <span class="tok-p">{</span> <span class="tok-key">"encoder"</span>: <span class="tok-s">"clay_v1"</span>,               <span class="tok-key">"change"</span>: <span class="tok-n">0.201</span>, <span class="tok-key">"over_gate"</span>: <span class="tok-n">true</span>  <span class="tok-p">}</span>,
-    <span class="tok-p">{</span> <span class="tok-key">"encoder"</span>: <span class="tok-s">"prithvi_eo2"</span>,           <span class="tok-key">"change"</span>: <span class="tok-n">0.001</span>, <span class="tok-key">"over_gate"</span>: <span class="tok-n">false</span> <span class="tok-p">}</span>
-  <span class="tok-p">]</span>,
-  <span class="tok-key">"ensemble"</span>: <span class="tok-n">0.153</span>, <span class="tok-key">"consensus_threshold"</span>: <span class="tok-n">0.15</span>, <span class="tok-key">"agreement"</span>: <span class="tok-s">"two_of_three"</span>,
-  <span class="tok-key">"input_fact_cids"</span>: [<span class="tok-s">"ysktauvm…"</span>, <span class="tok-s">"qv4jqlcx…"</span>, <span class="tok-s">"65u7rgmy…"</span>],  <span class="tok-c">// every input, content-addressed</span>
-  <span class="tok-key">"receipt"</span>: <span class="tok-p">{</span> <span class="tok-key">"alg"</span>: <span class="tok-s">"ed25519"</span>, <span class="tok-key">"signature"</span>: <span class="tok-s">"…"</span> <span class="tok-p">}</span>   <span class="tok-c">// verifiable offline at /verify</span>
-<span class="tok-p">}</span></code></pre>
-    </div>
-
-    <p style="font-weight:700;color:var(--ink);margin-top:2rem">Nine one-shot domain tools that wrap locate → recall → aggregate.</p>
-    <p>For agents that already know what they want to ask, these collapse the loop into a single MCP call with just <span class="band">{place}</span> or <span class="band">{lat, lng}</span>. Same signed receipts, same fact_cids; the work happens on the responder.</p>
-
-    <div class="scroll-x">
-    <table class="endpoints">
-      <thead>
-        <tr><th>MCP tool</th><th>REST</th><th>Topic</th><th>Backing source</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="path">emem_at</td><td>/v1/at</td><td class="desc">mixed bands at a place</td><td class="desc">whatever is wired at the cell</td></tr>
-        <tr><td class="path">emem_ndvi</td><td>/v1/ndvi</td><td class="desc">vegetation condition</td><td class="desc">MODIS NDVI, indices.ndvi</td></tr>
-        <tr><td class="path">emem_air</td><td>/v1/air</td><td class="desc">air quality</td><td class="desc">CAMS (PM2.5, NO2, O3)</td></tr>
-        <tr><td class="path">emem_lst</td><td>/v1/lst</td><td class="desc">land-surface temperature</td><td class="desc">MODIS LST day &amp; night</td></tr>
-        <tr><td class="path">emem_soil</td><td>/v1/soil</td><td class="desc">soil properties</td><td class="desc">SoilGrids carbon, pH, texture</td></tr>
-        <tr><td class="path">emem_water</td><td>/v1/water</td><td class="desc">surface water</td><td class="desc">JRC GSW recurrence, NDWI</td></tr>
-        <tr><td class="path">emem_forest</td><td>/v1/forest</td><td class="desc">forest cover &amp; loss</td><td class="desc">Hansen GFC, canopy bands</td></tr>
-        <tr><td class="path">emem_weather</td><td>/v1/weather</td><td class="desc">now-only weather</td><td class="desc">met.no nowcast</td></tr>
-        <tr><td class="path">emem_elevation</td><td>/v1/elevation</td><td class="desc">terrain elevation</td><td class="desc">Copernicus DEM 30 m</td></tr>
-      </tbody>
-    </table>
-    </div>
-  </div>
-</section>
-
+<!-- ===== 07 · VERIFY ===== -->
 <section class="section page" id="verify">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">07</span><span class="idx-label">Verify</span></div>
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Verify</span></div>
     <dl>
-      <dt>signature</dt><dd>Ed25519 (64 B)</dd>
+      <dt>signature</dt><dd>ed25519 (64&nbsp;B)</dd>
       <dt>digest</dt><dd>BLAKE3</dd>
       <dt>encoding</dt><dd>canonical CBOR</dd>
-      <dt>cid</dt><dd>base32-nopad · 16 B truncated</dd>
-      <dt>in-browser</dt><dd>@noble/curves + @noble/hashes</dd>
-      <dt>fallback</dt><dd>POST /v1/verify_receipt</dd>
+      <dt>in-browser</dt><dd><a href="/verify">/verify</a></dd>
+      <dt>fallback</dt><dd>POST&nbsp;/v1/verify_receipt</dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">07</span>Verifying without trusting</h2>
-    <p class="lede">The responder pubkey is the only trust anchor. The preimage is a deterministic concatenation; any agent can recompute it offline and check the signature. A receipt issued today verifies in any year, on any node, as long as the pubkey is preserved.</p>
+    <h2><span class="num">06</span>Verifying without trusting</h2>
+    <p class="lede">Every answer is signed. The responder pubkey is the only trust anchor.</p>
 
-    <div class="code">
-      <div class="code-head"><span class="lang">PSEUDO</span><span class="tab">preimage</span><span class="spacer"></span><button class="copy" data-copy-target="#code-preimage">copy</button></div>
-<pre id="code-preimage"><code><span class="tok-k">blake3</span><span class="tok-p">(</span>
-    request_id <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> served_at  <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> primitive <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span>
-    cell1 <span class="tok-s">","</span> cell2 <span class="tok-s">","</span> ... <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> cid1 <span class="tok-s">","</span> cid2 <span class="tok-s">","</span> ...
-<span class="tok-p">)</span>
-
-<span class="tok-c"># trailing commas after the last cell and last cid are intentional</span>
-<span class="tok-c"># the signing loop appends "," after every entry</span></code></pre>
-    </div>
-
-    <div class="code">
-      <div class="code-head"><span class="lang">PYTHON</span><span class="tab">verify_offline.py</span><span class="spacer"></span><button class="copy" data-copy-target="#code-verify-py">copy</button></div>
-<pre id="code-verify-py"><code><span class="tok-k">import</span> blake3
-<span class="tok-k">from</span> cryptography.hazmat.primitives.asymmetric.ed25519 <span class="tok-k">import</span> Ed25519PublicKey
-
-r = receipt  <span class="tok-c"># the receipt block from any /v1/* response</span>
-
-h = blake3.blake3()
-<span class="tok-k">for</span> field <span class="tok-k">in</span> (r[<span class="tok-s">"request_id"</span>], r[<span class="tok-s">"served_at"</span>], r[<span class="tok-s">"primitive"</span>]):
-    h.update(field.encode()); h.update(<span class="tok-s">b"|"</span>)
-<span class="tok-k">for</span> c <span class="tok-k">in</span> r[<span class="tok-s">"cells"</span>]:     h.update(c.encode()); h.update(<span class="tok-s">b","</span>)
-h.update(<span class="tok-s">b"|"</span>)
-<span class="tok-k">for</span> c <span class="tok-k">in</span> r[<span class="tok-s">"fact_cids"</span>]: h.update(c.encode()); h.update(<span class="tok-s">b","</span>)
-
-pk = Ed25519PublicKey.from_public_bytes(<span class="tok-k">bytes</span>(r[<span class="tok-s">"responder_pubkey"</span>]))
-pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</span>]), h.digest())
-<span class="tok-c"># VALID. no callback to emem.dev required.</span></code></pre>
-    </div>
-
-    <p>For an in-browser verification with copy-paste UI, see <a href="/verify">/verify</a>. The full path from a place name to a verified signature in four live calls is at <a href="/demos/signed-answer">/demos/signed-answer</a>.</p>
+    <p>The preimage is a deterministic concatenation, so any agent recomputes it offline and checks the signature &mdash; verify in the browser at <a href="/verify">/verify</a> or with <span class="band">POST /v1/verify_receipt</span>. A receipt issued today verifies in any year, on any node, as long as the pubkey is preserved, and the same answer is reproducible on any peer that holds the fact. <a href="/how-it-works">The preimage, in full &rarr;</a></p>
   </div>
 </section>
 
-<section class="section page" id="absence">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">08</span><span class="idx-label">Absence</span></div>
-    <dl>
-      <dt>contract</dt><dd>no silent fallbacks</dd>
-      <dt>shape</dt><dd>signed Absence fact</dd>
-      <dt>citable</dt><dd>yes, content-addressed</dd>
-      <dt>distinguishes</dt><dd>wrong query vs. empty cell</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">08</span>Empty is a signed answer, not a 404</h2>
-    <p class="lede">When a band has no data at a cell, the responder does not return an empty array. It signs an Absence fact with a typed reason. An agent that cites <span class="band">evidence:&nbsp;["absence_cid_…"]</span> is making a verifiable claim that no data exists, rather than guessing from an HTTP code.</p>
-
-    <table class="absent-table">
-      <tbody>
-        <tr><td>unavailable_capability</td><td>sidecar extension missing. GPU off, encoder offline, or the surface is wired but the worker is not serving.</td></tr>
-        <tr><td>outside_coverage</td><td>cell falls outside the upstream product footprint (e.g. Tessera 2024 over a fresh ocean cell)</td></tr>
-        <tr><td>gpu_unavailable</td><td>required GPU model is loaded but not serving inferences right now</td></tr>
-        <tr><td>archetype_seed_unavailable</td><td>climate / place archetype centroids not loaded on this responder</td></tr>
-        <tr><td>no_auto_materializer_registered</td><td>band reserved in the cube but no upstream connector is wired. Submit a signed Attestation to seed it.</td></tr>
-        <tr><td>present_only</td><td>band is now-only (e.g. met.no nowcast); past tslots will always return absence</td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="section page" id="stream">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">09</span><span class="idx-label">Liveness</span></div>
-    <dl>
-      <dt>stream</dt><dd>GET&nbsp;/v1/stream (SSE)</dd>
-      <dt>tick</dt><dd>5&ndash;300 s, query tunable</dd>
-      <dt>attestation</dt><dd>GET&nbsp;/.well-known/emem.json</dd>
-      <dt>binds</dt><dd>binary&nbsp;blake3 + git&nbsp;commit + build</dd>
-      <dt>signed by</dt><dd>responder ed25519</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">09</span>Liveness: signed ticks, signed binary</h2>
-    <p class="lede">Two surfaces an operator does not get to fake. Every stream tick is an ed25519 signature over a deterministic preimage. The operator attestation binds the running binary&rsquo;s BLAKE3 hash to its git commit, signed by the same key.</p>
-
-    <div class="live-grid">
-      <div class="pane" id="stream-pane">
-        <span class="pulse" id="stream-pulse"><span class="dot"></span><span id="stream-pulse-label">waiting&hellip;</span></span>
-        <h3>Corpus stream</h3>
-        <div class="endpoint">GET /v1/stream?interval=5  &nbsp;·&nbsp;  event: state</div>
-        <div class="row"><span class="k">served at</span><span class="v" id="stream-served">&hellip;</span></div>
-        <div class="row"><span class="k">distinct cells</span><span class="v" id="stream-cells">&hellip;</span></div>
-        <div class="row"><span class="k">distinct bands</span><span class="v" id="stream-bands">&hellip;</span></div>
-        <div class="row"><span class="k">facts scanned</span><span class="v" id="stream-facts">&hellip;</span></div>
-        <div class="row"><span class="k">registry cid</span><span class="v cid" id="stream-reg">&hellip;</span></div>
-        <div class="row"><span class="k">signature</span><span class="v sig" id="stream-sig">&hellip;</span></div>
-      </div>
-      <div class="pane" id="attest-pane">
-        <span class="pulse" id="attest-pulse"><span class="dot"></span><span id="attest-pulse-label">waiting&hellip;</span></span>
-        <h3>Operator attestation</h3>
-        <div class="endpoint">GET /.well-known/emem.json  &nbsp;·&nbsp;  operator_attestation</div>
-        <div class="row"><span class="k">version</span><span class="v" id="attest-version">&hellip;</span></div>
-        <div class="row"><span class="k">git commit</span><span class="v cid" id="attest-git">&hellip;</span></div>
-        <div class="row"><span class="k">build at</span><span class="v" id="attest-build">&hellip;</span></div>
-        <div class="row"><span class="k">binary blake3</span><span class="v cid" id="attest-bin">&hellip;</span></div>
-        <div class="row"><span class="k">tee quote</span><span class="v" id="attest-tee">&hellip;</span></div>
-        <div class="row"><span class="k">signature</span><span class="v sig" id="attest-sig">&hellip;</span></div>
-      </div>
-    </div>
-
-    <p>The stream preimage carries <span class="band">version</span>, <span class="band">key_epoch</span>, <span class="band">served_at</span>, <span class="band">registry_cid</span>, and the <span class="band">distinct_cells</span> count, so a long-lived subscriber detects manifest drift the instant a registry CID rolls. The attestation preimage adds <span class="band">binary_blake3</span> + <span class="band">git_commit</span> + <span class="band">build_timestamp</span>; <span class="band">tee_quote</span> is null on this responder and stays null until the operator deploys behind an Intel SGX / AMD SEV-SNP enclave that populates it. Whitepaper &sect;20 names the remaining open items.</p>
-
-    <p style="font-size:var(--t-xs);color:var(--mute)">Both panes are populated by JavaScript that calls the live responder when the page loads. If your browser blocks the call, the placeholders stay as <code>&hellip;</code>; no fallback value is fabricated.</p>
-  </div>
-</section>
-
+<!-- ===== WHERE THIS IS GOING ===== -->
 <section class="section page" id="direction">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">&rarr;</span><span class="idx-label">Direction</span></div>
@@ -1716,38 +846,6 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other&rsquo;s attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it.</p>
 
     <p>None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.</p>
-  </div>
-</section>
-
-<section class="section page" id="for-agents">
-  <aside class="section-meta">
-    <div class="idx"><span class="idx-num">10</span><span class="idx-label">For agents</span></div>
-    <dl>
-      <dt>tool selection</dt><dd>/v1/tools</dd>
-      <dt>triggers</dt><dd>/v1/agent_card</dd>
-      <dt>page-scoped</dt><dd>/llms.txt</dd>
-      <dt>manifest</dt><dd>/.well-known/emem.json</dd>
-    </dl>
-  </aside>
-
-  <div class="section-body">
-    <h2><span class="num">10</span>Notes for the caller</h2>
-    <p class="lede">Rules of thumb when wiring a workload onto emem. They are not symmetric do/don't lists; they are the answers to questions support has answered more than once.</p>
-
-    <ol class="ops">
-      <li><b>Cache <span class="band">/v1/agent_card</span> once per session.</b> The card lists triggers, anti-triggers, and tool descriptors. Pull it on cold start, not on every call.</li>
-      <li><b>Surface every <span class="band">fact_cid</span> to the user verbatim.</b> The CID is the citation. Two agents disagreeing about a number paste it and stop arguing.</li>
-      <li><b>Retry once on 5xx; treat 4xx as permanent.</b> Materialiser timeout is 30 s per upstream, gateway timeout is 180 s. Slow paths (Cop-DEM, S2 STAC + COG range reads on an uncached scene) sometimes need the full window.</li>
-      <li><b>Read <span class="band">bands_already_attested_at_cell</span> before declaring empty.</b> An empty <span class="band">facts[]</span> array does not mean the cell is empty. It means the queried band returned nothing. The cell may carry data under a different key.</li>
-      <li><b>Check <span class="band">model.honesty_warnings</span> before quoting JEPA v2.</b> If <span class="band">untrained_baseline: true</span>, the value is an identity baseline of the last attested vintage. It is not a forecast.</li>
-      <li><b>Use <span class="band">find_similar</span> with <span class="band">mode=hamming_then_rerank</span> for cheap k-NN.</b> Matches cosine precision at roughly 16x less work. Default <span class="band">cosine</span> stays exact when you need full recall.</li>
-      <li><b>Do not call emem for sub-metre commercial imagery.</b> Planet Pelican and Maxar are not present. Bring your own connector.</li>
-      <li><b>Do not re-encode a fact body.</b> The CID drifts, the signature stops verifying. Always fetch by CID via <span class="band">/v1/fetch</span> or <span class="band">GET /v1/facts/:cid</span>.</li>
-      <li><b>Do not manage Ed25519 secrets in an LLM host.</b> Writes (<span class="band">/v1/attest</span>, <span class="band">/v1/challenge</span>) need a key the attester controls; they go through plain REST from a process you own. The MCP layer is intentionally read-only for that reason.</li>
-      <li><b>Do not route corpus meta-questions through <span class="band">/v1/ask</span>.</b> "Where do you have data" is not a question about any cell. The topic embedder will guess a region and produce noise. Call <span class="band">/v1/coverage_matrix</span> or <span class="band">/v1/discover</span> directly.</li>
-    </ol>
-
-    <p style="margin-top:2rem">When in doubt, walk the loop. <a href="#connect">discover</a>, <a href="#first-call">locate</a>, recall, reason, <a href="#verify">verify</a>. Every step is idempotent and signed.</p>
   </div>
 </section>
 
@@ -1838,32 +936,6 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
 <script>
 (function(){
-  // Connect tab switcher.
-  var tabs = document.querySelectorAll('#client-tabs .client');
-  var pre = document.getElementById('connect-pre');
-  var filename = document.getElementById('connect-filename');
-  var configs = {
-    'claude-code':    { file: '.mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
-    'cursor':         { file: '.cursor/mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
-    'claude-desktop': { file: 'claude_desktop_config.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
-    'cline':          { file: 'cline_mcp_settings.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span><span class="tok-p">,</span>\n      <span class="tok-key">"autoApprove"</span><span class="tok-p">:</span> [<span class="tok-s">"emem_recall"</span><span class="tok-p">,</span> <span class="tok-s">"emem_locate"</span><span class="tok-p">,</span> <span class="tok-s">"emem_verify"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
-    'gemini':         { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">gemini</span> extensions install \\\n    <span class="tok-u">https://emem.dev/gemini-extension.json</span>' },
-    'openai':         { file: 'GPT builder', body: '<span class="tok-c"># Custom GPT, Actions, Import from URL</span>\n<span class="tok-u">https://emem.dev/openapi.action.json</span>\n\n<span class="tok-c"># No API key. Reads are open.</span>' },
-    'stdio':          { file: 'shell', body: '<span class="tok-c"># For runtimes without native Streamable-HTTP MCP</span>\n<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"command"</span><span class="tok-p">:</span> <span class="tok-s">"npx"</span><span class="tok-p">,</span>\n      <span class="tok-key">"args"</span><span class="tok-p">:</span> [<span class="tok-s">"-y"</span><span class="tok-p">,</span> <span class="tok-s">"mcp-remote"</span><span class="tok-p">,</span> <span class="tok-s">"https://emem.dev/mcp"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
-    'rest':           { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \\\n    <span class="tok-flag">-H</span> <span class="tok-s">\'content-type: application/json\'</span> \\\n    <span class="tok-flag">-d</span> <span class="tok-s">\'{"cell":"defi.zb4d7.ze56c.zf24c",\n         "bands":["copdem30m.elevation_mean"]}\'</span>' }
-  };
-  tabs.forEach(function(tab){
-    tab.addEventListener('click', function(){
-      tabs.forEach(function(t){ t.classList.remove('active'); });
-      tab.classList.add('active');
-      var c = configs[tab.dataset.client];
-      if (c) {
-        filename.textContent = c.file;
-        pre.innerHTML = '<code>' + c.body + '</code>';
-      }
-    });
-  });
-
   // Copy buttons.
   document.querySelectorAll('.copy').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -1880,47 +952,15 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     });
   });
 
-  // Try-it console. Only entries with verified CIDs and values from docs/agents.md and the homepage. No fabricated CIDs.
+  // Verified cached responses for the hero try-it. Only entries with verified
+  // CIDs and values from the live responder. No fabricated CIDs.
   var responses = {
     'South Mumbai': { cell: 'defi.zb4d7.ze56c.zf24c', lat: 18.975243, lng: 72.823966, band: 'copdem30m.elevation_mean', value: 10.0, unit: 'm', cid: '4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma' },
     'Bengaluru':    { cell: 'defi.zb493.xuqA.zcb5f', lat: 12.971899, lng: 77.593665, band: 'copdem30m.elevation_mean', value: 918.0, unit: 'm', cid: 'yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala' }
   };
-  var input = document.getElementById('tryit-place');
-  var go = document.getElementById('tryit-go');
-  var out = document.getElementById('tryit-result');
-  var sugs = document.querySelectorAll('.tryit-suggest .sug');
   function escapeHtml (s) { return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
-  function run () {
-    var q = input.value.trim();
-    var r = responses[q];
-    out.classList.remove('empty');
-    if (!r) {
-      out.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> The page only inlines two verified responses (South Mumbai, Bengaluru) because we will not fabricate a fact_cid we have not recomputed. To recall any other place, run the curl command above against <span class="band">/v1/recall</span> or call <span class="band">emem_locate</span> from your MCP client.';
-      return;
-    }
-    out.innerHTML =
-      '<span class="ok">200 OK</span> · verified cached response · cell64 and fact_cid match the live responder byte-for-byte' +
-      '<pre><span class="tok-p">{</span>\n' +
-      '  <span class="tok-key">"cell64"</span>: <span class="tok-s">"'+r.cell+'"</span>,\n' +
-      '  <span class="tok-key">"centre"</span>: { <span class="tok-key">"lat"</span>: <span class="tok-n">'+r.lat+'</span>, <span class="tok-key">"lng"</span>: <span class="tok-n">'+r.lng+'</span> },\n' +
-      '  <span class="tok-key">"facts"</span>: [{\n' +
-      '    <span class="tok-key">"band"</span>:  <span class="tok-s">"'+r.band+'"</span>,\n' +
-      '    <span class="tok-key">"value"</span>: <span class="tok-n">'+r.value+'</span>, <span class="tok-key">"unit"</span>: <span class="tok-s">"'+r.unit+'"</span>,\n' +
-      '    <span class="tok-key">"fact_cid"</span>: <span class="tok-s">"'+r.cid+'"</span>\n' +
-      '  }],\n' +
-      '  <span class="tok-key">"receipt"</span>: {\n' +
-      '    <span class="tok-key">"primitive"</span>:    <span class="tok-s">"emem.recall"</span>,\n' +
-      '    <span class="tok-key">"responder_pubkey_b32"</span>: <span class="tok-s">"777er3yihg…womvka"</span>,\n' +
-      '    <span class="tok-key">"signature"</span>:    [64 bytes ed25519 over blake3 preimage]\n' +
-      '  }\n' +
-      '<span class="tok-p">}</span></pre>' +
-      '<div style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">request_id, served_at, schema_cid, registry_cid omitted for brevity. The full envelope ships on every live call.</div>';
-  }
-  if (go) go.addEventListener('click', run);
-  if (input) input.addEventListener('keydown', function(e){ if (e.key === 'Enter') run(); });
-  sugs.forEach(function(s){ s.addEventListener('click', function(){ input.value = s.dataset.place; run(); }); });
 
-  // Compact hero try-it: same cached responses, a leaner single-line result.
+  // Compact hero try-it: leaner single-line result.
   var hInput = document.getElementById('tryit-hero-place');
   var hGo = document.getElementById('tryit-hero-go');
   var hOut = document.getElementById('tryit-hero-result');
@@ -1930,7 +970,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     var r = responses[q];
     hOut.classList.remove('empty');
     if (!r) {
-      hOut.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> Only South Mumbai and Bengaluru are inlined (no fabricated fact_cids). Run the full motion at <a href="#first-call">&sect;03</a> or against <span class="band">/v1/recall</span>.';
+      hOut.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> Only South Mumbai and Bengaluru are inlined (no fabricated fact_cids). Run the full motion at <a href="#example">the example below</a> or against <span class="band">/v1/recall</span>.';
       return;
     }
     hOut.innerHTML =
@@ -1941,89 +981,6 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   }
   if (hGo) hGo.addEventListener('click', runHero);
   if (hInput) hInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') runHero(); });
-
-  // Copy MCP config button (hero CTA).
-  var copyMcpBtn = document.getElementById('copy-mcp');
-  if (copyMcpBtn) {
-    copyMcpBtn.addEventListener('click', function(){
-      var payload = copyMcpBtn.getAttribute('data-mcp') || '';
-      var pretty = payload;
-      try { pretty = JSON.stringify(JSON.parse(payload), null, 2); } catch (e) {}
-      var done = false;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(pretty).then(function(){ done = true; toast('MCP config copied'); }).catch(function(){ toast('Copy blocked; paste manually'); });
-      } else {
-        try {
-          var ta = document.createElement('textarea');
-          ta.value = pretty; document.body.appendChild(ta); ta.select();
-          done = document.execCommand && document.execCommand('copy');
-          document.body.removeChild(ta);
-          toast(done ? 'MCP config copied' : 'Copy blocked; paste manually');
-        } catch (e) { toast('Copy blocked; paste manually'); }
-      }
-    });
-  }
-  function toast (msg) {
-    var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
-    document.body.appendChild(t);
-    requestAnimationFrame(function(){ t.classList.add('show'); });
-    setTimeout(function(){ t.classList.remove('show'); setTimeout(function(){ t.remove(); }, 220); }, 1600);
-  }
-
-  // Live corpus stream pane: one fetch on load, then SSE if EventSource is available.
-  function setText (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
-  function shortCid (s) { if (!s) return s; return s.length > 28 ? s.slice(0, 18) + '…' + s.slice(-8) : s; }
-  function paintStreamTick (d) {
-    if (!d) return;
-    var c = d.corpus || {}; var r = d.responder || {}; var m = d.manifests || {}; var s = d.signature || {};
-    setText('stream-served', d.served_at || '');
-    setText('stream-cells', (c.distinct_cells != null ? c.distinct_cells.toLocaleString() : ''));
-    setText('stream-bands', (c.distinct_bands != null ? String(c.distinct_bands) : ''));
-    setText('stream-facts', (c.facts_scanned != null ? c.facts_scanned.toLocaleString() : ''));
-    setText('stream-reg',   shortCid(m.registry_cid));
-    setText('stream-sig',   shortCid(s.signature_b32));
-    var p = document.getElementById('stream-pulse'); if (p) p.classList.add('live');
-    var pl = document.getElementById('stream-pulse-label'); if (pl) pl.textContent = 'live';
-  }
-  function loadStreamOnce () {
-    // /v1/stream is SSE; for a single-tick paint we just open the stream,
-    // take the first event, then close. EventSource handles framing.
-    if (!('EventSource' in window)) return;
-    try {
-      var es = new EventSource('/v1/stream?interval=30');
-      var got = false;
-      es.addEventListener('state', function (ev) {
-        if (got) return; got = true;
-        try { paintStreamTick(JSON.parse(ev.data)); } catch (e) {}
-        es.close();
-      });
-      // hard close after 8 s so we don't hold an open connection
-      setTimeout(function(){ if (!got) es.close(); }, 8000);
-    } catch (e) {}
-  }
-  function paintAttest (att) {
-    if (!att) return;
-    setText('attest-version', att.version || '');
-    setText('attest-git',     shortCid(att.git_commit));
-    setText('attest-build',   att.build_timestamp || '');
-    setText('attest-bin',     shortCid(att.binary_blake3));
-    setText('attest-tee',     (att.tee_quote === null || att.tee_quote === undefined) ? 'null (no TEE on this responder)' : 'present');
-    setText('attest-sig',     shortCid(att.signature_b32));
-    var p = document.getElementById('attest-pulse'); if (p) p.classList.add('live');
-    var pl = document.getElementById('attest-pulse-label'); if (pl) pl.textContent = 'signed';
-  }
-  function loadAttest () {
-    fetch('/.well-known/emem.json', { headers: { accept: 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (d) { paintAttest(d && d.operator_attestation); })
-      .catch(function () {});
-  }
-  // Fire after first paint so the hero is interactive without waiting on network.
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function(){ loadStreamOnce(); loadAttest(); });
-  } else {
-    loadStreamOnce(); loadAttest();
-  }
 
   // Consent banner.
   var KEY='emem_consent', MAX_AGE=180*24*60*60;

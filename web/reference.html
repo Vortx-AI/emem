@@ -1,0 +1,724 @@
+<!doctype html><html lang=en>
+<head>
+<meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Reference — the read surface</title>
+<meta name=description content="emem read surface for agents and developers. Client setup for 8 MCP hosts, high-traffic endpoints, one-shot domain tools, the 12 hunter events, and the physics and forecasting solvers. MCP + REST, no API keys.">
+<link rel=canonical href="https://emem.dev/reference">
+<link rel="alternate" type="text/markdown" href="/llms.txt">
+<link rel=alternate type=text/markdown href=/agents.md>
+<link rel=alternate type=application/json href=/openapi.json>
+<link rel="service mcp" href=/mcp>
+<link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
+<link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/reference">
+<meta property=og:title content="Reference — the read surface">
+<meta property=og:description content="Client setup, endpoints, hunter events, and physics solvers. MCP + REST. No API keys.">
+<meta property=og:site_name content=emem>
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --pad-x:1.5rem;--col-meta:13.75rem;
+  --t-xs:.6875rem;--t-sm:.75rem;--t-base:.84375rem;--t-md:.9375rem;--t-lg:1.125rem;--t-xl:1.375rem;--t-2xl:1.875rem;--t-3xl:2.75rem;--t-4xl:4rem;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  }
+}
+*{box-sizing:border-box}
+/* Type & spacing scale at 80% of the natural 16px baseline. Everything
+   downstream is expressed in rem, so this single knob retunes the page. */
+html{font-size:90%}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--accent);color:var(--paper)}
+
+/* statusbar */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{color:var(--ink);background:var(--paper-3)}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+
+/* page shell */
+.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.section{border-bottom:1px solid var(--rule);padding:3.5rem 0;display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.section-meta{font-size:var(--t-xs);color:var(--mute);line-height:1.6;position:sticky;top:56px;align-self:start;max-height:calc(100vh - 80px);overflow:auto}
+.section-meta .idx{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.5rem}
+.section-meta .idx-num{font-weight:700;color:var(--ink);font-size:var(--t-sm)}
+.section-meta .idx-label{color:var(--mute-2);text-transform:uppercase;letter-spacing:.08em;font-size:var(--t-xs)}
+.section-meta dl{margin:1rem 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:.4rem}
+.section-meta dt{color:var(--mute-2);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.section-meta dd{margin:0 0 .5rem 0;color:var(--ink-2);font-size:var(--t-xs)}
+.section-body>h2{margin:0 0 1rem;font-size:var(--t-2xl);font-weight:500;letter-spacing:-.02em;line-height:1.1;color:var(--ink)}
+.section-body>h2 .num{color:var(--mute-2);margin-right:.6rem;font-weight:300}
+.section-body>.lede{font-size:var(--t-md);color:var(--ink-2);max-width:60ch;margin:0 0 2rem;font-weight:400}
+.section-body p{max-width:64ch;margin:0 0 1.1rem;color:var(--ink-2)}
+.section-body strong{color:var(--ink);font-weight:700}
+.section-body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.section-body a:hover{background:var(--accent-bg)}
+
+/* hero */
+.hero{padding:4rem 0 3rem;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.hero-meta{font-size:var(--t-xs);color:var(--mute);display:flex;flex-direction:column;gap:1.5rem}
+.hero-meta .kv{display:grid;grid-template-columns:1fr;gap:.3rem}
+.hero-meta .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.hero-meta .kv .v{color:var(--ink-2);font-size:var(--t-xs);word-break:break-all}
+.hero-meta .kv .v.accent{color:var(--accent)}
+.hero h1{font-size:var(--t-4xl);font-weight:300;letter-spacing:-.04em;line-height:.98;margin:0 0 1.4rem;color:var(--ink)}
+.hero h1 .accent{color:var(--accent);font-weight:600}
+.hero .sub{font-size:var(--t-lg);color:var(--ink-2);max-width:56ch;line-height:1.4;margin:0 0 1.4rem;font-weight:400}
+.hero-formula{font-size:var(--t-md);color:var(--ink);margin:1rem 0 .5rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-weight:500}
+.hero-formula .box{border:1px solid var(--rule-strong);padding:.3rem .6rem;background:var(--paper-2)}
+.hero-formula .arrow{color:var(--mute)}
+.hero-formula .out{border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);padding:.3rem .6rem;font-weight:700}
+.formula-gloss{font-size:var(--t-sm);color:var(--mute);margin:.2rem 0 1rem;letter-spacing:.02em}
+.memt-block{border:1px solid var(--rule-strong);background:var(--paper-2);margin:0 0 1.6rem;font-size:var(--t-sm);overflow:hidden}
+.memt-block .memt-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);padding:.4rem .8rem;gap:.6rem;flex-wrap:wrap}
+.memt-block .memt-head .label{font-weight:700;color:var(--ink);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.06em}
+.memt-block .memt-head .gloss{color:var(--mute);font-size:var(--t-xs)}
+.memt-block .memt-head .spacer{flex:1}
+.memt-block .memt-head a{font-size:var(--t-xs);color:var(--accent);text-decoration:none}
+.memt-block .memt-head a:hover{text-decoration:underline}
+.memt-block .memt-body{padding:.8rem 1rem;display:grid;gap:.4rem}
+.memt-block .memt-grammar{font-size:var(--t-xs);color:var(--mute)}
+.memt-block .memt-grammar b{color:var(--ink);font-weight:700}
+.memt-block .memt-example{word-break:break-all;color:var(--accent);font-size:var(--t-sm);padding:.4rem .55rem;background:var(--paper);border:1px solid var(--rule)}
+.memt-block .memt-parts{display:grid;grid-template-columns:max-content 1fr;gap:.25rem .8rem;font-size:var(--t-xs);color:var(--ink-2);margin-top:.1rem}
+.memt-block .memt-parts .k{color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.hero-pillars{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--rule-strong);margin:0 0 1.6rem;font-size:var(--t-sm)}
+.hero-pillars .pillar{flex:1;min-width:120px;padding:.55rem .8rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.2rem;background:var(--paper-2)}
+.hero-pillars .pillar:last-child{border-right:0}
+.hero-pillars .pillar .word{font-weight:700;color:var(--ink);font-size:var(--t-md);letter-spacing:-.01em}
+.hero-pillars .pillar .gloss{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+@media (max-width:560px){.hero-pillars{flex-direction:column}.hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}.hero-pillars .pillar:last-child{border-bottom:0}}
+.hero-cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.6rem}
+
+/* Lean hero (fold 1): drops the kv sidebar, the formula box, the pillars,
+ * the daily-two cards, and the open-data sub. What's left: H1, one short
+ * sub, two CTAs, one quiet trust line. The grid collapses to one column so
+ * the hero feels like one statement, not a dashboard. */
+.hero.hero-lean{grid-template-columns:1fr;gap:0;padding:5rem 0 4rem;max-width:760px;margin:0 auto}
+.hero.hero-lean .sub{font-size:var(--t-lg);max-width:54ch;line-height:1.45;margin:0 0 1.6rem;color:var(--ink-2);font-weight:400}
+.hero.hero-lean .hero-cta{margin-top:1.4rem}
+.hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:680px){.hero-trust{white-space:normal}}
+.hero-trust code{color:var(--ink-2);font-size:var(--t-xs);background:var(--paper-2);padding:.05em .35em;border:1px solid var(--rule);border-radius:2px}
+@media (max-width:560px){
+  .hero.hero-lean{padding:3rem 0 2.5rem}
+  .hero.hero-lean .hero-cta{flex-direction:column;align-items:stretch}
+  .hero.hero-lean .hero-cta .btn{justify-content:center}
+}
+
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
+.btn:hover{background:var(--ink-2)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--paper-3)}
+
+/* code block */
+.code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.5rem 0;font-size:var(--t-sm);line-height:1.6}
+.code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
+.code-head .tab{padding:.4rem .8rem;border-right:1px solid var(--rule);color:var(--mute)}
+.code-head .lang{padding:.4rem .8rem;border-right:1px solid var(--rule);font-weight:700;color:var(--ink-2)}
+.code-head .spacer{flex:1}
+.code-head .copy{padding:.4rem .8rem;border:0;border-left:1px solid var(--rule);cursor:pointer;color:var(--mute);background:transparent;font-family:var(--mono);font-size:var(--t-xs)}
+.code-head .copy:hover{color:var(--ink);background:var(--paper-2)}
+.code-head .copy.copied{color:var(--accent)}
+.code pre{margin:0;padding:1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:var(--t-sm);white-space:pre}
+.code pre code{font-family:inherit}
+.tok-c{color:var(--mute)}
+.tok-k{color:var(--ink);font-weight:700}
+.tok-s{color:var(--accent)}
+.tok-n{color:var(--absent)}
+.tok-p{color:var(--mute)}
+.tok-u{color:var(--ink-2)}
+.tok-cmd{color:var(--mute-2)}
+.tok-flag{color:var(--ink-2);font-weight:700}
+.tok-key{color:var(--ink);font-weight:700}
+
+/* fact block */
+.fact{border:1px solid var(--rule);background:var(--paper-2);padding:1rem 1.1rem;font-size:var(--t-sm);margin:1rem 0;position:relative}
+.fact-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;font-size:var(--t-xs);color:var(--mute);flex-wrap:wrap}
+.fact-head .signed{display:inline-flex;align-items:center;gap:.3rem;color:var(--accent);font-weight:700}
+.fact-head .signed::before{content:"";width:6px;height:6px;background:var(--accent);border-radius:50%}
+.fact-head .ts{color:var(--mute-2);font-size:10px}
+.fact-grid{display:grid;grid-template-columns:100px 1fr;gap:.4rem 1rem;align-items:baseline}
+.fact-grid .k{color:var(--mute);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.05em}
+.fact-grid .v{color:var(--ink);word-break:break-all}
+.fact-grid .v.big{font-size:var(--t-xl);font-weight:700;color:var(--ink)}
+.fact-grid .v .unit{color:var(--mute);font-weight:400;font-size:var(--t-md);margin-left:.3rem}
+.fact-grid .v.cid{color:var(--accent);font-size:var(--t-xs)}
+.fact-verify{margin-top:.8rem;padding-top:.8rem;border-top:1px dashed var(--rule);display:flex;align-items:center;gap:.75rem;font-size:var(--t-xs);flex-wrap:wrap}
+.fact-verify .check{color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.fact-verify a{color:var(--accent)}
+
+/* connect grid */
+.connect{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));border:1px solid var(--rule);margin:1.5rem 0}
+.connect .client{padding:.8rem 1rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);font-size:var(--t-xs);cursor:pointer;background:var(--paper-2);display:flex;flex-direction:column;gap:.3rem}
+.connect .client:hover{background:var(--paper-3)}
+.connect .client.active{background:var(--ink);color:var(--paper)}
+.connect .client.active .meta{color:var(--mute-2)}
+.connect .client .name{font-weight:700;color:var(--ink)}
+.connect .client.active .name{color:var(--paper)}
+.connect .client .meta{color:var(--mute);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.stats .stat{padding:1.2rem 1.1rem;border-right:1px solid var(--rule)}
+.stats .stat:last-child{border-right:0}
+.stats .stat .n{font-size:var(--t-3xl);font-weight:300;letter-spacing:-.03em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+.stats .stat .n .small{font-size:var(--t-md);color:var(--mute);font-weight:400;margin-left:.3rem}
+.stats .stat .lbl{margin-top:.5rem;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.stats .stat{border-bottom:1px solid var(--rule)}}
+
+/* endpoints table */
+.endpoints{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm)}
+.endpoints th,.endpoints td{padding:.55rem .8rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+.endpoints th{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+.endpoints tr:hover td{background:var(--paper-2)}
+.endpoints .method{font-weight:700;font-size:var(--t-xs);color:var(--accent);width:60px}
+.endpoints .method.post{color:var(--absent)}
+.endpoints .path{color:var(--ink);font-weight:600;white-space:nowrap}
+.endpoints .desc{color:var(--ink-2)}
+
+/* hunter cards */
+.hunter{display:grid;grid-template-columns:repeat(2,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.hunter .case{padding:1.1rem 1.2rem}
+.hunter .case .verb{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+.hunter .case .title{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:.3rem 0 .5rem}
+.hunter .case .target{font-size:var(--t-xs);color:var(--accent);margin-bottom:.8rem}
+.hunter .case .row{display:flex;justify-content:space-between;padding:.2rem 0;font-size:var(--t-xs);color:var(--ink-2);border-bottom:1px dashed var(--rule);gap:.5rem;flex-wrap:wrap}
+.hunter .case .row:last-child{border-bottom:0}
+.hunter .case .row .cid{color:var(--accent)}
+.hunter .case .row .val{font-weight:700;color:var(--ink)}
+@media (max-width:720px){.hunter{grid-template-columns:1fr}}
+
+/* absent table */
+.absent-table{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm);border:1px solid var(--rule)}
+.absent-table td{padding:.6rem .9rem;border-bottom:1px solid var(--rule);vertical-align:top}
+.absent-table tr:last-child td{border-bottom:0}
+.absent-table td:first-child{font-weight:700;color:var(--absent);white-space:nowrap;width:240px;border-right:1px solid var(--rule)}
+.absent-table td:last-child{color:var(--ink-2)}
+
+/* ops list */
+.ops{list-style:none;margin:1.5rem 0;padding:0;counter-reset:op;border-top:1px solid var(--rule)}
+.ops>li{counter-increment:op;padding:.9rem 0 .9rem 3.2rem;border-bottom:1px solid var(--rule);position:relative;color:var(--ink-2);font-size:var(--t-sm);line-height:1.55;max-width:72ch}
+.ops>li::before{content:counter(op,decimal-leading-zero);position:absolute;left:0;top:.95rem;font-size:10px;font-weight:700;color:var(--mute-2);letter-spacing:.06em}
+.ops>li b{color:var(--ink);font-weight:700}
+
+/* ascii rule */
+.ascii-rule{font-family:var(--mono);color:var(--rule-strong);font-size:var(--t-xs);margin:1.5rem 0;white-space:nowrap;overflow:hidden;user-select:none}
+
+/* tokens */
+.cid{color:var(--accent);font-size:.92em;word-break:break-all}
+.cell{color:var(--ink);font-weight:700;background:var(--paper-3);padding:0 .3rem}
+.band{color:var(--ink);background:var(--paper-3);padding:0 .3rem}
+
+/* footer */
+.foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
+.foot-meta .desc{color:var(--mute);line-height:1.5}
+.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
+.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--ink-2);text-decoration:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom a{color:inherit}
+
+/* consent banner */
+#emem-consent{position:fixed;left:1em;right:1em;bottom:1em;max-width:36em;margin:0 auto;background:var(--paper-2);border:1px solid var(--rule-strong);padding:1em 1.1em;box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:var(--t-sm);line-height:1.5;z-index:9999;color:var(--ink-2)}
+#emem-consent[hidden]{display:none}
+#emem-consent p{margin:0 0 .7em;max-width:none}
+#emem-consent strong{color:var(--ink);font-weight:700}
+#emem-consent code{background:var(--paper-3);padding:0 .25em;color:var(--ink);font-family:var(--mono);font-size:.9em}
+#emem-consent .row{display:flex;flex-wrap:wrap;gap:.5em;align-items:center}
+#emem-consent button{padding:.5em 1.1em;border:1px solid var(--accent);background:var(--paper);color:var(--accent);font:inherit;font-family:var(--mono);font-weight:700;cursor:pointer;min-width:6em}
+#emem-consent button[data-act=accept]{background:var(--accent);color:var(--paper)}
+#emem-consent button:hover{filter:brightness(1.06)}
+#emem-consent button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#emem-consent a{margin-left:auto;font-size:.92em;color:var(--accent);text-decoration:underline}
+
+/* horizontal scroll wrapper for wide tables on small screens */
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll-x>table{min-width:560px}
+
+/* responsive */
+@media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
+@media (max-width:720px){
+  .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
+  .section-meta,.hero-meta,.foot-meta{position:static;max-height:none}
+  .section-meta{display:none}
+  .foot-grid{grid-template-columns:repeat(2,1fr)}
+  .endpoints{font-size:var(--t-xs)}
+  .endpoints th,.endpoints td{padding:.4rem .5rem}
+  .statusbar a.nav-sec{display:none}
+  .statusbar-inner{height:36px}
+  .memt-block .memt-parts{grid-template-columns:1fr}
+  .hero-cta{flex-direction:column;align-items:stretch}
+  .hero-cta .btn{justify-content:center}
+}
+@media (max-width:560px){
+  .hero h1{font-size:var(--t-2xl);line-height:1.05}
+  .hero .sub{font-size:var(--t-md)}
+  .hero-pillars{flex-direction:column}
+  .hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}
+  .hero-pillars .pillar:last-child{border-bottom:0}
+  .code pre{font-size:var(--t-xs)}
+}
+@media (max-width:480px){
+  html{font-size:86%}
+  .page{padding:0 1rem}
+  .stats{grid-template-columns:1fr}
+  .connect{grid-template-columns:repeat(2,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="nav-sec">home</a>
+    <a href="/how-it-works" class="nav-sec">how it works</a>
+    <a href="/solutions" class="nav-sec">solutions</a>
+    <a href="/reference" class="nav-sec">reference</a>
+    <span class="spacer"></span>
+    <a href="/docs">docs</a>
+    <a href="/verify" class="nav-sec">verify</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  </div>
+</header>
+
+<header class="hero hero-lean page">
+  <div>
+    <h1>The <span class="accent">read surface</span>.</h1>
+    <p class="sub">Every read is the same handler whether you reach it over MCP or REST. This page is the human-readable index of that surface: client setup, the high-traffic endpoints, the one-shot domain tools, the twelve hunter events, and the physics solvers. The full machine contract is <a href="/openapi.json">/openapi.json</a>.</p>
+    <div class="hero-cta">
+      <a class="btn" href="#client-setup">Client setup</a>
+      <a class="btn ghost" href="/openapi.json">openapi.json</a>
+    </div>
+    <p class="hero-trust">No API keys for reads · 80 MCP tools · 92 documented <code>/v1</code> paths · every answer an ed25519 receipt, verifiable offline.</p>
+  </div>
+</header>
+
+<section class="section page" id="client-setup">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">01</span><span class="idx-label">Client setup</span></div>
+    <dl>
+      <dt>transport</dt><dd>Streamable HTTP MCP</dd>
+      <dt>endpoint</dt><dd>https://emem.dev/mcp</dd>
+      <dt>auth</dt><dd>none for reads</dd>
+      <dt>writes</dt><dd>Ed25519, plain REST only</dd>
+      <dt>retries</dt><dd>idempotent, safe to retry</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">01</span>Client setup</h2>
+    <p class="lede">Same JSON in every host that speaks MCP. For runtimes without native Streamable HTTP, the <span class="band">mcp-remote</span> stdio bridge works. No keys, no install.</p>
+
+    <div class="connect" id="client-tabs">
+      <div class="client active" data-client="claude-code"><span class="name">Claude Code</span><span class="meta">.mcp.json</span></div>
+      <div class="client" data-client="cursor"><span class="name">Cursor</span><span class="meta">.cursor/mcp.json</span></div>
+      <div class="client" data-client="claude-desktop"><span class="name">Claude Desktop</span><span class="meta">claude_desktop_config.json</span></div>
+      <div class="client" data-client="cline"><span class="name">Cline (VS Code)</span><span class="meta">MCP settings</span></div>
+      <div class="client" data-client="gemini"><span class="name">Gemini CLI</span><span class="meta">extension install</span></div>
+      <div class="client" data-client="openai"><span class="name">OpenAI / ChatGPT</span><span class="meta">Action import</span></div>
+      <div class="client" data-client="stdio"><span class="name">stdio bridge</span><span class="meta">mcp-remote</span></div>
+      <div class="client" data-client="rest"><span class="name">Plain REST</span><span class="meta">POST /v1/*</span></div>
+    </div>
+
+    <div class="code" id="connect-code">
+      <div class="code-head">
+        <span class="lang">JSON</span>
+        <span class="tab" id="connect-filename">.mcp.json</span>
+        <span class="spacer"></span>
+        <button class="copy" data-copy-target="#connect-pre">copy</button>
+      </div>
+<pre id="connect-pre"><code><span class="tok-p">{</span>
+  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
+    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
+      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>
+      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>
+    <span class="tok-p">}</span>
+  <span class="tok-p">}</span>
+<span class="tok-p">}</span></code></pre>
+    </div>
+
+    <p>Reads are idempotent. The MCP layer is a convenience wrapper over the same handlers behind <a href="/openapi.json">/openapi.json</a>. Writes (<span class="band">/v1/attest</span>, <span class="band">/v1/challenge</span>) require an Ed25519 secret the attester controls and are not exposed via MCP for that reason. The recommended first tool is <span class="band">emem_ask</span>: it routes a free-text question through place resolution, recall, and the applicable algorithms in one call.</p>
+  </div>
+</section>
+
+<section class="section page" id="endpoints">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">02</span><span class="idx-label">Endpoints</span></div>
+    <dl>
+      <dt>OpenAPI</dt><dd>95 paths</dd>
+      <dt>documented</dt><dd>92 under /v1/*</dd>
+      <dt>MCP tools</dt><dd>80 (10 core / 70 extended)</dd>
+      <dt>mirror</dt><dd>MCP descriptors at /v1/tools</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">02</span>High-traffic endpoints</h2>
+    <p class="lede">The endpoints agents call most. Each has a matching MCP tool; the full machine surface is at <a href="/openapi.json">/openapi.json</a>, mirrored at <a href="/v1/tools">/v1/tools</a>.</p>
+
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead>
+        <tr><th>Method</th><th>Path</th><th>MCP tool</th><th>Body / use</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="method post">POST</td><td class="path">/v1/locate</td><td>emem_locate</td><td class="desc">place name &rarr; cell64 + neighbourhood + live band inventory</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td>emem_recall</td><td class="desc">{cell, bands?, tslot?} &rarr; signed facts, auto-materialise on miss</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall_many</td><td>emem_recall_many</td><td class="desc">batch recall, up to 256 cells per envelope</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall_polygon</td><td>emem_recall_polygon</td><td class="desc">recall across a place's polygon, optional Fields-of-The-World overlay</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/find_similar</td><td>emem_find_similar</td><td class="desc">k-NN by 128-D Tessera embedding; cosine / hamming / hamming_then_rerank</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/ask</td><td>emem_ask</td><td class="desc">place-anchored Q&amp;A with packaged receipts; routes to one of 27 band-topics</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/hunt</td><td>emem_hunt</td><td class="desc">event + region &rarr; top 8 cells, ranked by the algorithm's primary scalar</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state</td><td>emem_state</td><td class="desc">dense state vector at a cell; view=encoder (default, 128-D) or view=cube (1792-D)</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">fan-out across geotessera, clay_v1, prithvi_eo2; typed missing[] when unwired</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state_diff</td><td>emem_state_diff</td><td class="desc">vintage delta at one cell: residual vector + L2 + cosine between two tslots</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/memory_token</td><td>emem_memory_token</td><td class="desc">compose memt:&lt;cell64&gt;:&lt;fact_cid&gt; citation handle</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/memory_token/resolve</td><td>emem_memory_token_resolve</td><td class="desc">single round-trip dereference; returns the signed fact body the cid names</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/trajectory</td><td>emem_trajectory</td><td class="desc">{cell, band, window:[a,b]} &rarr; time series</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/diff</td><td>emem_diff</td><td class="desc">signed delta between two tslots; rejects tautology (a == b)</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/verify</td><td>emem_verify</td><td class="desc">structured claim &rarr; verdict + evidence fact_cids</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/verify_receipt</td><td>emem_verify_receipt</td><td class="desc">recompute preimage, check Ed25519 over BLAKE3</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/stream</td><td>(SSE)</td><td class="desc">signed corpus.state ticks; interval 5&ndash;300 s, query tunable</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/corpus_state_stats</td><td>emem_corpus_state_stats</td><td class="desc">snapshot of distinct cells, distinct bands, facts scanned, per-band counts</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/cells/:cell64/scene.png</td><td>emem_cell_scene_rgb</td><td class="desc">Sentinel-2 L2A &middot; 256&times;256 &middot; pure-Rust STAC + COG range read</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/coverage_map.svg</td><td>emem_coverage_map</td><td class="desc">1440 &times; 720 plate-carr&eacute;e density map of attested cells</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:2rem">One-shot domain tools that wrap locate &rarr; recall &rarr; aggregate.</p>
+    <p>For agents that already know what they want to ask, these collapse the loop into a single MCP call with just <span class="band">{place}</span> or <span class="band">{lat, lng}</span>. Same signed receipts, same fact_cids; the work happens on the responder.</p>
+
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead>
+        <tr><th>MCP tool</th><th>REST</th><th>Topic</th><th>Backing source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="path">emem_at</td><td>/v1/at</td><td class="desc">mixed bands at a place</td><td class="desc">whatever is wired at the cell</td></tr>
+        <tr><td class="path">emem_ndvi</td><td>/v1/ndvi</td><td class="desc">vegetation condition</td><td class="desc">MODIS NDVI, indices.ndvi</td></tr>
+        <tr><td class="path">emem_air</td><td>/v1/air</td><td class="desc">air quality</td><td class="desc">CAMS (PM2.5, NO2, O3)</td></tr>
+        <tr><td class="path">emem_lst</td><td>/v1/lst</td><td class="desc">land-surface temperature</td><td class="desc">MODIS LST day &amp; night</td></tr>
+        <tr><td class="path">emem_soil</td><td>/v1/soil</td><td class="desc">soil properties</td><td class="desc">SoilGrids carbon, pH, texture</td></tr>
+        <tr><td class="path">emem_water</td><td>/v1/water</td><td class="desc">surface water</td><td class="desc">JRC GSW recurrence, NDWI</td></tr>
+        <tr><td class="path">emem_forest</td><td>/v1/forest</td><td class="desc">forest cover &amp; loss</td><td class="desc">Hansen GFC, canopy bands</td></tr>
+        <tr><td class="path">emem_weather</td><td>/v1/weather</td><td class="desc">now-only weather</td><td class="desc">met.no nowcast</td></tr>
+        <tr><td class="path">emem_elevation</td><td>/v1/elevation</td><td class="desc">terrain elevation</td><td class="desc">Copernicus DEM 30 m</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<section class="section page" id="primitives">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">Primitives</span></div>
+    <dl>
+      <dt>shape</dt><dd>Cell &times; Band &times; Tslot &rarr; Fact</dd>
+      <dt>signing</dt><dd>Ed25519 over BLAKE3</dd>
+      <dt>addressing</dt><dd>content-addressed fact_cid</dd>
+      <dt>absence</dt><dd>signed, not a 404</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">03</span>Primitives</h2>
+    <p class="lede">The read surface composes from a small set of primitives. Each returns a signed receipt over a content-addressed fact, so any answer is reproducible on another peer.</p>
+
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead>
+        <tr><th>Primitive</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="path">recall</td><td class="desc">read facts at a cell for one or more bands; materialises on miss and signs the result</td></tr>
+        <tr><td class="path">ask</td><td class="desc">intent-routed Q&amp;A: place resolution &rarr; recall &rarr; applicable algorithms, one call</td></tr>
+        <tr><td class="path">find_similar</td><td class="desc">k-NN over foundation embeddings; cosine, hamming, or hamming-then-rerank</td></tr>
+        <tr><td class="path">trajectory</td><td class="desc">one band at one cell across a time window &rarr; ordered series</td></tr>
+        <tr><td class="path">compare / compare_bands</td><td class="desc">two cells, or two bands at one cell, side by side with a signed delta</td></tr>
+        <tr><td class="path">diff</td><td class="desc">signed delta of one band between two tslots; rejects a == b</td></tr>
+        <tr><td class="path">query_region</td><td class="desc">aggregate one band across a region's sampled cells</td></tr>
+        <tr><td class="path">field_boundaries</td><td class="desc">agricultural field polygons from Fields of The World, overlaid on recall</td></tr>
+        <tr><td class="path">verify / verify_receipt</td><td class="desc">recompute the preimage and check the Ed25519 signature over BLAKE3</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>Empty is a signed answer, not a 404: when a cell has no fact for a band, the responder returns a signed record of that absence rather than failing silently.</p>
+  </div>
+</section>
+
+<section class="section page" id="hunter">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Hunter</span></div>
+    <dl>
+      <dt>endpoint</dt><dd>POST /v1/hunt</dd>
+      <dt>tool</dt><dd>emem_hunt</dd>
+      <dt>events</dt><dd>12</dd>
+      <dt>output</dt><dd>top 8 ranked cells + scene.png</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">04</span>Hunter: open-world discovery</h2>
+    <p class="lede"><span class="band">/v1/hunt</span> takes an event keyword plus a region, geocodes the region, fans out across up to 32 sampled cells, recalls each event's primary input band, and returns the top 8 hotspots ranked by that scalar &mdash; each with its cell64, lat/lng, recalled value, a fact_cid, and a scene.png URL.</p>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:1rem">Twelve events ship today. The registry decides which algorithm runs.</p>
+
+    <div class="scroll-x">
+    <table class="absent-table">
+      <tbody>
+        <tr><td>algal_bloom</td><td>chlorophyll proxy from NDCI with an NDWI water gate &mdash; algal_bloom_chlorophyll_ndci@1</td></tr>
+        <tr><td>deforestation</td><td>NDVI-drop alert against the recent baseline &mdash; deforestation_alert_ndvi_drop@1</td></tr>
+        <tr><td>flood_extent</td><td>Sentinel-1 SAR VV threshold under cloud &mdash; flood_extent_sar_threshold@1</td></tr>
+        <tr><td>wildfire</td><td>dNBR burn intensity, fine-tuned &mdash; wildfire_burn_intensity_dnbr_finetune@1</td></tr>
+        <tr><td>urban_heat_island</td><td>MODIS LST against canopy cover &mdash; urban_heat_island_lst_canopy@1</td></tr>
+        <tr><td>methane_plume</td><td>SWIR anomaly over baseline &mdash; methane_plume_swir_anomaly@1</td></tr>
+        <tr><td>landslide</td><td>post-event Sentinel-1 &Delta;VV with slope &mdash; landslide_post_event_sar_dnn@1</td></tr>
+        <tr><td>drought</td><td>SPI meteorological drought index &mdash; spi_meteorological_drought@1</td></tr>
+        <tr><td>soil_salinity</td><td>soil salinity index from optical bands &mdash; soil_salinity_index@1</td></tr>
+        <tr><td>crop_stress</td><td>crop stress score from NDVI / NDRE &mdash; crop_stress_score@1</td></tr>
+        <tr><td>water_turbidity</td><td>Sentinel-2 red-band reflectance, water-mask gated &mdash; water_turbidity_red_band@1</td></tr>
+        <tr><td>oil_slick</td><td>no algorithm in the registry yet: returns status not_yet_implemented with pointers at SAR-darkening + turbidity proxies</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p>For free-text discovery (&ldquo;find oil spills in the Persian Gulf&rdquo;, &ldquo;where is deforestation happening in the Amazon&rdquo;), the classifier in <a href="/v1/ask">/v1/ask</a> routes the same hunter path. The ranking uses the algorithm's primary scalar input only; for the full per-cell score, fetch the formula at <span class="band">/v1/algorithms/&lt;key&gt;</span> and apply it client-side over the same recalled bands.</p>
+  </div>
+</section>
+
+<section class="section page" id="physics">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Physics &amp; forecasting</span></div>
+    <dl>
+      <dt>heat_solve</dt><dd>2-D FTCS, CFL-stable</dd>
+      <dt>wave_solve</dt><dd>1-D shallow water</dd>
+      <dt>jepa_predict</dt><dd>NDVI AR(2), closed form</dd>
+      <dt>jepa_predict_v2</dt><dd>Tessera dynamics</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">05</span>Physics &amp; forecasting</h2>
+    <p class="lede">Four solvers run on the same signed grid. Each returns the field plus the source fact_cids its initial condition was built from, so the inputs are as verifiable as the output.</p>
+
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead>
+        <tr><th>Method</th><th>Path</th><th>MCP tool</th><th>Model</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="method post">POST</td><td class="path">/v1/heat_solve</td><td>emem_heat_solve</td><td class="desc">2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil (CFL-stable)</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/wave_solve</td><td>emem_wave_solve</td><td class="desc">1-D shallow-water equation along a seaward bathymetry gradient</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict</td><td>emem_jepa_predict</td><td class="desc">closed-form NDVI AR(2) seasonal model with fixed coefficients</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict_v2</td><td>emem_jepa_predict_v2</td><td class="desc">Tessera-embedding dynamics; short-circuits to an identity baseline (untrained_baseline)</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p><span class="band">/v1/heat_solve</span> integrates 2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil, kept CFL-stable (for example, urban-heat spread). <span class="band">/v1/wave_solve</span> integrates a 1-D shallow-water equation along a seaward bathymetry gradient (for example, coastal swell), and rejects a land-locked profile rather than returning a meaningless field.</p>
+
+    <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients: deterministic and reproducible. <span class="band">/v1/jepa_predict_v2</span> runs Tessera-embedding dynamics; when it cannot improve on the last observed vintage it short-circuits to that identity baseline and the receipt carries <span class="band">untrained_baseline</span>. The v2 forecast is an untrained baseline, never a learned prediction.</p>
+  </div>
+</section>
+
+<section class="section page" id="contract">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Machine contract</span></div>
+    <dl>
+      <dt>OpenAPI</dt><dd>3.1, 95 paths</dd>
+      <dt>documented</dt><dd>92 under /v1/*</dd>
+      <dt>algorithms</dt><dd>159 recipes</dd>
+      <dt>bands</dt><dd>122 wired across 42 slots</dd>
+      <dt>sources</dt><dd>46 schemes</dd>
+      <dt>topics</dt><dd>27</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">06</span>The full machine contract</h2>
+    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a> &mdash; 95 paths, 92 of them under <span class="band">/v1/*</span>.</p>
+    <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The 159 algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the 122 materializer-wired band names across 42 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
+    <div class="hero-cta" style="margin-top:1.6rem">
+      <a class="btn" href="/openapi.json">openapi.json</a>
+      <a class="btn ghost" href="/docs/api/">API reference</a>
+    </div>
+  </div>
+</section>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">Earth memory protocol. Cell × Band × Tslot → Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper.md">whitepaper</a></li>
+          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/gallery">live coverage map</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
+          <li><a href="/v1/corpus_state_stats">corpus stats</a></li>
+          <li><a href="/v1/stream">live stream (SSE)</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/demos">demos index</a></li>
+          <li><a href="/demos/ask-the-earth">ask the Earth (10 live calls)</a></li>
+          <li><a href="/demos/state-cube">state cube walk</a></li>
+          <li><a href="/demos/signed-answer">signed answer in 4 steps</a></li>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/v1/benchmark">agent benchmark</a></li>
+          <li><a href="/humans">/humans</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
+          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
+          <li><a href="/docs/errors.html">errors</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="/health">health</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="/privacy">privacy · terms</a> ·
+        <a href="#" id="emem-consent-manage">manage cookies</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<div id=emem-consent hidden role=dialog aria-modal=false aria-labelledby=emem-consent-h>
+  <p id=emem-consent-h>This site loads <strong>Google Analytics 4</strong> for aggregate visit counts. By default no cookies are set and no personal data is sent (Consent Mode v2, all denied). Click <strong>Accept</strong> to enable cookie-based analytics, or <strong>Reject</strong> to keep the cookieless default. Decision stored in a first-party cookie <code>emem_consent</code>, valid for 180 days, revocable from the footer.</p>
+  <div class=row>
+    <button data-act=accept type=button>Accept</button>
+    <button data-act=reject type=button>Reject</button>
+    <a href=/privacy>Privacy policy</a>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Connect tab switcher.
+  var tabs = document.querySelectorAll('#client-tabs .client');
+  var pre = document.getElementById('connect-pre');
+  var filename = document.getElementById('connect-filename');
+  var configs = {
+    'claude-code':    { file: '.mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'cursor':         { file: '.cursor/mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'claude-desktop': { file: 'claude_desktop_config.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'cline':          { file: 'cline_mcp_settings.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span><span class="tok-p">,</span>\n      <span class="tok-key">"autoApprove"</span><span class="tok-p">:</span> [<span class="tok-s">"emem_recall"</span><span class="tok-p">,</span> <span class="tok-s">"emem_locate"</span><span class="tok-p">,</span> <span class="tok-s">"emem_verify"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'gemini':         { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">gemini</span> extensions install \\\n    <span class="tok-u">https://emem.dev/gemini-extension.json</span>' },
+    'openai':         { file: 'GPT builder', body: '<span class="tok-c"># Custom GPT, Actions, Import from URL</span>\n<span class="tok-u">https://emem.dev/openapi.action.json</span>\n\n<span class="tok-c"># No API key. Reads are open.</span>' },
+    'stdio':          { file: 'shell', body: '<span class="tok-c"># For runtimes without native Streamable-HTTP MCP</span>\n<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"command"</span><span class="tok-p">:</span> <span class="tok-s">"npx"</span><span class="tok-p">,</span>\n      <span class="tok-key">"args"</span><span class="tok-p">:</span> [<span class="tok-s">"-y"</span><span class="tok-p">,</span> <span class="tok-s">"mcp-remote"</span><span class="tok-p">,</span> <span class="tok-s">"https://emem.dev/mcp"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'rest':           { file: 'shell', body: '<span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \\\n    <span class="tok-flag">-H</span> <span class="tok-s">\'content-type: application/json\'</span> \\\n    <span class="tok-flag">-d</span> <span class="tok-s">\'{"cell":"defi.zb4d7.ze56c.zf24c",\n         "bands":["copdem30m.elevation_mean"]}\'</span>' }
+  };
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){ t.classList.remove('active'); });
+      tab.classList.add('active');
+      var c = configs[tab.dataset.client];
+      if (c) {
+        filename.textContent = c.file;
+        pre.innerHTML = '<code>' + c.body + '</code>';
+      }
+    });
+  });
+
+  // Copy buttons.
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var target = document.querySelector(btn.dataset.copyTarget);
+      if (!target) return;
+      var text = target.innerText || target.textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function(){});
+      }
+      var orig = btn.textContent;
+      btn.textContent = 'copied';
+      btn.classList.add('copied');
+      setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1200);
+    });
+  });
+
+  // Consent banner.
+  var KEY='emem_consent', MAX_AGE=180*24*60*60;
+  var banner=document.getElementById('emem-consent');
+  var manage=document.getElementById('emem-consent-manage');
+  function readCookie(){var m=document.cookie.match(/(?:^|;\s*)emem_consent=([^;]*)/);return m?decodeURIComponent(m[1]):null;}
+  function writeCookie(val){var attrs='; Max-Age='+MAX_AGE+'; Path=/; SameSite=Lax';if(location.protocol==='https:')attrs+='; Secure';document.cookie=KEY+'='+encodeURIComponent(val)+attrs;}
+  function delCookie(){var attrs='; Max-Age=0; Path=/; SameSite=Lax';if(location.protocol==='https:')attrs+='; Secure';document.cookie=KEY+'='+attrs;}
+  function decide(granted){writeCookie(granted?'accept':'reject');if(granted&&typeof gtag==='function'){gtag('consent','update',{analytics_storage:'granted',functionality_storage:'granted'});}banner.hidden=true;}
+  if(banner&&!readCookie())banner.hidden=false;
+  if(banner)banner.addEventListener('click',function(e){var t=e.target.closest('button[data-act]');if(!t)return;decide(t.getAttribute('data-act')==='accept');});
+  if(banner)banner.addEventListener('keydown',function(e){if(e.key==='Escape')decide(false);});
+  if(manage)manage.addEventListener('click',function(e){e.preventDefault();delCookie();if(banner){banner.hidden=false;var b=banner.querySelector('button');if(b)b.focus();}});
+})();
+</script>
+</body></html>

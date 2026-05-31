@@ -1,352 +1,44 @@
-# emem — verifiable memory substrate for AI agents
-
-> Two layers, one trust surface. Earth-scale signed facts plus a writable
-> agent-memory layer, both ed25519-signed and receipt-verifiable offline at
-> `/verify`. Every patch of ground has a 64-bit address (cell64, ~9.55 m at
-> the equator); every measurement at that cell is a fact keyed by
-> `(cell, band, tslot)`, signed by the responder over the blake3 of its
-> canonical CBOR.
->
-> Above the spatial fact store sits the writable scratchpad the agent owns:
-> six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/
-> delete/rename), CoALA-typed files (episodic/semantic/procedural/resource/
-> core), capability-bound writes under `/memories/by_attester/`, BGE-768
-> semantic search, multi-attester contradiction scoring per band kind,
-> signed bundles (`memb:<bundle_cid>`), and bi-temporal recall
-> (`as_of_tslot` for valid time, `as_of_signed_at` for transaction time —
-> both threaded through every read).
->
-> Most runtimes ship per-session memory. emem is the layer underneath:
-> persistent, content-addressed, cross-tenant when you supply a scope
-> (`{user_id, agent_id, run_id, org_id}`) and single-tenant when you don't.
-> The CID + the receipt are how two agents settle a number without trusting
-> either one.
->
-> Every fact is content-addressed and signed, so any conformant responder
-> returns byte-identical bytes for the same content id and any client
-> verifies the receipt offline — emem is a protocol, not a single endpoint.
->
-> A cell64 addresses a place the way a token addresses text in an LLM —
-> a stable, hierarchical handle the pipeline can quote, share, and verify.
->
-> Bootstrap: GET /v1/discover  ·  Schema: /openapi.json  ·  MCP: /mcp
-
-## Two primitives every agent uses daily
-
-emem ships many tools; two are the daily-use surface.
-
-### State vector  ·  POST /v1/state
-
-The dense state for a place, signed, content-addressed. One endpoint, two views:
-
-`view=encoder` (default) returns one named encoder at its native dim
-(128-D Tessera, 1024-D Clay, 1024-D Prithvi):
-
-    curl -sX POST https://emem.dev/v1/state \
-      -H 'content-type: application/json' \
-      -d '{"cell":"South Mumbai","encoder":"geotessera"}'
-
-returns
-
-    {
-      "cell":         "defi.zb4d7.ze56c.zf24c",
-      "view":         "encoder",
-      "encoder":      "geotessera",
-      "dim":          128,
-      "vector":       [0.043, -0.115, ...],
-      "l2_norm":      3.71,
-      "fact_cid":     "<26-char base32>",
-      "memory_token": "memt:<cell>:<fact_cid>",
-      "receipt":      { "signature": "ed25519:…", ... }
-    }
-
-`view=cube` returns the full 1792-D voxel across every wired band in
-canonical offset order, with per-band coverage so an agent can tell
-attested-zero from not-yet-materialised:
-
-    curl -sX POST https://emem.dev/v1/state \
-      -H 'content-type: application/json' \
-      -d '{"cell":"South Mumbai","view":"cube"}'
-
-returns
-
-    {
-      "cell":         "defi.zb4d7.ze56c.zf24c",
-      "view":         "cube",
-      "dim":          1792,
-      "vector":       [ ... 1792 floats ... ],
-      "state_cid":    "<26-char base32 BLAKE3 of canonical LE f32 bytes>",
-      "manifest_cid": "<bands manifest CID>",
-      "filled_dims":  768,
-      "filled_bands": 14,
-      "absent_bands": 3,
-      "missing_bands":24,
-      "coverage":     [ { "key":"geotessera", "offset":0, "dims":128, "status":"primary", ... }, ... ],
-      "extras":       [ { "band":"clay_v1", "reason":"cube_truncation", "dim":1024, "cube_slot_dim":384, "vector":[...] } ],
-      "memory_token": "memt:<cell>:<state_cid>",
-      "receipt":      { "signature": "ed25519:…", ... }
-    }
-
-`extras[]` preserves full-fidelity Clay/Prithvi 1024-D vectors when the
-cube truncates them into 384-D slots — the cube is a fixed-width
-fingerprint, extras carry the full payload. No information loss.
-
-Drop the vector into LLM context, feed it to `/v1/find_similar`, or
-diff two vintages to detect change at the place. No fuzzy retrieval;
-two callers asking for the same `(cell, view, tslot)` get
-byte-identical bytes back.
-
-### Memory token  ·  POST /v1/memory_token
-
-One parseable string an agent drops into any context (LLM prompt,
-tool-call argument, log line, agent-to-agent message):
-
-    memt:<cell64>:<fact_cid>
-
-Example:
-
-    memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
-
-Compose offline by string concat, or via:
-
-    POST /v1/memory_token  {"cell":"<cell64>","fact_cid":"<fact_cid>"}
-
-Resolve (returns the signed fact bytes on any responder):
-
-    GET /v1/facts/<fact_cid>
-
-Spec, parse rules, failure modes: /whitepaper.md#194-memory-tokens
-
-## Memory operations (mapped to emem primitives)
-
-    Operation                       Primitive           Endpoint
-    ------------------------------- ------------------- ------------------------
-    retrieve by address             recall              POST /v1/recall
-    retrieve by similarity          find_similar        POST /v1/find_similar
-    retrieve over a region          recall_polygon      POST /v1/recall_polygon
-    retrieve over time              trajectory          POST /v1/trajectory
-    address-by-name (place → key)   locate              POST /v1/locate
-    search-by-pattern               hunt                POST /v1/hunt
-    write (signed attestation)      attest              POST /v1/attest
-    compare states                  diff, compare       POST /v1/diff, /v1/compare
-    summarize / place-anchored Q&A  ask                 POST /v1/ask
-    verify a receipt                verify_receipt      POST /v1/verify_receipt
-    reflect / record task outcome   reviews             POST /v1/reviews
-    compose a memory token          memory_token        POST /v1/memory_token
-    resolve a memory token          memory_token/resolve POST /v1/memory_token/resolve
-    read dense state (1 encoder)    state view=encoder  POST /v1/state
-    read full 1792-D cube           state view=cube     POST /v1/state
-    read multi-encoder state map    state_multi         POST /v1/state_multi
-    state delta between two tslots  state_diff          POST /v1/state_diff
-    corpus observability            corpus_state_stats  GET  /v1/corpus_state_stats
-    subscribe to corpus events      stream (SSE)        GET  /v1/stream
-    run agent benchmark             benchmark           GET  /v1/benchmark
-                                                        POST /v1/benchmark/grade
-
-## Algebra
-
-    Fact     :: Cell × Band × Tslot → {value, unit, provenance, fact_cid}
-    Receipt  :: Request → {fact_cids, responder_pubkey, sig}
-    cell64   = b1024(lat[21] · lng[22])    pitch ≈ 9.55 m at equator
-    CID      = base32-nopad-lowercase(blake3(canonical_cbor(fact)), 32B)
-    sig      = ed25519(blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖ fact_cids))
-
-## Install (one line each)
-
-    Claude/Cursor/Cline/VSCode MCP : { "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }
-    Anthropic API                  : { "mcp_servers": [{ "type": "url", "url": "https://emem.dev/mcp", "name": "emem" }] }
-    Gemini CLI                     : gemini extensions install https://emem.dev/gemini-extension.json
-    OpenAI Custom GPT Action       : import https://emem.dev/openapi.action.json   (auth: none)
-
-## Primitives (typed)
-
-    ask              :: Question × (Place|Cell) → Fact[] × Algorithm[] × Receipt
-    locate           :: (Place|LatLng)          → Cell × Bbox
-    recall           :: Cell × Band[]           → Fact[] × Receipt
-    recall_polygon   :: (Place|Bbox) × Band[]   → Fact[][] × Aggregate × Receipt
-    compare          :: Cell × Cell × Family    → Score × Receipt
-    find_similar     :: Cell × Embedding × k    → (Cell × cos)[k] × Receipt
-    diff             :: Cell × Tslot × Tslot × Band[] → Δ × Receipt
-    trajectory       :: Cell × Band × [t0,t1]   → Fact[] × Receipt
-    backfill         :: Cell × Band × [t0,t1]   → Fact[] × Receipt
-    verify_receipt   :: Receipt                 → {valid: bool, signer}
-
-Full descriptors with input schemas: GET /v1/agent_card  ·  POST /mcp tools/list
-
-## Executable examples
-
-    # ask — free-text → topic-route → recall → algorithms (one call)
-    curl -sX POST https://emem.dev/v1/ask \
-      -H 'content-type: application/json' \
-      -d '{"q":"air quality in new delhi today","place":"New Delhi"}'
-
-    # recall — cell × bands → signed facts
-    curl -sX POST https://emem.dev/v1/recall \
-      -H 'content-type: application/json' \
-      -d '{"cell":"defi.zb592.nemu.zEvE","bands":["copdem30m.elevation_mean"]}'
-
-    # recall_polygon — region question (locate → polygon → fan-out)
-    curl -sX POST https://emem.dev/v1/recall_polygon \
-      -H 'content-type: application/json' \
-      -d '{"place":"Lagos","bands":["cams.pm25"]}'
-
-    # find_similar — k-NN over a foundation embedding
-    curl -sX POST https://emem.dev/v1/find_similar \
-      -H 'content-type: application/json' \
-      -d '{"key":"defi.zb592.nemu.zEvE","band":"geotessera","k":5}'
-
-    # MCP tools/list
-    curl -sX POST https://emem.dev/mcp \
-      -H 'content-type: application/json' \
-      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-
-## Hunter mode
-
-    hunt :: Event × (Region|PolygonBbox) → Hotspot[8] × Receipt[]
-
-Twelve event keywords trigger an event-discovery sweep over a named
-region: algal_bloom, deforestation, flood_extent, wildfire,
-urban_heat_island, methane_plume, landslide, drought, soil_salinity,
-crop_stress, water_turbidity, oil_slick. The responder samples up to
-32 cells from the region polygon (8 for slow primary bands such as
-MODIS LST), recalls the algorithm's primary scalar plus any
-configured gate band (NDWI > 0 for over-water phenomena), and ranks
-the cells. Tessera embedding rerank fires when ≥3 cells have
-geotessera vectors. oil_slick has no algorithm registered yet — the
-responder honestly returns status: not_yet_implemented with pointers
-at flood_extent_sar_threshold@1 and water_turbidity_red_band@1.
-
-    curl -sX POST https://emem.dev/v1/hunt \
-      -H 'content-type: application/json' \
-      -d '{"event":"algal_bloom","region":"Lake Erie"}'
-
-Free-text questions of the form `find <event> in <region>` route
-through /v1/ask's classifier and land on the same path.
-
-## EUDR Due Diligence Statements
-
-    eudr_dds :: Plot[] × CutOffDate → Annex II envelope × Receipt[]
-
-Regulation (EU) 2023/1115 plot-level compliance under the regulation
-as written. Forest definition follows Article 2(4): >0.5 ha, >5 m
-tree height, >10 % canopy cover, excluding land predominantly under
-agricultural or urban use. Cut-off date is 2020-12-31 per Article 1(2).
-
-The endpoint applies eudr_compliance@1 per cell across the plot
-polygon, then aggregates with a 0.1 % de-minimis threshold. Article
-2(28) dispatches POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any
-cattle plot). Forest baseline is JRC GFC2020 V3 (the EU Commission's
-expected non-binding baseline) confirmed against Hansen GFC v1.12
-treecover2000 >= 10 %. JRC Tropical Moist Forest annual change,
-deforestation year, degradation year, and transition subtype layer
-in via a pull-and-cache connector (JEODPP serves 84 MB tiles without
-HTTP Range, so the responder caches once into $EMEM_DATA/jrc_tmf_cache/
-with atomic rename). Sims et al. 2025 driver attribution and RADD SAR
-alerts surface as refinement when wired; today both materialize signed
-Absence with a structured NotImplemented reason rather than fabricate
-a value the responder cannot read.
-
-    curl -sX POST https://emem.dev/v1/eudr_dds \
-      -H 'content-type: application/json' \
-      -d '{"plots":[{"plot_id":"farm-001","geometry_geojson":{"type":"Polygon","coordinates":[[[-60.5,-3.5],[-60.4,-3.5],[-60.4,-3.4],[-60.5,-3.4],[-60.5,-3.5]]]},"country_of_production":"BRA","commodity_hs":"0901","commodity_name":"coffee","quantity_kg":12000}],"operator":{"name":"Acme Coffee BV","eori":"NL123456789"}}'
-
-The structured Annex II JSON schema lives at /v1/schemas/eudr_dds.json
-with $comment fields citing the exact EUR-Lex paragraph each field
-maps to. EUDR Article 9(1)(b) legality verification (land tenure, FPIC,
-country-of-origin laws) is structurally out of Earth-observation scope;
-every response carries an explicit `legality_disclaimer` for that reason.
-Pair with a partner legality module before submitting to TRACES NT.
-
-## Instructions
-
-Behavioral rules for agents using emem (Stripe convention, present-tense, imperative, ≤8 lines):
-
-    1. Resolve a place name with /v1/locate before /v1/recall. Don't fabricate cell64s.
-    2. Cite receipt.fact_cids[0] in the first 13 chars (a CID prefix). Never invent a CID.
-    3. Surface Fact::Absence as "no answer here", not as a missing field. Don't retry.
-    4. Treat 404 cid_not_found as "call /v1/recall first to materialise"; the responder's hint says so.
-    5. Verify receipts offline before quoting them — see /skills.md § verify-receipt-offline.
-    6. Mention responder_pubkey_b32 once per session so the user knows who signed.
-    7. Compose primitives (locate → recall, recall → verify, recall_polygon → solve) — don't reinvent.
-    8. When in doubt, GET /v1/agent_card or /v1/discover; the responder is self-describing.
-
-## When NOT to use emem
-
-Pattern-match these question shapes and skip the call. Each is paired
-with the better-fit tool so an agent that filters here keeps the
-downstream answer grounded rather than punting.
-
-    "is it raining right now in <place>"        → met.no, NOAA, Open-Meteo (real-time / sub-daily)
-    "forecast 6 months out for <place>"          → out of horizon (JEPA v2 short-circuits past ~2 weeks)
-    "sub-metre building footprint at <place>"    → Planet Pelican / Maxar (10 m is emem's native pitch)
-    "land price / carbon credit price at <place>"→ market data services (emem signs Earth observation, not economics)
-    "live air quality reading at <place>"        → PurpleAir / OpenAQ (cams.* is global model output, not sensor)
-    "stream the latest tile of <band>"           → upstream STAC API (emem is snapshot-at-tslot, not streaming)
-    "what's inside this building"                → indoor mapping is out of scope
-    "verify EUDR Article 9(1)(b) legality"       → partner legality module (land tenure / FPIC / country-of-origin is not EO)
-    "submit my DDS to TRACES NT"                 → operator's own EU Login + EORI flow (emem produces the payload, not the submission)
-
-## Citation contract
-
-Every numeric response carries: `value`, `unit`, `band_metadata.{interpretation,
-pitfalls, dimension_description}`, `value_decoded` (categorical), `signer_pubkey_b32`,
-`fact_cid`, `receipt.responder_pubkey_b32`. Cite `receipt.fact_cids[0]` (13-char
-prefix). Mention `responder_pubkey_b32` once per session. Never invent a CID.
-
-## Skills
-
-Composed recipes (locate+recall, find_similar+verify, recall_polygon+solve, ...)
-are documented as a flat cookbook at /skills.md and shipped as installable
-[Anthropic Skills](https://code.claude.com/docs/en/skills) at
-github.com/Vortx-AI/emem/tree/main/claude-skills:
-
-    emem-locate-and-recall   place name → cell64 → signed facts
-    emem-verify-receipt      BLAKE3 + Ed25519 in-process, no callback
-    emem-find-similar        top-K cosine over the 128-D Tessera embedding
-    emem-recall-polygon      every cell inside a polygon, per-cell receipts
-
-Install in Claude Code by copying the bundle into your project's .claude/skills/.
-
-## Guarantees
-
-    hash_alg        : blake3
-    sig_alg         : ed25519
-    encoding        : cbor (canonical, deterministic)
-    auth            : none for L0/L1 read paths; attester key for L2 writes
-    absence         : signed; do not retry — surface as honest gap
-    idempotent      : recall, compare, find_similar, diff, verify_receipt
-    deterministic   : identical canonical facts → identical CID across responders
-    auto-materialize: recall miss on a wired band fetches from open-data upstream + signs
-
-## Catalogs (machine-readable)
-
-    /v1/bands              — band ontology, dims, tempo, materializer status
-    /v1/algorithms         — composition recipes (flood_risk, walkability, …)
-    /v1/materializers      — wire-stable list of auto-materializing bands
-    /v1/data_availability  — per-band kind/tempo/history-window
-    /v1/coverage_matrix    — has_materializer, facts_count, last_attested
-    /v1/fleet              — sensor lineage (S1/S2/MODIS/Cop-DEM/…)
-    /v1/grid_info          — cell64 pitch + DGGS interop (h3, s2)
-
-## Discovery
-
-    /v1/discover                    — typed bootstrap (manifests, primitives, ontology)
-    /openapi.json                   — full OpenAPI 3.1 spec
-    /.well-known/agent-card.json    — A2A v0.2 agent card
-    /.well-known/mcp.json           — MCP server descriptor
-    /.well-known/emem.json          — manifest CIDs + responder pubkey
-    /agents.md                      — full integration guide (consumer agents)
-    /integrations.md                — emem as long-term memory across runtimes
-    /skills.md                      — composed recipes (cookbook view)
-    /whitepaper.md                  — architecture + math
-    /humans                         — interactive console; every /v1/* call prints in a live log pane
-    /docs/                          — rendered docs site (whitepaper, protocol, registries, developers, operators); client-side full-text search
-    /docs/gallery                   — live coverage map + per-place scenes + 32 protocol & industry diagrams
-    /docs/diagrams/                 — the 32 SVG diagrams, byte-stable, embed-anywhere
-    /v1/coverage_map.svg            — global coverage as a 1440×720 plate-carrée SVG
-    /v1/places/scene_overlay.svg    — per-place value-painted polygon overlay (any scalar band)
-
-## Operator
-
-    Vortx AI Private Limited (India) · avijeet@vortx.ai · github.com/Vortx-AI/emem · Apache-2.0
-    Privacy: /privacy  ·  Terms: /terms  ·  Support: /support
+# emem
+
+> emem is a signed, content-addressed spatial memory for AI agents — every place-time on Earth resolves to a verifiable fact, read over MCP or REST, no keys, every answer an ed25519 receipt verifiable offline.
+
+Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. The recommended first call is the emem_ask tool: it routes a free-text question to a place, recalls the relevant bands, and runs the applicable algorithms in one shot. Canonical surface: 80 MCP tools, 92 documented /v1 paths, 159 algorithms, 46 source schemes.
+
+## Connect
+
+- [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; 80 tools (10 core, 70 extended). Point a client here, no key.
+- [OpenAPI 3.1](https://emem.dev/openapi.json): full machine contract for the /v1 REST surface.
+- [Agent card](https://emem.dev/v1/agent_card): self-describing card with primitives, band taxonomy, and tool descriptors.
+- [Agent card (alias)](https://emem.dev/agent.json): same card at the conventional discovery path.
+- [Quickstart](https://emem.dev/docs/quickstart.html): step-by-step playbook from locate to a verified fact.
+- [MCP descriptor](https://emem.dev/.well-known/mcp.json): well-known MCP server descriptor for auto-discovery.
+
+## Primitives
+
+- [recall](https://emem.dev/v1/recall): POST cell × bands → signed facts; auto-fetches from open-data upstream on a miss and signs the result.
+- [ask](https://emem.dev/v1/ask): POST free-text question (+ place) → topic-route → recall → applicable algorithms, in one call.
+- [find_similar](https://emem.dev/v1/find_similar): POST cell or embedding × k → top-K cosine neighbours over a foundation embedding.
+- [verify_receipt](https://emem.dev/v1/verify_receipt): POST a receipt → {valid, signer}; rebuilds the preimage and checks the signature.
+- [verify (browser)](https://emem.dev/verify): in-browser ed25519 receipt verifier; no callback to the responder.
+- [hunt](https://emem.dev/v1/hunt): POST event × region → ranked hotspots; 12 event keywords (algal_bloom, deforestation, wildfire, flood_extent, …).
+- [state](https://emem.dev/v1/state): POST cell → dense signed state vector (one encoder, or the full 1792-D cube).
+- [memory search](https://emem.dev/v1/memory/search): POST query → BGE-768 semantic search over the writable agent-memory layer.
+- [memory contradictions](https://emem.dev/v1/memory_contradictions): POST → multi-attester contradiction scoring per band kind.
+- [memory bundle](https://emem.dev/v1/memory_bundle): POST → a signed, content-addressed bundle of facts (memb:<bundle_cid>).
+
+## Reference
+
+- [agents.md](https://emem.dev/agents.md): integration guide and ontology for consumer agents.
+- [skills.md](https://emem.dev/skills.md): composed recipes (locate+recall, find_similar+verify, recall_polygon+solve) as a flat cookbook.
+- [reference](https://emem.dev/reference): the read surface — client setup, endpoint tables, primitives summary, the 12-event hunter table.
+- [topics](https://emem.dev/v1/topics): the 27 topic routes that ask uses to map a question to bands.
+- [algorithms](https://emem.dev/v1/algorithms): 159 composition recipes (flood_risk, walkability, eudr_compliance, …).
+- [errors](https://emem.dev/docs/errors.html): the structured error codes and their resolution hints.
+
+## Optional
+
+- [registries](https://emem.dev/v1/manifests): manifest CIDs for the band, algorithm, source, and topic registries.
+- [whitepaper](https://emem.dev/whitepaper.md): architecture and math (cell64, CID, receipt preimage, memory tokens).
+- [gallery](https://emem.dev/docs/gallery): live coverage map, per-place scenes, and the protocol diagrams.
+- [demos](https://emem.dev/demos): runnable end-to-end demos (ask-the-earth, find-similar, recall-polygon, signed-answer).
+- [humans](https://emem.dev/humans): interactive console where every /v1/* call prints in a live log pane.

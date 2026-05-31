@@ -167,6 +167,13 @@ const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
 /// /docs/api/#tag/Recall in chat and another dev lands at the same spot.
 const API_REDOC_HTML: &str = include_str!("../../../web/api-redoc.html");
 
+// Redesign sub-pages — the depth relocated off the homepage funnel. Each
+// content-negotiates like `/`: Accept: text/markdown returns the llms.txt
+// protocol map (the canonical markdown alternate advertised in their <head>).
+const HOW_IT_WORKS_HTML: &str = include_str!("../../../web/how-it-works.html");
+const SOLUTIONS_HTML: &str = include_str!("../../../web/solutions.html");
+const REFERENCE_HTML: &str = include_str!("../../../web/reference.html");
+
 /// Static lookup table for the 33 protocol + industry diagrams that ship
 /// in `docs/diagrams/`. The slug is the literal filename; the body is the
 /// SVG itself (each is 4-32 KB). Linear-search lookup is fine at 34
@@ -626,6 +633,10 @@ pub fn router(state: AppState) -> Router {
         .route("/spec.md", get(serve_spec_md))
         .route("/clients", get(serve_clients_md))
         .route("/clients.md", get(serve_clients_md))
+        // Redesign sub-pages: depth moved off the homepage funnel.
+        .route("/how-it-works", get(serve_how_it_works))
+        .route("/solutions", get(serve_solutions))
+        .route("/reference", get(serve_reference))
         // Visual gallery — live scenes, coverage map, 32 diagrams. Both
         // /docs/gallery (canonical) and /gallery (short link) resolve.
         .route("/docs/gallery", get(serve_gallery_html))
@@ -2395,6 +2406,16 @@ async fn serve_clients_md() -> Response {
 /// can fetch and verify).
 async fn serve_gallery_html() -> Response {
     text_response("text/html; charset=utf-8", GALLERY_HTML)
+}
+
+async fn serve_how_it_works(headers: HeaderMap) -> Response {
+    html_or_md(&headers, HOW_IT_WORKS_HTML, LLMS_TXT)
+}
+async fn serve_solutions(headers: HeaderMap) -> Response {
+    html_or_md(&headers, SOLUTIONS_HTML, LLMS_TXT)
+}
+async fn serve_reference(headers: HeaderMap) -> Response {
+    html_or_md(&headers, REFERENCE_HTML, LLMS_TXT)
 }
 
 /// `/docs/api` and `/docs/api/` — ReDoc-rendered interactive REST

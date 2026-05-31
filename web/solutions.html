@@ -1,0 +1,739 @@
+<!doctype html><html lang=en>
+<head>
+<meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Built with emem</title>
+<meta name=description content="Use cases built on emem: EUDR compliance, carbon-credit verification, insurance flood pre-screen, supply-chain location verification. Each one names the bands and algorithm it uses, and every answer is an ed25519-signed receipt.">
+<link rel=canonical href="https://emem.dev/solutions">
+<link rel="alternate" type="text/markdown" href="/llms.txt">
+<link rel=icon type="image/gif" href="https://vortx.ai/assets/vortx-logo-36.gif">
+<link rel="apple-touch-icon" href="https://vortx.ai/assets/vortx-logo-200.gif">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/solutions">
+<meta property=og:title content="Built with emem">
+<meta property=og:description content="EUDR compliance, carbon MRV, flood pre-screen, supply-chain provenance — each names the bands and algorithm, every answer signed.">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --pad-x:1.5rem;--col-meta:13.75rem;
+  --t-xs:.6875rem;--t-sm:.75rem;--t-base:.84375rem;--t-md:.9375rem;--t-lg:1.125rem;--t-xl:1.375rem;--t-2xl:1.875rem;--t-3xl:2.75rem;--t-4xl:4rem;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  }
+}
+*{box-sizing:border-box}
+/* Type & spacing scale at 80% of the natural 16px baseline. Everything
+   downstream is expressed in rem, so this single knob retunes the page. */
+html{font-size:90%}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--accent);color:var(--paper)}
+
+/* statusbar */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{color:var(--ink);background:var(--paper-3)}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+
+/* page shell */
+.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.section{border-bottom:1px solid var(--rule);padding:3.5rem 0;display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.section-meta{font-size:var(--t-xs);color:var(--mute);line-height:1.6;position:sticky;top:56px;align-self:start;max-height:calc(100vh - 80px);overflow:auto}
+.section-meta .idx{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.5rem}
+.section-meta .idx-num{font-weight:700;color:var(--ink);font-size:var(--t-sm)}
+.section-meta .idx-label{color:var(--mute-2);text-transform:uppercase;letter-spacing:.08em;font-size:var(--t-xs)}
+.section-meta dl{margin:1rem 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:.4rem}
+.section-meta dt{color:var(--mute-2);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.section-meta dd{margin:0 0 .5rem 0;color:var(--ink-2);font-size:var(--t-xs)}
+.section-body>h2{margin:0 0 1rem;font-size:var(--t-2xl);font-weight:500;letter-spacing:-.02em;line-height:1.1;color:var(--ink)}
+.section-body>h2 .num{color:var(--mute-2);margin-right:.6rem;font-weight:300}
+.section-body>.lede{font-size:var(--t-md);color:var(--ink-2);max-width:60ch;margin:0 0 2rem;font-weight:400}
+.section-body p{max-width:64ch;margin:0 0 1.1rem;color:var(--ink-2)}
+.section-body strong{color:var(--ink);font-weight:700}
+.section-body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.section-body a:hover{background:var(--accent-bg)}
+
+/* hero */
+.hero{padding:4rem 0 3rem;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.hero-meta{font-size:var(--t-xs);color:var(--mute);display:flex;flex-direction:column;gap:1.5rem}
+.hero-meta .kv{display:grid;grid-template-columns:1fr;gap:.3rem}
+.hero-meta .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.hero-meta .kv .v{color:var(--ink-2);font-size:var(--t-xs);word-break:break-all}
+.hero-meta .kv .v.accent{color:var(--accent)}
+.hero h1{font-size:var(--t-4xl);font-weight:300;letter-spacing:-.04em;line-height:.98;margin:0 0 1.4rem;color:var(--ink)}
+.hero h1 .accent{color:var(--accent);font-weight:600}
+.hero .sub{font-size:var(--t-lg);color:var(--ink-2);max-width:56ch;line-height:1.4;margin:0 0 1.4rem;font-weight:400}
+.hero-formula{font-size:var(--t-md);color:var(--ink);margin:1rem 0 .5rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-weight:500}
+.hero-formula .box{border:1px solid var(--rule-strong);padding:.3rem .6rem;background:var(--paper-2)}
+.hero-formula .arrow{color:var(--mute)}
+.hero-formula .out{border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);padding:.3rem .6rem;font-weight:700}
+.formula-gloss{font-size:var(--t-sm);color:var(--mute);margin:.2rem 0 1rem;letter-spacing:.02em}
+.memt-block{border:1px solid var(--rule-strong);background:var(--paper-2);margin:0 0 1.6rem;font-size:var(--t-sm);overflow:hidden}
+.memt-block .memt-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);padding:.4rem .8rem;gap:.6rem;flex-wrap:wrap}
+.memt-block .memt-head .label{font-weight:700;color:var(--ink);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.06em}
+.memt-block .memt-head .gloss{color:var(--mute);font-size:var(--t-xs)}
+.memt-block .memt-head .spacer{flex:1}
+.memt-block .memt-head a{font-size:var(--t-xs);color:var(--accent);text-decoration:none}
+.memt-block .memt-head a:hover{text-decoration:underline}
+.memt-block .memt-body{padding:.8rem 1rem;display:grid;gap:.4rem}
+.memt-block .memt-grammar{font-size:var(--t-xs);color:var(--mute)}
+.memt-block .memt-grammar b{color:var(--ink);font-weight:700}
+.memt-block .memt-example{word-break:break-all;color:var(--accent);font-size:var(--t-sm);padding:.4rem .55rem;background:var(--paper);border:1px solid var(--rule)}
+.memt-block .memt-parts{display:grid;grid-template-columns:max-content 1fr;gap:.25rem .8rem;font-size:var(--t-xs);color:var(--ink-2);margin-top:.1rem}
+.memt-block .memt-parts .k{color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.hero-pillars{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--rule-strong);margin:0 0 1.6rem;font-size:var(--t-sm)}
+.hero-pillars .pillar{flex:1;min-width:120px;padding:.55rem .8rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.2rem;background:var(--paper-2)}
+.hero-pillars .pillar:last-child{border-right:0}
+.hero-pillars .pillar .word{font-weight:700;color:var(--ink);font-size:var(--t-md);letter-spacing:-.01em}
+.hero-pillars .pillar .gloss{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+@media (max-width:560px){.hero-pillars{flex-direction:column}.hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}.hero-pillars .pillar:last-child{border-bottom:0}}
+.hero-cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.6rem}
+
+/* Lean hero (fold 1): drops the kv sidebar, the formula box, the pillars,
+ * the daily-two cards, and the open-data sub. What's left: H1, one short
+ * sub, two CTAs, one quiet trust line. The grid collapses to one column so
+ * the hero feels like one statement, not a dashboard. */
+.hero.hero-lean{grid-template-columns:1fr;gap:0;padding:5rem 0 4rem;max-width:760px;margin:0 auto}
+.hero.hero-lean .sub{font-size:var(--t-lg);max-width:54ch;line-height:1.45;margin:0 0 1.6rem;color:var(--ink-2);font-weight:400}
+.hero.hero-lean .hero-cta{margin-top:1.4rem}
+.hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:680px){.hero-trust{white-space:normal}}
+.hero-trust code{color:var(--ink-2);font-size:var(--t-xs);background:var(--paper-2);padding:.05em .35em;border:1px solid var(--rule);border-radius:2px}
+@media (max-width:560px){
+  .hero.hero-lean{padding:3rem 0 2.5rem}
+  .hero.hero-lean .hero-cta{flex-direction:column;align-items:stretch}
+  .hero.hero-lean .hero-cta .btn{justify-content:center}
+}
+
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
+.btn:hover{background:var(--ink-2)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--paper-3)}
+
+/* code block */
+.code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.5rem 0;font-size:var(--t-sm);line-height:1.6}
+.code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
+.code-head .tab{padding:.4rem .8rem;border-right:1px solid var(--rule);color:var(--mute)}
+.code-head .lang{padding:.4rem .8rem;border-right:1px solid var(--rule);font-weight:700;color:var(--ink-2)}
+.code-head .spacer{flex:1}
+.code-head .copy{padding:.4rem .8rem;border:0;border-left:1px solid var(--rule);cursor:pointer;color:var(--mute);background:transparent;font-family:var(--mono);font-size:var(--t-xs)}
+.code-head .copy:hover{color:var(--ink);background:var(--paper-2)}
+.code-head .copy.copied{color:var(--accent)}
+.code pre{margin:0;padding:1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:var(--t-sm);white-space:pre}
+.code pre code{font-family:inherit}
+.tok-c{color:var(--mute)}
+.tok-k{color:var(--ink);font-weight:700}
+.tok-s{color:var(--accent)}
+.tok-n{color:var(--absent)}
+.tok-p{color:var(--mute)}
+.tok-u{color:var(--ink-2)}
+.tok-cmd{color:var(--mute-2)}
+.tok-flag{color:var(--ink-2);font-weight:700}
+.tok-key{color:var(--ink);font-weight:700}
+
+/* fact block */
+.fact{border:1px solid var(--rule);background:var(--paper-2);padding:1rem 1.1rem;font-size:var(--t-sm);margin:1rem 0;position:relative}
+.fact-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;font-size:var(--t-xs);color:var(--mute);flex-wrap:wrap}
+.fact-head .signed{display:inline-flex;align-items:center;gap:.3rem;color:var(--accent);font-weight:700}
+.fact-head .signed::before{content:"";width:6px;height:6px;background:var(--accent);border-radius:50%}
+.fact-head .ts{color:var(--mute-2);font-size:10px}
+.fact-grid{display:grid;grid-template-columns:100px 1fr;gap:.4rem 1rem;align-items:baseline}
+.fact-grid .k{color:var(--mute);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.05em}
+.fact-grid .v{color:var(--ink);word-break:break-all}
+.fact-grid .v.big{font-size:var(--t-xl);font-weight:700;color:var(--ink)}
+.fact-grid .v .unit{color:var(--mute);font-weight:400;font-size:var(--t-md);margin-left:.3rem}
+.fact-grid .v.cid{color:var(--accent);font-size:var(--t-xs)}
+.fact-verify{margin-top:.8rem;padding-top:.8rem;border-top:1px dashed var(--rule);display:flex;align-items:center;gap:.75rem;font-size:var(--t-xs);flex-wrap:wrap}
+.fact-verify .check{color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.fact-verify a{color:var(--accent)}
+
+/* connect grid */
+.connect{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));border:1px solid var(--rule);margin:1.5rem 0}
+.connect .client{padding:.8rem 1rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);font-size:var(--t-xs);cursor:pointer;background:var(--paper-2);display:flex;flex-direction:column;gap:.3rem}
+.connect .client:hover{background:var(--paper-3)}
+.connect .client.active{background:var(--ink);color:var(--paper)}
+.connect .client.active .meta{color:var(--mute-2)}
+.connect .client .name{font-weight:700;color:var(--ink)}
+.connect .client.active .name{color:var(--paper)}
+.connect .client .meta{color:var(--mute);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.stats .stat{padding:1.2rem 1.1rem;border-right:1px solid var(--rule)}
+.stats .stat:last-child{border-right:0}
+.stats .stat .n{font-size:var(--t-3xl);font-weight:300;letter-spacing:-.03em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+.stats .stat .n .small{font-size:var(--t-md);color:var(--mute);font-weight:400;margin-left:.3rem}
+.stats .stat .lbl{margin-top:.5rem;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.stats .stat{border-bottom:1px solid var(--rule)}}
+
+/* endpoints table */
+.endpoints{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm)}
+.endpoints th,.endpoints td{padding:.55rem .8rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+.endpoints th{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+.endpoints tr:hover td{background:var(--paper-2)}
+.endpoints .method{font-weight:700;font-size:var(--t-xs);color:var(--accent);width:60px}
+.endpoints .method.post{color:var(--absent)}
+.endpoints .path{color:var(--ink);font-weight:600;white-space:nowrap}
+.endpoints .desc{color:var(--ink-2)}
+
+/* coverage map frame */
+.coverage{border:1px solid var(--rule);background:var(--paper-2);position:relative;overflow:hidden;margin:1.5rem 0}
+.coverage-head{border-bottom:1px solid var(--rule);background:var(--paper-3);padding:.5rem .9rem;font-size:var(--t-xs);color:var(--mute);display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.coverage-head .label{color:var(--ink);font-weight:700}
+.coverage-head .spacer{flex:1}
+.coverage-head .legend{display:flex;align-items:center;gap:.4rem}
+.coverage-head .legend .step{width:14px;height:10px;border:1px solid var(--rule)}
+.coverage-head .legend .step.s1{background:var(--paper-3)}
+.coverage-head .legend .step.s2{background:oklch(from var(--accent) l c h / 0.25)}
+.coverage-head .legend .step.s3{background:oklch(from var(--accent) l c h / 0.55)}
+.coverage-head .legend .step.s4{background:var(--accent)}
+.coverage img{display:block;width:100%;height:auto;background:var(--paper-2)}
+
+/* loop diagram */
+.loop{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.loop .step{padding:1rem;border-right:1px solid var(--rule);position:relative;background:var(--paper-2)}
+.loop .step:last-child{border-right:0}
+.loop .step .n{font-size:10px;color:var(--mute-2);text-transform:uppercase;letter-spacing:.1em;font-weight:700}
+.loop .step .verb{font-size:var(--t-lg);font-weight:700;color:var(--ink);margin:.3rem 0}
+.loop .step .desc{font-size:var(--t-xs);color:var(--mute);line-height:1.4}
+.loop .step::after{content:"→";position:absolute;right:-8px;top:50%;transform:translateY(-50%);background:var(--paper);border:1px solid var(--rule);width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);z-index:2}
+.loop .step:last-child::after{display:none}
+@media (max-width:900px){.loop{grid-template-columns:repeat(2,1fr)}.loop .step::after{display:none}.loop .step{border-bottom:1px solid var(--rule)}}
+
+/* hunter cards */
+.hunter{display:grid;grid-template-columns:repeat(2,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.hunter .case{padding:1.1rem 1.2rem}
+.hunter .case .verb{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+.hunter .case .title{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:.3rem 0 .5rem}
+.hunter .case .target{font-size:var(--t-xs);color:var(--accent);margin-bottom:.8rem}
+.hunter .case .row{display:flex;justify-content:space-between;padding:.2rem 0;font-size:var(--t-xs);color:var(--ink-2);border-bottom:1px dashed var(--rule);gap:.5rem;flex-wrap:wrap}
+.hunter .case .row:last-child{border-bottom:0}
+.hunter .case .row .cid{color:var(--accent)}
+.hunter .case .row .val{font-weight:700;color:var(--ink)}
+@media (max-width:720px){.hunter{grid-template-columns:1fr}}
+
+/* encoders grid */
+.encoders{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin:1.5rem 0 0}
+.encoders .enc{padding:1.2rem;border-right:1px solid var(--rule);background:var(--paper-2)}
+.encoders .enc:last-child{border-right:0}
+.encoders .enc .name{font-size:var(--t-lg);font-weight:700;color:var(--ink);margin-bottom:.3rem}
+.encoders .enc .input{font-size:var(--t-xs);color:var(--mute);margin-bottom:.6rem}
+.encoders .enc .field{font-size:var(--t-2xl);font-weight:300;color:var(--accent);line-height:1;letter-spacing:-.02em}
+.encoders .enc .field .unit{font-size:var(--t-sm);color:var(--mute);margin-left:.2rem}
+.encoders .enc .fieldlbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-top:.3rem}
+.encoders .enc .latency{margin-top:.8rem;font-size:var(--t-xs);color:var(--ink-2);display:flex;justify-content:space-between;border-top:1px dashed var(--rule);padding-top:.5rem}
+.consensus{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);border-top:0}
+.consensus .c{padding:.7rem 1.2rem;border-right:1px solid var(--rule);font-size:var(--t-xs);display:flex;align-items:baseline;gap:.5rem}
+.consensus .c:last-child{border-right:0}
+.consensus .c .n{font-size:var(--t-lg);font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
+.consensus .c.all .n{color:var(--accent)}
+.consensus .c.one .n{color:var(--absent)}
+.consensus .c .lbl{color:var(--mute)}
+@media (max-width:720px){.encoders,.consensus{grid-template-columns:1fr}.encoders .enc,.consensus .c{border-right:0;border-bottom:1px solid var(--rule)}}
+
+/* absent table */
+.absent-table{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm);border:1px solid var(--rule)}
+.absent-table td{padding:.6rem .9rem;border-bottom:1px solid var(--rule);vertical-align:top}
+.absent-table tr:last-child td{border-bottom:0}
+.absent-table td:first-child{font-weight:700;color:var(--absent);white-space:nowrap;width:240px;border-right:1px solid var(--rule)}
+.absent-table td:last-child{color:var(--ink-2)}
+
+/* ops list */
+.ops{list-style:none;margin:1.5rem 0;padding:0;counter-reset:op;border-top:1px solid var(--rule)}
+.ops>li{counter-increment:op;padding:.9rem 0 .9rem 3.2rem;border-bottom:1px solid var(--rule);position:relative;color:var(--ink-2);font-size:var(--t-sm);line-height:1.55;max-width:72ch}
+.ops>li::before{content:counter(op,decimal-leading-zero);position:absolute;left:0;top:.95rem;font-size:10px;font-weight:700;color:var(--mute-2);letter-spacing:.06em}
+.ops>li b{color:var(--ink);font-weight:700}
+
+/* ascii rule */
+.ascii-rule{font-family:var(--mono);color:var(--rule-strong);font-size:var(--t-xs);margin:1.5rem 0;white-space:nowrap;overflow:hidden;user-select:none}
+
+/* tokens */
+.cid{color:var(--accent);font-size:.92em;word-break:break-all}
+.cell{color:var(--ink);font-weight:700;background:var(--paper-3);padding:0 .3rem}
+.band{color:var(--ink);background:var(--paper-3);padding:0 .3rem}
+
+/* try-it */
+.tryit{border:1px solid var(--rule-strong);background:var(--paper-2);margin:1.5rem 0}
+.tryit-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute);padding:.4rem .9rem;gap:.6rem;flex-wrap:wrap}
+.tryit-head .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.tryit-head .url{color:var(--ink-2);font-weight:700}
+.tryit-body{padding:1rem 1.2rem}
+.tryit-input{display:flex;border:1px solid var(--rule-strong);background:var(--paper);margin-bottom:1rem}
+.tryit-input .prefix{padding:.6rem .8rem;border-right:1px solid var(--rule);color:var(--mute);font-size:var(--t-sm);background:var(--paper-2)}
+.tryit-input input{flex:1;padding:.6rem .8rem;border:0;background:transparent;font-family:var(--mono);font-size:var(--t-sm);color:var(--ink);outline:none}
+.tryit-input button{padding:.6rem 1rem;background:var(--ink);color:var(--paper);border:0;font-family:var(--mono);font-size:var(--t-sm);font-weight:700;cursor:pointer;border-left:1px solid var(--ink)}
+.tryit-input button:hover{background:var(--ink-2)}
+.tryit-result{font-size:var(--t-sm);color:var(--ink-2);border-top:1px dashed var(--rule);padding-top:1rem;min-height:60px}
+.tryit-result.empty{color:var(--mute)}
+.tryit-result .ok{color:var(--accent);font-weight:700}
+.tryit-result pre{margin:.5rem 0 0;font-size:var(--t-xs);color:var(--ink);background:var(--paper-3);padding:.6rem .8rem;overflow-x:auto;border:1px solid var(--rule)}
+.tryit-suggest{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
+.tryit-suggest .sug{font-size:var(--t-xs);padding:.2rem .5rem;border:1px solid var(--rule);background:var(--paper);cursor:pointer;color:var(--ink-2)}
+.tryit-suggest .sug:hover{background:var(--paper-3);color:var(--ink)}
+/* Compact try-it lifted into the hero: tighter body, smaller min-height so
+   it sits in the first screenful without dominating the H1. */
+.hero-tryit{margin:1.6rem 0 0}
+.hero-tryit .tryit-body{padding:.8rem 1rem}
+.hero-tryit .tryit-input{margin-bottom:.8rem}
+.hero-tryit .tryit-result{min-height:0;padding-top:.8rem}
+
+/* footer */
+.foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
+.foot-meta .desc{color:var(--mute);line-height:1.5}
+.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
+.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--ink-2);text-decoration:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom a{color:inherit}
+
+/* consent banner */
+#emem-consent{position:fixed;left:1em;right:1em;bottom:1em;max-width:36em;margin:0 auto;background:var(--paper-2);border:1px solid var(--rule-strong);padding:1em 1.1em;box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:var(--t-sm);line-height:1.5;z-index:9999;color:var(--ink-2)}
+#emem-consent[hidden]{display:none}
+#emem-consent p{margin:0 0 .7em;max-width:none}
+#emem-consent strong{color:var(--ink);font-weight:700}
+#emem-consent code{background:var(--paper-3);padding:0 .25em;color:var(--ink);font-family:var(--mono);font-size:.9em}
+#emem-consent .row{display:flex;flex-wrap:wrap;gap:.5em;align-items:center}
+#emem-consent button{padding:.5em 1.1em;border:1px solid var(--accent);background:var(--paper);color:var(--accent);font:inherit;font-family:var(--mono);font-weight:700;cursor:pointer;min-width:6em}
+#emem-consent button[data-act=accept]{background:var(--accent);color:var(--paper)}
+#emem-consent button:hover{filter:brightness(1.06)}
+#emem-consent button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#emem-consent a{margin-left:auto;font-size:.92em;color:var(--accent);text-decoration:underline}
+
+/* substrate (memory primitives walkthrough) */
+.substrate-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2)}
+.substrate-grid .lane{padding:1rem 1.1rem;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:.5rem}
+.substrate-grid .lane:last-child{border-right:0}
+.substrate-grid .lane .verb{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+.substrate-grid .lane .title{font-size:var(--t-md);font-weight:700;color:var(--ink);letter-spacing:-.01em}
+.substrate-grid .lane .endpoint{font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);word-break:break-all}
+.substrate-grid .lane .desc{font-size:var(--t-xs);color:var(--mute);line-height:1.5}
+@media (max-width:720px){.substrate-grid{grid-template-columns:1fr}.substrate-grid .lane{border-right:0;border-bottom:1px solid var(--rule)}.substrate-grid .lane:last-child{border-bottom:0}}
+
+/* connect-and-evolve diagram: facts → typed edges → refinement loop.
+   Pure CSS/HTML + one inline SVG, no external assets. */
+.cev{border:1px solid var(--rule-strong);background:var(--paper-2);margin:1.5rem 0}
+.cev-head{border-bottom:1px solid var(--rule);background:var(--paper-3);padding:.5rem .9rem;font-size:var(--t-xs);color:var(--mute);display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.cev-head .label{color:var(--ink);font-weight:700}
+.cev svg{display:block;width:100%;height:auto}
+.cev svg .node{fill:var(--paper);stroke:var(--rule-strong)}
+.cev svg .node-out{fill:var(--accent-bg);stroke:var(--accent)}
+.cev svg .node-warn{fill:var(--absent-bg);stroke:var(--absent)}
+.cev svg text{font-family:var(--mono);fill:var(--ink)}
+.cev svg .t-mute{fill:var(--mute)}
+.cev svg .t-accent{fill:var(--accent)}
+.cev svg .t-absent{fill:var(--absent)}
+.cev svg .edge{stroke:var(--rule-strong);fill:none}
+.cev svg .edge-accent{stroke:var(--accent);fill:none}
+.cev svg .edge-absent{stroke:var(--absent);fill:none}
+.cev svg .arrowhead{fill:var(--rule-strong);stroke:none}
+.cev-legend{border-top:1px solid var(--rule);padding:.7rem .9rem;font-size:var(--t-xs);color:var(--mute);display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+.cev-legend .e{display:flex;flex-direction:column;gap:.15rem}
+.cev-legend .e b{color:var(--ink);font-weight:700}
+.cev-legend code{color:var(--accent);background:var(--paper);padding:0 .25em;border:1px solid var(--rule)}
+@media (max-width:560px){.cev-legend{grid-template-columns:1fr}}
+
+/* peer comparison: feature matrix vs adjacent memory systems */
+.peer{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm);border:1px solid var(--rule)}
+.peer th,.peer td{padding:.55rem .7rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+.peer thead th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700;border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+.peer thead th.emem{color:var(--accent)}
+.peer tbody th{font-weight:700;color:var(--ink);font-size:var(--t-xs);width:11rem;border-right:1px solid var(--rule);background:var(--paper-2)}
+.peer td{color:var(--ink-2);font-size:var(--t-xs);line-height:1.5}
+.peer td.emem{background:var(--accent-bg);color:var(--ink);border-left:1px solid var(--accent);border-right:1px solid var(--accent)}
+.peer tr:hover td:not(.emem){background:var(--paper-2)}
+.peer .yes{color:var(--accent);font-weight:700}
+.peer .no{color:var(--mute)}
+.peer-note{font-size:var(--t-xs);color:var(--mute);margin-top:.6rem;line-height:1.5}
+
+/* live stream ticker + operator attestation */
+.live-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2);font-size:var(--t-sm)}
+.live-grid .pane{padding:1rem 1.1rem;border-right:1px solid var(--rule);min-width:0}
+.live-grid .pane:last-child{border-right:0}
+.live-grid .pane h3{margin:0 0 .3rem;font-size:var(--t-md);font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.live-grid .pane .endpoint{font-size:var(--t-xs);color:var(--accent);font-family:var(--mono);word-break:break-all;margin-bottom:.6rem}
+.live-grid .pane .row{display:grid;grid-template-columns:max-content 1fr;gap:.2rem .8rem;font-size:var(--t-xs);color:var(--ink-2);padding:.2rem 0;border-bottom:1px dashed var(--rule)}
+.live-grid .pane .row:last-of-type{border-bottom:0}
+.live-grid .pane .row .k{color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.live-grid .pane .row .v{color:var(--ink);word-break:break-all;font-family:var(--mono)}
+.live-grid .pane .row .v.cid,.live-grid .pane .row .v.sig{color:var(--accent);font-size:11px}
+.live-grid .pane .pulse{display:inline-flex;align-items:center;gap:.4rem;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.4rem}
+.live-grid .pane .pulse .dot{width:6px;height:6px;border-radius:50%;background:var(--mute-2)}
+.live-grid .pane .pulse.live .dot{background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:livepulse 1.6s cubic-bezier(.66,0,0,1) infinite}
+@keyframes livepulse{0%{box-shadow:0 0 0 0 oklch(from var(--accent) l c h / .6)}80%,100%{box-shadow:0 0 0 8px oklch(from var(--accent) l c h / 0)}}
+@media (prefers-reduced-motion:reduce){.live-grid .pane .pulse.live .dot{animation:none}}
+@media (max-width:720px){.live-grid{grid-template-columns:1fr}.live-grid .pane{border-right:0;border-bottom:1px solid var(--rule)}.live-grid .pane:last-child{border-bottom:0}}
+
+/* horizontal scroll wrapper for wide tables on small screens */
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll-x>table{min-width:560px}
+
+/* toast for copy-MCP and similar one-shot confirmations */
+.toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:.55rem 1rem;font-size:var(--t-sm);border:1px solid var(--ink);box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:99;opacity:0;pointer-events:none;transition:opacity .18s}
+.toast.show{opacity:1}
+
+/* responsive */
+@media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
+@media (max-width:720px){
+  .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
+  .section-meta,.hero-meta,.foot-meta{position:static;max-height:none}
+  .section-meta{display:none}
+  .foot-grid{grid-template-columns:repeat(2,1fr)}
+  .endpoints{font-size:var(--t-xs)}
+  .endpoints th,.endpoints td{padding:.4rem .5rem}
+  .statusbar a.nav-sec{display:none}
+  .statusbar-inner{height:36px}
+  .memt-block .memt-parts{grid-template-columns:1fr}
+  .hero-cta{flex-direction:column;align-items:stretch}
+  .hero-cta .btn{justify-content:center}
+}
+@media (max-width:560px){
+  .hero h1{font-size:var(--t-2xl);line-height:1.05}
+  .hero .sub{font-size:var(--t-md)}
+  .hero-pillars{flex-direction:column}
+  .hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}
+  .hero-pillars .pillar:last-child{border-bottom:0}
+  .code pre{font-size:var(--t-xs)}
+  .loop{grid-template-columns:1fr}
+  .loop .step{border-right:0;border-bottom:1px solid var(--rule)}
+  .loop .step:last-child{border-bottom:0}
+}
+@media (max-width:480px){
+  html{font-size:86%}
+  .page{padding:0 1rem}
+  .stats{grid-template-columns:1fr}
+  .connect{grid-template-columns:repeat(2,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span>
+    <a href="/" class="nav-sec">home</a>
+    <a href="/how-it-works" class="nav-sec">how it works</a>
+    <a href="/solutions" class="nav-sec">solutions</a>
+    <a href="/reference" class="nav-sec">reference</a>
+    <span class="spacer"></span>
+    <a href="/docs">docs</a>
+    <a href="/verify">verify</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  </div>
+</header>
+
+<!-- Page intro -->
+<section class="hero hero-lean page">
+  <div>
+    <h1>Built with <span class="accent">emem</span></h1>
+    <p class="sub">Four use cases that already run on the read surface. Each one names the exact bands and algorithm it calls, and returns ed25519-signed receipts an auditor can re-verify offline.</p>
+    <div class="hero-cta">
+      <a class="btn" href="#eudr">EUDR compliance</a>
+      <a class="btn ghost" href="/reference">Reference &rarr;</a>
+    </div>
+    <p class="hero-trust">Every value below is a signed fact. Resolve any <code>fact_cid</code> at <a href="/verify">/verify</a> &middot; full machine contract at <a href="/openapi.json">/openapi.json</a>.</p>
+  </div>
+</section>
+
+<!-- EUDR compliance -->
+<section class="section page" id="eudr">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">01</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>agent</dt><dd><a href="https://eudr.dev">eudr.dev</a></dd>
+      <dt>regulation</dt><dd>EU 2023/1115</dd>
+      <dt>output</dt><dd>signed Annex II DDS</dd>
+      <dt>algorithm</dt><dd>eudr_compliance@1</dd>
+      <dt>baseline</dt><dd>JRC GFC2020 V3</dd>
+      <dt>article 2(4)</dt><dd>&gt;0.5&nbsp;ha, &gt;5&nbsp;m, &gt;10&nbsp;% canopy</dd>
+      <dt>endpoint</dt><dd>POST&nbsp;/v1/eudr_dds</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">01</span>EUDR compliance</h2>
+    <p class="lede"><a href="https://eudr.dev">eudr.dev</a> is an independent EU Deforestation Regulation compliance agent. Every paragraph it quotes resolves to an ed25519-signed <span class="band">fact_cid</span> served from this responder.</p>
+
+    <p>The agent ingests a shipment plot, dispatches <span class="band">/v1/eudr_dds</span> against the cell64-tiled forest baseline, and returns a Due Diligence Statement shaped to Annex II of Regulation (EU) 2023/1115. The per-cell algorithm <span class="band">eudr_compliance@1</span> implements Article 2(4) as written: &gt;0.5&nbsp;ha, &gt;5&nbsp;m height, &gt;10&nbsp;% canopy cover, excluding land predominantly under agricultural or urban use. The forest baseline is JRC GFC2020 V3 (the Commission&rsquo;s expected non-binding baseline, a live single-COG materialiser at JEODPP), corroborated against the <span class="band">forest_change.treecover2000</span> band from Global Forest Change. Article 2(28) dispatch picks POINT (&le;4&nbsp;ha non-cattle) versus POLYGON (&gt;4&nbsp;ha or any cattle plot under HS&nbsp;0102/0201/0202).</p>
+
+    <p>The schema at <a href="/v1/schemas/eudr_dds.json">/v1/schemas/eudr_dds.json</a> maps each field to the EUR-Lex paragraph it satisfies. The cite-back surface is the one you can drive from your own MCP client: every finding paste-resolves at <a href="/verify">/verify</a>.</p>
+
+    <p><strong>Honest scope.</strong> <span class="band">/v1/eudr_dds</span> covers the geolocation and deforestation parts of Annex II only. The Article 9(1)(b) legality check &mdash; land tenure, FPIC, country-of-origin law &mdash; is structurally outside Earth-observation scope; pair a partner legality module before TRACES NT submission. The agent is operated independently and is <em>not affiliated with, endorsed by, or sponsored by</em> any EU institution.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="https://eudr.dev">Open eudr.dev &rarr;</a>
+      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/eudr_dds</code>
+      <a class="btn ghost" href="/v1/schemas/eudr_dds.json">Annex II JSON Schema</a>
+    </p>
+  </div>
+</section>
+
+<!-- Carbon-credit verifier -->
+<section class="section page" id="carbon">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">02</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>use case</dt><dd>Carbon MRV verification</dd>
+      <dt>standard</dt><dd>VM0042 / VCS / Gold Standard</dd>
+      <dt>output</dt><dd>signed biomass + SOC receipts</dd>
+      <dt>bands</dt><dd>indices.ndvi, forest_change.treecover2000, forest_change.lossyear, soilgrids.soc_0_30cm</dd>
+      <dt>algorithm</dt><dd>deforestation_alert_ndvi_drop@1</dd>
+      <dt>endpoints</dt><dd>POST&nbsp;/v1/forest, /v1/soil, /v1/ndvi</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">02</span>Carbon-credit verifier</h2>
+    <p class="lede">An agent that cross-checks carbon offset claims against signed satellite evidence: forest-cover baselines, deforestation trajectories, soil organic carbon, and vegetation condition.</p>
+
+    <p>Ingest a project polygon and a claimed baseline year. The agent calls <span class="band">/v1/forest</span> for <span class="band">forest_change.treecover2000</span> plus <span class="band">forest_change.lossyear</span> from Global Forest Change, <span class="band">/v1/soil</span> for <span class="band">soilgrids.soc_0_30cm</span> (organic carbon at 0&ndash;30&nbsp;cm), and <span class="band">/v1/ndvi</span> for <span class="band">indices.ndvi</span> from Sentinel-2. Each fact is ed25519-signed and content-addressed; the receipt&rsquo;s <span class="band">fact_cid</span> is citable in VM0042 monitoring reports for VCS or Gold Standard registries.</p>
+
+    <p>The <span class="band">deforestation_alert_ndvi_drop@1</span> algorithm detects NDVI drops exceeding the alert threshold between consecutive tslots, and <span class="band">forest_change.lossyear</span> confirms loss timing against the Global Forest Change baseline. Together they answer whether a claimed avoided-deforestation credit is backed by an actual standing-forest baseline. Soil carbon adds below-ground verification for projects claiming soil sequestration. Every number traces back to a signed receipt.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="/v1/forest?place=Mato+Grosso">/v1/forest &rarr;</a>
+      <a class="btn ghost" href="/v1/soil?place=Mato+Grosso">/v1/soil</a>
+      <a class="btn ghost" href="/v1/ndvi?place=Mato+Grosso">/v1/ndvi</a>
+    </p>
+    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.4rem">These open raw JSON in the browser &mdash; up to ~30&nbsp;s on a cold cell while the materialiser fetches upstream, then ~10&nbsp;ms warm.</p>
+  </div>
+</section>
+
+<!-- Insurance flood pre-screen -->
+<section class="section page" id="flood">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>use case</dt><dd>Flood risk pre-screening</dd>
+      <dt>output</dt><dd>signed elevation + water + weather profile</dd>
+      <dt>bands</dt><dd>copdem30m.elevation_mean, surface_water.recurrence, sentinel1_raw, weather.precipitation_mm</dd>
+      <dt>algorithm</dt><dd>flood_risk@2</dd>
+      <dt>endpoints</dt><dd>POST&nbsp;/v1/elevation, /v1/water, /v1/weather</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">03</span>Insurance flood pre-screen</h2>
+    <p class="lede">A property-risk agent that pre-screens addresses for flood exposure using signed elevation, surface-water history, precipitation nowcast, and SAR-derived water extent, before an underwriter opens the file.</p>
+
+    <p>The agent takes an address or lat/lng, calls <span class="band">/v1/elevation</span> for <span class="band">copdem30m.elevation_mean</span> (Copernicus DEM 30&nbsp;m, GMRT for bathymetry), <span class="band">/v1/water</span> for <span class="band">surface_water.recurrence</span> (JRC Global Surface Water, 1984&ndash;2021) plus <span class="band">sentinel1_raw</span> backscatter, and <span class="band">/v1/weather</span> for <span class="band">weather.precipitation_mm</span> (MET Norway nowcast). The <span class="band">flood_risk@2</span> algorithm fuses these into a single 0&ndash;1 risk score.</p>
+
+    <p>Every input band is a signed fact: the insurer cites <span class="band">fact_cid</span> values in the policy file and any auditor re-verifies offline via <span class="band">/v1/verify_receipt</span>. Surface-water recurrence is a 37-year JRC baseline; Sentinel-1 SAR cuts through cloud for flood-extent detection. The agent surfaces what the data says and what it does not &mdash; <span class="band">caveats[]</span> notes grid resolution and revisit cadence.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="/v1/elevation?place=Ashok+Nagar+Ranchi">/v1/elevation &rarr;</a>
+      <a class="btn ghost" href="/v1/water?place=Ashok+Nagar+Ranchi">/v1/water</a>
+      <a class="btn ghost" href="/v1/weather?place=Ashok+Nagar+Ranchi">/v1/weather</a>
+    </p>
+  </div>
+</section>
+
+<!-- Supply-chain location verifier -->
+<section class="section page" id="supplychain">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Built with emem</span></div>
+    <dl>
+      <dt>use case</dt><dd>Supply-chain provenance</dd>
+      <dt>output</dt><dd>signed location + land-cover attestation</dd>
+      <dt>bands</dt><dd>landcover.*, indices.ndvi, overture.buildings.count</dd>
+      <dt>endpoints</dt><dd>POST&nbsp;/v1/locate, /v1/recall, /v1/diff, /v1/verify_receipt</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">04</span>Supply-chain location verifier</h2>
+    <p class="lede">A provenance agent that checks supply-chain origin claims &mdash; &ldquo;this coffee was grown at these coordinates&rdquo; &mdash; against signed satellite evidence of what is actually at that place.</p>
+
+    <p>The agent takes a claimed origin (coordinates or place name from a supplier declaration), calls <span class="band">/v1/locate</span> to resolve a cell64, then <span class="band">/v1/recall</span> to fetch signed land-cover (ESA WorldCover, the <span class="band">landcover.*</span> band family), vegetation (<span class="band">indices.ndvi</span>), and built-environment (<span class="band">overture.buildings.count</span>) facts. A coffee-farm claim at coordinates that recall as <span class="band">landcover.built</span> rather than <span class="band">landcover.crop</span> is flagged at ingest.</p>
+
+    <p>Time matters too: <span class="band">/v1/diff</span> compares a cell&rsquo;s state across tslots, so the agent detects land-use change between the claimed origin date and the current observation. Every fact is signed and content-addressed; the auditor cites <span class="band">fact_cid</span> values in the chain-of-custody record, and any counterparty re-verifies without trusting the auditor via <span class="band">/v1/verify_receipt</span>.</p>
+
+    <p style="margin-top:1.5rem">
+      <a class="btn" href="/v1/locate?place=Chikmagalur+Karnataka">/v1/locate &rarr;</a>
+      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/recall</code>
+      <a class="btn ghost" href="/verify">/verify</a>
+    </p>
+  </div>
+</section>
+
+<!-- Production patterns -->
+<section class="section page" id="patterns">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Production patterns</span></div>
+    <dl>
+      <dt>point-in-time</dt><dd>as_of_tslot + as_of_signed_at</dd>
+      <dt>provenance</dt><dd>per-attester namespace, ed25519 signed</dd>
+      <dt>contradiction</dt><dd>per-band severity scorer</dd>
+      <dt>audit log</dt><dd>EU AI Act Art. 12 &middot; SSE</dd>
+      <dt>verify</dt><dd>POST&nbsp;/v1/verify_receipt</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">05</span>Production patterns</h2>
+    <p class="lede">The patterns the four agents above share. Each call sketch is paste-runnable against <a href="https://emem.dev">emem.dev</a>; every receipt verifies offline at <a href="/verify">/verify</a>.</p>
+
+    <h3>Audit-grade point-in-time evidence</h3>
+    <p>An auditor in 2027 asks whether a plot was forest on 2020-12-31 <em>according to the system at the time of the DDS submission</em>, not according to today&rsquo;s reprocessed tiles. emem pairs <span class="band">as_of_tslot</span> (what the world looked like on a date) and <span class="band">as_of_signed_at</span> (what the system knew on a date) on every read, with content-addressed signed receipts. The auditor takes a 2026-05 receipt to any peer node and verifies the BLAKE3 preimage and ed25519 signature without trusting our server.</p>
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">point-in-time recall + offline verify</span><span class="spacer"></span><button class="copy" data-copy-target="#code-pit">copy</button></div>
+<pre id="code-pit"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/recall</span> \
+    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"defi.zb4d7.ze56c.zf24c","band":"jrc_tmf",
+         "as_of_tslot":1609372800,
+         "as_of_signed_at":"2026-05-15T00:00:00Z"}'</span>
+
+<span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/verify_receipt</span> <span class="tok-flag">-d</span> <span class="tok-s">'{"receipt": …}'</span>
+<span class="tok-c"># any peer, any time, no network back to us</span></code></pre>
+    </div>
+
+    <h3>Multi-attester provenance</h3>
+    <p>Four sourcing agents (forester, mill, customs, brand) each push location and biomass claims about the same plot; one is wrong. The substrate routes each writer through <span class="band">/memories/by_attester/&lt;pubkey&gt;/&hellip;</span>, so the multi-attester index keeps both CIDs at the same canonical key. <span class="band">/v1/memory_contradictions</span> scores the disagreement per band kind &mdash; scalar by normalised spread, vector by 1 minus mean cosine, categorical by 1 minus mode-share &mdash; and quotes both <span class="band">fact_cid</span>s, so the brand agent acts on signed evidence rather than last-writer-wins.</p>
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">score disagreement across attesters</span><span class="spacer"></span><button class="copy" data-copy-target="#code-contra">copy</button></div>
+<pre id="code-contra"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/memory_contradictions</span> \
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell_prefix":"defi.zb5f9","band":"indices.ndvi","min_severity":0.2}'</span>
+<span class="tok-c"># returns [{ cell, band, tslot, attestations:[…signed disagreements…], severity, kind }]</span></code></pre>
+    </div>
+
+    <h3>Hallucination prevention via signed reads</h3>
+    <p>Agents implicitly trust their own memory, which makes a poisoned memory indistinguishable from a real one when the store holds unsigned strings. Every <span class="band">memory_view</span> and <span class="band">/v1/recall</span> return the signer pubkey. The agent&rsquo;s &ldquo;did I really learn this&rdquo; check becomes signature verification against a trusted set, not a trust assumption.</p>
+    <div class="code">
+      <div class="code-head"><span class="lang">TXT</span><span class="tab">read shape + agent rule</span><span class="spacer"></span><button class="copy" data-copy-target="#code-halluc">copy</button></div>
+<pre id="code-halluc"><code><span class="tok-c"># every read carries: { value, signer_pubkey_b32, signed_at, fact_cid }</span>
+<span class="tok-c"># agent rule: if signer_pubkey_b32 not in trusted_set: ignore + alert</span></code></pre>
+    </div>
+
+    <h3>EU AI Act Article 12 audit-log subscription</h3>
+    <p>Article 12 (high-risk systems, applicable 2026-08) requires automatic event logging across the lifecycle, generated by the system and verifiable to third parties. The substrate&rsquo;s SSE stream, per-event ed25519 signature, and content-addressed append-only history let a compliance subscriber filter by <span class="band">path_prefix</span> and prove non-repudiation to a regulator who never trusted us.</p>
+    <div class="code">
+      <div class="code-head"><span class="lang">SH</span><span class="tab">signed audit-log stream · /v1/memory/sse</span><span class="spacer"></span><button class="copy" data-copy-target="#code-sse">copy</button></div>
+<pre id="code-sse"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sN</span> <span class="tok-u">'https://emem.dev/v1/memory/sse?path_prefix=/memories/by_attester/clinician-aw3k7nq/&amp;kind=episodic'</span>
+<span class="tok-c"># emits: data: { "type":"created", "path", "file_cid", "kind", "attester_pubkey_b32", "signed_at", "size_bytes" }</span></code></pre>
+    </div>
+
+    <p style="margin-top:1.5rem"><a href="/reference">Full read surface &rarr;</a> &middot; <a href="/how-it-works">How the substrate works &rarr;</a></p>
+  </div>
+</section>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">Earth memory protocol. Cell × Band × Tslot → Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper.md">whitepaper</a></li>
+          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/gallery">live coverage map</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
+          <li><a href="/v1/corpus_state_stats">corpus stats</a></li>
+          <li><a href="/v1/stream">live stream (SSE)</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/demos">demos index</a></li>
+          <li><a href="/demos/ask-the-earth">ask the Earth (10 live calls)</a></li>
+          <li><a href="/demos/state-cube">state cube walk</a></li>
+          <li><a href="/demos/signed-answer">signed answer in 4 steps</a></li>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/v1/benchmark">agent benchmark</a></li>
+          <li><a href="/humans">/humans</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
+          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
+          <li><a href="/docs/errors.html">errors</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="/health">health</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="/privacy">privacy · terms</a> ·
+        <a href="#" id="emem-consent-manage">manage cookies</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Copy buttons — same handler as the homepage.
+document.querySelectorAll('.copy').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var target = document.querySelector(btn.dataset.copyTarget);
+    if (!target) return;
+    var text = target.innerText || target.textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(function(){});
+    }
+    var orig = btn.textContent;
+    btn.textContent = 'copied';
+    btn.classList.add('copied');
+    setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1200);
+  });
+});
+</script>
+</body>
+</html>
