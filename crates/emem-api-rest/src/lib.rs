@@ -2223,6 +2223,9 @@ fn served_html_pages() -> Vec<&'static str> {
         GALLERY_HTML,
         API_REDOC_HTML,
         DOCS_DIAGRAMS_INDEX_HTML,
+        HOW_IT_WORKS_HTML,
+        SOLUTIONS_HTML,
+        REFERENCE_HTML,
     ]
 }
 
