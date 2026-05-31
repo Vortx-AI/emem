@@ -6185,8 +6185,21 @@ async fn get_cell(
 /// sees the requested band.
 #[derive(Deserialize)]
 struct RecallApiReq {
-    #[serde(alias = "cell64")]
+    /// cell64, or a place name (geocoded). Optional when `lat`+`lng` or
+    /// `place` are supplied instead — one consistent location convention
+    /// across the spatial tools.
+    #[serde(default, alias = "cell64")]
     cell: String,
+    /// Explicit coordinates, an alternative to `cell`. When both are set
+    /// and `cell` is empty, they resolve to the cell64 at that point.
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
+    /// Free-text place name, an alternative to `cell` (same geocoder the
+    /// `cell` field already accepts; exposed explicitly for clarity).
+    #[serde(default)]
+    place: Option<String>,
     #[serde(default)]
     band: Option<String>,
     #[serde(default)]
@@ -6232,8 +6245,20 @@ impl From<RecallApiReq> for RecallReq {
                 Some(v)
             }
         };
+        // Location precedence: explicit cell/cell64 wins; else a place
+        // name; else lat+lng resolved to the cell64 at that point. An empty
+        // result is caught in `post_recall` with a typed 400.
+        let cell = if !api.cell.trim().is_empty() {
+            api.cell
+        } else if let Some(p) = api.place.filter(|p| !p.trim().is_empty()) {
+            p
+        } else if let (Some(la), Some(lo)) = (api.lat, api.lng) {
+            emem_codec::to_cell64(emem_codec::cell_from_latlng(la, lo))
+        } else {
+            String::new()
+        };
         RecallReq {
-            cell: api.cell,
+            cell,
             bands,
             tslot: api.tslot,
             as_of_tslot: api.as_of_tslot,
@@ -6250,7 +6275,37 @@ async fn post_recall(
     EmemJson(api_req): EmemJson<RecallApiReq>,
 ) -> Result<Response, ApiError> {
     metrics_inc(&RECALL_TOTAL);
+    // Range-check explicit coordinates before they resolve to a cell (same
+    // guard /v1/locate applies — no silent clamping).
+    if let (Some(la), Some(lo)) = (api_req.lat, api_req.lng) {
+        if !la.is_finite()
+            || !lo.is_finite()
+            || !(-90.0..=90.0).contains(&la)
+            || !(-180.0..=180.0).contains(&lo)
+        {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "coordinates out of range: lat must be in [-90,90] and lng in [-180,180], got lat={la}, lng={lo}"
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
     let mut req: RecallReq = api_req.into();
+    if req.cell.trim().is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "no location provided: pass `cell` (a cell64 or place name), `place`, or `lat`+`lng`".into(),
+                details: None,
+            },
+        ));
+    }
     // Accept place names: `recall {"cell":"Mount Everest"}` is just
     // `locate` + `recall` from the agent's POV, no reason to make
     // them do two round-trips.
@@ -15582,6 +15637,7 @@ async fn discover(State(s): State<AppState>) -> Json<JsonValue> {
             "backfill":             "POST /v1/backfill",
             "verify_claim":         "POST /v1/verify",
             "verify_receipt":       "POST /v1/verify_receipt",
+            "fact_by_cid":          "GET /v1/facts/{fact_cid}",
             "state":                "POST /v1/state",
             "state_multi":          "POST /v1/state_multi",
             "state_diff":           "POST /v1/state_diff",

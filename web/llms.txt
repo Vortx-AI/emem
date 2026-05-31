@@ -2,7 +2,7 @@
 
 > emem is a signed, content-addressed spatial memory for AI agents — every place-time on Earth resolves to a verifiable fact, read over MCP or REST, no keys, every answer an ed25519 receipt verifiable offline.
 
-Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. The recommended first call is the emem_ask tool: it routes a free-text question to a place, recalls the relevant bands, and runs the applicable algorithms in one shot. Canonical surface: 80 MCP tools, 92 documented /v1 paths, 159 algorithms, 46 source schemes.
+Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 80 MCP tools, 92 documented /v1 paths, 159 algorithms, 46 source schemes.
 
 ## Connect
 
@@ -18,7 +18,8 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [recall](https://emem.dev/v1/recall): POST cell × bands → signed facts; auto-fetches from open-data upstream on a miss and signs the result.
 - [ask](https://emem.dev/v1/ask): POST free-text question (+ place) → topic-route → recall → applicable algorithms, in one call.
 - [find_similar](https://emem.dev/v1/find_similar): POST cell or embedding × k → top-K cosine neighbours over a foundation embedding.
-- [verify_receipt](https://emem.dev/v1/verify_receipt): POST a receipt → {valid, signer}; rebuilds the preimage and checks the signature.
+- [verify_receipt](https://emem.dev/v1/verify_receipt): POST a receipt (optionally + the facts you rely on) → {valid, signer}; rebuilds the preimage, checks the signature, and content-addresses any supplied facts against the receipt so a tampered value fails.
+- [fact by cid](https://emem.dev/v1/facts/{fact_cid}): GET a bare fact_cid → the signed fact bytes; the canonical "I have a fact_cid, what is it" dereference (immutable, cacheable).
 - [verify (browser)](https://emem.dev/verify): in-browser ed25519 receipt verifier; no callback to the responder.
 - [hunt](https://emem.dev/v1/hunt): POST event × region → ranked hotspots; 12 event keywords (algal_bloom, deforestation, wildfire, flood_extent, …).
 - [state](https://emem.dev/v1/state): POST cell → dense signed state vector (one encoder, or the full 1792-D cube).
