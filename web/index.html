@@ -494,34 +494,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <section class="hero page hero-lean">
   <div>
-    <h1>Agents are starting to act<br><span class="accent">on the real world.</span></h1>
+    <h1>Agents are starting to act on the <span class="accent">real world</span>.</h1>
 
-    <p class="sub">emem is the shared, verified memory of Earth they act from &mdash; every fact signed, citable, and reproducible. From &ldquo;the model said so&rdquo; to &ldquo;here&rsquo;s the evidence.&rdquo;</p>
+    <p class="sub">emem is the shared, verified memory of Earth they act from. Every fact about a place and time is signed, citable, and reproducible, so an agent can act on evidence instead of a guess.</p>
 
     <div class="hero-cta">
       <a class="btn" href="#act">Connect an agent &rarr;</a>
       <a class="btn ghost" href="#proof">See a signed answer &rarr;</a>
-    </div>
-
-    <!-- Compact try-it: a visitor types a place and gets the byte-identical
-         cell64 + signed elevation fact the live responder returns. Wired to
-         the runHero() handler at the bottom of the page. -->
-    <div class="tryit hero-tryit" id="tryit-hero">
-      <div class="tryit-head">
-        <span class="dot"></span>
-        <span class="url">POST&nbsp;/v1/recall</span>
-        <span style="margin-left:auto;color:var(--mute)">try it &middot; a real signed fact, cached in-page</span>
-      </div>
-      <div class="tryit-body">
-        <div class="tryit-input">
-          <span class="prefix">place</span>
-          <input id="tryit-hero-place" type="text" aria-label="Place name to try" value="South Mumbai" placeholder="e.g. Bengaluru">
-          <button id="tryit-hero-go">recall</button>
-        </div>
-        <div class="tryit-result empty" id="tryit-hero-result">
-          Type a place &rarr; <span class="band">recall</span> returns a signed elevation fact with its <span class="band">fact_cid</span>. Two are cached here (South Mumbai, Bengaluru).
-        </div>
-      </div>
     </div>
 
     <p class="hero-trust">open &middot; no keys &middot; MCP + REST &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
@@ -533,8 +512,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta"><div class="idx"><span class="idx-label">the problem</span></div></aside>
   <div class="section-body">
     <h2>Ask an agent about a place, and it guesses.</h2>
-    <p class="lede">A forest in Borneo, a floodplain outside Chennai, a field in Iowa &mdash; ask an AI agent what is true on the ground there, and it will usually improvise.</p>
-    <p>It has no shared handle for the patch of land you mean, and no way to prove the number it hands back. That was harmless when agents only answered questions. It is not harmless now that they <em>act</em> &mdash; filing compliance, pricing risk, triaging a disaster, releasing a payment. Roughly a quarter of organizations are already scaling agents that take real-world actions <a href="https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai">(McKinsey, 2025)</a>. Acting on a guess has quietly become a liability.</p>
+    <p class="lede">A forest in Borneo, a floodplain outside Chennai, a field in Iowa. Ask an AI agent what is true on the ground there, and it will usually improvise.</p>
+    <p>It has no shared handle for the patch of land you mean, and no way to prove the number it hands back. That was harmless when agents only answered questions. It is not harmless now that they <em>act</em>: filing compliance, pricing risk, triaging a disaster, releasing a payment. Roughly a quarter of organizations are already scaling agents that take real-world actions <a href="https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai">(McKinsey, 2025)</a>. Acting on a guess has quietly become a liability.</p>
   </div>
 </section>
 
@@ -543,8 +522,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta"><div class="idx"><span class="idx-label">the idea</span></div></aside>
   <div class="section-body">
     <h2>So we gave the Earth a memory they can trust.</h2>
-    <p class="lede">emem turns every place on Earth into an address with a memory. Ask for a fact and you do not get a guess &mdash; you get a receipt.</p>
-    <p>Elevation, rainfall, how much forest stood here last year, how a coastline has moved: each answer comes back signed &mdash; <em>this value, at this place, at this time</em> &mdash; that anyone can verify without trusting us, and that any other agent can cite tomorrow and reproduce byte-for-byte. The address is the same on every node, so two agents asking about the same ground reach the same memory.</p>
+    <p class="lede">emem turns every place on Earth into an address with a memory. Ask for a fact and you do not get a guess. You get a receipt.</p>
+    <p>Elevation, rainfall, how much forest stood here last year, how a coastline has moved: each answer comes back signed with its value, place, and time. Anyone can verify it without trusting us, and any other agent can cite it tomorrow and reproduce it byte-for-byte. The address is the same on every node, so two agents asking about the same ground reach the same memory.</p>
   </div>
 </section>
 
@@ -553,43 +532,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta"><div class="idx"><span class="idx-label">why it holds</span></div></aside>
   <div class="section-body">
     <h2>Shared, so it compounds. Signed, so it can&rsquo;t be faked.</h2>
-    <p>Because the memory is <strong>shared</strong>, agents stop re-deriving the world from scratch and build on each other&rsquo;s verified work. Because every fact is <strong>signed and content-addressed</strong>, no one can quietly slip a wrong one in &mdash; the way a poisoned note can be planted in an ordinary agent&rsquo;s private memory <a href="https://arxiv.org/abs/2503.03704">(MINJA, NeurIPS 2025)</a>. And because four independent foundation models read the same ground &mdash; <strong>Clay, Prithvi, Tessera, Galileo</strong> &mdash; their agreement becomes a signal you can act on, while their disagreement is recorded and scored, never averaged away.</p>
+    <p>Because the memory is <strong>shared</strong>, agents stop re-deriving the world from scratch and build on each other&rsquo;s verified work. Because every fact is <strong>signed and content-addressed</strong>, no one can quietly slip a wrong one in, the way a poisoned note can be planted in an ordinary agent&rsquo;s private memory <a href="https://arxiv.org/abs/2503.03704">(MINJA, NeurIPS 2025)</a>. And because four independent foundation models read the same ground, <strong>Clay, Prithvi, Tessera, Galileo</strong>, their agreement becomes a signal you can act on, while their disagreement is recorded and scored, never averaged away.</p>
 
-    <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
-      <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
-      <svg viewBox="0 0 760 300" role="img" preserveAspectRatio="xMidYMid meet">
-        <text x="20" y="26" class="t-mute" font-size="11">FACTS · one (cell, band, tslot)</text>
-        <rect class="node" x="20" y="40" width="190" height="40" rx="3"/>
-        <text x="32" y="58" font-size="12">attester A &middot; NDVI 0.61</text>
-        <text x="32" y="73" class="t-accent" font-size="10">fact_cid tc54…aeesh</text>
-        <rect class="node" x="20" y="92" width="190" height="40" rx="3"/>
-        <text x="32" y="110" font-size="12">attester B &middot; NDVI 0.58</text>
-        <text x="32" y="125" class="t-accent" font-size="10">fact_cid wbqy…6m5q</text>
-        <rect class="node" x="20" y="144" width="190" height="40" rx="3"/>
-        <text x="32" y="162" font-size="12">attester C &middot; NDVI 0.19</text>
-        <text x="32" y="177" class="t-absent" font-size="10">fact_cid cxji…h5bq · outlier</text>
-        <path class="edge-accent" d="M210 60 C 270 60, 280 80, 330 95" stroke-width="1.5"/>
-        <path class="edge-accent" d="M210 112 H 330" stroke-width="1.5"/>
-        <path class="edge-absent" d="M210 164 C 270 164, 280 140, 330 125" stroke-width="1.5"/>
-        <text x="232" y="48" class="t-mute" font-size="10">relates_to</text>
-        <text x="232" y="200" class="t-absent" font-size="10">disagrees_with</text>
-        <rect class="node-out" x="330" y="70" width="190" height="36" rx="3"/>
-        <text x="342" y="86" font-size="12" font-weight="bold">CONNECT &middot; memory_bundle</text>
-        <text x="342" y="100" class="t-accent" font-size="10">memb:&lt;bundle_cid&gt; (one signed envelope)</text>
-        <rect class="node-warn" x="330" y="116" width="190" height="50" rx="3"/>
-        <text x="342" y="134" font-size="12" font-weight="bold">RECORD &middot; contradiction</text>
-        <text x="342" y="149" class="t-absent" font-size="10">severity 0.71 · both fact_cids kept</text>
-        <text x="342" y="162" class="t-mute" font-size="10">/v1/memory_contradictions</text>
-        <path class="edge" d="M520 141 C 590 141, 600 200, 560 215" stroke-width="1.5"/>
-        <rect class="node" x="540" y="200" width="200" height="56" rx="3"/>
-        <text x="552" y="220" font-size="12" font-weight="bold">REFINE</text>
-        <text x="552" y="235" class="t-mute" font-size="10">flag re-attestation · /v1/reviews</text>
-        <text x="552" y="248" class="t-mute" font-size="10">supersede via as_of_signed_at</text>
-        <path class="edge" d="M540 228 C 360 270, 120 270, 115 188" stroke-width="1.5" stroke-dasharray="4 3"/>
-        <text x="250" y="285" class="t-mute" font-size="10">re-attestation appends a new fact; the old bytes stay replayable</text>
-        <polygon class="arrowhead" points="115,188 110,198 120,198"/>
-      </svg>
-    </div>
     <p><a href="/how-it-works">See how it works, in depth &rarr;</a> &middot; <a href="/whitepaper.md">Read the whitepaper &rarr;</a></p>
   </div>
 </section>
@@ -601,10 +545,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <h2>What an agent can finally do, responsibly.</h2>
     <p class="lede">Give an agent a memory of Earth it can cite, and the actions it can stand behind change.</p>
     <ul>
-      <li><strong>Prove a shipment&rsquo;s land was never cleared.</strong> The audit the EU now requires under its Deforestation Regulation &mdash; in a year the tropics lost a record 6.7 million hectares of primary rainforest <a href="https://www.wri.org/news/release-global-forest-loss-shatters-records-2024-fueled-massive-fires">(WRI / Global Forest Watch)</a>.</li>
+      <li><strong>Prove a shipment&rsquo;s land was never cleared,</strong> the audit the EU now requires under its Deforestation Regulation, in a year the tropics lost a record 6.7 million hectares of primary rainforest <a href="https://www.wri.org/news/release-global-forest-loss-shatters-records-2024-fueled-massive-fires">(WRI / Global Forest Watch)</a>.</li>
       <li><strong>Raise a flood or wildfire flag a day sooner.</strong> A single day of warning can cut disaster damage by up to a third <a href="https://www.un.org/en/climatechange/early-warnings-for-all">(UN Early Warnings for All)</a>.</li>
       <li><strong>Keep a carbon credit honest</strong> with continuous, signed evidence instead of a once-a-year spot check.</li>
-      <li><strong>Remember any place well enough to defend a decision</strong> &mdash; a price, a claim, a route &mdash; with the receipt attached.</li>
+      <li><strong>Remember any place well enough to defend a decision</strong> (a price, a claim, a route) with the receipt attached.</li>
     </ul>
     <p><a href="/solutions">See what people are building &rarr;</a></p>
   </div>
@@ -621,7 +565,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </aside>
   <div class="section-body">
     <h2>Don&rsquo;t take our word. Take the receipt.</h2>
-    <p class="lede">Every answer carries a signature you can check in your own browser &mdash; no callback to us. <a href="https://eudr.dev">eudr.dev</a> already runs on emem, issuing signed EU deforestation statements. Here is a real fact, exactly as the responder returned it:</p>
+    <p class="lede">Every answer carries a signature you can check in your own browser, with no callback to us. <a href="https://eudr.dev">eudr.dev</a> already runs on emem, issuing signed EU deforestation statements. Here is a real fact, exactly as the responder returned it:</p>
     <div class="fact">
       <div class="fact-head"><span class="dot"></span>signed fact &middot; verifiable offline</div>
       <div class="fact-grid">
@@ -645,20 +589,17 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="lane">
         <span class="verb">agents</span>
         <span class="title">Connect over MCP and ask.</span>
-        <span class="endpoint">https://emem.dev/mcp &middot; first tool: emem_ask</span>
-        <span class="desc">Point any MCP client at the endpoint. One call resolves a place, recalls the facts, and hands back a signed answer. <a href="/reference">Connect &rarr;</a></span>
+        <span class="desc">Point any MCP client at emem and ask in plain language. One call finds the place, recalls the facts, and hands back a signed answer. <a href="/reference">Connect &rarr;</a></span>
       </div>
       <div class="lane">
         <span class="verb">developers</span>
-        <span class="title">One REST call, and every receipt verifies.</span>
-        <span class="endpoint">POST /v1/recall &middot; /openapi.json</span>
-        <span class="desc">Locate &rarr; recall &rarr; verify. Plain HTTP, OpenAPI 3.1, signed receipts you can check offline. <a href="/reference">Read the API &rarr;</a></span>
+        <span class="title">One call, and every receipt verifies.</span>
+        <span class="desc">Plain HTTP and OpenAPI, signed answers you can check offline. Wire it into your stack in minutes. <a href="/reference">Read the API &rarr;</a></span>
       </div>
       <div class="lane">
         <span class="verb">organizations</span>
-        <span class="title">Signed evidence you can stand behind.</span>
-        <span class="endpoint">audit-grade &middot; bi-temporal</span>
-        <span class="desc">Prove what was true, and what you knew when &mdash; for compliance, MRV, and underwriting. <a href="/solutions">See deployments &rarr;</a></span>
+        <span class="title">Evidence you can stand behind.</span>
+        <span class="desc">Prove what was true, and what you knew when, for compliance, carbon, and underwriting. <a href="/solutions">See what people are building &rarr;</a></span>
       </div>
     </div>
   </div>
@@ -776,36 +717,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1200);
     });
   });
-
-  // Verified cached responses for the hero try-it. Only entries with verified
-  // CIDs and values from the live responder. No fabricated CIDs.
-  var responses = {
-    'South Mumbai': { cell: 'defi.zb4d7.ze56c.zf24c', lat: 18.975243, lng: 72.823966, band: 'copdem30m.elevation_mean', value: 10.0, unit: 'm', cid: '4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma' },
-    'Bengaluru':    { cell: 'defi.zb493.xuqA.zcb5f', lat: 12.971899, lng: 77.593665, band: 'copdem30m.elevation_mean', value: 918.0, unit: 'm', cid: 'yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala' }
-  };
-  function escapeHtml (s) { return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
-
-  // Compact hero try-it: leaner single-line result.
-  var hInput = document.getElementById('tryit-hero-place');
-  var hGo = document.getElementById('tryit-hero-go');
-  var hOut = document.getElementById('tryit-hero-result');
-  function runHero () {
-    if (!hInput || !hOut) return;
-    var q = hInput.value.trim();
-    var r = responses[q];
-    hOut.classList.remove('empty');
-    if (!r) {
-      hOut.innerHTML = '<span style="color:var(--absent)">no cached response for "'+escapeHtml(q)+'".</span> Only South Mumbai and Bengaluru are inlined (no fabricated fact_cids). See <a href="#proof">a real signed fact below</a> or call <span class="band">/v1/recall</span> for any place.';
-      return;
-    }
-    hOut.innerHTML =
-      '<span class="ok">200 OK</span> &middot; <span class="cell">'+r.cell+'</span> &middot; ' +
-      '<span class="band">'+r.band+'</span> = <b>'+r.value+'&nbsp;'+r.unit+'</b><br>' +
-      '<span style="color:var(--mute)">fact_cid</span> <span class="cid">'+r.cid+'</span> &middot; ' +
-      'verify at <a href="/verify/'+r.cid+'">/verify</a>';
-  }
-  if (hGo) hGo.addEventListener('click', runHero);
-  if (hInput) hInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') runHero(); });
 
   // Consent banner.
   var KEY='emem_consent', MAX_AGE=180*24*60*60;
