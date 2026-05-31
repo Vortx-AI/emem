@@ -2,18 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>emem — visual suite (32 diagrams)</title>
+<title>emem: visual suite (32 diagrams)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="color-scheme" content="light dark"/>
 <meta name="description" content="Thirty-two diagrams: the first ten describe the protocol, twenty are one-page industry pitches, and two cover the encoder split. Live renders at /docs/gallery."/>
 <link rel="canonical" href="https://emem.dev/docs/diagrams/"/>
 <meta property="og:type" content="website"/>
 <meta property="og:url" content="https://emem.dev/docs/diagrams/"/>
-<meta property="og:title" content="emem — 32 diagrams"/>
+<meta property="og:title" content="emem: 32 diagrams"/>
 <meta property="og:description" content="The protocol in ten figures, the deployment in twenty. Each SVG is byte-stable, embed-anywhere."/>
 <meta property="og:image" content="https://emem.dev/og-image.svg"/>
 <style>
-  /* Unified emem design tokens — light + dark via prefers-color-scheme,
+  /* Unified emem design tokens, light + dark via prefers-color-scheme,
      same palette as /, /demos, /humans, /gallery. */
   :root {
     --bg:   oklch(0.975 0.005 85);
@@ -87,14 +87,35 @@
   footer { padding: 24px 80px 64px; color: #6c7396; font-size: 13px; border-top: 1px solid var(--line); }
   footer a { color: var(--mut); text-decoration: none; }
   footer a:hover { color: var(--hi); }
+
+  /* ── theme parity: statusbar · Mithila frames · faded nav (matches /) ── */
+  body { font-family: 'JetBrains Mono', ui-monospace, SF Mono, Menlo, Consolas, monospace; }
+  .statusbar { position: sticky; top: 0; z-index: 50; background: var(--bg2); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); }
+  .statusbar-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; gap: 1rem; height: 42px; font-size: 12px; }
+  .statusbar .brand { font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: .5rem; padding-right: 1rem; border-right: 1px solid var(--line); }
+  .statusbar .brand img { width: 20px; height: 20px; }
+  .statusbar .spacer { flex: 1; }
+  .statusbar a { position: relative; color: var(--mut); text-decoration: none; opacity: .65; transition: opacity .18s, color .18s; }
+  .statusbar a:hover { opacity: 1; color: var(--ink); }
+  .statusbar a.on { opacity: 1; color: var(--acc1); }
+  .statusbar a.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -13px; height: 2px; background: var(--acc1); opacity: .85; }
+  figure { border-radius: 3px; box-shadow: 0 0 0 1px var(--bg), 0 0 0 2px var(--line); }
+  figure:hover { border-color: var(--acc1); }
+  figcaption .num { position: relative; padding-left: 14px; }
+  figcaption .num::before { content: ""; position: absolute; left: 0; top: 2px; width: 6px; height: 6px; background: var(--bg); border: 1px solid var(--acc1); opacity: .7; transform: rotate(45deg); }
+  h2.section::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 12px; background: var(--bg); border: 1px solid var(--acc1); opacity: .6; transform: rotate(45deg); vertical-align: middle; }
+  nav a { opacity: .65; }
+  nav a:hover, nav a.on { color: var(--acc1); opacity: 1; }
 </style>
+<link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 </head>
 <body>
+<div class="statusbar"><div class="statusbar-inner"><span class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</span><span class="spacer"></span><a href="/">home</a><a href="/how-it-works">how it works</a><a href="/solutions">solutions</a><a href="/reference">reference</a><a href="/docs" class="on">docs</a><a href="/verify">verify</a><a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a></div></div>
 <header>
-  <div class="crumbs"><a href="/">EMEM</a> · <a href="/docs">DOCS</a> · DIAGRAMS</div>
   <h1>the visual suite</h1>
   <p>Thirty-two diagrams. The first ten describe the protocol, the next twenty are
-     one-page pitches — one chart, one line — for the businesses, governments, and
+     one-page pitches, one chart, one line, for the businesses, governments, and
      industries deploying real AI agents in 2026, and the last two cover the
      encoder split. Each is a 16:9 SVG with calm motion; open any tile to see it
      full size. For live, signed renders of real cells, see
@@ -138,7 +159,7 @@
   <a href="#30">30 maritime</a>
 </nav>
 <main>
-  <h2 class="section">Protocol — what emem is</h2>
+  <h2 class="section">Protocol: what emem is</h2>
   <div class="grid">
 
     <figure id="01"><a href="01-architecture.svg">
@@ -164,7 +185,7 @@
       <figcaption>
         <div class="num">03 / 10 · REQUEST</div>
         <h2>anatomy of a recall</h2>
-        <p>A swimlane timeline of <code>POST /v1/recall</code> — warm path is ~2 ms; the cold-path branch shows the lazy materializer in dashed amber.</p>
+        <p>A swimlane timeline of <code>POST /v1/recall</code>, warm path is ~2 ms; the cold-path branch shows the lazy materializer in dashed amber.</p>
       </figcaption>
     </a></figure>
 
@@ -182,7 +203,7 @@
       <figcaption>
         <div class="num">05 / 10 · REASONING</div>
         <h2>fact → reasoning</h2>
-        <p>The shape of a signed fact in the LLM's context window. The agent reasons over the value but cites the CID — grounded and reproducible.</p>
+        <p>The shape of a signed fact in the LLM's context window. The agent reasons over the value but cites the CID, grounded and reproducible.</p>
       </figcaption>
     </a></figure>
 
@@ -209,7 +230,7 @@
       <figcaption>
         <div class="num">08 / 10 · TOPOLOGY</div>
         <h2>the decentralised way</h2>
-        <p>Many independent responders, the same registries, the same CIDs. Verification needs only the pubkey — no central anything.</p>
+        <p>Many independent responders, the same registries, the same CIDs. Verification needs only the pubkey, no central anything.</p>
       </figcaption>
     </a></figure>
 
@@ -233,7 +254,7 @@
 
   </div>
 
-  <h2 class="section">Industry — one chart, one line</h2>
+  <h2 class="section">Industry: one chart, one line</h2>
   <div class="grid">
 
     <figure id="11"><a href="11-insurance-pc.svg">
@@ -243,7 +264,7 @@
 
     <figure id="12"><a href="12-reinsurance-cat.svg">
       <object class="frame" type="image/svg+xml" data="12-reinsurance-cat.svg" aria-label="reinsurance cat modeling"><img src="12-reinsurance-cat.svg" alt="reinsurance cat modeling" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">12 / 30 · INSURANCE · CAT</div><h2>reinsurance &amp; cat models</h2><p>Three vendors, three AALs — until they cite the same CIDs and the cone closes around treaty pricing.</p></figcaption>
+      <figcaption><div class="num">12 / 30 · INSURANCE · CAT</div><h2>reinsurance &amp; cat models</h2><p>Three vendors, three AALs, until they cite the same CIDs and the cone closes around treaty pricing.</p></figcaption>
     </a></figure>
 
     <figure id="13"><a href="13-parametric-insurance.svg">
@@ -253,7 +274,7 @@
 
     <figure id="14"><a href="14-csrd-disclosure.svg">
       <object class="frame" type="image/svg+xml" data="14-csrd-disclosure.svg" aria-label="CSRD ESRS E1 disclosure"><img src="14-csrd-disclosure.svg" alt="CSRD ESRS E1 disclosure" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">14 / 30 · DISCLOSURE · CSRD</div><h2>climate disclosure</h2><p>From a 200-page ESRS E1 filing to a 26-character handle in four hops — limited assurance ready by default.</p></figcaption>
+      <figcaption><div class="num">14 / 30 · DISCLOSURE · CSRD</div><h2>climate disclosure</h2><p>From a 200-page ESRS E1 filing to a 26-character handle in four hops, limited assurance ready by default.</p></figcaption>
     </a></figure>
 
     <figure id="15"><a href="15-defense-geoint.svg">
@@ -268,7 +289,7 @@
 
     <figure id="17"><a href="17-urban-planning.svg">
       <object class="frame" type="image/svg+xml" data="17-urban-planning.svg" aria-label="urban planning"><img src="17-urban-planning.svg" alt="urban planning" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">17 / 30 · GOVERNMENT · CITY</div><h2>urban planning</h2><p>A planning permit a citizen can audit on their phone — every cited number has a public, durable address.</p></figcaption>
+      <figcaption><div class="num">17 / 30 · GOVERNMENT · CITY</div><h2>urban planning</h2><p>A planning permit a citizen can audit on their phone, every cited number has a public, durable address.</p></figcaption>
     </a></figure>
 
     <figure id="18"><a href="18-land-registry.svg">
@@ -293,7 +314,7 @@
 
     <figure id="22"><a href="22-real-estate.svg">
       <object class="frame" type="image/svg+xml" data="22-real-estate.svg" aria-label="real estate due diligence"><img src="22-real-estate.svg" alt="real estate due diligence" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">22 / 30 · INDUSTRY · CRE</div><h2>real estate &amp; REITs</h2><p>An OM page the lender can re-verify the night before close — every claim about the parcel has a 26-character handle.</p></figcaption>
+      <figcaption><div class="num">22 / 30 · INDUSTRY · CRE</div><h2>real estate &amp; REITs</h2><p>An OM page the lender can re-verify the night before close, every claim about the parcel has a 26-character handle.</p></figcaption>
     </a></figure>
 
     <figure id="23"><a href="23-mining-exploration.svg">
@@ -303,7 +324,7 @@
 
     <figure id="24"><a href="24-pipeline-monitoring.svg">
       <object class="frame" type="image/svg+xml" data="24-pipeline-monitoring.svg" aria-label="pipeline monitoring"><img src="24-pipeline-monitoring.svg" alt="pipeline monitoring" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">24 / 30 · INDUSTRY · MIDSTREAM</div><h2>pipeline monitoring</h2><p>An alert that argues for itself — the alert IS the evidence bundle, signed at the moment of attest.</p></figcaption>
+      <figcaption><div class="num">24 / 30 · INDUSTRY · MIDSTREAM</div><h2>pipeline monitoring</h2><p>An alert that argues for itself, the alert IS the evidence bundle, signed at the moment of attest.</p></figcaption>
     </a></figure>
 
     <figure id="25"><a href="25-renewable-siting.svg">
@@ -313,12 +334,12 @@
 
     <figure id="26"><a href="26-grid-resilience.svg">
       <object class="frame" type="image/svg+xml" data="26-grid-resilience.svg" aria-label="grid resilience"><img src="26-grid-resilience.svg" alt="grid resilience" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">26 / 30 · INDUSTRY · UTILITIES</div><h2>grid resilience</h2><p>When the inquiry asks "what did you know and when," you point to the cid. Vegetation, wildfire, surge — daily.</p></figcaption>
+      <figcaption><div class="num">26 / 30 · INDUSTRY · UTILITIES</div><h2>grid resilience</h2><p>When the inquiry asks "what did you know and when," you point to the cid. Vegetation, wildfire, surge, daily.</p></figcaption>
     </a></figure>
 
     <figure id="27"><a href="27-precision-agriculture.svg">
       <object class="frame" type="image/svg+xml" data="27-precision-agriculture.svg" aria-label="precision agriculture"><img src="27-precision-agriculture.svg" alt="precision agriculture" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">27 / 30 · LAND · PRECISION AG</div><h2>precision agriculture</h2><p>Per-zone math the input brand can audit and the bank can underwrite — per-pixel facts behind every spray pass.</p></figcaption>
+      <figcaption><div class="num">27 / 30 · LAND · PRECISION AG</div><h2>precision agriculture</h2><p>Per-zone math the input brand can audit and the bank can underwrite, per-pixel facts behind every spray pass.</p></figcaption>
     </a></figure>
 
     <figure id="28"><a href="28-forestry-timber.svg">
@@ -333,7 +354,7 @@
 
     <figure id="30"><a href="30-maritime-ports.svg">
       <object class="frame" type="image/svg+xml" data="30-maritime-ports.svg" aria-label="maritime ports"><img src="30-maritime-ports.svg" alt="maritime ports" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">30 / 30 · INDUSTRY · MARITIME</div><h2>maritime &amp; ports</h2><p>A pilot, a port authority, and an underwriter — looking at the same byte. Bathymetry, AIS, tide, surge, signed.</p></figcaption>
+      <figcaption><div class="num">30 / 30 · INDUSTRY · MARITIME</div><h2>maritime &amp; ports</h2><p>A pilot, a port authority, and an underwriter, looking at the same byte. Bathymetry, AIS, tide, surge, signed.</p></figcaption>
     </a></figure>
 
   </div>
@@ -347,5 +368,6 @@
   <a href="/spec.md">protocol</a> ·
   <a href="https://emem.dev">emem.dev</a>
 </footer>
+<script>(function(){var l={};document.querySelectorAll('nav a[href^="#"]').forEach(function(a){l[a.getAttribute("href").slice(1)]=a;});var s=Object.keys(l).map(function(id){return document.getElementById(id);}).filter(Boolean);if("IntersectionObserver" in window&&s.length){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){Object.keys(l).forEach(function(id){l[id].classList.toggle("on",id===e.target.id);});}});},{rootMargin:"-30% 0px -60% 0px"});s.forEach(function(x){io.observe(x);});}})();</script>
 </body>
 </html>
