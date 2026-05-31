@@ -17,7 +17,7 @@ emem-intent     = { workspace = true }
 emem-mcp        = { workspace = true }
 emem-fetch      = { workspace = true }
 axum            = { workspace = true }
-tower           = { workspace = true }
+tower           = { workspace = true, features = ["limit", "load-shed"] }
 tower-http      = { workspace = true }
 tokio           = { workspace = true }
 tokio-stream    = { workspace = true }

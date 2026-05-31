@@ -683,7 +683,6 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/.well-known/security.txt", get(serve_security_txt))
         // Well-known
-        .route("/health", get(health))
         .route("/.well-known/emem.json", get(well_known))
         .route("/.well-known/ai-plugin.json", get(ai_plugin))
         .route("/.well-known/agent.json", get(agent_manifest))
@@ -1039,7 +1038,6 @@ pub fn router(state: AppState) -> Router {
             "/v1/temporal_route",
             post(post_temporal_route).get(get_temporal_route),
         )
-        .route("/metrics", get(metrics))
         .route("/mcp", get(mcp_discover).post(mcp_jsonrpc))
         // A2A v1.2 Task adapter — accepts either a strict A2A JSON-RPC
         // `message/send` envelope or the friendlier `{skill, args}` shape,
@@ -1053,7 +1051,39 @@ pub fn router(state: AppState) -> Router {
         // axum's default empty 404 left agents with no typed error to
         // route on.
         .fallback(serve_404)
-        // Order: outermost wraps innermost. Trace first so spans see everything.
+        // Global concurrency backpressure. On 2026-05-31 a handful of slow
+        // cold-materialise requests under light concurrency wedged the whole
+        // process: each held its connection for the full boring budget,
+        // sockets piled into CLOSE-WAIT, and the :443 accept backlog (128)
+        // saturated so even `/health` stopped answering for 12+ minutes. A
+        // bare `ConcurrencyLimitLayer` would back-pressure (NotReady) and let
+        // connections keep queuing into that same backlog;
+        // `GlobalConcurrencyLimitLayer` shares ONE semaphore across the
+        // per-connection service clones, and `LoadShedLayer` turns "over
+        // capacity" into an immediate error instead of a queue — so the
+        // (N+1)th in-flight request returns a fast 503 and frees its socket
+        // rather than holding it. `HandleErrorLayer` maps that shed error to a
+        // typed 503 JSON envelope. Cap via EMEM_MAX_INFLIGHT (default 128).
+        //
+        // Applied HERE — before the liveness routes below — so it gates only
+        // the heavy routes added above it. axum only wraps routes that exist
+        // when a layer is added, so `/health` and `/metrics`, registered just
+        // after this, are never shed: a liveness or metrics-scrape probe
+        // always answers even when the heavy-request pool is saturated.
+        .layer(
+            tower::ServiceBuilder::new()
+                .layer(axum::error_handling::HandleErrorLayer::new(handle_overload))
+                .layer(tower::load_shed::LoadShedLayer::new())
+                .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
+                    max_inflight(),
+                )),
+        )
+        // Liveness + metrics: exempt from the concurrency limit above (added
+        // after it) but still under every shared layer below.
+        .route("/health", get(health))
+        .route("/metrics", get(metrics))
+        // Shared layers wrap everything (heavy routes + liveness).
+        // Order: outermost wraps innermost.
         .layer(axum::middleware::from_fn(security_headers_layer))
         .layer(axum::middleware::from_fn(rate_limit_layer))
         .layer(axum::middleware::from_fn(cors_layer))
@@ -1108,6 +1138,55 @@ fn timeout_seconds() -> u64 {
         .and_then(|s| s.parse().ok())
         .unwrap_or(180u64)
         .clamp(1, 600)
+}
+
+/// Maximum number of requests allowed in flight across the whole process
+/// at once. The (N+1)th request is shed with a fast 503 (see the
+/// `GlobalConcurrencyLimitLayer` + `LoadShedLayer` in `build_router`)
+/// instead of queuing into the OS accept backlog and holding a socket.
+/// Defaults to 128; tunable via `EMEM_MAX_INFLIGHT` (clamped 8..=4096).
+/// Set high to effectively disable shedding.
+fn max_inflight() -> usize {
+    std::env::var("EMEM_MAX_INFLIGHT")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(128)
+        .clamp(8, 4096)
+}
+
+/// Error handler for the load-shed / concurrency-limit layer. The only
+/// error that reaches here is `tower`'s `Overloaded` (emitted when the
+/// global in-flight semaphore is exhausted); anything else is mapped to a
+/// generic 500. Returns the canonical `emem.error.v1` envelope so agents
+/// can route on `code` the same way they do for every other typed error.
+async fn handle_overload(err: axum::BoxError) -> Response {
+    if err.is::<tower::load_shed::error::Overloaded>() {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(axum::http::header::RETRY_AFTER, "1")],
+            Json(json!({
+                "schema":  "emem.error.v1",
+                "code":    "overloaded",
+                "message": format!(
+                    "server is at its in-flight request limit ({}); retry shortly. \
+                     This is backpressure, not an outage — the request was shed \
+                     immediately rather than queued. Tune EMEM_MAX_INFLIGHT to raise the cap.",
+                    max_inflight()
+                ),
+            })),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "schema":  "emem.error.v1",
+                "code":    "internal",
+                "message": format!("unhandled service error: {err}"),
+            })),
+        )
+            .into_response()
+    }
 }
 
 /// Per-upstream materializer fetch timeout. Defaults to **30 s**; tunable
@@ -6054,6 +6133,30 @@ async fn recall_with_auto_materialize(
     Ok((resp, materialize_notes))
 }
 
+/// Would `recall_with_auto_materialize` need an upstream fetch for this
+/// cell? Mirrors the candidate-selection logic inside that function: with
+/// explicit bands, a cell is cold if any requested band is absent from the
+/// cache-only recall; with no bands, a cell is cold only if it has no facts
+/// at all. Used by the boring fan-out to classify warm vs cold cells from a
+/// cheap first pass so it can cap how many cold cells it materialises.
+/// `req_bands` must already be canonicalised (post `resolve_band_name`).
+fn cell_needs_materialize(resp: &RecallResp, req_bands: Option<&[String]>) -> bool {
+    match req_bands {
+        Some(b) if !b.is_empty() => {
+            let present: std::collections::HashSet<&str> = resp
+                .facts
+                .iter()
+                .filter_map(|f| match f {
+                    emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
+                    _ => None,
+                })
+                .collect();
+            b.iter().any(|band| !present.contains(band.as_str()))
+        }
+        _ => resp.facts.is_empty(),
+    }
+}
+
 async fn get_cell(
     State(s): State<AppState>,
     Path(cell64): Path<String>,
@@ -6155,6 +6258,53 @@ async fn post_recall(
     req.cell = cell;
     let (resp, materialize_notes) = recall_with_auto_materialize(&req, &s).await?;
 
+    // Distinguish an unknown/mistyped band from a valid-but-empty one
+    // (`s2.ndvi` — the canonical is `indices.ndvi` — used to return
+    // `facts:[]` identical to a real empty band). A band is flagged
+    // "unknown" only when it is BOTH absent from the registry AND returned
+    // no facts, so a band carrying real data (attested, algorithm-written)
+    // is never falsely flagged. Purely additive: known bands untouched. A
+    // request where EVERY band is unknown is a 400 (nothing could match).
+    let unknown_bands: Vec<String> = match req.bands.as_ref() {
+        Some(bands) if !bands.is_empty() => {
+            let present: std::collections::HashSet<String> = resp
+                .facts
+                .iter()
+                .filter_map(|f| match f {
+                    emem_fact::Fact::Primary(p) => Some(p.band.clone()),
+                    emem_fact::Fact::Absence(a) => Some(a.band.clone()),
+                    _ => None,
+                })
+                .collect();
+            bands
+                .iter()
+                .filter(|b| {
+                    let canon = resolve_band_name(b);
+                    tempo_for_band(&canon).is_none() && !present.contains(&canon)
+                })
+                .cloned()
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    if let Some(bands) = req.bands.as_ref() {
+        if !bands.is_empty() && unknown_bands.len() == bands.len() {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::BandNotInRegistry,
+                    message: format!(
+                        "none of the requested bands are known to this responder: {}. \
+                         Call /v1/bands (or emem_bands) for the catalog. Common mix-up: the \
+                         canonical NDVI band is `indices.ndvi`, not `s2.ndvi`.",
+                        unknown_bands.join(", ")
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
+
     // ETag derivation: blake3 of the sorted fact_cids list. Facts are
     // content-addressed and immutable, so the same recall on the same cell
     // with the same band/tslot filter returns the same ETag bit-exactly.
@@ -6209,6 +6359,11 @@ async fn post_recall(
             }
             if let Some(env) = resolved_env {
                 map.insert("resolved_from".into(), env);
+            }
+            // Surface mistyped/unknown bands so an empty result is never
+            // ambiguous between "wrong band name" and "empty place".
+            if !unknown_bands.is_empty() {
+                map.insert("unknown_bands".into(), json!(unknown_bands));
             }
             // Full chain-of-custody triple at the envelope level. The
             // receipt already pins `registry_cid` (function registry)
@@ -8031,16 +8186,35 @@ async fn boring_recall_aggregated(
         prewarm_polygon_static_cog_bands(bands, polygon.bbox).await;
     }
 
-    // Fan out per-cell recalls concurrently. Without this a 16-cell
-    // cold polygon = 16 sequential Open-Meteo / met.no fetches → 8-15s
-    // per request. Mirrors commit 29f02e6 (parallel temporal recipes).
+    // Fan out per-cell recalls in TWO phases so a cold polygon can never
+    // hold the connection past the boring budget — the 2026-05-31 outage
+    // was abandoned cold-materialise requests leaking CLOSE-WAIT sockets
+    // until the :443 accept backlog saturated.
+    //
+    //   Phase 1 (cheap, every cell): a cache-only `recall`. Warm cells —
+    //   all requested bands already stored — finish here with zero upstream
+    //   traffic, so the common case (re-querying a known place) stays fast.
+    //
+    //   Phase 2 (bounded): materialise at most `boring_cold_cap()` of the
+    //   still-cold cells from upstream. Cold cells beyond the cap keep their
+    //   empty phase-1 result and surface as `cold_cells_skipped` — the
+    //   aggregate is then honestly `partial` rather than silently sampling
+    //   fewer cells (and the caller can lower n_cells, re-query to warm
+    //   more, or query a specific cell for full coverage).
     type CellRecall = (String, Result<(RecallResp, Vec<JsonValue>), ApiError>);
-    let mut set: tokio::task::JoinSet<CellRecall> = tokio::task::JoinSet::new();
     let bands_for_recall: Option<Vec<String>> = if bands.is_empty() {
         None
     } else {
-        Some(bands.to_vec())
+        Some(bands.iter().map(|b| resolve_band_name(b)).collect())
     };
+
+    let mut per_cell: Vec<(String, RecallResp)> = Vec::with_capacity(cells.len());
+    let mut materialize_notes_all: Vec<JsonValue> = Vec::new();
+    let mut errors: Vec<JsonValue> = Vec::new();
+
+    // Phase 1: cache-only classification (no materialisation).
+    let mut p1: tokio::task::JoinSet<(String, Result<RecallResp, ApiError>)> =
+        tokio::task::JoinSet::new();
     for cell in &cells {
         let req = RecallReq {
             cell: cell.clone(),
@@ -8050,15 +8224,52 @@ async fn boring_recall_aggregated(
         };
         let cell = cell.clone();
         let s = state.clone();
-        set.spawn(async move {
+        p1.spawn(async move {
+            let r = recall(&req, &s).await.map_err(ApiError::from);
+            (cell, r)
+        });
+    }
+    let mut cold: Vec<String> = Vec::new();
+    while let Some(j) = p1.join_next().await {
+        if let Ok((cell, r)) = j {
+            match r {
+                Ok(resp) => {
+                    if cell_needs_materialize(&resp, bands_for_recall.as_deref()) {
+                        cold.push(cell);
+                    } else {
+                        per_cell.push((cell, resp));
+                    }
+                }
+                Err(e) => errors.push(json!({
+                    "cell": cell,
+                    "code": e.1.code,
+                    "message": e.1.message,
+                    "status": e.0.as_u16(),
+                })),
+            }
+        }
+    }
+
+    // Phase 2: bounded materialisation of the cold cells.
+    let cold_cap = boring_cold_cap();
+    let cold_cells_skipped = cold.len().saturating_sub(cold_cap);
+    let to_materialize: Vec<String> = cold.into_iter().take(cold_cap).collect();
+    let mut p2: tokio::task::JoinSet<CellRecall> = tokio::task::JoinSet::new();
+    for cell in &to_materialize {
+        let req = RecallReq {
+            cell: cell.clone(),
+            bands: bands_for_recall.clone(),
+            tslot,
+            ..Default::default()
+        };
+        let cell = cell.clone();
+        let s = state.clone();
+        p2.spawn(async move {
             let r = recall_with_auto_materialize(&req, &s).await;
             (cell, r)
         });
     }
-    let mut per_cell: Vec<(String, RecallResp)> = Vec::with_capacity(cells.len());
-    let mut materialize_notes_all: Vec<JsonValue> = Vec::new();
-    let mut errors: Vec<JsonValue> = Vec::new();
-    while let Some(j) = set.join_next().await {
+    while let Some(j) = p2.join_next().await {
         if let Ok((cell, r)) = j {
             match r {
                 Ok((resp, notes)) => {
@@ -8438,6 +8649,23 @@ async fn boring_recall_aggregated(
         map.insert("partial".into(), json!(partial));
         map.insert("coverage_fraction".into(), json!(coverage_fraction));
         map.insert("is_exhaustive".into(), json!(false));
+        // Honesty: when the cold-cell cap stopped us materialising every
+        // cold cell this request (the latency guard added after the
+        // 2026-05-31 outage), say so explicitly. The skipped cells are
+        // already counted as missing above (so `partial` is true); this
+        // note tells the agent WHY — capped for latency, not empty-place.
+        if cold_cells_skipped > 0 {
+            map.insert("cold_cells_skipped".into(), json!(cold_cells_skipped));
+            map.insert(
+                "cold_cells_skipped_note".into(),
+                json!(format!(
+                    "{cold_cells_skipped} cold cell(s) were not materialised this request to \
+                     stay within the latency budget (EMEM_BORING_COLD_CAP={cold_cap}). They are \
+                     counted as missing in the aggregate, so `partial` is true. Re-query to warm \
+                     more, lower n_cells, or query a specific cell for guaranteed coverage."
+                )),
+            );
+        }
         // Honesty: when a per-endpoint fan-out cap truncated the polygon
         // sample (e.g. SoilGrids per-POINT API), say so explicitly so the
         // caller doesn't read the aggregate as covering the whole feature.
@@ -8875,14 +9103,37 @@ const DEFAULT_AT_BANDS: &[&str] = &[
 ];
 
 /// Overall boring-endpoint wall-clock budget, in seconds, from
-/// `EMEM_BORING_TIMEOUT_SECS` (default 60, clamped 5..=120). Single
+/// `EMEM_BORING_TIMEOUT_SECS` (default 25, clamped 5..=120). Single
 /// source of truth so every boring handler picks the same value.
+/// Lowered 60→25 on 2026-05-31: a 60 s hold per request is what let
+/// abandoned cold-materialise requests pile sockets into CLOSE-WAIT and
+/// saturate the accept backlog (see the outage note in `build_router`).
+/// The cold-cell cap in `boring_recall_aggregated` (EMEM_BORING_COLD_CAP)
+/// keeps a request inside this budget by materialising at most a handful
+/// of cold cells and returning the rest as an honest `partial` note,
+/// rather than racing the deadline.
 fn boring_budget_secs() -> u64 {
     std::env::var("EMEM_BORING_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(60u64)
+        .unwrap_or(25u64)
         .clamp(5, 120)
+}
+
+/// Maximum number of *cold* (not-yet-materialised) cells a single boring
+/// fan-out will materialise from upstream before it stops and returns the
+/// warm cells it already has, plus an honest `cold_cells_skipped` note.
+/// Warm cells (cache hits) are never capped — only the slow upstream
+/// fetches are. Defaults to 8; tunable via `EMEM_BORING_COLD_CAP`
+/// (clamped 1..=512). This is the lever that keeps a boring request inside
+/// `boring_budget_secs` so it never holds a connection long enough to leak
+/// CLOSE-WAIT sockets. Set high to restore the old unbounded behaviour.
+fn boring_cold_cap() -> usize {
+    std::env::var("EMEM_BORING_COLD_CAP")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(8)
+        .clamp(1, 512)
 }
 
 /// Wrap an async boring-endpoint body in the EMEM_BORING_TIMEOUT_SECS
@@ -9560,6 +9811,15 @@ struct FieldBoundariesReq {
     /// boundaries but more tiles per query (capped internally at 16).
     #[serde(default)]
     zoom: Option<u8>,
+    /// Maximum number of field polygons to return in `geojson`. A wide
+    /// place (e.g. a whole agricultural state) can hold 100k+ fields and
+    /// a 100+ MB response will OOM or time out most clients, so the
+    /// returned features are capped (default 10000). When the cap bites,
+    /// `truncated:true` and `count` still reports the true total so the
+    /// caller knows to narrow the bbox. Tunable per request; clamped
+    /// 1..=200000.
+    #[serde(default)]
+    max_features: Option<usize>,
 }
 
 /// `POST /v1/field_boundaries` — fetch FTW agricultural field polygons
@@ -9675,6 +9935,21 @@ async fn post_field_boundaries(
                 },
             )
         })?;
+    // Cap the returned feature count so a wide place (100k+ fields,
+    // 100+ MB) can't OOM or time out the client. `count` below still
+    // reports the true total; `truncated` flags when the geojson holds
+    // fewer features than that total.
+    let cap = req.max_features.unwrap_or(10_000).clamp(1, 200_000);
+    let mut geojson = emem_fetch::ftw::to_geojson_feature_collection(&coll);
+    let mut truncated = false;
+    let mut returned = coll.count;
+    if let Some(feats) = geojson.get_mut("features").and_then(|f| f.as_array_mut()) {
+        if feats.len() > cap {
+            feats.truncate(cap);
+            truncated = true;
+        }
+        returned = feats.len();
+    }
     Ok(Json(json!({
         "schema": "emem.field_boundaries.v1",
         "place": req.place,
@@ -9685,6 +9960,9 @@ async fn post_field_boundaries(
             "min_lng": bbox.2, "max_lng": bbox.3,
         },
         "count": coll.count,
+        "returned": returned,
+        "truncated": truncated,
+        "max_features": cap,
         "total_area_m2": coll.total_area_m2,
         "zoom_used": coll.zoom_used,
         "tiles_read": coll.tiles_read.iter().map(|(z, x, y)| json!([*z, *x, *y])).collect::<Vec<_>>(),
@@ -9692,8 +9970,18 @@ async fn post_field_boundaries(
         "provider_url": coll.provider_url,
         "license": coll.license,
         "attribution": coll.attribution,
-        "geojson": emem_fetch::ftw::to_geojson_feature_collection(&coll),
-        "agent_hint": "Per-field agricultural boundaries from Fields of The World (https://fieldsofthe.world). Quote `attribution` and `license` alongside any rendered map. For per-cell recall over the same farm, call POST /v1/recall_polygon with the same polygon_bbox plus `include: [\"ftw_fields\"]` to get both layers in one envelope.",
+        "geojson": geojson,
+        "agent_hint": if truncated {
+            "Per-field agricultural boundaries from Fields of The World (https://fieldsofthe.world). \
+             This response was TRUNCATED to `max_features` polygons — `count` is the true total. \
+             Narrow `polygon_bbox` (or raise `max_features`) for full coverage. Quote `attribution` \
+             and `license` alongside any rendered map."
+        } else {
+            "Per-field agricultural boundaries from Fields of The World (https://fieldsofthe.world). \
+             Quote `attribution` and `license` alongside any rendered map. For per-cell recall over \
+             the same farm, call POST /v1/recall_polygon with the same polygon_bbox plus \
+             `include: [\"ftw_fields\"]` to get both layers in one envelope."
+        },
     })))
 }
 
@@ -10641,10 +10929,31 @@ async fn post_trajectory(
     req.cell = cell;
     let resp = trajectory(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
-    Ok(Json(attach_resolved(
-        serde_json::to_value(resp).unwrap_or(json!({})),
-        env,
-    )))
+    let mut v = serde_json::to_value(resp).unwrap_or(json!({}));
+    // Flag an unknown/mistyped band so an empty series isn't ambiguous
+    // between "wrong band name" and "no data in this window" (same fix as
+    // /v1/recall). Only flagged when the band is absent from the registry
+    // AND the series came back empty.
+    let canon = resolve_band_name(&req.band);
+    let series_empty = v
+        .get("series")
+        .and_then(|x| x.as_array())
+        .map(|a| a.is_empty())
+        .unwrap_or(true);
+    if tempo_for_band(&canon).is_none() && series_empty {
+        if let Some(map) = v.as_object_mut() {
+            map.insert("unknown_band".into(), json!(req.band));
+            map.insert(
+                "warning".into(),
+                json!(format!(
+                    "band '{}' is not in the registry and returned no series. Call /v1/bands \
+                     (or emem_bands) for the catalog; the canonical NDVI band is `indices.ndvi`.",
+                    req.band
+                )),
+            );
+        }
+    }
+    Ok(Json(attach_resolved(v, env)))
 }
 
 /// `POST /v1/memory_contradictions` — scan the multi-attester index
@@ -11216,6 +11525,14 @@ struct VerifyReceiptReq {
     /// rotated-out key. Audit finding F5.
     #[serde(default)]
     current_responder_epoch: Option<u32>,
+    /// Optional: the fact value(s) the caller intends to rely on. When
+    /// present, each is content-addressed and checked for membership in the
+    /// receipt's `fact_cids` — so a genuine receipt presented next to a
+    /// tampered fact does NOT verify (`valid:false`, `reason:"fact_mismatch"`).
+    /// Previously this field was silently dropped and a doctored fact passed
+    /// alongside a real receipt returned `valid:true` (a false-assurance hole).
+    #[serde(default)]
+    facts: Option<Vec<emem_fact::Fact>>,
 }
 
 async fn post_verify_receipt(
@@ -11357,7 +11674,53 @@ async fn post_verify_receipt(
         )
     })?;
     let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
-    let valid = pk.verify_strict(msg.as_bytes(), &sig).is_ok();
+    let signature_valid = pk.verify_strict(msg.as_bytes(), &sig).is_ok();
+
+    // ── Trust fix (2026-05-31): when the caller passes the `facts` they
+    // intend to rely on, do NOT treat the receipt's signature as blanket
+    // assurance for them. Recompute each supplied fact's content id and
+    // require it to be one the receipt actually signs. A genuine receipt
+    // presented next to a tampered fact must NOT verify — previously `facts`
+    // was dropped by serde and a doctored value passed as `valid:true`.
+    let receipt_cids: std::collections::HashSet<&str> =
+        r.fact_cids.iter().map(|c| c.as_str()).collect();
+    let mut facts_check: Vec<JsonValue> = Vec::new();
+    let mut facts_match = true;
+    if let Some(supplied) = req.facts.as_ref() {
+        for f in supplied {
+            match emem_cache::sled_hot::fact_cid_of(f) {
+                Ok(cid) => {
+                    let in_receipt = receipt_cids.contains(cid.as_str());
+                    if !in_receipt {
+                        facts_match = false;
+                    }
+                    facts_check.push(json!({
+                        "computed_fact_cid": cid.0,
+                        "in_receipt":        in_receipt,
+                    }));
+                }
+                Err(e) => {
+                    facts_match = false;
+                    facts_check.push(json!({
+                        "computed_fact_cid": JsonValue::Null,
+                        "in_receipt":        false,
+                        "error":             format!("could not content-address fact: {e}"),
+                    }));
+                }
+            }
+        }
+    }
+    // The receipt may be genuine while the supplied fact is not the one it
+    // attests — surface both, but `valid` (what a naive caller reads) is
+    // true only when the signature holds AND every supplied fact matches.
+    let valid = signature_valid && facts_match;
+    let reason: Option<&str> = if !signature_valid {
+        Some("signature_invalid")
+    } else if !facts_match {
+        Some("fact_mismatch")
+    } else {
+        None
+    };
 
     // ── F4: re-walk the merkle path the storage layer recorded for
     // `fact_cids[0]` and confirm it terminates at the declared root.
@@ -11440,6 +11803,12 @@ async fn post_verify_receipt(
 
     Ok(Json(json!({
         "valid": valid,
+        "reason": reason,
+        "signature_valid": signature_valid,
+        // null when no facts were supplied to check; bool otherwise.
+        "facts_match": req.facts.as_ref().map(|_| facts_match),
+        "facts_supplied": req.facts.as_ref().map(|f| f.len()).unwrap_or(0),
+        "facts_check": facts_check,
         "signer_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&pk_bytes).to_lowercase(),
         "preimage_blake3_hex": msg.to_hex().to_string(),
         "primitive": r.primitive,
@@ -39275,6 +39644,27 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // signal the resolver layer provides (population for the embedded
     // GeoNames tier, importance for the Photon / Nominatim tier).
     let mut disambiguation_required = false;
+    // Reject out-of-range coordinates instead of silently clamping/wrapping
+    // (a `{lat:120}` used to resolve to lat 90 with no warning — a silent
+    // fallback). Same guard the boring endpoints already apply.
+    if let (Some(la), Some(lo)) = (req.lat, req.lng) {
+        if !la.is_finite()
+            || !lo.is_finite()
+            || !(-90.0..=90.0).contains(&la)
+            || !(-180.0..=180.0).contains(&lo)
+        {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "coordinates out of range: lat must be in [-90,90] and lng in [-180,180], got lat={la}, lng={lo}"
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
     let (lat, lng, label) = match (req.lat, req.lng, req.place.as_deref()) {
         (Some(la), Some(lo), _) => (la, lo, None),
         (_, _, Some(p)) if !p.is_empty() => {
@@ -45290,6 +45680,7 @@ mod tests {
             receipt,
             pubkey_b32: None,
             current_responder_epoch: None,
+            facts: None,
         };
         let v = post_verify_receipt(State(s.clone()), Ok(Json(req)))
             .await
@@ -45299,6 +45690,67 @@ mod tests {
             v.get("valid").and_then(|x| x.as_bool()),
             Some(true),
             "memory-file receipt must verify against the responder pubkey: {v:?}"
+        );
+
+        // Regression (2026-05-31 trust fix): a genuine receipt presented
+        // alongside a fact it does NOT attest must NOT verify. Pre-fix the
+        // `facts` field was dropped by serde and a doctored fact returned
+        // `valid:true`. Build a fact whose CID can't be in this receipt.
+        let receipt2: emem_fact::Receipt =
+            serde_json::from_value(resp.get("receipt").cloned().expect("receipt"))
+                .expect("receipt deserialises");
+        let bogus = emem_fact::Fact::Primary(emem_fact::PrimaryFact {
+            cell: "defi.zb4d9.pefa.zf619".into(),
+            band: "copdem30m.elevation_mean".into(),
+            tslot: 0,
+            value: ciborium::Value::Float(123.0),
+            unit: Some("m".into()),
+            confidence: 0.95,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "test.bogus".into(),
+                id: "test".into(),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+            signer: s.identity.pubkey,
+            signed_at: "2026-05-31T00:00:00Z".into(),
+            served_via: None,
+        });
+        let v_tampered = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: receipt2,
+                pubkey_b32: None,
+                current_responder_epoch: None,
+                facts: Some(vec![bogus]),
+            })),
+        )
+        .await
+        .map_err(|e| format!("verify tampered: {} {}", e.0, e.1.message))
+        .unwrap();
+        assert_eq!(
+            v_tampered.get("valid").and_then(|x| x.as_bool()),
+            Some(false),
+            "a fact not attested by the receipt must fail verification: {v_tampered:?}"
+        );
+        assert_eq!(
+            v_tampered.get("reason").and_then(|x| x.as_str()),
+            Some("fact_mismatch"),
+            "reason must be fact_mismatch: {v_tampered:?}"
+        );
+        assert_eq!(
+            v_tampered.get("signature_valid").and_then(|x| x.as_bool()),
+            Some(true),
+            "the receipt signature itself is still genuine: {v_tampered:?}"
         );
     }
 
@@ -45960,6 +46412,7 @@ mod tests {
             receipt: bundle.receipt.clone(),
             pubkey_b32: None,
             current_responder_epoch: None,
+            facts: None,
         };
         let v = post_verify_receipt(State(s.clone()), Ok(Json(vreq)))
             .await
@@ -46141,6 +46594,7 @@ mod tests {
                 receipt,
                 pubkey_b32: None,
                 current_responder_epoch: None,
+                facts: None,
             })),
         )
         .await
@@ -46209,6 +46663,7 @@ mod tests {
                 receipt,
                 pubkey_b32: None,
                 current_responder_epoch: None,
+                facts: None,
             })),
         )
         .await
@@ -46325,6 +46780,7 @@ mod tests {
                 receipt,
                 pubkey_b32: None,
                 current_responder_epoch: None,
+                facts: None,
             })),
         )
         .await
@@ -46411,6 +46867,7 @@ mod tests {
                     receipt: r,
                     pubkey_b32: None,
                     current_responder_epoch: None,
+                    facts: None,
                 })),
             )
             .await
@@ -46439,6 +46896,7 @@ mod tests {
                 receipt: tampered,
                 pubkey_b32: None,
                 current_responder_epoch: None,
+                facts: None,
             })),
         )
         .await
@@ -46473,6 +46931,7 @@ mod tests {
                 receipt: r.clone(),
                 pubkey_b32: None,
                 current_responder_epoch: None,
+                facts: None,
             })),
         )
         .await
@@ -46496,6 +46955,7 @@ mod tests {
                 receipt: r,
                 pubkey_b32: None,
                 current_responder_epoch: None,
+                facts: None,
             })),
         )
         .await
@@ -46532,6 +46992,7 @@ mod tests {
                 receipt: r.clone(),
                 pubkey_b32: None,
                 current_responder_epoch: Some(signing_epoch),
+                facts: None,
             })),
         )
         .await
@@ -46555,6 +47016,7 @@ mod tests {
                 receipt: r.clone(),
                 pubkey_b32: None,
                 current_responder_epoch: Some(signing_epoch + 1),
+                facts: None,
             })),
         )
         .await
@@ -46614,6 +47076,7 @@ mod tests {
                 receipt: r10,
                 pubkey_b32: None,
                 current_responder_epoch: Some(9),
+                facts: None,
             })),
         )
         .await
