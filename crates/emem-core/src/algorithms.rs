@@ -1267,6 +1267,13 @@ impl AlgorithmRegistry {
         self.algorithms.iter().filter(move |a| a.kind == kind)
     }
 
+    /// Iterate every algorithm in registry order. Used by the recall path
+    /// to find which algorithms are runnable from the bands already present
+    /// at a cell (auto-attach applicable scores).
+    pub fn iter(&self) -> impl Iterator<Item = &Algorithm> {
+        self.algorithms.iter()
+    }
+
     /// Evaluate the algorithm in-process. Returns `Ok(value)` when the
     /// algorithm has an `evaluation` AST and every required band is
     /// present in `samples`, `Ok(None)` when the algorithm has no

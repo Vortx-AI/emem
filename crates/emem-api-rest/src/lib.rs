@@ -6420,6 +6420,30 @@ async fn post_recall(
             if !unknown_bands.is_empty() {
                 map.insert("unknown_bands".into(), json!(unknown_bands));
             }
+            // D3: auto-attach scores for the algorithms runnable from the
+            // bands present at this cell, so an agent gets named scores
+            // ("flood_risk@2 = 0.7") without knowing which of the 159
+            // algorithm keys to call. Slim by default (key + value +
+            // formula), capped, finite values only; the full per-input
+            // provenance lives on /v1/ask and emem_explain_algorithm.
+            let applicable = applicable_algorithm_keys(&resp);
+            if !applicable.is_empty() {
+                let slim: Vec<JsonValue> = dispatch_algorithms(&applicable, &resp)
+                    .into_iter()
+                    .filter(|o| o.get("value").map(|v| v.is_number()).unwrap_or(false))
+                    .take(8)
+                    .map(|o| {
+                        json!({
+                            "algorithm_key": o.get("algorithm_key").cloned().unwrap_or(JsonValue::Null),
+                            "value":         o.get("value").cloned().unwrap_or(JsonValue::Null),
+                            "formula":       o.get("formula").cloned().unwrap_or(JsonValue::Null),
+                        })
+                    })
+                    .collect();
+                if !slim.is_empty() {
+                    map.insert("applicable_algorithms".into(), JsonValue::Array(slim));
+                }
+            }
             // Full chain-of-custody triple at the envelope level. The
             // receipt already pins `registry_cid` (function registry)
             // and `schema_cid`; `algorithms_cid` + `bands_cid` complete
@@ -33998,6 +34022,35 @@ fn samples_from_recall(
 /// Algorithms without an `evaluation` field are skipped (not an
 /// error) — `algorithms_for_question[]` already advertises them so
 /// the agent can compose locally.
+/// Algorithm keys whose `evaluation` AST can run from the bands ALREADY
+/// present in this recall (every referenced band has a Primary fact). Used
+/// to auto-attach applicable scores to a recall response so an agent gets
+/// "flood_risk@2 = 0.7" without knowing which algorithm to call (D3,
+/// 2026-05-31). Cheap: no materialisation, pure subset check + AST eval over
+/// in-memory samples. Skips `documentation_only` and AST-less algorithms.
+fn applicable_algorithm_keys(recall: &emem_primitives::recall::RecallResp) -> Vec<String> {
+    let present: std::collections::HashSet<&str> = recall
+        .facts
+        .iter()
+        .filter_map(|f| match f {
+            emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
+            _ => None,
+        })
+        .collect();
+    if present.is_empty() {
+        return Vec::new();
+    }
+    emem_core::algorithms::DEFAULT
+        .iter()
+        .filter(|a| !a.documentation_only)
+        .filter_map(|a| {
+            let refs = a.evaluation.as_ref()?.referenced_bands();
+            (!refs.is_empty() && refs.iter().all(|b| present.contains(b.as_str())))
+                .then(|| a.key.clone())
+        })
+        .collect()
+}
+
 fn dispatch_algorithms(
     matched_keys: &[String],
     recall: &emem_primitives::recall::RecallResp,
@@ -39601,15 +39654,32 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         })
         .collect();
 
-    // band_observations_summary: count + band list.
+    // band_observations_summary: count + per-band {band, value, unit}.
+    // Carries the actual readings (not just band names) so a token-conscious
+    // agent — and the synthesised `answer` below — gets the values without
+    // pulling the full `band_observations[]` array. Deduped by band, Primary
+    // readings only (Absence/null skipped), capped to stay slim.
     let band_observations_summary = {
         let count = band_observations.len();
-        let bands: Vec<&str> = band_observations
-            .iter()
-            .filter_map(|o| o.get("band_key").and_then(|b| b.as_str()))
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
+        let mut seen: std::collections::BTreeSet<String> = Default::default();
+        let mut bands: Vec<JsonValue> = Vec::new();
+        for o in &band_observations {
+            let Some(band) = o.get("band_key").and_then(|b| b.as_str()) else {
+                continue;
+            };
+            let value = o.get("value").cloned().unwrap_or(JsonValue::Null);
+            if value.is_null() || !seen.insert(band.to_string()) {
+                continue;
+            }
+            bands.push(json!({
+                "band":  band,
+                "value": value,
+                "unit":  o.get("unit").cloned().unwrap_or(JsonValue::Null),
+            }));
+            if bands.len() >= 12 {
+                break;
+            }
+        }
         json!({ "count": count, "bands": bands })
     };
 
@@ -39765,6 +39835,26 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 {
                     map.insert("answer_md".into(), JsonValue::String(synth));
                 }
+            } else if map
+                .get("topic_routing")
+                .and_then(|t| t.get("out_of_scope"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                // No band or algorithm matched — say so plainly instead of
+                // returning a response with no `answer`, so the agent can
+                // tell "out of scope" from "the call failed".
+                map.insert(
+                    "answer".into(),
+                    JsonValue::String(
+                        "emem found no band or algorithm matching that question. It answers \
+                         questions about the physical state of a place: vegetation, water, \
+                         terrain, climate, air quality, land cover, forest change, and \
+                         population. Call /v1/topics for the catalog, or pass a concrete band \
+                         to /v1/recall."
+                            .to_string(),
+                    ),
+                );
             }
         }
     }
@@ -39784,6 +39874,19 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
 /// present in the same response under `band_observations(_summary)`
 /// and `algorithm_outcomes(_summary)`, content-addressed via the
 /// receipt's fact_cids.
+/// The registry `value_range` for a band as `(lo, hi)`, if defined. Used
+/// to give a bare number scale in the synthesised answer ("NDVI 0.72,
+/// range -1..1") without fabricating a qualitative label that would
+/// mislead on a skewed range (e.g. PM2.5 0..1000 µg/m³).
+fn band_value_range(band: &str) -> Option<(f64, f64)> {
+    let meta = band_metadata_for_response(band);
+    let arr = meta.get("value_range")?.as_array()?;
+    if arr.len() != 2 {
+        return None;
+    }
+    Some((arr[0].as_f64()?, arr[1].as_f64()?))
+}
+
 fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
     let place = body
         .get("place_resolved")
@@ -39895,21 +39998,43 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
 
     // Cap at 6 most-informative bands; same for outcomes. Keep the
     // summary compact so the synthesis stays a snapshot, not a dump.
+    fn fmt_num(x: f64) -> String {
+        if x.fract().abs() < 1e-9 {
+            format!("{x:.0}")
+        } else {
+            format!("{x:.2}")
+        }
+    }
     let band_phrases: Vec<String> = bands
         .into_iter()
         .take(6)
-        .map(|(band, value, unit)| match unit {
-            Some(u) if !u.is_empty() && u != "1" => {
-                format!("{band} {} {u}", fmt_value(&value))
+        .map(|(band, value, unit)| {
+            let base = match &unit {
+                Some(u) if !u.is_empty() && u != "1" => {
+                    format!("{band} {} {u}", fmt_value(&value))
+                }
+                _ => format!("{band} {}", fmt_value(&value)),
+            };
+            // Append the registry value range so a bare number carries
+            // scale. Factual, not a fabricated "low/high" label (those
+            // mislead on skewed ranges). Only for numeric values.
+            match (value.is_number(), band_value_range(&band)) {
+                (true, Some((lo, hi))) => {
+                    format!("{base} (range {}..{})", fmt_num(lo), fmt_num(hi))
+                }
+                _ => base,
             }
-            _ => format!("{band} {}", fmt_value(&value)),
         })
         .collect();
 
+    // Only outcomes that actually produced a number — never print
+    // "crop_stress_score@1: no value" (a skipped/missing-input outcome is
+    // noise in a human answer; the structured caveats already explain it).
     let outcome_phrases: Vec<String> = outcomes
         .into_iter()
+        .filter(|(_, v)| v.is_number())
         .take(3)
-        .map(|(k, v)| format!("{k}: {}", fmt_value(&v)))
+        .map(|(k, v)| format!("{k} {}", fmt_value(&v)))
         .collect();
 
     let mut parts = Vec::new();
