@@ -31303,6 +31303,29 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
     }))
 }
 
+/// Global cap on concurrent band materialisations across the WHOLE process.
+/// Heavy upstream fetch + decode (JRC GFC2020's ~110 MB COG, SoilGrids
+/// per-point JSON, Hansen/MODIS tiles) otherwise piles up and starves the
+/// :443 accept loop — even serial slow-band traffic wedged the server.
+/// Default 12; tunable via `EMEM_MATERIALIZE_GLOBAL_LIMIT` (clamped 1..=256).
+static MATERIALIZE_SEM: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
+async fn materialize_global_permit() -> tokio::sync::OwnedSemaphorePermit {
+    MATERIALIZE_SEM
+        .get_or_init(|| {
+            let n = std::env::var("EMEM_MATERIALIZE_GLOBAL_LIMIT")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(12)
+                .clamp(1, 256);
+            Arc::new(tokio::sync::Semaphore::new(n))
+        })
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("materialize semaphore is never closed")
+}
+
 /// Try to materialize each requested band on the given cell. Returns
 /// per-band outcomes so the recall handler can surface why a band was
 /// skipped (ocean cell, upstream down, no materializer registered).
@@ -31335,6 +31358,12 @@ async fn try_materialize_bands(
             let b = b_owned;
             async move {
             let b = &b;
+            // Every band's materialisation is wrapped in a global concurrency
+            // permit + a hard dispatch-level timeout (below), so no single
+            // band — however slow its upstream — can hold the request past the
+            // budget or pile up and starve the accept loop.
+            let work = async {
+            let _mat_permit = materialize_global_permit().await;
             let mut out: Vec<MaterializeOutcome> = Vec::with_capacity(1);
             match b.as_str() {
             "modis.ndvi_mean" => match materialize_modis_ndvi(cell64, s).await {
@@ -32594,6 +32623,27 @@ async fn try_materialize_bands(
             }
             }
             out
+            };
+            // Hard cap: no band materialisation may exceed the per-materializer
+            // budget, regardless of its own internal client timeout (JRC's COG
+            // client was 90-120 s — that is what wedged us). On timeout emit an
+            // honest skip so the fan-out completes fast and the connection frees.
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(materializer_timeout_secs()),
+                work,
+            )
+            .await
+            {
+                Ok(out) => out,
+                Err(_) => vec![MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: Some(format!(
+                        "materialiser exceeded the {}s hard cap (dispatch-level timeout); upstream too slow on this call — retry to warm, or query a faster band",
+                        materializer_timeout_secs()
+                    )),
+                }],
+            }
             }
         }))
         .buffer_unordered(concurrency.max(1))
