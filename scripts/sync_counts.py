@@ -228,7 +228,7 @@ def _apply(f: Path, old: str, new: str, check_only: bool) -> list[str]:
 STALE_PHRASES = {
     "README.md": ["75 MCP tools", "87 documented REST", "118 live materializer",
                   "118 materializer-wired", "across 35 cube", "14 workspace crates"],
-    "web/index.html": ["75 MCP tools", "87 ", "118 materializer", "35 cube slots"],
+    "web/index.html": ["75 MCP tools", "87 documented", "87 REST", "87 paths", "118 materializer", "35 cube slots"],
     "web/how-it-works.html": ["75 MCP tools", "118 materializer", "35 cube slots", "41 cube"],
     "web/solutions.html": ["75 MCP tools", "118 materializer", "35 cube slots"],
     "web/reference.html": ["75 MCP tools", "87 documented", "118 materializer", "35 cube slots"],

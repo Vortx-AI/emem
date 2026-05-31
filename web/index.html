@@ -340,7 +340,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero-tryit .tryit-result{min-height:0;padding-top:.8rem}
 
 /* footer */
-.foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot{position:relative;background:var(--paper);padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
 .foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--mute);line-height:1.5}
 .foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
@@ -471,6 +471,25 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .connect{grid-template-columns:repeat(2,1fr)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* ── Earth-memory rail — decorative Mithila (Kachni) scroll story ──────────
+   One continuous vine/river drawn down the right-hand whitespace; motifs reveal
+   as you scroll. Decoration only: aria-hidden + pointer-events:none. Off below
+   1100px (no room) and under reduced-motion (shown finished, not animated).
+   Disable globally with <html class="no-art">. */
+.earth-rail{position:fixed;top:2.75rem;height:calc(100vh - 2.75rem);width:150px;right:calc(50vw - 624px);pointer-events:none;z-index:-1;display:none}
+.earth-rail svg{width:100%;height:100%;display:block}
+.ev-line{fill:none;stroke:var(--accent);stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round;opacity:.5}
+.ev-dot{fill:var(--accent);stroke:none;opacity:.45}
+.ev-spine{fill:none;stroke:var(--accent);stroke-width:1.3;stroke-linecap:round;opacity:.42;stroke-dasharray:1;stroke-dashoffset:0}
+.ev-motif{opacity:.9}
+@media (min-width:1100px){html:not(.no-art) .earth-rail{display:block}}
+@media (min-width:1100px) and (max-width:1320px){.earth-rail{right:1.25rem}}
+@supports (animation-timeline: scroll()){@media (prefers-reduced-motion: no-preference){
+  .ev-spine{animation:ev-draw linear both;animation-timeline:scroll(root block);animation-range:2% 94%}
+  .ev-motif{animation:ev-show linear both;animation-timeline:scroll(root block);animation-range:calc(var(--i)*11% + 2%) calc(var(--i)*11% + 16%)}
+}}
+@keyframes ev-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes ev-show{from{opacity:0}to{opacity:.9}}
 </style>
 </head>
 <body>
@@ -491,6 +510,103 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
   </div>
 </header>
+
+<!-- Earth-memory rail: a wordless Mithila (Kachni line-art) story that draws
+     itself down the right-hand whitespace as you scroll. Decorative only:
+     aria-hidden, pointer-events:none, desktop-only, static where scroll-driven
+     animation isn't supported or motion is reduced. Toggle off with
+     <html class="no-art">. -->
+<!-- Earth-memory rail: a wordless Mithila (Kachni line-art) story that draws
+     itself down the right-hand whitespace as you scroll, culminating in a
+     centered Tree of Life over a pond (kohbar) — the happy ending. Decorative
+     only: aria-hidden, pointer-events:none, desktop-only, behind content,
+     static where scroll animation isn't supported / motion is reduced.
+     Disable with <html class="no-art">. -->
+<div class="earth-rail" aria-hidden="true">
+  <svg viewBox="0 0 150 1000" preserveAspectRatio="xMidYMid meet" fill="none">
+    <path class="ev-spine" pathLength="1" d="M75 14
+      C 62 64 90 110 75 162 C 64 206 92 262 76 314 C 62 366 90 416 76 462
+      L76 520 L75 600
+      C 70 660 80 712 75 760 C 72 806 76 850 75 892"/>
+
+    <!-- 1 · sun over the seed — Earth begins -->
+    <g class="ev-motif" style="--i:0">
+      <circle class="ev-line" cx="75" cy="40" r="16"/><circle class="ev-line" cx="75" cy="40" r="11"/>
+      <path class="ev-line" d="M75 18v-8"/><path class="ev-line" d="M75 70v8"/>
+      <path class="ev-line" d="M51 40h-8"/><path class="ev-line" d="M99 40h8"/>
+      <path class="ev-line" d="M58 23l-5-6"/><path class="ev-line" d="M92 23l5-6"/>
+      <path class="ev-line" d="M58 57l-5 6"/><path class="ev-line" d="M92 57l5 6"/>
+      <circle class="ev-dot" cx="70" cy="38" r="1.4"/><circle class="ev-dot" cx="80" cy="38" r="1.4"/>
+      <path class="ev-line" d="M70 45q5 4 10 0"/>
+    </g>
+
+    <!-- 2 · a lone bird, looking — the world unread -->
+    <g class="ev-motif" style="--i:1">
+      <path class="ev-line" d="M92 150c-10-6-23-5-29 3 8 1 9 5 8 10 6-5 14-8 20-6"/>
+      <circle class="ev-dot" cx="65" cy="153" r="1.3"/><path class="ev-line" d="M59 154l-7-2"/>
+    </g>
+
+    <!-- 3 · a fish on the river — truth, abundance -->
+    <g class="ev-motif" style="--i:2">
+      <path class="ev-line" d="M58 252c13-11 32-11 44 0-12 11-31 11-44 0z"/>
+      <path class="ev-line" d="M102 252l11-6v12z"/>
+      <path class="ev-line" d="M70 249q4 3 0 6"/><path class="ev-line" d="M80 247q5 5 0 10"/>
+      <circle class="ev-dot" cx="64" cy="252" r="1.3"/>
+    </g>
+
+    <!-- 4 · three birds in agreement — consensus -->
+    <g class="ev-motif" style="--i:3">
+      <path class="ev-line" d="M54 348q7-8 14 0"/><path class="ev-line" d="M68 341q7-8 14 0"/><path class="ev-line" d="M82 348q7-8 14 0"/>
+      <circle class="ev-dot" cx="61" cy="348" r="1.1"/><circle class="ev-dot" cx="75" cy="341" r="1.1"/><circle class="ev-dot" cx="89" cy="348" r="1.1"/>
+    </g>
+
+    <!-- 5 · the vine leafs out — what it's for -->
+    <g class="ev-motif" style="--i:4">
+      <path class="ev-line" d="M77 426q-20-5-27-20 14-2 27 9z"/><path class="ev-line" d="M64 411q5 6 9 11"/>
+      <path class="ev-line" d="M75 444q20-5 27-20-14-2-27 9z"/><path class="ev-line" d="M88 429q-5 6-9 11"/>
+    </g>
+
+    <!-- 6 · lotus with a seal — purity, the verified receipt -->
+    <g class="ev-motif" style="--i:5">
+      <path class="ev-line" d="M76 506c0-11 7-18 7-18s7 7 7 18"/>
+      <path class="ev-line" d="M76 506c0-11-7-18-7-18s-7 7-7 18"/>
+      <path class="ev-line" d="M62 506q14 9 28 0"/><path class="ev-line" d="M70 500q6 7 12 0"/>
+      <circle class="ev-line" cx="76" cy="494" r="3.5"/><circle class="ev-dot" cx="76" cy="494" r="1.2"/>
+    </g>
+
+    <!-- 7 · THE TREE OF LIFE, in bloom — the centred climax / happy ending -->
+    <g class="ev-motif ev-tree" style="--i:7">
+      <!-- branches from the trunk top (~y560) spreading up -->
+      <path class="ev-line" d="M75 600c-18-2-32-16-36-36"/>
+      <path class="ev-line" d="M75 600c18-2 32-16 36-36"/>
+      <path class="ev-line" d="M75 584c-13-2-23-12-27-27"/>
+      <path class="ev-line" d="M75 584c13-2 23-12 27-27"/>
+      <path class="ev-line" d="M75 568c-8-3-14-10-16-21"/>
+      <path class="ev-line" d="M75 568c8-3 14-10 16-21"/>
+      <!-- leaves / buds on the canopy -->
+      <path class="ev-line" d="M39 564q-7-5-6-13 8 1 10 9z"/><path class="ev-line" d="M111 564q7-5 6-13-8 1-10 9z"/>
+      <path class="ev-line" d="M48 557q-6-6-4-14 7 2 8 11z"/><path class="ev-line" d="M102 557q6-6 4-14-7 2-8 11z"/>
+      <path class="ev-line" d="M59 547q-4-7 0-14 6 4 5 13z"/><path class="ev-line" d="M91 547q4-7 0-14-6 4-5 13z"/>
+      <!-- crowning sun-bud + two resting birds -->
+      <circle class="ev-line" cx="75" cy="536" r="6"/>
+      <path class="ev-line" d="M75 524v-6"/><path class="ev-line" d="M69 530l-5-4"/><path class="ev-line" d="M81 530l5-4"/>
+      <circle class="ev-dot" cx="75" cy="536" r="1.3"/>
+      <path class="ev-line" d="M60 576q6-6 12 0"/><path class="ev-line" d="M78 576q6-6 12 0"/>
+      <circle class="ev-dot" cx="66" cy="574" r="1"/><circle class="ev-dot" cx="84" cy="574" r="1"/>
+    </g>
+
+    <!-- 8 · the pond of memory — roots dip in; the foundation keeps growing -->
+    <g class="ev-motif" style="--i:6">
+      <path class="ev-line" d="M48 720q27-10 54 0"/>
+      <path class="ev-line" d="M50 732q25-9 50 0"/>
+      <path class="ev-line" d="M60 745c8-6 18-6 26 0-7 6-19 6-26 0z"/>
+      <path class="ev-line" d="M86 745l8-4v8z"/>
+      <circle class="ev-dot" cx="64" cy="745" r="1.1"/>
+      <circle class="ev-dot" cx="55" cy="726" r="1"/><circle class="ev-dot" cx="95" cy="726" r="1"/>
+    </g>
+  </svg>
+</div>
+
 
 <section class="hero page hero-lean">
   <div>
