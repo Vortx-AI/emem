@@ -7,7 +7,56 @@ to verify.
 
 ## [Unreleased]
 
-_Nothing pending._
+### MCP/API test-report fixes (2026-06-01, after a deep external MCP audit)
+
+- **MCP silent truncation fixed at the wrap layer.** Every `tools/call` result
+  was emitted twice on the wire (a `content` text block **plus** a
+  `structuredContent` mirror of the same JSON), ~2× the inner size — so even a
+  13 KB answer breached the host's ~25 KB cap and the agent received JSON cut
+  mid-token. `mcp_wrap_call_tool_result` is now budget-aware
+  (`EMEM_MCP_RESPONSE_BUDGET_BYTES`, default 24 KB): it keeps the load-bearing
+  `content` text always, drops the doubling `structuredContent` mirror when the
+  two-copy envelope would breach budget, and when even one copy is over budget
+  it generically slims the inner JSON (keeping the small identifying/auth fields)
+  and attaches an honest `_emem_truncation` marker naming every omitted field +
+  a REST pointer. No payload is ever silently lost.
+- **`/v1/state_multi` slim default.** The four foundation vectors (~13 KB) are
+  omitted by default — the response carries each encoder's `dim`/`l2_norm`/
+  `fact_cid`/`memory_token`/`tslot` plus a `vectors_omitted` flag. Pass
+  `vectors:true` (or `include:["vectors"]`) to inline the raw floats.
+- **Geocoder cascade hardening.** `nominatim_bbox_for` and `sample_cells_in_bbox`
+  now validate + normalise upstream bboxes (reject non-finite, swap inverted
+  corners, drop wider-than-sphere relations). `sample_cells_in_bbox` and
+  `sample_cells_in_polygon` are never-empty for a finite bbox (centroid-cell
+  fallback) — fixes the "0 sample cells at a neighbourhood" defect.
+- **NDVI false-Absence fixed at the root.** The Sentinel-2 materializer now
+  picks scenes SCL-first across multiple candidates (`EMEM_S2_MAX_SCENES`,
+  default 4) instead of false-Absencing when only the *latest* scene's pixel is
+  cloudy — a clear scene a few days back is preferred. The signed fact records
+  how many scenes were probed; a genuine Absence (every candidate cloudy) names
+  that. `jepa_predict` now distinguishes a signed cloud-Absence from "no data"
+  in its error so an agent backfills the right way. No fabricated values.
+- **Warm-path result caches** for `/v1/state` and `/v1/memory_contradictions`,
+  keyed on the request + a global corpus write-generation counter so they
+  invalidate the instant a new fact lands (TTLs `EMEM_STATE_CACHE_TTL_MS` /
+  `EMEM_CONTRADICTIONS_CACHE_TTL_MS`). Repeat calls drop from ~950 ms / ~6.3 s
+  warm to a HashMap lookup, without ever serving stale data.
+- **Cop-DEM resolution doc truth-pass.** The responder fetches Copernicus DEM
+  **GLO-30 (30 m)** from the AWS Open Data COG mirror, but several strings still
+  advertised the retired Open-Meteo "90 m" path. Fleet metadata, materializer
+  wire-path, the input-resolution table, the elevation interpretation strings,
+  and the band-source comments now all say 30 m. Permanent-water cells
+  (WorldCover class 80, e.g. the Dead Sea) carry a clearer caveat pointing to
+  `bathymetry_m`.
+- **RADD provenance kept honest + current.** No public unauthenticated COG
+  exists for RADD / GLAD / GFW-integrated alerts (verified 2026-06-01: S3 is
+  Requester-Pays 403, the HTTPS geotiff path 404s, the Data API needs a key), so
+  the connector continues to sign an honest Absence rather than fabricate a "no
+  alert" Primary. The version tag is bumped to the verified-current `v20260524`,
+  the source scheme + derivation fn_key now *derive* from that tag (so signed
+  provenance can't drift from the disclosed vintage), and the disclosure names
+  the one fetchable NRT alternative (NASA OPERA DIST-ALERT, Earthdata-Login
+  gated).
 
 ## [0.0.9] — 2026-05-30
 

@@ -119,6 +119,12 @@ pub async fn search_one_at(
         Some(f) => f,
         None => return Ok(None),
     };
+    Ok(Some(parse_stac_feature(f, collection)))
+}
+
+/// Parse one STAC `feature` object into a [`StacItem`]. Shared by
+/// [`search_one_at`] (first feature) and [`search_many_at`] (every feature).
+fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
     let id = f
         .get("id")
         .and_then(|v| v.as_str())
@@ -143,14 +149,70 @@ pub async fn search_one_at(
             }
         }
     }
-    Ok(Some(StacItem {
+    StacItem {
         id,
         cloud_cover,
         datetime: datetime_str,
         epsg,
         assets,
         collection: collection.to_string(),
-    }))
+    }
+}
+
+/// Like [`search_one_at`] but returns up to `limit` items (newest first)
+/// that intersect the point. Used by the Sentinel-2 materializer to gather
+/// multiple candidate scenes so a single cloudy latest pixel does not force
+/// a false Absence — the materializer can fall through to the next-newest
+/// scene whose per-pixel SCL is clear. Same anonymous STAC POST; only the
+/// `limit` and the return arity differ.
+pub async fn search_many_at(
+    client: &Client,
+    search_url: &str,
+    collection: &str,
+    lng: f64,
+    lat: f64,
+    datetime: &str,
+    max_cloud: Option<f64>,
+    limit: usize,
+) -> Result<Vec<StacItem>, String> {
+    let limit = limit.clamp(1, 50);
+    let mut body = json!({
+        "intersects": {"type": "Point", "coordinates": [lng, lat]},
+        "limit": limit,
+        "collections": [collection],
+        "datetime": datetime,
+        "sortby": [{"field": "properties.datetime", "direction": "desc"}],
+    });
+    if let Some(c) = max_cloud {
+        body["query"] = json!({"eo:cloud_cover": {"lt": c}});
+    }
+    let resp = client
+        .post(search_url)
+        .header("content-type", "application/json")
+        .header(
+            "user-agent",
+            concat!(
+                "emem.dev/",
+                env!("CARGO_PKG_VERSION"),
+                " (avijeet@vortx.ai)"
+            ),
+        )
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("stac http: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("stac status {}", resp.status()));
+    }
+    let v: Value = resp.json().await.map_err(|e| format!("stac json: {e}"))?;
+    let feats = match v.get("features").and_then(|f| f.as_array()) {
+        Some(a) => a,
+        None => return Ok(Vec::new()),
+    };
+    Ok(feats
+        .iter()
+        .map(|f| parse_stac_feature(f, collection))
+        .collect())
 }
 
 /// Process-wide cache of MPC SAS tokens, keyed by collection. Microsoft

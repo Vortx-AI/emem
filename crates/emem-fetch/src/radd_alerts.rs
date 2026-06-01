@@ -38,13 +38,13 @@
 //! `Absence` rather than fabricating a "no alert" Primary.
 //!
 //! **Data-access honesty.** The GFW-hosted raster tile set lives at
-//! `s3://gfw-data-lake/wur_radd_alerts/v20260510/raster/epsg-4326/10/
+//! `s3://gfw-data-lake/wur_radd_alerts/v20260524/raster/epsg-4326/10/
 //! 100000/date_conf/geotiff/{tile_id}.tif` — and that S3 bucket is
 //! **Requester-Pays**, so anonymous HTTPS GETs return HTTP 403. The
 //! companion public CDN at `tiles.globalforestwatch.org/...` serves
 //! only **PNG visualisation tiles**, not range-readable Cloud Optimised
 //! GeoTIFFs. As of 2026-05-16 there is no public unauthenticated HTTPS
-//! COG endpoint for the v20260510 RADD raster.
+//! COG endpoint for the v20260524 RADD raster.
 //!
 //! This connector therefore ships:
 //! - The constants and URL helpers needed by the materializer dispatcher
@@ -72,12 +72,14 @@ use reqwest::Client;
 /// honest access story.
 pub const RADD_BASE_URL: &str = "https://data-api.globalforestwatch.org/dataset/wur_radd_alerts";
 
-/// Version tag for the latest publicly-listed RADD release. Probed
-/// live against the GFW data API on 2026-05-16; the `versions` array
-/// at `https://data-api.globalforestwatch.org/dataset/wur_radd_alerts`
-/// listed `v20260510` as `is_latest=true`. Bump this constant when a
-/// newer weekly release is published (the cadence is roughly weekly).
-pub const RADD_VERSION_TAG: &str = "v20260510";
+/// Version tag for the latest publicly-listed RADD release. Verified live
+/// against the GFW Data API `/dataset/wur_radd_alerts/latest` on
+/// 2026-06-01, which listed `v20260524` as `is_latest=true`. Bump this
+/// constant when a newer weekly release is published (the cadence is
+/// roughly weekly); the source scheme + derivation fn_key in
+/// `materialize_radd_band` derive from it, so the signed provenance tracks
+/// the tag automatically.
+pub const RADD_VERSION_TAG: &str = "v20260524";
 
 /// S3 URI template for the EPSG:4326 `date_conf` raster tile set —
 /// kept as a public constant so external tooling (e.g. an authenticated
@@ -139,7 +141,7 @@ pub enum RaddError {
         iso3_hint: String,
     },
     /// Honest disclosure: no publicly range-readable HTTPS COG URL
-    /// exists for the v20260510 raster (the only public mirror is the
+    /// exists for the v20260524 raster (the only public mirror is the
     /// PNG visualisation tile cache; the GeoTIFF raster lives on a
     /// Requester-Pays S3 bucket). Carries a structured reason string
     /// so callers can surface the gap without inventing data.
@@ -267,7 +269,7 @@ pub fn decode_alert_date(yyyyddd: u32) -> Option<(u16, u16)> {
 ///
 /// **Current behaviour (2026-05-16):** returns
 /// [`RaddError::NotImplemented`] with a structured reason because the
-/// only public HTTPS endpoint for the v20260510 raster is a PNG tile
+/// only public HTTPS endpoint for the v20260524 raster is a PNG tile
 /// cache, not a Cloud Optimised GeoTIFF, and the S3 mirror is
 /// Requester-Pays. Cells outside the humid-tropics bbox short-circuit
 /// to [`RaddError::CoverageGap`] before we even consider a fetch.
@@ -306,8 +308,16 @@ pub async fn fetch_alert(
             "RADD raster tile {lat_tag}_{lng_tag} for {RADD_VERSION_TAG} \
              is published only to a Requester-Pays S3 bucket ({s3_uri}); \
              the public mirror at tiles.globalforestwatch.org serves PNG \
-             visualisation tiles, not range-readable COGs. \
-             Awaiting a public HTTPS COG endpoint from WUR/GFW."
+             visualisation tiles, not range-readable COGs (verified \
+             2026-06-01: the geotiff path 404s, the S3 GET is 403 \
+             AccessDenied to anonymous callers, and the GFW Data API \
+             download endpoint requires an API key). No public \
+             unauthenticated HTTPS COG endpoint exists for RADD, GLAD, or \
+             the GFW integrated alerts. The one fetchable NRT disturbance \
+             product is NASA OPERA DIST-ALERT-HLS (native COG, CMR STAC \
+             collection C2746980408-LPCLOUD), which needs an Earthdata \
+             Login token. This responder signs an honest Absence rather \
+             than fabricate a 'no alert' Primary."
         ),
     })
 }

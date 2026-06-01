@@ -4523,7 +4523,7 @@ async fn data_availability(State(s): State<AppState>) -> Json<JsonValue> {
 /// reading every band's documentation.
 ///
 /// The mapping is keyed by upstream sensor (TerrA-MODIS, GMRT multibeam,
-/// Cop-DEM 90m, etc.) → list of bands that derive from it. Geostationary
+/// Cop-DEM 30m, etc.) → list of bands that derive from it. Geostationary
 /// weather satellites (GOES-16/17/18, Himawari-9, Meteosat-9/11) are
 /// declared as the *cadence source* for the weather bands even though
 /// the wire path goes through Open-Meteo's NWP blend — this matches how
@@ -4949,14 +4949,14 @@ async fn fleet() -> Json<JsonValue> {
                 "notes":         "Single peer-reviewed topo-bathy raster fusing Cop-DEM, GEBCO, multibeam, and high-res sounders. The right band for any-point-on-Earth elevation including ocean."
             },
             {
-                "platform":      "Sentinel-1 (Copernicus / ESA TanDEM-X derived Cop-DEM)",
-                "sensor":        "Cop-DEM 90 m",
+                "platform":      "TanDEM-X (Copernicus DEM GLO-30, ESA)",
+                "sensor":        "Cop-DEM 30 m",
                 "swath_km":      null,
                 "revisit":       "static",
-                "native_res_m":  90,
+                "native_res_m":  30,
                 "tempo":         "static",
                 "bands":         ["copdem30m.elevation_mean"],
-                "wire_path":     "Open-Meteo Elevation REST → Primary or Absence fact",
+                "wire_path":     "AWS Open Data Cop-DEM GLO-30 COG (HTTPS range-read) → Primary or Absence fact",
                 "notes":         "Land DEM. Returns Fact::Absence over water (Cop-DEM uses 0 m as no-data marker over ocean) so downstream models can distinguish 'sea level over water' from 'land at 0 m'."
             },
             {
@@ -6532,7 +6532,7 @@ async fn post_recall(
 //
 // Honesty fields surfaced by every boring response:
 //   resolution_m_input — sensor's native pitch (10 m for S1/S2,
-//                        90 m for Cop-DEM, 250 m for SoilGrids…)
+//                        30 m for Cop-DEM, 250 m for SoilGrids…)
 //   cell_dedupe_m      — cell64 grid grain (~10 m × ~10 m square at
 //                        the equator; see /v1/grid_info)
 // Two queries 12 m apart resolve to distinct cell64s — there is no
@@ -6920,7 +6920,7 @@ fn band_input_resolution_m(band: &str) -> Option<u32> {
         "modis.ndvi_mean" => Some(250),
         b if b.starts_with("modis.lst_") => Some(1000),
         b if b.starts_with("modis.") => Some(500),
-        "copdem30m.elevation_mean" => Some(90),
+        "copdem30m.elevation_mean" => Some(30),
         "gmrt.topobathy_mean" => Some(100),
         "surface_water.recurrence" => Some(30),
         b if b.starts_with("hansen.") => Some(30),
@@ -9688,7 +9688,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
             "Identical canonical facts have identical CIDs across responders — answers are reproducible.",
             "Signed Absence is a real answer ('tried and got no answer'); do not retry.",
             "Data fidelity is the SENSOR pitch. `data_resolution_m=10` for Sentinel-1/2 indices means the value comes from a real 10 m pixel — not interpolated, not coarsened. The multimodal-fusion contract guarantees that algorithms anchored on S1/S2/Landsat consume 10 m inputs natively.",
-            "`cell_dedupe_m` is the cell64 grid grain (~10 m × ~10 m square at the equator, matching S1/S2 native pitch). Two queries 12 m apart land in distinct cells, so values don't silently dedupe across sub-cell points. For coarser sources (Cop-DEM 90 m, SoilGrids 250 m, MODIS 1 km), adjacent cells share the upstream sample — that is correct, not a bug.",
+            "`cell_dedupe_m` is the cell64 grid grain (~10 m × ~10 m square at the equator, matching S1/S2 native pitch). Two queries 12 m apart land in distinct cells, so values don't silently dedupe across sub-cell points. For coarser sources (Cop-DEM 30 m, SoilGrids 250 m, MODIS 1 km), adjacent cells share the upstream sample — that is correct, not a bug.",
             "No API keys at the request path. Every materializer reads from a no-key public source (Sentinel-1/2, MODIS, NASA POWER, ERA5, CAMS, met.no, JRC GSW, Hansen, ESA WorldCover, SoilGrids, Overture, Cop-DEM, GMRT).",
         ],
         "boring_endpoints": [
@@ -9736,7 +9736,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
         "citation_pattern": "<value> <unit> at <cell64> (fact_cid <first 8 chars>, signed by responder <first 8 chars of pubkey_b32>; source: <source_url>).",
         "anti_patterns": [
             "Do not invent a fact_cid; if the response is missing one, omit the citation rather than fabricate it.",
-            "Do not say 'this is a 305 m measurement' — that was the legacy grid. The active cell64 is ~10 m × ~10 m square at the equator, matching Sentinel-1/Sentinel-2 native pitch. `data_resolution_m` reports the upstream sample (10 m for S1/S2 indices, 90 m Cop-DEM, 250 m SoilGrids, 1 km MODIS LST).",
+            "Do not say 'this is a 305 m measurement' — that was the legacy grid. The active cell64 is ~10 m × ~10 m square at the equator, matching Sentinel-1/Sentinel-2 native pitch. `data_resolution_m` reports the upstream sample (10 m for S1/S2 indices, 30 m Cop-DEM, 250 m SoilGrids, 1 km MODIS LST).",
             "Do not retry on signed Absence — it is the correct answer.",
             "Do not POST to GET endpoints; the boring API is GET-only and idempotent.",
         ],
@@ -11359,8 +11359,31 @@ async fn post_memory_contradictions(
     EmemJson(req): EmemJson<ContradictionsReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     emem_primitives::memory_contradictions::validate_request(&req)?;
-    let resp = memory_contradictions(&req, &s).await?;
-    Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
+    contradictions_cached(&req, &s).await
+}
+
+/// Shared cached path for both the POST and GET contradictions handlers.
+/// The scan is deterministic given the request + corpus generation, so a
+/// repeated monitoring call serves from the result cache (~50 ms) instead of
+/// re-scanning the full multi-attester index (~6 s warm). The cache key is
+/// the canonical request JSON; the cache itself invalidates on any corpus
+/// write or after the TTL (see [`ResultCache`]).
+async fn contradictions_cached(
+    req: &ContradictionsReq,
+    s: &AppState,
+) -> Result<Json<JsonValue>, ApiError> {
+    let key = serde_json::to_string(req).unwrap_or_default();
+    if !key.is_empty() {
+        if let Some(v) = contradictions_result_cache().get(&key) {
+            return Ok(Json(v));
+        }
+    }
+    let resp = memory_contradictions(req, s).await?;
+    let v = serde_json::to_value(resp).unwrap_or(json!({}));
+    if !key.is_empty() {
+        contradictions_result_cache().put(key, v.clone());
+    }
+    Ok(Json(v))
 }
 
 /// `POST /v1/edges` — persist temporal knowledge-graph edges. Accepts a
@@ -11441,8 +11464,7 @@ async fn get_memory_contradictions(
         min_severity: q.min_severity,
     };
     emem_primitives::memory_contradictions::validate_request(&req)?;
-    let resp = memory_contradictions(&req, &s).await?;
-    Ok(Json(serde_json::to_value(resp).unwrap_or(json!({}))))
+    contradictions_cached(&req, &s).await
 }
 
 /// Query-string projection of [`ContradictionsReq`] used by
@@ -12810,9 +12832,117 @@ fn mcp_spawn_task(
     Ok(json!({ "task": task_json }))
 }
 
+/// MCP wire-response budget in bytes (env `EMEM_MCP_RESPONSE_BUDGET_BYTES`,
+/// default 24_000). The Claude.ai / Claude Desktop MCP frontend silently
+/// truncates a tool result that exceeds ~25 KB on the wire — no 413, no
+/// error, the agent just receives invalid JSON cut mid-token. A spec
+/// `CallToolResult` carries the payload TWICE (the `content` text block that
+/// every host renders, plus the `structuredContent` mirror that spec-aware
+/// hosts parse), so the naïve envelope is ~2× the inner JSON and a 13 KB
+/// answer already breaches the cap. This budget governs the COMBINED wire
+/// size and is enforced in `mcp_wrap_call_tool_result`. Clamped to a sane
+/// 2 KB..=1 MB so an operator can tune but not foot-gun it to zero.
+fn mcp_response_budget_bytes() -> usize {
+    std::env::var("EMEM_MCP_RESPONSE_BUDGET_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(24_000)
+        .clamp(2_048, 1_000_000)
+}
+
+/// Generically slim an oversized tool result so a single serialized copy
+/// fits `budget`. Strategy: keep the small identifying / authenticating
+/// fields (schema, place, cell, receipt, answer, verdict, error, …) and
+/// remove the largest remaining top-level fields one at a time — heaviest
+/// first — replacing each with a `{_omitted, _kind, _len}` stub until the
+/// object fits. Records exactly what was dropped under `_emem_truncation`
+/// so the agent KNOWS the result is partial and where to fetch the rest.
+///
+/// Honest by construction: it never fabricates a value, only omits real
+/// ones and says so. The un-truncated payload is always available over the
+/// matching REST endpoint (the MCP cap is a client-frontend limit, not a
+/// server one). Returns `(slimmed_inner, truncation_note)`.
+fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, JsonValue) {
+    // Small identifying/authenticating fields we never drop.
+    const KEEP: &[&str] = &[
+        "schema", "place", "place_resolved", "resolved_from", "cell", "cell64",
+        "receipt", "fact_cid", "fact_cids", "answer", "summary", "verdict",
+        "validity", "via", "error", "honest_caveat", "interpretation",
+    ];
+    let JsonValue::Object(mut map) = inner else {
+        // Non-object payload (bare array / scalar): we cannot keyed-slim it,
+        // so return an honest stub pointing at REST. This path is unused by
+        // emem tools today (every tool returns an object) but keeps the
+        // helper total.
+        let note = json!({
+            "reason": "tool result exceeded the MCP wire budget and the payload was not a JSON object, so it could not be field-slimmed; fetch the full result over the matching POST /v1/<tool> REST endpoint",
+            "budget_bytes": budget,
+        });
+        return (
+            json!({ "_emem_truncation": note.clone(), "value_omitted": true }),
+            note,
+        );
+    };
+
+    // Rank droppable fields by serialized byte cost, descending.
+    let mut costs: Vec<(String, usize)> = map
+        .iter()
+        .filter(|(k, _)| !KEEP.contains(&k.as_str()))
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                serde_json::to_string(v).map(|s| s.len()).unwrap_or(0),
+            )
+        })
+        .collect();
+    costs.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let mut dropped: Vec<JsonValue> = Vec::new();
+    for (k, _cost) in costs {
+        let cur = serde_json::to_string(&JsonValue::Object(map.clone()))
+            .map(|s| s.len())
+            .unwrap_or(usize::MAX);
+        // Leave headroom for the `_emem_truncation` note we add at the end.
+        if cur + 512 <= budget {
+            break;
+        }
+        if let Some(v) = map.get(&k) {
+            let stub = match v {
+                JsonValue::Array(a) => {
+                    json!({ "_omitted": true, "_kind": "array", "_len": a.len() })
+                }
+                JsonValue::Object(o) => {
+                    json!({ "_omitted": true, "_kind": "object", "_keys": o.len() })
+                }
+                _ => json!({ "_omitted": true }),
+            };
+            dropped.push(json!({ "field": k, "stub": stub.clone() }));
+            map.insert(k.clone(), stub);
+        }
+    }
+
+    let note = json!({
+        "reason": "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were omitted (not lost) — fetch the full, un-truncated payload over REST",
+        "budget_bytes": budget,
+        "omitted_fields": dropped,
+        "rest_hint": "call the matching POST /v1/<tool> endpoint for the complete payload, or narrow the query / use a pagination cursor (cursor, page, max_cells, encoders) to fit the MCP cap",
+    });
+    map.insert("_emem_truncation".to_string(), note.clone());
+    (JsonValue::Object(map), note)
+}
+
 /// Wrap a tool's inner JSON into the spec `CallToolResult` envelope, mirroring
 /// the synchronous `tools/call` path (multimodal `_mcp_content` escape hatch
 /// included) so an async result is byte-identical to the sync one.
+///
+/// Budget-aware: see [`mcp_response_budget_bytes`]. The `content` text block
+/// is the load-bearing copy (every host renders it); the `structuredContent`
+/// mirror is a convenience for spec-aware hosts. When the two-copy envelope
+/// would breach the wire budget we drop the mirror (the text block carries
+/// the same JSON, and a spec host can `JSON.parse` it). When even a single
+/// copy is over budget we generically slim the inner JSON and attach an
+/// honest `_emem_truncation` marker — so the agent never silently receives a
+/// payload cut mid-token.
 fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
     let raw_content = inner
         .get("_mcp_content")
@@ -12820,13 +12950,41 @@ fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
         .cloned();
     let raw_structured = inner.get("_mcp_structured").cloned();
     if let Some(content) = raw_content {
-        json!({
+        // Multimodal escape hatch (image / EmbeddedResource): the handler
+        // shaped its own content blocks and is responsible for their size
+        // (it ships a URL + small text summary, never a megabyte inline).
+        // Leave it untouched.
+        return json!({
             "content": content,
             "structuredContent": raw_structured.unwrap_or(JsonValue::Null),
             "isError": false,
+        });
+    }
+
+    let budget = mcp_response_budget_bytes();
+    let text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
+
+    if text.len() > budget {
+        // A single copy already blows the budget — slim the inner so the
+        // agent gets valid, useful JSON plus an honest truncation marker.
+        // Drop the structuredContent mirror entirely (it would re-breach).
+        let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget);
+        let slim_text =
+            serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+        return json!({
+            "content": [{"type": "text", "text": slim_text}],
+            "isError": false,
+        });
+    }
+
+    // One copy fits. Does the standard two-copy envelope also fit? The
+    // mirror roughly doubles the inner bytes; +96 covers the envelope keys.
+    if text.len().saturating_mul(2).saturating_add(96) > budget {
+        json!({
+            "content": [{"type": "text", "text": text}],
+            "isError": false,
         })
     } else {
-        let text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
         json!({
             "content": [{"type": "text", "text": text}],
             "structuredContent": inner,
@@ -14677,11 +14835,23 @@ async fn mcp_tool_call(
                 let code = e.wire_code();
                 (-(code as i64), e.to_string())
             })?;
+            // Route through the shared TTL + write-generation result cache so
+            // the MCP surface gets the same ~50 ms warm path as REST.
+            let key = serde_json::to_string(&req).unwrap_or_default();
+            if !key.is_empty() {
+                if let Some(v) = contradictions_result_cache().get(&key) {
+                    return Ok(v);
+                }
+            }
             let resp = memory_contradictions(&req, s).await.map_err(|e| {
                 let code = e.wire_code();
                 (-(code as i64), e.to_string())
             })?;
-            serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))
+            let v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
+            if !key.is_empty() {
+                contradictions_result_cache().put(key, v.clone());
+            }
+            Ok(v)
         }
         "emem_edges_recall" => {
             let req: EdgesRecallReq =
@@ -16246,7 +16416,7 @@ async fn get_stream_sse(
 // value is not an array of numbers return 422 InvalidArgument so the
 // agent knows to pick a different encoder.
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct StateReq {
     /// cell64 or a free-text place name (resolved via /v1/locate).
     cell: String,
@@ -16442,7 +16612,7 @@ struct StateResp {
 async fn post_state(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<StateReq>,
-) -> Result<Json<StateResp>, ApiError> {
+) -> Result<Json<JsonValue>, ApiError> {
     let view = req
         .view
         .as_ref()
@@ -16469,11 +16639,30 @@ async fn post_state(
         }
     };
 
-    match view_normalised {
-        "encoder" => state_view_encoder(s, req).await,
-        "cube" => state_view_cube(s, req).await,
-        _ => unreachable!("view_normalised is one of the two arms above"),
+    // Result cache: /v1/state is deterministic given (request, corpus
+    // generation). The encoder view re-runs the full locate→recall→extract
+    // cycle on every call (~950 ms warm even on a cache-hit fact); the cube
+    // view fans out across ~41 bands. Both collapse to a HashMap lookup once
+    // cached, invalidating the instant a new fact lands (write-generation) or
+    // after the TTL. The cache key folds the resolved view so encoder/cube
+    // for the same cell never collide.
+    let cache_key = format!(
+        "{}|{}",
+        view_normalised,
+        serde_json::to_string(&req).unwrap_or_default()
+    );
+    if let Some(v) = state_result_cache().get(&cache_key) {
+        return Ok(Json(v));
     }
+
+    let computed = match view_normalised {
+        "encoder" => state_view_encoder(s, req).await?,
+        "cube" => state_view_cube(s, req).await?,
+        _ => unreachable!("view_normalised is one of the two arms above"),
+    };
+    let v = serde_json::to_value(&computed.0).unwrap_or(json!({}));
+    state_result_cache().put(cache_key, v.clone());
+    Ok(Json(v))
 }
 
 /// `/v1/state` view=encoder: single-band dense vector at the band's
@@ -16615,13 +16804,30 @@ struct StateMultiReq {
     /// under the same four-tuple. See `RecallReq::scope`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scope: Option<emem_fact::Scope>,
+    /// Opt-in: inline the raw per-encoder embedding vectors. Default
+    /// `false` — the four foundation vectors are 128–1024 floats each
+    /// (~13 KB combined) and breach the MCP wire cap, yet a caller almost
+    /// never reasons over the floats directly (they drive server-side
+    /// similarity via find_similar / compare). The slim default returns
+    /// each encoder's `dim`, `l2_norm`, `fact_cid`, `memory_token` and
+    /// `tslot` — enough to verify and to chain into similarity calls. Set
+    /// `vectors: true` (or `include: ["vectors"]`) to inline the raw
+    /// floats. The single-encoder `/v1/state` still returns its vector by
+    /// default.
+    #[serde(default)]
+    vectors: Option<bool>,
+    #[serde(default)]
+    include: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
 struct EncoderState {
     encoder: String,
     dim: usize,
-    vector: Vec<f32>,
+    /// Raw embedding floats — omitted unless `vectors:true` / the
+    /// `include:["vectors"]` opt-in (see [`StateMultiReq::vectors`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vector: Option<Vec<f32>>,
     l2_norm: f32,
     tslot: u64,
     fact_cid: String,
@@ -16639,6 +16845,13 @@ struct StateMultiResp {
     cell: String,
     encoders: Vec<EncoderState>,
     missing: Vec<EncoderMissing>,
+    /// `true` when the raw embedding floats were omitted from each encoder
+    /// to fit the MCP wire cap (the slim default). Pass `vectors:true` to
+    /// inline them.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    vectors_omitted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vectors_hint: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resolved_from: Option<JsonValue>,
 }
@@ -16648,6 +16861,13 @@ async fn post_state_multi(
     EmemJson(req): EmemJson<StateMultiReq>,
 ) -> Result<Json<StateMultiResp>, ApiError> {
     let (cell, resolved) = resolve_cell_field(&req.cell).await?;
+    // Slim default: omit the raw embedding floats (see `StateMultiReq.vectors`).
+    let want_vectors = req.vectors.unwrap_or_else(|| {
+        req.include
+            .as_ref()
+            .map(|i| i.iter().any(|x| x.eq_ignore_ascii_case("vectors")))
+            .unwrap_or(false)
+    });
     let encoders: Vec<String> = req
         .encoders
         .filter(|v| !v.is_empty())
@@ -16683,10 +16903,11 @@ async fn post_state_multi(
                                     .map(|c| c.0.clone())
                                     .unwrap_or_default();
                                 let memory_token = format!("memt:{}:{}", cell, fact_cid);
+                                let dim = vec.len();
                                 hits.push(EncoderState {
                                     encoder: encoder.clone(),
-                                    dim: vec.len(),
-                                    vector: vec,
+                                    dim,
+                                    vector: if want_vectors { Some(vec) } else { None },
                                     l2_norm,
                                     tslot: p.tslot,
                                     fact_cid,
@@ -16718,6 +16939,12 @@ async fn post_state_multi(
         cell,
         encoders: hits,
         missing,
+        vectors_omitted: !want_vectors,
+        vectors_hint: if want_vectors {
+            None
+        } else {
+            Some("raw embedding floats omitted to fit the MCP wire cap; pass vectors:true (or include:[\"vectors\"]) to inline them, or use /v1/state for a single encoder's vector".into())
+        },
         resolved_from: resolved_env,
     }))
 }
@@ -21241,7 +21468,7 @@ async fn grid_info() -> Json<JsonValue> {
             "from_h3":"Use h3.h3_to_geo(h3_id) for the centre, then POST /v1/locate with {lat, lng}."
         },
         "honest_warnings": [
-            "cell64 is a 10 m-grain cache key. The cell pitch matches the native pitch of S1/S2 sources, so two queries 12 m apart resolve to distinct cells — no silent dedupe across sub-cell points. For coarser sources (Cop-DEM 90 m, SoilGrids 250 m, MODIS LST 1 km), the upstream sample is wider than the cell; multiple adjacent cells will receive the same value, which is correct.",
+            "cell64 is a 10 m-grain cache key. The cell pitch matches the native pitch of S1/S2 sources, so two queries 12 m apart resolve to distinct cells — no silent dedupe across sub-cell points. For coarser sources (Cop-DEM 30 m, SoilGrids 250 m, MODIS LST 1 km), the upstream sample is wider than the cell; multiple adjacent cells will receive the same value, which is correct.",
             "Pixels are square at the equator (lat ~9.54 m × lng ~9.55 m). Above the equator, longitude pitch narrows with cos(lat) so cells become taller than wide — H3 (the spec target) fixes this with equal-area hexagons.",
             "Legacy cell64 strings from the older ~305 m grid (resolution tag 12) do NOT decode under the active codec (resolution tag 21). They fail with `NotGeoCell` rather than silently misplacing a fact by hundreds of metres.",
             "When the migration to hex H3 (~3.4 m edge) lands, new cell strings will be issued under a new mode prefix; receipts pin the active manifest CIDs so historical answers don't drift."
@@ -21254,7 +21481,7 @@ async fn grid_info() -> Json<JsonValue> {
     }))
 }
 
-// ── /v1/elevation — read-through to Open-Meteo (Copernicus DEM 90m) ───
+// ── /v1/elevation — coherent tri-source envelope (Cop-DEM GLO-30 30 m) ───
 //
 // The honest answer to "this protocol returns empty for any cell where no
 // agent has attested" is lazy materialization: when an agent asks about
@@ -21263,10 +21490,13 @@ async fn grid_info() -> Json<JsonValue> {
 // value for any (lat, lng) on Earth without requiring an attester to
 // have walked there first.
 //
-// Open-Meteo wraps Copernicus DEM 90 m and is rate-limit-free for
-// reasonable use. For agents that need cite-able receipts (not just a
-// number), recall a real attested fact via /v1/recall first; this
-// endpoint is the convenience layer for "I just need a number now."
+// Source: Copernicus DEM GLO-30 (30 m, AWS Open Data COG, HTTPS range-read)
+// for land + GMRT topo-bathy + ESA WorldCover water mask. The legacy
+// Open-Meteo per-point read-through (which wrapped the coarser 90 m product)
+// was retired 2026-05-29 so every value is cite-able to a real tile. For
+// agents that need the full signed receipt (not just a number), recall an
+// attested fact via /v1/recall; this endpoint is the convenience layer for
+// "I just need a number now."
 
 #[derive(Deserialize)]
 struct ElevationReq {
@@ -21483,19 +21713,19 @@ fn derive_elevation_validity(
             "land_dem",
             json!(d),
             gmrt.map(|g| json!(g)).unwrap_or(JsonValue::Null),
-            format!("{d:.1} m above sea level (Cop-DEM 90 m, ESA WorldCover land class)"),
+            format!("{d:.1} m above sea level (Cop-DEM 30 m, ESA WorldCover land class)"),
         ),
         (Some(0.0), Some(g), true) => (
-            "ocean_no_dem",
+            "water_no_dem_use_bathymetry",
             JsonValue::Null,
             json!(g),
-            format!("Open ocean (ESA WorldCover class 80, permanent water bodies); GMRT bathymetry reads {g:.1} m. No DEM data here — Cop-DEM returns 0 as the no-data marker over water."),
+            format!("Permanent water (ESA WorldCover class 80 — ocean, lake, or below-sea-level basin such as the Dead Sea). Cop-DEM returns 0 as its no-data marker over water, so headline `elevation_m` is null; the real surface/floor sits in `bathymetry_m` = {g:.1} m (GMRT)."),
         ),
         (Some(0.0), None, true) => (
-            "ocean_no_dem",
+            "water_no_dem",
             JsonValue::Null,
             JsonValue::Null,
-            "Open ocean (ESA WorldCover class 80); no GMRT bathymetry returned. Headline elevation is undefined.".to_string(),
+            "Permanent water (ESA WorldCover class 80 — ocean, lake, or reservoir); Cop-DEM returns 0 as its no-data marker over water and no GMRT bathymetry was returned, so headline elevation is undefined here.".to_string(),
         ),
         (None, Some(g), _) => (
             "bathymetry_only",
@@ -21507,7 +21737,7 @@ fn derive_elevation_validity(
             "land_dem",
             json!(d),
             gmrt.map(|g| json!(g)).unwrap_or(JsonValue::Null),
-            format!("{d:.1} m above sea level (Cop-DEM 90 m, ESA WorldCover land class — negative/zero values can indicate below-sea-level land like the Dead Sea or Death Valley)"),
+            format!("{d:.1} m above sea level (Cop-DEM 30 m, ESA WorldCover land class — negative/zero values can indicate below-sea-level land like the Dead Sea or Death Valley)"),
         ),
         (None, None, _) => (
             "no_data",
@@ -25700,6 +25930,192 @@ async fn s1_search_with_fallback(
     Err(last_err.unwrap_or_else(|| "no Sentinel-1 RTC scene found".into()))
 }
 
+/// Sentinel-2 SCL (Scene Classification Layer) classes the materializer
+/// hard-rejects — the upstream marks the pixel unusable: 0 no_data,
+/// 1 saturated/defective, 8 cloud medium, 9 cloud high, 10 thin cirrus.
+fn s2_scl_is_hard_reject(class: u8) -> bool {
+    matches!(class, 0 | 1 | 8 | 9 | 10)
+}
+
+/// Human label for a hard-reject SCL class, for the Absence reason string.
+fn s2_scl_reject_label(class: u8) -> Option<&'static str> {
+    match class {
+        0 => Some("no_data"),
+        1 => Some("saturated_or_defective"),
+        8 => Some("cloud_medium_probability"),
+        9 => Some("cloud_high_probability"),
+        10 => Some("thin_cirrus"),
+        _ => None,
+    }
+}
+
+/// Sample the per-pixel Sentinel-2 SCL class at `(lat, lng)` for one STAC
+/// item. Returns `Some(0..=11)` or `None` when the item carries no SCL
+/// asset, the UTM projection fails, or the COG read errors — in which case
+/// the caller falls back to scene-level `eo:cloud_cover` for confidence.
+/// One 20 m COG range read; the cheap signal we check BEFORE paying for the
+/// full multi-asset value read.
+async fn s2_sample_scl(
+    cli: &reqwest::Client,
+    item: &emem_fetch::stac::StacItem,
+    lat: f64,
+    lng: f64,
+) -> Option<u8> {
+    let epsg = item.epsg?;
+    let utm = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)?;
+    let scl_url = item
+        .assets
+        .get("scl")
+        .or_else(|| item.assets.get("SCL"))
+        .cloned()?;
+    let prof = emem_fetch::cog::open_profile(cli, &scl_url).await.ok()?;
+    let v = emem_fetch::cog::sample_pixel(cli, &scl_url, &prof, utm.easting, utm.northing)
+        .await
+        .ok()?;
+    if v.is_finite() && (0.0..=11.0).contains(&v) {
+        Some(v as u8)
+    } else {
+        None
+    }
+}
+
+/// The scene chosen by [`s2_pick_clear_scene`], plus the audit fields the
+/// materializer surfaces in the fact's derivation args.
+struct S2ChosenScene {
+    item: emem_fetch::stac::StacItem,
+    used_cloud: f64,
+    used_days: i64,
+    /// Per-pixel SCL of the chosen scene (already sampled — reused by the
+    /// materializer so it does not re-read the SCL COG).
+    scl: Option<u8>,
+    /// True when the chosen scene's pixel is clear (or SCL was unavailable
+    /// so we honestly fall back to scene cloud_cover). False only when every
+    /// candidate across every tier was cloudy at the pixel.
+    clear: bool,
+    /// How many candidate scenes were SCL-probed to reach this decision.
+    scenes_tried: usize,
+}
+
+/// SCL-first multi-scene picker for the Sentinel-2 value path. Where
+/// [`s2_search_with_fallback`] returns the single newest scene under each
+/// cloud/lookback tier, this gathers up to `EMEM_S2_MAX_SCENES` candidates
+/// (newest first) per tier and checks each scene's CHEAP per-pixel SCL
+/// before the materializer commits to the expensive multi-asset value read.
+/// It returns the newest scene whose pixel SCL is clear, so a single cloudy
+/// latest pixel no longer forces a false Absence when a clear scene sits a
+/// few days back (the Ranchi NDVI gap). When every candidate is cloudy at
+/// the pixel it returns the newest one with `clear=false` so the caller
+/// signs an honest Absence that names how many scenes were tried.
+///
+/// Shares the exact tier ladder of [`s2_search_with_fallback`] so the
+/// cloud/lookback semantics (and `EMEM_S2_MAX_CLOUD` / `EMEM_S2_LOOKBACK_DAYS`
+/// overrides) stay identical; only the per-tier candidate count differs.
+async fn s2_pick_clear_scene(
+    cli: &reqwest::Client,
+    lng: f64,
+    lat: f64,
+    target_unix: Option<i64>,
+    now_unix: i64,
+) -> Result<S2ChosenScene, String> {
+    let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=100.0).contains(v))
+        .unwrap_or(40.0);
+    let base_days: i64 = std::env::var("EMEM_S2_LOOKBACK_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|d| (1..=365).contains(d))
+        .unwrap_or(30);
+    let max_scenes: usize = std::env::var("EMEM_S2_MAX_SCENES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| (1..=12).contains(n))
+        .unwrap_or(4);
+    let tiers: [(f64, i64); 3] = [
+        (base_cloud, base_days),
+        ((base_cloud * 1.5).min(60.0), base_days * 2),
+        ((base_cloud * 2.0).min(80.0), base_days * 3),
+    ];
+    let mut scenes_tried = 0usize;
+    // Newest candidate seen across all tiers — the honest Absence fallback
+    // when no scene is clear at the pixel.
+    let mut newest_seen: Option<(emem_fetch::stac::StacItem, f64, i64, Option<u8>)> = None;
+    let mut last_err: Option<String> = None;
+    for (cloud, days) in tiers {
+        let (lo_unix, hi_unix) = match target_unix {
+            Some(t) => {
+                let lo = (t - days * 86400).max(0);
+                let hi = (t + days * 86400).min(now_unix);
+                (lo, hi.max(lo + 86400))
+            }
+            None => (now_unix - days * 86400, now_unix),
+        };
+        let datetime = format!(
+            "{}/{}",
+            iso8601_utc(lo_unix as u64),
+            iso8601_utc(hi_unix as u64)
+        );
+        let items = match emem_fetch::stac::search_many_at(
+            cli,
+            emem_fetch::stac::STAC_ELEMENT84_V1,
+            "sentinel-2-l2a",
+            lng,
+            lat,
+            &datetime,
+            Some(cloud),
+            max_scenes,
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => return Err(format!("stac: {e}")),
+        };
+        if items.is_empty() {
+            last_err = Some(format!(
+                "no Sentinel-2 L2A scene under {cloud}% cloud in ±{days}d"
+            ));
+            continue;
+        }
+        for item in items {
+            scenes_tried += 1;
+            let scl = s2_sample_scl(cli, &item, lat, lng).await;
+            if newest_seen.is_none() {
+                newest_seen = Some((item.clone(), cloud, days, scl));
+            }
+            // A hard-reject SCL means a cloudy/unusable pixel — try the next
+            // (older) candidate. Anything else (clear class, or SCL simply
+            // unavailable so we fall back to scene cloud_cover) is usable.
+            match scl {
+                Some(c) if s2_scl_is_hard_reject(c) => continue,
+                _ => {
+                    return Ok(S2ChosenScene {
+                        item,
+                        used_cloud: cloud,
+                        used_days: days,
+                        scl,
+                        clear: true,
+                        scenes_tried,
+                    });
+                }
+            }
+        }
+    }
+    // Every candidate across every tier was cloudy at the pixel: return the
+    // newest so the caller signs an honest Absence (clear=false).
+    if let Some((item, used_cloud, used_days, scl)) = newest_seen {
+        return Ok(S2ChosenScene {
+            item,
+            used_cloud,
+            used_days,
+            scl,
+            clear: false,
+            scenes_tried,
+        });
+    }
+    Err(last_err.unwrap_or_else(|| "no Sentinel-2 L2A scene found".into()))
+}
+
 /// Generic Sentinel-2 L2A point sampler. Handles every `s2.*` raw-reflectance
 /// band and every `indices.*` derived index from the same one-scene path:
 ///
@@ -25733,14 +26149,25 @@ async fn materialize_sentinel2_band(
         .unwrap_or(0);
 
     let cli = s2_http_client();
-    // Cloudy-region fallback ladder. The Katihar test (May 2026) showed
-    // a hard 40 %/30 d cap returns false Absence for monsoon regions
-    // where the latest clear scene is 45-60 days back. We climb the
-    // ladder until a scene is found or the widest window also returns
-    // empty. The values used are surfaced in `notes` so the agent can
-    // see we relaxed. Override base via EMEM_S2_MAX_CLOUD / EMEM_S2_LOOKBACK_DAYS.
-    let (item, used_cloud, used_days) =
-        s2_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?;
+    // Cloudy-region scene selection. Two compounding fallbacks:
+    //  (1) the cloud/lookback tier ladder (Katihar lesson — a hard 40 %/30 d
+    //      cap false-Absences monsoon regions where the latest clear scene is
+    //      45-60 days back), and
+    //  (2) SCL-first MULTI-scene picking within each tier — the latest scene
+    //      under the scene-level cloud cap can still be cloudy at THIS exact
+    //      pixel, which used to force a false Absence even when a clear scene
+    //      sat a few days earlier (the Ranchi NDVI gap that broke
+    //      jepa_predict downstream). `s2_pick_clear_scene` probes the cheap
+    //      per-pixel SCL of up to EMEM_S2_MAX_SCENES candidates per tier and
+    //      returns the newest scene whose pixel is clear. The chosen scene's
+    //      SCL is reused below so we never re-read that COG.
+    // Values used are surfaced in the fact's derivation args + materialize
+    // notes. Override base via EMEM_S2_MAX_CLOUD / EMEM_S2_LOOKBACK_DAYS /
+    // EMEM_S2_MAX_SCENES.
+    let chosen = s2_pick_clear_scene(&cli, lng, lat, target_unix, now_unix).await?;
+    let item = chosen.item.clone();
+    let used_cloud = chosen.used_cloud;
+    let used_days = chosen.used_days;
     let epsg = item
         .epsg
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
@@ -26017,81 +26444,48 @@ async fn materialize_sentinel2_band(
     })?;
     let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
 
-    // Pixel-level Scene Classification Layer (SCL) sample. SCL is one of
-    // the L2A canonical assets — always present in the modern STAC
-    // catalogue, uint8 categorical at 20 m. A single COG range read at
-    // the cell centroid gives per-pixel quality, which is a tighter
+    // Pixel-level Scene Classification Layer (SCL). Already sampled by
+    // `s2_pick_clear_scene` while choosing the scene, so we REUSE it here
+    // rather than re-reading the 20 m SCL COG. SCL is a tighter quality
     // signal than scene-level `eo:cloud_cover`: a clear pixel inside a
-    // 40 %-cloudy scene used to carry the same confidence as a cloudy
-    // one in the same scene. SCL classes (Sen2Cor v2.10):
+    // 40 %-cloudy scene used to carry the same confidence as a cloudy one in
+    // the same scene. SCL classes (Sen2Cor v2.10):
     //   0 no_data, 1 saturated/defective, 2 cast shadows,
     //   3 cloud shadows, 4 vegetation, 5 bare soil, 6 water,
     //   7 cloud (low prob), 8 cloud (medium), 9 cloud (high),
     //   10 thin cirrus, 11 snow/ice.
-    // Hard-reject classes (0,1,8,9,10) sign Absence — refuse to emit a
-    // confident value for a pixel the upstream marks unusable. Soft
-    // classes (2,3,7) keep the value with downgraded confidence. Clear
-    // classes (4,5,6,11) get the highest confidence. When SCL itself
-    // is the requested band, we skip the gate (the value IS the SCL).
-    // When the SCL asset is missing from the STAC item or the COG read
-    // fails, we fall back to scene-level cloud_cover.
+    // When SCL itself is the requested band, the value IS the SCL so the
+    // gate is moot.
     let scl_value: Option<u8> = if kind == "scl_categorical" {
         None
     } else {
-        let scl_alias = item
-            .assets
-            .get("scl")
-            .or_else(|| item.assets.get("SCL"))
-            .cloned();
-        match scl_alias {
-            Some(scl_url) => match emem_fetch::cog::open_profile(&cli, &scl_url).await {
-                Ok(prof) => match emem_fetch::cog::sample_pixel(
-                    &cli,
-                    &scl_url,
-                    &prof,
-                    utm.easting,
-                    utm.northing,
-                )
-                .await
-                {
-                    Ok(v) if v.is_finite() && (0.0..=11.0).contains(&v) => Some(v as u8),
-                    _ => None,
-                },
-                Err(_) => None,
-            },
-            None => None,
-        }
+        chosen.scl
     };
-    // Hard-reject classes — sign Absence rather than ship a confident
-    // fact built on a pixel the upstream calls unusable. The Absence
-    // reason names the exact SCL class so an agent can re-query a
-    // different scene (try a different date, relax max_cloud) or
-    // accept the absence as authoritative.
-    if let Some(class) = scl_value {
-        let reject_label = match class {
-            0 => Some("no_data"),
-            1 => Some("saturated_or_defective"),
-            8 => Some("cloud_medium_probability"),
-            9 => Some("cloud_high_probability"),
-            10 => Some("thin_cirrus"),
-            _ => None,
-        };
-        if let Some(label) = reject_label {
-            let signed_at = chrono_iso8601_utc();
-            return sign_band_absence(
-                cell64,
-                s,
-                band,
-                tslot,
-                "sentinel_s2_l2a",
-                &asset_urls.join(" ; "),
-                &signed_at,
-                &format!(
-                    "s2_scl_pixel_unusable: SCL={class} ({label}) at scene {} ({}); try a different acquisition date or relax max_cloud",
-                    item.id, item.datetime
-                ),
-            )
-            .await;
+    // Hard-reject only when EVERY candidate scene the picker tried was cloudy
+    // at this pixel (`chosen.clear == false`). A clear scene was already
+    // preferred, so this Absence is honest: it means no usable optical
+    // observation exists in the lookback window, not that we gave up on the
+    // first cloudy frame. The reason names the SCL class + how many scenes
+    // were probed so an agent can widen the window or accept the Absence.
+    if !chosen.clear {
+        if let Some(class) = scl_value {
+            if let Some(label) = s2_scl_reject_label(class) {
+                let signed_at = chrono_iso8601_utc();
+                return sign_band_absence(
+                    cell64,
+                    s,
+                    band,
+                    tslot,
+                    "sentinel_s2_l2a",
+                    &asset_urls.join(" ; "),
+                    &signed_at,
+                    &format!(
+                        "s2_scl_pixel_unusable: every one of {} candidate scene(s) in the ±{}d / {}%-cloud window was unusable at this pixel (newest: SCL={class} ({label}) at scene {} ({})); widen the window via EMEM_S2_LOOKBACK_DAYS / EMEM_S2_MAX_CLOUD, raise EMEM_S2_MAX_SCENES, or accept the Absence as authoritative",
+                        chosen.scenes_tried, used_days, used_cloud, item.id, item.datetime
+                    ),
+                )
+                .await;
+            }
         }
     }
     // Confidence: SCL-derived when the pixel-level class is known
@@ -26134,11 +26528,15 @@ async fn materialize_sentinel2_band(
             // landed on. Tier 1 = (40, 30) is the strict default; tier 3 =
             // (80, 90) is the relaxed worst case. If both are wider than
             // tier-1, monsoon/polar coverage was tight at this cell.
-            // Trailing scl arg: 0..=11 = the pixel-level SCL class for
+            // Trailing args: scl arg 0..=11 = the pixel-level SCL class for
             // this cell (when wired); -1 = SCL fetch unavailable, the
-            // confidence falls back to scene-level cloud_cover. Lets a
-            // downstream verifier re-fetch the SCL band and audit the
-            // confidence derivation.
+            // confidence falls back to scene-level cloud_cover. Final arg =
+            // number of candidate scenes SCL-probed by `s2_pick_clear_scene`
+            // to reach this one (1 = the latest scene was already clear at
+            // the pixel; >1 = newer scenes were cloudy here and we stepped
+            // back to this clear one). Lets a downstream verifier re-fetch
+            // the SCL band and audit both the confidence derivation and the
+            // scene-selection.
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -26152,6 +26550,7 @@ async fn materialize_sentinel2_band(
                 ciborium::Value::Float(used_cloud),
                 ciborium::Value::Integer(used_days.into()),
                 ciborium::Value::Integer(scl_value.map(|c| c as i64).unwrap_or(-1).into()),
+                ciborium::Value::Integer((chosen.scenes_tried as i64).into()),
             ])),
         },
         privacy_class: "public".into(),
@@ -28667,6 +29066,13 @@ async fn materialize_radd_band(
         radd_alerts::RADD_BASE_URL,
         radd_alerts::tile_url_for(lat, lng).unwrap_or_else(|| "out_of_coverage".into())
     );
+    // Derive the source scheme + derivation fn_key from the single version
+    // constant so a version bump can never leave the signed provenance
+    // disagreeing with the disclosed RADD vintage (the kind of drift the
+    // "be true in docs" rule warns against). e.g. tag "v20260524" →
+    // scheme "radd.v20260524", fn_key "radd_v20260524_pixel@1".
+    let radd_scheme = format!("radd.{}", radd_alerts::RADD_VERSION_TAG);
+    let radd_fn_key = format!("radd_{}_pixel@1", radd_alerts::RADD_VERSION_TAG);
 
     let cli = s2_http_client();
     match radd_alerts::fetch_alert(&cli, lat, lng).await {
@@ -28690,7 +29096,7 @@ async fn materialize_radd_band(
                 confidence: 0.90,
                 uncertainty: None,
                 sources: vec![Source {
-                    scheme: "radd.v20260510".into(),
+                    scheme: radd_scheme.clone(),
                     id: url.clone(),
                     cid: None,
                     hash: None,
@@ -28698,7 +29104,7 @@ async fn materialize_radd_band(
                     url: Some(url.clone()),
                 }],
                 derivation: Derivation {
-                    fn_key: "radd_v20260510_pixel@1".into(),
+                    fn_key: radd_fn_key.clone(),
                     args: Some(ciborium::Value::Array(vec![
                         ciborium::Value::Float(lat),
                         ciborium::Value::Float(lng),
@@ -28722,7 +29128,7 @@ async fn materialize_radd_band(
                 s,
                 band,
                 0,
-                "radd.v20260510",
+                &radd_scheme,
                 &url,
                 &signed_at,
                 &reason,
@@ -28742,7 +29148,7 @@ async fn materialize_radd_band(
                 s,
                 band,
                 0,
-                "radd.v20260510",
+                &radd_scheme,
                 &url,
                 &signed_at,
                 &reason,
@@ -28758,7 +29164,7 @@ async fn materialize_radd_band(
                 s,
                 band,
                 0,
-                "radd.v20260510",
+                &radd_scheme,
                 &url,
                 &signed_at,
                 &full,
@@ -29585,6 +29991,106 @@ async fn materialize_algorithm_band_impl(
     }
 }
 
+/// Global corpus write-generation counter. Bumped once per persisted
+/// attestation batch in [`sign_and_persist_many`]. Result caches snapshot it
+/// on insert and treat any change as an invalidation — so a freshly attested
+/// fact is visible immediately, not after a TTL expiry. A `u64` add per
+/// write never realistically wraps.
+fn corpus_write_gen() -> &'static std::sync::atomic::AtomicU64 {
+    static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    &GEN
+}
+
+/// Generic TTL + write-generation result cache. A cached entry is served
+/// only when (a) it has not aged past its TTL AND (b) the corpus
+/// write-generation is unchanged since the entry was stored. Either a new
+/// fact landing (generation bump) or the TTL elapsing forces a recompute, so
+/// the cache is never stale with respect to the signed corpus. Bounded by a
+/// hard entry cap with oldest-first eviction; a `Mutex<HashMap>` is ample for
+/// the read-mostly access pattern of these endpoints.
+struct ResultCache<K> {
+    map: Mutex<std::collections::HashMap<K, (JsonValue, u64, u64)>>, // value, expires_at_ms, gen
+    ttl_ms: u64,
+    cap: usize,
+}
+
+impl<K: std::hash::Hash + Eq + Clone> ResultCache<K> {
+    fn new(ttl_ms: u64, cap: usize) -> Self {
+        Self {
+            map: Mutex::new(std::collections::HashMap::new()),
+            ttl_ms,
+            cap,
+        }
+    }
+
+    fn get(&self, key: &K) -> Option<JsonValue> {
+        let now = now_unix_ms();
+        let gen = corpus_write_gen().load(std::sync::atomic::Ordering::Relaxed);
+        let mut map = self.map.lock().ok()?;
+        match map.get(key) {
+            Some((v, exp, g)) if now < *exp && *g == gen => Some(v.clone()),
+            Some(_) => {
+                map.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn put(&self, key: K, value: JsonValue) {
+        let now = now_unix_ms();
+        let gen = corpus_write_gen().load(std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut map) = self.map.lock() {
+            if map.len() >= self.cap && !map.contains_key(&key) {
+                // Evict the entry closest to expiry (oldest-first) to keep the
+                // map bounded without a full LRU bookkeeping structure.
+                if let Some(victim) = map
+                    .iter()
+                    .min_by_key(|(_, (_, exp, _))| *exp)
+                    .map(|(k, _)| k.clone())
+                {
+                    map.remove(&victim);
+                }
+            }
+            map.insert(key, (value, now + self.ttl_ms, gen));
+        }
+    }
+}
+
+fn state_cache_ttl_ms() -> u64 {
+    std::env::var("EMEM_STATE_CACHE_TTL_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(300_000)
+        .clamp(1_000, 3_600_000)
+}
+
+fn contradictions_cache_ttl_ms() -> u64 {
+    std::env::var("EMEM_CONTRADICTIONS_CACHE_TTL_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(60_000)
+        .clamp(1_000, 3_600_000)
+}
+
+/// Result cache for `/v1/state` (both views). Keyed by the full request
+/// shape so two different encoders/tslots/scopes never collide. Invalidated
+/// on any corpus write (generation bump) or after the TTL.
+fn state_result_cache() -> &'static ResultCache<String> {
+    static CACHE: std::sync::OnceLock<ResultCache<String>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| ResultCache::new(state_cache_ttl_ms(), 8_192))
+}
+
+/// Result cache for `/v1/memory_contradictions`. The primitive does a full
+/// multi-attester sled scan + per-fact hydration on every call (~6 s warm);
+/// caching the computed result behind the write-generation makes repeat
+/// monitoring calls ~50 ms while staying correct the instant a new
+/// attestation could change the answer.
+fn contradictions_result_cache() -> &'static ResultCache<String> {
+    static CACHE: std::sync::OnceLock<ResultCache<String>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| ResultCache::new(contradictions_cache_ttl_ms(), 1_024))
+}
+
 async fn sign_and_persist(
     s: &AppState,
     fact: Fact,
@@ -29667,6 +30173,11 @@ async fn sign_and_persist_many(
         .put_attestation(&att)
         .await
         .map_err(|e| format!("put_attestation: {e}"))?;
+    // Bump the global corpus write-generation so result caches keyed on it
+    // (state, memory_contradictions) invalidate the instant a new fact lands
+    // — correctness without waiting for a TTL. One relaxed atomic add per
+    // attestation batch; negligible cost on the write path.
+    corpus_write_gen().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     // Incremental append into the Lance ANN index. Best-effort: a failure
     // here must not unwind the sled write (sled is authoritative). Only
     // primary facts with a `Vec<f32>` value are vector candidates;
@@ -30169,7 +30680,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             kind: BandKind::Static,
             history_from_unix: None,
             history_to_unix: None,
-            wire_path: "Open-Meteo Elevation REST (Cop-DEM 90 m derived)",
+            wire_path: "AWS Open Data Cop-DEM GLO-30 COG (30 m, HTTPS range-read)",
         },
         "gmrt.topobathy_mean" => MaterializerMeta {
             tempo: Tempo::Static,
@@ -41728,6 +42239,17 @@ fn sample_cells_in_polygon(
             }
         }
     }
+    // Never-empty: a polygon thinner than the sample stride (a narrow
+    // neighbourhood, a sliver district) can have ZERO grid points land
+    // inside it even though it has real extent — that was the "0 sample
+    // cells at Indiranagar" defect. Rather than return nothing (which made
+    // downstream recalls silently empty), fall back to the bbox grid so the
+    // caller always gets a representative cell set covering the feature's
+    // footprint. The mask was honestly attempted first; this is the bbox
+    // approximation when the mask is too fine for the grid.
+    if out.is_empty() {
+        return sample_cells_in_bbox(bbox, target_n);
+    }
     out
 }
 
@@ -41822,7 +42344,25 @@ fn point_area_polygon(
 }
 
 pub(crate) fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) -> Vec<String> {
-    let (mn_la, mx_la, mn_ln, mx_ln) = bbox;
+    let (mut mn_la, mut mx_la, mut mn_ln, mut mx_ln) = bbox;
+    // Defensive normalisation. Upstream geocoders (Nominatim OSM relations,
+    // Photon `extent`) occasionally hand back a bbox with the corners
+    // order-inverted or — for a malformed relation — non-finite. An inverted
+    // bbox would walk the grid "backwards" (cells outside the queried
+    // region) and a non-finite bbox would produce NaN sample coordinates that
+    // all quantise to the same junk cell, then dedupe to a single cell or
+    // none. Normalise corner order; on non-finite input fall through to the
+    // never-empty centroid guard below. This is the root cause of the
+    // "0 sample cells at a neighbourhood" defect.
+    if !(mn_la.is_finite() && mx_la.is_finite() && mn_ln.is_finite() && mx_ln.is_finite()) {
+        return Vec::new();
+    }
+    if mn_la > mx_la {
+        std::mem::swap(&mut mn_la, &mut mx_la);
+    }
+    if mn_ln > mx_ln {
+        std::mem::swap(&mut mn_ln, &mut mx_ln);
+    }
     let n_side = (target_n as f64).sqrt().floor().max(2.0) as usize;
     let mut seen = std::collections::BTreeSet::new();
     let mut out = Vec::with_capacity(n_side * n_side);
@@ -41841,6 +42381,16 @@ pub(crate) fn sample_cells_in_bbox(bbox: (f64, f64, f64, f64), target_n: usize) 
                 }
             }
         }
+    }
+    // Never-empty for a finite bbox. A bbox finer than the cell grain dedupes
+    // to one cell (correct); a zero-area bbox still has a well-defined centre
+    // cell. Emit the centroid cell rather than returning nothing so a caller
+    // that fans out over `polygon_sample_cells` never silently gets zero
+    // cells (the Indiranagar failure).
+    if out.is_empty() {
+        let la = (mn_la + mx_la) * 0.5;
+        let ln = (mn_ln + mx_ln) * 0.5;
+        out.push(emem_codec::to_cell64(emem_codec::cell_from_latlng(la, ln)));
     }
     out
 }
@@ -42547,10 +43097,30 @@ async fn nominatim_bbox_for(query: &str) -> Option<(f64, f64, f64, f64)> {
     if bbox.len() != 4 {
         return None;
     }
-    let s: f64 = bbox[0].as_str()?.parse().ok()?;
-    let n: f64 = bbox[1].as_str()?.parse().ok()?;
-    let w: f64 = bbox[2].as_str()?.parse().ok()?;
-    let e: f64 = bbox[3].as_str()?.parse().ok()?;
+    let mut s: f64 = bbox[0].as_str()?.parse().ok()?;
+    let mut n: f64 = bbox[1].as_str()?.parse().ok()?;
+    let mut w: f64 = bbox[2].as_str()?.parse().ok()?;
+    let mut e: f64 = bbox[3].as_str()?.parse().ok()?;
+    // Nominatim's boundingbox is [south, north, west, east] → our
+    // (min_lat, max_lat, min_lng, max_lng) tuple. Validate before returning:
+    // a malformed OSM relation can yield non-finite or order-inverted
+    // coordinates, or a bbox wider than the sphere. Reject the degenerate
+    // cases so the caller falls through to a finer geocoder tier or the
+    // centre-cell bbox instead of sampling the wrong (or planet-sized)
+    // region — and so a neighbourhood never resolves to a bbox larger than
+    // its parent because the bbox itself was junk.
+    if !(s.is_finite() && n.is_finite() && w.is_finite() && e.is_finite()) {
+        return None;
+    }
+    if s > n {
+        std::mem::swap(&mut s, &mut n);
+    }
+    if w > e {
+        std::mem::swap(&mut w, &mut e);
+    }
+    if (n - s) > 180.0 || (e - w) > 360.0 {
+        return None;
+    }
     Some((s, n, w, e))
 }
 
@@ -44302,6 +44872,135 @@ fn not_found(msg: &str) -> Response {
 mod tests {
     use super::*;
 
+    /// The MCP CallToolResult wrap must keep a small result's two-copy
+    /// envelope (content text + structuredContent mirror) but DROP the
+    /// mirror once the combined wire size would breach the budget — and
+    /// generically slim + mark an oversized inner so the agent never
+    /// receives a silently-truncated payload. This is the headline fix for
+    /// the 2026-06-01 MCP test report's #1 defect.
+    #[test]
+    fn mcp_wrap_drops_mirror_then_slims_over_budget() {
+        let budget = mcp_response_budget_bytes();
+
+        // 1) Small payload: both copies fit → structuredContent present.
+        let small = json!({"schema": "emem.x.v1", "answer": "hi", "n": 3});
+        let wrapped = mcp_wrap_call_tool_result(small.clone());
+        assert!(
+            wrapped.get("structuredContent").is_some(),
+            "small result keeps the structuredContent mirror"
+        );
+        assert_eq!(wrapped["isError"], json!(false));
+
+        // 2) Medium payload: one copy fits but two would breach → mirror
+        //    dropped, single text copy retained, still valid JSON.
+        let mid_blob = "x".repeat(budget * 3 / 4);
+        let mid = json!({"schema": "emem.x.v1", "blob": mid_blob});
+        let wrapped = mcp_wrap_call_tool_result(mid);
+        assert!(
+            wrapped.get("structuredContent").is_none(),
+            "mid result drops the doubling structuredContent mirror"
+        );
+        let text = wrapped["content"][0]["text"].as_str().unwrap();
+        assert!(text.len() <= budget, "single copy fits the wire budget");
+        assert!(
+            serde_json::from_str::<JsonValue>(text).is_ok(),
+            "the retained text block is still parseable JSON"
+        );
+
+        // 3) Oversized payload: even one copy is over budget → inner is
+        //    slimmed, the small identifying fields survive, and an honest
+        //    truncation marker names what was dropped.
+        let huge: Vec<i64> = (0..200_000).collect();
+        let big = json!({
+            "schema": "emem.recall.v1",
+            "cell": "defi.zb592.nemu.zEvE",
+            "facts": huge,
+        });
+        let wrapped = mcp_wrap_call_tool_result(big);
+        let text = wrapped["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.len() <= budget,
+            "slimmed result fits the budget ({} <= {budget})",
+            text.len()
+        );
+        let parsed: JsonValue = serde_json::from_str(text).expect("slimmed result is valid JSON");
+        assert_eq!(parsed["schema"], json!("emem.recall.v1"), "schema kept");
+        assert_eq!(parsed["cell"], json!("defi.zb592.nemu.zEvE"), "cell kept");
+        assert!(
+            parsed.get("_emem_truncation").is_some(),
+            "oversized result carries an honest truncation marker"
+        );
+        assert!(
+            parsed["_emem_truncation"]["omitted_fields"]
+                .as_array()
+                .map(|a| a.iter().any(|f| f["field"] == json!("facts")))
+                .unwrap_or(false),
+            "the heavy `facts` field is reported as omitted, not silently dropped"
+        );
+    }
+
+    /// `/v1/state_multi` slim default: the raw embedding vectors are omitted
+    /// (kept as per-encoder metadata) unless `vectors:true` is passed, so the
+    /// default response fits the MCP wire cap.
+    #[test]
+    fn state_multi_req_vectors_opt_in_defaults_off() {
+        // Default: no `vectors` field → slim (vectors omitted).
+        let slim: StateMultiReq =
+            serde_json::from_value(json!({"cell": "Helsinki Airport"})).unwrap();
+        let want = slim.vectors.unwrap_or_else(|| {
+            slim.include
+                .as_ref()
+                .map(|i| i.iter().any(|x| x.eq_ignore_ascii_case("vectors")))
+                .unwrap_or(false)
+        });
+        assert!(!want, "default must omit the raw vectors");
+
+        // Explicit opt-in via `vectors:true`.
+        let full: StateMultiReq =
+            serde_json::from_value(json!({"cell": "x", "vectors": true})).unwrap();
+        assert_eq!(full.vectors, Some(true), "vectors:true is honoured");
+
+        // Opt-in via include:["vectors"].
+        let inc: StateMultiReq =
+            serde_json::from_value(json!({"cell": "x", "include": ["vectors"]})).unwrap();
+        let want_inc = inc.vectors.unwrap_or_else(|| {
+            inc.include
+                .as_ref()
+                .map(|i| i.iter().any(|x| x.eq_ignore_ascii_case("vectors")))
+                .unwrap_or(false)
+        });
+        assert!(want_inc, "include:[\"vectors\"] opts into the raw floats");
+    }
+
+    /// A malformed / order-inverted / non-finite bbox from an upstream
+    /// geocoder must never yield zero sample cells (the Indiranagar
+    /// defect): a finite bbox always produces ≥1 cell, an inverted bbox is
+    /// normalised to the same cells as its correct ordering, and a
+    /// non-finite bbox degrades to empty so the caller's centroid guard
+    /// takes over rather than sampling NaN coordinates.
+    #[test]
+    fn sample_cells_in_bbox_never_empty_and_order_invariant() {
+        // A sub-cell-grain bbox (~0.1 m, far below the ~9.55 m cell grain —
+        // the "neighbourhood smaller than the grid" case) collapses to
+        // exactly the centroid cell, not nothing.
+        let tiny = sample_cells_in_bbox((12.97160, 12.97160_1, 77.59460, 77.59460_1), 64);
+        assert_eq!(tiny.len(), 1, "a sub-grain bbox yields its centroid cell");
+
+        // Inverted corner order resolves to the SAME cell set as the
+        // correctly-ordered bbox.
+        let normal = sample_cells_in_bbox((12.95, 12.99, 77.55, 77.62), 16);
+        let inverted = sample_cells_in_bbox((12.99, 12.95, 77.62, 77.55), 16);
+        assert!(!normal.is_empty(), "a real bbox yields cells");
+        assert_eq!(
+            normal, inverted,
+            "an order-inverted bbox samples the same region"
+        );
+
+        // Non-finite input degrades to empty (caller falls back), never panics.
+        let nan = sample_cells_in_bbox((f64::NAN, 1.0, 2.0, 3.0), 16);
+        assert!(nan.is_empty(), "a non-finite bbox returns empty, not junk");
+    }
+
     /// Concrete-band detector for the /v1/ask fast path: whole-word
     /// matching only, multi-band split for LST, and EVI/SAVI explicitly
     /// undetectable (no real band key). Mirrors the narrowing guard in
@@ -44615,10 +45314,14 @@ mod tests {
         }
         // Sentinel-1 RTC: 10 m
         assert_eq!(band_input_resolution_m("sentinel1_raw"), Some(10));
-        // Cop-DEM 90 m, SoilGrids 250 m, MODIS LST 1 km, CAMS 11 km.
+        // Cop-DEM GLO-30 30 m, SoilGrids 250 m, MODIS LST 1 km, CAMS 11 km.
+        // The responder fetches the GLO-30 product (AWS Open Data
+        // `copernicus-dem-30m` COG mirror, migrated 2026-05-29), so the
+        // input pitch is 30 m — not the 90 m of the retired Open-Meteo
+        // per-point path.
         assert_eq!(
             band_input_resolution_m("copdem30m.elevation_mean"),
-            Some(90)
+            Some(30)
         );
         assert_eq!(band_input_resolution_m("soilgrids.soc_0_30cm"), Some(250));
         assert_eq!(band_input_resolution_m("modis.lst_day_8day"), Some(1000));
