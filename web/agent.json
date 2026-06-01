@@ -119,12 +119,12 @@
     "emem_hunt",
     "emem_eudr_dds"
   ],
-  "primitive_count": 80,
-  "algorithm_count": 159,
+  "primitive_count": 81,
+  "algorithm_count": 160,
   "band_cube_slot_count": 42,
   "materializer_wired_band_names": 122,
-  "rest_paths_in_openapi": 95,
-  "rest_paths_v1_in_openapi": 92,
+  "rest_paths_in_openapi": 96,
+  "rest_paths_v1_in_openapi": 93,
   "source_scheme_count": 46,
   "topic_count_declared": 27,
   "address_algebra": {

@@ -7,6 +7,29 @@ to verify.
 
 ## [Unreleased]
 
+### Sentinel-1 SAR + cold-path (2026-06-01)
+
+- **New `POST /v1/sar_forest_disturbance` (+ `emem_sar_forest_disturbance` MCP
+  tool, `sar_forest_disturbance@1` algorithm).** Cloud- and night-independent
+  Sentinel-1 C-band confirmation of forest clearing — the signal RADD was meant
+  to provide, served from the **anonymous** Microsoft Planetary Computer
+  `sentinel-1-rtc` collection (no requester-pays, no API key). Intact forest
+  scatters VV strongly + stably; clearing collapses the canopy volume term, so
+  VV backscatter drops ~3–5 dB. Samples VV at a baseline-year July-1 anchor and
+  the latest scene, reports `vv_drop_db` and a `disturbed` flag at the
+  Reiche-2018 3 dB threshold (`EMEM_SAR_DISTURBANCE_DROP_DB`). Both VV reads are
+  signed Primary facts (cited `fact_cids`); honest `inconclusive` when either
+  vintage is unavailable. It is an **additive scout signal, not a standalone
+  legal verdict** — a VV drop can be transient (soil moisture, harvest, flood
+  recession), so the response tells the agent to confirm against the optical
+  Hansen/JRC-TMF consensus (`/v1/eudr_dds`, `/v1/deforestation_alert`) before
+  crediting a decision.
+- **Galileo cold-floor trim.** `materialize_galileo_base` awaited the S2 chip,
+  then joined S1+DEM+TC. DEM is scene-independent, so it now starts concurrently
+  with the S2 fetch (off the critical path). Galileo is the slowest foundation
+  encoder and bounds the parallel `state_multi` fan-out, so this shaves its cold
+  floor.
+
 ### EUDR audit fixes (2026-06-01, after a 4-agent regulatory + code + doc deep-dive)
 
 - **Fixed a deforestation-verdict correctness bug (could false-pass).** The

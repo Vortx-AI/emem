@@ -522,6 +522,11 @@ const SCHEMA_DEFORESTATION_ALERT: &str = r#"{"type":"object","required":["cell"]
 "cell":{"type":"string","description":"cell64 or place name."}
 }}"#;
 
+const SCHEMA_SAR_FOREST_DISTURBANCE: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name."},
+"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020, the EUDR cut-off year). Baseline VV is sampled at a July-1 anchor of this year; the recent VV is the latest scene."}
+}}"#;
+
 const SCHEMA_TRIPLE_CONSENSUS: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name."},
 "consensus_threshold":{"type":"number","description":"Override the registry consensus gate (default 0.15); clamped to (0,1)."}
@@ -742,6 +747,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call to flag recent forest-loss-like change at a known cell when you want a single 0..1 alert score rather than a full ensemble. Read the renamed score field and the present/absent halves — don't treat a half-score as the full composite. For multi-cell open-world discovery use `emem_hunt` (deforestation event); for the three-encoder change ensemble use `emem_triple_consensus`; for regulatory EUDR evidence use `emem_eudr_dds`.",
         input_schema: SCHEMA_DEFORESTATION_ALERT,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_sar_forest_disturbance",
+        title: "Sentinel-1 SAR forest-disturbance scout (cloud-penetrating)",
+        description: "Cloud- and night-independent Sentinel-1 C-band confirmation of forest disturbance. Intact forest scatters VV strongly + stably (canopy volume scattering); clearing collapses that term so VV backscatter DROPS ~3-5 dB. Samples VV at a baseline-year July-1 anchor and the latest scene, reports `vv_drop_db = baseline − recent` and a `disturbed` flag when the drop ≥ 3 dB (Reiche et al. 2018, RSE 204:147). Both VV reads are signed Primary facts; the response cites both fact_cids. Honest `inconclusive` when either S1 vintage is unavailable. Source: Microsoft Planetary Computer sentinel-1-rtc (anonymous SAS — no requester-pays, no API key).",
+        when_to_use: "Call to corroborate or scout forest clearing where cloud blocks the optical products — radar sees through cloud and at night, catching wet-season clearing the annual Hansen/JRC-TMF layers and a single cloudy Sentinel-2 pass miss (the gap RADD was meant to fill). This is an ADDITIVE scout signal, NOT a standalone legal verdict: a VV drop can also be transient (soil moisture, harvest, flood recession), so confirm with the optical consensus (`emem_eudr_dds` or `emem_deforestation_alert`) before crediting a decision.",
+        input_schema: SCHEMA_SAR_FOREST_DISTURBANCE,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","baseline_year":2020}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",

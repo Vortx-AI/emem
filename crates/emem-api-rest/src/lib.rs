@@ -997,6 +997,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/spi", post(eo_runtime::post_spi))
         .route("/v1/burn_severity", post(eo_runtime::post_burn_severity))
         .route("/v1/rice_ch4", post(eo_runtime::post_rice_ch4))
+        // ── Sentinel-1 VV backscatter-drop forest-disturbance scout
+        //    (cloud-penetrating C-band SAR; the RADD-gap signal). ──────────
+        .route("/v1/sar_forest_disturbance", post(post_sar_forest_disturbance))
         // ── DEM terrain triad (Horn slope / Riley TRI / Weiss TPI) over a
         //    3×3 copdem30m.elevation_mean neighbourhood. See terrain.rs. ──
         .route("/v1/terrain", post(terrain::post_terrain))
@@ -14549,6 +14552,14 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        "emem_sar_forest_disturbance" => {
+            let req: SarForestDisturbanceReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_sar_forest_disturbance(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_triple_consensus" => {
             let req: triple_consensus::TripleConsensusReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -15610,6 +15621,7 @@ async fn openapi() -> Json<JsonValue> {
             // fabricated number) when the inputs are not materializable.
             "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently — a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict — confirm with the optical Hansen/JRC-TMF consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
             "/v1/burn_severity":     {"post":{"summary":"Key & Benson dNBR burn severity: dNBR = nbr_pre − nbr_post, mapped to USGS severity classes. Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) or omit to use the two most-recent stored `indices.nbr` scenes.","operationId":"emem_burn_severity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"nbr_pre":{"type":"number","description":"Pre-fire NBR."},"nbr_post":{"type":"number","description":"Post-fire NBR."}}}}}},"responses":{"200":json_ok}}},
             "/v1/rice_ch4":          {"post":{"summary":"IPCC-2019 Tier-2 rice-cultivation CH4 (Eq 5.1): integrates the daily emission factor over the cultivation period with water-regime (SFp/SFo) and optional Yan-2005 Q10 temperature scaling. `cultivation_period_days` and the regional `efc_kg_ch4_ha_day` (Table 5.11) are REQUIRED — no defensible global default.","operationId":"emem_rice_ch4","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","cultivation_period_days","efc_kg_ch4_ha_day"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"cultivation_period_days":{"type":"number","description":"Cultivation-period length in days (typically 110–150)."},"efc_kg_ch4_ha_day":{"type":"number","description":"Regional baseline EFc (kg CH4/ha/day) from IPCC 2019 Table 5.11."},"ndwi_series":{"type":"array","items":{"type":"number"},"description":"Optional explicit NDWI series across the cultivation period."},"sfp":{"type":"number","description":"Pre-season water-regime scaling factor SFp (Table 5.13); default 0.68."},"sfo":{"type":"number","description":"Organic-amendment scaling factor SFo (Table 5.14); default 1.00."},"t_paddy_c":{"type":"number","description":"Mean paddy-water temperature (°C) for the Yan-2005 Q10 modifier; omit to disable."}}}}}},"responses":{"200":json_ok}}},
@@ -23361,6 +23373,18 @@ async fn materialize_galileo_base(
     let lat = info.lat_deg;
     let lng = info.lng_deg;
 
+    // DEM is the one modality that does NOT depend on the S2 scene time
+    // (Cop-DEM is static), so start it concurrently with the S2 chip fetch
+    // instead of awaiting it after. On a cold cell the galileo materialize
+    // is the slowest foundation encoder (it fetches S2 + S1 + DEM + TC) and
+    // bounds the parallel state_multi fan-out; overlapping the DEM range-read
+    // with the S2 STAC search + COG reads takes it off the critical path.
+    // S1 and TerraClimate genuinely need `scene_unix`/`month` from S2 (S1
+    // co-registers to the S2 acquisition time), so they stay in the post-S2
+    // join below.
+    let dem_fut = galileo_chip::fetch_galileo_dem_chip(cell64);
+    tokio::pin!(dem_fut);
+
     let chip = galileo_chip::fetch_galileo_chip(cell64, s, None).await?;
     let scene_unix = if chip.scene_unix > 0 {
         chip.scene_unix
@@ -23393,10 +23417,12 @@ async fn materialize_galileo_base(
     // `month` rather than the exact scene time. Fetch concurrently with S1
     // + DEM; best-effort like the others.
     let tc_timeout = std::time::Duration::from_secs(materializer_timeout_secs());
-    let (s1_res, dem_res, tc_res) = tokio::join!(
+    // S1 + TC need the resolved scene time/month; join them with the DEM
+    // future that has been running concurrently since before the S2 fetch.
+    let (s1_res, tc_res, dem_res) = tokio::join!(
         galileo_chip::fetch_galileo_s1_chip(cell64, s1_target),
-        galileo_chip::fetch_galileo_dem_chip(cell64),
         galileo_chip::fetch_galileo_tc_chip(cell64, month, tc_timeout),
+        &mut dem_fut,
     );
     let s1 = s1_res
         .map_err(|e| {
@@ -26704,6 +26730,171 @@ async fn materialize_sentinel1_vv(
         served_via: None,
     });
     sign_and_persist(s, fact, &signed_at).await
+}
+
+// ── sar_forest_disturbance@1 ───────────────────────────────────────────────
+//
+// Cloud-penetrating Sentinel-1 C-band confirmation of forest disturbance.
+// Intact forest scatters C-band VV strongly and stably (volume scattering
+// off the canopy); clearing collapses that volume term, so VV backscatter
+// DROPS by a characteristic ~3-5 dB when forest → bare/cleared. Because
+// radar sees through cloud and at night, this catches clearing in the wet
+// season that the annual optical products (Hansen GFC, JRC TMF) and a
+// single cloudy Sentinel-2 pass miss — the exact gap the (requester-pays,
+// unwire-able) RADD product was meant to fill, served here from the
+// anonymous Microsoft Planetary Computer `sentinel-1-rtc` collection.
+//
+// This is an ADDITIVE scout signal. It does NOT flip the EUDR legal
+// verdict (that stays the JRC GFC2020 + Hansen + JRC TMF consensus); it is
+// a cite-able, cloud-independent corroboration an agent can pair with the
+// optical consensus. Both VV reads are signed Primary facts under the
+// responder identity; the response cites both fact_cids.
+
+/// Read the VV-dB scalar back out of a signed `sentinel1_raw` fact CID.
+async fn read_s1_vv_db(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> {
+    let facts = s.storage.get_facts_many(std::slice::from_ref(cid)).await.ok()?;
+    let fact = facts.into_iter().next().flatten()?;
+    if let emem_fact::Fact::Primary(p) = fact {
+        if p.band == "sentinel1_raw" {
+            if let ciborium::Value::Float(v) = p.value {
+                if v.is_finite() {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Minimum VV-backscatter drop (dB) below which the cell is NOT flagged as
+/// disturbed. Default 3 dB — the conservative C-band forest-clearance
+/// threshold from Reiche et al. 2018 (RSE 204:147), consistent with how the
+/// EUDR visual-evidence block already gates its S1 confirmation. Tunable via
+/// `EMEM_SAR_DISTURBANCE_DROP_DB`.
+fn sar_disturbance_drop_db() -> f64 {
+    std::env::var("EMEM_SAR_DISTURBANCE_DROP_DB")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(3.0)
+}
+
+#[derive(Debug, Deserialize)]
+struct SarForestDisturbanceReq {
+    /// cell64 or place name.
+    cell: String,
+    /// Baseline calendar year the disturbance is measured against. Defaults
+    /// to the EUDR cut-off year (2020). The baseline VV is sampled at a
+    /// mid-year (July-1) anchor of this year; the recent VV is the latest
+    /// scene. Loss is meaningful when it happened AFTER the baseline.
+    #[serde(default)]
+    baseline_year: Option<i32>,
+}
+
+/// `POST /v1/sar_forest_disturbance` — Sentinel-1 VV backscatter-drop
+/// forest-disturbance scout. Samples VV at a baseline-year anchor and the
+/// latest scene, reports the dB drop and a `disturbed` flag when the drop
+/// meets the Reiche-2018 threshold. Honest `inconclusive` when either VV
+/// read is unavailable (no S1 scene at the anchor, MPC SAS down).
+async fn post_sar_forest_disturbance(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<SarForestDisturbanceReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let started = std::time::Instant::now();
+    let (cell, resolved) = resolve_cell_field(&req.cell).await?;
+    let baseline_year = req.baseline_year.unwrap_or(2020);
+
+    // Baseline anchor: July-1 of the baseline year (the same mid-year anchor
+    // the EUDR visual-evidence timeline uses, so the two agree).
+    let baseline_anchor = jan1_unix(baseline_year) + 181 * 86_400;
+
+    // Fetch both VV vintages concurrently: baseline at its anchor, recent as
+    // the latest scene (target_unix = None → newest).
+    let (base_cid_res, recent_cid_res) = tokio::join!(
+        materialize_sentinel1_vv(&cell, &s, Some(baseline_anchor)),
+        materialize_sentinel1_vv(&cell, &s, None),
+    );
+
+    let mut cids: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+
+    let baseline_db = match base_cid_res {
+        Ok(cid) => {
+            let v = read_s1_vv_db(&s, &cid).await;
+            cids.push(cid.as_str().to_string());
+            v
+        }
+        Err(e) => {
+            notes.push(format!("baseline S1 VV unavailable at {baseline_year}-07: {e}"));
+            None
+        }
+    };
+    let recent_db = match recent_cid_res {
+        Ok(cid) => {
+            let v = read_s1_vv_db(&s, &cid).await;
+            cids.push(cid.as_str().to_string());
+            v
+        }
+        Err(e) => {
+            notes.push(format!("recent S1 VV unavailable: {e}"));
+            None
+        }
+    };
+
+    let threshold = sar_disturbance_drop_db();
+    let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
+    let pubkey = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let receipt = s.sign_receipt(
+        "emem.sar_forest_disturbance",
+        vec![cell.clone()],
+        cids.iter().cloned().map(emem_fact::FactCid::new).collect(),
+        false,
+        started,
+        None,
+    );
+
+    // drop_db = baseline - recent (positive = backscatter fell = possible
+    // clearing). Only computable when both reads succeeded.
+    let (drop_db, disturbed, available) = match (baseline_db, recent_db) {
+        (Some(b), Some(r)) => {
+            let drop = b - r;
+            (Some(drop), Some(drop >= threshold), true)
+        }
+        _ => (None, None, false),
+    };
+
+    Ok(Json(json!({
+        "schema": "emem.sar_forest_disturbance.v1",
+        "algorithm_key": "sar_forest_disturbance@1",
+        "cell": cell,
+        "resolved_from": resolved_env,
+        "available": available,
+        "verdict": match disturbed {
+            Some(true) => "disturbance_suspected",
+            Some(false) => "no_disturbance",
+            None => "inconclusive",
+        },
+        "baseline_year": baseline_year,
+        "baseline_vv_db": baseline_db,
+        "recent_vv_db": recent_db,
+        "vv_drop_db": drop_db,
+        "drop_threshold_db": threshold,
+        "disturbed": disturbed,
+        "modality": "sentinel-1 c-band vv (radar; cloud- and night-independent)",
+        "formula": "vv_drop_db = baseline_vv_db − recent_vv_db; disturbed = vv_drop_db ≥ drop_threshold_db (default 3 dB, Reiche et al. 2018 RSE 204:147)",
+        "honest_note": if available {
+            "Cloud-independent SAR scout signal. A VV drop can also be transient (soil moisture, harvest, flooding recede); confirm clearing against the optical Hansen/JRC-TMF consensus (POST /v1/eudr_dds or /v1/deforestation_alert) before crediting a decision. This is corroboration, NOT a standalone legal verdict."
+        } else {
+            "Could not sample both S1 VV vintages at this cell (no Sentinel-1 scene at the baseline anchor and/or latest, or the MPC SAS endpoint was unreachable). No drop reported."
+        },
+        "degradation_notes": notes,
+        "input_fact_cids": cids,
+        "source": "Microsoft Planetary Computer sentinel-1-rtc (anonymous SAS; no requester-pays, no API key)",
+        "responder_pubkey_b32": pubkey,
+        "receipt": receipt,
+    })))
 }
 
 /// JRC Global Surface Water v1.4 recurrence at a single pixel.
