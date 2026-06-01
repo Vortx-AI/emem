@@ -7,6 +7,40 @@ to verify.
 
 ## [Unreleased]
 
+### EUDR audit fixes (2026-06-01, after a 4-agent regulatory + code + doc deep-dive)
+
+- **Fixed a deforestation-verdict correctness bug (could false-pass).** The
+  per-cell "forest at cut-off" check used `hansen_ly > 20`, but
+  `forest_change.lossyear` is a *calendar year* (2001–2024, materializer adds
+  2000), so the guard was always true — a no-op. The default batched-polygon
+  path omitted the before-cut-off loss check entirely. Result: a cell with
+  high `treecover2000` that had been **cleared before the 2020 cut-off** could
+  be classified `pass` instead of `not_in_scope`. Both paths now share one
+  verdict evaluator (`eudr_verdict_for`) that correctly excludes land cleared
+  at/before the cut-off year. Added a regression test.
+- **`cut_off_date` now actually works.** It was accepted and echoed but the
+  verdict hardcoded the 2021 boundary and ignored it. The operator's cut-off
+  year is threaded into the verdict, so a what-if / time-series audit ("was
+  this plot deforestation-free as of date X") returns the correct answer. The
+  response surfaces `cut_off_year_applied` + a `cut_off_note`.
+- **Input validation on the signed DDS.** `quantity_kg` must be > 0 and
+  `commodity_hs` must be a numeric Combined-Nomenclature code with at least the
+  4-digit HS heading (the level EUDR Annex I scopes at; HS-6+ recommended).
+  Previously a DDS could be signed with 0 kg or a non-numeric "COCOA" code that
+  silently mis-bucketed the Annex II classification.
+- **Regulatory currency note.** The response now carries a
+  `regulation_status_note`: per Regulations (EU) 2024/3234 and 2025/2650 the
+  application dates were deferred to 30 Dec 2026 (large operators) / 30 Jun
+  2027 (micro-small); the 2020-12-31 cut-off is unchanged.
+- **Doc truth-pass.** Corrected the agent-card `forest_loss` descriptor (stale
+  Hansen **v1.11 / 2001–2023** → **v1.12 / 2001–2024**, old `hansen.*` band
+  aliases → canonical `forest_change.*`). Updated the `eudr_dds@1` registry
+  formula and the response `methodology_note` to state plainly that the WRI-Sims
+  driver-attribution and RADD SAR steps are **deferred (signed Absence today)**
+  and the live verdict is the JRC GFC2020 + Hansen + JRC TMF consensus only —
+  rather than narrating them as if they fire. (The EUDR endpoint's own
+  Hansen/TMF version strings were already accurate.)
+
 ### Cold-materializer latency (2026-06-01, after a 6-agent cold-path + GPU deep-dive)
 
 - **Parallelized the `/v1/state_multi` encoder fan-out.** It looped over the

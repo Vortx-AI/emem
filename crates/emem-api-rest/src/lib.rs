@@ -14242,7 +14242,7 @@ fn mcp_prompts() -> Vec<JsonValue> {
         json!({
             "name":        "forest_loss",
             "title":       "Has this place lost forest?",
-            "description": "Hansen Global Forest Change v1.11 layers: tree cover 2000, year of loss (2001–2023), gain mask.",
+            "description": "Hansen Global Forest Change v1.12 layers: tree cover 2000, year of loss (2001–2024), gain mask.",
             "arguments": [{ "name": "place", "description": "Place name or 'lat,lng'.", "required": true }],
         }),
         json!({
@@ -14337,11 +14337,11 @@ fn mcp_render_prompt(name: &str, args: &JsonValue) -> Result<JsonValue, (i64, St
         "forest_loss" => {
             let place = s("place")?;
             (
-                "Hansen Global Forest Change v1.11 read",
+                "Hansen Global Forest Change v1.12 read",
                 format!(
                     "Has {place} lost forest since 2000? \
-                     emem_locate then emem_recall bands=['hansen.tree_cover_2000','hansen.loss_year','hansen.gain']. \
-                     If loss_year > 0, the year of loss is 2000 + loss_year (1=2001 … 23=2023). \
+                     emem_locate then emem_recall bands=['forest_change.treecover2000','forest_change.lossyear','forest_change.gain']. \
+                     `forest_change.lossyear` is the calendar year of loss (2001…2024; 0 = no loss). \
                      Pair with esa_worldcover.lc_2021 to confirm the current state. \
                      Use the algorithm `carbon.deforestation_alert_proxy@1` if you want a composite score across years."
                 ),
@@ -37670,6 +37670,90 @@ async fn batch_materialize_eudr_band(
     out
 }
 
+/// THE single source of truth for a per-cell EUDR verdict, shared by both
+/// [`evaluate_eudr_cell`] (per-cell fan-out) and [`evaluate_eudr_plot_batched`]
+/// (the default batched-polygon path). Pure: takes the resolved band values +
+/// the operator's cut-off year and returns `(verdict_code, refinement_label)`.
+///
+/// Codes: 1 pass, 2 fail, 3 not_in_scope, 4 indeterminate.
+///
+/// Two correctness rules, both keyed off `cutoff_year` (the calendar year of
+/// the EUDR cut-off date — 2020 for the regulation's fixed 2020-12-31, but
+/// honoured when an operator passes a different `cut_off_date` for a
+/// what-if/time-series audit):
+///
+/// 1. **forest-at-cut-off** = JRC GFC2020 says forest, OR Hansen treecover2000
+///    ≥ 10 % AND the cell was *still forest at the cut-off* — i.e. it had NO
+///    Hansen loss in 2001..=cutoff_year. `hansen_ly` is a CALENDAR year
+///    (2001..=2024; the materializer adds 2000) or 0 for "no loss". A cell
+///    cleared in e.g. 2008 was not forest at a 2020 cut-off, so it is
+///    `not_in_scope`, never `pass`. (Previously the per-cell path compared
+///    the calendar `hansen_ly > 20` — always true, a no-op — and the batched
+///    path omitted the check entirely, so a pre-cut-off-cleared cell with high
+///    treecover2000 false-passed. This unifies and fixes both.)
+/// 2. **loss-after-cut-off** = any of Hansen lossyear, JRC TMF deforestation
+///    year, or RADD alert year strictly AFTER `cutoff_year` → fail.
+fn eudr_verdict_for(
+    jrc: Option<i64>,
+    hansen_tc: Option<i64>,
+    hansen_ly: Option<i64>,
+    tmf_def_year: Option<i64>,
+    wri_class: Option<i64>,
+    radd_date: Option<i64>,
+    cutoff_year: i64,
+) -> (u8, Option<&'static str>) {
+    let jrc_absent = jrc.is_none();
+    let hansen_filled_for_jrc = jrc_absent && hansen_tc.is_some();
+
+    // Hansen forest-at-cut-off: ≥10 % canopy in 2000 AND no loss event at or
+    // before the cut-off year (lossyear 0 = no loss, else a calendar year).
+    let hansen_forest_at_cutoff = matches!(hansen_tc, Some(v) if v >= 10)
+        && matches!(hansen_ly, Some(ly) if ly == 0 || ly > cutoff_year);
+    let forest_at_cutoff = matches!(jrc, Some(v) if v >= 1) || hansen_forest_at_cutoff;
+    if !forest_at_cutoff {
+        if jrc.is_none() && hansen_tc.is_none() {
+            return (4, Some("no_baseline_input"));
+        }
+        return (3, None);
+    }
+
+    // Loss strictly after the cut-off year (multi-product consensus).
+    let hansen_loss = matches!(hansen_ly, Some(v) if v > cutoff_year);
+    let tmf_loss = matches!(tmf_def_year, Some(v) if v > cutoff_year);
+    // RADD alert date is YYYYDDD; (cutoff_year+1)*1000 is the first day of the
+    // first post-cut-off year.
+    let radd_post_cutoff = matches!(radd_date, Some(v) if v >= (cutoff_year + 1) * 1000 + 1);
+    let any_loss = hansen_loss || tmf_loss || radd_post_cutoff;
+    if !any_loss {
+        let refinement = if hansen_filled_for_jrc {
+            Some("jrc_unavailable_hansen_only")
+        } else if radd_date.is_some() {
+            Some("radd_confirmed_no_loss")
+        } else {
+            None
+        };
+        return (1, refinement);
+    }
+
+    // Loss after cut-off. Sims (WRI GDM) driver refinement when available:
+    // classes 5 (wildfire) and 7 (other natural) are out of EUDR scope.
+    if let Some(c) = wri_class {
+        if c == 5 || c == 7 {
+            return (3, Some("sims_natural_cause"));
+        }
+    }
+    let refinement = if hansen_filled_for_jrc {
+        Some("jrc_unavailable_hansen_only")
+    } else {
+        match wri_class {
+            Some(c) if (1..=3).contains(&c) => Some("sims_commodity_driven"),
+            Some(_) => Some("sims_other_anthropogenic"),
+            None => Some("no_driver_refinement_band_off_path"),
+        }
+    };
+    (2, refinement)
+}
+
 /// Geospatial-batched per-plot evaluator: replaces the per-cell
 /// JoinSet over [`evaluate_eudr_cell`] with a per-band batched fan-out.
 /// Returns the same `Vec<EudrCellVerdict>` shape so callers don't see
@@ -37696,6 +37780,7 @@ async fn evaluate_eudr_plot_batched(
     s: AppState,
     cells: Vec<String>,
     cell_cc: usize,
+    cutoff_year: i64,
 ) -> Vec<EudrCellVerdict> {
     if cells.is_empty() {
         return Vec::new();
@@ -37821,12 +37906,16 @@ async fn evaluate_eudr_plot_batched(
             }
         }
 
-        // Reuse the same verdict logic as evaluate_eudr_cell to keep
-        // the wire shape and codes identical between the two paths.
+        // Shared verdict logic (see `eudr_verdict_for`) so the batched and
+        // per-cell paths are byte-identical AND both apply the forest-at-
+        // cut-off loss-year exclusion. (Previously this batched path omitted
+        // the before-cut-off loss check entirely, false-passing a cell with
+        // high treecover2000 that had been cleared before the cut-off.)
         let borderline_canopy = matches!(hansen_tc, Some(v) if (8..=12).contains(&v));
-        let jrc_absent = jrc.is_none();
-        let hansen_filled_for_jrc = jrc_absent && hansen_tc.is_some();
-        let make = |verdict: u8, refinement: Option<&'static str>| EudrCellVerdict {
+        let (verdict, refinement) = eudr_verdict_for(
+            jrc, hansen_tc, hansen_ly, tmf_def_year, wri_class, radd_date, cutoff_year,
+        );
+        verdicts.push(EudrCellVerdict {
             cell: cell64.into(),
             verdict,
             label: verdict_label(verdict),
@@ -37839,30 +37928,6 @@ async fn evaluate_eudr_plot_batched(
             refinement_applied: refinement,
             borderline_canopy,
             fact_cids: fact_cids.clone(),
-        };
-        let forest_at_cutoff =
-            matches!(jrc, Some(v) if v >= 1) || matches!(hansen_tc, Some(v) if v >= 10);
-        if !forest_at_cutoff {
-            verdicts.push(if jrc.is_none() && hansen_tc.is_none() {
-                make(4, Some("no_baseline_input"))
-            } else {
-                make(3, None)
-            });
-            continue;
-        }
-        let hansen_loss = matches!(hansen_ly, Some(v) if v >= 2021);
-        let tmf_loss = matches!(tmf_def_year, Some(v) if v >= 2021);
-        let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2_021_001);
-        let any_loss = hansen_loss || tmf_loss || radd_post_cutoff;
-        let refinement = if hansen_filled_for_jrc {
-            Some("jrc_absent_hansen_baseline")
-        } else {
-            None
-        };
-        verdicts.push(if !any_loss {
-            make(1, refinement)
-        } else {
-            make(2, refinement)
         });
     }
     verdicts
@@ -37888,7 +37953,7 @@ fn eudr_batch_path_enabled() -> bool {
     )
 }
 
-async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
+async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> EudrCellVerdict {
     // EUDR core bands: JRC GFC2020 (baseline) + Hansen GFC (confirming
     // + loss-year) + JRC TMF (tropical consensus). WRI GDM and RADD
     // removed — both are slow (WRI = 31s cold COG probe, RADD = 30s
@@ -37966,13 +38031,16 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
 
     // Borderline canopy: Hansen tc within ±2 pp of the Article 2(4) 10 % threshold.
     let borderline_canopy = matches!(hansen_tc, Some(v) if (8..=12).contains(&v));
-    // When JRC errored but Hansen filled in, surface that on the
-    // refinement_applied so the operator sees Hansen-only fallback.
-    let jrc_absent = jrc.is_none();
-    let hansen_filled_for_jrc = jrc_absent && hansen_tc.is_some();
 
-    // Closure to avoid repeating the EudrCellVerdict literal at every return.
-    let make = |verdict: u8, refinement: Option<&'static str>| EudrCellVerdict {
+    // Per-cell verdict via the single shared evaluator (see `eudr_verdict_for`),
+    // so this per-cell path and the default batched-polygon path can never
+    // diverge. The forest-at-cut-off loss-year exclusion (a cell cleared
+    // before the cut-off is `not_in_scope`, not `pass`) and the cut-off-year
+    // wiring both live there.
+    let (verdict, refinement) = eudr_verdict_for(
+        jrc, hansen_tc, hansen_ly, tmf_def_year, wri_class, radd_date, cutoff_year,
+    );
+    EudrCellVerdict {
         cell: cell64.into(),
         verdict,
         label: verdict_label(verdict),
@@ -37985,88 +38053,7 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str) -> EudrCellVerdict {
         refinement_applied: refinement,
         borderline_canopy,
         fact_cids: fact_cids.clone(),
-    };
-
-    // Per-cell verdict per Article 2(4) + 2020-12-31 cut-off.
-    //
-    // forest_at_cutoff = (JRC == 1)
-    //                  OR (Hansen treecover2000 >= 10
-    //                      AND (lossyear == 0 OR lossyear > 20))
-    //
-    // 2026-05-29 audit fix. The Hansen branch had a lossyear-in-[1..=20]
-    // guard added to the registry AST on 2026-05-17 to stop cells
-    // cleared 2001..=2020 from leaking through as "still forest at the
-    // cut-off" when JRC GFC2020 returned no value. The Rust runtime
-    // never picked it up. A cell with treecover2000 = 60 and
-    // lossyear = 8 (cleared in 2008) was classified `pass` because it
-    // had `>= 10` Hansen cover and `jrc == None`; the registry AST
-    // classifies it `not_in_scope` (no longer forest at cut-off).
-    //
-    // hansen_ly values are years-since-2000 (1..=24 ~ 2001..=2024) per
-    // Hansen GFC v1.12. lossyear == 0 means "no loss observed" and is
-    // forest; lossyear in [1..=20] means "cleared 2001..=2020", so the
-    // cell was not forest at the 2020-12-31 cut-off.
-    let hansen_forest_at_cutoff = matches!(hansen_tc, Some(v) if v >= 10)
-        && matches!(hansen_ly, Some(ly) if ly == 0 || ly > 20);
-    let forest_at_cutoff = matches!(jrc, Some(v) if v >= 1) || hansen_forest_at_cutoff;
-    if !forest_at_cutoff {
-        if jrc.is_none() && hansen_tc.is_none() {
-            return make(4, Some("no_baseline_input"));
-        }
-        return make(3, None);
     }
-    // forest_at_cutoff == true. Now check loss after cut-off.
-    // Multi-product consensus: Hansen lossyear OR JRC TMF deforestation_year >= 2021.
-    let hansen_loss = matches!(hansen_ly, Some(v) if v >= 2021);
-    let tmf_loss = matches!(tmf_def_year, Some(v) if v >= 2021);
-    let radd_post_cutoff = matches!(radd_date, Some(v) if v >= 2_021_001);
-    let any_loss = hansen_loss || tmf_loss || radd_post_cutoff;
-    if !any_loss {
-        let refinement = if hansen_filled_for_jrc {
-            Some("jrc_unavailable_hansen_only")
-        } else if radd_date.is_some() {
-            Some("radd_confirmed_no_loss")
-        } else {
-            None
-        };
-        return make(1, refinement);
-    }
-    // Loss after cut-off — apply Sims (WRI GDM) driver refinement when
-    // available. Classes 5 (wildfire) and 7 (other natural) are out of
-    // EUDR scope per Sims et al. 2025.
-    //
-    // 2026-05-29 audit note: `wri_gdm.driver_class` was removed from
-    // the per-cell band list in the EUDR hot path (see
-    // `batchable` slice in `evaluate_eudr_plot_batched` — WRI GDM is
-    // not one of the 4 batched bands). So `wri_class` is always None
-    // here under the batched-polygon path. The `sims_*` refinement
-    // labels below are intentionally retained for the future
-    // `try_materialize_one_band("wri_gdm.driver_class", …)` path some
-    // operators wire when they accept the 31 s cold COG probe cost;
-    // when WRI GDM is not in the band list the cell falls through to
-    // `no_driver_refinement` honestly.
-    //
-    // A wildfire-driven loss in Borneo therefore reports `fail` rather
-    // than `not_in_scope` today. Operators wanting Sims refinement
-    // should set `EMEM_EUDR_INCLUDE_WRI_GDM=1` (planned v0.0.9). Per
-    // the regulator-facing honesty rule we surface this in the
-    // refinement label as `no_driver_refinement_band_off_path`.
-    if let Some(c) = wri_class {
-        if c == 5 || c == 7 {
-            return make(3, Some("sims_natural_cause"));
-        }
-    }
-    // Commodity-driven (1, 2, 3) or unknown driver → fail.
-    let refinement = if hansen_filled_for_jrc {
-        Some("jrc_unavailable_hansen_only")
-    } else {
-        match wri_class {
-            Some(c) if (1..=3).contains(&c) => Some("sims_commodity_driven"),
-            Some(_) => Some("sims_other_anthropogenic"),
-            None => Some("no_driver_refinement_band_off_path"),
-        }
-    };
-    make(2, refinement)
 }
 
 /// Helper to materialize a single band at a cell and return its CID.
@@ -38404,6 +38391,75 @@ async fn post_eudr_dds_inner(
             },
         ));
     }
+    // Parse the operator's cut-off year from `cut_off_date` and thread it into
+    // the per-cell verdict. The regulation fixes 2020-12-31 (Article 1(2)) —
+    // that's the default — but an operator may pass a different ISO date for a
+    // what-if / time-series audit ("was this plot compliant as of 2018-12-31").
+    // Previously the verdict hardcoded the 2021 boundary and silently ignored
+    // this field (it was accepted and echoed but inert). The first 4 chars are
+    // the year; reject a malformed value rather than silently default.
+    let cutoff_year: i64 = {
+        let d = req.cut_off_date.trim();
+        let year_ok = d.len() >= 4
+            && d.as_bytes().iter().take(4).all(|b| b.is_ascii_digit());
+        if !year_ok {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "eudr_dds: `cut_off_date` must be an ISO-8601 date (YYYY-MM-DD); got {:?}. The regulation's value is 2020-12-31 (Article 1(2)).",
+                        req.cut_off_date
+                    ),
+                    details: None,
+                },
+            ));
+        }
+        d[..4].parse::<i64>().unwrap_or(2020)
+    };
+    // Per-plot input validation that the serde layer can't express. A signed
+    // Due Diligence Statement is a legal artefact, so reject nonsensical input
+    // loudly rather than sign it: (1) `quantity_kg` must be > 0 (a DDS claiming
+    // 0 kg from a deforested plot is meaningless / abuse-prone); (2)
+    // `commodity_hs` must carry at least 6 numeric digits (Annex I codes are
+    // HS-6+; a non-numeric or too-short code silently mis-buckets the Annex II
+    // commodity classification).
+    for (i, p) in req.plots.iter().enumerate() {
+        if !(p.quantity_kg > 0.0) {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "eudr_dds: plots[{i}] (`{}`): quantity_kg must be > 0 (got {}). A Due Diligence Statement is a signed legal artefact; zero/negative quantities are rejected.",
+                        p.plot_id, p.quantity_kg
+                    ),
+                    details: None,
+                },
+            ));
+        }
+        // commodity_hs must be a real Combined-Nomenclature code: at least the
+        // 4-digit HS heading that EUDR Annex I uses to scope commodities
+        // (0901 coffee, 1511 palm oil, 0201 bovine meat, …). HS-6+ is the
+        // recommended precision but the regulation scopes at the heading, so
+        // 4 digits is the honest floor — this rejects "COCOA"/"18" garbage
+        // (which would silently mis-bucket the Annex II classification)
+        // without rejecting legitimate 4-digit operator input.
+        let hs_digits = p.commodity_hs.chars().filter(|c| c.is_ascii_digit()).count();
+        if hs_digits < 4 {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "eudr_dds: plots[{i}] (`{}`): commodity_hs must be a numeric Combined Nomenclature code with at least the 4-digit HS heading (HS-6+ recommended); got {:?}. The heading classifies the plot against EUDR Annex I.",
+                        p.plot_id, p.commodity_hs
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
     // Dynamic cell budget: scale with plot area so the polygon is
     // fully covered, not just 3.6%-sampled (the pre-fix default of
     // 16 cells for a 4 ha plot). One cell64 is ~91 m², so full
@@ -38576,7 +38632,7 @@ async fn post_eudr_dds_inner(
                 // straight to a sub-future across the await
                 // tripped a higher-rank lifetime inference
                 // ("Send is not general enough") at compile time.
-                evaluate_eudr_plot_batched(s.clone(), cells.clone(), cap).await
+                evaluate_eudr_plot_batched(s.clone(), cells.clone(), cap, cutoff_year).await
             } else {
                 // Bounded parallel fan-out over cells (index-preserving). The
                 // JoinSet itself bounds in-flight count — we prime up to cell_cc,
@@ -38591,7 +38647,7 @@ async fn post_eudr_dds_inner(
                     let s_c = s.clone();
                     let c = cells[next].clone();
                     let i = next;
-                    set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c).await) });
+                    set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await) });
                     next += 1;
                 }
                 while let Some(res) = set.join_next().await {
@@ -38602,7 +38658,7 @@ async fn post_eudr_dds_inner(
                         let s_c = s.clone();
                         let c = cells[next].clone();
                         let i = next;
-                        set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c).await) });
+                        set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await) });
                         next += 1;
                     }
                 }
@@ -38916,10 +38972,13 @@ async fn post_eudr_dds_inner(
         "request_id":      request_id,
         "dds_reference_number": dds_ref,
         "cut_off_date":    req.cut_off_date,
+        "cut_off_year_applied": cutoff_year,
+        "cut_off_note":    "Cut-off is 31 December 2020 (Article 1(2)) by default and is what the verdict applies. A different `cut_off_date` is honoured for what-if / time-series audits: only loss strictly after the cut-off year counts as failure, and land cleared at or before it is `not_in_scope`.",
+        "regulation_status_note": "Application was deferred by Regulations (EU) 2024/3234 and 2025/2650: as of 2026-06-01 the obligations apply from 30 December 2026 for large operators and 30 June 2027 for micro/small enterprises. The 31 December 2020 deforestation cut-off is unchanged. Consult EUR-Lex for the current text and operator classification.",
         "forest_baseline": baseline,
         "forest_baseline_computed": computed_baseline,
         "baseline_note":   "JRC GFC2020 V3 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored).",
-        "methodology_note": "Per-cell verdict from eudr_compliance@1 (Hansen GFC v1.12 + JRC GFC2020 V3 + JRC TMF v2025 consensus loss-year). Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR).",
+        "methodology_note": "Per-cell verdict from eudr_compliance@1 (Hansen GFC v1.12 + JRC GFC2020 V3 + JRC TMF v2025 consensus loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). WRI-Sims driver attribution and RADD SAR alerts are NOT in the current consensus (signed Absence today); the verdict is the JRC GFC2020 + Hansen + JRC TMF consensus only.",
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "schema_url":      "/v1/schemas/eudr_dds.json",
@@ -46553,6 +46612,43 @@ mod tests {
         );
         let high = vec![vec![vec![-76.512346, -1.203457]]];
         assert!(max_decimal_digits(&high) >= 6);
+    }
+
+    #[test]
+    fn eudr_verdict_excludes_pre_cutoff_clearing_and_honours_cutoff_year() {
+        // hansen_ly is a CALENDAR year (2001..=2024); 0 = no loss.
+        // High canopy in 2000, cleared in 2008 (before the 2020 cut-off):
+        // NOT forest at the cut-off → not_in_scope (3), never pass. This is
+        // the bug the old `hansen_ly > 20` (always true on a calendar year)
+        // and the batched path's missing check both got wrong.
+        let (v, _) = eudr_verdict_for(None, Some(60), Some(2008), None, None, None, 2020);
+        assert_eq!(v, 3, "pre-cut-off clearing with high treecover2000 = not_in_scope");
+
+        // High canopy, no loss → forest at cut-off, no post-cut-off loss → pass.
+        let (v, _) = eudr_verdict_for(None, Some(60), Some(0), None, None, None, 2020);
+        assert_eq!(v, 1, "intact forest = pass");
+
+        // High canopy, loss in 2022 (after 2020 cut-off) → fail.
+        let (v, _) = eudr_verdict_for(None, Some(60), Some(2022), None, None, None, 2020);
+        assert_eq!(v, 2, "post-cut-off clearing = fail");
+
+        // cut_off_date wiring: the SAME 2018 clearing is a FAIL when the
+        // operator audits against an earlier 2015 cut-off (loss is after it),
+        // and not_in_scope against the default 2020 cut-off (loss is before).
+        let (v2015, _) = eudr_verdict_for(None, Some(60), Some(2018), None, None, None, 2015);
+        assert_eq!(v2015, 2, "2018 loss fails a 2015 cut-off audit");
+        let (v2020, _) = eudr_verdict_for(None, Some(60), Some(2018), None, None, None, 2020);
+        assert_eq!(v2020, 3, "2018 loss is pre-2020-cut-off → not_in_scope");
+
+        // No baseline at all → indeterminate (4), never a silent pass.
+        let (v, r) = eudr_verdict_for(None, None, None, None, None, None, 2020);
+        assert_eq!(v, 4);
+        assert_eq!(r, Some("no_baseline_input"));
+
+        // JRC TMF consensus: TMF deforestation after cut-off fails even if
+        // Hansen shows no loss.
+        let (v, _) = eudr_verdict_for(Some(1), Some(60), Some(0), Some(2023), None, None, 2020);
+        assert_eq!(v, 2, "TMF post-cut-off loss fails via consensus");
     }
 
     #[test]
