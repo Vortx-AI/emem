@@ -165,6 +165,10 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
 /// a false Absence — the materializer can fall through to the next-newest
 /// scene whose per-pixel SCL is clear. Same anonymous STAC POST; only the
 /// `limit` and the return arity differ.
+// The argument list mirrors the STAC search parameters one-for-one
+// (host, collection, point, datetime, cloud, limit); collapsing them into a
+// struct would obscure the call sites for no real gain.
+#[allow(clippy::too_many_arguments)]
 pub async fn search_many_at(
     client: &Client,
     search_url: &str,

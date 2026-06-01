@@ -1006,7 +1006,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/rice_ch4", post(eo_runtime::post_rice_ch4))
         // ── Sentinel-1 VV backscatter-drop forest-disturbance scout
         //    (cloud-penetrating C-band SAR; the RADD-gap signal). ──────────
-        .route("/v1/sar_forest_disturbance", post(post_sar_forest_disturbance))
+        .route(
+            "/v1/sar_forest_disturbance",
+            post(post_sar_forest_disturbance),
+        )
         // ── DEM terrain triad (Horn slope / Riley TRI / Weiss TPI) over a
         //    3×3 copdem30m.elevation_mean neighbourhood. See terrain.rs. ──
         .route("/v1/terrain", post(terrain::post_terrain))
@@ -12943,9 +12946,23 @@ fn mcp_response_budget_bytes() -> usize {
 fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, JsonValue) {
     // Small identifying/authenticating fields we never drop.
     const KEEP: &[&str] = &[
-        "schema", "place", "place_resolved", "resolved_from", "cell", "cell64",
-        "receipt", "fact_cid", "fact_cids", "answer", "summary", "verdict",
-        "validity", "via", "error", "honest_caveat", "interpretation",
+        "schema",
+        "place",
+        "place_resolved",
+        "resolved_from",
+        "cell",
+        "cell64",
+        "receipt",
+        "fact_cid",
+        "fact_cids",
+        "answer",
+        "summary",
+        "verdict",
+        "validity",
+        "via",
+        "error",
+        "honest_caveat",
+        "interpretation",
     ];
     let JsonValue::Object(mut map) = inner else {
         // Non-object payload (bare array / scalar): we cannot keyed-slim it,
@@ -12973,7 +12990,7 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
             )
         })
         .collect();
-    costs.sort_by(|a, b| b.1.cmp(&a.1));
+    costs.sort_by_key(|(_, cost)| std::cmp::Reverse(*cost));
 
     let mut dropped: Vec<JsonValue> = Vec::new();
     for (k, _cost) in costs {
@@ -13047,8 +13064,7 @@ fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
         // agent gets valid, useful JSON plus an honest truncation marker.
         // Drop the structuredContent mirror entirely (it would re-breach).
         let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget);
-        let slim_text =
-            serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+        let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
         return json!({
             "content": [{"type": "text", "text": slim_text}],
             "isError": false,
@@ -26827,7 +26843,11 @@ async fn materialize_sentinel1_vv(
 
 /// Read the VV-dB scalar back out of a signed `sentinel1_raw` fact CID.
 async fn read_s1_vv_db(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> {
-    let facts = s.storage.get_facts_many(std::slice::from_ref(cid)).await.ok()?;
+    let facts = s
+        .storage
+        .get_facts_many(std::slice::from_ref(cid))
+        .await
+        .ok()?;
     let fact = facts.into_iter().next().flatten()?;
     if let emem_fact::Fact::Primary(p) = fact {
         if p.band == "sentinel1_raw" {
@@ -26900,7 +26920,9 @@ async fn post_sar_forest_disturbance(
             v
         }
         Err(e) => {
-            notes.push(format!("baseline S1 VV unavailable at {baseline_year}-07: {e}"));
+            notes.push(format!(
+                "baseline S1 VV unavailable at {baseline_year}-07: {e}"
+            ));
             None
         }
     };
@@ -29417,17 +29439,7 @@ async fn materialize_radd_band(
             let reason = format!(
                 "radd_no_alert: cell ({lat:.6},{lng:.6}) has no RADD alert observed in the current vintage."
             );
-            sign_band_absence(
-                cell64,
-                s,
-                band,
-                0,
-                &radd_scheme,
-                &url,
-                &signed_at,
-                &reason,
-            )
-            .await
+            sign_band_absence(cell64, s, band, 0, &radd_scheme, &url, &signed_at, &reason).await
         }
         Err(radd_alerts::RaddError::CoverageGap {
             lat: la,
@@ -29437,33 +29449,13 @@ async fn materialize_radd_band(
             let reason = format!(
                 "radd_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the RADD humid-tropics footprint ({iso3_hint})."
             );
-            sign_band_absence(
-                cell64,
-                s,
-                band,
-                0,
-                &radd_scheme,
-                &url,
-                &signed_at,
-                &reason,
-            )
-            .await
+            sign_band_absence(cell64, s, band, 0, &radd_scheme, &url, &signed_at, &reason).await
         }
         Err(radd_alerts::RaddError::NotImplemented { reason }) => {
             let full = format!(
                 "radd_not_implemented: per-cell SAR-alert fetch not yet wired at this responder. Reason: {reason}. The GFW raster is on a Requester-Pays S3 bucket with no anonymous range-readable HTTPS mirror; humid-tropics geofencing and tile-name math ship today."
             );
-            sign_band_absence(
-                cell64,
-                s,
-                band,
-                0,
-                &radd_scheme,
-                &url,
-                &signed_at,
-                &full,
-            )
-            .await
+            sign_band_absence(cell64, s, band, 0, &radd_scheme, &url, &signed_at, &full).await
         }
         Err(e) => Err(format!("{band} fetch failed: {e}")),
     }
@@ -29515,9 +29507,10 @@ async fn materialize_opera_dist_band(
                 (pixel.veg_dist_status as f64, "dist_status_0_8")
             } else {
                 match pixel.alert_date() {
-                    Some((y, m, d)) => {
-                        ((y as f64) * 10000.0 + (m as f64) * 100.0 + d as f64, "yyyymmdd")
-                    }
+                    Some((y, m, d)) => (
+                        (y as f64) * 10000.0 + (m as f64) * 100.0 + d as f64,
+                        "yyyymmdd",
+                    ),
                     None => {
                         let reason = format!(
                             "opera_dist_no_alert_date: cell ({lat:.6},{lng:.6}) has VEG-DIST-STATUS={} but no positive VEG-DIST-DATE (no post-2020-12-31 alert).",
@@ -37150,10 +37143,7 @@ async fn fact_cid_to_value_and_date(
             ciborium::Value::Integer(i) => i64::try_from(i).ok().map(|v| v as f64)?,
             _ => return None,
         };
-        let captured_at = p
-            .sources
-            .first()
-            .and_then(|src| src.captured_at.clone());
+        let captured_at = p.sources.first().and_then(|src| src.captured_at.clone());
         Some((value, captured_at))
     } else {
         None
@@ -37227,13 +37217,12 @@ fn worldcover_class_label(class: i64) -> &'static str {
 /// Build the per-plot `forest_context` enrichment: the CURRENT land cover
 /// (ESA WorldCover 2021, 10 m) distribution across the plot's sample cells,
 /// plus the Hansen forest-gain fraction (regrowth 2000–2012). This answers
-/// two EUDR-relevant questions the pass/fail consensus alone doesn't:
-///   1. What is the plot used for NOW? Article 2(4) excludes land
-///      "predominantly under agricultural use" — a fail cell that is now
-///      Cropland (class 40) or Built-up (50) tells the operator the cleared
-///      land was converted, which strengthens (or contests) the verdict.
-///   2. Has any forest REGROWN (Hansen gain)? Material for small plots near
-///      the 0.5 ha MMU floor.
+/// two EUDR-relevant questions the pass/fail consensus alone doesn't — (1)
+/// what is the plot used for NOW (Article 2(4) excludes land "predominantly
+/// under agricultural use", so a fail cell that is now Cropland/Built-up tells
+/// the operator the cleared land was converted), and (2) has any forest
+/// regrown (Hansen gain, material for small plots near the 0.5 ha MMU floor).
+///
 /// Both bands are window-capable static COGs (one coalesced range read per
 /// band per plot via the same TILE_CACHE single-flight the verdict path
 /// uses), so this adds O(1) upstream cost — it stays inside the existing
@@ -37241,45 +37230,72 @@ fn worldcover_class_label(class: i64) -> &'static str {
 /// fact_cids. Purely informational: it does NOT change the legal verdict
 /// (that remains the validated JRC GFC2020 + Hansen + JRC TMF consensus).
 async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> JsonValue {
-    // Cap the cells we sample for context so a huge polygon doesn't pay
-    // unbounded per-cell reads — the centroid + a representative subset is
-    // enough for a land-cover distribution. The first cell warms the COG
-    // tile; the rest hit TILE_CACHE.
-    let cap = sample_cells.len().min(64);
-    let cells: Vec<&String> = sample_cells.iter().take(cap).collect();
+    // A land-cover distribution + gain fraction needs only a representative
+    // subset, NOT every cell — so cap tightly (env EMEM_EUDR_CONTEXT_CELLS,
+    // default 16) to keep this bounded on huge polygons. Both bands are
+    // window-capable static COGs, so the per-tile `cog::TILE_CACHE`
+    // single-flight collapses the concurrent reads to one upstream fetch per
+    // tile; we fan the cells out CONCURRENTLY (not the old sequential loop)
+    // so the wall time is ~one cold tile fetch, not N × per-cell latency.
+    let cap = std::env::var("EMEM_EUDR_CONTEXT_CELLS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| (1..=64).contains(n))
+        .unwrap_or(16)
+        .min(sample_cells.len());
+    let cells: Vec<String> = sample_cells.iter().take(cap).cloned().collect();
     let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+
+    // Per-cell: materialize both bands, read value back. Each is timeout-
+    // wrapped; the whole fan-out is join_all under the global materialize
+    // semaphore + the EUDR route budget, so it can't run away.
+    let per_cell = futures_util::future::join_all(cells.iter().map(|c| {
+        let s = s.clone();
+        let c = c.clone();
+        async move {
+            let lc = match tokio::time::timeout(
+                timeout,
+                try_materialize_one_band(&c, "esa_worldcover.lc_2021", &s),
+            )
+            .await
+            {
+                Ok(Ok(cid)) => fact_cid_to_value_and_date(&s, &cid)
+                    .await
+                    .map(|(v, _)| (v, cid.as_str().to_string())),
+                _ => None,
+            };
+            let gain = match tokio::time::timeout(
+                timeout,
+                try_materialize_one_band(&c, "forest_change.gain", &s),
+            )
+            .await
+            {
+                Ok(Ok(cid)) => fact_cid_to_value_and_date(&s, &cid)
+                    .await
+                    .map(|(v, _)| (v, cid.as_str().to_string())),
+                _ => None,
+            };
+            (lc, gain)
+        }
+    }))
+    .await;
 
     let mut lc_counts: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
     let mut lc_cids: Vec<String> = Vec::new();
     let mut gain_yes = 0usize;
     let mut gain_total = 0usize;
     let mut gain_cids: Vec<String> = Vec::new();
-
-    for c in &cells {
-        // Current land cover.
-        if let Ok(Ok(cid)) = tokio::time::timeout(
-            timeout,
-            try_materialize_one_band(c, "esa_worldcover.lc_2021", s),
-        )
-        .await
-        {
-            if let Some((v, _)) = fact_cid_to_value_and_date(s, &cid).await {
-                *lc_counts.entry(v.round() as i64).or_insert(0) += 1;
-                lc_cids.push(cid.as_str().to_string());
-            }
+    for (lc, gain) in per_cell {
+        if let Some((v, cid)) = lc {
+            *lc_counts.entry(v.round() as i64).or_insert(0) += 1;
+            lc_cids.push(cid);
         }
-        // Forest gain (regrowth).
-        if let Ok(Ok(cid)) =
-            tokio::time::timeout(timeout, try_materialize_one_band(c, "forest_change.gain", s))
-                .await
-        {
-            if let Some((v, _)) = fact_cid_to_value_and_date(s, &cid).await {
-                gain_total += 1;
-                if v >= 1.0 {
-                    gain_yes += 1;
-                }
-                gain_cids.push(cid.as_str().to_string());
+        if let Some((v, cid)) = gain {
+            gain_total += 1;
+            if v >= 1.0 {
+                gain_yes += 1;
             }
+            gain_cids.push(cid);
         }
     }
 
@@ -37377,49 +37393,84 @@ async fn build_plot_visual_evidence(
     // user can always call /v1/cells/{cell64}/scene.png?datetime=
     // directly for any sample cell, this just gives them a curated
     // representative subset.
-    let url_cell_cap = sample_cells.len().min(6);
-    let url_cells: Vec<&String> = sample_cells.iter().take(url_cell_cap).collect();
+    // The per-year medians only need a REPRESENTATIVE cell sample, not every
+    // cell of a (potentially 256-cell) polygon — sampling more just multiplies
+    // the per-cell await overhead across 7 years × 2 bands. Cap to
+    // EMEM_EUDR_VISUAL_CELLS (default 8); the scene PNGs use the first
+    // `url_cell_cap` of these. This is the single biggest lever on the
+    // visual-evidence wall time.
+    let visual_cell_cap = std::env::var("EMEM_EUDR_VISUAL_CELLS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| (1..=32).contains(n))
+        .unwrap_or(8)
+        .min(sample_cells.len());
+    let visual_cells: Vec<String> = sample_cells.iter().take(visual_cell_cap).cloned().collect();
+    let url_cell_cap = visual_cells.len().min(6);
+    let url_cells: Vec<&String> = visual_cells.iter().take(url_cell_cap).collect();
 
-    // Per-year geospatial-batched fan-out: for each year, materialize
-    // the FIRST cell (which triggers the cold STAC search + COG
-    // profile + tile fetch), then loop the remaining cells which hit
-    // PROFILE_CACHE + TILE_CACHE (µs each). This collapses 16 × 7 × 2
-    // = 224 independent STAC searches to 7 × 2 = 14 (one per year ×
-    // band). Years run in parallel; cells within a year are sequential
-    // so the single-flight caches are warm for cells 2..N. Per-band
-    // timeout protects against a single slow upstream.
+    // Per-year fan-out: materialize the FIRST cell of each band serially (it
+    // pays the cold STAC search + COG profile + tile fetch), then materialize
+    // the remaining cells CONCURRENTLY — they hit the per-tile
+    // PROFILE_CACHE/TILE_CACHE single-flight, so the warm reads overlap
+    // instead of stacking sequential awaits. Years already run in parallel.
+    // Every fetch is per-band-timeout-wrapped and under the global materialize
+    // semaphore + the EUDR route budget, so this stays bounded.
     let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    // Helper: warm cell[0], then parallelize cell[1..].
+    async fn warm_then_parallel<F, Fut>(
+        cells: &[String],
+        timeout: std::time::Duration,
+        err_label: &str,
+        f: F,
+    ) -> Vec<Result<emem_fact::FactCid, String>>
+    where
+        F: Fn(String) -> Fut,
+        Fut: std::future::Future<Output = Result<emem_fact::FactCid, String>>,
+    {
+        let mut out: Vec<Result<emem_fact::FactCid, String>> = Vec::with_capacity(cells.len());
+        if cells.is_empty() {
+            return out;
+        }
+        let first = tokio::time::timeout(timeout, f(cells[0].clone()))
+            .await
+            .unwrap_or_else(|_| Err(err_label.to_string()));
+        out.push(first);
+        if cells.len() > 1 {
+            let rest = futures_util::future::join_all(cells[1..].iter().map(|c| {
+                let c = c.clone();
+                let fut = f(c);
+                async move {
+                    tokio::time::timeout(timeout, fut)
+                        .await
+                        .unwrap_or_else(|_| Err(err_label.to_string()))
+                }
+            }))
+            .await;
+            out.extend(rest);
+        }
+        out
+    }
     let years_per = futures_util::future::join_all(years.iter().map(|&year| {
         let anchor = jul1_unix(year);
-        let cells: Vec<String> = sample_cells.to_vec();
+        let cells: Vec<String> = visual_cells.clone();
         let s_c = s.clone();
         async move {
-            // S2 NDVI: first cell warms the scene search + COG; rest hit cache.
-            let mut ndvi_cids: Vec<Result<emem_fact::FactCid, String>> =
-                Vec::with_capacity(cells.len());
-            for c in &cells {
-                let r = tokio::time::timeout(
-                    timeout,
-                    materialize_sentinel2_band(c, &s_c, "indices.ndvi", Some(anchor)),
-                )
+            let ndvi_label = format!("ndvi timeout {year}");
+            let ndvi_cids =
+                warm_then_parallel(&cells, timeout, &ndvi_label, |c| {
+                    let s_c = s_c.clone();
+                    async move {
+                        materialize_sentinel2_band(&c, &s_c, "indices.ndvi", Some(anchor)).await
+                    }
+                })
                 .await;
-                ndvi_cids.push(match r {
-                    Ok(inner) => inner,
-                    Err(_) => Err(format!("ndvi timeout {year}")),
-                });
-            }
-            // S1 VV: same pattern — first cell warms, rest hit cache.
-            let mut s1_cids: Vec<Result<emem_fact::FactCid, String>> =
-                Vec::with_capacity(cells.len());
-            for c in &cells {
-                let r =
-                    tokio::time::timeout(timeout, materialize_sentinel1_vv(c, &s_c, Some(anchor)))
-                        .await;
-                s1_cids.push(match r {
-                    Ok(inner) => inner,
-                    Err(_) => Err(format!("s1_vv timeout {year}")),
-                });
-            }
+            let s1_label = format!("s1_vv timeout {year}");
+            let s1_cids = warm_then_parallel(&cells, timeout, &s1_label, |c| {
+                let s_c = s_c.clone();
+                async move { materialize_sentinel1_vv(&c, &s_c, Some(anchor)).await }
+            })
+            .await;
             (year, anchor, ndvi_cids, s1_cids)
         }
     }))
@@ -37505,7 +37556,10 @@ async fn build_plot_visual_evidence(
         let ndvi_date_range = if ndvi_dates.is_empty() {
             None
         } else {
-            Some((ndvi_dates[0].clone(), ndvi_dates[ndvi_dates.len() - 1].clone()))
+            Some((
+                ndvi_dates[0].clone(),
+                ndvi_dates[ndvi_dates.len() - 1].clone(),
+            ))
         };
         let s1_date_range = if s1_dates.is_empty() {
             None
@@ -37565,8 +37619,11 @@ async fn build_plot_visual_evidence(
             .unwrap_or(anchor);
         let win_lo = centre_unix - scene_window_days * 86_400;
         let win_hi = centre_unix + scene_window_days * 86_400;
-        let datetime_window =
-            format!("{}/{}", iso8601_utc(win_lo.max(0) as u64), iso8601_utc(win_hi as u64));
+        let datetime_window = format!(
+            "{}/{}",
+            iso8601_utc(win_lo.max(0) as u64),
+            iso8601_utc(win_hi as u64)
+        );
         let scene_coregistered = ndvi_date_range.is_some();
         let scene_metadata: Vec<JsonValue> = url_cells
             .iter()
@@ -37588,7 +37645,11 @@ async fn build_plot_visual_evidence(
         // Keep the flat scene_png_urls array too (backward-compatible).
         let scene_urls: Vec<String> = scene_metadata
             .iter()
-            .filter_map(|m| m.get("scene_png_url").and_then(|u| u.as_str()).map(String::from))
+            .filter_map(|m| {
+                m.get("scene_png_url")
+                    .and_then(|u| u.as_str())
+                    .map(String::from)
+            })
             .collect();
         per_year.push(json!({
             "year": year,
@@ -38342,7 +38403,7 @@ fn eudr_verdict_for(
     let tmf_loss = matches!(tmf_def_year, Some(v) if v > cutoff_year);
     // RADD alert date is YYYYDDD; (cutoff_year+1)*1000 is the first day of the
     // first post-cut-off year.
-    let radd_post_cutoff = matches!(radd_date, Some(v) if v >= (cutoff_year + 1) * 1000 + 1);
+    let radd_post_cutoff = matches!(radd_date, Some(v) if v > (cutoff_year + 1) * 1000);
     let any_loss = hansen_loss || tmf_loss || radd_post_cutoff;
     if !any_loss {
         let refinement = if hansen_filled_for_jrc {
@@ -38533,7 +38594,13 @@ async fn evaluate_eudr_plot_batched(
         // high treecover2000 that had been cleared before the cut-off.)
         let borderline_canopy = matches!(hansen_tc, Some(v) if (8..=12).contains(&v));
         let (verdict, refinement) = eudr_verdict_for(
-            jrc, hansen_tc, hansen_ly, tmf_def_year, wri_class, radd_date, cutoff_year,
+            jrc,
+            hansen_tc,
+            hansen_ly,
+            tmf_def_year,
+            wri_class,
+            radd_date,
+            cutoff_year,
         );
         verdicts.push(EudrCellVerdict {
             cell: cell64.into(),
@@ -38658,7 +38725,13 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> Eud
     // before the cut-off is `not_in_scope`, not `pass`) and the cut-off-year
     // wiring both live there.
     let (verdict, refinement) = eudr_verdict_for(
-        jrc, hansen_tc, hansen_ly, tmf_def_year, wri_class, radd_date, cutoff_year,
+        jrc,
+        hansen_tc,
+        hansen_ly,
+        tmf_def_year,
+        wri_class,
+        radd_date,
+        cutoff_year,
     );
     EudrCellVerdict {
         cell: cell64.into(),
@@ -39020,8 +39093,7 @@ async fn post_eudr_dds_inner(
     // the year; reject a malformed value rather than silently default.
     let cutoff_year: i64 = {
         let d = req.cut_off_date.trim();
-        let year_ok = d.len() >= 4
-            && d.as_bytes().iter().take(4).all(|b| b.is_ascii_digit());
+        let year_ok = d.len() >= 4 && d.as_bytes().iter().take(4).all(|b| b.is_ascii_digit());
         if !year_ok {
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
@@ -39045,7 +39117,7 @@ async fn post_eudr_dds_inner(
     // HS-6+; a non-numeric or too-short code silently mis-buckets the Annex II
     // commodity classification).
     for (i, p) in req.plots.iter().enumerate() {
-        if !(p.quantity_kg > 0.0) {
+        if !p.quantity_kg.is_finite() || p.quantity_kg <= 0.0 {
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
@@ -39065,7 +39137,11 @@ async fn post_eudr_dds_inner(
         // 4 digits is the honest floor — this rejects "COCOA"/"18" garbage
         // (which would silently mis-bucket the Annex II classification)
         // without rejecting legitimate 4-digit operator input.
-        let hs_digits = p.commodity_hs.chars().filter(|c| c.is_ascii_digit()).count();
+        let hs_digits = p
+            .commodity_hs
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .count();
         if hs_digits < 4 {
             return Err(ApiError(
                 StatusCode::BAD_REQUEST,
@@ -39278,7 +39354,9 @@ async fn post_eudr_dds_inner(
                         let s_c = s.clone();
                         let c = cells[next].clone();
                         let i = next;
-                        set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await) });
+                        set.spawn(
+                            async move { (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await) },
+                        );
                         next += 1;
                     }
                 }
@@ -39331,24 +39409,26 @@ async fn post_eudr_dds_inner(
             // `request_visual_evidence: true` on this plot — adds a
             // few seconds of upstream fan-out per plot, gated off by
             // default so the standard DDS path stays fast.
-            let (visual_evidence_json, forest_context_json): (Option<JsonValue>, Option<JsonValue>) =
-                if plot.request_visual_evidence == Some(true) {
-                    let now_unix = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    // Both enrichments run under the same opt-in flag + the
-                    // auto-bumped visual budget. forest_context is the cheap
-                    // window-capable land-cover/gain context; visual_evidence
-                    // is the per-year S2/S1 timeline. Run concurrently.
-                    let (ve, fc) = tokio::join!(
-                        build_plot_visual_evidence(&s, &cells, now_unix),
-                        build_plot_forest_context(&s, &cells),
-                    );
-                    (Some(ve), Some(fc))
-                } else {
-                    (None, None)
-                };
+            let (visual_evidence_json, forest_context_json): (
+                Option<JsonValue>,
+                Option<JsonValue>,
+            ) = if plot.request_visual_evidence == Some(true) {
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                // Both enrichments run under the same opt-in flag + the
+                // auto-bumped visual budget. forest_context is the cheap
+                // window-capable land-cover/gain context; visual_evidence
+                // is the per-year S2/S1 timeline. Run concurrently.
+                let (ve, fc) = tokio::join!(
+                    build_plot_visual_evidence(&s, &cells, now_unix),
+                    build_plot_forest_context(&s, &cells),
+                );
+                (Some(ve), Some(fc))
+            } else {
+                (None, None)
+            };
 
             let mut plot_obj = json!({
                 "plot_id":         plot.plot_id,
@@ -47253,7 +47333,10 @@ mod tests {
         // the bug the old `hansen_ly > 20` (always true on a calendar year)
         // and the batched path's missing check both got wrong.
         let (v, _) = eudr_verdict_for(None, Some(60), Some(2008), None, None, None, 2020);
-        assert_eq!(v, 3, "pre-cut-off clearing with high treecover2000 = not_in_scope");
+        assert_eq!(
+            v, 3,
+            "pre-cut-off clearing with high treecover2000 = not_in_scope"
+        );
 
         // High canopy, no loss → forest at cut-off, no post-cut-off loss → pass.
         let (v, _) = eudr_verdict_for(None, Some(60), Some(0), None, None, None, 2020);

@@ -1301,7 +1301,10 @@ pub async fn jepa_predict(
         // no clear-sky optical observation in the lookback window — an honest,
         // attested answer, not a transient miss. Surface that distinction so
         // the agent backfills (cloud) rather than assuming the cell is unknown.
-        let absent = resp.facts.iter().any(|f| matches!(f, Fact::Absence(a) if a.band == req.band));
+        let absent = resp
+            .facts
+            .iter()
+            .any(|f| matches!(f, Fact::Absence(a) if a.band == req.band));
         if absent {
             return Err(unprocessable(format!(
                 "no clear-sky {} history at cell {}: the most recent observation is a signed Absence (every candidate Sentinel-2 scene in the lookback window was cloudy/unusable at this pixel — a real, attested answer, not a transient miss). The AR2-seasonal predictor needs ≥1 clear NDVI vintage. Run POST /v1/backfill {{cell:'{}', band:'{}', start_unix:<unix - {}*30d>, end_unix:<unix>}} over a wider window to seed it, or raise EMEM_S2_LOOKBACK_DAYS / EMEM_S2_MAX_SCENES on the responder.",
