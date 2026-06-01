@@ -38804,6 +38804,11 @@ async fn try_materialize_one_band(
         ) {
             return materialize_jrc_tmf_band(cell64, s, band).await;
         }
+        // ESA WorldCover 2021 — current land cover, used by the per-plot
+        // `forest_context` enrichment (Article 2(4) current-use signal).
+        if band == "esa_worldcover.lc_2021" {
+            return materialize_esa_worldcover_2021(cell64, s).await;
+        }
         Err(format!("eudr_dds: band {band} not wired"))
     };
     match tokio::time::timeout(timeout, inner).await {
