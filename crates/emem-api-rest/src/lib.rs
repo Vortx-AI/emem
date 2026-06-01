@@ -39430,6 +39430,44 @@ async fn post_eudr_dds_inner(
                 (None, None)
             };
 
+            // Cap the inlined per_cell_verdicts. A large plot can sample tens
+            // of thousands of cells (a 123 ha plot ≈ 13.5k cells), and
+            // inlining every full verdict object balloons the response to
+            // megabytes — far past the MCP cap and slow to encode. The
+            // verdict + fail_fraction + failing_area already summarise the
+            // plot; the per-cell array is supporting evidence, so we cap it
+            // (env EMEM_EUDR_PER_CELL_VERDICTS_MAX, default 256) and surface
+            // the true total + a truncation flag. FAILING cells are kept
+            // first (they are what an auditor inspects), then a head of the
+            // rest — deterministic, never random.
+            let per_cell_cap = std::env::var("EMEM_EUDR_PER_CELL_VERDICTS_MAX")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|n| (1..=51_200).contains(n))
+                .unwrap_or(256);
+            let per_cell_truncated = per_cell.len() > per_cell_cap;
+            let per_cell_for_response: Vec<EudrCellVerdict> = if per_cell_truncated {
+                let mut fails: Vec<EudrCellVerdict> = per_cell
+                    .iter()
+                    .filter(|c| c.verdict == 2)
+                    .cloned()
+                    .collect();
+                fails.truncate(per_cell_cap);
+                if fails.len() < per_cell_cap {
+                    let need = per_cell_cap - fails.len();
+                    fails.extend(
+                        per_cell
+                            .iter()
+                            .filter(|c| c.verdict != 2)
+                            .take(need)
+                            .cloned(),
+                    );
+                }
+                fails
+            } else {
+                per_cell.clone()
+            };
+
             let mut plot_obj = json!({
                 "plot_id":         plot.plot_id,
                 "verdict":         verdict_label(plot_verdict),
@@ -39467,7 +39505,9 @@ async fn post_eudr_dds_inner(
                     "bbox":       {"min_lat": bbox.0, "max_lat": bbox.1, "min_lng": bbox.2, "max_lng": bbox.3},
                     "decimal_digits_per_article_2_28": 6,
                 },
-                "per_cell_verdicts": per_cell.clone(),
+                "per_cell_verdicts": per_cell_for_response,
+                "per_cell_verdicts_total": n_total,
+                "per_cell_verdicts_truncated": per_cell_truncated,
             });
             if let (Some(obj), Some(ve)) = (plot_obj.as_object_mut(), visual_evidence_json) {
                 obj.insert("visual_evidence".into(), ve);
