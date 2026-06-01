@@ -933,7 +933,14 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
         .route("/v1/hunt", post(post_hunt))
-        .route("/v1/eudr_dds", post(post_eudr_dds))
+        // NOTE: /v1/eudr_dds is NOT registered here. It is a deliberately
+        // long-running compliance endpoint (a visual-evidence run legitimately
+        // exceeds the 40 s blanket gateway timeout), so it is merged in as a
+        // dedicated sub-router carrying its OWN longer timeout layer — see
+        // `eudr_router()` below and the `.merge()` in `build_router`. The
+        // sub-router still inherits the concurrency limit + every shared layer,
+        // and the handler self-frees its socket via its internal
+        // `tokio::time::timeout`, so it can't reintroduce the CLOSE-WAIT wedge.
         .route("/v1/recall", post(post_recall))
         // Boring-API skin: lat/lng GETs over the deep recall protocol.
         .route("/v1/at", get(get_v1_at))
@@ -1111,6 +1118,54 @@ pub fn router(state: AppState) -> Router {
         // for fact CIDs are decoded from the compressed wire by the
         // client before any verification step).
         .layer(tower_http::compression::CompressionLayer::new().gzip(true))
+        .with_state(state.clone())
+        // Merge the long-running EUDR sub-router. It carries its OWN larger
+        // timeout instead of the 40 s blanket above (a visual-evidence
+        // compliance run legitimately exceeds 40 s), while keeping the same
+        // shared security / rate-limit / concurrency / compression posture.
+        // axum merges the two route tables and preserves each side's own
+        // per-route middleware stack, so /v1/eudr_dds gets the EUDR timeout
+        // and every other route keeps the 40 s gateway timeout.
+        .merge(eudr_router(state))
+}
+
+/// Dedicated sub-router for the single long-running `/v1/eudr_dds` route,
+/// carrying the larger [`eudr_route_timeout_secs`] transport timeout plus the
+/// same shared cross-cutting layers as the main router (security headers,
+/// rate limit, CORS, access log, global concurrency backpressure, body limit,
+/// compression). Merged into the main router so EUDR is exempt ONLY from the
+/// 40 s blanket gateway timeout — not from the concurrency limit or any other
+/// guard. The handler self-frees its socket via its internal
+/// `tokio::time::timeout`, so a larger transport ceiling here cannot
+/// reintroduce the 2026-05-31 CLOSE-WAIT wedge.
+fn eudr_router(state: AppState) -> Router {
+    Router::new()
+        .route("/v1/eudr_dds", post(post_eudr_dds))
+        // Same global concurrency backpressure as the main router so an EUDR
+        // burst is still shed (the 2026-05-31 outage was EUDR-shaped).
+        .layer(
+            tower::ServiceBuilder::new()
+                .layer(axum::error_handling::HandleErrorLayer::new(handle_overload))
+                .layer(tower::load_shed::LoadShedLayer::new())
+                .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
+                    max_inflight(),
+                )),
+        )
+        .layer(axum::middleware::from_fn(security_headers_layer))
+        .layer(axum::middleware::from_fn(rate_limit_layer))
+        .layer(axum::middleware::from_fn(cors_layer))
+        .layer(axum::middleware::from_fn(cache_hint_layer))
+        .layer(axum::middleware::from_fn(agent_access_log_layer))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        // The dedicated, larger EUDR timeout (vs the 40 s blanket).
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            StatusCode::GATEWAY_TIMEOUT,
+            std::time::Duration::from_secs(eudr_route_timeout_secs()),
+        ))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            body_limit_bytes(),
+        ))
+        .layer(tower_http::compression::CompressionLayer::new().gzip(true))
         .with_state(state)
 }
 
@@ -1147,6 +1202,26 @@ fn timeout_seconds() -> u64 {
         .and_then(|s| s.parse().ok())
         .unwrap_or(40u64)
         .clamp(1, 600)
+}
+
+/// Transport-layer timeout for the `/v1/eudr_dds` route specifically. The
+/// global 40 s gateway timeout would 504 a legitimate visual-evidence
+/// compliance run before the endpoint's own larger budget can finish, so
+/// EUDR is wrapped with this dedicated, larger ceiling instead. It tracks the
+/// EUDR handler's own `EMEM_EUDR_TIMEOUT_SECS` clamp (600 s) plus a small
+/// margin so the handler's internal `tokio::time::timeout` is what actually
+/// fires (returning a structured 504 body) rather than this transport
+/// backstop. The handler self-frees its socket via that internal timeout, so
+/// a larger transport ceiling here does NOT reintroduce the CLOSE-WAIT wedge
+/// the 40 s global guard prevents.
+fn eudr_route_timeout_secs() -> u64 {
+    std::env::var("EMEM_EUDR_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|v| v.clamp(15, 600))
+        .unwrap_or(600)
+        .saturating_add(10)
+        .min(610)
 }
 
 /// Maximum number of requests allowed in flight across the whole process
@@ -47552,6 +47627,20 @@ mod tests {
             manifests,
             started_at_unix_s: 0,
         })
+    }
+
+    /// The full router must BUILD without panicking. axum's `.merge()` panics
+    /// at construction time on a duplicate route or a second fallback, so this
+    /// guards the EUDR sub-router merge (the dedicated long-timeout router for
+    /// /v1/eudr_dds) — a regression there would otherwise only surface when
+    /// the server boots in production.
+    #[tokio::test]
+    async fn router_builds_with_merged_eudr_subrouter() {
+        let s = test_app_state();
+        // Construction is the assertion: a duplicate /v1/eudr_dds route or a
+        // double fallback would panic here. (tokio runtime needed because
+        // `router` spawns the background memory indexer.)
+        let _app: Router = router(s);
     }
 
     #[test]
