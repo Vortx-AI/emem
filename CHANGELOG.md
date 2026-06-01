@@ -7,6 +7,34 @@ to verify.
 
 ## [Unreleased]
 
+### Cold-materializer latency (2026-06-01, after a 6-agent cold-path + GPU deep-dive)
+
+- **Parallelized the `/v1/state_multi` encoder fan-out.** It looped over the
+  four foundation encoders (geotessera, clay_v1, prithvi_eo2, galileo)
+  **serially**, so a cold cell paid the SUM of four cold materializations
+  (~16 s, galileo dominating with its extra S1+DEM modalities). They now
+  materialize concurrently via `join_all` — wall time collapses toward the
+  slowest single encoder, and because the three Sentinel-2 chip encoders read
+  the *same* scene's COG tiles, the existing per-slot-`OnceCell`
+  `cog::TILE_CACHE`/`PROFILE_CACHE` single-flight coalesces their overlapping
+  reads into one upstream fetch instead of three sequential ones. Output is
+  byte-identical (results folded back in encoder order); the
+  `EMEM_MATERIALIZE_CONCURRENCY` semaphore still bounds upstream parallelism.
+- **Parallelized `/v1/triple_consensus`.** The clay_v1 + prithvi_eo2
+  `two_vintages` materializations (up to 4 cold GPU embeds) ran serially; they
+  now run via `tokio::join!`. Same byte-identical output.
+- **Confirmed: no Requester-Pays or auth-gated bucket on any hot path.** All
+  17 live materializers use anonymous public endpoints (AWS Open Data, Google
+  Cloud Storage, CEDA, JRC, Zenodo, Overpass, …). RADD — removed earlier for
+  its ~30 s Requester-Pays S3 timeout — is fully out of EUDR/hunt/
+  deforestation_alert, and its lone materializer fast-fails to an honest
+  signed Absence **sub-millisecond with zero network call** (pure tile math →
+  immediate `Err`), so it can never wedge a request. (Background: the only
+  near-real-time disturbance product with direct COG range-reads is NASA OPERA
+  DIST-ALERT, which needs a free Earthdata-Login token — not wired, pending an
+  explicit decision to store NASA credentials. Hansen lossyear, already wired
+  and anonymous, remains the fast public historical-loss proxy.)
+
 ### MCP/API test-report fixes (2026-06-01, after a deep external MCP audit)
 
 - **MCP silent truncation fixed at the wrap layer.** Every `tools/call` result

@@ -359,8 +359,21 @@ pub async fn triple_consensus(
     // ── Clay + Prithvi: GPU-gated, single-vintage materializer. Compute
     //    only when two distinct-tslot facts already exist; else honest
     //    absence. NEVER synthesise a prior vintage. ──────────────────────
-    for band in ["clay_v1", "prithvi_eo2"] {
-        match two_vintages(&cell, band, s).await {
+    //    Run the two encoders' vintage materializations CONCURRENTLY — each
+    //    `two_vintages` does up to two cold GPU embeds, and the two encoders
+    //    are independent, so the serial loop summed their cold cost (the
+    //    ~8 s cold triple_consensus). join overlaps them; the shared S2 scene
+    //    COG reads single-flight via cog::TILE_CACHE. Folded back in the
+    //    original [clay_v1, prithvi_eo2] order so output is unchanged.
+    let (clay_vintages, prithvi_vintages) = tokio::join!(
+        two_vintages(&cell, "clay_v1", s),
+        two_vintages(&cell, "prithvi_eo2", s),
+    );
+    for (band, vintages) in [
+        ("clay_v1", clay_vintages),
+        ("prithvi_eo2", prithvi_vintages),
+    ] {
+        match vintages {
             Ok((now, prev, cids)) => match change_component(&now, &prev) {
                 Some(d) => {
                     for c in &cids {

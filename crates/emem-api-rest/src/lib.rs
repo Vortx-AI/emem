@@ -16875,17 +16875,45 @@ async fn post_state_multi(
 
     let mut hits: Vec<EncoderState> = Vec::with_capacity(encoders.len());
     let mut missing: Vec<EncoderMissing> = Vec::new();
-    for encoder in encoders {
-        let recall_req = RecallReq {
-            cell: cell.clone(),
-            bands: Some(vec![encoder.clone()]),
-            tslot: req.tslot,
-            as_of_tslot: req.as_of_tslot,
-            as_of_signed_at: req.as_of_signed_at.clone(),
-            scope: req.scope.clone(),
-            include: None,
-        };
-        match recall_with_auto_materialize(&recall_req, &s).await {
+    // Materialise every encoder CONCURRENTLY. The previous serial loop forced
+    // four cold materializations back-to-back — and on a cold cell each one
+    // does its own STAC search + COG range reads + GPU embed, so the wall time
+    // was the SUM (~16 s for the 4 foundation encoders, galileo dominating
+    // with its extra S1+DEM modalities). Running them concurrently lets the
+    // wall time collapse toward the SLOWEST single encoder, and — because the
+    // three Sentinel-2 chip encoders (clay/prithvi/galileo) read the SAME
+    // scene's COG tiles — the per-tile `cog::TILE_CACHE`/`PROFILE_CACHE`
+    // single-flight (per-slot OnceCell) coalesces their overlapping reads into
+    // ONE upstream fetch instead of three sequential ones. The
+    // EMEM_MATERIALIZE_CONCURRENCY semaphore inside `try_materialize_bands`
+    // still bounds total upstream parallelism, and AppState is Arc-cheap to
+    // clone. Results are folded back in the original encoder order so the
+    // response shape is byte-identical to the serial path.
+    let recall_futs = encoders.iter().cloned().map(|encoder| {
+        let cell = cell.clone();
+        let tslot = req.tslot;
+        let as_of_tslot = req.as_of_tslot;
+        let as_of_signed_at = req.as_of_signed_at.clone();
+        let scope = req.scope.clone();
+        let s = s.clone();
+        async move {
+            let recall_req = RecallReq {
+                cell,
+                bands: Some(vec![encoder.clone()]),
+                tslot,
+                as_of_tslot,
+                as_of_signed_at,
+                scope,
+                include: None,
+            };
+            let res = recall_with_auto_materialize(&recall_req, &s).await;
+            (encoder, res)
+        }
+    });
+    let recalls = futures_util::future::join_all(recall_futs).await;
+
+    for (encoder, recall_result) in recalls {
+        match recall_result {
             Ok((resp, _notes)) => {
                 let primary = resp.facts.iter().find_map(|f| match f {
                     emem_fact::Fact::Primary(p) if p.band == encoder => Some(p),
