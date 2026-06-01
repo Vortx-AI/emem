@@ -246,7 +246,11 @@ mod tests {
         // galileo (48 dims at 1701, NASA Harvest Galileo Base/Tiny
         // foundation embedding via GPU sidecar) plus a slimmed reserved
         // (43 dims at 1749). Count rose 41 → 42. Σ stays at 1792.
-        assert_eq!(r.bands.len(), 42);
+        // 2026-06-01: reserved (43 dims at 1749) carved to add opera_dist
+        // (2 dims at 1749, NASA OPERA DIST-ALERT NRT disturbance —
+        // veg_dist_status + veg_dist_date, optional EDL-gated) plus a
+        // slimmed reserved (41 dims at 1751). Count rose 42 → 43. Σ=1792.
+        assert_eq!(r.bands.len(), 43);
     }
 
     #[test]
@@ -322,7 +326,12 @@ mod tests {
         // total_dims = 1792 unchanged.
         assert_eq!(idx["galileo"].offset, 1701);
         assert_eq!(idx["galileo"].dims, 48);
-        assert_eq!(idx["reserved"].offset, 1749);
-        assert_eq!(idx["reserved"].dims, 43);
+        // 2026-06-01: opera_dist (NASA OPERA DIST-ALERT NRT) carves 2 dims
+        // at offset 1749 from the reserved tail; reserved drops 43 → 41 at
+        // offset 1751 with total_dims = 1792 unchanged.
+        assert_eq!(idx["opera_dist"].offset, 1749);
+        assert_eq!(idx["opera_dist"].dims, 2);
+        assert_eq!(idx["reserved"].offset, 1751);
+        assert_eq!(idx["reserved"].dims, 41);
     }
 }

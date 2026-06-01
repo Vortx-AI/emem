@@ -53,8 +53,8 @@ CANON = {
     "algorithms": 160,
     "rest_paths_v1": 93,            # documented /v1/* paths in OpenAPI
     "rest_paths_openapi_total": 96,  # all paths in OpenAPI
-    "cube_slots": 42,
-    "materializer_wired": 122,
+    "cube_slots": 43,
+    "materializer_wired": 124,
     "source_schemes": 46,
     "topics": 27,
     "foundation_encoders": 4,

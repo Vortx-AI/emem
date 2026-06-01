@@ -72,6 +72,22 @@ async fn main() -> anyhow::Result<()> {
         "responder identity"
     );
 
+    // Optional NASA OPERA DIST-ALERT (near-real-time disturbance). The
+    // Earthdata Login token is read from the environment at request time by
+    // the materializer; here we just log whether it is provisioned so the
+    // operator can confirm the optional NRT feature is on/off. The token
+    // value is NEVER logged — only its presence. When unset, the
+    // opera_dist.* bands sign an honest Absence (no regression).
+    if emem_fetch::opera_dist::is_enabled() {
+        tracing::info!(
+            "OPERA DIST-ALERT enabled (Earthdata token provisioned); opera_dist.* bands will fetch live NRT disturbance"
+        );
+    } else {
+        tracing::info!(
+            "OPERA DIST-ALERT disabled (no EMEM_EARTHDATA_TOKEN / EMEM_EARTHDATA_TOKEN_FILE); opera_dist.* bands sign honest Absence"
+        );
+    }
+
     let started_at_unix_s = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

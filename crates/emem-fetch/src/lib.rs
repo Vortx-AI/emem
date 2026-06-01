@@ -43,6 +43,7 @@ pub mod jrc_gfc2020;
 pub mod jrc_gsw;
 pub mod jrc_tmf;
 pub mod koppen;
+pub mod opera_dist;
 pub mod overture;
 pub mod pois;
 pub mod proj;

@@ -7,6 +7,41 @@ to verify.
 
 ## [Unreleased]
 
+### EUDR comprehensive data + visuals + optional NRT (2026-06-01)
+
+- **Scientific date correctness in the EUDR visual-evidence block.** The annual
+  NDVI / S1 timeline labelled every year only with its July-1 *request anchor* —
+  not the *real Sentinel acquisition date*, which the signed fact already stores
+  in `Source.captured_at`. And the scene PNG used a full-calendar-year window, so
+  the image and the NDVI number for a year could be different scenes. Now every
+  per-year block carries `ndvi_observed_date_range` / `s1_observed_date_range`
+  (the true overpass dates, read off the signed facts), the scene image is
+  **co-registered** to the NDVI date (search window ±`EMEM_VISUAL_SCENE_WINDOW_DAYS`,
+  default 20 d), and `scene_metadata[]` ties each image to its window. The block
+  schema is now `emem.visual_evidence.v2` with an explicit `date_correctness_note`.
+- **New `forest_context` per-plot enrichment** (under the same opt-in
+  `request_visual_evidence` flag, runs concurrently within the existing budget):
+  the **current** ESA WorldCover 2021 land-cover distribution across the plot
+  (with the Cropland+Built-up fraction — the Article 2(4) "predominantly under
+  agricultural use" signal) plus the Hansen forest-gain fraction. Every value is
+  a signed Primary fact with cited `fact_cids`. Informational corroboration only
+  — it does NOT change the legal verdict (still the validated JRC GFC2020 +
+  Hansen + JRC TMF consensus). Both bands are window-capable static COGs, so the
+  added cost is O(1) per plot (one coalesced range read per band).
+- **Optional NASA OPERA DIST-ALERT (near-real-time disturbance) scaffold.** New
+  `opera_dist.veg_dist_status` / `opera_dist.veg_dist_date` bands + materializer
+  for the only genuine NRT (2–4 day) disturbance COG product. It is **not
+  requester-pays** — it is Earthdata-Login gated. The operator provisions a free
+  60-day EDL token **server-side** via `EMEM_EARTHDATA_TOKEN` or
+  `EMEM_EARTHDATA_TOKEN_FILE` (read at runtime; **never committed to the public
+  repo**). When unset, the bands sign an honest Absence (reason `not_enabled`) —
+  identical to today's behaviour, zero regression. `VEG-DIST-DATE` is decoded
+  from its native days-since-2020-12-31 encoding to a **real calendar date**. The
+  live STAC/COG fetch is staged behind a structured `NotImplemented` so the
+  credential path + optionality land now without fabricating a pixel. The
+  responder logs whether OPERA is enabled at startup (never the token value).
+  (Registry: bands 42→43, materializer-wired 122→124, cube stays 1792-D.)
+
 ### Sentinel-1 SAR + cold-path (2026-06-01)
 
 - **New `POST /v1/sar_forest_disturbance` (+ `emem_sar_forest_disturbance` MCP

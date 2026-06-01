@@ -29394,6 +29394,124 @@ async fn materialize_radd_band(
     }
 }
 
+// ---------------- OPERA DIST-ALERT materializer (optional, EDL-gated) -------
+//
+// NASA OPERA Land Surface Disturbance Alert (DIST-ALERT-HLS V1) — the only
+// genuine near-real-time (2–4 day) forest-disturbance COG product. Unlike
+// RADD it is NOT requester-pays; it is Earthdata-Login gated. The operator
+// provisions a free 60-day EDL token SERVER-SIDE (EMEM_EARTHDATA_TOKEN or
+// EMEM_EARTHDATA_TOKEN_FILE) — never in the public code. When no token is
+// configured this materializer signs an honest Absence (reason `not_enabled`)
+// exactly like RADD, so the responder behaves identically to today and an
+// agent recalling `opera_dist.*` gets a signed, cite-able answer either way.
+async fn materialize_opera_dist_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    use emem_fetch::opera_dist;
+    if !matches!(
+        band,
+        "opera_dist.veg_dist_status" | "opera_dist.veg_dist_date"
+    ) {
+        return Err(format!("opera_dist band {band} not registered"));
+    }
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
+    let signed_at = chrono_iso8601_utc();
+    let scheme = band.to_string();
+    let url = format!(
+        "{}/lp-prod-protected/{}/ (EDL-gated; CMR STAC {})",
+        opera_dist::OPERA_DIST_HOST,
+        opera_dist::OPERA_DIST_COLLECTION,
+        opera_dist::OPERA_DIST_CONCEPT_ID
+    );
+
+    let token = opera_dist::earthdata_token_from_env();
+    let cli = s2_http_client();
+    match opera_dist::fetch_alert(&cli, lat, lng, token.as_deref()).await {
+        Ok(Some(pixel)) => {
+            // A real disturbance pixel. veg_dist_status band → status code;
+            // veg_dist_date band → the REAL calendar alert date encoded as
+            // year*10000 + month*100 + day (so an agent reads a true date,
+            // not an opaque days-since-epoch integer).
+            let (value, unit) = if band == "opera_dist.veg_dist_status" {
+                (pixel.veg_dist_status as f64, "dist_status_0_8")
+            } else {
+                match pixel.alert_date() {
+                    Some((y, m, d)) => {
+                        ((y as f64) * 10000.0 + (m as f64) * 100.0 + d as f64, "yyyymmdd")
+                    }
+                    None => {
+                        let reason = format!(
+                            "opera_dist_no_alert_date: cell ({lat:.6},{lng:.6}) has VEG-DIST-STATUS={} but no positive VEG-DIST-DATE (no post-2020-12-31 alert).",
+                            pixel.veg_dist_status
+                        );
+                        return sign_band_absence(
+                            cell64, s, band, 0, &scheme, &url, &signed_at, &reason,
+                        )
+                        .await;
+                    }
+                }
+            };
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell64.to_string(),
+                band: band.to_string(),
+                tslot: 0,
+                value: ciborium::Value::Float(value),
+                unit: Some(unit.into()),
+                confidence: if pixel.is_confirmed() { 0.95 } else { 0.70 },
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: scheme.clone(),
+                    id: opera_dist::OPERA_DIST_COLLECTION.into(),
+                    cid: None,
+                    hash: None,
+                    captured_at: pixel.alert_date_iso(),
+                    url: Some(url.clone()),
+                }],
+                derivation: Derivation {
+                    fn_key: "opera_dist_hls_v1_pixel@1".into(),
+                    args: Some(ciborium::Value::Array(vec![
+                        ciborium::Value::Float(lat),
+                        ciborium::Value::Float(lng),
+                        ciborium::Value::Integer((pixel.veg_dist_status as i64).into()),
+                        ciborium::Value::Integer((pixel.veg_dist_date_days as i64).into()),
+                    ])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: signed_at.clone(),
+                served_via: None,
+            });
+            sign_and_persist(s, fact, &signed_at).await
+        }
+        Ok(None) => {
+            let reason = format!(
+                "opera_dist_no_alert: cell ({lat:.6},{lng:.6}) has no OPERA disturbance alert (VEG-DIST-STATUS=0)."
+            );
+            sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
+        }
+        Err(opera_dist::OperaDistError::NotEnabled) => {
+            // The no-regression default: optional NRT not provisioned.
+            let reason = format!("{}", opera_dist::OperaDistError::NotEnabled);
+            sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
+        }
+        Err(opera_dist::OperaDistError::NotImplemented(why)) => {
+            let reason = format!("opera_dist_not_implemented: {why}");
+            sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
+        }
+        Err(e) => {
+            // Transport / discovery / decode — honest Absence carrying the
+            // structured reason, never a fabricated pixel.
+            let reason = format!("opera_dist_unavailable: {e}");
+            sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
+        }
+    }
+}
+
 // ---------------- CHIRPS daily-precipitation materializer ----------------
 //
 // UCSB CHIRPS v2.0: 0.05° Float32 daily precipitation, ±50° latitude,
@@ -31411,6 +31529,13 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("nightlights.satellite".into());
     // NASA FIRMS active-fire — Tempo::Fast (hourly), 24h rolling.
     out.push("firms.active_fires".into());
+    // NASA OPERA DIST-ALERT (NRT vegetation disturbance, optional EDL-gated).
+    // Materializable in both states: a real disturbance pixel when an
+    // Earthdata token is provisioned, else an honest signed Absence — so it
+    // belongs in the wired set the same way every other always-answers band
+    // does.
+    out.push("opera_dist.veg_dist_status".into());
+    out.push("opera_dist.veg_dist_date".into());
     // temporal_diff is parametric (band-key shape:
     // `temporal_diff:<inner_band>:<window>`) so we can't enumerate
     // every instance. Surface a few canonical examples so an agent
@@ -31779,6 +31904,15 @@ async fn materialize_band_at(
     // anonymous HTTPS mirror exists.
     if matches!(band, "radd.alert_date" | "radd.confidence") {
         return materialize_radd_band(cell64, s, band).await;
+    }
+
+    // OPERA DIST-ALERT (NASA NRT disturbance) — optional, EDL-gated. Signs an
+    // honest Absence when no Earthdata token is provisioned (the default).
+    if matches!(
+        band,
+        "opera_dist.veg_dist_status" | "opera_dist.veg_dist_date"
+    ) {
+        return materialize_opera_dist_band(cell64, s, band).await;
     }
 
     // SoilGrids 2.0 (ISRIC) — static, global, 250 m soil-property maps. One
@@ -32977,6 +33111,22 @@ async fn try_materialize_bands(
             // RADD SAR alerts (Reiche 2021). Same Absence pattern.
             "radd.alert_date" | "radd.confidence" => {
                 match materialize_radd_band(cell64, s, b).await {
+                    Ok(cid) => out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    }),
+                    Err(e) => out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    }),
+                }
+            }
+            // OPERA DIST-ALERT (NASA NRT). Optional, EDL-gated; honest
+            // Absence when no Earthdata token is provisioned.
+            "opera_dist.veg_dist_status" | "opera_dist.veg_dist_date" => {
+                match materialize_opera_dist_band(cell64, s, b).await {
                     Ok(cid) => out.push(MaterializeOutcome {
                         band: b.clone(),
                         fact_cid: Some(cid.as_str().to_string()),
@@ -36899,11 +37049,18 @@ fn jul1_unix(year: i32) -> i64 {
     days_from_civil(year, 7, 1) * 86_400
 }
 
-/// Best-effort extraction of a Primary fact's scalar value as f64.
-/// Returns `None` for Absence facts, fetch errors, or non-numeric
-/// value variants. Used by visual-evidence aggregation to compute
-/// per-year medians across the plot's sample cells.
-async fn fact_cid_to_f64(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> {
+/// Extract a Primary fact's scalar value as f64 plus the REAL upstream acquisition
+/// datetime (`Source.captured_at`, the Sentinel scene's ISO-8601 overpass
+/// time) when present. The visual-evidence block uses this so every NDVI / S1
+/// measurement is labelled with the date it was ACTUALLY observed — not the
+/// July-1 anchor the request used — which is the scientific date-correctness
+/// an EUDR audit needs (the image and the number must cite the same real
+/// scene date). No fabricated dates: the value comes straight off the signed
+/// fact the materializer wrote from `item.datetime`.
+async fn fact_cid_to_value_and_date(
+    s: &AppState,
+    cid: &emem_fact::FactCid,
+) -> Option<(f64, Option<String>)> {
     let row = s
         .storage
         .get_facts_many(std::slice::from_ref(cid))
@@ -36913,11 +37070,16 @@ async fn fact_cid_to_f64(s: &AppState, cid: &emem_fact::FactCid) -> Option<f64> 
         .next()
         .flatten()?;
     if let emem_fact::Fact::Primary(p) = row {
-        match p.value {
-            ciborium::Value::Float(f) if f.is_finite() => Some(f),
-            ciborium::Value::Integer(i) => i64::try_from(i).ok().map(|v| v as f64),
-            _ => None,
-        }
+        let value = match p.value {
+            ciborium::Value::Float(f) if f.is_finite() => f,
+            ciborium::Value::Integer(i) => i64::try_from(i).ok().map(|v| v as f64)?,
+            _ => return None,
+        };
+        let captured_at = p
+            .sources
+            .first()
+            .and_then(|src| src.captured_at.clone());
+        Some((value, captured_at))
     } else {
         None
     }
@@ -36967,6 +37129,136 @@ fn percentile_f64(values: &[f64], p: f64) -> Option<f64> {
         let frac = rank - lo as f64;
         Some(sorted[lo] * (1.0 - frac) + sorted[hi] * frac)
     }
+}
+
+/// Human label for an ESA WorldCover 2021 class code.
+fn worldcover_class_label(class: i64) -> &'static str {
+    match class {
+        10 => "Tree cover",
+        20 => "Shrubland",
+        30 => "Grassland",
+        40 => "Cropland",
+        50 => "Built-up",
+        60 => "Bare / sparse vegetation",
+        70 => "Snow and ice",
+        80 => "Permanent water bodies",
+        90 => "Herbaceous wetland",
+        95 => "Mangroves",
+        100 => "Moss and lichen",
+        _ => "unknown",
+    }
+}
+
+/// Build the per-plot `forest_context` enrichment: the CURRENT land cover
+/// (ESA WorldCover 2021, 10 m) distribution across the plot's sample cells,
+/// plus the Hansen forest-gain fraction (regrowth 2000–2012). This answers
+/// two EUDR-relevant questions the pass/fail consensus alone doesn't:
+///   1. What is the plot used for NOW? Article 2(4) excludes land
+///      "predominantly under agricultural use" — a fail cell that is now
+///      Cropland (class 40) or Built-up (50) tells the operator the cleared
+///      land was converted, which strengthens (or contests) the verdict.
+///   2. Has any forest REGROWN (Hansen gain)? Material for small plots near
+///      the 0.5 ha MMU floor.
+/// Both bands are window-capable static COGs (one coalesced range read per
+/// band per plot via the same TILE_CACHE single-flight the verdict path
+/// uses), so this adds O(1) upstream cost — it stays inside the existing
+/// EUDR budget. Every value is a signed Primary fact; the block cites the
+/// fact_cids. Purely informational: it does NOT change the legal verdict
+/// (that remains the validated JRC GFC2020 + Hansen + JRC TMF consensus).
+async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> JsonValue {
+    // Cap the cells we sample for context so a huge polygon doesn't pay
+    // unbounded per-cell reads — the centroid + a representative subset is
+    // enough for a land-cover distribution. The first cell warms the COG
+    // tile; the rest hit TILE_CACHE.
+    let cap = sample_cells.len().min(64);
+    let cells: Vec<&String> = sample_cells.iter().take(cap).collect();
+    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+
+    let mut lc_counts: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+    let mut lc_cids: Vec<String> = Vec::new();
+    let mut gain_yes = 0usize;
+    let mut gain_total = 0usize;
+    let mut gain_cids: Vec<String> = Vec::new();
+
+    for c in &cells {
+        // Current land cover.
+        if let Ok(Ok(cid)) = tokio::time::timeout(
+            timeout,
+            try_materialize_one_band(c, "esa_worldcover.lc_2021", s),
+        )
+        .await
+        {
+            if let Some((v, _)) = fact_cid_to_value_and_date(s, &cid).await {
+                *lc_counts.entry(v.round() as i64).or_insert(0) += 1;
+                lc_cids.push(cid.as_str().to_string());
+            }
+        }
+        // Forest gain (regrowth).
+        if let Ok(Ok(cid)) =
+            tokio::time::timeout(timeout, try_materialize_one_band(c, "forest_change.gain", s))
+                .await
+        {
+            if let Some((v, _)) = fact_cid_to_value_and_date(s, &cid).await {
+                gain_total += 1;
+                if v >= 1.0 {
+                    gain_yes += 1;
+                }
+                gain_cids.push(cid.as_str().to_string());
+            }
+        }
+    }
+
+    let lc_total: usize = lc_counts.values().sum();
+    let lc_distribution: Vec<JsonValue> = lc_counts
+        .iter()
+        .map(|(class, n)| {
+            json!({
+                "class": class,
+                "label": worldcover_class_label(*class),
+                "cells": n,
+                "fraction": if lc_total > 0 { (*n as f64 / lc_total as f64 * 1000.0).round() / 1000.0 } else { 0.0 },
+            })
+        })
+        .collect();
+    let dominant = lc_counts
+        .iter()
+        .max_by_key(|(_, n)| **n)
+        .map(|(class, _)| *class);
+    // Agricultural / built-up fraction — the Article 2(4) "predominantly
+    // under agricultural use" exclusion signal (cropland 40, built-up 50).
+    let agri_built_cells: usize = lc_counts
+        .iter()
+        .filter(|(class, _)| matches!(**class, 40 | 50))
+        .map(|(_, n)| *n)
+        .sum();
+    let agri_built_fraction = if lc_total > 0 {
+        Some((agri_built_cells as f64 / lc_total as f64 * 1000.0).round() / 1000.0)
+    } else {
+        None
+    };
+
+    json!({
+        "schema": "emem.eudr_forest_context.v1",
+        "current_land_cover": {
+            "product": "ESA WorldCover 2021 v200 (10 m, anonymous S3, CC BY 4.0)",
+            "cells_sampled": lc_total,
+            "dominant_class": dominant,
+            "dominant_label": dominant.map(worldcover_class_label),
+            "distribution": lc_distribution,
+            "agri_or_built_fraction": agri_built_fraction,
+            "agri_or_built_note": "Fraction of sampled cells now Cropland (40) or Built-up (50). EUDR Article 2(4) excludes land predominantly under agricultural use from the forest definition; a high fraction here over a 'fail' plot corroborates conversion-to-agriculture.",
+            "fact_cids": lc_cids,
+        },
+        "forest_gain": {
+            "product": "Hansen GFC v1.12 gain mask (regrowth 2000–2012, 30 m)",
+            "cells_with_gain": gain_yes,
+            "cells_sampled": gain_total,
+            "gain_fraction": if gain_total > 0 { Some((gain_yes as f64 / gain_total as f64 * 1000.0).round() / 1000.0) } else { None },
+            "note": "Hansen gain is a frozen 2000–2012 regrowth mask — context for the MMU floor on small plots, not a post-cut-off signal.",
+            "fact_cids": gain_cids,
+        },
+        "honest_note": "Informational corroboration only — does NOT change the legal verdict (the validated JRC GFC2020 + Hansen + JRC TMF consensus). Current land cover confirms the plot's present use; it cannot by itself prove or disprove post-cut-off deforestation.",
+    })
 }
 
 /// Build the per-plot annual visual-evidence block. Materialises
@@ -37093,13 +37385,17 @@ async fn build_plot_visual_evidence(
 
         let mut ndvi_vals: Vec<f64> = Vec::new();
         let mut ndvi_fact_cids: Vec<String> = Vec::new();
+        let mut ndvi_dates: Vec<String> = Vec::new();
         let mut ndvi_errors = 0usize;
         for ci in 0..ndvi_cids_owned.len() {
             match &ndvi_cids_owned[ci] {
                 Ok(c) => {
                     let c_owned = c.clone();
-                    if let Some(v) = fact_cid_to_f64(s, &c_owned).await {
+                    if let Some((v, date)) = fact_cid_to_value_and_date(s, &c_owned).await {
                         ndvi_vals.push(v);
+                        if let Some(d) = date {
+                            ndvi_dates.push(d);
+                        }
                     }
                     ndvi_fact_cids.push(c_owned.as_str().to_string());
                 }
@@ -37108,19 +37404,39 @@ async fn build_plot_visual_evidence(
         }
         let mut s1_vals: Vec<f64> = Vec::new();
         let mut s1_fact_cids: Vec<String> = Vec::new();
+        let mut s1_dates: Vec<String> = Vec::new();
         let mut s1_errors = 0usize;
         for ci in 0..s1_cids_owned.len() {
             match &s1_cids_owned[ci] {
                 Ok(c) => {
                     let c_owned = c.clone();
-                    if let Some(v) = fact_cid_to_f64(s, &c_owned).await {
+                    if let Some((v, date)) = fact_cid_to_value_and_date(s, &c_owned).await {
                         s1_vals.push(v);
+                        if let Some(d) = date {
+                            s1_dates.push(d);
+                        }
                     }
                     s1_fact_cids.push(c_owned.as_str().to_string());
                 }
                 Err(_) => s1_errors += 1,
             }
         }
+        // The REAL acquisition-date span of the scenes that produced this
+        // year's medians (min..max of the per-cell Sentinel overpass dates).
+        // This is the scientifically-correct date label — distinct from the
+        // July-1 request anchor. Sorting ISO-8601 strings is chronological.
+        ndvi_dates.sort();
+        s1_dates.sort();
+        let ndvi_date_range = if ndvi_dates.is_empty() {
+            None
+        } else {
+            Some((ndvi_dates[0].clone(), ndvi_dates[ndvi_dates.len() - 1].clone()))
+        };
+        let s1_date_range = if s1_dates.is_empty() {
+            None
+        } else {
+            Some((s1_dates[0].clone(), s1_dates[s1_dates.len() - 1].clone()))
+        };
         let ndvi_med = median_f64(&ndvi_vals);
         let ndvi_p10 = percentile_f64(&ndvi_vals, 10.0);
         let ndvi_p90 = percentile_f64(&ndvi_vals, 90.0);
@@ -37151,36 +37467,73 @@ async fn build_plot_visual_evidence(
                 max_drop_vs_baseline = Some(drop);
             }
         }
-        // Per-cell scene.png URLs spanning the full year — the
-        // /v1/cells/{cell64}/scene.png handler picks the latest scene
-        // with cloud_cover < max_cloud across the window we pass, so
-        // a full-year window gives the cleanest representative pixel
-        // for that year.
-        let datetime_window = format!("{}-01-01T00:00:00Z/{}-12-31T23:59:59Z", year, year);
-        let scene_urls: Vec<String> = url_cells
+        // Scene.png URLs CO-REGISTERED with the NDVI observation. The image
+        // and the NDVI median must visualise the SAME real scene date, or the
+        // evidence is challengeable. We narrow the scene-search window to
+        // ±`EMEM_VISUAL_SCENE_WINDOW_DAYS` (default 20) around the actual NDVI
+        // acquisition date for this year — so the /v1/cells/{cell}/scene.png
+        // handler returns the same overpass that produced the number, with a
+        // small cloud-fallback margin. When no NDVI date resolved (cloudy
+        // year), we fall back to the July-1 anchor ± the same window and label
+        // it honestly. (Previously a full calendar-year window let the PNG be
+        // a completely different scene/date than the NDVI median.)
+        let scene_window_days: i64 = std::env::var("EMEM_VISUAL_SCENE_WINDOW_DAYS")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|d| (1..=120).contains(d))
+            .unwrap_or(20);
+        // Centre the window on the real NDVI date when we have one, else the
+        // July-1 anchor.
+        let centre_unix = ndvi_date_range
+            .as_ref()
+            .and_then(|(lo, _)| parse_iso8601_unix(lo))
+            .unwrap_or(anchor);
+        let win_lo = centre_unix - scene_window_days * 86_400;
+        let win_hi = centre_unix + scene_window_days * 86_400;
+        let datetime_window =
+            format!("{}/{}", iso8601_utc(win_lo.max(0) as u64), iso8601_utc(win_hi as u64));
+        let scene_coregistered = ndvi_date_range.is_some();
+        let scene_metadata: Vec<JsonValue> = url_cells
             .iter()
             .map(|c| {
-                format!(
-                    "/v1/cells/{c}/scene.png?datetime={enc}&max_cloud=20",
-                    c = c,
-                    enc = datetime_window.replace(':', "%3A")
-                )
+                json!({
+                    "cell": c,
+                    "scene_png_url": format!(
+                        "/v1/cells/{c}/scene.png?datetime={enc}&max_cloud=20",
+                        c = c,
+                        enc = datetime_window.replace(':', "%3A")
+                    ),
+                    // The handler emits the chosen scene's exact item datetime
+                    // in the x-emem-scene-datetime header + structuredContent;
+                    // the window is centred on the NDVI date so they co-register.
+                    "search_window": datetime_window,
+                })
             })
+            .collect();
+        // Keep the flat scene_png_urls array too (backward-compatible).
+        let scene_urls: Vec<String> = scene_metadata
+            .iter()
+            .filter_map(|m| m.get("scene_png_url").and_then(|u| u.as_str()).map(String::from))
             .collect();
         per_year.push(json!({
             "year": year,
             "anchor_unix": anchor,
+            "anchor_note": "anchor_unix is the REQUESTED July-1 mid-year anchor, NOT the observation date. The real Sentinel acquisition dates are in ndvi_observed_date_range / s1_observed_date_range below.",
             "ndvi_median":   ndvi_med,
             "ndvi_p10":      ndvi_p10,
             "ndvi_p90":      ndvi_p90,
             "ndvi_delta_vs_2020": ndvi_med.and_then(|n| ndvi_2020_median.map(|b| n - b)),
+            "ndvi_observed_date_range": ndvi_date_range.as_ref().map(|(lo, hi)| json!({"from": lo, "to": hi})),
             "n_cells_ndvi_ok":     ndvi_vals.len(),
             "n_cells_ndvi_errors": ndvi_errors,
             "s1_vv_db_median":     s1_med,
             "s1_vv_delta_db_vs_2020": s1_med.and_then(|s| s1_2020_median.map(|b| s - b)),
+            "s1_observed_date_range": s1_date_range.as_ref().map(|(lo, hi)| json!({"from": lo, "to": hi})),
             "n_cells_s1_ok":     s1_vals.len(),
             "n_cells_s1_errors": s1_errors,
             "scene_png_urls": scene_urls,
+            "scene_metadata": scene_metadata,
+            "scene_coregistered_with_ndvi": scene_coregistered,
             "ndvi_fact_cids": ndvi_fact_cids,
             "s1_fact_cids":   s1_fact_cids,
         }));
@@ -37233,9 +37586,10 @@ async fn build_plot_visual_evidence(
     };
 
     json!({
-        "schema": "emem.visual_evidence.v1",
+        "schema": "emem.visual_evidence.v2",
         "method": "annual_s2_l2a_least_cloudy + annual_s1_rtc_vv_cloud_independent",
-        "anchor_policy": "jul-01 of each year, ±30/60/90d cloud-fallback ladder (matches s2_search_with_fallback)",
+        "anchor_policy": "Each year is sampled at a July-1 mid-year anchor with the materializer's ±30/60/90d cloud-fallback ladder. The REAL Sentinel acquisition date of every sample is surfaced per year as ndvi_observed_date_range / s1_observed_date_range (read from the signed fact's Source.captured_at), and the scene_png images are co-registered to that NDVI date (search window ±EMEM_VISUAL_SCENE_WINDOW_DAYS, default 20d) so the picture and the number cite the same overpass — not the request anchor.",
+        "date_correctness_note": "anchor_unix per year is the REQUESTED anchor, not an observation date. Cite ndvi_observed_date_range / s1_observed_date_range (and each scene's x-emem-scene-datetime header) as the real evidence dates in a DDS.",
         "years": per_year,
         "verdict": verdict,
         "thresholds": {
@@ -37249,7 +37603,7 @@ async fn build_plot_visual_evidence(
             "ndvi_worst_year_over_year_drop": worst_ndvi_drop_year_over_year.map(|(y, d)| json!({"year": y, "drop": d})),
             "s1_vv_2020_baseline_db": s1_2020_median,
         },
-        "agent_hint": "Render the scene_png_urls side-by-side as a 6-up timeline (one per year) for an EUDR audit packet. The ndvi_median series is the quantitative companion; quote the receipt fact_cids in the DDS provenance.",
+        "agent_hint": "Render scene_metadata[].scene_png_url side-by-side as a year-by-year timeline for an EUDR audit packet, labelling each image with its real ndvi_observed_date_range (NOT the year). The ndvi_median series is the quantitative companion, co-registered to the same scene date. Quote the receipt fact_cids in the DDS provenance.",
     })
 }
 
@@ -38902,15 +39256,23 @@ async fn post_eudr_dds_inner(
             // `request_visual_evidence: true` on this plot — adds a
             // few seconds of upstream fan-out per plot, gated off by
             // default so the standard DDS path stays fast.
-            let visual_evidence_json: Option<JsonValue> =
+            let (visual_evidence_json, forest_context_json): (Option<JsonValue>, Option<JsonValue>) =
                 if plot.request_visual_evidence == Some(true) {
                     let now_unix = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
-                    Some(build_plot_visual_evidence(&s, &cells, now_unix).await)
+                    // Both enrichments run under the same opt-in flag + the
+                    // auto-bumped visual budget. forest_context is the cheap
+                    // window-capable land-cover/gain context; visual_evidence
+                    // is the per-year S2/S1 timeline. Run concurrently.
+                    let (ve, fc) = tokio::join!(
+                        build_plot_visual_evidence(&s, &cells, now_unix),
+                        build_plot_forest_context(&s, &cells),
+                    );
+                    (Some(ve), Some(fc))
                 } else {
-                    None
+                    (None, None)
                 };
 
             let mut plot_obj = json!({
@@ -38954,6 +39316,9 @@ async fn post_eudr_dds_inner(
             });
             if let (Some(obj), Some(ve)) = (plot_obj.as_object_mut(), visual_evidence_json) {
                 obj.insert("visual_evidence".into(), ve);
+            }
+            if let (Some(obj), Some(fc)) = (plot_obj.as_object_mut(), forest_context_json) {
+                obj.insert("forest_context".into(), fc);
             }
             if let (Some(obj), Some(warning)) =
                 (plot_obj.as_object_mut(), precision_warning.clone())
