@@ -150,6 +150,10 @@ const SITEMAP_XML: &str = include_str!("../../../web/sitemap.xml");
 const FAVICON_SVG: &str = include_str!("../../../web/favicon.svg");
 const FAVICON_PNG: &[u8] = include_bytes!("../../../web/favicon.png");
 const APPLE_TOUCH_ICON_PNG: &[u8] = include_bytes!("../../../web/apple-touch-icon.png");
+/// The vortxgola brand logo (animated GIF, 128×128, optimised from the
+/// 360×360 source). Served locally so every page references one
+/// emem.dev-hosted logo instead of an external vortx.ai asset.
+const VORTXGOLA_GIF: &[u8] = include_bytes!("../../../web/vortxgola.gif");
 const ICON_192_PNG: &[u8] = include_bytes!("../../../web/icon-192.png");
 const ICON_512_PNG: &[u8] = include_bytes!("../../../web/icon-512.png");
 const LOGO_PNG: &[u8] = include_bytes!("../../../web/logo.png");
@@ -671,6 +675,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sitemap.xml", get(serve_sitemap))
         .route("/favicon.svg", get(serve_favicon))
         .route("/favicon.ico", get(serve_favicon))
+        .route("/vortxgola.gif", get(serve_vortxgola_gif))
         .route("/favicon.png", get(serve_favicon_png))
         .route("/apple-touch-icon.png", get(serve_apple_touch_icon))
         .route("/icon-192.png", get(serve_icon_192))
@@ -3091,6 +3096,19 @@ fn png_response(bytes: &'static [u8]) -> Response {
         .header(CONTENT_TYPE, "image/png")
         .header("cache-control", "public, max-age=86400, must-revalidate")
         .body(axum::body::Body::from(bytes))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+/// Serve the vortxgola animated-GIF logo. Immutable (the filename changes
+/// when the asset is regenerated, and include_bytes! busts the buffer at
+/// build time), so a 1-year cache means it loads once per visitor and is
+/// reused across every page — keeping the ~0.5 MB animation off the
+/// per-page critical path.
+async fn serve_vortxgola_gif() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "image/gif")
+        .header("cache-control", "public, max-age=31536000, immutable")
+        .body(axum::body::Body::from(VORTXGOLA_GIF))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 async fn serve_favicon_png() -> Response {
