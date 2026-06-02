@@ -239,9 +239,11 @@ async fn get_or_fetch_tile(
     Ok(bytes_ref.clone())
 }
 
-/// Build a reqwest Client suitable for COG range-reads (90 s timeout,
-/// long idle + pool lifetime). Used by boot-time pre-warm to fetch
-/// the JRC GFC2020 ~110 MB IFD header before the first user request.
+/// Build a reqwest Client suitable for COG range-reads (long timeout,
+/// long idle + pool lifetime). Generic helper for warming a COG profile
+/// out-of-band of the request path. (The JRC GFC2020 connector no longer
+/// needs this — it reads small-IFD 10° tiles that open in ~1 s cold —
+/// but the helper remains available for any large-IFD COG.)
 pub fn prewarm_client() -> Client {
     Client::builder()
         .timeout(std::time::Duration::from_secs(120))

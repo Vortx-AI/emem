@@ -15712,7 +15712,7 @@ async fn openapi() -> Json<JsonValue> {
             // fabricated number) when the inputs are not materializable.
             "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently — a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict — confirm with the optical Hansen/JRC-TMF consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict — confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
             "/v1/burn_severity":     {"post":{"summary":"Key & Benson dNBR burn severity: dNBR = nbr_pre − nbr_post, mapped to USGS severity classes. Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) or omit to use the two most-recent stored `indices.nbr` scenes.","operationId":"emem_burn_severity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"nbr_pre":{"type":"number","description":"Pre-fire NBR."},"nbr_post":{"type":"number","description":"Post-fire NBR."}}}}}},"responses":{"200":json_ok}}},
             "/v1/rice_ch4":          {"post":{"summary":"IPCC-2019 Tier-2 rice-cultivation CH4 (Eq 5.1): integrates the daily emission factor over the cultivation period with water-regime (SFp/SFo) and optional Yan-2005 Q10 temperature scaling. `cultivation_period_days` and the regional `efc_kg_ch4_ha_day` (Table 5.11) are REQUIRED — no defensible global default.","operationId":"emem_rice_ch4","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","cultivation_period_days","efc_kg_ch4_ha_day"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"cultivation_period_days":{"type":"number","description":"Cultivation-period length in days (typically 110–150)."},"efc_kg_ch4_ha_day":{"type":"number","description":"Regional baseline EFc (kg CH4/ha/day) from IPCC 2019 Table 5.11."},"ndwi_series":{"type":"array","items":{"type":"number"},"description":"Optional explicit NDWI series across the cultivation period."},"sfp":{"type":"number","description":"Pre-season water-regime scaling factor SFp (Table 5.13); default 0.68."},"sfo":{"type":"number","description":"Organic-amendment scaling factor SFo (Table 5.14); default 1.00."},"t_paddy_c":{"type":"number","description":"Mean paddy-water temperature (°C) for the Yan-2005 Q10 modifier; omit to disable."}}}}}},"responses":{"200":json_ok}}},
@@ -15857,7 +15857,7 @@ async fn openapi() -> Json<JsonValue> {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (Hansen + JRC GFC2020 + JRC TMF v2025 multi-product loss-year consensus), applies WRI-Sims driver attribution and RADD SAR fallback when those connectors are wired (Absence today), applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`). Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body — produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 V3 legal baseline + Hansen GFC v1.12 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF v2025, WRI-Sims driver attribution and RADD SAR are deferred off the hot path for latency (TMF) / pending fast public endpoints (WRI, RADD). Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`). Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
                         "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
@@ -26836,7 +26836,7 @@ async fn materialize_sentinel1_vv(
 // anonymous Microsoft Planetary Computer `sentinel-1-rtc` collection.
 //
 // This is an ADDITIVE scout signal. It does NOT flip the EUDR legal
-// verdict (that stays the JRC GFC2020 + Hansen + JRC TMF consensus); it is
+// verdict (that stays the JRC GFC2020 + Hansen consensus); it is
 // a cite-able, cloud-independent corroboration an agent can pair with the
 // optical consensus. Both VV reads are signed Primary facts under the
 // responder identity; the response cites both fact_cids.
@@ -26982,7 +26982,7 @@ async fn post_sar_forest_disturbance(
         "modality": "sentinel-1 c-band vv (radar; cloud- and night-independent)",
         "formula": "vv_drop_db = baseline_vv_db − recent_vv_db; disturbed = vv_drop_db ≥ drop_threshold_db (default 3 dB, Reiche et al. 2018 RSE 204:147)",
         "honest_note": if available {
-            "Cloud-independent SAR scout signal. A VV drop can also be transient (soil moisture, harvest, flooding recede); confirm clearing against the optical Hansen/JRC-TMF consensus (POST /v1/eudr_dds or /v1/deforestation_alert) before crediting a decision. This is corroboration, NOT a standalone legal verdict."
+            "Cloud-independent SAR scout signal. A VV drop can also be transient (soil moisture, harvest, flooding recede); confirm clearing against the optical JRC GFC2020/Hansen consensus (POST /v1/eudr_dds or /v1/deforestation_alert) before crediting a decision. This is corroboration, NOT a standalone legal verdict."
         } else {
             "Could not sample both S1 VV vintages at this cell (no Sentinel-1 scene at the baseline anchor and/or latest, or the MPC SAS endpoint was unreachable). No drop reported."
         },
@@ -28795,7 +28795,9 @@ async fn build_fact_jrc_gfc2020(
     let lat = info.lat_deg;
     let lng = info.lng_deg;
     let cli = s2_http_client();
-    let url = jrc_gfc2020::cog_url().to_string();
+    // Provenance reflects the actual 10° tile read (not the legacy 41 GB
+    // single-COG) — see jrc_gfc2020 module docs for why we tile.
+    let url = jrc_gfc2020::tile_url_for(lat, lng);
     match jrc_gfc2020::fetch_forest_2020(&cli, lat, lng).await {
         Ok(value) => Ok(Fact::Primary(PrimaryFact {
             cell: cell64.to_string(),
@@ -28830,6 +28832,25 @@ async fn build_fact_jrc_gfc2020(
         Err(jrc_gfc2020::JrcGfc2020Error::CoverageGap { lat: la, lng: ln }) => {
             let reason = format!(
                 "jrc_gfc2020_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the JRC GFC2020 V3 ±82° latitude envelope."
+            );
+            Ok(build_absence_fact(
+                s,
+                cell64,
+                band,
+                0,
+                "jrc.gfc2020.v3",
+                &url,
+                signed_at,
+                &reason,
+            ))
+        }
+        Err(jrc_gfc2020::JrcGfc2020Error::TileNotFound { tile, .. }) => {
+            // The JRC publishes no 10° tile for fully-oceanic cells; an
+            // absent tile is a genuine coverage gap, signed as Absence
+            // rather than fabricating a non-forest zero. (EUDR plots are
+            // on land, so this is a defensive boundary case.)
+            let reason = format!(
+                "jrc_gfc2020_tile_not_found: 10° tile {tile} is not published (cell outside JRC GFC2020 V3 tile coverage)."
             );
             Ok(build_absence_fact(
                 s,
@@ -37228,7 +37249,7 @@ fn worldcover_class_label(class: i64) -> &'static str {
 /// uses), so this adds O(1) upstream cost — it stays inside the existing
 /// EUDR budget. Every value is a signed Primary fact; the block cites the
 /// fact_cids. Purely informational: it does NOT change the legal verdict
-/// (that remains the validated JRC GFC2020 + Hansen + JRC TMF consensus).
+/// (that remains the validated JRC GFC2020 + Hansen consensus).
 async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> JsonValue {
     // A land-cover distribution + gain fraction needs only a representative
     // subset, NOT every cell — so cap tightly (env EMEM_EUDR_CONTEXT_CELLS,
@@ -37348,7 +37369,7 @@ async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> Jso
             "note": "Hansen gain is a frozen 2000–2012 regrowth mask — context for the MMU floor on small plots, not a post-cut-off signal.",
             "fact_cids": gain_cids,
         },
-        "honest_note": "Informational corroboration only — does NOT change the legal verdict (the validated JRC GFC2020 + Hansen + JRC TMF consensus). Current land cover confirms the plot's present use; it cannot by itself prove or disprove post-cut-off deforestation.",
+        "honest_note": "Informational corroboration only — does NOT change the legal verdict (the validated JRC GFC2020 + Hansen consensus). Current land cover confirms the plot's present use; it cannot by itself prove or disprove post-cut-off deforestation.",
     })
 }
 
@@ -37838,7 +37859,9 @@ async fn build_eudr_band_fact(
 /// polygon-batched cascade for STAC bands is its own design pass.
 fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Option<String> {
     match band {
-        "jrc_gfc2020.forest_2020" => Some(emem_fetch::jrc_gfc2020::cog_url().to_string()),
+        "jrc_gfc2020.forest_2020" => Some(emem_fetch::jrc_gfc2020::tile_url_for(
+            centre_lat, centre_lng,
+        )),
         "forest_change.treecover2000" | "hansen.tree_cover_2000" => {
             Some(emem_fetch::hansen_gfc::tile_url_for(
                 centre_lat,
@@ -38026,7 +38049,9 @@ async fn batch_build_facts_via_window(
     let cli = s2_http_client();
     let (url, scheme, fn_key, _layer_str) = match band {
         "jrc_gfc2020.forest_2020" => (
-            emem_fetch::jrc_gfc2020::cog_url().to_string(),
+            // 10° tile covering the polygon centre — small IFD, ~1 s cold.
+            // The legacy 41 GB single-COG is never read on this path.
+            emem_fetch::jrc_gfc2020::tile_url_for(centre_lat, centre_lng),
             "jrc.gfc2020.v3",
             "jrc_gfc2020_v3_pixel@1",
             "forest_2020",
@@ -38051,44 +38076,14 @@ async fn batch_build_facts_via_window(
             "hansen_gfc_v1_12_pixel@1",
             emem_fetch::hansen_gfc::LAYER_LOSSYEAR,
         ),
-        "jrc_tmf.deforestation_year" => {
-            // TMF uses disk-cached tiles. Ensure the tile is on disk
-            // (one download if cold), then use the local file:// path
-            // for sample_window — same O(1) fetch + O(N) pixel pattern.
-            let tmf_cli = s2_http_client();
-            match emem_fetch::jrc_tmf::ensure_tile_cached(
-                &tmf_cli,
-                emem_fetch::jrc_tmf::DATASET_DEFORESTATION_YEAR,
-                centre_lat,
-                centre_lng,
-            )
-            .await
-            {
-                Ok(path) => {
-                    let file_url = format!("file://{}", path.display());
-                    (
-                        file_url,
-                        "jrc.tmf.v2025",
-                        "jrc_tmf_v2025_pixel@1",
-                        "DeforestationYear",
-                    )
-                }
-                Err(emem_fetch::jrc_tmf::JrcTmfError::CoverageGap { .. }) => {
-                    return cells
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| (i, Err("jrc_tmf coverage gap (outside ±30°)".into())))
-                        .collect();
-                }
-                Err(e) => {
-                    return cells
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| (i, Err(format!("jrc_tmf tile cache: {e}"))))
-                        .collect();
-                }
-            }
-        }
+        // NOTE: jrc_tmf.deforestation_year is intentionally NOT handled
+        // here — it was removed from the EUDR hot path (see the band-list
+        // comment in `evaluate_eudr_plot_batched`). Its 119 MB full-tile
+        // download (no upstream HTTP Range) cost ~78 s cold and dominated
+        // the per-plot budget, exactly like the WRI GDM / RADD probes that
+        // were dropped earlier. The verdict computes from the JRC GFC2020
+        // legal baseline + Hansen loss-year. The connector remains
+        // available for explicit `jrc_tmf.*` band requests off this path.
         _ => {
             return cells
                 .iter()
@@ -38253,10 +38248,7 @@ async fn batch_materialize_eudr_band(
     // per band writes them to sled in a single transaction.
     let geospatial_window = matches!(
         band,
-        "jrc_gfc2020.forest_2020"
-            | "forest_change.treecover2000"
-            | "forest_change.lossyear"
-            | "jrc_tmf.deforestation_year"
+        "jrc_gfc2020.forest_2020" | "forest_change.treecover2000" | "forest_change.lossyear"
     );
 
     let facts_res: Vec<(usize, Result<Fact, String>)> = if geospatial_window {
@@ -38468,15 +38460,21 @@ async fn evaluate_eudr_plot_batched(
     }
     let signed_at = chrono_iso8601_utc();
 
-    // 4 batchable EUDR bands run in parallel. Each band closure
+    // 3 batchable EUDR bands run in parallel. Each band closure
     // clones its own AppState (Arc, cheap) and cells Vec — borrows
     // across this many awaits tripped a higher-rank Send-inference
     // at the outer Box::pin'd per-plot future.
-    let batchable: [&str; 4] = [
+    //
+    // jrc_tmf.deforestation_year was REMOVED from this hot path (was a
+    // 4th band): its 119 MB full-tile download (no upstream HTTP Range)
+    // cost ~78 s cold and dominated the per-plot budget — the same
+    // latency reason WRI GDM / RADD were dropped below. The verdict
+    // computes from the JRC GFC2020 legal baseline + Hansen loss-year,
+    // the authoritative post-cut-off loss signal.
+    let batchable: [&str; 3] = [
         "jrc_gfc2020.forest_2020",
         "forest_change.treecover2000",
         "forest_change.lossyear",
-        "jrc_tmf.deforestation_year",
     ];
     let batched: Vec<Vec<Result<EudrBandResult, String>>> =
         futures_util::future::join_all(
@@ -38559,7 +38557,10 @@ async fn evaluate_eudr_plot_batched(
         let mut jrc: Option<i64> = None;
         let mut hansen_tc: Option<i64> = None;
         let mut hansen_ly: Option<i64> = None;
-        let mut tmf_def_year: Option<i64> = None;
+        // tmf_def_year is always None now (TMF removed from the hot path);
+        // kept as a field so the verdict signature / response shape are
+        // unchanged. wri_class / radd_date are likewise always None.
+        let tmf_def_year: Option<i64> = None;
         let mut wri_class: Option<i64> = None;
         let mut radd_date: Option<i64> = None;
 
@@ -38570,7 +38571,8 @@ async fn evaluate_eudr_plot_batched(
                     "jrc_gfc2020.forest_2020" => jrc = r.int_value,
                     "forest_change.treecover2000" => hansen_tc = r.int_value,
                     "forest_change.lossyear" => hansen_ly = r.int_value,
-                    "jrc_tmf.deforestation_year" => tmf_def_year = r.int_value,
+                    // jrc_tmf.deforestation_year removed from the hot path;
+                    // tmf_def_year stays None (like wri_class / radd_date).
                     _ => {}
                 }
             }
@@ -38641,19 +38643,19 @@ fn eudr_batch_path_enabled() -> bool {
 }
 
 async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> EudrCellVerdict {
-    // EUDR core bands: JRC GFC2020 (baseline) + Hansen GFC (confirming
-    // + loss-year) + JRC TMF (tropical consensus). WRI GDM and RADD
-    // removed — both are slow (WRI = 31s cold COG probe, RADD = 30s
-    // Requester-Pays timeout) and supplementary to the pass/fail
-    // verdict. When a fast public COG endpoint appears for either,
-    // add them back here. S1/S2 visual evidence (the per-year
-    // cloud-free timeline) covers the deforestation signal that RADD
-    // was supplementing.
-    let bands: [&str; 4] = [
+    // EUDR core bands: JRC GFC2020 (legal baseline) + Hansen GFC
+    // (confirming + post-cut-off loss-year). JRC TMF, WRI GDM and RADD
+    // all removed from the hot path — each is slow (TMF = 119 MB / ~78 s
+    // cold full-tile download with no upstream HTTP Range; WRI = 31 s
+    // cold COG probe; RADD = 30 s Requester-Pays timeout) and
+    // supplementary to the pass/fail verdict. When a fast range-readable
+    // public endpoint appears for any of them, add it back here. S1/S2
+    // visual evidence (the per-year cloud-free timeline) covers the
+    // deforestation signal these were supplementing.
+    let bands: [&str; 3] = [
         "jrc_gfc2020.forest_2020",
         "forest_change.treecover2000",
         "forest_change.lossyear",
-        "jrc_tmf.deforestation_year",
     ];
 
     // Parallel per-band fetch within this cell. Pre-fix this was a
@@ -39058,11 +39060,11 @@ async fn post_eudr_dds(
                 code: emem_core::error::ErrorCode::SourceFetchFailed,
                 message: format!(
                     "/v1/eudr_dds: per-plot per-cell fan-out for {n_plots} plot(s) exceeded {budget}s. \
-                     Likely a cold JRC GFC2020 / Hansen GFC tile read; warm by calling /v1/recall on a \
+                     Likely a cold Hansen GFC tile read; warm by calling /v1/recall on a \
                      sample cell with bands:[\"jrc_gfc2020.forest_2020\",\"forest_change.lossyear\",\
-                     \"forest_change.treecover2000\",\"jrc_tmf.deforestation_year\"] first, or raise \
-                     EMEM_EUDR_TIMEOUT_SECS. Band keys here match eudr_compliance@1's primary_bands \
-                     (see GET /v1/algorithms/eudr_compliance@1)."
+                     \"forest_change.treecover2000\"] first, or raise \
+                     EMEM_EUDR_TIMEOUT_SECS. Band keys here are the EUDR hot-path consensus bands \
+                     (JRC GFC2020 now tiled 10°; JRC TMF deferred off the hot path for latency)."
                 ),
                 details: None,
             },
@@ -39734,7 +39736,7 @@ async fn post_eudr_dds_inner(
         "forest_baseline": baseline,
         "forest_baseline_computed": computed_baseline,
         "baseline_note":   "JRC GFC2020 V3 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored).",
-        "methodology_note": "Per-cell verdict from eudr_compliance@1 (Hansen GFC v1.12 + JRC GFC2020 V3 + JRC TMF v2025 consensus loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). WRI-Sims driver attribution and RADD SAR alerts are NOT in the current consensus (signed Absence today); the verdict is the JRC GFC2020 + Hansen + JRC TMF consensus only.",
+        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 V3 legal baseline + Hansen GFC v1.12 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v2025, WRI-Sims driver attribution and RADD SAR alerts are NOT in the current hot-path consensus — TMF is deferred off the hot path for latency (119 MB/~78 s cold full-tile download, no upstream HTTP Range), WRI/RADD are signed Absence today; the verdict is the JRC GFC2020 + Hansen consensus only.",
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "schema_url":      "/v1/schemas/eudr_dds.json",
